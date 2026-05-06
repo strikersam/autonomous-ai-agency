@@ -441,6 +441,17 @@ def _provider_headers_for_request(
     return None
 
 
+def _agent_failure_result(instruction: str) -> dict[str, object]:
+    return {
+        "goal": instruction,
+        "plan": None,
+        "steps": [],
+        "commits": [],
+        "summary": "Agent run failed. Check server logs for details.",
+        "status": "failed",
+    }
+
+
 # ─── App ────────────────────────────────────────────────────────────────────────
 
 _mongo_client: AsyncIOMotorClient | None = None
@@ -1347,14 +1358,7 @@ async def run_agent_task(
         )
     except Exception as exc:
         log.exception("Agent run failed")
-        result = {
-            "goal": body.instruction,
-            "plan": None,
-            "steps": [],
-            "commits": [],
-            "summary": f"Agent run failed: {exc}",
-            "status": "failed",
-        }
+        result = _agent_failure_result(body.instruction)
     AGENT_SESSIONS.append_message(session_id, "assistant", result["summary"])
     updated = AGENT_SESSIONS.update_result(
         session_id,
@@ -1426,14 +1430,7 @@ async def run_agent_once(
         )
     except Exception as exc:
         log.exception("Agent one-off run failed")
-        result = {
-            "goal": body.instruction,
-            "plan": None,
-            "steps": [],
-            "commits": [],
-            "summary": f"Agent run failed: {exc}",
-            "status": "failed",
-        }
+        result = _agent_failure_result(body.instruction)
     AGENT_SESSIONS.append_message(temp.session_id, "assistant", result["summary"])
     updated = AGENT_SESSIONS.update_result(
         temp.session_id,
