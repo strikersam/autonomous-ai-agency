@@ -52,38 +52,38 @@ export default function AuthCallback() {
   }, [location, navigate, checkAuth]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white rounded-2xl shadow-lg p-10 text-center max-w-sm w-full">
+    <main className="app-shell min-h-[100dvh] flex items-center justify-center px-4 py-[max(env(safe-area-inset-top,0px),1rem)]">
+      <section className="app-panel-elevated p-8 sm:p-10 text-center max-w-sm w-full">
         {status === 'processing' && (
           <>
             <div className="text-5xl mb-4 animate-bounce">🔐</div>
-            <h2 className="text-lg font-semibold text-gray-700">Authenticating…</h2>
-            <p className="text-gray-400 text-sm mt-1">Verifying your credentials</p>
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Authenticating…</h2>
+            <p className="text-[var(--text-tertiary)] text-sm mt-1">Verifying your credentials</p>
           </>
         )}
         {status === 'success' && (
           <>
             <div className="text-5xl mb-4">✅</div>
-            <h2 className="text-lg font-semibold text-gray-700">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
               {provider ? `${provider.charAt(0).toUpperCase() + provider.slice(1)} login successful!` : 'Login successful!'}
             </h2>
-            <p className="text-gray-400 text-sm mt-1">Redirecting…</p>
+            <p className="text-[var(--text-tertiary)] text-sm mt-1">Redirecting…</p>
           </>
         )}
         {status === 'error' && (
           <>
             <div className="text-5xl mb-4">❌</div>
-            <h2 className="text-lg font-semibold text-gray-700">Authentication failed</h2>
-            <p className="text-red-500 text-sm mt-1">No token received. Please try again.</p>
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Authentication failed</h2>
+            <p className="text-[var(--danger)] text-sm mt-1">No token received. Please try again.</p>
             <button
               onClick={() => navigate('/login', { replace: true })}
-              className="mt-4 text-indigo-600 text-sm hover:underline"
+              className="app-button-secondary mt-5 w-full rounded-[18px] text-[0.74rem]"
             >
-              ← Back to login
+              Back to login
             </button>
           </>
         )}
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

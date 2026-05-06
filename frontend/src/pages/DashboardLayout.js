@@ -1,11 +1,11 @@
-import React, { useState, useCallback } from 'react';
-import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, useMemo } from 'react';
+import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
   Settings, LogOut, Menu, X, Cpu, Layers, BarChart3,
   Github, Shield, Bot, CheckSquare, Radio,
-  Zap, Lock, Calendar, TrendingUp,
+  Zap, Lock, Calendar, TrendingUp, MoreHorizontal,
 } from 'lucide-react';
 import ControlPlanePage from './ControlPlanePage';
 import ChatPage from './ChatPage';
@@ -81,6 +81,14 @@ function buildNavSections(isAdmin, isPowerUser) {
     },
   ];
 }
+
+const MOBILE_PRIMARY_NAV = [
+  { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
+  { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
+  { to: '/chat', icon: MessageSquare, label: 'Chat' },
+  { to: '/knowledge', icon: BookOpen, label: 'Knowledge' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
+];
 
 function NavItem({ to, icon: Icon, label, end, onClick, adminOnly }) {
   return (
@@ -168,7 +176,7 @@ function SidebarContent({ user, onLogout, onClose }) {
                 {user?.name || 'User'}
               </span>
               <span className="text-[8px] font-mono uppercase tracking-wider px-1.5 py-[2px] rounded"
-                style={{ background: `var(--role-color)20`, color: 'var(--role-color)' }}>
+                style={{ background: `${roleColor}20`, color: roleColor }}>
                 {roleLabel}
               </span>
             </div>
@@ -195,6 +203,7 @@ function SidebarContent({ user, onLogout, onClose }) {
 export default function DashboardLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = useCallback(async () => {
@@ -203,31 +212,46 @@ export default function DashboardLayout() {
   }, [logout, navigate]);
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const currentPath = location.pathname.startsWith('/chat/')
+    ? '/chat'
+    : location.pathname.startsWith('/wiki') || location.pathname.startsWith('/sources') || location.pathname.startsWith('/github')
+      ? '/knowledge'
+      : location.pathname;
+  const mobileNavItems = useMemo(() => {
+    const isKnown = MOBILE_PRIMARY_NAV.some((item) => item.to === currentPath || (item.end && currentPath === '/'));
+    return isKnown
+      ? MOBILE_PRIMARY_NAV
+      : [...MOBILE_PRIMARY_NAV.slice(0, 4), { to: currentPath, icon: MoreHorizontal, label: 'More' }];
+  }, [currentPath]);
 
   return (
-    <div className="min-h-[100dvh] flex" 
-      style={{ background: 'var(--bg-base)', fontFamily: 'var(--font-main)' }}
+    <div className="app-shell min-h-[100dvh] flex flex-col lg:flex-row overflow-hidden"
+      style={{ fontFamily: 'var(--font-main)' }}
       data-testid="dashboard-layout">
 
       {/* Mobile top bar */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center gap-2.5 px-3 h-14"
-        style={{ background: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border)' }}>
+      <div className="lg:hidden sticky top-0 z-40 flex items-center gap-3 px-4 h-[calc(env(safe-area-inset-top,0px)+4rem)] pt-[env(safe-area-inset-top,0px)] app-glass border-b"
+        style={{ borderColor: 'var(--border)' }}>
         <button
           onClick={() => setSidebarOpen(s => !s)}
-          className="w-9 h-9 flex items-center justify-center rounded border"
+          className="w-11 h-11 flex items-center justify-center rounded-full border bg-white/[0.03]"
           style={{ borderColor: 'var(--border-soft)' }}
           data-testid="mobile-menu-toggle"
           aria-label="Toggle navigation"
         >
           {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
         </button>
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-md flex items-center justify-center"
-            style={{ background: 'var(--accent)' }}>
+        <div className="min-w-0 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-2xl flex items-center justify-center"
+            style={{ background: 'linear-gradient(180deg, #6CB0FF 0%, #4F93FF 100%)', boxShadow: '0 10px 24px rgba(93,162,255,0.2)' }}>
             <Cpu size={14} className="text-white" />
           </div>
-          <span className="text-[13px] font-bold text-white tracking-tight"
-            style={{ fontFamily: 'var(--font-main)' }}>LLM Relay</span>
+          <div className="min-w-0">
+            <div className="text-[0.95rem] font-extrabold tracking-[-0.04em] text-white">LLM Relay</div>
+            <div className="text-[0.65rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)] truncate">
+              {user?.name || user?.email || 'Control plane'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -245,18 +269,18 @@ export default function DashboardLayout() {
       <aside
         className={`
           fixed lg:static inset-y-0 left-0 z-40
-          w-[260px] flex flex-col
+          w-[min(84vw,320px)] lg:w-[280px] flex flex-col
           transform transition-transform duration-200 ease-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
-        style={{ background: 'var(--bg-sidebar)', borderRight: '1px solid var(--border)' }}
+        style={{ background: 'rgba(5,6,8,0.98)', borderRight: '1px solid var(--border)' }}
       >
         <SidebarContent user={user} onLogout={handleLogout} onClose={closeSidebar} />
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 min-w-0 flex flex-col overflow-hidden" style={{ paddingTop: '0' }}>
-        <div className="flex-1 overflow-hidden pt-[16px] lg:pt-0">
+      <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden">
           <Routes>
             {/* Dashboard home */}
             <Route path="/" element={<div className="h-full overflow-y-auto"><ControlPlanePage /></div>} />
@@ -302,6 +326,34 @@ export default function DashboardLayout() {
           </Routes>
         </div>
       </main>
+
+      <nav className="lg:hidden sticky bottom-0 z-30 app-glass border-t px-2 pb-[max(env(safe-area-inset-bottom,0px),0.5rem)] pt-2"
+        style={{ borderColor: 'var(--border)' }}
+        aria-label="Primary">
+        <div className="grid grid-cols-5 gap-1">
+          {mobileNavItems.map(({ to, icon: Icon, label, end }) => (
+            <NavLink
+              key={`${to}-${label}`}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                `flex min-h-[3.5rem] flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 transition-all ${
+                  isActive
+                    ? 'bg-[var(--accent-soft)] text-white'
+                    : 'text-[var(--text-muted)]'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <Icon size={18} className={isActive ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'} />
+                  <span className="text-[0.62rem] font-mono uppercase tracking-[0.12em]">{label}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 }
