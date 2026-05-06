@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 log = logging.getLogger("qwen-agent")
+
+_WORKSPACE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def _now() -> str:
@@ -162,6 +165,17 @@ class AgentJobManager:
 
 
 def make_isolated_workspace(root: Path, session_id: str, job_id: str) -> Path:
-    workspace = root / session_id / job_id
+    session_component = _validated_workspace_component(session_id, field_name="session_id")
+    job_component = _validated_workspace_component(job_id, field_name="job_id")
+    workspace = (root / session_component / job_component).resolve()
+    root_resolved = root.resolve()
+    if root_resolved not in workspace.parents:
+        raise ValueError("workspace path escaped root")
     workspace.mkdir(parents=True, exist_ok=True)
     return workspace
+
+
+def _validated_workspace_component(value: str, *, field_name: str) -> str:
+    if not _WORKSPACE_COMPONENT_RE.fullmatch(value):
+        raise ValueError(f"Invalid {field_name}")
+    return value

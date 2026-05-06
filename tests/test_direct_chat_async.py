@@ -4,10 +4,11 @@ import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 import direct_chat
 import proxy
-from agent.job_manager import AgentJobManager
+from agent.job_manager import AgentJobManager, make_isolated_workspace
 from agent.state import AgentSessionStore
 from runtimes.base import RuntimeReadinessReport
 
@@ -116,3 +117,11 @@ def test_regular_chat_remains_sync_and_does_not_queue_job(monkeypatch, tmp_path:
     assert job_manager.list_jobs() == []
 
     proxy.app.dependency_overrides.clear()
+
+
+def test_make_isolated_workspace_rejects_path_traversal(tmp_path: Path):
+    with pytest.raises(ValueError):
+        make_isolated_workspace(tmp_path, "../escape", "job-1")
+
+    with pytest.raises(ValueError):
+        make_isolated_workspace(tmp_path, "session-1", "../../escape")
