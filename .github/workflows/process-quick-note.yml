@@ -155,20 +155,15 @@ jobs:
           FETCH_EXIT=$?
 
           if [ "$FETCH_EXIT" -eq 2 ]; then
+            # URL inaccessible — write a stub so the agent can proceed using just the task description.
+            echo "Source URL: ${URL}" > /tmp/note_content.txt
+            echo "" >> /tmp/note_content.txt
+            echo "[URL content unavailable — all fetch strategies (direct, Google Cache, Wayback Machine) were blocked.]" >> /tmp/note_content.txt
+            echo "Implement features based on the task description and your knowledge of the topic at ${URL}." >> /tmp/note_content.txt
             gh issue comment "${{ steps.issue.outputs.number }}" \
               --repo "${{ github.repository }}" \
-              --body "$(cat <<MSG
-          ❌ Could not fetch content from \`${URL}\` (tried direct fetch, Google Cache, and Wayback Machine).
-
-          **Possible causes:**
-          - Login-required share link (e.g. \`share.google/...\`)
-          - Paywalled article
-          - JavaScript-only rendering
-
-          **Fix:** Paste the article text directly into the issue body and reopen.
-          MSG
-          )"
-            exit 1
+              --body "⚠️ Could not fetch \`${URL}\` directly (403/paywalled). Proceeding with task description only — the agent will use its knowledge of the topic." \
+              2>/dev/null || true
           fi
 
           CHARS=$(wc -c < /tmp/note_content.txt)
@@ -412,7 +407,7 @@ jobs:
               --color "b60205" --description "Retries exhausted" 2>/dev/null || true
             gh issue edit "$ISSUE" \
               --repo "${{ github.repository }}" \
-              --add-label "quick-note:exhausted"
+              --add-label "quick-note:exhausted" 2>/dev/null || true
             gh issue comment "$ISSUE" \
               --repo "${{ github.repository }}" \
               --body "$(cat <<MSG
@@ -432,7 +427,7 @@ jobs:
               --description "Auto-retry attempt ${NEW_RETRY}" 2>/dev/null || true
             gh issue edit "$ISSUE" \
               --repo "${{ github.repository }}" \
-              --add-label "retry:${NEW_RETRY}"
+              --add-label "retry:${NEW_RETRY}" 2>/dev/null || true
             gh issue reopen "$ISSUE" \
               --repo "${{ github.repository }}" 2>/dev/null || true
             gh issue comment "$ISSUE" \
