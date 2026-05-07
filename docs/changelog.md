@@ -7,6 +7,7 @@
 - `proxy.py` — `app.state.PROVIDER_ROUTER` was never set in the lifespan, causing `AttributeError` in the direct-chat regular-chat path; lifespan now sets it from the module-level singleton.
 - `frontend/src/index.css` — attribute selector used single quotes (`input[type='checkbox']`) but regression test expected double quotes; normalised to double quotes.
 - `tests/test_direct_chat_async.py` — test content "Implement feature" (2 words) was silently reclassified as trivial and bypassed agent mode; updated to 4-word content that is unambiguously non-trivial.
+- `.github/scripts/review_agent.py` — fail closed when diff fetch fails: if `gh pr diff` returns an error the script now writes a FAIL result and exits 1 instead of forwarding the placeholder to the LLM and potentially emitting a PASS/WARN.
 
 ### Changed
 - `.github/scripts/implement_agent.py` — switched primary NVIDIA NIM model to `qwen/qwen3-coder-480b-a35b-instruct` (correct publisher namespace); fixed `tool_list_files` duplicate-arg `subprocess.run` bug; pipeline now uses NVIDIA APIs for agentic implementation.

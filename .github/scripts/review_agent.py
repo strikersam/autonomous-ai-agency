@@ -76,6 +76,15 @@ def main() -> None:
 
     diff = get_pr_diff(PR_NUMBER)
     files = get_pr_files(PR_NUMBER)
+
+    # Fail closed: if we couldn't fetch the diff we cannot do a real review.
+    if diff.startswith("[diff unavailable"):
+        print(f"ERROR: {diff}", file=sys.stderr)
+        result = {"verdict": "FAIL", "summary": f"Review failed: {diff}", "details": ""}
+        with open(RESULT_FILE, "w") as f:
+            json.dump(result, f)
+        sys.exit(1)
+
     skill = load_council_skill()
 
     prompt = textwrap.dedent(f"""
