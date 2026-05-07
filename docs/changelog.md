@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+- `openclaw-security-automation.yml` — removed `npm install -g openclaw@latest` install step (openclaw is not on npm; the Python security agent never calls it anyway, so the step was both broken and unused).
+- `openclaw-maintenance.yml` — replaced `npm install -g openclaw@latest` with the correct install method: `git clone https://github.com/getmoss/openclaw-claude-code` + `npm install`, as documented in `docs/runbooks/openclaw-setup.md`.
 - `openclaw-security-automation.yml`: Dependabot and CodeQL alert counts were never captured from Python stdout (shell vars `$DEPENDABOT_COUNT`/`$CODEQL_COUNT` were unset); now captured via command substitution.
 - `openclaw-security-automation.yml`: Removed invalid `dependabot-alerts: read` permission key (not a valid GitHub Actions permission).
 - `security_fix_agent.py`: Branch cleanup ran unconditionally after both success and failure; now only cleans up on failure and returns early after a successful push.
