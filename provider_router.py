@@ -117,10 +117,15 @@ class ProviderResult:
 class ProviderFallbackError(RuntimeError):
     def __init__(self, attempts: list[ProviderAttempt]) -> None:
         self.attempts = attempts
+        # Prefer showing HTTP-level failures (actionable: bad keys, model missing) over
+        # pure connection failures (Ollama offline) which are not actionable from the UI.
+        recent = attempts[-5:]
+        http_failures = [a for a in recent if a.status_code is not None]
+        display = http_failures if http_failures else recent
         summary = (
             "; ".join(
                 f"{a.provider_id}/{a.model}: {a.status_code or a.error}"
-                for a in attempts[-5:]
+                for a in display
             )
             or "no providers attempted"
         )
@@ -536,9 +541,10 @@ class ProviderRouter:
                 except Exception as exc:
                     latency_ms = int((time.perf_counter() - started) * 1000)
                     attempts.append(ProviderAttempt(
-                        provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms,
+                        provider.provider_id, model, None, error=str(exc)[:200], latency_ms=latency_ms,
                     ))
                     last_was_conn_error = True
+                    break  # connection refused/timeout — retrying won't help, apply cooldown and move on
                 if attempt_number < max_retries:
                     await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.

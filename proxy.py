@@ -1206,6 +1206,7 @@ async def agent_chat(
                 ollama_base=provider.normalized_base_url,
                 workspace_root=str(Path(__file__).resolve().parent),
                 provider_headers=provider.auth_headers() if provider.api_key else None,
+                provider_chain=[],  # outer loop handles fallback; don't let from_env() inject extras
                 session_store=AGENT_SESSIONS,
                 email=auth.email,
                 department=auth.department,

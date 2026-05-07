@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Fixed
+- `provider_router.py` — connection failures (Ollama not running) no longer trigger up to 3 retry attempts; the router breaks immediately on the first connection error, eliminating the "All connection attempts failed × 3" noise in error messages.
+- `backend/server.py` — agent chat no longer crashes with a raw `"Agent error: planning: …All configured LLM providers failed"` message; it now falls back to a direct `call_llm()` response and, if that also fails, returns a structured message with actionable fix steps (check API keys, start Ollama, add a fallback provider).
+- `direct_chat.py` — agent mode now passes the app's live provider chain (including NVIDIA NIM and all configured fallbacks) to `AgentRunner` instead of an empty list that triggered env-var re-init with only local Ollama.
+- `direct_chat.py` — single-provider routing now uses a scoped `ProviderRouter([provider])` instance instead of mutating the shared router (which was not thread-safe under concurrent requests).
+
+### Changed
+- `direct_chat.py` — `_is_trivial_message()` extended to also classify short questions (≤ 12 words, no code/file keywords) as conversational so they skip the full plan-execute-verify loop and go straight to the LLM.
+
 - `openclaw-security-automation.yml` — removed `npm install -g openclaw@latest` install step (openclaw is not on npm; the Python security agent never calls it anyway, so the step was both broken and unused).
 - `openclaw-maintenance.yml` — replaced `npm install -g openclaw@latest` with the correct install method: `git clone https://github.com/getmoss/openclaw-claude-code` + `npm install`, as documented in `docs/runbooks/openclaw-setup.md`.
 - `agent/loop.py` — `AgentRunner._chat_text()` rebuilt a new `ProviderRouter` instance on every LLM call (re-reading env vars and constructing `ProviderConfig` each time); router is now built once in `__init__` and reused, eliminating per-call overhead for jcode and other fast-path clients.

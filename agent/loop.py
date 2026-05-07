@@ -95,7 +95,10 @@ class AgentRunner:
         # OpenAI-compatible base URL with /v1/chat/completions.
         self.ollama_base = ollama_base.rstrip("/")
         self.provider_headers = dict(provider_headers or {})
-        self.provider_chain = list(provider_chain or [])
+        # None = auto-discover from env (from_env()); [] = primary only; [...] = use this chain
+        self.provider_chain: list[ProviderConfig] | None = (
+            list(provider_chain) if provider_chain is not None else None
+        )
         self.allow_commercial_fallback = allow_commercial_fallback
         self.provider_temperature = provider_temperature
         self.tools = WorkspaceTools(workspace_root)
@@ -134,9 +137,12 @@ class AgentRunner:
             default_model=None,
             priority=0,
         )
+        # None  → auto-discover all providers from env (standalone use)
+        # []    → primary only, no fallbacks (caller controls the chain)
+        # [...] → primary + explicit fallback chain
         self._router: ProviderRouter = (
             ProviderRouter([_primary, *self.provider_chain])
-            if self.provider_chain
+            if self.provider_chain is not None
             else ProviderRouter.from_env(primary_provider=_primary)
         )
 
