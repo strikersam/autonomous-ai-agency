@@ -221,6 +221,8 @@ This one is easy to explain:
 
 Run `make ui-docs` after built-in web UI changes to refresh the captured `/app` and `/admin/app` screenshots and rewrite this gallery block automatically.
 
+> **Screenshot status:** Login and Setup Wizard show v4 captures. All other screenshots below are from v3 and will be replaced with v4 captures once the app is running. The UI has changed significantly — dark mobile shell, new dashboard layout, agent mode toggle, async job status cards, NVIDIA NIM provider card, and redesigned onboarding.
+
 <!-- README_UI_GALLERY:START -->
 ### 🛬 Login
 
