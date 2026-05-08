@@ -90,6 +90,27 @@ async def _start_local_runtime(runtime_id: str) -> dict[str, Any]:
             "error": f"No local port configured for runtime: {runtime_id}",
         }
 
+    # CLI-only adapters have no _base_url attribute and cannot use the generic
+    # HTTP subprocess wrapper (agent_runtime.py).  Spawning it would be useless:
+    # the adapter ignores the local port and health checks still report the
+    # binary as missing.  Return early with a clear diagnostic instead.
+    try:
+        _adapter = get_runtime_manager()._registry.get(runtime_id)
+        if _adapter is not None and not hasattr(_adapter, "_base_url"):
+            return {
+                "runtime_id": runtime_id,
+                "action": "start",
+                "status": "unavailable",
+                "mode": "cli_only",
+                "message": (
+                    f"Runtime '{runtime_id}' is CLI-only and cannot be managed as a local "
+                    "HTTP subprocess. Install the required binary and set the corresponding "
+                    "environment variable (see health check details for the exact variable name)."
+                ),
+            }
+    except Exception as exc:
+        log.debug("Could not inspect adapter for %s before local start: %s", runtime_id, exc)
+
     # Check if already running
     existing = _local_runtime_processes.get(runtime_id)
     if existing is not None and existing.poll() is None:
@@ -131,6 +152,26 @@ async def _start_local_runtime(runtime_id: str) -> dict[str, Any]:
 
         # Wait briefly for startup
         await asyncio.sleep(2.0)
+
+        # Verify the subprocess is still alive.  If it crashed during startup
+        # (e.g. port already in use, missing dependency), setting _base_url would
+        # point the adapter at a dead port and every subsequent health check would
+        # raise httpx.ConnectError("All connection attempts failed").
+        if proc.poll() is not None:
+            stderr_bytes = b""
+            try:
+                _, stderr_bytes = proc.communicate(timeout=0.5)
+            except Exception:
+                pass
+            err_detail = stderr_bytes.decode(errors="replace").strip() or f"exit {proc.returncode}"
+            _local_runtime_processes.pop(runtime_id, None)
+            log.error("Local runtime %s subprocess exited at startup: %s", runtime_id, err_detail)
+            return {
+                "runtime_id": runtime_id,
+                "action": "start",
+                "status": "error",
+                "error": f"Subprocess exited at startup: {err_detail}",
+            }
 
         base_url = f"http://localhost:{port}"
         _update_adapter_base_url(runtime_id, base_url)

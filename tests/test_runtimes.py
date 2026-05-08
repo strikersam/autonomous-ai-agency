@@ -568,3 +568,79 @@ class TestJCodeAdapterMetadata:
         mgr = _build_default_manager()
         ids = mgr._registry.ids()
         assert "jcode" in ids
+
+
+class TestStartLocalRuntime:
+    """Tests for _start_local_runtime safety guards in runtimes/control.py."""
+
+    def test_cli_only_adapter_skips_subprocess(self, monkeypatch):
+        """task_harness (no _base_url) must not spawn agent_runtime.py."""
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+        from runtimes.control import _start_local_runtime
+        from runtimes.manager import RuntimeManager
+        from runtimes.registry import RuntimeCapabilityRegistry
+
+        adapter = TaskHarnessAdapter()
+        assert not hasattr(adapter, "_base_url"), "TaskHarnessAdapter must remain CLI-only"
+
+        # Wire a manager with only the task_harness adapter registered
+        registry = RuntimeCapabilityRegistry()
+        registry.register(adapter)
+        fake_mgr = MagicMock()
+        fake_mgr._registry = registry
+        monkeypatch.setattr("runtimes.control.get_runtime_manager", lambda: fake_mgr)
+
+        spawned = []
+
+        def fake_popen(cmd, **kwargs):
+            spawned.append(cmd)
+            p = MagicMock()
+            p.poll.return_value = None
+            p.pid = 9999
+            return p
+
+        monkeypatch.setattr("runtimes.control.subprocess.Popen", fake_popen)
+
+        result = asyncio.run(_start_local_runtime("task_harness"))
+
+        assert not spawned, "No subprocess should be spawned for a CLI-only adapter"
+        assert result["status"] == "unavailable"
+        assert result.get("mode") == "cli_only"
+
+    def test_crashed_subprocess_returns_error_not_base_url(self, monkeypatch, tmp_path):
+        """If agent_runtime.py exits immediately, _base_url must NOT be set."""
+        from runtimes.adapters.aider import AiderAdapter
+        from runtimes.control import _start_local_runtime
+        from runtimes.registry import RuntimeCapabilityRegistry
+
+        adapter = AiderAdapter()
+        assert hasattr(adapter, "_base_url"), "AiderAdapter must have _base_url"
+        original_base_url = adapter._base_url  # empty string initially
+
+        registry = RuntimeCapabilityRegistry()
+        registry.register(adapter)
+        fake_mgr = MagicMock()
+        fake_mgr._registry = registry
+        monkeypatch.setattr("runtimes.control.get_runtime_manager", lambda: fake_mgr)
+
+        # Simulate a subprocess that crashes immediately (poll() returns exit code)
+        dead_proc = MagicMock()
+        dead_proc.poll.return_value = 1  # exited with error
+        dead_proc.pid = 1234
+        dead_proc.communicate.return_value = (b"", b"address already in use")
+        dead_proc.returncode = 1
+        monkeypatch.setattr("runtimes.control.subprocess.Popen", lambda *a, **kw: dead_proc)
+
+        # Use a real script path so the "script not found" check doesn't trigger first
+        fake_script = tmp_path / "agent_runtime.py"
+        fake_script.write_text("# dummy")
+        monkeypatch.setattr(
+            "runtimes.control._find_agent_runtime_script", lambda: fake_script
+        )
+
+        result = asyncio.run(_start_local_runtime("aider"))
+
+        assert result["status"] == "error"
+        assert "exited at startup" in result.get("error", "")
+        # _base_url must not have been updated
+        assert adapter._base_url == original_base_url
