@@ -116,6 +116,10 @@
 - `.github/scripts/review_agent.py` — switched council review model to `qwen/qwen3-coder-480b-a35b-instruct`; fixed `subprocess.run` duplicate-arg bug; added `subprocess.TimeoutExpired` and non-zero returncode handling; wrapped API call in try/except so the result file is always written on failure.
 - `provider_router.py` — `ollama-local` is excluded from the provider chain when `NVIDIA_API_KEY` is set (hosted mode); set `INCLUDE_LOCAL_FALLBACK=true` to force-include it even in hosted deployments.
 
+### Fixed
+- `.github/workflows/openclaw-security-automation.yml` — fixed `SyntaxError: Octal escape sequences are not allowed in template strings` in the "Create summary issue" step by replacing JS template literal interpolation with string concatenation for GitHub context values (`github.repository`, `github.sha`), and by using `\u{1F527}` Unicode escape instead of raw emoji for the issue title. Also fixed step output propagation: the Python script's alert count is now captured via `$(python ...)` command substitution instead of referencing an unset `$DEPENDABOT_COUNT` / `$CODEQL_COUNT` environment variable, so the summary issue step correctly receives the alert counts.
+
+
 ## [4.0.0] - 2026-05-06
 
 ### Added

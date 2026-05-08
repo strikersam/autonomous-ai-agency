@@ -2,7 +2,7 @@ name: OpenClaw Security Automation
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Hourly
+    - cron: '0 * * * *' # Hourly
   workflow_dispatch:
   push:
     branches: [master]
@@ -11,8 +11,9 @@ on:
       - '.github/scripts/security_fix_agent.py'
 
 permissions:
-  contents: write
+  contents: read
   issues: write
+  dependabot-alerts: read
   security-events: read
 
 jobs:
@@ -20,14 +21,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install OpenClaw
+        run: |
+          npm install -g openclaw@latest
+          openclaw --version
 
       - name: Install Python dependencies
         run: |
@@ -37,15 +48,15 @@ jobs:
         id: dependabot-check
         run: |
           echo "Checking for Dependabot alerts..."
-          COUNT=$(python .github/scripts/security_fix_agent.py --check-dependabot)
-          echo "dependabot_count=$COUNT" >> $GITHUB_OUTPUT
+          count=$(python .github/scripts/security_fix_agent.py --check-dependabot)
+          echo "dependabot_count=$count" >> $GITHUB_OUTPUT
 
       - name: Check for CodeQL alerts
         id: codeql-check
         run: |
           echo "Checking for CodeQL alerts..."
-          COUNT=$(python .github/scripts/security_fix_agent.py --check-codeql)
-          echo "codeql_count=$COUNT" >> $GITHUB_OUTPUT
+          count=$(python .github/scripts/security_fix_agent.py --check-codeql)
+          echo "codeql_count=$count" >> $GITHUB_OUTPUT
 
       - name: Fix Dependabot alerts
         if: steps.dependabot-check.outputs.dependabot_count != '0'
@@ -69,35 +80,35 @@ jobs:
         if: (steps.dependabot-check.outputs.dependabot_count != '0' || steps.codeql-check.outputs.codeql_count != '0')
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GH_PAT }}
           script: |
             const dependabotCount = parseInt("${{ steps.dependabot-check.outputs.dependabot_count }}") || 0;
             const codeqlCount = parseInt("${{ steps.codeql-check.outputs.codeql_count }}") || 0;
-            
+            const repository = "${{ github.repository }}";
+            const commitSha = "${{ github.sha }}";
+            const timestamp = "${{ steps.timestamp.outputs.timestamp }}";
             if (dependabotCount > 0 || codeqlCount > 0) {
-              const issueTitle = `🔧 OpenClaw Security Automation Report`;
-              const issueBody = `
-              ## Security Automation Summary
-              
-              The OpenClaw security automation workflow has completed.
-              
-              #### Findings:
-              - Dependabot alerts: \`${dependabotCount}\`
-              - CodeQL alerts: \`${codeqlCount}\`
-              
-              #### Actions Taken:
-              - Automated fixes attempted for all detectable issues
-              - Manual review may be required for complex fixes
-              
-              #### Workflow Details:
-              - Workflow: OpenClaw Security Automation
-              - Repository: \${{ github.repository }}
-              - Commit: \${{ github.sha }}
-              - Timestamp: ${steps.timestamp.outputs.timestamp}
-              
-              For more details, check the workflow run logs.
-              `;
-              
+              const issueTitle = "\u{1F527} OpenClaw Security Automation Report";
+              const issueBody = [
+                "## Security Automation Summary",
+                "",
+                "The OpenClaw security automation workflow has completed.",
+                "",
+                "#### Findings:",
+                "- Dependabot alerts: `" + dependabotCount + "`",
+                "- CodeQL alerts: `" + codeqlCount + "`",
+                "",
+                "#### Actions Taken:",
+                "- Automated fixes attempted for all detectable issues",
+                "- Manual review may be required for complex fixes",
+                "",
+                "#### Workflow Details:",
+                "- Workflow: OpenClaw Security Automation",
+                "- Repository: " + repository,
+                "- Commit: " + commitSha,
+                "- Timestamp: " + timestamp,
+                "",
+                "For more details, check the workflow run logs.",
+              ].join("\n");
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
