@@ -665,13 +665,13 @@ class AgentRunner:
         
         # GitHub Tools
         if tool == "github_read_repo_file":
-            return await self.github.read_repo_file(
+            return await self.github.read_repo_file_compat(
                 repo_name=str(args.get("repo_name", "")),
                 path=str(args.get("path", "")),
                 branch=str(args.get("branch", "main"))
             )
         if tool == "github_create_branch":
-            return await self.github.create_branch(
+            return await self.github.create_branch_compat(
                 repo_name=str(args.get("repo_name", "")),
                 branch_name=str(args.get("branch_name", "")),
                 base_branch=str(args.get("base_branch", "main"))
@@ -685,7 +685,7 @@ class AgentRunner:
                 content=str(args.get("content", ""))
             )
         if tool == "github_open_pull_request":
-            return await self.github.open_pull_request(
+            return await self.github.open_pull_request_compat(
                 repo_name=str(args.get("repo_name", "")),
                 title=str(args.get("title", "Pull Request from AI Agent")),
                 head=str(args.get("head", "")),
@@ -695,7 +695,7 @@ class AgentRunner:
         if tool == "github_list_repos":
             return await self.github.list_repos()
         if tool == "github_list_branches":
-            return await self.github.list_branches(
+            return await self.github.list_branches_compat(
                 repo_name=str(args.get("repo_name", ""))
             )
 
