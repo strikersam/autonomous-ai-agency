@@ -25,8 +25,8 @@ PATTERNS_DIR = REPO_ROOT / ".claude" / "skills" / "fabric-patterns" / "patterns"
 _SAFE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
-def _validate_name(name: str) -> None:
-    """Reject pattern names that contain path traversal or unsafe characters."""
+def _pattern_path(name: str) -> Path:
+    """Validate name and return its resolved path, enforcing containment under PATTERNS_DIR."""
     if not _SAFE_NAME_RE.match(name):
         print(
             f"Invalid pattern name '{name}'. "
@@ -34,6 +34,12 @@ def _validate_name(name: str) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+    root = PATTERNS_DIR.resolve()
+    resolved = (PATTERNS_DIR / f"{name}.md").resolve()
+    if not resolved.is_relative_to(root):
+        print(f"Pattern name '{name}' resolves outside patterns directory.", file=sys.stderr)
+        sys.exit(1)
+    return resolved
 
 
 def _ensure_patterns_dir() -> Path:
@@ -69,8 +75,7 @@ def cmd_list() -> None:
 
 
 def cmd_show(name: str) -> None:
-    _validate_name(name)
-    path = PATTERNS_DIR / f"{name}.md"
+    path = _pattern_path(name)
     if not path.exists():
         print(f"Pattern '{name}' not found.", file=sys.stderr)
         sys.exit(1)
@@ -78,8 +83,7 @@ def cmd_show(name: str) -> None:
 
 
 def cmd_apply(name: str, variables: dict[str, str], input_text: str | None) -> None:
-    _validate_name(name)
-    path = PATTERNS_DIR / f"{name}.md"
+    path = _pattern_path(name)
     if not path.exists():
         print(f"Pattern '{name}' not found.", file=sys.stderr)
         sys.exit(1)
@@ -96,11 +100,9 @@ def cmd_apply(name: str, variables: dict[str, str], input_text: str | None) -> N
 
 
 def cmd_stitch(pattern_names: list[str], input_text: str) -> None:
-    for name in pattern_names:
-        _validate_name(name)
     current = input_text
     for name in pattern_names:
-        path = PATTERNS_DIR / f"{name}.md"
+        path = _pattern_path(name)
         if not path.exists():
             print(f"Pattern '{name}' not found.", file=sys.stderr)
             sys.exit(1)
@@ -110,20 +112,18 @@ def cmd_stitch(pattern_names: list[str], input_text: str) -> None:
 
 
 def cmd_save(name: str, source: Path) -> None:
-    _validate_name(name)
     if not source.exists():
         print(f"File '{source}' not found.", file=sys.stderr)
         sys.exit(1)
     _ensure_patterns_dir()
-    dest = PATTERNS_DIR / f"{name}.md"
+    dest = _pattern_path(name)
     dest.write_text(source.read_text())
     print(f"Pattern '{name}' saved to {dest}")
 
 
 def cmd_new(name: str, description: str) -> None:
-    _validate_name(name)
     _ensure_patterns_dir()
-    dest = PATTERNS_DIR / f"{name}.md"
+    dest = _pattern_path(name)
     if dest.exists():
         print(f"Pattern '{name}' already exists. Edit {dest} directly.")
         sys.exit(1)
