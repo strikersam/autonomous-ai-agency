@@ -411,13 +411,19 @@ class AgentRunner:
         )
 
         for remaining in range(15, 0, -1):
+            try:
                 # Observation masking: pass truncated older observations to
-                # keep the tool-selection prompt lean.  Recent observations are
+                # keep the tool-selection prompt lean. Recent observations are
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
                 tool_call = await self._chat_json(
                     executor_model,
-                    build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining),
+                    build_tool_prompt(
+                        goal=goal,
+                        step=step,
+                        observations=masked_obs,
+                        remaining_calls=remaining,
+                    ),
                 )
                 call = ToolCall.model_validate(tool_call)
             except CommercialFallbackRequiredError:
@@ -614,12 +620,19 @@ class AgentRunner:
     async def _run_tool(
         self,
         tool: str,
-        args: dict[str, Any], 
+        args: dict[str, Any],
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Any:
-            return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store, metadata=metadata)
+        try:
+            return await self._dispatch_tool(
+                tool,
+                args,
+                user_id=user_id,
+                memory_store=memory_store,
+                metadata=metadata,
+            )
         except CommercialFallbackRequiredError:
             raise
         except Exception as exc:
@@ -769,12 +782,14 @@ class AgentRunner:
             },
         ]
         _VALID_VERDICTS = {"APPROVED", "APPROVED_WITH_CONDITIONS", "BLOCKED"}
+        try:
             raw = await self._chat_json(judge_model, messages)
             verdict = raw.get("verdict", "")
             if verdict not in _VALID_VERDICTS:
                 log.warning(
                     "Judge returned invalid verdict %r for session %s; treating as BLOCKED",
-                    verdict, session_id,
+                    verdict,
+                    session_id,
                 )
                 raw["verdict"] = "BLOCKED"
                 raw.setdefault("notes", f"Verdict {verdict!r} is not a recognised value.")
@@ -869,12 +884,17 @@ class AgentRunner:
     # Auto-parallelization
     # ------------------------------------------------------------------
 
+    def _steps_are_independent(self, steps: list[Any]) -> bool:
         """Return True when no file appears in more than one step (safe to parallelize)."""
         seen: set[str] = set()
         for step in steps:
             files = list(step.files) if hasattr(step, "files") else step.get("files") or []
+            for f in files:
                 if f in seen:
                     return False
+                seen.add(f)
+        return True
+
     async def _maybe_run_parallel(
         self,
         *,
@@ -953,11 +973,15 @@ class AgentRunner:
     # Event log helpers  (stateless harness / durable session log)
     # ------------------------------------------------------------------
 
+    def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
         """Append an event to the durable session log if a store is wired in."""
-            try:
-                self._session_store.append_event(session_id, event_type, payload)
-            except Exception as exc:
-                log.debug("event log write failed (non-fatal): %s", exc)
+        if not session_id or self._session_store is None:
+            return
+        try:
+            self._session_store.append_event(session_id, event_type, payload)
+        except Exception as exc:
+            log.debug("event log write failed (non-fatal): %s", exc)
+
     # ------------------------------------------------------------------
     # Context compaction
     # ------------------------------------------------------------------
@@ -973,12 +997,14 @@ class AgentRunner:
         Asks the planner model to write a concise summary, then replaces the
         old messages with that summary + the most recent context.
         """
+        try:
             summary_text = await self._chat_text(
                 requested_model or DEFAULT_PLANNER_MODEL,
                 build_compaction_prompt(history),
             )
             self._log_event(
-                session_id, "compaction",
+                session_id,
+                "compaction",
                 {"original_length": len(history), "summary_length": len(summary_text)},
             )
             return self.ctx.compact_history(history, compaction_summary=summary_text)
@@ -1079,6 +1105,7 @@ class AgentRunner:
 
     def _extract_json(self, raw: str) -> Any:
         raw = raw.strip()
+        try:
             return json.loads(raw)
         except json.JSONDecodeError:
             match = re.search(r"\{.*\}", raw, re.S)
