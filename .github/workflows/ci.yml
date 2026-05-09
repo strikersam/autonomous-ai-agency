@@ -52,13 +52,13 @@ jobs:
             -not -path "./.venv/*" \
             -not -path "./.git/*" \
             -exec python -m py_compile {} +
-          echo "\u2713 Python syntax OK"
+          printf '✓ Python syntax OK\n'
 
       - name: Wait for MongoDB
         run: |
           for i in {1..30}; do
             if nc -z localhost 27017; then
-              echo "\u2713 MongoDB is reachable on localhost:27017"
+              printf '✓ MongoDB is reachable on localhost:27017\n'
               exit 0
             fi
             echo "Waiting for MongoDB... ($i/30)"
@@ -114,7 +114,7 @@ jobs:
             echo "::error::Hardcoded SECRET_KEY found — use environment variables"
             exit 1
           fi
-          echo "\u2713 No hardcoded secrets found"
+          printf '✓ No hardcoded secrets found\n'
 
   frontend:
     name: Frontend test + build

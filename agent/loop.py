@@ -29,7 +29,7 @@ from agent.user_memory import UserMemoryStore
 from provider_router import CommercialFallbackRequiredError, ProviderConfig, ProviderRouter
 from router import get_router
 
-log = logging.getLogger("qwen-agent")
+log = logging.getLogger("qwen-proxy")
 
 # Security-sensitive files the planner/runner must flag for extra scrutiny.
 # Any step that touches these triggers a risky-module warning and extra
