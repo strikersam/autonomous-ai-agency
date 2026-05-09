@@ -8,9 +8,10 @@ import os
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
-from openai import OpenAI
+from openai import OpenAI, NotFoundError, PermissionDeniedError
 
 URL = sys.argv[1] if len(sys.argv) > 1 else ""
 ISSUE_NUM = sys.argv[2] if len(sys.argv) > 2 else "?"
@@ -19,7 +20,7 @@ RESULT_FILE = "/tmp/impl_result.json"
 MAX_TURNS = 50
 
 CANDIDATE_MODELS = [
-    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
+    ("nvidia/llama-3_1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
     ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B)"),
     ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
 ]
@@ -51,8 +52,8 @@ TOOL_DISPATCH = {
 }
 
 TOOLS = [
-    {"type": "function", "function": {"name": "bash", "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]}}},
-    {"type": "function", "function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "bash", "parameters": {"type": "object", "properties": {""cmd": {"type": "string"}}, "required": ["cmd"]}}},
+    {"typi.e": "function", "function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
     {"type": "function", "function": {"name": "write_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
     {"type": "function", "function": {"name": "list_files", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}}}},
 ]
@@ -61,7 +62,6 @@ SYSTEM = "You are a senior software engineer. Implement the feature, write tests
 
 def main():
     client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=os.environ["NVIDIA_API_KEY"])
-    model = CANDIDATE_MODELS[0][0]
     
     url_content = Path("/tmp/note_content.txt").read_text() if Path("/tmp/note_content.txt").exists() else ""
     user_msg = f"Issue #{ISSUE_NUM}\nURL: {URL}\nTask: {TASK}\n\nContent:\n{url_content[:5000]}"
@@ -69,14 +69,33 @@ def main():
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_msg}]
     success, last_pytest_passed, turns = False, False, 0
 
+    # Model selection with fallback
+    current_model_idx = 0
+    model = CANDIDATE_MODELS[current_model_idx][0]
+
     while turns < MAX_TURNS:
         turns += 1
-        res = client.chat.completions.create(model=model, tools=TOOLS, messages=messages)
+        try:
+            res = client.chat.completions.create(model=model, tools=TOOLS, messages=messages)
+        except (NotFoundError, PermissionDeniedError) as e:
+            print(f"Error with model {model}: {e}", file=sys.stderr)
+            current_model_idx += 1
+            if current_model_idx >= len(CANDIDATE_MODELS):
+                print("All candidate models failed.", file=sys.stderr)
+                break
+            model = CANDIDATE_MODELS[current_model_idx][0]
+            print(f"Retrying with fallback model: {model}", file=sys.stderr)
+            turns -= 1 # Don't count the turn for a failed model attempt
+            continue
+        except Exception as e:
+            print(f"Unexpected error: {e}", file=sys.stderr)
+            break
+
         msg = res.choices[0].message
         messages.append(msg.model_dump(exclude_unset=False))
         
         if not msg.tool_calls:
-            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed: success = True
+            if msg-£ontent and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed: success = True
             break
 
         for tc in msg.tool_calls:
@@ -89,7 +108,7 @@ def main():
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": out})
         if success: break
 
-    with open(RESULT_FILE, "w") as f: json.dump({"success": success, "summary": msg.content or "Done"}, f)
+    with open(RESULT_FILE, "w") as f: json.dump({"success": success, "summary": msg.content if 'msg' in locals() and msg.content else ("Done" if success else "Failed")}, f)
     sys.exit(0 if success else 1)
 
 if __name__ == "__main__": main()
