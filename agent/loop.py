@@ -411,6 +411,7 @@ class AgentRunner:
         )
 
         for remaining in range(15, 0, -1):
+            try:
                 # Observation masking: pass truncated older observations to
                 # keep the tool-selection prompt lean.  Recent observations are
                 # passed verbatim; older ones are summarised.
@@ -614,11 +615,12 @@ class AgentRunner:
     async def _run_tool(
         self,
         tool: str,
-        args: dict[str, Any], 
+        args: dict[str, Any],
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Any:
+        try:
             return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store, metadata=metadata)
         except CommercialFallbackRequiredError:
             raise
@@ -769,6 +771,7 @@ class AgentRunner:
             },
         ]
         _VALID_VERDICTS = {"APPROVED", "APPROVED_WITH_CONDITIONS", "BLOCKED"}
+        try:
             raw = await self._chat_json(judge_model, messages)
             verdict = raw.get("verdict", "")
             if verdict not in _VALID_VERDICTS:
@@ -868,13 +871,17 @@ class AgentRunner:
     # ------------------------------------------------------------------
     # Auto-parallelization
     # ------------------------------------------------------------------
-
+    def _steps_are_independent(self, steps: list[Any]) -> bool:
         """Return True when no file appears in more than one step (safe to parallelize)."""
         seen: set[str] = set()
         for step in steps:
             files = list(step.files) if hasattr(step, "files") else step.get("files") or []
+            for f in files:
                 if f in seen:
                     return False
+                seen.add(f)
+        return True
+
     async def _maybe_run_parallel(
         self,
         *,
@@ -952,12 +959,14 @@ class AgentRunner:
     # ------------------------------------------------------------------
     # Event log helpers  (stateless harness / durable session log)
     # ------------------------------------------------------------------
-
+    def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
         """Append an event to the durable session log if a store is wired in."""
-            try:
-                self._session_store.append_event(session_id, event_type, payload)
-            except Exception as exc:
-                log.debug("event log write failed (non-fatal): %s", exc)
+        if not session_id or not self._session_store:
+            return
+        try:
+            self._session_store.append_event(session_id, event_type, payload)
+        except Exception as exc:
+            log.debug("event log write failed (non-fatal): %s", exc)
     # ------------------------------------------------------------------
     # Context compaction
     # ------------------------------------------------------------------
@@ -973,6 +982,7 @@ class AgentRunner:
         Asks the planner model to write a concise summary, then replaces the
         old messages with that summary + the most recent context.
         """
+        try:
             summary_text = await self._chat_text(
                 requested_model or DEFAULT_PLANNER_MODEL,
                 build_compaction_prompt(history),
@@ -1079,6 +1089,7 @@ class AgentRunner:
 
     def _extract_json(self, raw: str) -> Any:
         raw = raw.strip()
+        try:
             return json.loads(raw)
         except json.JSONDecodeError:
             match = re.search(r"\{.*\}", raw, re.S)
@@ -1170,6 +1181,7 @@ class AgentRunner:
         # Strip control characters (newlines, CR, tabs) so multi-line step
         # descriptions don't create malformed git commit messages.
         safe_description = " ".join(description.splitlines()).strip()[:200] or "agent change"
+        try:
             subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)
             subprocess.run(
                 ["git", "commit", "-m", f"agent: {safe_description}"],
