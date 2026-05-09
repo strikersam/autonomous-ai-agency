@@ -29,7 +29,7 @@ from agent.user_memory import UserMemoryStore
 from provider_router import CommercialFallbackRequiredError, ProviderConfig, ProviderRouter
 from router import get_router
 
-log = logging.getLogger("qwen-agent")
+log = logging.getLogger("qwen-proxy")
 
 # Security-sensitive files the planner/runner must flag for extra scrutiny.
 # Any step that touches these triggers a risky-module warning and extra
@@ -875,7 +875,8 @@ class AgentRunner:
     # ------------------------------------------------------------------
     # Auto-parallelization
     # ------------------------------------------------------------------
-    def _steps_are_independent(self, steps: list[Any]) -> bool:
+    @staticmethod
+    def _steps_are_independent(steps: list[Any]) -> bool:
         """Return True when no file appears in more than one step (safe to parallelize)."""
         seen: set[str] = set()
         for step in steps:

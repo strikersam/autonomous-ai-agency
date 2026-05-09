@@ -22,6 +22,10 @@
 
 ### Fixed
 
+- `.github/scripts/implement_agent.py` — replaced corrupted/encoded script contents with valid runnable Python and fixed malformed syntax that triggered `SyntaxError: '(' was never closed` in CI.
+- `agent/loop.py` — made `_steps_are_independent()` a `@staticmethod` so class-level calls used by tests work correctly (`Runner._steps_are_independent(plan.steps)`), fixing the `TypeError` in `test_complex_multi_file_task_parallel_detection`.
+- `.github/workflows/ci.yml` — replaced literal `echo "\u2713 ..."` lines with `printf` so GitHub Actions logs render real checkmarks instead of printing raw escape sequences.
+- `.github/workflows/openclaw-maintenance.yml` — OpenClaw clone step now supports authenticated cloning via optional `GH_PAT` secret (uses `x-access-token` URL when provided, anonymous clone fallback otherwise), fixing GitHub Actions failures caused by missing credentials when the upstream repo requires auth.
 - `agent/loop.py` — fixed an `IndentationError` in the step tool-selection loop by restoring the missing `try:` block around `_chat_json()` / `ToolCall` validation, unblocking test collection and backend startup/import paths.
 - `agent/loop.py` — removed a trailing duplicated method block that overrode the main implementations, and restored normal edit-step file application bookkeeping (`target_file` loop + `changed_files` tracking), fixing AgentRunner regressions in `spawn_subagent` and mocked edit-flow tests.
 - `tests/test_failover_order.py::test_from_env_provider_order_local_first` — test was asserting `ollama-local` is always present without setting `INCLUDE_LOCAL_FALLBACK=true`. Updated to explicitly opt in, matching the current explicit-opt-in behaviour introduced in the previous fix.
@@ -31,9 +35,7 @@
 
 - `features/matrix.py` — `maturity_warning()` now returns `None` for features that are disabled (not just for non-beta/non-experimental features), fixing the contract expected by the test suite.
 
-### Fixed
 - Removed automatic Ollama fallback in provider router to prevent connection errors when Ollama is not running. Ollama is now only included when INCLUDE_LOCAL_FALLBACK=true is explicitly set, preserving NVIDIA NIM as highest priority when NVIDIA_API_KEY is set.
-
 
 ## [Unreleased] — 2026-05-08
 
