@@ -1,33 +1,25 @@
 from __future__ import annotations
 
-import ast
 import json
 import logging
 import os
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
-import time
-import asyncio
-import httpx
-
 from agent.context_manager import ContextManager
 from agent.inference_cache import InferenceCache
-from agent.models import AgentPlan, ToolCall, VerificationResult
+from agent.models import AgentPlan, ToolCall
 from agent.prompts import (
     build_compaction_prompt,
     build_execution_prompt,
     build_planning_prompt,
     build_tool_prompt,
-    build_verification_prompt,
 )
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
-from provider_router import CommercialFallbackRequiredError, ProviderConfig, ProviderRouter
-from router import get_router
+from provider_router import ProviderConfig, ProviderRouter
 
 log = logging.getLogger("qwen-agent")
 
@@ -40,25 +32,8 @@ _RISKY_FILES: frozenset[str] = frozenset({
     "admin_auth.py", "key_store.py", "agent/tools.py", "proxy.py",
 })
 
-DEFAULT_PLANNER_MODEL = os.environ.get(
-    "AGENT_PLANNER_MODEL",
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1"
-    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
-    else "deepseek-r1:32b",
-)
-DEFAULT_EXECUTOR_MODEL = os.environ.get(
-    "AGENT_EXECUTOR_MODEL",
-    "qwen/qwen2.5-coder-32b-instruct"
-    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
-    else "qwen3-coder:30b",
-)
-DEFAULT_VERIFIER_MODEL = os.environ.get(
-    "AGENT_VERIFIER_MODEL",
-    "deepseek-ai/deepseek-r1"
-    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
-    else "deepseek-r1:32b",
-)
-DEFAULT_JUDGE_MODEL = os.environ.get("AGENT_JUDGE_MODEL", DEFAULT_VERIFIER_MODEL)
+DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "nvidia/llama-3.1-nemotron-ultra-253b-v1")
+DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
 
 class AgentRunner:
     def __init__(self, *, ollama_base: str, workspace_root: str | Path | None = None, provider_headers: dict[str, str] | None = None, provider_chain: list[ProviderConfig] | None = None, allow_commercial_fallback: bool = True, provider_temperature: float | None = None, session_store: AgentSessionStore | None = None, github_token: str | None = None, email: str | None = None, department: str | None = None, key_id: str | None = None) -> None:
@@ -105,13 +80,22 @@ class AgentRunner:
         for step in plan.steps[:max_steps]:
             result = await self._execute_step(plan.goal, step.model_dump(), requested_model, user_id, memory_store, session_id, metadata)
             step_results.append(result)
-            if result.get("status") == "failed": break
+            if result.get("status") == "failed":
+                break
             
+        summary = "Task completed."
+        judge_verdict = {"verdict": "APPROVED"}
+        try:
+            msg = [{"role": "system", "content": "Review the results. Return JSON: { \"verdict\": \"APPROVED | BLOCKED\", \"notes\": \"\" }"}, {"role": "user", "content": f"Results: {json.dumps(step_results)}"}]
+            judge_verdict = await self._chat_json(DEFAULT_PLANNER_MODEL, msg)
+        except Exception:
+            pass
+
         return {
             "goal": plan.goal,
             "steps": step_results,
-            "summary": "Task completed.",
-            "judge": {"verdict": "APPROVED"},
+            "summary": summary,
+            "judge": judge_verdict,
             "report": "Report generated."
         }
 
@@ -120,29 +104,26 @@ class AgentRunner:
         messages = build_planning_prompt(instruction, history, user_memories=user_memories, metadata=metadata)
         model = model or DEFAULT_PLANNER_MODEL
         raw = await self._chat_json(model, messages)
-        if "steps" not in raw and "slices" in raw: raw["steps"] = raw.pop("slices")
-        if not raw.get("goal"): raw["goal"] = instruction[:200]
+        if "steps" not in raw and "slices" in raw:
+            raw["steps"] = raw.pop("slices")
+        if not raw.get("goal"):
+            raw["goal"] = instruction[:200]
         plan = AgentPlan.model_validate(raw)
         plan.steps = plan.steps[:max_steps]
         return plan
 
     async def _execute_step(self, goal, step, model, user_id, memory_store, session_id, metadata) -> dict:
         observations = []
-        context_items = []
         executor_model = model or DEFAULT_EXECUTOR_MODEL
 
         for remaining in range(15, 0, -1):
             try:
-                tool_call = await self._chat_json(
-                    executor_model,
-                    build_tool_prompt(goal=goal, step=step, observations=observations, remaining_calls=remaining),
-                )
+                tool_call = await self._chat_json(executor_model, build_tool_prompt(goal=goal, step=step, observations=observations, remaining_calls=remaining))
                 call = ToolCall.model_validate(tool_call)
-                if call.tool == "finish": break
-                
+                if call.tool == "finish":
+                    break
                 result = await self._run_tool(call.tool, call.args, user_id, memory_store, metadata)
                 observations.append({"tool": call.tool, "args": call.args, "result": result})
-                context_items.append({"tool": call.tool, "result": result})
             except Exception as e:
                 observations.append({"tool": "error", "result": str(e)})
 
@@ -153,25 +134,32 @@ class AgentRunner:
         target_files = step.get("files") or []
         changed_files = []
         for target_file in target_files:
-            response = await self._chat_text(executor_model, build_execution_prompt(goal=goal, step=step, target_file=target_file, context_items=context_items, feedback_issues=[]))
+            response = await self._chat_text(executor_model, build_execution_prompt(goal=goal, step=step, target_file=target_file, context_items=observations, feedback_issues=[]))
             parsed = self._parse_execution_response(response, target_file)
             if parsed:
                 out_path, new_content = parsed
                 new_content = self._clean_generated_file_content(new_content)
                 self.tools.apply_diff(out_path, new_content)
                 changed_files.append(out_path)
-        
         return {"step_id": step["id"], "description": step["description"], "status": "applied", "changed_files": changed_files, "observations": observations}
 
     async def _run_tool(self, tool, args, user_id, memory_store, metadata) -> Any:
         try:
-            if tool == "read_file": return self.tools.read_file(str(args.get("path", "")))
-            if tool == "list_files": return self.tools.list_files(str(args.get("path", ".")))
-            if tool == "github_comment_on_issue": return await self.github.comment_on_issue(args["repo_name"], int(args["issue_number"]), args["body"])
-            if tool == "github_close_issue": return await self.github.close_issue(args["repo_name"], int(args["issue_number"]), args.get("comment"))
-            if tool == "github_get_issue": return await self.github.get_issue(args["repo_name"], int(args["issue_number"]))
+            if tool == "read_file":
+                return self.tools.read_file(str(args.get("path", "")))
+            if tool == "list_files":
+                return self.tools.list_files(str(args.get("path", ".")))
+            if tool == "github_comment_on_issue":
+                return await self.github.comment_on_issue(args["repo_name"], int(args["issue_number"]), args["body"])
+            if tool == "github_close_issue":
+                return await self.github.close_issue(args["repo_name"], int(args["issue_number"]), args.get("comment"))
+            if tool == "github_get_issue":
+                return await self.github.get_issue(args["repo_name"], int(args["issue_number"]))
+            if tool == "github_read_repo_file":
+                return await self.github.read_repo_file(args["repo_name"], args["path"], args.get("branch", "main"))
             raise ValueError(f"Unknown tool: {tool}")
-        except Exception as e: return f"[error: {e}]"
+        except Exception as e:
+            return f"[error: {e}]"
 
     async def _compact_history(self, history, model, session_id):
         summary_text = await self._chat_text(model or DEFAULT_PLANNER_MODEL, build_compaction_prompt(history))
@@ -186,16 +174,20 @@ class AgentRunner:
         return json.loads(re.search(r"\{.*\}", text, re.S).group(0))
 
     def _safe_read(self, p: str) -> str: 
-        try: return Path(p).read_text()
-        except: return ""
+        try:
+            return Path(p).read_text()
+        except Exception:
+            return ""
 
     def _parse_execution_response(self, raw, fallback):
         m = re.search(r"FILE:\s*(?P<path>.*)\s*ACTION:\s*(?P<action>create|replace|append)\s*```.*?\n(?P<content>.*?)\n```", raw, re.S)
-        if not m: return None
+        if not m:
+            return None
         return m.group("path").strip() or fallback, m.group("content")
 
-    def _clean_generated_file_content(self, c): return c.strip() + "\n"
-    def _local_syntax_check(self, p, c): return []
+    def _clean_generated_file_content(self, c):
+        return c.strip() + "\n"
+
     async def _synthesize_answer(self, g, s, o, m):
         msg = [{"role": "system", "content": "Synthesize a clear answer from tool results."}, {"role": "user", "content": f"Goal: {g}\nResults: {json.dumps(o)}"}]
         return await self._chat_text(m, msg)
