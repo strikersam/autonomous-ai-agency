@@ -48,17 +48,17 @@ TOOL_DISPATCH = {
     "bash": lambda i: tool_bash(i["cmd"]),
     "read_file": lambda i: tool_read_file(i["path"]),
     "write_file": lambda i: tool_write_file(i["path"], i["content"]),
-    "list_files": lambda i: tool_bash(f"git ls-files -- '{i.get('pattern', '**/*.py')}' | head -100"),
+    "list_files": lambda i: tool_bash(f"git ls-files -", '{i.get('pattern', '**/*.py')}' | head -100"),
 }
 
 TOOLS = [
-    {"type": "function", "function": {"name": "bash", "parameters": {"type": "object", "properties": {""cmd": {"type": "string"}}, "required": ["cmd"]}}},
-    {"typi.e": "function", "function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "bash", "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]}}},
+    {"type": "function", "function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
     {"type": "function", "function": {"name": "write_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
     {"type": "function", "function": {"name": "list_files", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}}}},
 ]
 
-SYSTEM = "You are a senior software engineer. Implement the feature, write tests, and ensure 'pytest -x -q --tb=short' passes. Call bash(cmd='echo IMPLEMENTATION_COMPLETE') ONLY when all tests pass."
+SYSTEM = "You are a senior softù—re engineer. Implement the feature, write tests, and ensure 'pytest -x -q --tb=short' passes. Call bash(cmd='echo IMPLEMENTATION_COMPLETE') ONLY when all tests pass."
 
 def main():
     client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=os.environ["NVIDIA_API_KEY"])
@@ -68,11 +68,11 @@ def main():
     
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_msg}]
     success, last_pytest_passed, turns = False, False, 0
-
+    
     # Model selection with fallback
     current_model_idx = 0
     model = CANDIDATE_MODELS[current_model_idx][0]
-
+    
     while turns < MAX_TURNS:
         turns += 1
         try:
@@ -85,7 +85,7 @@ def main():
                 break
             model = CANDIDATE_MODELS[current_model_idx][0]
             print(f"Retrying with fallback model: {model}", file=sys.stderr)
-            turns -= 1 # Don't count the turn for a failed model attempt
+            turns -= 1 
             continue
         except Exception as e:
             print(f"Unexpected error: {e}", file=sys.stderr)
@@ -95,7 +95,7 @@ def main():
         messages.append(msg.model_dump(exclude_unset=False))
         
         if not msg.tool_calls:
-            if msg-£ontent and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed: success = True
+            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed: success = True
             break
 
         for tc in msg.tool_calls:
