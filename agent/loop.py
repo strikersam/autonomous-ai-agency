@@ -165,12 +165,17 @@ class AgentRunner:
             return {"step_id": step["id"], "description": step["description"], "status": "applied", "observations": observations, "answer": answer, "changed_files": []}
 
         target_files = step.get("files") or []
+        if not target_files:
+            return {"step_id": step["id"], "description": step["description"], "status": "failed", "issues": ["No files identified"], "changed_files": [], "observations": observations}
+
         changed_files = []
         for target_file in target_files:
             original_content = self._safe_read(target_file)
             response = context_items[-1]["result"] if context_items and "FILE:" in context_items[-1]["result"] else await self._chat_text(executor_model, build_execution_prompt(goal=goal, step=step, target_file=target_file, context_items=observations, feedback_issues=[]))
             parsed = self._parse_execution_response(response, target_file)
-            if not parsed: continue
+            if not parsed:
+                return {"step_id": step["id"], "description": step["description"], "status": "failed", "issues": ["Format violation"], "changed_files": [], "observations": observations}
+
             out_path, new_content = parsed
             new_content = self._clean_generated_file_content(new_content)
             try:
@@ -179,6 +184,8 @@ class AgentRunner:
                 if verdict.status == "pass":
                     self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
+                else:
+                    return {"step_id": step["id"], "description": step["description"], "status": "failed", "issues": verdict.issues, "changed_files": changed_files, "observations": observations}
             except Exception:
                 self.tools.apply_diff(out_path, new_content)
                 changed_files.append(out_path)
