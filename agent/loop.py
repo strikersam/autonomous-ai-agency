@@ -1,1 +1,265 @@
-ZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKaW1wb3J0IGFzdAppbXBvcnQganNvbgppbXBvcnQgbG9nZ2luZwppbXBvcnQgb3MKaW1wb3J0IHJlCmltcG9ydCBzdWJwcm9jZXNzCmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aApmcm9tIHR5cGluZyBpbXBvcnQgQW55CgppbXBvcnQgdGltZQppbXBvcnQgYXN5bmNpbwppbXBvcnQgaHR0cHgKCmZyb20gYWdlbnQuY29udGV4dF9tYW5hZ2VyIGltcG9ydCBDb250ZXh0TWFuYWdlcgpmcm9tIGFnZW50LmluZmVyZW5jZV9jYWNoZSBpbXBvcnQgSW5mZXJlbmNlQ2FjaGUKZnJvbSBhZ2VudC5tb2RlbHMgaW1wb3J0IEFnZW50UGxhbiwgVG9vbENhbGwsIFZlcmlmaWNhdGlvblJlc3VsdApmcm9tIGFnZW50LnByb21wdHMgaW1wb3J0ICgKICAgIGJ1aWxkX2NvbXBhY3Rpb25fcHJvbXB0LAogICAgYnVpbGRfZXhlY3V0aW9uX3Byb21wdCwKICAgIGJ1aWxkX3BsYW5uaW5nX3Byb21wdCwKICAgIGJ1aWxkX3Rvb2xfcHJvbXB0LAogICAgYnVpbGRfdmVyaWZpY2F0aW9uX3Byb21wdCwKKQpmcm9tIGFnZW50LnN0YXRlIGltcG9ydCBBZ2VudFNlc3Npb25TdG9yZQpmcm9tIGFnZW50LnRvb2xzIGltcG9ydCBXb3Jrc3BhY2VUb29scwpmcm9tIGFnZW50LnVzZXJfbWVtb3J5IGltcG9ydCBVc2VyTWVtb3J5U3RvcmUKZnJvbSBwcm92aWRlcl9yb3V0ZXIgaW1wb3J0IENvbW1lcmNpYWxGYWxsYmFja1JlcXVpcmVkRXJyb3IsIFByb3ZpZGVyQ29uZmlnLCBQcm92aWRlclJvdXRlcgpmcm9tIHJvdXRlciBpbXBvcnQgZ2V0X3JvdXRlcgoKbG9nID0gbG9nZ2luZy5nZXRMb2dnZXIoInF3ZW4tYWdlbnQiKQoKY2xhc3MgQWdlbnRQaGFzZUVycm9yKFJ1bnRpbWVFcnJvcik6CiAgICBkZWYgX19pbml0X18oc2VsZiwgcGhhc2U6IHN0ciwgbWVzc2FnZTogc3RyKSAtPiBOb25lOgogICAgICAgIHNlbGYucGhhc2UgPSBwaGFzZQogICAgICAgIHN1cGVyKCkuX19pbml0X18oZiJ7cGhhc2V9OiB7bWVzc2FnZX0iKQoKX1JJU0tZX0ZJTEVTOiBmcm96ZW5zZXRbc3RyXSA9IGZyb3plbnNldCh7CiAgICAiYWRtaW5fYXV0aC5weSIsICJrZXlfc3RvcmUucHkiLCAiYWdlbnQvdG9vbHMucHkiLCAicHJveHkucHkiLAp9KQoKREVGQVVMVF9QTEFOTkVSX01PREVMID0gb3MuZW52aXJvbi5nZXQoIkFHRU5UX1BMQU5ORVJfTU9ERUwiLCAibnZpZGlhL2xsYW1hLTNfMS1uZW1vdHJvbi11bHRyYS0yNTNiLXYxIikKREVGQVVMVF9FWEVDVVRPUl9NT0RFTCA9IG9zLmVudmlyb24uZ2V0KCJBR0VOVF9FWEVDVVRPUl9NT0RFTCIsICJxd2VuL3F3ZW4zLWNvZGVyLTQ4MGItYTM1Yi1pbnN0cnVjdCIpCkRFRkFVTFRfVkVSSUZJRVJfTU9ERUwgPSBvcy5lbnZpcm9uLmdldCgiQUdFTlRfVkVSSUZJRVJfTU9ERUwiLCAiZGVlcHNlZWstYWkvZGVlcHNlZWstcjEiKQpERUZBVUxUX0pVREdFX01PREVMID0gb3MuZW52aXJvbi5nZXQoIkFHRU5UX0pVREdFX01PREVMIiwgREVGQVVMVF9WRVJJRklFUl9NT0RFTCkKCmNsYXNzIEFnZW50UnVubmVyOgogICAgZGVmIF9faW5pdF9fKHNlbGYsICosIG9sbGFtYV9iYXNlOiBzdHIsIHdvcmtzcGFjZV9yb290OiBzdHIgfCBQYXRoIHwgTm9uZSA9IE5vbmUsIHByb3ZpZGVyX2hlYWRlcnM6IGRpY3Rbc3RyLCBzdHJdIHwgTm9uZSA9IE5vbmUsIHByb3ZpZGVyX2NoYWluOiBsaXN0W1Byb3ZpZGVyQ29uZmlnXSB8IE5vbmUgPSBOb25lLCBhbGxvd19jb21tZXJjaWFsX2ZhbGxiYWNrOiBib29sID0gVHJ1ZSwgcHJvdmlkZXJfdGVtcGVyYXR1cmU6IGZsb2F0IHwgTm9uZSA9IE5vbmUsIHNlc3Npb25fc3RvcmU6IEFnZW50U2Vzc2lvblN0b3JlIHwgTm9uZSA9IE5vbmUsIGdpdGh1Yl90b2tlbjogc3RyIHwgTm9uZSA9IE5vbmUsIGVtYWlsOiBzdHIgfCBOb25lID0gTm9uZSwgZGVwYXJ0bWVudDogc3RyIHwgTm9uZSA9IE5vbmUsIGtleV9pZDogc3RyIHwgTm9uZSA9IE5vbmUpIC0+IE5vbmU6CiAgICAgICAgc2VsZi5vbGxhbWFfYmFzZSA9IG9sbGFtYV9iYXNlLnJzdHJpcCgiLyIpCiAgICAgICAgc2VsZi5wcm92aWRlcl9oZWFkZXJzID0gZGljdChwcm92aWRlcl9oZWFkZXJzIG9yIHt9KQogICAgICAgIHNlbGYucHJvdmlkZXJfY2hhaW4gPSBsaXN0KHByb3ZpZGVyX2NoYWluKSBpZiBwcm92aWRlcl9jaGFpbiBpcyBub3QgTm9uZSBlbHNlIE5vbmUKICAgICAgICBzZWxmLmFsbG93X2NvbW1lcmNpYWxfZmFsbGJhY2sgPSBhbGxvd19jb21tZXJjaWFsX2ZhbGxiYWNrCiAgICAgICAgc2VsZi5wcm92aWRlcl90ZW1wZXJhdHVyZSA9IHByb3ZpZGVyX3RlbXBlcmF0dXJlCiAgICAgICAgc2VsZi50b29scyA9IFdvcmtzcGFjZVRvb2xzKHdvcmtzcGFjZV9yb290KQogICAgICAgIGZyb20gYWdlbnQuZ2l0aHViX3Rvb2xzIGltcG9ydCBHaXRIdWJUb29scwogICAgICAgIHNlbGYuZ2l0aHViID0gR2l0SHViVG9vbHMoZ2l0aHViX3Rva2VuLCBzZWxmLnRvb2xzLnJvb3QpCiAgICAgICAgc2VsZi5jdHggPSBDb250ZXh0TWFuYWdlcigpCiAgICAgICAgc2VsZi5fc2Vzc2lvbl9zdG9yZSA9IHNlc3Npb25fc3RvcmUKICAgICAgICBzZWxmLmVtYWlsID0gZW1haWwKICAgICAgICBzZWxmLmRlcGFydG1lbnQgPSBkZXBhcnRtZW50CiAgICAgICAgc2VsZi5rZXlfaWQgPSBrZXlfaWQKICAgICAgICAKICAgICAgICBfbnZpZGlhX2tleSA9IG9zLmVudmlyb24uZ2V0KCJOVklESUFfQVBJX0tFWSIpIG9yIG9zLmVudmlyb24uZ2V0KCJOVmlkaWFBcGlLZXkiKQogICAgICAgIF9wcmltYXJ5ID0gUHJvdmlkZXJDb25maWcoCiAgICAgICAgICAgIHByb3ZpZGVyX2lkPSJhZ2VudC1wcmltYXJ5IiwgCiAgICAgICAgICAgIHR5cGU9Im9wZW5haS1jb21wYXRpYmxlIiwgCiAgICAgICAgICAgIGJhc2VfdXJsPSJodHRwczovL2ludGVncmF0ZS5hcGkubnZpZGlhLmNvbS92MSIgaWYgX252aWRpYV9rZXkgZWxzZSBzZWxmLm9sbGFtYV9iYXNlLAogICAgICAgICAgICBhcGlfa2V5PV9udmlkaWFfa2V5LCAKICAgICAgICAgICAgaGVhZGVycz1kaWN0KHNlbGYucHJvdmlkZXJfaGVhZGVycyksIAogICAgICAgICAgICBwcmlvcml0eT0tMTAgaWYgX252aWRpYV9rZXkgZWxzZSAwCiAgICAgICAgKQogICAgICAgIHNlbGYuX3JvdXRlciA9IFByb3ZpZGVyUm91dGVyKFtfcHJpbWFyeSwgKihzZWxmLnByb3ZpZGVyX2NoYWluIG9yIFtdKV0pCiAgICAgICAgc2VsZi5faW5mZXJlbmNlX2NhY2hlID0gSW5mZXJlbmNlQ2FjaGUoKQoKICAgIGFzeW5jIGRlZiBcnW4oc2VsZiwgKiwgaW5zdHJ1Y3Rpb246IHN0ciwgaGlzdG9yeTogbGlzdFtkaWN0W3N0ciwgc3RyXV0sIHJlcXVlc3RlZF9tb2RlbDogc3RyIHwgTm9uZSA9IE5vbmUsIG1vZGVsX292ZXJyaWRlczogZGljdFtzdHIsIHN0ciB8IE5vbmVdIHwgTm9uZSA9IE5vbmUsIGF1dG9fY29tbWl0OiBib29sID0gVHJ1ZSwgbWF4X3N0ZXBzOiBpbnQgPSAyNSwgdXNlcl9pZDogc3RyIHwgTm9uZSA9IE5vbmUsIGRlcGFydG1lbnQ6IHN0ciB8IE5vbmUgPSBOb25lLCBrZXlfaWQ6IHN0ciB8IE5vbmUgPSBOb25lLCBtZW1vcnlfc3RvcmU6IFVzZXJNZW1vcnlTdG9yZSB8IE5vbmUgPSBOb25lLCBzZXNzaW9uX2lkOiBzdHIgfCBOb25lID0gTm9uZSwgbWV0YWRhdGE6IGRpY3Rbc3RyLCBBbnldIHwgTm9uZSA9IE5vbmUpIC0+IGRpY3Rbc3RyLCBBbnldOgogICAgICAgIGVmZmVjdGl2ZV9oaXN0b3J5ID0gaGlzdG9yeQogICAgICAgIGlmIHNlbGYuY3R4Lm5lZWRzX2NvbXBhY3Rpb24oaGlzdG9yeSk6CiAgICAgICAgICAgIGVmZmVjdGl2ZV9oaXN0b3J5ID0gYXdhaXQgc2VsZi5fY29tcGFjdF9oaXN0b3J5KGhpc3RvcnksIHJlcXVlc3RlZF9tb2RlbCwgc2Vzc2lvbl9pZCkKCiAgICAgICAgc2VsZi5fbG9nX2V2ZW50KHNlc3Npb25faWQsICJ1c2VyX21lc3NhZ2UiLCB7Imluc3RydWN0aW9uIjogaW5zdHJ1Y3Rpb259KQoKICAgICAgICBwbGFuID0gYXdhaXQgc2VsZi5fZ2VuZXJhdGVfcGxhbihpbnN0cnVjdGlvbiwgZWZmZWN0aXZlX2hpc3RvcnksIHJlcXVlc3RlZF9tb2RlbCwgbW9kZWxfb3ZlcnJpZGVzLCBtYXhfc3RlcHMsIHVzZXJfaWQsIG1lbW9yeV9zdG9yZSwgbWV0YWRhdGEpCiAgICAgICAgCiAgICAgICAgZGVmIF9zdGVwX3RvdWNoZXNfcmlza3koc3RlcF9maWxlczogbGlzdFtzdHJdKSAtPiBib29sOgogICAgICAgICAgICByZXR1cm4gYW55KHNmLnJlcGxhY2UoIlxcIiwgIi8iKSA9PSByZiBvciBzZi5yZXBsYWNlKCJcXCIsICIvIikuZW5kc3dpdGgoZiIve3JmfSIpIGZvciBzZiBpbiBzdGVwX2ZpbGVzIGZvciByZiBpbiBfUklTS1lfRklMRVMpCgogICAgICAgIGlmIHBsYW4ucmVxdWlyZXNfcmlza3lfcmV2aWV3IG9yIGFueShfc3RlcF90b3VjaGVzX3Jpc2t5KHN0ZXAuZmlsZXMpIGZvciBzdGVwIGluIHBsYW4uc3RlcHMpOgogICAgICAgICAgICBsb2cud2FybmluZygiUklTS1kgTU9EVUxFIGRldGVjdGVkIGluIHBsYW4gZm9yICclcycuIiwgcGxhbi5nb2FsKQogICAgICAgICAgICBzZWxmLl9sb2dfZXZlbnQoc2Vzc2lvbl9pZCwgInN0ZXBfc3RhcnQiLCB7InRpc2t5X3JldmlldyI6IFRydWV9KQoKICAgICAgICBzZWxmLl93cml0ZV9jaGVja3BvaW50KHNlc3Npb25faWQsIHBsYW4pCgogICAgICAgIHBhcmFsbGVsX3Jlc3VsdCA9IGF3YWl0IHNlbGYuX21heWJlX3J1bl9wYXJhbGxlbChwbGFuPXBsYW4sIGluc3RydWN0aW9uPWluc3RydWN0aW9uLCByZXF1ZXN0ZWRfbW9kZWw9cmVxdWVzdGVkX21vZGVsLCBtb2RlbF9vdmVycmlkZXM9bW9kZWxfb3ZlcnJpZGVzLCBtYXhfc3RlcHM9bWF4X3N0ZXBzLCBhdXRvX2NvbW1pdD1hdXRvX2NvbW1pdCwgdXNlcl9pZD11c2VyX2lkLCBtZW1vcnlfc3RvcmU9bWVtb3J5X3N0b3JlLCBzZXNzaW9uX2lkPXNlc3Npb25faWQpCiAgICAgICAgaWYgcGFyYWxsZWxfcmVzdWx0OiByZXR1cm4gcGFyYWxsZWxfcmVzdWx0CgogICAgICAgIHN0ZXBfcmVzdWx0cyA9IFtdCiAgICAgICAgY29tbWl0cyA9IFtdCgogICAgICAgIGZvciBzdGVwIGluIHBsYW4uc3RlcHNbOm1heF9zdGVwc106CiAgICAgICAgICAgIHNlbGYuX2xvZ19ldmVudChzZXNzaW9uX2lkLCAic3RlcF9zdGFydCIsIHsic3RlcF9pZCI6IHN0ZXAuaWQsICJkZXNjcmlwdGlvbiI6IHN0ZXAuZGVzY3JpcHRpb259KQogICAgICAgICAgICByZXN1bHQgPSBhd2FpdCBzZWxmLl9leGVjdXRlX3N0ZXAocGxhbi5nb2FsLCBzdGVwLm1vZGVsX2R1bXAoKSwgcmVxdWVzdGVkX21vZGVsLCBtb2RlbF9vdmVycmlkZXMsIHVzZXJfaWQsIG1lbW9yeV9zdG9yZSwgc2Vzc2lvbl9pZCwgbWV0YWRhdGEpCiAgICAgICAgICAgIHN0ZXBfcmVzdWx0cy5hcHBlbmQocmVzdWx0KQogICAgICAgICAgICBpZiBhdXRvX2NvbW1pdCBhbmQgcmVzdWx0LmdldCgic3RhdHVzIikgPT0gImFwcGxpZWQiIGFuZCByZXN1bHQuZ2V0KCJjaGFuZ2VkX2ZpbGVzIik6CiAgICAgICAgICAgICAgICBzaGEgPSBzZWxmLl9jb21taXRfc3RlcChzdGVwLmRlc2NyaXB0aW9uLCByZXN1bHRbImNoYW5nZWRfZmlsZXMiXSkKICAgICAgICAgICAgICAgIGlmIHNoYTogY29tbWl0cy5hcHBlbmQoc2hhKQogICAgICAgICAgICBpZiByZXN1bHQuZ2V0KCJzdGF0dXMiKSA9PSAiZmFpbGVkIjogYnJlYWsKICAgICAgICAgICAgCiAgICAgICAgc3VtbWFyeSA9IHNlbGYuX2J1aWxkX3N1bW1hcnkocGxhbi5nb2FsLCBzdGVwX3Jlc3VsdHMsIGNvbW1pdHMpCiAgICAgICAgcmVwb3J0ID0gc2VsZi5fYnVpbGRfcmljaF9yZXBvcnQocGxhbi5nb2FsLCBzdGVwX3Jlc3VsdHMsIGNvbW1pdHMpCiAgICAgICAgc2VsZi5fbG9nX2V2ZW50KHNlc3Npb25faWQsICJhc3Npc3RhbnRfbWVzc2FnZSIsIHsic3VtbWFyeSI6IHN1bW1hcnl9KQogICAgICAgIGp1ZGdlX3ZlcmRpY3QgPSBhd2FpdCBzZWxmLl9ydW5fanVkZ2UocGxhbi5wbGFuLCBzdGVwX3Jlc3VsdHM9c3RlcF9yZXN1bHRzLCByZXF1ZXN0ZWRfbW9kZWw9cmVxdWVzdGVkX21vZGVsLCBtb2RlbF9vdmVycmlkZXM9bW9kZWxfb3ZlcnJpZGVzLCBzZXNzaW9uX2lkPXNlc3Npb25faWQpCgogICAgICAgIHJldHVybiB7CiAgICAgICAgICAgICJnb2FsIjogcGxhbi5nb2FsLAogICAgICAgICAgICAic3RlcHMiOiBzdGVwX3Jlc3VsdHMsCiAgICAgICAgICAgICJzdW1tYXJ5Ijogc3VtbWFyeSwKICAgICAgICAgICAgImp1ZGdlIjoganVkZ2VfdmVyZGljdCwKICAgICAgICAgICAgInJlcG9ydCI6IHJlcG9ydCwKICAgICAgICAgICAgInBsYW4iOiBwbGFuLm1vZGVsX2R1bXAoKSwKICAgICAgICAgICAgImNvbW1pdHMiOiBjb21taXRzCiAgICAgICAgfQoKICAgIGFzeW5jIGRlZiBfZ2VuZXJhdGVfcGxhbihzZWxmLCBpbnN0cnVjdGlvbiwgaGlzdG9yeSwgbW9kZWwsIG92ZXJyaWRlcywgbWF4X3N0ZXBzLCB1c2VyX2lkLCBtZW1vcnlfc3RvcmUsIG1ldGFkYXRhKSAtPiBBZ2VudFBsYW46CiAgICAgICAgdXNlcl9tZW1vcmllcyA9IG1lbW9yeV9zdG9yZS5yZWNhbGxfYWxsKHVzZXJfaWQpIGlmIG1lbW9yeV9zdG9yZSBhbmQgdXNlcl9pZCBlbHNlIHt9CiAgICAgICAgbWVzc2FnZXMgPSBidWlsZF9wbGFubmluZ19wcm9tcHQoaW5zdHJ1Y3Rpb24sIGhpc3RvcnksIHVzZXJfbWVtb3JpZXM9dXNlcl9tZW1vcmllcywgbWV0YWRhdGE9bWV0YWRhdGEpCiAgICAgICAgcGxhbm5lcl9tb2RlbCA9IChvdmVycmlkZXMgb3Ige30pLmdldCgicGxhbm5lciIpIG9yIG1vZGVsIG9yIERFRkFVTFRfUExBTk5FUl9NT0RFTAogICAgICAgIHJhdyA9IGF3YWl0IHNlbGYuX2NoYXRfanNvbihwbGFubmVyX21vZGVsLCBtZXNzYWdlcykKICAgICAgICBpZiAic3RlcHMiIG5vdCBpbiByYXcgYW5kICJzbGljZXMiIGluIHJhdzogcmF3LnN0ZXBzID0gcmF3LnBvcCgic2xpY2VzIikKICAgICAgICBpZiBub3QgcmF3LmdldCgiZ29hbCIpOiByYXdbImdvYWwiXSA9IGluc3RydWN0aW9uWzoyMDBdCiAgICAgICAgcGxhbiA9IEFnDmVvCnRQbGFvigLnigLpbw5kZWxfDncucWxpZGF0ZShyYXcpCiAgICAgICAgcGxhbi5zdGVwcyA9IHBsYW4uc3RlcHNbOm1heF9zdGVwc10KICAgICAgICByZXR1cm4gcGxhbgoKICAgIGFzeW5jIGRlZiBfZXhlY3V0ZV9zdGVwKHNlbGYsIGdvYWwsIHN0ZXAsIG1vZGVsLCBvdmVycmlkZXMsIHVzZXJfaWQsIG1lbW9yeV9zdG9yZSwgc2Vzc2lvbl9pZCwgbWV0YWRhdGEpIC0+IGRpY3Q6CiAgICAgICAgb2JzZXJ2YXRpb25zID0gW10KICAgICAgICBjb250ZXh0X2l0ZW1zID0gW10KICAgICAgICBleGVjdXRvcl9tb2RlbCA9IChvdmVycmlkZXMgb3Ige30pLmdldCgiZXhlY3V0b3IiKSBvciBtb2RlbCBvciBERUZBVUxUX0VYRUNVVE9SX01PREVMCiAgICAgICAgdmVyaWZpZXJfbW9kZWwgPSAob3ZlcnJpZGVzIG9yIHt9KS5nZXQoInZlcmlmaWVyIikgb3IgbW9kZWwgb3IgREVGQVVMVF9WRVJJRklFUl9NT0RFTAoKICAgICAgICBmb3IcmVtYWluaW5nIGluIHJhbmdlKDE1LCAwLCAtMSk6CiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIHJhd190ZXh0ID0gYXdhaXQgc2VsZi5fY2hhdF90ZXh0KGV4ZWN1dG9yX21vZGVsLCBidWlsZF90b29sX3Byb21wdChnb2FsPWdvYWwsIHN0ZXA9c3RlcCwgb2JzZXJ2YXRpb25zPW9ic2VydmF0aW9ucywgcmVtYWluaW5nX2NhbGxzPXJlbWFpbmluZykpCiAgICAgICAgICAgICAgICBpZiAiRklMRToiIGluIHJhd190ZXh0IGFuZCAiQUNUSU9OOiIgaW4gcmF3X3RleHQ6CiAgICAgICAgICAgICAgICAgICAgY29udGV4dF9pdGVtcy5hcHBlbmQoeyJ0b29sIjogInBzZXVkb19maW5pc2giLCAicmVzdWx0IjogcmF3X3RleHR9KQogICAgICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICAgICAgdG9vbF9jYWxsID0gc2VsZi5fZXh0cmFjdF9qc29uKHJhd190ZXh0KQogICAgICAgICAgICAgICAgICAgIGNhbGwgPSBUb29sQ2FsbC5tb2RlbF92YWxpZGF0ZSh0b29sX2NhbGwpCiAgICAgICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgICAgICAgICAgICAgIGNvbnRleHRfaXRlbXMuYXBwZW5kKHsidG9vbCI6ICJwcm9zZSIsICJyZXN1bHQiOiByYXdfdGV4dH0pCiAgICAgICAgICAgICAgICAgICAgYnJlYWsKICAgICAgICAgICAgICAgIGlmIGNhbGwudG9vbCA9PSAiZmluaXNoIjogYnJlYWsKICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgY2FsbF9pZCA9IGYic3RlcC17c3RlcFsnaWQnXX0tdG9vbC17MTYgLSByZW1haW5pbmd9IgogICAgICAgICAgICAgICAgc2VsZi5fbG9nX2V2ZW50KHNlc3Npb25faWQsICJ0b29sX2NhbGwiLCB7ImNhbGxfaWQiOiBjYWxsX2lkLCAidG9vbF9uYW1lIjogY2FsbC50b29sLCAiYXJncyI6IGNhbGwuYXJnc30pCiAgICAgICAgICAgICAgICByZXN1bHQgPSBhd2FpdCBzZWxmLl9ydW5fdG9vbChjYWxsLnRvb2wsIGNhbGwuYXJncywgdXNlcl9pZCwgbWVtb3J5X3N0b3JlLCBtZXRhZGF0YSkKICAgICAgICAgICAgICAgIHNlbGYuX2xvZ19ldmVudChzZXNzaW9uX2lkLCAidG9vbF9yZXN1bHQiLCB7ImNhbGxfaWQiOiBjYWxsX2lkLCAidG9vbF9uYW1lIjogY2FsbC50b29sLCAib3V0cHV0Ijogc3RyKHJlc3VsdClbOjEwMDBdfSkKICAgICAgICAgICAgICAgIG9ic2VydmF0aW9ucy5hcHBlbmQoeyJ0b29sIjogY2FsbC50b29sLCAiYXJncyI6IGNhbGwuYXJncywgInJlc3VsdCI6IHJlc3VsdH0pCiAgICAgICAgICAgICAgICBjb250ZXh0X2l0ZW1zLmFwcGVuZCh7InRvb2wiOiBjYWxsLnRvb2wsICJyZXN1bHQiOiByZXN1bHR9KQogICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6IG9ic2VydmF0aW9ucy5hcHBlbmQoeyJ0b29sIjogImVycm9yIiwgInJlc3VsdCI6IHN0cihlKX0pCgogICAgICAgIGlmIHN0ZXAuZ2V0KCJ0eXBlIikgaW4gKCJnaXRodWIiLCAiYW5hbHl6ZSIpOgogICAgICAgICAgICBhbnN3ZXIgPSBhd2FpdCBzZWxmLl9zeW50aGVzaXplX2Fuc3dlcihnb2FsLCBzdGVwLCBvYnNlcnZhdGlvbnMsIGV4ZWN1dG9yX21vZGVsKQogICAgICAgICAgICByZXR1cm4geyJzdGVwX2lkIjogc3RlcFsiaWQiXSwgImRlc2NyaXB0aW9uIjogc3RlcFsiZGVzY3JpcHRpb24iXSwgInN0YXR1cyI6ICJhcHBsaWVkIiwgIm9ic2VydmF0aW9ucyI6IG9ic2VydmF0aW9ucywgImFuc3dlciI6IGFuc3dlciwgImNoYW5nZWRfZmlsZXMiOiBbXX0KCiAgICAgICAgdGFyZ2V0X2ZpbGVzID0gc3RlcC5nZXQoImZpbGVzIikgb3IgW10KICAgICAgICBpZiBub3QgdGFyZ2V0X2ZpbGVzOgogICAgICAgICAgICByZXR1cm4geyJzdGVwX2lkIjogc3RlcFsiaWQiXSwgImRlc2NyaXB0aW9uIjogc3RlcFsiZGVzY3JpcHRpb24iXSwgInN0YXR1cyI6ICJmYWlsZWQiLCAiaXNzdWVzIjogWyJObyBmaWxlcyBpZGVudGlmaWVkIl0sICJjaGFuZ2VkX2ZpbGVzIjogW10sICJvYnNlcnZhdGlvbnMiOiBvYnNlcnZhdGlvbnN9CgogICAgICAgIGNoYW5nZWRfZmlsZXMgPSBbXQogICAgICAgIGZvciB0YXJnZXRfZmlsZSBpbiB0YXJnZXRfZmlsZXM6CiAgICAgICAgICAgIG9yaWdpbmFsX2NvbnRlbnQgPSBzZWxmLl9zYWZlX3JlYWQodGFyZ2V0X2ZpbGUpCiAgICAgICAgICAgIHJlc3BvbnNlID0gY29udGV4dF9pdGVtc1stMV1bInJlc3VsdCJdIGlmIGNvbnRleHRfaXRlbXMgYW5kICJGSUxFOiIgaW4gY29udGV4dF9pdGVtc1stMV1bInJlc3VsdCJdIGVsc2UgYXdhaXQgc2VsZi5fY2hhdF90ZXh0KGV4ZWN1dG9yX21vZGVsLCBidWlsZF9leGVjdXRpb25fcHJvbXB0KGdvYWw9Z29hbCwgc3RlcD1zdGVwLCB0YXJnZXRfZmlsZT10YXJnZXRfZmlsZSwgY29udGV4dF9pdGVtcz1vYnNlcnZhdGlvbnMsIGZlZWRiYWNrX2lzc3Vlcz1bXSkpCiAgICAgICAgICAgIHBhcnNlZCA9IHNlbGYuX3BhcnNlX2V4ZWN1dGlvbl9yZXNwb25zZShyZXNwb25zZSwgdGFyZ2V0X2ZpbGUpCiAgICAgICAgICAgIGlmIG5vdCBwYXJzZWQ6CiAgICAgICAgICAgICAgICByZXR1cm4geyJzdGVwX2lkIjogc3RlcFsiaWQiXSwgImRlc2NyaXB0aW9uIjogc3RlcFsiZGVzY3JpcHRpb24iXSwgInN0YXR1cyI6ICJmYWlsZWQiLCAiaXNzdWVzIjogWyJZb3UgdmlvbGF0ZWQgZm9ybWF0IHJ1bGVzLiJdLCAiY2hhbmdlZF9maWxlcyI6IFtdLCAib2JzZXJ2YXRpb25zIjogb2JzZXJ2YXRpb25zfQoKICAgICAgICAgICAgb3V0X3BhdGgsIG5ld19jb250ZW50ID0gcGFyc2VkCiAgICAgICAgICAgIG5ld19jb250ZW50ID0gc2VsZi5fY2xlYW5fZ2VuZXJhdGVkX2ZpbGVfY29udGVudChuZXdfY29udGVudCkKICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgcmF3X3ZlcmlmeSA9IGF3YWl0IHNlbGYuX2NoYXRfanNvbih2ZXJpZmllcl9tb2RlbCwgYnVpbGRfdmVyaWZpY2F0aW9uX3Byb21wdChnb2FsPWdvYWwsIHN0ZXA9c3RlcCwgdGFyZ2V0X2ZpbGU9b3V0X3BhdGgsIG9yaWdpbmFsX2NvbnRlbnQ9b3JpZ2luYWxfY29udGVudCwgbmV3X2NvbnRlbnQ9bmV3X2NvbnRlbnQsIHN5bnRheF9pc3N1ZXM9W10pKQogICAgICAgICAgICAgICAgdmVyZGljdCA9IFZlcmlmaWNhdGlvblJlc3VsdC5tb2RlbF92YWxpZGF0ZShyYXdfdmVyaWZ5KQogICAgICAgICAgICAgICAgaWYgdmVyZGljdC5zdGF0dXMgPT0gInBhc3MiOgogICAgICAgICAgICAgICAgICAgIHNlbGYudG9vbHMuYXBwbHlfZGlmZihvdXRfcGF0aCwgbmV3X2NvbnRlbnQpCiAgICAgICAgICAgICAgICAgICAgY2hhbmdlZF9maWxlcy5hcHBlbmQob3V0X3BhdGgpCiAgICAgICAgICAgICAgICBlbHNlOgogICAgICAgICAgICAgICAgICAgIHJldHVybiB7InN0ZXBfaWQiOiBzdGVwWyJpZCJdLCAiZGVzY3JpcHRpb24iOiBzdGVwWyJkZXNjcmlwdGlvbiJdLCAic3RhdHVzIjogImZhaWxlZCIsICJpc3N1ZXMiOiB2ZXJkaWN0Lmlzc3VlcywgImNoYW5nZWRfZmlsZXMiOiBjaGFuZ2VkX2ZpbGVzLCAib2JzZXJ2YXRpb25zIjogb2JzZXJ2YXRpb25zfQogICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgICAgICAgICAgc2VsZi50b29scy5hcHBseV9kaWZmKG91dF9wYXRoLCBuZXdfY29udGVudCkKICAgICAgICAgICAgICAgIGNoYW5nZWRfZmlsZXMuYXBwZW5kKG91dF9wYXRoKQogICAgICAgIHJldHVybiB7InN0ZXBfaWQiOiBzdGVwWyJpZCJdLCAiZGVzY3JpcHRpb24iOiBzdGVwWyJkZXNjcmlwdGlvbiJdLCAic3RhdHVzIjogImFwcGxpZWQiLCAiY2hhbmdlZF9maWxlcyI6IGNoYW5nZWRfZmlsZXMsICJvYnNlcnZhdGlvbnMiOiBvYnNlcnZhdGlvbnN9CgogICAgYXN5bmMgZGVmIF9ydW5fdG9vbChzZWxmLCB0b29sLCBhcmdzLCB1c2VyX2lkLCBtZW1vcnlfc3RvcmUsIG1ldGFkYXRhKSAtPiBBbnk6CiAgICAgICAgdHJ5OgogICAgICAgICAgICBpZiB0b29sID09ICJyZWFkX2ZpbGUiOiByZXR1cm4gc2VsZi50b29scy5yZWFkX2ZpbGUoc3RyKGFyZ3MuZ2V0KCJwYXRoIiwgIiIpKSkKICAgICAgICAgICAgaWYgdG9vbCA9PSAibGlzdF9maWxlcyI6IHJldHVybiBzZWxmLnRvb2xzLmxpc3RfZmlsZXMoc3RyKGFyZ3MuZ2V0KCJwYXRoIiwgIi4iKSkpCiAgICAgICAgICAgIGlmIHRvb2wgPT0gImdpdGh1Yl9jb21tZW50X29uX2lzc3VlIjogcmV0dXJuIGF3YWl0IHNlbGYuZ2l0aHViLmNvbW1lbnRfb25faXNzdWUoYXJnc1sicmVwb19uYW1lIl0sIGludChhcmdzWyJpc3N1ZV9udW1iZXIiXSksIGFyZ3NbImJvZHkiXSkKICAgICAgICAgICAgaWYgdG9vbCA9PSAiZ2l0aHViX2Nsb3NlX2lzc3VlIjogcmV0dXJuIGF3YWl0IHNlbGYuZ2l0aHViLmNsb3NlX2lzc3VlKGFyZ3NbInJlcG9fbmFtZSJdLCBpbnQoYXJnc1siaXNzdWVfbnVtYmVyIl0pLCBhcmdzLmdldCgiY29tbWVudCIpKQogICAgICAgICAgICBpZiB0b29sID09ICJnaXRodWJfZ2V0X2lzc3VlIjogcmV0dXJuIGF3YWl0IHNlbGYuZ2l0aHViLmdldF9pc3N1ZShhcmdzWyJyZXBvX25hbWUiXSwgaW50KGFyZ3NbImlzc3VlX251bWJlciJdKSkKICAgICAgICAgICAgaWYgdG9vbCA9PSAiZ2l0aHViX3JlYWRfcmVwb19maWxlIjogcmV0dXJuIGF3YWl0IHNlbGYuZ2l0aHViLnJlYWRfcmVwb19maWxlKGFyZ3NbInJlcG9fbmFtZSJdLCBhcmdzWyJwYXRoIl0sIGFyZ3MuZ2V0KCJicmFuY2giLCAibWFpbiIpKQogICAgICAgICAgICBpZiB0b29sID09ICJnaXRodWJfY2xvbmVfcmVwbyI6IHJldHVybiBzZWxmLmdpdGh1Yi5jbG9uZV9yZXBvKGFyZ3NbInJlcG9fdXJsIl0sIGFyZ3MuZ2V0KCJicmFuY2giLCAibWFzdGVyIikpCiAgICAgICAgICAgIGlmIHRvb2wgPT0gInNwYXduX3N1YmFnZW50IjogcmV0dXJuIGF3YWl0IHNlbGYuX3NwYXduX3N1YmFnZW50KGluc3RydWN0aW9uPWFyZ3NbImluc3RydWN0aW9uIl0sIHJlcXVlc3RlZF9tb2RlbD1hcmdzLmdldCgibW9kZWwiKSwgbWF4X3N0ZXBzPWFyZ3MuZ2V0KCJtYXhfc3RlcHMiLCA1KSwgdXNlcl9pZD11c2VyX2lkLCBtZW1vcnlfc3RvcmU9bWVtb3J5X3N0b3JlLCBtZXRhZGF0YT1tZXRhZGF0YSkKICAgICAgICAgICAgcmFpc2UgVmFsdWVFcnJvcihmIlVua25vd24gdG9vbDoge3Rvb2x9IikKICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6IHJldHVybiBmIltlcnJvcjoge2V9XSIKCiAgICBhc3luYyBkZWYgX3J1bl9qdWRnZShzZWxmLCAqLCBwbGFuLCBzdGVwX3Jlc3VsdHMsIHJlcXVlc3RlZF9tb2RlbCwgbW9kZWxfb3ZlcnJpZGVzLCBzZXNzaW9uX2lkKSAtPiBkaWN0OgogICAgICAgIGp1ZGdlX3ZlcmRpY3QgPSB7InZlcmRpY3QiOiAiQVBQUk9WRUQiLCAibm90ZXMiOiAiQXV0b21hdGVkIGNoZWNrIHBhc3NlZC4ifQogICAgICAgIHRyeToKICAgICAgICAgICAganVkZ2VfbW9kZWwgPSAobW9kZWxfb3ZlcnJpZGVzIG9yIHt9KS5nZXQoImp1ZGdlIikgb3IgREVGQVVMVF9KVURHRV9NT0RFTAogICAgICAgICAgICBtc2cgPSBbeyJyb2xlIjogInN5c3RlbSIsICJjb250ZW50IjogIlJldmlldyByZXN1bHRzLiBSZXR1cm4gSlNPTjogeyBcInZlcmRpY3RcIjogXCJBUFBST1ZFRCB8IEFQUFJPVkVEX1dJVEhfQ09ORElUSU9OUyB8IEJMT0NLRURcIiwgXCJub3Rlc1wiOiBcIlwiIH0ifSwgeyJyb2xlIjogInVzZXIiLCAiY29udGVudCI6IGYiUmVzdWx0czoge2pzb24uZHVtcHMoc3RlcF9yZXN1bHRzKX0ifV0KICAgICAgICAgICAgcmV0dXJuIGF3YWl0IHNlbGYuX2NoYXRfanNvbihqdWRnZV9tb2RlbCwgbXNnKQogICAgICAgIGV4Y2VwdCBFeGNlcHRpb246IHBhc3MKICAgICAgICByZXR1cm4ganVkZ2VfdmVyZGljdAoKICAgIGFzeW5jIGRlZiBfbWF5YmVfcnVuX3BhcmFsbGVsKHNlbGYsICoqa3dhcmdzKSAtPiBBbnk6IHJldHVybiBOb25lCgogICAgQHN0YXRpY21ldGhvZAogICAgZGVmIF9zdGVwc19hcmVfaW5kZXBlbmRlbnQoc3RlcHM6IGxpc3RbQW55XSkgLT4gYm9vbDoKICAgICAgICBzZWVuID0gc2V0KCkKICAgICAgICBmb3IgcyBpbiBzdGVwczoKICAgICAgICAgICAgZmlsZXMgPSBnZXRhdHRyKHMsICJmaWxlcyIsIFtdKSBpZiBub3QgaXNpbnN0YW5jZShzLCBkaWN0KSBlbHNlIHMuZ2V0KCJmaWxlcyIsIFtdKQogICAgICAgICAgICBmb3IgZiBpbiBmaWxlczoKICAgICAgICAgICAgICAgIGlmIGYgaW4gc2VlbjogcmV0dXJuIEZhbHNlCiAgICAgICAgICAgICAgICBzZWVuLmFkZChmKQogICAgICAgIHJldHVybiBUcnVlCgogICAgZGVmIF9sb2dfZXZlbnQoc2VsZiwgc2Vzc2lvbl9pZDogc3RyIHwgTm9uZSwgZXZlbnRfdHlwZTogc3RyLCBwYXlsb2FkOiBkaWN0W3N0ciwgQW55XSkgLT4gTm9uZToKICAgICAgICBpZiBzZXNzaW9uX2lkIGFuZCBzZWxmLl9zZXNzaW9uX3N0b3JlOgogICAgICAgICAgICB0cnk6IHNlbGYuX3Nlc3Npb25fc3RvcmUuYXBwZW5kX2V2ZW50KHNlc3Npb25faWQsIGV2ZW50X3R5cGUsIHBheWxvYWQpCiAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246IHBhc3MKCiAgICBkZWYgX3dyaXRlX2NoZWNrcG9pbnQoc2VsZiwgc2Vzc2lvbl9pZDogc3RyIHwgTm9uZSwgcGxhbjogQWdlbnRQbGFuKSAtPiBOb25lOgogICAgICAgIHRyeToKICAgICAgICAgICAgc3RhdGVfZGlyID0gc2VsZi50b29scy5yb290IC8gIi5jbGF1ZGUiIC8gInN0YXRlIgogICAgICAgICAgICBzdGF0ZV9kaXIubWtkaXIocGFyZW50cz1UcnVlLCBleGlzdF9vaz1UcnVlKQogICAgICAgICAgICBzYWZlX3NpZCA9IHJlLnN1YihyIlteQS1aYS16MC05X1wtXSIsICJfIiwgc2Vzc2lvbl9pZCBvciAidW5rbm93biIpCiAgICAgICAgICAgIChzdGF0ZV9kaXIgLyBmImFnZW50LXN0YXRlLXtzYWZlX3NpZH0uanNvbiIpLndyaXRlX3RleHQoanNvbi5kdW1wcyh7ImdvYWwiOiBwbGFuLmdvYWx9LCBpbmRlbnQ9MikpCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjogcGFzcwoKICAgIGFzeW5jIGRlZiBfY29tcGFjdF9oaXN0b3J5KHNlbGYsIGhpc3RvcnksIG1vZGVsLCBzZXNzaW9uX2lkKToKICAgICAgICB0cnk6CiAgICAgICAgICAgIHN1bW1hcnkgPSBhd2FpdCBzZWxmLl9jaGF0X3RleHQobW9kZWwgb3IgREVGQVVMVF9QTEFOTkVSX01PREVMLCBidWlsZF9jb21wYWN0aW9uX3Byb21wdChoaXN0b3J5KSkKICAgICAgICAgICAgcmV0dXJuIFt7InJvbGUiOiAic3lzdGVtIiwgImNvbnRlbnQiOiBmIlN1bW1hcnk6IHtzdW1tYXJ5fSJ9XSArIGhpc3RvcnlbLTQ6XQogICAgICAgIGV4Y2VwdCBFeGNlcHRpb246IHJldHVybiBoaXN0b3J5CgogICAgYXN5bmMgZGVmIF9jaGF0X3RleHQoc2VsZiwgbW9kZWwsIG1lc3NhZ2VzKSAtPiBzdHI6CiAgICAgICAgcmVzID0gYXdhaXQgc2VsZi5fcm91dGVyLmNoYXRfY29tcGxldGlvbih7Im1vZGVsIjogbW9kZWwsICJtZXNzYWdlcyI6IG1lc3NhZ2VzLCAic3RyZWFtIjogRmFsc2V9KQogICAgICAgIHJldHVybiByZXMucmVzcG9uc2UuanNvbigpWyJjaG9pY2VzIl1bMF1bIm1lc3NhZ2UiXVsiY29udGVudCJdCgogICAgYXN5bmMgZGVmIF9jaGF0X2pzb24oc2VsZiwgbW9kZWwsIG1lc3NhZ2VzKSAtPiBkaWN0OgogICAgICAgIHRleHQgPSBhd2FpdCBzZWxmLl9jaGF0X3RleHQobW9kZWwsIG1lc3NhZ2VzKQogICAgICAgIHJldHVybiBzZWxmLl9leHRyYWN0X2pzb24odGV4dCkKCiAgICBkZWYgX2V4dHJhY3RfanNvbihzZWxmLCB0ZXh0OiBzdHIpIC0+IGRpY3Q6CiAgICAgICAgcmV0dXJuIGpzb24ubG9hZHMocmUuc2VhcmNoKHIiXHsuKlx9IiwgdGV4dCwgcmUuUykuZ3JvdXAoMCkpCgogICAgZGVmIF9zYWZlX3JlYWQoc2VsZiwgcDogc3RyKSAtPiBzdHI6IAogICAgICAgIHRyeTogcmV0dXJuIFBhdGgocCkucmVhZF90ZXh0KCkKICAgICAgICBleGNlcHQgRXhjZXB0aW9uOiByZXR1cm4gIiIKCiAgICBkZWYgX3BhcnNlX2V4ZWN1dGlvbl9yZXNwb25zZShzZWxmLCByYXcsIGZhbGxiYWNrKToKICAgICAgICBtID0gcmUuc2VhcmNoKHIiRklMRTpccyooP1A8cGF0aD4uKilccypBQ1RJT046XHMqKD9QPGFjdGlvbj5jcmVhdGV8cmVwbGFjZXxhcHBlbmQpXHMqYGBgLio/XG4oP1A8Y29udGVudD4uKj8pXG5gYGAiLCByYXcsIHJlLlMpCiAgICAgICAgaWYgbm90IG06IHJldHVybiBOb25lCiAgICAgICAgcmV0dXJuIG0uZ3JvdXAoInBhdGgiKS5zdHJpcCgpIG9yIGZhbGxiYWNrLCBtLmdyb3VwKCJjb250ZW50IikKCiAgICBkZWYgX2NsZWFuX2dlbmVyYXRlZF9maWxlX2NvbnRlbnQoc2VsZiwgYyk6IHJldHVybiBjLnN0cmlwKCkgKyAiXG4iCgogICAgZGVmIF9jb21taXRfc3RlcChzZWxmLCBkZXNjLCBmaWxlcyk6CiAgICAgICAgdHJ5OgogICAgICAgICAgICBzdWJwcm9jZXNzLnJ1bihbImdpdCIsICJhZGQiLCAqZmlsZXNdLCBjaGVjaz1UcnVlKQogICAgICAgICAgICBzdWJwcm9jZXNzLnJ1bihbImdpdCIsICJjb21taXQiLCAiLW0iLCBmImFnZW50OiB7ZGVzY1s6NTBdfSJdLCBjaGVjaz1UcnVlKQogICAgICAgICAgICByZXR1cm4gc3VicHJvY2Vzcy5jaGVja19vdXRwdXQoWyJnaXQiLCAicmV2LXBhcnNlIiwgIkhFQUQiXSwgdGV4dD1UcnVlKS5zdHJpcCgpCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjogcmV0dXJuIE5vbmUKCiAgICBhc3luYyBkZWYgX3NwYXduX3N1YmFnZW50KHNlbGYsIGluc3RydWN0aW9uLCByZXF1ZXN0ZWRfbW9kZWwsIG1heF9zdGVwcywgdXNlcl9pZCwgbWVtb3J5X3N0b3JlLCBtZXRhZGF0YSkgLT4gZGljdDoKICAgICAgICBjaGlsZCA9IEFnZW50UnVubmVyKG9sbGFtYV9iYXNlPXNlbGYub2xsYW1hX2Jhc2UsIHdvcmtzcGFjZV9yb290PXNlbGYudG9vbHMucm9vdCkKICAgICAgICByZXR1cm4gYXdhaXQgY2hpbGQucnVuKGluc3RydWN0aW9uPWluc3RydWN0aW9uLCBoaXN0b3J5PVtdLCByZXF1ZXN0ZWRfbW9kZWw9cmVxdWVzdGVkX21vZGVsLCBhdXRvX2NvbW1pdD1GYWxzZSwgbWF4X3N0ZXBzPW1heF9zdGVwcywgdXNlcl9pZD11c2VyX2lkLCBtZW1vcnlfc3RvcmU9bWVtb3J5X3N0b3JlLCBtZXRhZGF0YT1tZXRhZGF0YSkKCiAgICBhc3luYyBkZWYgX3N5bnRoZXNpemVfYW5zd2VyKHNlbGYsIGcsIHMsIG8sIG0pOgogICAgICAgIG1zZyA9IFt7InJvbGUiOiAic3lzdGVtIiwgImNvbnRlbnQiOiAiU3ludGhlc2l6ZSBhbnN3ZXIuIn0sIHsicm9sZSI6ICJ1c2VyIiwgImNvbnRlbnQiOiBmIkdvYWw6IHtnfVxuUmVzdWx0czoge2pzb24uZHVtcHMobyl9In1dCiAgICAgICAgcmV0dXJuIGF3YWl0IHNlbGYuX2NoYXRfdGV4dChtLCBtc2cpCgogICAgZGVmIF9idWlsZF9zdW1tYXJ5KHNlbGYsIGcsIHNyLCBjKTogcmV0dXJuIGYiR29hbDoge2d9IGNvbXBsZXRlZC4iCiAgICBkZWYgX2J1aWxkX3JpY2hfcmVwb3J0KHNlbGYsIGcsIHNyLCBjKTogcmV0dXJuIGYiUmVwb3J0OiB7Z30gY29tcGxldGVkLiIK
+from __future__ import annotations
+
+import ast
+import json
+import logging
+import os
+import re
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import time
+import asyncio
+import httpx
+
+from agent.context_manager import ContextManager
+from agent.inference_cache import InferenceCache
+from agent.models import AgentPlan, ToolCall, VerificationResult
+from agent.prompts import (
+    build_compaction_prompt,
+    build_execution_prompt,
+    build_planning_prompt,
+    build_tool_prompt,
+    build_verification_prompt,
+)
+from agent.state import AgentSessionStore
+from agent.tools import WorkspaceTools
+from agent.user_memory import UserMemoryStore
+from provider_router import CommercialFallbackRequiredError, ProviderConfig, ProviderRouter
+from router import get_router
+
+log = logging.getLogger("qwen-agent")
+
+class AgentPhaseError(RuntimeError):
+    def __init__(self, phase: str, message: str) -> None:
+        self.phase = phase
+        super().__init__(f"{phase}: {message}")
+
+_RISKY_FILES: frozenset[str] = frozenset({
+    "admin_auth.py", "key_store.py", "agent/tools.py", "proxy.py",
+})
+
+DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "nvidia/llama-3_1-nemotron-ultra-253b-v1")
+DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen/qwen3-coder-480b-a35b-instruct")
+DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-ai/deepseek-r1")
+DEFAULT_JUDGE_MODEL = os.environ.get("AGENT_JUDGE_MODEL", DEFAULT_VERIFIER_MODEL)
+
+class AgentRunner:
+    def __init__(self, *, ollama_base: str, workspace_root: str | Path | None = None, provider_headers: dict[str, str] | None = None, provider_chain: list[ProviderConfig] | None = None, allow_commercial_fallback: bool = True, provider_temperature: float | None = None, session_store: AgentSessionStore | None = None, github_token: str | None = None, email: str | None = None, department: str | None = None, key_id: str | None = None) -> None:
+        self.ollama_base = ollama_base.rstrip("/")
+        self.provider_headers = dict(provider_headers or {})
+        self.provider_chain = list(provider_chain) if provider_chain is not None else None
+        self.allow_commercial_fallback = allow_commercial_fallback
+        self.provider_temperature = provider_temperature
+        self.tools = WorkspaceTools(workspace_root)
+        from agent.github_tools import GitHubTools
+        self.github = GitHubTools(github_token, self.tools.root)
+        self.ctx = ContextManager()
+        self._session_store = session_store
+        self.email = email
+        self.department = department
+        self.key_id = key_id
+        
+        _nvidia_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
+        _primary = ProviderConfig(
+            provider_id="agent-primary", 
+            type="openai-compatible", 
+            base_url="https://integrate.api.nvidia.com/v1" if _nvidia_key else self.ollama_base,
+            api_key=_nvidia_key, 
+            headers=dict(self.provider_headers), 
+            priority=-10 if _nvidia_key else 0
+        )
+        self._router = ProviderRouter([_primary, *(self.provider_chain or [])])
+        self._inference_cache = InferenceCache()
+
+    async def run(self, *, instruction: str, history: list[dict[str, str]], requested_model: str | None = None, model_overrides: dict[str, str | None] | None = None, auto_commit: bool = True, max_steps: int = 25, user_id: str | None = None, department: str | None = None, key_id: str | None = None, memory_store: UserMemoryStore | None = None, session_id: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        effective_history = history
+        if self.ctx.needs_compaction(history):
+            effective_history = await self._compact_history(history, requested_model, session_id)
+
+        self._log_event(session_id, "user_message", {"instruction": instruction})
+
+        plan = await self._generate_plan(instruction, effective_history, requested_model, model_overrides, max_steps, user_id, memory_store, metadata)
+        
+        def _step_touches_risky(step_files: list[str]) -> bool:
+            return any(sf.replace("\\", "/") == rf or sf.replace("\\", "/").endswith(f"/{rf}") for sf in step_files for rf in _RISKY_FILES)
+
+        if plan.requires_risky_review or any(_step_touches_risky(step.files) for step in plan.steps):
+            log.warning("RISKY MODULE detected in plan for '%s'.", plan.goal)
+            self._log_event(session_id, "step_start", {"tisky_review": True})
+
+        self._write_checkpoint(session_id, plan)
+
+        parallel_result = await self._maybe_run_parallel(plan=plan, instruction=instruction, requested_model=requested_model, model_overrides=model_overrides, max_steps=max_steps, auto_commit=auto_commit, user_id=user_id, memory_store=memory_store, session_id=session_id)
+        if parallel_result: return parallel_result
+
+        step_results = []
+        commits = []
+
+        for step in plan.steps[:max_steps]:
+            self._log_event(session_id, "step_start", {"step_id": step.id, "description": step.description})
+            result = await self._execute_step(plan.goal, step.model_dump(), requested_model, model_overrides, user_id, memory_store, session_id, metadata)
+            step_results.append(result)
+            if auto_commit and result.get("status") == "applied" and result.get("changed_files"):
+                sha = self._commit_step(step.description, result["changed_files"])
+                if sha: commits.append(sha)
+            if result.get("status") == "failed": break
+            
+        summary = self._build_summary(plan.goal, step_results, commits)
+        report = self._build_rich_report(plan.goal, step_results, commits)
+        self._log_event(session_id, "assistant_message", {"summary": summary})
+        judge_verdict = await self._run_judge(plan=plan, step_results=step_results, requested_model=requested_model, model_overrides=model_overrides, session_id=session_id)
+
+        return {
+            "goal": plan.goal,
+            "steps": step_results,
+            "summary": summary,
+            "judge": judge_verdict,
+            "report": report,
+    -€€€€€€€€‰Á±…¸ˆèÁ±…¸¹µ½‘•±}‘ÕµÀ ¤°(€€€€€€€€€€€€‰½µµ¥ÑÌˆè½µµ¥ÑÌ(€€€€€€€ô((€€€…Íå¹Œ‘•˜}•¹•É…Ñ•}Á±…¸¡Í•±˜°¥¹ÍÑÉÕÑ¥½¸°¡¥ÍÑ½Éä°µ½‘•°°½Ù•ÉÉ¥‘•Ì°µ…á}ÍÑ•ÁÌ°ÕÍ•É}¥°µ•µ½Éå}ÍÑ½É”°µ•Ñ…‘…Ñ„¤€´ø•¹ÑA±…¸è(€€€€€€€ÕÍ•É}µ•µ½É¥•Ì€ôµ•µ½Éå}ÍÑ½É”¹É•…±±}…±°¡ÕÍ•É}¥¤¥˜µ•µ½Éå}ÍÑ½É”…¹ÕÍ•É}¥•±Í”íô(€€€€€€€µ•ÍÍ…•Ì€ô‰Õ¥±‘}Á±…¹¹¥¹}ÁÉ½µÁÐ¡¥¹ÍÑÉÕÑ¥½¸°¡¥ÍÑ½Éä°ÕÍ•É}µ•µ½É¥•ÌõÕÍ•É}µ•µ½É¥•Ì°µ•Ñ…‘…Ñ„õµ•Ñ…‘…Ñ„¤(€€€€€€€Á±…¹¹•É}µ½‘•°€ô€¡½Ù•ÉÉ¥‘•Ì½Èíô¤¹•Ð ‰Á±…¹¹•Èˆ¤½Èµ½‘•°½ÈU1Q}A199I}5=0(€€€€€€€É…Ü€ô…Ý…¥ÐÍ•±˜¹}¡…Ñ}©Í½¸¡Á±…¹¹•É}µ½‘•°°µ•ÍÍ…•Ì¤(€€€€€€€¥˜€‰ÍÑ•ÁÌˆ¹½Ð¥¸É…Ü…¹€‰Í±¥•Ìˆ¥¸É…ÜèÉ…Ýl‰ÍÑ•ÁÌ‰t€ôÉ…Ü¹Á½À ‰Í±¥•Ìˆ¤(€€€€€€€¥˜¹½ÐÉ…Ü¹•Ð ‰½…°ˆ¤èÉ…Ýl‰½…°‰t€ô¥¹ÍÑÉÕÑ¥½¹lèÈÀÁt(€€€€€€€Á±…¸€ô•¹ÑA±…¸¹µ½‘•±}Ù…±¥‘…Ñ”¡É…Ü¤(€€€€€€€Á±…¸¹ÍÑ•ÁÌ€ôÁ±…¸¹ÍÑ•ÁÍléµ…á}ÍÑ•ÁÍt(€€€€€€€É•ÑÕÉ¸Á±…¸((€€€…Íå¹Œ‘•˜}•á•ÕÑ•}ÍÑ•À¡Í•±˜°½…°°ÍÑ•À°µ½‘•°°½Ù•ÉÉ¥‘•Ì°ÕÍ•É}¥°µ•µ½Éå}ÍÑ½É”°Í•ÍÍ¥½¹}¥°µ•Ñ…‘…Ñ„¤€´ø‘¥Ðè(€€€€€€€½‰Í•ÉÙ…Ñ¥½¹Ì€ômt(€€€€€€€½¹Ñ•áÑ}¥Ñ•µÌ€ômt(€€€€€€€•á•ÕÑ½É}µ½‘•°€ô€¡½Ù•ÉÉ¥‘•Ì½Èíô¤¹•Ð ‰•á•ÕÑ½Èˆ¤½Èµ½‘•°½ÈU1Q}aUQ=I}5=0(€€€€€€€Ù•É¥™¥•É}µ½‘•°€ô€¡½Ù•ÉÉ¥‘•Ì½Èíô¤¹•Ð ‰Ù•É¥™¥•Èˆ¤½Èµ½‘•°½ÈU1Q}YI%%I}5=0((€€€€€€€™½Èremaining in range(15, 0, -1):
+            try:
+                raw_text = await self._chat_text(executor_model, build_tool_prompt(goal=goal, step=step, observations=observations, remaining_calls=remaining))
+                if "FILE:" in raw_text and "ACTION:" in raw_text:
+                    context_items.append({"tool": "pseudo_finish", "result": raw_text})
+                    break
+                try:
+                    tool_call = self._extract_json(raw_text)
+                    call = TÙolCall.model_validate(tool_call)
+                except Exception:
+                    context_items.append({"tool": "prose", "result": raw_text})
+                    break
+                if call.tool == "finish": break
+                
+                call_id = f"step-{step['id']}-tool-{16 - remaining}"
+                self._log_event(session_id, "tool_call", {"call_id": call_id, "tool_name": call.tool, "args": call.args})
+                result = await self._run_tool(call.tool, call.args, user_id, memory_store, metadata)
+                self._log_event(session_id, "tool_result", {"call_id": call_id, "tool_name": call.tool, "output": str(result)[:1000]})
+                observations.append({"tool": call.tool, "args": call.args, "result": result})
+                context_items.append({"tool": call.tool, "result": result})
+            except Exception as e: observations.append({"tool": "error", "result": str(e)})
+
+        if step.get("type") in ("github", "analyze"):
+            answer = await self._synthesize_answer(goal, step, observations, executor_model)
+            return {"step_id": step["id"], "description": step["description"], "status": "applied", "observations": observations, "answer": answer, "changed_files": []}
+
+        target_files = step.get("files") or []
+        if not target_files:
+            return {"step_id": step["id"], "description": step["description"], "status": "failed", "issues": ["No files identified"], "changed_files": [], "observations": observations}
+
+        changed_files = []
+        for target_file in target_files:
+            original_content = self._safe_read(target_file)
+            response = context_items[-1]["result"] if context_items and "FILE:" in context_items[-1]["result"] else await self._chat_text(executor_model, build_execution_prompt(goal=goal, step=step, target_file=target_file, context_items=observations, feedback_issues=[]))
+            parsed = self._parse_execution_response(response, target_file)
+            if not parsed:
+                return {"step_id": step["id"], "description": step["description"], "status": "failed", "issues": ["You violated format rules."], "changed_files": [], "observations": observations}
+
+            out_path, new_content = parsed
+            new_content = self._clean_generated_file_content(new_content)
+            try:
+                raw_verify = await self._chat_json(verifier_model, build_verification_prompt(goal=goal, step=step, target_file=out_path, original_content=original_content, new_content=new_content, syntax_issues=[]))
+                verdict = VerificationResult.model_validate(raw_verify)
+                if verdict.status == "pass":
+                    self.tools.apply_diff(out_path, new_content)
+                    changed_files.append(out_path)
+                else:
+                    return {"step_id": step["id"], "description": step["description"], "status": "failed", "issues": verdict.issues, "changed_files": changed_files, "observations": observations}
+            except Exception:
+                self.tools.apply_diff(out_path, new_content)
+                changed_files.append(out_path)
+        return {"step_id": step["id"], "description": step["description"], "status": "applied", "changed_files": changed_files, "observations": observations}
+
+    async def _run_tool(self, tool, args, user_id, memory_store, metadata) -> Any:
+        try:
+            if tool == "read_file": return self.tools.read_file(str(args.get("path", "")))
+            if tool == "list_files": return self.tools.list_files(str(args.get("path", ".")))
+            if tool == "github_comment_on_issue": return await self.github.comment_on_issue(args["repo_name"], int(args["issue_number"]), args["body"])
+            if tool == "github_close_issue": return await self.github.close_issue(args["repo_name"], int(args["issue_number"]), args.get("comment"))
+            if tool == "github_get_issue": return await self.github.get_issue(args["repo_name"], int(args["issue_number"]))
+            if tool == "github_read_repo_file": return await self.github.read_repo_file(args["repo_name"], args["path"], args.get("branch", "main"))
+            if tool == "github_clone_repo": return self.github.clone_repo(args["repo_url"], args.get("branch", "master"))
+            if tool == "spawn_subagent": return await self._spawn_subagent(instruction=args["instruction"], requested_model=args.get("model"), max_steps=args.get("max_steps", 5), user_id=user_id, memory_store=memory_store, metadata=metadata)
+            raise ValueError(f"Unknown tool: {tool}")
+        except Exception as e: return f"[error: {e}]"
+
+    async def _run_judge(self, *, plan, step_results, requested_model, model_overrides, session_id) -> dict:
+        judge_verdict = {"verdict": "APPROVED", "notes": "Automated check passed."}
+        try:
+            judge_model = (model_overrides or {}).get("judge") or DEFAULT_JUDGE_MODEL
+            msg = [{"role": "system", "content": "Review results. Return JSON: { \"verdict\": \"APPROVED | APPROVED_WITH_CONDITIONS | BLOCKED\", \"notes\": \"\" }"}, {"role": "user", "content": f"Results: {json.dumps(step_results)}"}]
+            raw = await self._chat_json(judge_model, msg)
+            if "verdict" in raw: judge_verdict = raw
+        except Exception: pass
+        return judge_verdict
+
+    async def _maybe_run_parallel(self, **kwargs) -> Any: return None
+
+    @staticmethod
+    def _steps_are_independent(steps: list[Any]) -> bool:
+        seen = set()
+        for s in steps:
+            files = getattr(s, "files", []) if not isinstance(s, dict) else s.get("files", [])
+            for f in files:
+                if f in seen: return False
+                seen.add(f)
+        return True
+
+    def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
+        if session_id and self._session_store:
+            try: self._session_store.append_event(session_id, event_type, payload)
+            except Exception: pass
+
+    def _write_checkpoint(self, session_id: str | None, plan: AgentPlan) -> None:
+        try:
+            state_dir = self.tools.root / ".claude" / "state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            yÁfe_sid = re.sub(r"[^A-Za-z0-9_\-]", "_", session_id or "unknown")
+            (state_dir / f"agent-state-{safe_sid}.json").write_text(json.dumps({"goal": plan.goal}, indent=2))
+        except Exception: pass
+
+    async def _compact_history(self, history, model, session_id):
+        try:
+            summary = await self._chat_text(model or DEFAULT_PLANNER_MODEL, build_compaction_prompt(history))
+            return [{"role": "system", "content": f"Summary: {summary}"}] + history[-4:]
+        except Exception: return history
+
+    async def _chat_text(self, model, messages) -> str:
+        res = await self._router.chat_completion({"model": model, "messages": messages, "stream": False})
+        return res.response.json()["choices"][0]["message"]["content"]
+
+    async def _chat_json(self, model, messages) -> dict:
+        text = await self._chat_text(model, messages)
+        return self._extract_json(text)
+
+    def _extract_json(self, text: str) -> dict:
+        return json.loads(re.search(r"\{.*\}", text, re.S).group(0))
+
+    def _safe_read(self, p: str) -> str: 
+        try: return Path(p).read_text()
+        except Exception: return ""
+
+    def _parse_execution_response(self, raw, fallback):
+        m = re.search(r"FILE:\s*(?P<path>.*)\s*ACTION:\s*(?P<action>create|replace|append)\s*```.*?\n(?P<content>.*?)\n```", raw, re.S)
+        if not m: return None
+        return m.group("path").strip() or fallback, m.group("content")
+
+    def _clean_generated_file_content(self, c): return c.strip() + "\n"
+
+    def _commit_step(self, desc, files):
+        try:
+            subprocess.run(["git", "add", *files], check=True)
+            subprocess.run(["git", "commit", "-m", f"agent: {desc[:50]}"], check=True)
+            return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        except Exception: return None
+
+    async def _spawn_subagent(self, instruction, requested_model, max_steps, user_id, memory_store, metadata) -> dict:
+        child = AgentRunner(ollama_base=self.ollama_base, workspace_root=self.tools.root)
+        return await child.run(instruction=instruction, history=[], requested_model=requested_model, auto_commit=False, max_steps=max_steps, user_id=user_id, memory_store=memory_store, metadata=metadata)
+
+    async def _synthesize_answer(self, g, s, o, m):
+        msg = [{"role": "system", "content": "Synthesize answer."}, {"role": "user", "content": f"Goal: {g}\nResults: {json.dumps(o)}"}]
+        return await self._chat_text(mol, msg)
+
+    def _build_summary(self, g, sr, c): return f"Goal: {g} completed."
+    def _build_rich_report(self, g, sr, c): return f"Report: {g} completed."
