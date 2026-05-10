@@ -1,6 +1,16 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- `agent/github_tools.py` — Fixed syntax errors regarding misplaced future imports.
+- `agent/loop.py` — Enforced 'real work' requirement for edit/create tasks; increased max tool calls per step to 50.
+- `runtimes/health.py` — Increased health check timeouts to 60s and circuit-breaker threshold to 10 failures to improve system uptime and reduce transient 'offline' status.
+- `runtimes/api.py` — Sanitized error messages to prevent stack trace and internal information exposure.
+- `agent/tools.py` — Implemented strict path traversal prevention using robust prefix validation.
+- `.github/scripts/security_fix_agent.py` — Fixed OpenClaw execution path.
+- `.github/workflows/openclaw-security-automation.yml` — Restored corrupted workflow file.
+- `direct_chat.py` — Improved triviality filters to better handle coding-related requests in agent mode; fixed syntax errors.
+
 
 ### Fixed
 - `runtimes/control.py` — Expanded Docker-socket error detection to handle overlay mount failures in CI; added port-conflict resolution by killing existing processes on target ports before starting local runtimes.

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """agent/github_tools.py — GitHub integration + local workspace execution.
 
 Provides:
@@ -19,8 +20,6 @@ Local workspace flow:
   POST /api/github/repos/{owner}/{repo}/workspace/pr     → open PR via API
 """
 
-from __future__ import annotations
-import re
 
 import asyncio
 import base64
@@ -220,6 +219,41 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
+
+    async def get_issue(self, owner: str, repo: str, issue_number: int) -> dict[str, Any]:
+        """Fetch a single GitHub issue."""
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}",
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def comment_on_issue(self, owner: str, repo: str, issue_number: int, body: str) -> dict[str, Any]:
+        """Post a comment on a GitHub issue."""
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}/comments",
+                headers=self._headers(),
+                json={"body": body},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def close_issue(self, owner: str, repo: str, issue_number: int, comment: str | None = None) -> dict[str, Any]:
+        """Close a GitHub issue, optionally adding a comment first."""
+        if comment:
+            await self.comment_on_issue(owner, repo, issue_number, comment)
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.patch(
+                f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}",
+                headers=self._headers(),
+                json={"state": "closed"},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     # ── backwards compat shims (old single-string owner/repo argument) ─────────
 
     async def read_repo_file_compat(
@@ -297,7 +331,7 @@ class LocalWorkspace:
                  raise ValueError("Invalid workspace location")
             owner_dir.mkdir(parents=True, exist_ok=True)
             rc, out, err = await self._run(
-                "git", "clone", "--depth=10", self.clone_url, str(self.path),
+                "git", "clone", "--depth=50", self.clone_url, str(self.path),
                 cwd=owner_dir,
             )
             action = "cloned"

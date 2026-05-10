@@ -60,10 +60,16 @@ def main() -> int:
         if cmd == "--check-codeql":
             print(codeql_count())
             return 0
-        if cmd in {"--fix-dependabot", "--fix-codeql"}:
-            # Best-effort placeholder: avoid failing workflow when no automatic patch is possible.
-            print(f"No-op {cmd}: auto-fix requires repository-specific logic.")
+
+        if cmd == "--fix-dependabot":
+            print("Running OpenClaw for Dependabot alerts...")
+            os.system("npx openclaw --fix dependabot")
             return 0
+        if cmd == "--fix-codeql":
+            print("Running OpenClaw for CodeQL alerts...")
+            os.system("npx openclaw --fix codeql")
+            return 0
+
         print(f"Unknown argument: {cmd}")
         return 1
     except Exception as exc:  # noqa: BLE001
