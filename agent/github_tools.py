@@ -1,4 +1,3 @@
-import re
 """agent/github_tools.py — GitHub integration + local workspace execution.
 
 Provides:
@@ -21,6 +20,7 @@ Local workspace flow:
 """
 
 from __future__ import annotations
+import re
 
 import asyncio
 import base64
