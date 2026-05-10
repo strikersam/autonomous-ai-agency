@@ -182,9 +182,10 @@ async def start_runtime_container(runtime_id: str) -> dict:
     if result.get("docker_unavailable") or result.get("remote_managed"):
         return result
     if result.get("status") == "error":
-        # Log error internally but return generic message to user
-        log.error("Runtime start failed for %s: %s", runtime_id, result.get("error", "Unknown error"))
-        raise HTTPException(status_code=500, detail="Failed to start runtime container")
+        # Ensure external errors never leak stack traces or internal details
+        internal_error = str(result.get("error", "Unknown"))
+        log.error(f"Runtime start failed for {runtime_id}: {internal_error}")
+        raise HTTPException(status_code=500, detail="Internal server error during runtime startup")
     return result
 
 
@@ -195,8 +196,9 @@ async def stop_runtime_container(runtime_id: str) -> dict:
     if result.get("docker_unavailable"):
         return result
     if result.get("status") == "error":
-        log.error("Runtime stop failed for %s: %s", runtime_id, result.get("error", "Unknown error"))
-        raise HTTPException(status_code=500, detail="Failed to stop runtime container")
+        internal_error = str(result.get("error", "Unknown"))
+        log.error(f"Runtime stop failed for {runtime_id}: {internal_error}")
+        raise HTTPException(status_code=500, detail="Internal server error during runtime shutdown")
     return result
 
 

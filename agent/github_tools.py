@@ -1,3 +1,4 @@
+import re
 """agent/github_tools.py — GitHub integration + local workspace execution.
 
 Provides:
@@ -241,21 +242,25 @@ class LocalWorkspace:
     """
 
     def __init__(self, owner: str, repo: str, token: str | None = None) -> None:
-        # Sanitize inputs to prevent path injection
-        safe_owner = "".join(c for c in owner if c.isalnum() or c in "-_.")
-        safe_repo  = "".join(c for c in repo if c.isalnum() or c in "-_.")
-        self.owner = safe_owner
-        self.repo  = safe_repo
+        # Strictly validate inputs to prevent path injection
+        if not re.match(r"^[a-zA-Z0-9_-]+$", owner):
+            raise ValueError("Invalid owner name")
+        if not re.match(r"^[a-zA-Z0-9_-]+$", repo):
+            raise ValueError("Invalid repository name")
+
+        self.owner = owner
+        self.repo  = repo
         self.token = token
 
-        # Build path using absolute components to satisfy static analysis
-        base_abs = WORKSPACE_BASE_DIR.resolve()
-        target_path = (base_abs / safe_owner / safe_repo).resolve()
+        # Build path using os.path.join and absolute base for safety
+        base_abs = str(WORKSPACE_BASE_DIR.resolve())
+        # Use only validated components
+        safe_path = os.path.normpath(os.path.join(base_abs, owner, repo))
 
-        # Explicit bounds check
-        if not str(target_path).startswith(str(base_abs)):
-             raise ValueError("Invalid owner or repository name")
-        self.path = target_path
+        # Strong prefix check to satisfy static analysis
+        if not safe_path.startswith(base_abs + os.sep):
+             raise ValueError("Path escapes workspace root")
+        self.path = Path(safe_path)
 
     @property
     def clone_url(self) -> str:
@@ -284,11 +289,16 @@ class LocalWorkspace:
     async def clone_or_pull(self) -> dict[str, Any]:
         """Clone the repo if it doesn't exist; pull if it does."""
         if not self.exists():
-            WORKSPACE_BASE_DIR.mkdir(parents=True, exist_ok=True)
-            (WORKSPACE_BASE_DIR / self.owner).mkdir(parents=True, exist_ok=True)
+            base = WORKSPACE_BASE_DIR.resolve()
+            base.mkdir(parents=True, exist_ok=True)
+            # Use validated self.owner to construct owner_dir
+            owner_dir = Path(os.path.normpath(os.path.join(str(base), self.owner)))
+            if not str(owner_dir).startswith(str(base) + os.sep):
+                 raise ValueError("Invalid workspace location")
+            owner_dir.mkdir(parents=True, exist_ok=True)
             rc, out, err = await self._run(
                 "git", "clone", "--depth=10", self.clone_url, str(self.path),
-                cwd=WORKSPACE_BASE_DIR / self.owner,
+                cwd=owner_dir,
             )
             action = "cloned"
         else:
