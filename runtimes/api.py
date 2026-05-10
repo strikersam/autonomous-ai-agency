@@ -193,7 +193,8 @@ async def start_runtime_container(runtime_id: str) -> dict:
 async def stop_runtime_container(runtime_id: str) -> dict:
     """Stop a running runtime container."""
     result = await stop_runtime(runtime_id)
-    if result.get("docker_unavailable"):
+    # 200 with informational payload — not an error (allows UI to show remote/local info)
+    if result.get("docker_unavailable") or result.get("remote_managed"):
         return result
     if result.get("status") == "error":
         internal_error = str(result.get("error", "Unknown"))
