@@ -1,5 +1,5 @@
 """
-Agentic implementation loop using NVIDIA NIM (OpenAI-compatible tool use).
+Agentic implementation loop using NVIDIA NIM or Moonshot (OpenAI-compatible tool use).
 """
 from __future__ import annotations
 
@@ -7,9 +7,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
-from openai import NotFoundError, OpenAI, PermissionDeniedError
+from openai import NotFoundError, OpenAI, PermissionDeniedError, RateLimitError
 
 URL = sys.argv[1] if len(sys.argv) > 1 else ""
 ISSUE_NUM = sys.argv[2] if len(sys.argv) > 2 else "?"
@@ -18,30 +19,35 @@ RESULT_FILE = "/tmp/impl_result.json"
 MAX_TURNS = 100
 
 CANDIDATE_MODELS = [
-    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
-    ("qwen/qwen3-coder-480b-a35b-instruct", "coding (Qwen3-Coder 480B)"),
-    ("qwen/qwen2.5-coder-32b-instruct", "coding (Qwen2.5 Coder 32B)"),
+    ("nvidia/nemotron-3-super-120b-a12b", "nvidia"),
+    ("nvidia/qwen2.5-coder-32b-instruct", "nvidia"),
+    ("kimi-k2.6", "moonshot"),
 ]
 
-# Security note: this helper intentionally uses subprocess.run(..., shell=True)
-# to support free-form bash execution as part of agentic tooling. This script
-# MUST only run in isolated CI/ephemeral environments with strict permissions,
-# no network access, and vetted inputs to reduce command-injection risk.
+PROVIDERS = {
+    "nvidia": {
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "api_key": os.environ.get("NVIDIA_API_KEY"),
+    },
+    "moonshot": {
+        "base_url": "https://api.moonshot.cn/v1",
+        "api_key": os.environ.get("MOONSHOT_API_KEY"),
+    }
+}
+
 def tool_bash(cmd: str) -> str:
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
         out, err = result.stdout[-6000:], result.stderr[-2000:]
         return f"{out}\n[stderr]\n{err}\n[exit {result.returncode}]"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"[error: {exc}]"
-
 
 def tool_read_file(path: str) -> str:
     try:
         return Path(path).read_text(errors="replace")[:12000]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"[error: {exc}]"
-
 
 def tool_write_file(path: str, content: str) -> str:
     try:
@@ -49,13 +55,11 @@ def tool_write_file(path: str, content: str) -> str:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         return f"Written to {path}"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"[error: {exc}]"
-
 
 def tool_search(query: str) -> str:
     return tool_bash(f"grep -rnE '{query}' . | head -50")
-
 
 TOOL_DISPATCH = {
     "bash": lambda i: tool_bash(i["cmd"]),
@@ -79,10 +83,7 @@ SYSTEM = (
     "ONLY when all tests pass."
 )
 
-
 def main() -> None:
-    client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=os.environ["NVIDIA_API_KEY"])
-
     note_path = Path("/tmp/note_content.txt")
     url_content = note_path.read_text() if note_path.exists() else ""
     user_msg = f"Issue #{ISSUE_NUM}\nURL: {URL}\nTask: {TASK}\n\nContent:\n{url_content[:5000]}"
@@ -92,11 +93,23 @@ def main() -> None:
     last_pytest_passed = False
     turns = 0
     model_idx = 0
-    model = CANDIDATE_MODELS[model_idx][0]
     msg = None
 
     while turns < MAX_TURNS:
         turns += 1
+        model, provider_name = CANDIDATE_MODELS[model_idx]
+        provider = PROVIDERS[provider_name]
+
+        if not provider["api_key"]:
+            print(f"Skipping {model} as {provider_name} API key is missing.", file=sys.stderr)
+            model_idx += 1
+            if model_idx >= len(CANDIDATE_MODELS):
+                break
+            turns -= 1
+            continue
+
+        client = OpenAI(base_url=provider["base_url"], api_key=provider["api_key"])
+
         try:
             res = client.chat.completions.create(model=model, tools=TOOLS, messages=messages)
         except (NotFoundError, PermissionDeniedError) as exc:
@@ -105,8 +118,12 @@ def main() -> None:
             if model_idx >= len(CANDIDATE_MODELS):
                 print("All candidate models failed.", file=sys.stderr)
                 break
-            model = CANDIDATE_MODELS[model_idx][0]
-            print(f"Retrying with fallback model: {model}", file=sys.stderr)
+            turns -= 1
+            continue
+        except RateLimitError as exc:
+            wait = 5 * (2 ** (turns % 3))
+            print(f"Rate limit hit for {model}. Waiting {wait}s...", file=sys.stderr)
+            time.sleep(wait)
             turns -= 1
             continue
         except Exception as exc:
@@ -122,23 +139,26 @@ def main() -> None:
             break
 
         for tc in msg.tool_calls:
-            args = json.loads(tc.function.arguments)
-            out = TOOL_DISPATCH.get(tc.function.name, lambda _i: "[error: unknown tool]")(args)
-            if tc.function.name == "bash" and "pytest" in args.get("cmd", ""):
-                last_pytest_passed = "[exit 0]" in out
-            if tc.function.name == "bash" and "IMPLEMENTATION_COMPLETE" in out:
-                if last_pytest_passed:
-                    success = True
-                else:
-                    out = "[ERROR] Pytest failed. Fix tests before completion."
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": out})
+            try:
+                args = json.loads(tc.function.arguments)
+                out = TOOL_DISPATCH.get(tc.function.name, lambda _i: "[error: unknown tool]")(args)
+                if tc.function.name == "bash" and "pytest" in args.get("cmd", ""):
+                    last_pytest_passed = "[exit 0]" in out
+                if tc.function.name == "bash" and "IMPLEMENTATION_COMPLETE" in out:
+                    if last_pytest_passed:
+                        success = True
+                    else:
+                        out = "[ERROR] Pytest failed. Fix tests before completion."
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": out})
+            except Exception as e:
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": f"[error: {e}]"})
+
         if success:
             break
 
     with open(RESULT_FILE, "w", encoding="utf-8") as handle:
         json.dump({"success": success, "summary": msg.content if msg and msg.content else ("Done" if success else "Failed")}, handle)
     sys.exit(0 if success else 1)
-
 
 if __name__ == "__main__":
     main()
