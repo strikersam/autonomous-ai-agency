@@ -241,10 +241,15 @@ class LocalWorkspace:
     """
 
     def __init__(self, owner: str, repo: str, token: str | None = None) -> None:
-        self.owner  = owner
-        self.repo   = repo
+        # Sanitize inputs to prevent path injection
+        self.owner  = "".join(c for c in owner if c.isalnum() or c in "-_.")
+        self.repo   = "".join(c for c in repo if c.isalnum() or c in "-_.")
         self.token  = token
-        self.path   = WORKSPACE_BASE_DIR / owner / repo
+        self.path   = (WORKSPACE_BASE_DIR / self.owner / self.repo).resolve()
+
+        # Verify result is still under WORKSPACE_BASE_DIR
+        if WORKSPACE_BASE_DIR.resolve() not in self.path.parents:
+             raise ValueError("Invalid owner or repository name")
 
     @property
     def clone_url(self) -> str:
