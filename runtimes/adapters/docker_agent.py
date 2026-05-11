@@ -57,6 +57,10 @@ class DockerAgentAdapter(RuntimeAdapter):
 
     async def health_check(self) -> RuntimeHealth:
         try:
+            import shutil
+            docker_path = shutil.which("docker")
+            if not docker_path:
+                return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error="'docker' binary not found on PATH")
             proc = await asyncio.create_subprocess_exec(
                 "docker", "version",
                 stdout=asyncio.subprocess.PIPE,
