@@ -438,8 +438,23 @@ export default function ChatPage() {
         if (['succeeded', 'failed', 'cancelled'].includes(data.status)) {
           clearInterval(jobPollRef.current);
           jobPollRef.current = null;
-          if (data.status === 'succeeded' && data.result?.response) {
-            setMessages(prev => [...prev, { role: 'assistant', content: data.result.response }]);
+          // Extract a human-friendly assistant message from the job result.
+          const extractAssistantMessage = (job) => {
+            if (!job) return null;
+            // Prefer normalized response
+            if (job.result?.response) return job.result.response;
+            // Fallbacks into common runtime keys
+            const raw = job.result?.raw || job.result || {};
+            return raw?.response || raw?.summary || raw?.report || raw?.output || raw?.metadata?.agent_comment || null;
+          };
+          const assistantMsg = extractAssistantMessage(data);
+          if (data.status === 'succeeded' && assistantMsg) {
+            setMessages(prev => [...prev, { role: 'assistant', content: assistantMsg }]);
+            loadSessions();
+          } else if (data.status === 'succeeded' && !assistantMsg) {
+            // No usable assistant text produced — show structured summary instead of raw JSON
+            const summary = data.result?.raw?.summary || data.result?.raw?.report || data.result?.raw?.output || 'Agent completed with no textual summary.';
+            setMessages(prev => [...prev, { role: 'assistant', content: summary }]);
             loadSessions();
           } else if (data.status !== 'succeeded') {
             setMessages(prev => [...prev, {

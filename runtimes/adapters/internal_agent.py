@@ -101,18 +101,48 @@ class InternalAgentAdapter(RuntimeAdapter):
         ]
 
     async def health_check(self) -> RuntimeHealth:
+        """Check runtime health conservatively.
+
+        If an Nvidia key is configured, consider the runtime available (cloud-backed).
+        Otherwise attempt a quick local Ollama probe; if Ollama is unreachable the
+        runtime is considered unavailable so callers won't route tasks into a broken
+        runtime silently.
+        """
         nvidia_key = (
             os.environ.get("NVIDIA_API_KEY")
             or os.environ.get("NVidiaApiKey")
             or ""
         ).strip()
+        provider_label = "nvidia-nim" if nvidia_key else "ollama"
+        # If Nvidia key present, assume external provider is reachable (best-effort)
+        if nvidia_key:
+            return RuntimeHealth(
+                runtime_id=self.RUNTIME_ID,
+                available=True,
+                details={"workspace_root": self._workspace_root, "provider": provider_label},
+            )
+
+        # Probe local Ollama endpoint conservatively
+        import httpx
+        try:
+            base = (os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or self._ollama_base).rstrip("/")
+            # Prefer a lightweight endpoint; many Ollama installs respond on root
+            probe_url = f"{base}/v1/health" if base.endswith(":11434") else base
+            resp = httpx.get(probe_url, timeout=1.0)
+            if resp.status_code >= 200 and resp.status_code < 400:
+                return RuntimeHealth(
+                    runtime_id=self.RUNTIME_ID,
+                    available=True,
+                    details={"workspace_root": self._workspace_root, "provider": provider_label, "probe_url": probe_url},
+                )
+        except Exception:
+            # fall through to unavailable
+            pass
         return RuntimeHealth(
             runtime_id=self.RUNTIME_ID,
-            available=True,
-            details={
-                "workspace_root": self._workspace_root,
-                "provider": "nvidia-nim" if nvidia_key else "ollama",
-            },
+            available=False,
+            error="Local Ollama not reachable",
+            details={"workspace_root": self._workspace_root, "provider": provider_label},
         )
 
     async def execute(self, spec: TaskSpec) -> TaskResult:

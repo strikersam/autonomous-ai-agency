@@ -63,6 +63,11 @@ class AgentJob:
             "progress_events": self.progress_events,
             "result": self.result,
             "error": self.error,
+            # Convenience field for clients: a canonical final assistant-facing message
+            "final_message": (
+                (self.result.get("response") if isinstance(self.result, dict) else None)
+                or (self.error.get("message") if isinstance(self.error, dict) else None)
+            ),
         }
 
 
@@ -183,7 +188,21 @@ class AgentJobManager:
         heartbeat("starting", "Job started")
         try:
             result = await runner(heartbeat)
-            job.result = result
+            # Normalize result to expose a canonical assistant-facing message
+            # while preserving the raw runtime/runner payload under 'raw'.
+            normalized_response = None
+            if isinstance(result, dict):
+                # Prefer common keys in descending priority
+                normalized_response = (
+                    result.get("response")
+                    or result.get("summary")
+                    or result.get("output")
+                    or (result.get("report") if isinstance(result.get("report"), str) else None)
+                )
+                job.result = {"response": normalized_response, "raw": result}
+            else:
+                # Non-dict runners may return simple strings
+                job.result = {"response": str(result), "raw": result}
             job.status = "succeeded"
             job.phase = "completed"
             heartbeat("completed", "Job completed")

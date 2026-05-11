@@ -221,6 +221,64 @@ async def _handle_agent_mode(
     _ensure_session(session_id, user)
     _direct_chat_store.append_message(session_id, "user", req.content)
     github_token = await _get_github_token_for_user(user.email)
+
+    # GitHub preflight: for prompts that appear to require repo/git access, ensure
+    # a token and git binary are available and provide structured actionable errors
+    # rather than letting the job enter a vague failing state.
+    import shutil
+    import httpx
+    lc = req.content.lower()
+    repo_keywords = ("repo", "git", "pull request", "pull-request", "pr", "commit", "push", "clone", "checkout", "branch")
+    if any(kw in lc for kw in repo_keywords):
+        issues = []
+        if not github_token:
+            issues.append({
+                "code": "missing_github_token",
+                "message": "No GitHub token available for this user.",
+                "fix_hint": "Add a GitHub token in Settings or set GH_TOKEN/GITHUB_TOKEN.",
+            })
+        # Validate git binary
+        if not shutil.which("git"):
+            issues.append({
+                "code": "missing_git_binary",
+                "message": "'git' binary not found on PATH.",
+                "fix_hint": "Install git and ensure it is on PATH.",
+            })
+        # If a token exists, do a best-effort validation against GitHub API to detect
+        # invalid tokens or insufficient scopes (we require 'repo' for repo edits).
+        if github_token:
+            try:
+                headers = {
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github+json",
+                }
+                resp = httpx.get("https://api.github.com/user", headers=headers, timeout=2.0)
+                if resp.status_code != 200:
+                    issues.append({
+                        "code": "invalid_github_token",
+                        "message": "GitHub token rejected by GitHub API.",
+                        "fix_hint": "Reconnect GitHub in Settings or set a valid token with repo scopes.",
+                        "details": {"status_code": resp.status_code},
+                    })
+                else:
+                    scopes = resp.headers.get("X-OAuth-Scopes", "").lower()
+                    if any(kw in lc for kw in ("repo", "pull", "commit", "push")) and "repo" not in scopes:
+                        issues.append({
+                            "code": "insufficient_github_scopes",
+                            "message": "GitHub token may be missing 'repo' scope required for repository edits.",
+                            "fix_hint": "Grant 'repo' scope or use a token with repository access.",
+                            "details": {"scopes": scopes},
+                        })
+            except Exception as e:
+                issues.append({
+                    "code": "github_api_unreachable",
+                    "message": "Could not validate GitHub token due to network error.",
+                    "fix_hint": "Ensure the server can reach api.github.com or validate token in Settings.",
+                    "details": {"error": str(e)},
+                })
+        if issues:
+            raise HTTPException(status_code=412, detail={"ready": False, "issues": issues, "summary": "Git/GitHub preflight failed"})
+
     job = _agent_jobs.create_job(session_id=session_id, owner_id=user.email, instruction=req.content, requested_model=req.model, provider_id=req.provider_id)
     workspace_root = make_isolated_workspace(_agent_workspace_root, session_id, job.job_id)
     job.workspace_path = str(workspace_root)

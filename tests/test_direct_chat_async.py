@@ -147,3 +147,28 @@ def test_make_isolated_workspace_hashes_valid_identifiers(tmp_path: Path):
     assert workspace.parent.name != "session-1"
     assert workspace.name != "job-1"
     assert workspace.exists()
+
+
+def test_job_result_normalizes_and_exposes_final_message():
+    from agent.job_manager import AgentJobManager
+
+    mgr = AgentJobManager()
+    job = mgr.create_job(session_id="s1", instruction="do work")
+
+    async def runner(heartbeat):
+        heartbeat("planning", "planning")
+        return {"summary": "Final textual summary", "steps": []}
+
+    mgr.start_job(job.job_id, runner)
+
+    import time
+    for _ in range(200):
+        if job.status in ("succeeded", "failed"):
+            break
+        time.sleep(0.01)
+
+    assert job.status == "succeeded"
+    assert isinstance(job.result, dict)
+    assert job.result.get("response") == "Final textual summary"
+    d = job.as_dict()
+    assert d.get("final_message") == "Final textual summary"
