@@ -240,6 +240,33 @@ class WorkspaceManager:
         )
         return manifest
 
+    # ── Repo access preflight ─────────────────────────────────────────────────
+
+    def repo_access_preflight(self, repo_url: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
+        """Non-destructive check that attempts to validate access to a remote git
+        repository using `git ls-remote --heads`. Returns a structured dict:
+        {ok: bool, error: str | None}
+
+        This method is intentionally non-destructive and time-limited. It will
+        attempt to inject the token into an HTTPS URL for auth when provided.
+        """
+        if not repo_url or not isinstance(repo_url, str):
+            return {"ok": False, "error": "no_repo_url"}
+        try:
+            import subprocess
+            env = dict(**os.environ)
+            env.setdefault("GIT_TERMINAL_PROMPT", "0")
+            auth_url = repo_url
+            if token and repo_url.startswith("https://"):
+                auth_url = repo_url.replace("https://", f"https://{token}@")
+            proc = subprocess.run(["git", "ls-remote", "--heads", auth_url], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=timeout)
+            if proc.returncode == 0:
+                return {"ok": True, "error": None}
+            err = proc.stderr.decode("utf-8", errors="ignore")[:1000]
+            return {"ok": False, "error": err}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     # ── Lookup ─────────────────────────────────────────────────────────────
 
     def get_workspace(

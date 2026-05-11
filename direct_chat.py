@@ -253,32 +253,25 @@ async def _handle_agent_mode(
         except Exception:
             repo_url = None
 
-        def _run_git_ls_remote(url: str, token: str | None) -> tuple[bool, str | None]:
-            """Run 'git ls-remote --heads <url>' to validate access. Returns (ok, error_message)."""
-            try:
-                import subprocess
-                env = dict(**os.environ)
-                env.setdefault("GIT_TERMINAL_PROMPT", "0")
-                # If token is provided and url is HTTPS, inject token into URL for auth
-                auth_url = url
-                if token and url.startswith("https://"):
-                    # Insert token immediately after scheme: https://<token>@host/...
-                    auth_url = url.replace("https://", f"https://{token}@")
-                proc = subprocess.run(["git", "ls-remote", "--heads", auth_url], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=8)
-                if proc.returncode == 0:
-                    return True, None
-                return False, proc.stderr.decode("utf-8", errors="ignore")[:1000]
-            except Exception as e:
-                return False, str(e)
-
         if repo_url:
-            ok, err = _run_git_ls_remote(repo_url, github_token)
-            if not ok:
+            try:
+                from workspace.manager import WorkspaceManager
+                mgr = WorkspaceManager()
+                pre = mgr.repo_access_preflight(repo_url, github_token)
+                if not pre.get("ok"):
+                    issues.append({
+                        "code": "git_repo_access",
+                        "message": f"Could not access repository at {repo_url}.",
+                        "fix_hint": "Verify the repository URL and ensure the GitHub token has access; ensure network egress to git hosts.",
+                        "details": {"error": pre.get("error")},
+                    })
+            except Exception as e:
+                # Fallback: surface an error indicating workspace preflight could not run.
                 issues.append({
-                    "code": "git_repo_access",
-                    "message": f"Could not access repository at {repo_url}.",
-                    "fix_hint": "Verify the repository URL and ensure the GitHub token has access; ensure network egress to git hosts.",
-                    "details": {"error": err},
+                    "code": "repo_preflight_failed",
+                    "message": "Repository preflight check failed to run.",
+                    "fix_hint": "Ensure the server environment allows git checks and WorkspaceManager is available.",
+                    "details": {"error": str(e)},
                 })
 
         # If a token exists, do a best-effort validation against GitHub API to detect
