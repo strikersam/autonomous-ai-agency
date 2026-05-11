@@ -148,9 +148,10 @@ class RuntimeRoutingPolicyEngine:
             or spec.provider_preference
             or self._policy.preferred_runtime_id
         )
-        runtime = self._pick_runtime(task_type, preferred_id)
+        runtime, candidates_info = self._pick_runtime(task_type, preferred_id)
 
         if runtime is None:
+            log.warning("No healthy runtime candidates for task_type=%s; candidates: %s", task_type, candidates_info)
             raise RuntimeUnavailableError("*", f"No healthy runtime found for task type '{task_type}'")
 
         decision = RoutingDecision(
@@ -161,6 +162,11 @@ class RuntimeRoutingPolicyEngine:
             provider_used=spec.provider_preference,
             reason=f"Best-fit runtime for task_type='{task_type}' (tier={runtime.TIER.value})",
         )
+        # Append audit detail to decision.reason for observability
+        try:
+            decision.reason += f"; candidates={candidates_info}"
+        except Exception:
+            pass
 
         # Step 4–6: Execute with retry/fallback
         result = await self._execute_with_fallback(spec, runtime, decision)
@@ -173,20 +179,37 @@ class RuntimeRoutingPolicyEngine:
         self,
         task_type: str,
         preferred_id: str | None,
-    ) -> RuntimeAdapter | None:
-        """Pick the best available (health-checked) runtime."""
+    ) -> tuple[RuntimeAdapter | None, list[dict[str, object]]]:
+        """Pick the best available (health-checked) runtime and return
+        (selected_runtime, candidates_info) where candidates_info records
+        metadata about why candidates were accepted/rejected.
+        """
         candidates = self._registry.capable_of(task_type)
-        available = [
-            a for a in candidates
-            if self._health.is_available(a.RUNTIME_ID)
-        ]
+        candidates_info: list[dict[str, object]] = []
+        available = []
+        for a in candidates:
+            health = self._health.get_health(a.RUNTIME_ID)
+            is_avail = self._health.is_available(a.RUNTIME_ID)
+            candidates_info.append({
+                "runtime_id": a.RUNTIME_ID,
+                "tier": a.TIER.value,
+                "available": is_avail,
+                "health": health.as_dict() if health else None,
+            })
+            if is_avail:
+                available.append(a)
+        log.info("Runtime candidate scan for task_type=%s: %s", task_type, candidates_info)
         if not available:
-            return None
+            return None, candidates_info
         if preferred_id:
             for a in available:
                 if a.RUNTIME_ID == preferred_id:
-                    return a
-        return available[0]
+                    log.info("Preferred runtime %s selected for task_type=%s", preferred_id, task_type)
+                    return a, candidates_info
+            log.info("Preferred runtime %s not available; falling back", preferred_id)
+        selected = available[0]
+        log.info("Selected runtime %s for task_type=%s (tier=%s)", selected.RUNTIME_ID, task_type, selected.TIER.value)
+        return selected, candidates_info
 
     async def _execute_with_fallback(
         self,

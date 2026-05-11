@@ -326,6 +326,19 @@ class WorkspaceManager:
         # If not GitHub or GitHub check failed, we cannot reliably check remote path
         return {"ok": False, "error": "path_check_not_supported_without_github"}
 
+    def dry_clone_preflight(self, repo_url: str, token: str | None = None, timeout: int = 20) -> dict[str, object]:
+        """Attempt a shallow, non-checkout clone into a temporary directory to
+        validate access for hosts that do not support the Contents API.
+
+        This is a heavier check and should be used only when ls-remote isn't
+        sufficient. It always removes any created temporary files.
+        """
+        try:
+            from workspace.dry_clone import dry_clone_repo
+            return dry_clone_repo(repo_url, token, timeout)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     # ── Lookup ─────────────────────────────────────────────────────────────
 
     def get_workspace(
