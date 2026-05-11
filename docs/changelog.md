@@ -58,3 +58,11 @@
 
 ### Added
 - **`as_dict()` enhancements** (`features/matrix.py`) — `FeatureMatrix.as_dict()` now returns `schema_version: "1"`, a top-level `entries` list (for consumers that prefer arrays over keyed maps), and a top-level `by_maturity` dict alongside the existing `features` dict and `summary` block.
+
+### Fixed
+- **CI and Pipeline Stability**
+  - Fixed Python 3.13 syntax error in `direct_chat.py` by moving `from __future__ import annotations` to the top of the file.
+  - Implemented missing `stage_and_commit` method and added `re` import in `agent/github_tools.py`.
+  - Fixed `app.state` initialization in `proxy.py` to ensure `webui_workspaces` and `PROVIDER_ROUTER` are available during testing with `TestClient`.
+  - Refactored `agent/loop.py` to correctly parse repository names when calling GitHub tool methods.
+  - Increased timeout for flaky frontend test `agentJobPolling.test.jsx` to 10000ms.

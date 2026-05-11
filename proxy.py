@@ -455,6 +455,44 @@ def _agent_failure_result(instruction: str) -> dict[str, object]:
     }
 
 
+# ─── Feature singletons ────────────────────────────────────────────────────────
+SESSION_MEMORY = SessionMemory()
+CTX_COMPRESSOR = ContextCompressor()
+PERMISSIONS = AdaptivePermissions()
+TOKEN_BUDGET = TokenBudget()
+PLAYBOOKS = PlaybookLibrary()
+SCAFFOLDER = ProjectScaffolder()
+SKILL_LIBRARY = SkillLibrary()
+TERMINAL_PANEL = TerminalPanel()
+COMMIT_TRACKER = CommitTracker(repo_root=Path(__file__).resolve().parent)
+VOICE_INTERFACE = VoiceCommandInterface()
+WATCHDOG = ResourceWatchdog()
+SCHEDULER = AgentScheduler()
+from agent.scheduler import set_scheduler as _set_scheduler
+_set_scheduler(SCHEDULER)
+BACKGROUND_AGENT = BackgroundAgent()
+COORDINATOR = AgentCoordinator(
+    ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent)
+)
+
+# ─── Provider Router singleton (local-first, free-first fallback chain) ────────
+# Module-level so cooldown state persists across requests in the same process.
+# Priority order: local Ollama → Windows Ollama → HuggingFace → DeepSeek → Anthropic
+PROVIDER_ROUTER = ProviderRouter.from_env()
+BROWSER_SESSION = BrowserSession()
+QUICK_NOTE_QUEUE = QuickNoteQueue()
+TASK_AUTOMATION: TaskAutomationService = TaskAutomationService(store=get_task_store())
+start_processor(QUICK_NOTE_QUEUE, repo_root=Path(__file__).resolve().parent)
+
+WEBUI_STORE = JsonConfigStore()
+WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
+WEBUI_WORKSPACES = WorkspaceManager(
+    WEBUI_STORE, default_local_root=Path(__file__).resolve().parent
+)
+WEBUI_PROVIDERS.ensure_defaults(local_base_url=OLLAMA_BASE)
+WEBUI_WORKSPACES.ensure_defaults()
+
+
 # ─── App ────────────────────────────────────────────────────────────────────────
 
 _mongo_client: AsyncIOMotorClient | None = None
@@ -576,9 +614,6 @@ async def lifespan(app: FastAPI):
     _dispatcher_task = asyncio.create_task(_task_dispatcher.run_forever())
     log.info("Task dispatcher started in background")
 
-    app.state.webui_workspaces = WEBUI_WORKSPACES
-    app.state.PROVIDER_ROUTER = PROVIDER_ROUTER
-
     try:
         yield
     finally:
@@ -607,6 +642,10 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
+
+# Ensure app state singletons are available immediately for tests and early requests
+app.state.webui_workspaces = WEBUI_WORKSPACES
+app.state.PROVIDER_ROUTER = PROVIDER_ROUTER
 
 # DEBUG: Log all incoming requests with headers
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -722,42 +761,6 @@ AGENT_RUNNER = AgentRunner(
     session_store=AGENT_SESSIONS,
 )
 
-# ─── Feature singletons ────────────────────────────────────────────────────────
-SESSION_MEMORY = SessionMemory()
-CTX_COMPRESSOR = ContextCompressor()
-PERMISSIONS = AdaptivePermissions()
-TOKEN_BUDGET = TokenBudget()
-PLAYBOOKS = PlaybookLibrary()
-SCAFFOLDER = ProjectScaffolder()
-SKILL_LIBRARY = SkillLibrary()
-TERMINAL_PANEL = TerminalPanel()
-COMMIT_TRACKER = CommitTracker(repo_root=Path(__file__).resolve().parent)
-VOICE_INTERFACE = VoiceCommandInterface()
-WATCHDOG = ResourceWatchdog()
-SCHEDULER = AgentScheduler()
-from agent.scheduler import set_scheduler as _set_scheduler
-_set_scheduler(SCHEDULER)
-BACKGROUND_AGENT = BackgroundAgent()
-COORDINATOR = AgentCoordinator(
-    ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent)
-)
-
-# ─── Provider Router singleton (local-first, free-first fallback chain) ────────
-# Module-level so cooldown state persists across requests in the same process.
-# Priority order: local Ollama → Windows Ollama → HuggingFace → DeepSeek → Anthropic
-PROVIDER_ROUTER = ProviderRouter.from_env()
-BROWSER_SESSION = BrowserSession()
-QUICK_NOTE_QUEUE = QuickNoteQueue()
-TASK_AUTOMATION: TaskAutomationService = TaskAutomationService(store=get_task_store())
-start_processor(QUICK_NOTE_QUEUE, repo_root=Path(__file__).resolve().parent)
-
-WEBUI_STORE = JsonConfigStore()
-WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
-WEBUI_WORKSPACES = WorkspaceManager(
-    WEBUI_STORE, default_local_root=Path(__file__).resolve().parent
-)
-WEBUI_PROVIDERS.ensure_defaults(local_base_url=OLLAMA_BASE)
-WEBUI_WORKSPACES.ensure_defaults()
 register_webui(
     app,
     providers=WEBUI_PROVIDERS,
