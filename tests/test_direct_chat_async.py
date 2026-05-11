@@ -149,6 +149,41 @@ def test_make_isolated_workspace_hashes_valid_identifiers(tmp_path: Path):
     assert workspace.exists()
 
 
+def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
+    proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
+    monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat4.db")))
+    monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
+    monkeypatch.setattr(direct_chat, "_agent_workspace_root", tmp_path / "workspaces")
+
+    # Ensure git binary appears present but no token is returned
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
+    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", lambda email: None)
+
+    class _FakeProvider:
+        priority = 1
+        api_key = None
+        normalized_base_url = "http://localhost:11434"
+        def auth_headers(self) -> dict[str, str]:
+            return {}
+
+    class _FakeRouter:
+        providers = (_FakeProvider(),)
+
+    monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter(), raising=False)
+
+    client = TestClient(proxy.app)
+    response = client.post("/api/chat/send", json={"content": "Please clone my repo and create a PR", "agent_mode": True})
+    assert response.status_code == 412
+    detail = response.json().get("detail")
+    assert detail and detail.get("ready") is False
+    issues = detail.get("issues") or []
+    codes = {i.get("code") for i in issues}
+    assert "missing_github_token" in codes
+
+    proxy.app.dependency_overrides.clear()
+
+
 def test_job_result_normalizes_and_exposes_final_message():
     from agent.job_manager import AgentJobManager
 
