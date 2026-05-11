@@ -708,39 +708,53 @@ class AgentRunner:
             return self.tools.apply_diff(str(args.get("path", "")), str(args.get("content", "")))
 
         # GitHub Tools
+        def _split_repo(name: str) -> tuple[str, str]:
+            if "/" not in name:
+                raise ValueError(f"Invalid repo_name format: {name} (expected owner/repo)")
+            return name.split("/", 1)
+
         if tool == "github_get_issue":
-            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            owner, repo = _split_repo(str(args.get("repo_name", "")))
             return await self.github.get_issue(owner, repo, int(args.get("issue_number", 0)))
         if tool == "github_comment_on_issue":
-            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            owner, repo = _split_repo(str(args.get("repo_name", "")))
             return await self.github.comment_on_issue(owner, repo, int(args.get("issue_number", 0)), str(args.get("body", "")))
         if tool == "github_close_issue":
-            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            owner, repo = _split_repo(str(args.get("repo_name", "")))
             return await self.github.close_issue(owner, repo, int(args.get("issue_number", 0)), args.get("comment"))
 
         if tool == "github_read_repo_file":
+            owner, repo = _split_repo(str(args.get("repo_name", "")))
             return await self.github.read_repo_file(
-                repo_name=str(args.get("repo_name", "")),
+                owner=owner,
+                repo=repo,
                 path=str(args.get("path", "")),
                 branch=str(args.get("branch", "main"))
             )
         if tool == "github_create_branch":
+            owner, repo = _split_repo(str(args.get("repo_name", "")))
             return await self.github.create_branch(
-                repo_name=str(args.get("repo_name", "")),
+                owner=owner,
+                repo=repo,
                 branch_name=str(args.get("branch_name", "")),
                 base_branch=str(args.get("base_branch", "main"))
             )
         if tool == "github_commit_changes":
-            return await self.github.commit_changes(
-                repo_name=str(args.get("repo_name", "")),
-                branch_name=str(args.get("branch_name", "")),
-                message=str(args.get("message", "agent commit")),
+            owner, repo = _split_repo(str(args.get("repo_name", "")))
+            # github_commit_changes in github_tools.py is commit_file
+            return await self.github.commit_file(
+                owner=owner,
+                repo=repo,
                 path=str(args.get("path", "")),
-                content=str(args.get("content", ""))
+                content=str(args.get("content", "")),
+                message=str(args.get("message", "agent commit")),
+                branch=str(args.get("branch", "main"))
             )
         if tool == "github_open_pull_request":
+            owner, repo = _split_repo(str(args.get("repo_name", "")))
             return await self.github.open_pull_request(
-                repo_name=str(args.get("repo_name", "")),
+                owner=owner,
+                repo=repo,
                 title=str(args.get("title", "Pull Request from AI Agent")),
                 head=str(args.get("head", "")),
                 base=str(args.get("base", "main")),
@@ -749,8 +763,10 @@ class AgentRunner:
         if tool == "github_list_repos":
             return await self.github.list_repos()
         if tool == "github_list_branches":
+            owner, repo = _split_repo(str(args.get("repo_name", "")))
             return await self.github.list_branches(
-                repo_name=str(args.get("repo_name", ""))
+                owner=owner,
+                repo=repo
             )
 
         if tool == "spawn_subagent":

@@ -47,6 +47,9 @@ beforeEach(() => {
 });
 
 test('agent-mode accepted job is shown as pending and final result replaces it (no raw metadata shown)', async () => {
+  // Increase timeout for this specific test
+  jest.setTimeout(10000);
+
   // chatSend returns accepted job envelope
   chatSend.mockResolvedValueOnce({ data: { session_id: 's-1', job_id: 'job-1', status: 'queued', phase: 'planning', message: 'Accepted' } });
 

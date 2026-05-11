@@ -258,6 +258,9 @@ class GitHubTools:
     def _encode_content(self, content: str) -> str:
         return base64.b64encode(content.encode("utf-8")).decode("utf-8")
 
+    # Aliases to support AgentRunner naming
+    commit_changes = commit_file
+
 
 # ── Local workspace ────────────────────────────────────────────────────────────
 
