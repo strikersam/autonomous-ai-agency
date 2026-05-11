@@ -1996,7 +1996,7 @@ async def seed_default_providers():
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
     ).rstrip("/")
     _nvidia_model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.1-70b-instruct"
     )
     defaults = [
         {
@@ -2958,7 +2958,7 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
     ).rstrip("/")
     model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.1-70b-instruct"
     )
     return {
         "provider_id": "nvidia-nim",

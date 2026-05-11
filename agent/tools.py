@@ -256,10 +256,6 @@ class WorkspaceTools:
         
         return current_input
 
-
-    def get_architecture_summary(self) -> dict[str, Any]:
-        """Identifies key modules and design patterns."""
-        return self.repowise.get_architecture_summary()
     def get_overview(self) -> dict[str, Any]:
         """Provides an architecture summary, module map, and git health."""
         return self.repowise.get_overview()

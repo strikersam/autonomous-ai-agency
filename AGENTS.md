@@ -23,7 +23,6 @@ running Ollama models.
 ## Repowise Intelligence
 
 The workspace supports repowise-inspired intelligence tools for deeper codebase understanding:
-- `get_architecture_summary()`: High-level analysis of key modules and design patterns.
 - `get_overview()`: Architecture summary, module map, and git health.
 - `get_context(targets, include=['source'])`: Structured context packing for files/symbols.
 - `get_risk(targets, changed_files)`: Hotspot and impact analysis.

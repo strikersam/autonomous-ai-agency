@@ -682,8 +682,6 @@ class AgentRunner:
         if tool == "search_code":
             return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
 
-        if tool == "get_architecture_summary":
-            return self.tools.get_architecture_summary()
         if tool == "get_overview":
             return self.tools.get_overview()
         if tool == "get_context":

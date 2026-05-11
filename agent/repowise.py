@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 
 class RepowiseIntelligence:
     def __init__(self, root: Path):
-        self.root = root
+        self.root = Path(root)
 
     def get_overview(self) -> Dict[str, Any]:
         """Provides an architecture summary, module map, and git health."""

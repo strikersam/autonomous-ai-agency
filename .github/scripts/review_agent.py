@@ -49,6 +49,7 @@ def main():
         print("All models failed or no API keys available.", file=sys.stderr)
         sys.exit(1)
 
+
     verdict = "PASS" if "OVERALL: PASS" in text.upper() else "FAIL"
     with open(RESULT_FILE, "w") as f:
         json.dump({"verdict": verdict, "summary": text[:200]}, f)

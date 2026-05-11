@@ -76,7 +76,6 @@ def build_tool_prompt(
                 "You are preparing to execute one coding step.\n"
                 "Inspect the workspace with tools before writing code.\n\n"
                 "Available tools:\n"
-                "- get_architecture_summary(): High-level analysis of key modules and design patterns\n"
                 "- get_overview(): Architecture summary, module map, and git health\n"
                 "- get_context(targets, include=['source']): Pack content, metrics, or dependencies for targets\n"
                 "- get_risk(targets=None, changed_files=None): Hotspot scores and impact analysis\n"

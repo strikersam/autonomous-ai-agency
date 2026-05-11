@@ -71,7 +71,6 @@ class AgentPlan(BaseModel):
 class ToolCall(BaseModel):
     tool: Literal[
         "read_file",
-        "get_architecture_summary",
         "get_overview",
         "get_context",
         "get_risk",
