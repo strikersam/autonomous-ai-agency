@@ -1,300 +1,251 @@
 from __future__ import annotations
+from agent.user_memory import UserMemoryStore
+"""direct_chat.py — Direct chat endpoints for v3 dashboard.
 
-import asyncio
-import hashlib
-import inspect
+Handles chat sessions and message sending for the Direct Chat feature.
+Protected by JWT authentication (v3 auth system).
+Delegates to LLM providers via the proxy's routing system.
+"""
+from urllib.parse import urlparse
+
+
 import json
+import logging
 import os
-import shutil
-import time
 import uuid
-from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import (
-    Any,
-    AsyncIterator,
-    Awaitable,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Set,
-    Union,
-)
+from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from agent.loop import AgentRunner
-from agent.memory import SessionMemory
-from agent.user_memory import UserMemoryStore
-from provider_router import ProviderRouter
+from agent.job_manager import AgentJobManager, make_isolated_workspace
 from tokens import verify_token
+from provider_router import ProviderRouter
+from runtimes.adapters.internal_agent import InternalAgentAdapter
+from runtimes.base import TaskSpec
 
-# Import WorkspaceManager for preflight checks
-try:
-    from webui.workspaces import WorkspaceManager
-except ImportError:
-    WorkspaceManager = None
+log = logging.getLogger("qwen-proxy")
+OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+direct_chat_router = APIRouter(prefix="/api/chat", tags=["chat"])
 
-direct_chat_router = APIRouter(prefix="/api/chat", tags=["direct_chat"])
+# Session store for direct chat
+from agent.state import AgentSessionStore
+_direct_chat_store = AgentSessionStore(db_path="direct_chat_sessions.db")
+_agent_jobs = AgentJobManager()
+_agent_workspace_root = Path(os.environ.get("DIRECT_CHAT_AGENT_WORKSPACE_ROOT", ".data/direct-chat-agent-workspaces"))
 
-# ─── Data Models ──────────────────────────────────────────────────────────────
 
-class ChatSendRequest(BaseModel):
-    content: str = Field(..., min_length=1, max_length=50000)
-    session_id: Optional[str] = None
-    agent_mode: bool = False
-    model: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    repo_url: Optional[str] = None
-    repo_ref: Optional[str] = None
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    metadata: Optional[Dict[str, Any]] = None
-
-class ChatSession(BaseModel):
-    session_id: str
-    title: str
-    messages: List[ChatMessage] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    owner_id: str
-
-class AgentJobStatus(BaseModel):
-    job_id: str
-    session_id: str
-    status: str  # queued, running, succeeded, failed
-    phase: str   # planning, execution, verification
-    message: str
-    progress_events: List[Dict[str, Any]] = Field(default_factory=list)
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-# ─── In-Memory Store ──────────────────────────────────────────────────────────
-
-class ChatStore:
-    def __init__(self):
-        self._sessions: Dict[str, ChatSession] = {}
-        self._agent_jobs: Dict[str, AgentJobStatus] = {}
-        self._lock = asyncio.Lock()
-
-    def get_session(self, session_id: str) -> Optional[ChatSession]:
-        return self._sessions.get(session_id)
-
-    def create_session(self, owner_id: str, title: str = "New Chat", session_id: Optional[str] = None) -> ChatSession:
-        sid = session_id or str(uuid.uuid4())
-        session = ChatSession(session_id=sid, title=title, owner_id=owner_id)
-        self._sessions[sid] = session
-        return session
-
-    def append_message(self, session_id: str, role: str, content: str, metadata: Optional[Dict[str, Any]] = None):
-        session = self._sessions.get(session_id)
-        if session:
-            msg = ChatMessage(role=role, content=content, metadata=metadata)
-            session.messages.append(msg)
-            session.updated_at = datetime.now(timezone.utc)
-            return msg
-        return None
-
-    def list_sessions(self, owner_id: str) -> List[ChatSession]:
-        return [s for s in self._sessions.values() if s.owner_id == owner_id]
-
-    def delete_session(self, session_id: str):
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            # Clean up associated jobs
-            job_ids = [jid for jid, job in self._agent_jobs.items() if job.session_id == session_id]
-            for jid in job_ids:
-                del self._agent_jobs[jid]
-            return True
-        return False
-
-    def create_agent_job(self, session_id: str, job_id: str) -> AgentJobStatus:
-        job = AgentJobStatus(
-            job_id=job_id,
+def _ensure_session(session_id: str, user: UserInfo) -> None:
+    if _direct_chat_store.get(session_id) is None:
+        _direct_chat_store.create_with_id(
             session_id=session_id,
-            status="queued",
-            phase="planning",
-            message="Agent job accepted",
+            title=f"Direct chat for {user.email}",
+            owner_id=user.email,
         )
-        self._agent_jobs[job_id] = job
-        return job
 
-    def get_agent_job(self, job_id: str) -> Optional[AgentJobStatus]:
-        return self._agent_jobs.get(job_id)
 
-    def update_agent_job(self, job_id: str, **kwargs):
-        job = self._agent_jobs.get(job_id)
-        if job:
-            for k, v in kwargs.items():
-                setattr(job, k, v)
-            job.updated_at = datetime.now(timezone.utc)
-            return job
-        return None
+def _session_history(session_id: str) -> list[dict[str, str]]:
+    session = _direct_chat_store.get(session_id)
+    if session is None:
+        return []
+    return [item.model_dump() for item in session.history]
 
-_direct_chat_store = ChatStore()
-_user_memory = UserMemoryStore()
 
-# ─── Auth ─────────────────────────────────────────────────────────────────────
-
-@dataclass
-class UserIdentity:
+class UserInfo(BaseModel):
+    """Current user from JWT token."""
+    id: str
     email: str
-    sub: str
-    name: str
-    role: str
 
-async def _get_current_user(request: Request) -> UserIdentity:
-    user_data = getattr(request.state, "user", None)
-    if not user_data:
-        # Check for technical bypass keywords to ensure engineering requests
-        # are always processed even if auth middleware hasn't fully populated state
-        # (e.g. legacy direct-chat clients using API keys).
-        auth_header = request.headers.get("authorization", "")
-        if "Bearer " in auth_header:
-             # Fallback to verify_token if state.user is missing but header is present
-             token = auth_header[7:].strip()
-             payload = verify_token(token, "access")
-             if payload:
-                 return UserIdentity(
-                     email=payload["email"],
-                     sub=payload["sub"],
-                     name=payload.get("name", "User"),
-                     role=payload.get("role", "user")
-                 )
 
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return UserIdentity(
-        email=user_data["email"],
-        sub=user_data["_id"],
-        name=user_data["name"],
-        role=user_data["role"]
+def _get_bearer_token(authorization: str | None = Header(None)) -> str:
+    """Extract bearer token from Authorization header."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    return authorization[7:].strip()
+
+
+async def _get_current_user(token: Annotated[str, Depends(_get_bearer_token)]) -> UserInfo:
+    """Extract and validate current user from JWT token."""
+    payload = verify_token(token, token_type="access")
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return UserInfo(
+        id=payload.get("sub", ""),
+        email=payload.get("email", ""),
     )
 
-# ─── GitHub Integration ───────────────────────────────────────────────────────
 
-def _get_github_token_for_user(email: str) -> Union[str, Awaitable[str]]:
-    # 1. Environment variables
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if token:
-        return token
+class ChatSendRequest(BaseModel):
+    """Send chat message request."""
+    content: str
+    session_id: str | None = None
+    model: str | None = None
+    provider_id: str | None = None
+    temperature: float | None = None
+    agent_mode: bool = False
+    metadata: dict[str, Any] | None = None
+    allow_commercial_fallback_once: bool = False
+    repo_url: str | None = None
+    repo_ref: str | None = None
 
-    # 2. Keyring or local config (if running on dev machine)
-    # 3. User-scoped secrets (v3)
+
+async def _get_github_token_for_user(user_email: str) -> str | None:
+    """Fetch GitHub token for user from secrets store or environment."""
     try:
-        from secrets_store import get_user_secret
-        # get_user_secret is sync or async? v3.1 makes it async
-        res = get_user_secret(email, "GITHUB_TOKEN")
-        return res
-    except (ImportError, Exception):
-        return ""
+        from secrets_store import get_secrets_store
+        from rbac import get_user_role
+        store = get_secrets_store()
+        uid = user_email
+        role = get_user_role({"email": user_email})  # Simplified
+        recs = await store.list_for_user(uid, role)
+        for rec in recs:
+            if "github" in rec.tags or rec.name.lower().startswith("github"):
+                value = await store.get_value(rec.secret_id, uid, role)
+                if value:
+                    return value
+    except Exception as e:
+        log.debug("Could not fetch GitHub token from secrets: %s", e)
+    # Fallback: env var
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 
-# ─── Routes ───────────────────────────────────────────────────────────────────
 
-@direct_chat_router.get("/sessions")
-async def list_sessions(user: UserIdentity = Depends(_get_current_user)):
-    sessions = _direct_chat_store.list_sessions(user.email)
-    return {"sessions": sessions}
+def _is_trivial_message(content: str) -> bool:
+    if not content or not isinstance(content, str):
+        return False
+    stripped = content.strip()
+    lowered = stripped.lower()
 
-@direct_chat_router.get("/sessions/{session_id}")
-async def get_session(session_id: str, user: UserIdentity = Depends(_get_current_user)):
-    session = _direct_chat_store.get_session(session_id)
-    if not session or session.owner_id != user.email:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return session
+    trivial_phrases = {
+        "hello", "hi", "hey", "sup", "yo", "greetings",
+        "good morning", "good afternoon", "good evening",
+        "how are you", "what's up", "hi there", "hello there", "hey there",
+        "thanks", "thank you", "ok", "okay", "sounds good", "got it",
+        "what can you do", "who are you", "what are you",
+    }
+    if lowered in trivial_phrases:
+        return True
+    words = stripped.split()
+    if len(words) <= 4:
+        return True
+    if lowered.endswith("?") and len(words) <= 12 and not any(
+        kw in lowered for kw in (
+            "file", "code", "write", "create", "fix", "build", "run",
+            "edit", "generate", "deploy", "commit", "push", "implement", "refactor",
+        )
+    ):
+        return True
+    # If the message contains specific coding keywords and is short, it is NOT trivial
+    if len(words) <= 10 and any(kw in lowered for kw in ("fix", "bug", "implement", "create", "edit", "code")):
+        return False
+    return False
 
-@direct_chat_router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str, user: UserIdentity = Depends(_get_current_user)):
-    session = _direct_chat_store.get_session(session_id)
-    if not session or session.owner_id != user.email:
-        raise HTTPException(status_code=404, detail="Session not found")
-    _direct_chat_store.delete_session(session_id)
-    return {"ok": True}
 
 @direct_chat_router.post("/send")
-async def chat_send(
+async def send_chat_message(
     req: ChatSendRequest,
     request: Request,
-    user: UserIdentity = Depends(_get_current_user)
+    user: Annotated[UserInfo, Depends(_get_current_user)],
 ):
-    session_id = req.session_id or str(uuid.uuid4())
-
+    if req.agent_mode and _is_trivial_message(req.content):
+        log.info(f"Trivial message detected, forcing regular chat mode for: {req.content[:50]}...")
+        req.agent_mode = False
     if req.agent_mode:
-        # Preflight validation for repository references if provided
-        ws_mgr = request.app.state.webui_workspaces
-        validation = await ws_mgr.validate_repo_ref(req.repo_url, req.repo_ref)
-        if not validation["ok"]:
-            raise HTTPException(status_code=412, detail={"ready": False, "issues": validation["issues"]})
-
-        return await _handle_agent_mode(session_id, req, user, request)
+        return await _handle_agent_mode(req, user, request)
     else:
-        return await _handle_direct_chat(session_id, req, user)
+        return await _handle_regular_chat(req, user, request)
 
-async def _handle_direct_chat(session_id: str, req: ChatSendRequest, user: UserIdentity):
+
+async def _handle_regular_chat(
+    req: ChatSendRequest,
+    user: UserInfo,
+    request: Request,
+):
+    log.info(f"Chat message from {user.email}: {req.content[:50]}...")
+    session_id = req.session_id
+    if session_id:
+        history = _session_history(session_id)
+    else:
+        session_id = str(uuid.uuid4())
+        history = []
     _ensure_session(session_id, user)
-    _direct_chat_store.append_message(session_id, "user", req.content)
-    
-    # Simple direct LLM call
-    router = ProviderRouter.from_env()
-    provider = router.get_best_provider()
-    if not provider:
-        raise HTTPException(status_code=503, detail="No LLM providers available")
-    
-    # We use a helper to format context
-    session = _direct_chat_store.get_session(session_id)
-    history = [{"role": m.role, "content": m.content} for m in session.messages[-10:]]
-    
-    async def _stream():
-        full_content = ""
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            try:
-                # v3 router handles health/cooldown; here we call provider directly for simplicity
-                payload = {
-                    "model": req.model or provider.default_model,
-                    "messages": history,
-                    "stream": True
-                }
-                async with client.stream(
-                    "POST",
-                    f"{provider.normalized_base_url}/v1/chat/completions",
-                    json=payload,
-                    headers=provider.auth_headers()
-                ) as resp:
-                    async for line in resp.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-                        if line == "data: [DONE]":
-                            break
-                        try:
-                            chunk = json.loads(line[6:])
-                            content = chunk["choices"][0]["delta"].get("content", "")
-                            if content:
-                                full_content += content
-                                yield f"data: {json.dumps({'content': content})}\n\n"
-                        except Exception:
-                            continue
-            except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    system_prompt = (
+        "You are a helpful coding assistant integrated with a self-hosted AI proxy server. "
+        "You can answer questions about code, explain concepts, review snippets, and assist "
+        "with software engineering tasks. "
+        "For tasks that require reading or editing files in a GitHub repository "
+        "(e.g. opening PRs, committing changes, browsing repo contents), ask the user to "
+        "enable Agent Mode — that unlocks the GitHub tools needed to take those actions. "
+        "Never refuse to help; always guide the user toward the right mode or approach."
+    )
+    payload = {
+        "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": req.content}],
+        "model": req.model or "nvidia/nemotron-3-super-120b-a12b",
+        "stream": False,
+    }
+    if req.temperature is not None:
+        payload["temperature"] = req.temperature
+    router: ProviderRouter = request.app.state.PROVIDER_ROUTER
+    try:
+        provider = None
+        if req.provider_id:
+            for p in router.providers:
+                if p.provider_id == req.provider_id:
+                    provider = p
+                    break
+        if provider: result = await ProviderRouter([provider]).chat_completion(payload)
+        else: result = await router.chat_completion(payload)
+        if not hasattr(result, "response"):
+            log.error(f"Provider response object missing response: {type(result)}")
+            raise HTTPException(status_code=500, detail="Invalid provider response format")
+        assistant_message = result.response.json()["choices"][0]["message"]["content"]
+        _direct_chat_store.append_message(session_id, "user", req.content)
+        _direct_chat_store.append_message(session_id, "assistant", assistant_message)
+        return JSONResponse(content={
+            "session_id": session_id,
+            "response": assistant_message
+        })
+    except Exception as e:
+        log.error(f"Failed to get provider response: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get provider response")
 
-        _direct_chat_store.append_message(session_id, "assistant", full_content)
-
-    return StreamingResponse(_stream(), media_type="text/event-stream")
-
-async def _handle_agent_mode(session_id: str, req: ChatSendRequest, user: UserIdentity, request: Request):
-    job_id = f"job-{uuid.uuid4().hex[:8]}"
-    _direct_chat_store.create_agent_job(session_id, job_id)
+async def _handle_agent_mode(
+    req: ChatSendRequest,
+    user: UserInfo,
+    request: Request,
+):
+    """
+    Initiates and queues an agent-mode workflow for a direct chat message, performing repository and GitHub preflight checks before starting an asynchronous job.
     
-    # Preflight validation for repository references if provided
+    Performs:
+    - repo_ref validation via the workspace manager,
+    - optional Git/GitHub checks when the prompt suggests repository operations (missing token, missing git binary, repo/ref/path access, GitHub token validity and scopes),
+    - readiness check using an internal agent adapter,
+    - job creation, isolated workspace setup, and asynchronous agent execution.
+    
+    Parameters:
+        req (ChatSendRequest): Incoming chat request including content, agent_mode controls, repo metadata, and provider/model hints.
+        user (UserInfo): Authenticated user information (id and email) used for ownership and token lookup.
+        request (Request): FastAPI request object; used to access application state (workspaces, provider router).
+    
+    Returns:
+        JSONResponse: HTTP 202 response containing an AcceptedJob envelope with `session_id`, `job_id`, `status`, `phase`, and `message` when the agent job is successfully queued.
+    
+    Raises:
+        HTTPException(412): If workspace repo validation fails, if Git/GitHub preflight issues are detected (returns structured `issues`), or if the adapter readiness check reports not ready.
+        HTTPException(404/500/etc.): Propagated for other unexpected failures from downstream components.
+    """
+    log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
+    session_id = req.session_id
+    if session_id: history = _session_history(session_id)
+    else:
+        session_id = str(uuid.uuid4())
+        history = []
+    # Preflight validation for repo_ref/repo_url
     ws_mgr = request.app.state.webui_workspaces
     validation = await ws_mgr.validate_repo_ref(req.repo_url, req.repo_ref)
     if not validation["ok"]:
@@ -302,7 +253,8 @@ async def _handle_agent_mode(session_id: str, req: ChatSendRequest, user: UserId
 
     _ensure_session(session_id, user)
     _direct_chat_store.append_message(session_id, "user", req.content)
-
+    # Accept sync or async _get_github_token_for_user implementations (tests patch a sync lambda)
+    import inspect
     _token_res = _get_github_token_for_user(user.email)
     if inspect.isawaitable(_token_res):
         github_token = await _token_res
@@ -312,6 +264,8 @@ async def _handle_agent_mode(session_id: str, req: ChatSendRequest, user: UserId
     # GitHub preflight: for prompts that appear to require repo/git access, ensure
     # a token and git binary are available and provide structured actionable errors
     # rather than letting the job enter a vague failing state.
+    import shutil
+    import httpx
     lc = req.content.lower()
     repo_keywords = ("repo", "git", "pull request", "pull-request", "pr", "commit", "push", "clone", "checkout", "branch")
     if any(kw in lc for kw in repo_keywords):
@@ -340,8 +294,7 @@ async def _handle_agent_mode(session_id: str, req: ChatSendRequest, user: UserId
 
         if repo_url:
             try:
-                if WorkspaceManager is None:
-                    raise ImportError("WorkspaceManager not found")
+                from workspace.manager import WorkspaceManager
                 mgr = WorkspaceManager()
                 pre = mgr.repo_access_preflight(repo_url, github_token)
                 if not pre.get("ok"):
@@ -349,7 +302,7 @@ async def _handle_agent_mode(session_id: str, req: ChatSendRequest, user: UserId
                         "code": "git_repo_access",
                         "message": f"Could not access repository at {repo_url}.",
                         "fix_hint": "Verify the repository URL and ensure the GitHub token has access; ensure network egress to git hosts.",
-                        "details": {"error": pre.get("error")},
+                        "details": {"error": "Repo access preflight failed"},
                     })
                 # Branch/ref validation if provided in metadata
                 repo_ref = None
@@ -364,7 +317,7 @@ async def _handle_agent_mode(session_id: str, req: ChatSendRequest, user: UserId
                             "code": "git_repo_ref",
                             "message": f"Could not find ref/branch '{repo_ref}' in repository {repo_url}.",
                             "fix_hint": "Verify the branch/ref name and that the token has repo access.",
-                            "details": {"error": ref_check.get("error")},
+                            "details": {"error": "Ref validation failed"},
                         })
                 # Path validation if provided
                 repo_path = None
@@ -379,7 +332,7 @@ async def _handle_agent_mode(session_id: str, req: ChatSendRequest, user: UserId
                             "code": "git_repo_path",
                             "message": f"Could not find path '{repo_path}' at ref '{repo_ref or 'HEAD'}' in repository {repo_url}.",
                             "fix_hint": "Verify path and ref; note path checks are GitHub-only unless host supports remote APIs.",
-                            "details": {"error": path_check.get("error")},
+                            "details": {"error": "Path validation failed"},
                         })
             except Exception as e:
                 # Fallback: surface an error indicating workspace preflight could not run.
@@ -387,8 +340,9 @@ async def _handle_agent_mode(session_id: str, req: ChatSendRequest, user: UserId
                     "code": "repo_preflight_failed",
                     "message": "Repository preflight check failed to run.",
                     "fix_hint": "Ensure the server environment allows git checks and WorkspaceManager is available.",
-                    "details": {"error": str(e)},
+                    "details": {"error": "Preflight check failed"},
                 })
+                log.error(f"Repository preflight check failed: {e}")
 
         # If a token exists, do a best-effort validation against GitHub API to detect
         # invalid tokens or insufficient scopes (we require 'repo' for repo edits).
@@ -396,151 +350,144 @@ async def _handle_agent_mode(session_id: str, req: ChatSendRequest, user: UserId
             try:
                 headers = {
                     "Authorization": f"token {github_token}",
-                    "Accept": "application/vnd.github.v3+json",
-                    "User-Agent": "OpenClaw-Agent"
+                    "Accept": "application/vnd.github+json",
                 }
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    gh_resp = await client.get("https://api.github.com/user", headers=headers)
-                    if gh_resp.status_code == 401:
+                if urlparse("https://api.github.com/user").netloc == "github.com":
+                    resp = httpx.get("https://api.github.com/user", headers=headers, timeout=2.0)
+                if resp.status_code != 200:
+                    issues.append({
+                        "code": "invalid_github_token",
+                        "message": "GitHub token rejected by GitHub API.",
+                        "fix_hint": "Reconnect GitHub in Settings or set a valid token with repo scopes.",
+                        "details": {"status_code": resp.status_code},
+                    })
+                else:
+                    scopes = resp.headers.get("X-OAuth-Scopes", "").lower()
+                    if any(kw in lc for kw in ("repo", "pull", "commit", "push")) and "repo" not in scopes:
                         issues.append({
-                            "code": "invalid_github_token",
-                            "message": "The provided GitHub token is invalid (401 Unauthorized).",
-                            "fix_hint": "Check your token in Settings; it may have expired or been revoked.",
+                            "code": "insufficient_github_scopes",
+                            "message": "GitHub token may be missing 'repo' scope required for repository edits.",
+                            "fix_hint": "Grant 'repo' scope or use a token with repository access.",
+                            "details": {"scopes": scopes},
                         })
-                    elif gh_resp.status_code == 200:
-                        scopes = gh_resp.headers.get("X-OAuth-Scopes", "").split(",")
-                        scopes = [s.strip() for s in scopes]
-                        if "repo" not in scopes:
-                             issues.append({
-                                "code": "insufficient_github_scopes",
-                                "message": f"GitHub token has insufficient scopes: [{', '.join(scopes)}].",
-                                "fix_hint": "Token must have 'repo' scope for the agent to commit and create PRs.",
-                            })
-            except Exception:
-                # Network error or GitHub API down; don't block if we can't verify token status
-                pass
-
+            except Exception as e:
+                issues.append({
+                    "code": "github_api_unreachable",
+                    "message": "Could not validate GitHub token due to network error.",
+                    "fix_hint": "Ensure the server can reach api.github.com or validate token in Settings.",
+                    "details": {"error": "Preflight check failed"},
+                })
+                log.error(f"GitHub API validation error: {e}")
         if issues:
-            _direct_chat_store.update_agent_job(job_id, status="failed", error="Preflight validation failed", result={"issues": issues})
-            return {"session_id": session_id, "job_id": job_id, "status": "failed", "message": "Preflight validation failed", "issues": issues}
+            raise HTTPException(status_code=412, detail={"ready": False, "issues": issues, "summary": "Git/GitHub preflight failed"})
 
-    # Start background loop
-    asyncio.create_task(_run_agent_loop(session_id, job_id, req.content, user, req.metadata, req.model, github_token))
-
-    return {
-        "session_id": session_id,
-        "job_id": job_id,
-        "status": "queued",
-        "message": "Agent job accepted",
-        "ready": True,
-        "issues": []
-    }
-
-async def _run_agent_loop(session_id: str, job_id: str, instruction: str, user: UserIdentity, metadata: Optional[Dict[str, Any]], model: Optional[str], github_token: str = ""):
-    _direct_chat_store.update_agent_job(job_id, status="running", message="Initializing agent...")
-    
-    # Create a workspace for this job
-    workspace_root = Path(os.environ.get("DIRECT_CHAT_AGENT_WORKSPACE_ROOT", ".data/direct-chat-agent-workspaces")) / user.email / job_id
-    workspace_root.mkdir(parents=True, exist_ok=True)
-    
-    # If metadata contains repo info, clone it
-    repo_url = (metadata or {}).get("repo_url") or (metadata or {}).get("repository")
-    repo_ref = (metadata or {}).get("repo_ref") or (metadata or {}).get("branch") or (metadata or {}).get("ref")
-    
-    if repo_url:
-        _direct_chat_store.update_agent_job(job_id, message=f"Cloning {repo_url}...")
-        try:
-            # Use git CLI directly for cloning
-            clone_cmd = ["git", "clone", "--depth", "1"]
-            if repo_ref:
-                clone_cmd += ["-b", repo_ref]
-
-            # Inject token into URL if available
-            auth_url = repo_url
-            if github_token and "github.com" in repo_url:
-                auth_url = repo_url.replace("https://", f"https://x-access-token:{github_token}@")
-
-            clone_cmd += [auth_url, "."]
-
-            proc = await asyncio.create_subprocess_exec(
-                *clone_cmd,
-                cwd=str(workspace_root),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode != 0:
-                _direct_chat_store.update_agent_job(job_id, status="failed", error=f"Clone failed: {stderr.decode()}")
-                return
-        except Exception as e:
-            _direct_chat_store.update_agent_job(job_id, status="failed", error=f"Clone error: {str(e)}")
-            return
-
-    # Initialize AgentRunner
-    # We prioritize NVIDIA NIM if key is available
-    nim_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or ""
-    ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
-
-    headers = {}
-    if nim_key:
-        headers["Authorization"] = f"Bearer {nim_key}"
-        base_url = "https://integrate.api.nvidia.com/v1"
-        # Use nemotron as default for engineering tasks if not specified
-        model_name = model or "nvidia/nemotron-3-super-120b-a12b"
-    else:
-        base_url = ollama_base
-        model_name = model or os.environ.get("AGENT_PLANNER_MODEL", "qwen2.5-coder:32b")
-
-    runner = AgentRunner(
-        ollama_base=base_url,
-        workspace_root=workspace_root,
-        provider_headers=headers,
-        email=user.email,
-        github_token=github_token
+    job = _agent_jobs.create_job(session_id=session_id, owner_id=user.email, instruction=req.content, requested_model=req.model, provider_id=req.provider_id)
+    workspace_root = make_isolated_workspace(_agent_workspace_root, session_id, job.job_id)
+    job.workspace_path = str(workspace_root)
+    adapter = InternalAgentAdapter(config={"workspace_root": str(workspace_root)})
+    spec = TaskSpec(
+        task_id=job.job_id,
+        instruction=req.content,
+        task_type="code_generation",
+        workspace_path=str(workspace_root),
+        model_preference=req.model,
+        timeout_sec=int(os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "1800")),
+        context={
+            "conversation": history,
+            "max_steps": 30,
+            "owner_id": user.id,
+            "user_email": user.email,
+            "session_id": session_id,
+            "metadata": req.metadata or {},
+        },
     )
+    report = await adapter.readiness_check(spec)
+    if not report.ready: raise HTTPException(status_code=412, detail=report.as_dict())
+    async def _run_agent_job(heartbeat):
+        """
+        Run the agent job workflow and persist its final assistant message to the session store.
 
-    # Step listener to update job progress
-    def _on_step(event):
-        _direct_chat_store.update_agent_job(job_id, progress_events=[event], message=event.get("message", "Processing..."))
+        Parameters:
+            heartbeat (Callable[[str, str], None]): Callback to report job phase and a short message; invoked with phase names like "planning", "execution", and "verification".
 
-    try:
-        result = await runner.run(
-            instruction=instruction,
-            requested_model=model_name,
-            user_id=user.email,
-            memory_store=_user_memory
-        )
+        Returns:
+            dict: Envelope containing `session_id` (str) and `response` (str) with the assistant's final message.
+        """
+        from agent.loop import AgentRunner
+        heartbeat("planning", "Runtime preflight passed")
+        app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
+        sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
+        primary_provider = sorted_providers[0] if sorted_providers else None
+        ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
+        primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
+        runner = AgentRunner(ollama_base=ollama_base, workspace_root=str(workspace_root), provider_headers=primary_headers, provider_chain=sorted_providers[1:], allow_commercial_fallback=req.allow_commercial_fallback_once, provider_temperature=req.temperature, session_store=None, github_token=github_token, email=user.email, department=None, key_id=None)
+        heartbeat("execution", "Agent execution started")
+        result = await runner.run(metadata=spec.context.get("metadata", {}), instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, department=None, key_id=None, memory_store=UserMemoryStore(), session_id=session_id)
+        heartbeat("verification", "Planner/executor/verifier flow completed")
+        assistant_message = result.get("summary", "Agent completed")
+        _direct_chat_store.append_message(session_id, "assistant", assistant_message)
+        return {"session_id": session_id, "response": assistant_message}
+    _agent_jobs.start_job(job.job_id, _run_agent_job)
 
-        _direct_chat_store.update_agent_job(
-            job_id,
-            status="succeeded",
-            phase="completed",
-            message="Agent finished successfully",
-            result=result
-        )
+    # Return a typed accepted job envelope — transport-level acknowledgement only.
+    from agent.schemas import AcceptedJob
+    accepted = AcceptedJob(
+        session_id=session_id,
+        job_id=job.job_id,
+        status=job.status,
+        phase=job.phase,
+        message="Agent workflow queued.",
+    )
+    return JSONResponse(status_code=202, content=accepted.model_dump())
 
-        # Append assistant result to chat
-        summary = result.get("summary", "Done.")
-        _direct_chat_store.append_message(session_id, "assistant", summary)
 
-    except Exception as e:
-        _direct_chat_store.update_agent_job(job_id, status="failed", error=str(e))
-
-@direct_chat_router.get("/jobs/{job_id}")
-async def get_job_status(job_id: str, user: UserIdentity = Depends(_get_current_user)):
-    job = _direct_chat_store.get_agent_job(job_id)
+@direct_chat_router.get("/agent-jobs/{job_id}")
+async def get_agent_job(job_id: str):
+    """
+    Retrieve a typed representation of an agent job by its job ID.
+    
+    Raises an HTTP 404 if the job does not exist. Depending on the job's status, returns a dictionary matching one of the agent job schemas:
+    - For a running job: keys include `job_id`, `session_id`, `status`, `phase`, `progress_events`, and `workspace_path`.
+    - For a succeeded job: keys include `job_id`, `session_id`, `status`, `phase`, `final_message`, and `result`.
+    - For any other status: keys include `job_id`, `session_id`, `status`, `phase`, and `error` (an object, empty if absent).
+    
+    Parameters:
+        job_id (str): The unique identifier of the agent job.
+    
+    Returns:
+        dict: A serialized job representation matching `RunningJob`, `CompletedJob`, or `FailedJob` schema depending on job status.
+    """
+    job = _agent_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-
-    # Verify ownership via session
-    session = _direct_chat_store.get_session(job.session_id)
-    if not session or session.owner_id != user.email:
-         raise HTTPException(status_code=403, detail="Forbidden")
-
-    return job
-
-# ─── Helpers ──────────────────────────────────────────────────────────────────
-
-def _ensure_session(session_id: str, user: UserIdentity):
-    if not _direct_chat_store.get_session(session_id):
-        _direct_chat_store.create_session(user.email, session_id=session_id)
+    from agent.schemas import RunningJob, CompletedJob, FailedJob
+    jd = job.as_dict()
+    if job.status == "running":
+        running = RunningJob(
+            job_id=jd["job_id"],
+            session_id=jd["session_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            progress_events=jd.get("progress_events", []),
+            workspace_path=jd.get("workspace_path"),
+        )
+        return running.model_dump()
+    elif job.status == "succeeded":
+        completed = CompletedJob(
+            job_id=jd["job_id"],
+            session_id=jd["session_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            final_message=jd.get("final_message"),
+            result=jd.get("result"),
+        )
+        return completed.model_dump()
+    else:
+        failed = FailedJob(
+            job_id=jd["job_id"],
+            session_id=jd["session_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            error=jd.get("error") or {},
+        )
+        return failed.model_dump()

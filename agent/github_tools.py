@@ -455,7 +455,7 @@ async def get_repo(owner: str, repo: str, request: Request):
     try:
         return await gh.get_repo(owner, repo)
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=str(e))
+        raise HTTPException(status_code=e.response.status_code, detail="Internal server error")
 
 
 @github_router.get("/repos/{owner}/{repo}/branches")
@@ -503,7 +503,7 @@ async def init_workspace(owner: str, repo: str, request: Request, body: Workspac
               repo_workspace=f"https://github.com/{owner}/{repo}")
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @github_router.get("/repos/{owner}/{repo}/workspace/status")
@@ -558,4 +558,4 @@ async def workspace_commit(owner: str, repo: str, request: Request, body: Worksp
 
         return {"commit": commit_result, "push": push_result, "pr": pr_result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

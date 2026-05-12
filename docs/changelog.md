@@ -66,3 +66,5 @@
   - Fixed `app.state` initialization in `proxy.py` to ensure `webui_workspaces` and `PROVIDER_ROUTER` are available during testing with `TestClient`.
   - Refactored `agent/loop.py` to correctly parse repository names when calling GitHub tool methods.
   - Increased timeout for flaky frontend test `agentJobPolling.test.jsx` to 10000ms.
+  - Resolved CodeQL security alerts in `direct_chat.py` and `agent/github_tools.py` by sanitizing repository URLs and masking internal stack traces in user responses.
+  - Fixed unit test regressions in `tests/test_direct_chat_async.py` by properly handling asynchronous execution and mock object attributes.

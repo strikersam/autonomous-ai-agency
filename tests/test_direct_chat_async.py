@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 
@@ -190,7 +191,8 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     proxy.app.dependency_overrides.clear()
 
 
-def test_job_result_normalizes_and_exposes_final_message():
+@pytest.mark.asyncio
+async def test_job_result_normalizes_and_exposes_final_message():
     from agent.job_manager import AgentJobManager
 
     mgr = AgentJobManager()
@@ -217,7 +219,7 @@ def test_job_result_normalizes_and_exposes_final_message():
     for _ in range(200):
         if job.status in ("succeeded", "failed"):
             break
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
 
     assert job.status == "succeeded"
     assert isinstance(job.result, dict)
@@ -226,7 +228,8 @@ def test_job_result_normalizes_and_exposes_final_message():
     assert d.get("final_message") == "Final textual summary"
 
 
-def test_job_failure_structures_runtime_preflight(monkeypatch):
+@pytest.mark.asyncio
+async def test_job_failure_structures_runtime_preflight(monkeypatch):
     from runtimes.base import RuntimePreflightError, RuntimeReadinessReport
     mgr = AgentJobManager()
     job = mgr.create_job(session_id="s2", instruction="run git ops")
@@ -244,6 +247,7 @@ def test_job_failure_structures_runtime_preflight(monkeypatch):
             self.runtime_id = "internal_agent"
             self.ready = False
             self.selected_runtime = "internal_agent"
+            self.summary = "docker missing"
         def as_dict(self):
             """
             Serialize the readiness report to a plain dictionary.
@@ -278,7 +282,7 @@ def test_job_failure_structures_runtime_preflight(monkeypatch):
     for _ in range(200):
         if job.status in ("succeeded", "failed"):
             break
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
 
     assert job.status == "failed"
     assert isinstance(job.error, dict)
