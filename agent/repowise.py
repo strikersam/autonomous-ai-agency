@@ -217,17 +217,19 @@ class RepowiseIntelligence:
             files = output.splitlines()
 
         # Initialize data structures
-        file_data = {f: {"hotspot_changes": 0, "ownership": {}, "total_lines": 0} for f in files}
+        file_data = {f: {"hotspot_changes": 0, "ownership": {}, "total_lines": 0, "complexity": 0} for f in files}
         # We'll also collect commit data for co-change analysis
         commit_file_map = {}  # commit hash -> list of files changed in that commit
 
-        # Get all commits (we'll limit to last 500 for performance)
-        # We'll use git log --pretty=format: --name-only to get files changed per commit
-        # But we need to process commit by commit to get ownership.
-        # Let's get the list of commits (hash and author date) and then for each commit, get the diff and author.
-        # We'll do:
-        #   git log --pretty=format:"%H%x09%an%x09%ae" -n 500
-        # Then for each commit, get the files changed and the author.
+        # Compute complexity for Python files
+        for f in files:
+            if f.endswith(".py"):
+                filepath = self.root / f
+                try:
+                    complexity = self._compute_complexity(filepath)
+                    file_data[f]["complexity"] = complexity
+                except Exception:
+                    file_data[f]["complexity"] = 0
 
         # We'll do a simpler approach for ownership: blame each file and compute per-author lines.
         # This can be slow for many files, but we'll try.
@@ -306,15 +308,21 @@ class RepowiseIntelligence:
             "cochange_pairs": []
         }
 
-        # Hotspots: we'll compute a simple score (changes * lines) or just use changes for now.
+        # Hotspots: we'll compute a simple score (changes * (complexity + 1)) to avoid zero.
         for f, data in file_data.items():
+            # Compute hotspot score as changes * (complexity + 1)
+            complexity = data["complexity"]
+            changes = data["hotspot_changes"]
+            score = changes * (complexity + 1)  # ensure at least changes
             git_intelligence["hotspots"].append({
                 "file": f,
-                "changes": data["hotspot_changes"],
+                "changes": changes,
+                "complexity": complexity,
+                "hotspot_score": score,
                 "total_lines": data["total_lines"]
             })
-        # Sort by changes descending
-        git_intelligence["hotspots"].sort(key=lambda x: x["changes"], reverse=True)
+        # Sort by hotspot_score descending
+        git_intelligence["hotspots"].sort(key=lambda x: x["hotspot_score"], reverse=True)
 
         # Ownership: for each file, compute percentages
         for f, data in file_data.items():
@@ -337,6 +345,32 @@ class RepowiseIntelligence:
         with open(self.git_history_file, "w") as f:
             json.dump(git_intelligence, f, indent=2)
 
+    def _compute_complexity(self, filepath: Path) -> int:
+        """Compute cyclomatic complexity for Python files.
+        Returns 0 for non-Python files or if parsing fails."""
+        if not filepath.suffix == ".py":
+            return 0
+        try:
+            content = filepath.read_text(encoding="utf-8")
+            tree = ast.parse(content)
+            complexity = 1  # start with 1 for the straight path
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.If, ast.For, ast.While, ast.AsyncFor)):
+                    complexity += 1
+                elif isinstance(node, ast.ExceptHandler):
+                    complexity += 1
+                elif isinstance(node, (ast.And, ast.Or)):
+                    # Each boolean operator adds a decision point
+                    complexity += 1
+                elif isinstance(node, ast.Match):  # Python 3.10+
+                    complexity += 1
+                    # Each case in match adds a decision point
+                    for subnode in ast.walk(node):
+                        if isinstance(subnode, ast.match_case):
+                            complexity += 1
+            return complexity
+        except Exception:
+            return 0
     def _build_documentation_intelligence(self) -> None:
         """Extract docstrings and store as documentation."""
         # We'll extract docstrings from Python files and store them as markdown files.
@@ -831,4 +865,3 @@ class RepowiseIntelligence:
         for node in flow_nodes:
             output.append(f"File: {node['file']}, Line: {node['line']}, Decision: {node['decision']}")
         return "\n".join(output)
-
