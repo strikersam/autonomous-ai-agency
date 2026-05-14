@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 ### Fixed
+- `agent/github_tools.py` — added missing `import re`; `_validate_repo_parts` used `re.match` but the module never imported `re`, causing `NameError: name 're' is not defined` on every `github_read_repo_file` call.
+- `agent/loop.py` — MCP fallback for `run_command`/`write_file` now catches only `MCPUnavailableError` (transport/circuit-breaker failures) instead of bare `RuntimeError`; server-side tool errors (bad workspace_id, missing file, etc.) now surface as real errors rather than silently falling back to local execution and bypassing container isolation.
+- `agent/loop.py` — `non_inspection_called` check now includes MCP git/clone/delete tool names (`clone_repo`, `git_create_branch`, `git_commit`, `git_push`, `delete_workspace`) so steps that perform only MCP git operations are correctly classified as "applied" rather than "skipped".
+
+### Fixed
 - `.github/workflows/process-quick-note.yml` — Added `continue-on-error: true` to the council-review step so a crash there no longer silently skips the merge and close-issue steps.  Added `id: close_success` to the close step so the retry handler can reliably detect whether an issue was closed.  Replaced `failure()` with `always()` + compound condition in the retry handler to also catch the two previously-silent cases: (a) tests fail after implementation (step exits 0 via if/else, no `failure()` fires) and (b) agent finds nothing to change (no PR created, no `failure()` fires).  Both now correctly queue the issue for retry.
 - `.github/scripts/review_agent.py` — Complete rewrite: added PASS / WARN / FAIL three-tier verdict (FAIL only for real security/data-loss issues; WARN for minor concerns); model fallback through all NVIDIA NIM candidates; always exits 0 so the workflow conditional logic — not the exit code — controls routing; defaults to WARN on any API or format error so auto-merge is never silently blocked by a reviewer crash.
 - `.github/scripts/implement_agent.py` — Replaced `model_dump(exclude_unset=False)` assistant-message serialisation with a hand-built dict containing only `role`, `content`, and `tool_calls`.  The previous approach emitted null sentinel fields (`refusal`, `audio`, etc.) that some NVIDIA NIM model endpoints reject with a 422, silently breaking the agentic loop mid-session.

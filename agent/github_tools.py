@@ -25,6 +25,7 @@ import asyncio
 import base64
 import logging
 import os
+import re
 import shlex
 import subprocess
 import time
