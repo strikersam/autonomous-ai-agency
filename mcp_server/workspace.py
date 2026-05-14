@@ -96,6 +96,10 @@ class Workspace:
         err = err.replace(token or "", "***") if token else err
         if rc != 0:
             raise RuntimeError(f"git clone failed: {err.strip()}")
+        if token and authed_url != repo_url:
+            # Remove the token-embedded URL from .git/config so it is not
+            # persisted as plaintext in the workspace.
+            await _run("git", "remote", "set-url", "origin", repo_url, cwd=self.root)
         return {"cloned": True, "branch": branch, "workspace_id": self.ws_id}
 
     async def status(self) -> str:
@@ -119,7 +123,9 @@ class Workspace:
         return {"branch": branch_name, "created": True}
 
     async def commit(self, message: str, paths: list[str] | None = None) -> dict[str, Any]:
-        if paths:
+        if paths is not None:
+            if not paths:
+                raise ValueError("paths must be None (stage all) or a non-empty list of file paths")
             for p in paths:
                 safe = _safe_path(self.root, p)
                 rc, _, err = await _run("git", "add", str(safe.relative_to(self.root)), cwd=self.root)
