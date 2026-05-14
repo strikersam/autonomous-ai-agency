@@ -142,6 +142,46 @@ def _apply_chat_defaults(payload: dict[str, Any]) -> dict[str, Any]:
     return copied
 
 
+def _normalize_response_format(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize OpenAI response_format to Ollama-native structured output format.
+
+    OpenAI json_schema:
+        response_format: {"type": "json_schema", "json_schema": {"name": "X", "schema": {...}}}
+    Ollama native (passes schema directly via format field):
+        format: {...schema...}
+
+    json_object mode maps to Ollama's generic JSON mode:
+        response_format: {"type": "json_object"} → format: "json"
+
+    Cloud/Nvidia models (model name contains "/") are OpenAI-compatible natively
+    and receive response_format unchanged.
+    """
+    response_format = payload.get("response_format")
+    if not isinstance(response_format, dict):
+        return payload
+
+    model = payload.get("model", "")
+    if "/" in str(model):
+        return payload
+
+    rf_type = response_format.get("type")
+
+    if rf_type == "json_schema":
+        json_schema_obj = response_format.get("json_schema")
+        if isinstance(json_schema_obj, dict):
+            schema = json_schema_obj.get("schema")
+            if isinstance(schema, dict):
+                payload = dict(payload)
+                payload["format"] = schema
+                del payload["response_format"]
+    elif rf_type == "json_object":
+        payload = dict(payload)
+        payload["format"] = "json"
+        del payload["response_format"]
+
+    return payload
+
+
 def _strip_think_blocks(text: str) -> str:
     """Rigorous regex-based stripping of <think>...</think> blocks from strings."""
     if not text:
@@ -279,6 +319,7 @@ async def handle_openai_chat_completions(
 
     payload = _inject_default_system_prompt(payload)
     payload = _apply_chat_defaults(payload)
+    payload = _normalize_response_format(payload)
     messages = payload.get("messages")
     stream = bool(payload.get("stream", False))
     exact_output = _extract_exact_output(messages)

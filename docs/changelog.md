@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Added
+- **Structured output normalization** (`chat_handlers.py`) — The proxy now transforms OpenAI's `response_format: {"type": "json_schema", "json_schema": {...}}` into Ollama's native `format: {...}` field before forwarding to local models. `json_object` mode maps to `format: "json"`. Cloud/Nvidia models (model name contains "/") receive `response_format` unchanged. Improves compatibility with Claude Code, Cursor, and any client using structured output schemas against Ollama-backed local models.
+- **Claude/Anthropic alias entries in `/v1/models`** (`proxy.py`) — The `/v1/models` endpoint now includes all Claude model alias names (e.g. `claude-sonnet-4-6`, `claude-opus-4-7`, `claude-haiku-4-5-20251001`) with `owned_by: "llm-relay-alias"` and a description showing the resolved target. Enables Claude Code's gateway model picker to list proxy-recognized models when `ANTHROPIC_BASE_URL` points at this proxy.
+- **Token budget response headers** (`proxy.py`) — Chat completion responses now include `X-Token-Budget-Remaining`, `X-Token-Budget-Cap`, and `X-Token-Budget-Used` headers when the request carries an `X-Session-Id` or `X-Claude-Code-Session-Id` header that has an active budget cap configured. Clients can monitor spend without a separate API call.
 - `agent/repowise.py`, `agent/tools.py` — Implemented Repowise-inspired codebase intelligence tools: `get_overview`, `get_context`, `get_risk`, and `get_why` for enhanced agent reasoning.
 ### Fixed
 - `direct_chat.py` — Fixed `AttributeError` when provider response is invalid; added preflight repo validation to return 412 status code.

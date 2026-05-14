@@ -11,7 +11,7 @@
 [![Forks](https://img.shields.io/github/forks/strikersam/local-llm-server?style=for-the-badge&color=4D8CFF&logo=git)](https://github.com/strikersam/local-llm-server/network)
 [![License](https://img.shields.io/badge/license-Open%20Source-22C55E?style=for-the-badge)](LICENSE)
 
-[**Quick start**](#quick-start) · [**What's new in v4.0**](#whats-new-in-v40) · [**See the product**](#see-the-product) · [**What it can do**](#what-it-can-do) · [**Technical docs**](#technical-docs)
+[**Quick start**](#quick-start) · [**What's new**](#whats-new-2026-05-14) · [**See the product**](#see-the-product) · [**What it can do**](#what-it-can-do) · [**Technical docs**](#technical-docs)
 
 </div>
 
@@ -48,6 +48,16 @@ That means less setup pain, less tool sprawl, and fewer "wait, where did that an
   <br/>
   <sub><em>The main control plane: one screen for chat, tasks, agents, models, knowledge, and system health.</em></sub>
 </p>
+
+---
+
+## What's new (2026-05-14)
+
+**Structured output compatibility, Claude Code model picker support, and token budget headers.**
+
+- **Structured output normalization** — Pass `response_format: {"type": "json_schema", "json_schema": {"schema": {...}}}` from any OpenAI-compatible client and the proxy automatically converts it to Ollama's native `format` field. `json_object` mode maps to `format: "json"`. Cloud/Nvidia models receive `response_format` unchanged. This removes a common compatibility gap when using Claude Code, Cursor, or Aider with local Ollama models.
+- **Claude model aliases in `/v1/models`** — The `/v1/models` endpoint now lists all Claude model alias names (`claude-sonnet-4-6`, `claude-opus-4-7`, etc.) so Claude Code's built-in gateway model picker displays them when you set `ANTHROPIC_BASE_URL` to this proxy.
+- **`X-Token-Budget-*` response headers** — When a session has a token budget cap set, chat completion responses now include `X-Token-Budget-Remaining`, `X-Token-Budget-Cap`, and `X-Token-Budget-Used` headers. Monitor spend inline without a separate `/agent/budget` API call.
 
 ---
 
