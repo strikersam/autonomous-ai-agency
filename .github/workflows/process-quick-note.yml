@@ -1,9 +1,12 @@
 name: Process Quick Note
 
-# Triggered on schedule, manually, or by the self-retry mechanism.
+# Triggered on schedule, manually, push of sentinel file, or by the self-retry mechanism.
 on:
   schedule:
     - cron: '0 */4 * * *'
+  push:
+    branches: [master]
+    paths: ['.github/workflows/.trigger-quick-note']
   workflow_dispatch:
     inputs:
       issue_number:
@@ -152,20 +155,15 @@ jobs:
           FETCH_EXIT=$?
 
           if [ "$FETCH_EXIT" -eq 2 ]; then
+            # URL inaccessible — write a stub so the agent can proceed using just the task description.
+            echo "Source URL: ${URL}" > /tmp/note_content.txt
+            echo "" >> /tmp/note_content.txt
+            echo "[URL content unavailable — all fetch strategies (direct, Google Cache, Wayback Machine) were blocked.]" >> /tmp/note_content.txt
+            echo "Implement features based on the task description and your knowledge of the topic at ${URL}." >> /tmp/note_content.txt
             gh issue comment "${{ steps.issue.outputs.number }}" \
               --repo "${{ github.repository }}" \
-              --body "$(cat <<MSG
-          ❌ Could not fetch content from \`${URL}\` (tried direct fetch, Google Cache, and Wayback Machine).
-
-          **Possible causes:**
-          - Login-required share link (e.g. \`share.google/...\`)
-          - Paywalled article
-          - JavaScript-only rendering
-
-          **Fix:** Paste the article text directly into the issue body and reopen.
-          MSG
-          )"
-            exit 1
+              --body "⚠️ Could not fetch \`${URL}\` directly (403/paywalled). Proceeding with task description only — the agent will use its knowledge of the topic." \
+              2>/dev/null || true
           fi
 
           CHARS=$(wc -c < /tmp/note_content.txt)
@@ -289,6 +287,12 @@ jobs:
       - name: Council review (Security / Correctness / Performance / Maintainability)
         id: review
         if: steps.pr.outputs.pr_number != ''
+        # IMPORTANT: continue-on-error must be true.
+        # review_agent.py always exits 0, but a crash (e.g. network error) would
+        # otherwise mark this step failed and skip ALL downstream steps (merge,
+        # close-issue, human-review comment) because GitHub Actions skips
+        # subsequent steps whose `if:` does not include always()/failure().
+        continue-on-error: true
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -338,6 +342,7 @@ jobs:
 
       # ── 14. Close issue on success ─────────────────────────────────────────
       - name: Close issue — success
+        id: close_success
         if: steps.merge.outputs.merged == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -384,14 +389,32 @@ jobs:
           )"
 
       # ── 16. Auto-retry: reopen issue on failure ────────────────────────────
-      # Runs whenever ANY earlier step failed and we found an issue to process.
-      # After 3 failures the issue is exhausted.
+      # Runs whenever the issue was found but was NOT successfully closed.
+      #
+      # Previous behaviour used failure() which only fires on non-zero step
+      # exits.  This missed two silent-skip cases that kept issues open forever:
+      #
+      #   a) Tests fail after implementation — step 9 exits 0 (if/else), so
+      #      subsequent steps are skipped via their `if:` conditions, not via a
+      #      step failure.  failure() == false → retry handler never ran.
+      #
+      #   b) Agent succeeds but makes no file changes (nothing to commit) —
+      #      same pattern: step 10 exits 0 with changed=false, no PR is created,
+      #      no failure(), retry handler never ran.
+      #
+      # Fix: use always() + check that the issue was neither closed (close_success
+      # not successful) nor handed to a human (verdict == 'FAIL').  The additional
+      # guard `(failure() || steps.pr.outputs.pr_number == '')` ensures we don't
+      # spuriously retry when the pipeline completed normally but the close step
+      # had a transient hiccup — in that case pr_number is set and no failure
+      # occurred.
       - name: Handle failure — reopen for retry
         if: >
-          failure() &&
+          always() &&
           steps.pick.outputs.found == 'true' &&
-          steps.merge.outputs.merged != 'true' &&
-          steps.review.outputs.verdict != 'FAIL'
+          steps.close_success.outcome != 'success' &&
+          steps.review.outputs.verdict != 'FAIL' &&
+          (failure() || steps.pr.outputs.pr_number == '')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -412,7 +435,7 @@ jobs:
               --color "b60205" --description "Retries exhausted" 2>/dev/null || true
             gh issue edit "$ISSUE" \
               --repo "${{ github.repository }}" \
-              --add-label "quick-note:exhausted"
+              --add-label "quick-note:exhausted" 2>/dev/null || true
             gh issue comment "$ISSUE" \
               --repo "${{ github.repository }}" \
               --body "$(cat <<MSG
@@ -432,7 +455,7 @@ jobs:
               --description "Auto-retry attempt ${NEW_RETRY}" 2>/dev/null || true
             gh issue edit "$ISSUE" \
               --repo "${{ github.repository }}" \
-              --add-label "retry:${NEW_RETRY}"
+              --add-label "retry:${NEW_RETRY}" 2>/dev/null || true
             gh issue reopen "$ISSUE" \
               --repo "${{ github.repository }}" 2>/dev/null || true
             gh issue comment "$ISSUE" \

@@ -58,9 +58,9 @@ const STEPS = [
 // Nvidia NIM free models
 const NVIDIA_MODELS = {
   executor: 'nvidia/nemotron-3-super-120b-a12b',
-  planner:  'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  planner:  'nvidia/nemotron-3-super-120b-a12b',
   verifier: 'nvidia/nemotron-3-super-120b-a12b',
-  judge: 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  judge: 'nvidia/nemotron-3-super-120b-a12b',
   default:  'nvidia/nemotron-3-super-120b-a12b',
 };
 const LOCAL_MODELS = {
@@ -135,6 +135,7 @@ export default function SetupWizardPage({ onComplete }) {
   const [enableOpenCode, setEnableOpenCode] = useState(false);
   const [enableTaskHarness, setEnableTaskHarness] = useState(false);
   const [enableAider, setEnableAider] = useState(false);
+  const [enableJcode, setEnableJcode] = useState(false);
 
   // Step 4 — Agent
   const [agentName, setAgentName] = useState('My Agent');
@@ -189,6 +190,7 @@ export default function SetupWizardPage({ onComplete }) {
       setEnableOpenCode(rt.enable_opencode ?? false);
       setEnableTaskHarness(rt.enable_task_harness ?? false);
       setEnableAider(rt.enable_aider ?? false);
+      setEnableJcode(rt.enable_jcode ?? false);
     }
     if (Object.keys(a).length) {
       setAgentName(a.agent_name || 'My Agent');
@@ -237,6 +239,7 @@ export default function SetupWizardPage({ onComplete }) {
     if (rt.enableOpenCode !== undefined) setEnableOpenCode(rt.enableOpenCode);
     if (rt.enableTaskHarness   !== undefined) setEnableTaskHarness(rt.enableTaskHarness);
     if (rt.enableAider    !== undefined) setEnableAider(rt.enableAider);
+    if (rt.enableJcode    !== undefined) setEnableJcode(rt.enableJcode);
 
     if (a.agentName)                   setAgentName(a.agentName);
     if (a.agentModel)                  setAgentModel(a.agentModel);
@@ -486,11 +489,11 @@ export default function SetupWizardPage({ onComplete }) {
       currentStep,
       step1: { useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId },
       step2: { defaultModel, plannerModel, executorModel, verifierModel, judgeModel },
-      step3: { enableHermes, enableOpenCode, enableTaskHarness, enableAider },
+      step3: { enableHermes, enableOpenCode, enableTaskHarness, enableAider, enableJcode },
       step4: { agentName, agentModel, costPolicy },
       step5: { neverPaid, requireApproval, enableLangfuse, langfuseHost },
     });
-  }, [useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId, defaultModel, plannerModel, executorModel, verifierModel, judgeModel, enableHermes, enableOpenCode, enableTaskHarness, enableAider, agentName, agentModel, costPolicy, neverPaid, requireApproval, enableLangfuse, langfuseHost]);
+  }, [useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId, defaultModel, plannerModel, executorModel, verifierModel, judgeModel, enableHermes, enableOpenCode, enableTaskHarness, enableAider, enableJcode, agentName, agentModel, costPolicy, neverPaid, requireApproval, enableLangfuse, langfuseHost]);
 
   // ─── Save step ──────────────────────────────────────────────────────────────
 
@@ -536,7 +539,7 @@ export default function SetupWizardPage({ onComplete }) {
           verifier_model: verifierModel,
           judge_model: judgeModel,
         },
-        3: { enable_hermes: enableHermes, enable_opencode: enableOpenCode, enable_task_harness: enableTaskHarness, enable_aider: enableAider },
+        3: { enable_hermes: enableHermes, enable_opencode: enableOpenCode, enable_task_harness: enableTaskHarness, enable_aider: enableAider, enable_jcode: enableJcode },
         4: { agent_name: agentName, agent_model: agentModel, cost_policy: costPolicy },
         5: { never_use_paid_providers: neverPaid, require_approval_before_paid: requireApproval, enable_langfuse: enableLangfuse, langfuse_host: langfuseHost },
       };
@@ -1078,7 +1081,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <label className="text-sm font-medium text-gray-700">Direct Chat default model</label>
                     <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={defaultModel} onChange={e => setDefaultModel(e.target.value)}
-                      placeholder="nvidia/nemotron-3-super-120b-a12b" />
+                      placeholder="nvidia/llama-3.1-70b-instruct" />
                     <p className="text-xs text-gray-500 mt-1">Used for non-agent chat when you stay on the provider default path.</p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1086,25 +1089,25 @@ export default function SetupWizardPage({ onComplete }) {
                       <label className="text-sm font-medium text-gray-700">Planner model</label>
                       <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         value={plannerModel} onChange={e => setPlannerModel(e.target.value)}
-                        placeholder="nvidia/llama-3.1-nemotron-ultra-253b-v1" />
+                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Coder / executor model</label>
                       <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         value={executorModel} onChange={e => setExecutorModel(e.target.value)}
-                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
+                        placeholder="nvidia/llama-3.1-70b-instruct" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Verifier model</label>
                       <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         value={verifierModel} onChange={e => setVerifierModel(e.target.value)}
-                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
+                        placeholder="nvidia/llama-3.1-70b-instruct" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Judge model</label>
                       <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         value={judgeModel} onChange={e => setJudgeModel(e.target.value)}
-                        placeholder="nvidia/llama-3.1-nemotron-ultra-253b-v1" />
+                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
                     </div>
                   </div>
                 </div>
@@ -1122,6 +1125,7 @@ export default function SetupWizardPage({ onComplete }) {
                     { key: 'opencode', label: 'OpenCode', desc: 'VS Code-style agent runtime',              val: enableOpenCode, set: setEnableOpenCode },
                     { key: 'task-harness', label: 'Task Harness', desc: 'Compatible external harness for long-running, multi-file agent work', val: enableTaskHarness, set: setEnableTaskHarness },
                     { key: 'aider',    label: 'Aider',    desc: 'Git-native coding agent',                  val: enableAider,    set: setEnableAider },
+                    { key: 'jcode',    label: 'jcode',    desc: 'High-performance Rust coding agent with semantic memory and MCP — points at this proxy', val: enableJcode, set: setEnableJcode, badge: 'New' },
                   ].map(r => (
                     <label key={r.key} className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-300 transition-colors">
                       <input type="checkbox" checked={r.val} onChange={e => r.set(e.target.checked)} className="w-4 h-4" />

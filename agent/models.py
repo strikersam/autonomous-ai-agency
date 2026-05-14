@@ -71,6 +71,10 @@ class AgentPlan(BaseModel):
 class ToolCall(BaseModel):
     tool: Literal[
         "read_file",
+        "get_overview",
+        "get_context",
+        "get_risk",
+        "get_why",
         "head_file",      # JIT retrieval: first N lines only
         "file_index",     # JIT retrieval: lightweight file list with sizes
         "write_file",
@@ -86,6 +90,17 @@ class ToolCall(BaseModel):
         "github_create_branch",
         "github_commit_changes",
         "github_open_pull_request",
+        "github_get_issue",
+        "github_comment_on_issue",
+        "github_close_issue",
+        "run_command",
+        "clone_repo",
+        "git_status",
+        "git_diff",
+        "git_create_branch",
+        "git_commit",
+        "git_push",
+        "delete_workspace",
         "finish",
     ]
     args: dict[str, Any] = Field(default_factory=dict)

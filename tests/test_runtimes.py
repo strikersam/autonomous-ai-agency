@@ -480,3 +480,167 @@ class TestTaskHarnessAdapterExecution:
         assert result.provider_used == "OpenAI"
         assert result.tokens_used == 15
         assert result.metadata["session_id"] == "session_abc"
+
+
+class TestJCodeAdapterMetadata:
+
+    def test_jcode_metadata(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter()
+        assert adapter.RUNTIME_ID == "jcode"
+        assert adapter.DISPLAY_NAME
+        assert isinstance(adapter.TIER, RuntimeTier)
+        assert isinstance(adapter.INTEGRATION_MODE, IntegrationMode)
+        assert isinstance(adapter.CAPABILITIES, frozenset)
+        d = adapter.as_dict()
+        assert d["runtime_id"] == "jcode"
+        assert "capabilities" in d
+
+    def test_jcode_is_tier_2(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter.TIER == RuntimeTier.TIER_2
+
+    def test_jcode_supports_mcp_connectivity(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter().supports(RuntimeCapability.MCP_CONNECTIVITY)
+
+    def test_jcode_supports_memory_sessions(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter().supports(RuntimeCapability.MEMORY_SESSIONS)
+
+    def test_jcode_supports_repo_editing(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter().supports(RuntimeCapability.REPO_EDITING)
+
+    def test_jcode_health_reports_missing_binary(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        with patch("runtimes.adapters.jcode.shutil.which", return_value=None):
+            health = asyncio.run(JCodeAdapter().health_check())
+        assert health.available is False
+        assert health.error is not None
+        assert "jcode" in (health.error or "").lower() or "binary" in (health.error or "").lower()
+
+    def test_jcode_health_via_http_when_offline(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter({"base_url": "http://localhost:1"})
+        health = asyncio.run(adapter.health_check())
+        assert isinstance(health, RuntimeHealth)
+        assert health.available is False
+        assert health.error is not None
+
+    def test_jcode_required_dependencies_when_no_base_url(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter()
+        deps = adapter.required_dependencies()
+        assert len(deps) == 1
+        assert deps[0].name == "jcode"
+        assert deps[0].config_var == "JCODE_BIN"
+
+    def test_jcode_no_required_dependencies_when_base_url_set(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter({"base_url": "http://localhost:8105"})
+        assert adapter.required_dependencies() == []
+
+    def test_jcode_write_mcp_config(self, tmp_path):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter({"api_key": "test-key"})
+        config_path = adapter.write_mcp_config(workspace_path=str(tmp_path), proxy_url="http://localhost:8000/v1")
+        assert config_path.exists()
+        data = json.loads(config_path.read_text())
+        assert "mcpServers" in data
+        server = data["mcpServers"]["local-llm-proxy"]
+        assert "http://localhost:8000/mcp" in server["url"]
+
+    def test_jcode_execute_missing_binary_raises(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        from runtimes.base import RuntimeUnavailableError
+        with patch("runtimes.adapters.jcode.shutil.which", return_value=None):
+            with pytest.raises(RuntimeUnavailableError):
+                asyncio.run(
+                    JCodeAdapter().execute(
+                        TaskSpec(task_id="t1", instruction="hello")
+                    )
+                )
+
+    def test_jcode_registered_in_default_manager(self):
+        """jcode must be registered in the default RuntimeManager."""
+        from runtimes.manager import _build_default_manager
+        mgr = _build_default_manager()
+        ids = mgr._registry.ids()
+        assert "jcode" in ids
+
+
+class TestStartLocalRuntime:
+    """Tests for _start_local_runtime safety guards in runtimes/control.py."""
+
+    def test_cli_only_adapter_skips_subprocess(self, monkeypatch):
+        """task_harness (no _base_url) must not spawn agent_runtime.py."""
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+        from runtimes.control import _start_local_runtime
+        from runtimes.manager import RuntimeManager
+        from runtimes.registry import RuntimeCapabilityRegistry
+
+        adapter = TaskHarnessAdapter()
+        assert not hasattr(adapter, "_base_url"), "TaskHarnessAdapter must remain CLI-only"
+
+        # Wire a manager with only the task_harness adapter registered
+        registry = RuntimeCapabilityRegistry()
+        registry.register(adapter)
+        fake_mgr = MagicMock()
+        fake_mgr._registry = registry
+        monkeypatch.setattr("runtimes.control.get_runtime_manager", lambda: fake_mgr)
+
+        spawned = []
+
+        def fake_popen(cmd, **kwargs):
+            spawned.append(cmd)
+            p = MagicMock()
+            p.poll.return_value = None
+            p.pid = 9999
+            return p
+
+        monkeypatch.setattr("runtimes.control.subprocess.Popen", fake_popen)
+
+        result = asyncio.run(_start_local_runtime("task_harness"))
+
+        assert not spawned, "No subprocess should be spawned for a CLI-only adapter"
+        assert result["status"] == "unavailable"
+        assert result.get("mode") == "cli_only"
+
+    def test_crashed_subprocess_returns_error_not_base_url(self, monkeypatch, tmp_path):
+        """If agent_runtime.py exits immediately, _base_url must NOT be set."""
+        from runtimes.adapters.aider import AiderAdapter
+        from runtimes.control import _start_local_runtime
+        from runtimes.registry import RuntimeCapabilityRegistry
+
+        adapter = AiderAdapter()
+        assert hasattr(adapter, "_base_url"), "AiderAdapter must have _base_url"
+        original_base_url = adapter._base_url  # empty string initially
+
+        registry = RuntimeCapabilityRegistry()
+        registry.register(adapter)
+        fake_mgr = MagicMock()
+        fake_mgr._registry = registry
+        monkeypatch.setattr("runtimes.control.get_runtime_manager", lambda: fake_mgr)
+
+        # Simulate a subprocess that crashes immediately (poll() returns exit code)
+        dead_proc = MagicMock()
+        dead_proc.poll.return_value = 1  # exited with error
+        dead_proc.pid = 1234
+        dead_proc.communicate.return_value = (b"", b"address already in use")
+        dead_proc.returncode = 1
+        monkeypatch.setattr("runtimes.control.subprocess.Popen", lambda *a, **kw: dead_proc)
+
+        # Use a real script path so the "script not found" check doesn't trigger first
+        fake_script = tmp_path / "agent_runtime.py"
+        fake_script.write_text("# dummy")
+        monkeypatch.setattr(
+            "runtimes.control._find_agent_runtime_script", lambda: fake_script
+        )
+
+        result = asyncio.run(_start_local_runtime("aider"))
+
+        assert result["status"] == "error"
+        assert "exited at startup" in result.get("error", "")
+        # _base_url must not have been updated
+        assert adapter._base_url == original_base_url

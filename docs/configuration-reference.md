@@ -74,6 +74,26 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 ---
 
+## Workspace Isolation
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_WORKSPACE_BASE` | `.workspaces/` next to `proxy.py` | Base root for all per-job isolated workspaces.  All job directories are created as hashed subdirectories under this path. |
+| `WORKSPACE_TTL_HOURS` | `24` | Number of hours after job completion before the workspace becomes eligible for cleanup.  Workspaces in active states are never deleted regardless of TTL. |
+
+---
+
+## Feature Flags
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FEATURE_DISABLE` | (none) | Comma-separated list of feature IDs to force-disable at startup (e.g. `async_agent_jobs,telegram_bot`).  Takes precedence over `FEATURE_ENABLE`. |
+| `FEATURE_ENABLE` | (none) | Comma-separated list of feature IDs to force-enable at startup.  Can enable `beta` or `experimental` features.  Cannot enable features with maturity=`disabled`. |
+
+See [docs/support-matrix.md](support-matrix.md) for the full list of feature IDs.
+
+---
+
 ## Web UI (Claude Code–style)
 
 | Variable | Default | Description |
@@ -201,6 +221,32 @@ Run `setup_ngrok.py` once to populate these automatically. Get your token free a
 | `NGROK_DOMAIN` | (empty) | Your free static ngrok domain (e.g. `yourword-yourword-1234.ngrok-free.app`). Used by the tunnel scripts. |
 
 ---
+
+
+## Workspace Isolation
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WORKSPACE_BASE_ROOT` | `.data/workspaces` | Base directory for all isolated workspaces. Every session/job workspace is created under this root. |
+| `WORKSPACE_RETENTION_TTL_SECONDS` | `604800` (7 days) | Time in seconds before a completed/failed/cancelled/archived workspace becomes eligible for cleanup. Set to `0` for immediate eligibility. |
+| `DIRECT_CHAT_AGENT_WORKSPACE_ROOT` | `.data/direct-chat-agent-workspaces` | Override base root for direct chat agent workspaces. If not set, uses the default workspace root. |
+
+## Feature Maturity Overrides
+
+Any feature in the support matrix can be overridden via environment variables using the pattern `FEATURE_<UPPERCASE_FEATURE_ID>`.
+
+| Variable Pattern | Values | Description |
+|-----------------|--------|-------------|
+| `FEATURE_<ID>` | `stable`, `beta`, `experimental`, `disabled`, `true`, `false` | Override a feature's maturity tier or enabled state. Example: `FEATURE_TELEGRAM_BOT=disabled` disables the Telegram bot. |
+
+Common overrides:
+
+| Variable | Example | Effect |
+|----------|---------|--------|
+| `FEATURE_TELEGRAM_BOT` | `disabled` | Disable the Telegram bot |
+| `FEATURE_OPENHANDS_RUNTIME` | `true` | Enable the OpenHands runtime (opt-in) |
+| `FEATURE_ASYNC_AGENT_JOBS` | `stable` | Promote async agent jobs to stable tier |
+| `FEATURE_SIDECAE_RUNTIMES` | `false` | Disable sidecar runtimes |
 
 ## Quick Reference — Minimal Configs
 
