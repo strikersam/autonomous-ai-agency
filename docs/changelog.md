@@ -1,6 +1,10 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- `audit.py` — in-memory audit session management for multi-turn conversations with rollback capability.
+- `tests/test_audit.py` — unit tests for audit session creation, messaging, rollback, and deletion.
+- Audit endpoints in `proxy.py`: POST /v1/audit/sessions, GET /v1/audit/sessions/{session_id}, POST /v1/audit/sessions/{session_id}/messages, POST /v1/audit/sessions/{session_id}/rollback, DELETE /v1/audit/sessions/{session_id}.
 ### Fixed
 - `direct_chat.py` — `GET /api/chat/agent-status` was returning 404 in production because the route's `Depends(_get_current_user)` dependency always raises 401 when no `Authorization` header is present, causing FastAPI to fail route resolution. Replaced the Depends chain with direct `request.state.user` access (already set by `JWTAuthMiddleware`), making the endpoint reliably reachable.
 - `tokens.py` — `_get_secret()` generated a fresh random secret on every call when `V3_JWT_SECRET` was not set in the environment. This meant tokens created by `create_tokens()` could never be verified by `verify_token()` (different random secret each call). Fixed by caching the generated secret in a module-level variable so it stays consistent for the process lifetime.

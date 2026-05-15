@@ -994,6 +994,110 @@ async def get_audit_log_endpoint(
         return JSONResponse(status_code=403, content={"detail": "Admin access required"})
     from rbac import get_audit_log as _get_audit_log
     entries = _get_audit_log(limit=min(limit, 500), user_id=user_id, resource=resource, outcome=outcome)
+from typing import Any
+
+# --- Audit session models ---
+class AuditSessionCreateRequest(BaseModel):
+    metadata: Optional[Dict[str, Any]] = None
+
+class AuditSessionResponse(BaseModel):
+    session_id: str
+    messages: List[Dict[str, str]]
+    metadata: Dict[str, Any]
+
+class AuditMessageCreateRequest(BaseModel):
+    role: str
+    content: str
+
+class AuditMessageResponse(BaseModel):
+    role: str
+    content: str
+    timestamp: float
+
+class AuditRollbackRequest(BaseModel):
+    index: int
+
+# --- Audit session endpoints ---
+@app.post("/v1/audit/sessions")
+async def create_audit_session(
+    request: Request,
+    body: AuditSessionCreateRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import create_session
+    import uuid
+    session_id = str(uuid.uuid4())
+    session = create_session(session_id, body.metadata)
+    return AuditSessionResponse(
+        session_id=session_id,
+        messages=session.get_conversation(),
+        metadata=session.metadata,
+    )
+
+@app.get("/v1/audit/sessions/{session_id}")
+async def get_audit_session(
+    session_id: str,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import get_session
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Audit session not found")
+    return AuditSessionResponse(
+        session_id=session.session_id,
+        messages=session.get_conversation(),
+        metadata=session.metadata,
+    )
+
+@app.post("/v1/audit/sessions/{session_id}/messages")
+async def add_audit_message(
+    session_id: str,
+    body: AuditMessageCreateRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import get_session
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Audit session not found")
+    session.add_message(body.role, body.content)
+    # Return the added message
+    msg = session.messages[-1]
+    return AuditMessageResponse(
+        role=msg.role,
+        content=msg.content,
+        timestamp=msg.timestamp,
+    )
+
+@app.post("/v1/audit/sessions/{session_id}/rollback")
+async def rollback_audit_session(
+    session_id: str,
+    body: AuditRollbackRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import get_session
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Audit session not found")
+    try:
+        session.rollback(body.index)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return AuditSessionResponse(
+        session_id=session_id,
+        messages=session.get_conversation(),
+        metadata=session.metadata,
+    )
+
+@app.delete("/v1/audit/sessions/{session_id}")
+async def delete_audit_session(
+    session_id: str,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import delete_session
+    deleted = delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Audit session not found")
+    return {"status": "deleted"}
     return AuditLogResponse(entries=entries, total=len(entries))
 
 # ─── v3.1: Cost insights / observability ──────────────────────────────────────
