@@ -119,6 +119,12 @@ class HermesAdapter(RuntimeAdapter):
                 available=False,
                 error=f"HTTP {resp.status_code}",
             )
+        except httpx.ConnectError:
+            return RuntimeHealth(
+                runtime_id=self.RUNTIME_ID,
+                available=False,
+                error=f"Service not running at {self._base_url} — use Start to launch it",
+            )
         except Exception as exc:
             return RuntimeHealth(
                 runtime_id=self.RUNTIME_ID,

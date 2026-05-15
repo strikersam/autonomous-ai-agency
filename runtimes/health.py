@@ -25,26 +25,36 @@ log = logging.getLogger("qwen-proxy")
 # ── Circuit-breaker constants ─────────────────────────────────────────────────
 CB_FAILURE_THRESHOLD = 3    # consecutive failures → OPEN
 CB_RECOVERY_SEC      = 30   # seconds before re-probing after OPEN
+SLOW_PROBE_SEC       = 300  # probe interval for runtimes that have never been healthy
 
 
 @dataclass
 class CircuitState:
     runtime_id: str
     consecutive_failures: int = 0
-    open_since: float | None = None   # epoch time when circuit opened
+    open_since: float | None = None   # monotonic time when circuit opened
+    ever_healthy: bool = False        # True once a probe has succeeded
+    total_failures: int = 0           # lifetime failure count
+    last_probe_at: float = 0.0        # monotonic time of last attempted probe
 
     @property
     def is_open(self) -> bool:
         if self.open_since is None:
             return False
-        # Allow probing after recovery window
         return (time.monotonic() - self.open_since) < CB_RECOVERY_SEC
+
+    @property
+    def slow_probe_mode(self) -> bool:
+        """Reduce probe frequency for runtimes that have never come online."""
+        return not self.ever_healthy and self.total_failures >= 6
 
     def record_success(self) -> None:
         self.consecutive_failures = 0
         self.open_since = None
+        self.ever_healthy = True
 
     def record_failure(self) -> None:
+        self.total_failures += 1
         self.consecutive_failures += 1
         if self.consecutive_failures >= CB_FAILURE_THRESHOLD:
             if self.open_since is None:
@@ -72,8 +82,6 @@ class RuntimeHealthService:
     def start(self) -> None:
         """Start the background polling loop with an immediate initial check."""
         if self._task is None or self._task.done():
-            # Fire an immediate poll so health state is populated before the
-            # first request arrives — don't wait for the full poll interval.
             asyncio.create_task(self._poll_all())
             self._task = asyncio.create_task(self._poll_loop())
             log.info("RuntimeHealthService started (interval=%ds)", self._poll_interval)
@@ -85,8 +93,6 @@ class RuntimeHealthService:
         try:
             await self._task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError is raised on Python 3.13+ when the task was created
-            # on a different event loop (e.g. during pytest-asyncio teardown).
             pass
         finally:
             self._task = None
@@ -138,22 +144,33 @@ class RuntimeHealthService:
         if adapter is None:
             return
         circuit = self._circuits.setdefault(runtime_id, CircuitState(runtime_id))
-        # Skip health check while inside the recovery window; once the window
-        # expires is_open returns False and we fall through to probe.  Reset
-        # open_since so each re-probe gets a fresh CB_RECOVERY_SEC window.
+        now = time.monotonic()
+
+        # Slow-probe mode: runtimes that have never been healthy get probed
+        # much less aggressively to avoid constant log spam and CPU waste.
+        if circuit.slow_probe_mode and (now - circuit.last_probe_at) < SLOW_PROBE_SEC:
+            return
+
+        # Normal circuit breaker: skip during the recovery window.
         if circuit.is_open:
             return
+
+        # Recovery window just expired — reset open_since so that a fresh
+        # failure after the probe re-opens the circuit from scratch.
         if circuit.open_since is not None:
-            # Recovery window just elapsed — reset for the next possible open
             circuit.open_since = None
             log.info("Circuit probe for runtime %s (was OPEN, attempting recovery)", runtime_id)
+            # Try to bring the runtime back before probing.
+            await self._try_auto_start(runtime_id)
+
+        circuit.last_probe_at = now
         try:
             health = await asyncio.wait_for(adapter.health_check(), timeout=30.0)
             self._cache[runtime_id] = health
             if health.available:
                 circuit.record_success()
-                if circuit.consecutive_failures == 0:
-                    log.info("Runtime %s is healthy again", runtime_id)
+                log.info("Runtime %s is healthy (latency=%.0fms)",
+                         runtime_id, health.latency_ms or 0)
             else:
                 circuit.record_failure()
         except Exception as exc:
@@ -165,3 +182,26 @@ class RuntimeHealthService:
                 available=False,
                 error=f"{type(exc).__name__}: {exc}",
             )
+
+    async def _try_auto_start(self, runtime_id: str) -> None:
+        """Attempt to start a dead runtime subprocess before re-probing.
+
+        Uses the local subprocess fallback in runtimes/control.py which spawns
+        docker/agent_runtime.py as a lightweight HTTP wrapper on a fixed port.
+        Imported lazily to avoid the control→manager→health circular import.
+        """
+        try:
+            from runtimes.control import RUNTIME_LOCAL_PORTS, _start_local_runtime  # noqa: PLC0415
+            if runtime_id not in RUNTIME_LOCAL_PORTS:
+                return
+            result = await _start_local_runtime(runtime_id)
+            status = result.get("status", "")
+            if status in ("started", "already_running"):
+                log.info("Auto-started runtime %s (status=%s, pid=%s)",
+                         runtime_id, status, result.get("pid", "?"))
+                # Brief pause for the subprocess to finish initialising.
+                await asyncio.sleep(1.0)
+            elif status == "error":
+                log.debug("Auto-start failed for %s: %s", runtime_id, result.get("error"))
+        except Exception as exc:
+            log.debug("Auto-start skipped for %s: %s", runtime_id, exc)
