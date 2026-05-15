@@ -220,7 +220,7 @@ jobs:
       # ── 10. Commit and push branch ─────────────────────────────────────────
       - name: Commit and push
         id: commit
-        if: steps.tests.outputs.passed == 'true'
+        if: steps.implement.outputs.success == 'True'
         run: |
           git add -A
           if git diff --staged --quiet; then
