@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Fixed
+- `.github/scripts/implement_agent.py` — Strip API keys (`NVIDIA_API_KEY`, `ANTHROPIC_API_KEY`, etc.) from the subprocess environment whenever the agent runs `pytest` via `tool_bash`. Previously, `NVIDIA_API_KEY` inherited from the CI step environment caused routing tests (e.g. `test_chat_mode_regressions.py`) to select NVIDIA models instead of local ones, making every pipeline run fail at the pytest verification step.
+
+### Fixed
 - `agent/workspace.py` — `WorkspaceManager.safe_path()` now raises `WorkspaceEscapeError` with `from None` to suppress internal path context in error chains, consistent with `Workspace.safe_path()`.
 - `agent/workspace.py` — `_cleanup_expired_sync()` and `metrics()` now log a `DEBUG` message (including the manifest path and exception) before skipping corrupt workspace manifests, making silent parse failures observable.
 - `agent/github_tools.py` — added missing `import re`; `_validate_repo_parts` used `re.match` but the module never imported `re`, causing `NameError: name 're' is not defined` on every `github_read_repo_file` call.
