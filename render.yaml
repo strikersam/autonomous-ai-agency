@@ -122,6 +122,10 @@ services:
       - key: OPENHANDS_ENABLED
         value: "false"
 
+      # Task Harness (external CLI binary — not installed in Render container)
+      - key: TASK_HARNESS_ENABLED
+        value: "false"
+
       # Adapter-specific settings (used when sidecar runtimes are enabled)
       - key: HERMES_API_KEY
         sync: false

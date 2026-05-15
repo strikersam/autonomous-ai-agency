@@ -29,8 +29,6 @@ import httpx
 
 log = logging.getLogger("qwen-proxy")
 
-_DEFAULT_BASE_URL = os.environ.get("MCP_SERVER_BASE_URL", "http://localhost:8008")
-
 # Circuit breaker constants
 _CB_FAILURE_THRESHOLD = 3    # consecutive failures before opening
 _CB_RECOVERY_TIMEOUT = 30.0  # seconds before trying again (half-open)
@@ -47,7 +45,7 @@ class MCPClient:
     """
 
     def __init__(self, base_url: str | None = None, timeout: float = 30.0) -> None:
-        self.base_url = (base_url or _DEFAULT_BASE_URL).rstrip("/")
+        self.base_url = (base_url or "").rstrip("/")
         self.timeout = timeout
         self._id_counter = itertools.count(1)
         # Circuit breaker state
@@ -159,7 +157,11 @@ def get_mcp_client(base_url: str | None = None) -> MCPClient:
     Falls back to http://localhost:8008 if no env var is set.
     """
     global _client
-    url = base_url or os.environ.get("MCP_SERVER_BASE_URL", "http://localhost:8008")
+    # When MCP_SERVER_BASE_URL is not explicitly set and no override is passed,
+    # return a client with no base_url so _rpc() raises MCPUnavailableError
+    # ("not configured") immediately without incrementing circuit breaker state.
+    explicit = base_url or os.environ.get("MCP_SERVER_BASE_URL")
+    url = explicit or ""
     if _client is None or _client.base_url != url.rstrip("/"):
-        _client = MCPClient(url)
+        _client = MCPClient(url or None)
     return _client

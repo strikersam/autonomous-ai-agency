@@ -110,7 +110,7 @@ def _build_default_manager() -> RuntimeManager:
     mgr.register(HermesAdapter())
     mgr.register(OpenCodeAdapter())
     mgr.register(GooseAdapter())
-    mgr.register(TaskHarnessAdapter())
+    if os.environ.get("TASK_HARNESS_ENABLED", "false").lower() == "true": mgr.register(TaskHarnessAdapter())
     if os.environ.get("OPENHANDS_ENABLED", "false").lower() == "true": mgr.register(OpenHandsAdapter())
     mgr.register(AiderAdapter())
     mgr.register(JCodeAdapter())
