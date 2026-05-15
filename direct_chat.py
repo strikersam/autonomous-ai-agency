@@ -522,9 +522,11 @@ async def get_agent_status(
     Results are scoped to the authenticated caller's jobs only.
     """
     user_state = getattr(request.state, "user", None)
-    owner_id = user_state.get("email") if isinstance(user_state, dict) else None
+    if not isinstance(user_state, dict) or not user_state.get("email"):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    owner_id: str = user_state["email"]
     all_jobs = _agent_jobs.list_jobs(session_id=session_id)
-    jobs = [j for j in all_jobs if owner_id is None or getattr(j, "owner_id", owner_id) == owner_id]
+    jobs = [j for j in all_jobs if getattr(j, "owner_id", None) == owner_id]
 
     tool_calls: list[AgentEventModel] = []
     agents: list[AgentJobModel] = []
