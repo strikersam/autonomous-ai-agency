@@ -49,8 +49,8 @@ async def _current_user(request: Request) -> Any:
                     "name": payload.get("name"),
                     "role": payload.get("role", "user"),
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("Token verification error: %s", exc)
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 

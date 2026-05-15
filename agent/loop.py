@@ -635,6 +635,9 @@ class AgentRunner:
 
     async def _mcp_call(self, tool: str, args: dict) -> Any:
         """Call a tool on the MCP server. Raises MCPUnavailableError if unreachable."""
+        from agent.mcp_client import MCPUnavailableError
+        if self._mcp is None:
+            raise MCPUnavailableError("MCP_SERVER_BASE_URL not set")
         return await self._mcp.call_tool(tool, args)
 
     async def _run_command(self, cmd: str, timeout: int = 120) -> str:
@@ -666,8 +669,8 @@ class AgentRunner:
             if self.tool_callback is not None:
                 try:
                     self.tool_callback(tool, args, result)
-                except Exception:
-                    pass
+                except Exception as cb_exc:
+                    log.debug("tool_callback failed for %r: %s", tool, cb_exc)
             return result
         except CommercialFallbackRequiredError:
             raise
@@ -675,8 +678,8 @@ class AgentRunner:
             if self.tool_callback is not None:
                 try:
                     self.tool_callback(tool, args, f"[error: {exc}]")
-                except Exception:
-                    pass
+                except Exception as cb_exc:
+                    log.debug("tool_callback failed for %r: %s", tool, cb_exc)
             # The harness catches tool failures as tool-call errors and feeds
             # them back to the model — it never surfaces raw exceptions.
             # (Anthropic managed-agents: decoupled sandbox; if the container

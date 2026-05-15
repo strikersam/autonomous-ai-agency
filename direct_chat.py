@@ -59,6 +59,29 @@ class UserInfo(BaseModel):
     email: str
 
 
+class AgentEventModel(BaseModel):
+    type: str
+    tool: str | None = None
+    args: dict | None = None
+    result: str | None = None
+    message: str | None = None
+
+
+class AgentJobModel(BaseModel):
+    job_id: str
+    status: str
+    phase: str
+    progress_events: list[dict]
+
+
+class AgentStatusResponse(BaseModel):
+    has_events: bool
+    agents: list[AgentJobModel]
+    tool_calls: list[AgentEventModel]
+    latest_summary: str
+    latest_error: str
+
+
 def _get_bearer_token(authorization: str | None = Header(None)) -> str:
     """Extract bearer token from Authorization header."""
     if not authorization:
@@ -466,19 +489,28 @@ async def _handle_agent_mode(
     return JSONResponse(status_code=202, content=accepted.model_dump())
 
 
-@direct_chat_router.get("/agent-status")
-async def get_agent_status(session_id: str | None = None):
+@direct_chat_router.get("/agent-status", response_model=AgentStatusResponse)
+async def get_agent_status(
+    session_id: str | None = None,
+    user: Annotated[UserInfo, Depends(_get_current_user)] = None,
+) -> AgentStatusResponse:
     """Live agent workspace snapshot consumed by the Chat UI's Live Agent Workspace panel.
 
     The frontend polls GET /api/chat/agent-status?session_id=<id> every 2 s via
     fetchAgentWorkspaceSnapshot().  Without this endpoint the request 404s,
     fetchAgentWorkspaceSnapshot throws, and the UI stays in 'reconnecting' state
     with '0 total' tool calls forever.
-    """
-    jobs = _agent_jobs.list_jobs(session_id=session_id)
 
-    tool_calls: list[dict] = []
-    agents: list[dict] = []
+    Results are scoped to the authenticated caller's jobs only.
+    """
+    all_jobs = _agent_jobs.list_jobs(session_id=session_id)
+    # Filter to only the caller's jobs so progress_events / tool args from other
+    # users are never exposed through this endpoint.
+    owner_id = user.email if user else None
+    jobs = [j for j in all_jobs if owner_id is None or getattr(j, "owner_id", owner_id) == owner_id]
+
+    tool_calls: list[AgentEventModel] = []
+    agents: list[AgentJobModel] = []
     latest_summary = ""
     latest_error = ""
     has_events = False
@@ -488,15 +520,15 @@ async def get_agent_status(session_id: str | None = None):
         events = jd.get("progress_events") or []
         if events:
             has_events = True
-        agents.append({
-            "job_id": jd["job_id"],
-            "status": jd["status"],
-            "phase": jd["phase"],
-            "progress_events": events,
-        })
+        agents.append(AgentJobModel(
+            job_id=jd["job_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            progress_events=events,
+        ))
         for evt in events:
             if evt.get("type") == "tool_call":
-                tool_calls.append(evt)
+                tool_calls.append(AgentEventModel(**{k: v for k, v in evt.items() if k in AgentEventModel.model_fields}))
         err = jd.get("error") or {}
         if err.get("message"):
             latest_error = err["message"]
@@ -506,13 +538,13 @@ async def get_agent_status(session_id: str | None = None):
         elif result.get("summary"):
             latest_summary = result["summary"]
 
-    return JSONResponse(content={
-        "has_events": has_events,
-        "agents": agents,
-        "tool_calls": tool_calls,
-        "latest_summary": latest_summary,
-        "latest_error": latest_error,
-    })
+    return AgentStatusResponse(
+        has_events=has_events,
+        agents=agents,
+        tool_calls=tool_calls,
+        latest_summary=latest_summary,
+        latest_error=latest_error,
+    )
 
 
 @direct_chat_router.get("/agent-jobs/{job_id}")

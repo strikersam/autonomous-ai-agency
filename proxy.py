@@ -13,6 +13,7 @@ import hmac
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -463,6 +464,9 @@ _task_dispatcher: Optional[TaskDispatcher] = None
 _dispatcher_task: Optional[asyncio.Task] = None
 
 
+_AUTOSTART_INIT_DELAY_S = int(os.environ.get("AUTOSTART_INIT_DELAY_S", "8"))
+
+
 async def _autostart_services_bg() -> None:
     """Ensure docker-compose services are running.
 
@@ -470,7 +474,6 @@ async def _autostart_services_bg() -> None:
     handling. Safe to call when already inside a compose container — docker
     compose up -d will fail (no socket) and the function returns silently.
     """
-    import shutil
     if not shutil.which("docker"):
         log.debug("Docker not in PATH — skipping compose auto-start")
         return
@@ -504,7 +507,8 @@ async def _autostart_services_bg() -> None:
         log.debug("docker-compose auto-start skipped: %s", exc)
 
     # Brief pause for containers to initialise, then attempt runtime health refresh.
-    await asyncio.sleep(8)
+    # Configurable via AUTOSTART_INIT_DELAY_S env var (default 8 s).
+    await asyncio.sleep(_AUTOSTART_INIT_DELAY_S)
     try:
         from runtimes.control import start_all_runtimes
         result = await start_all_runtimes()
@@ -635,7 +639,14 @@ async def lifespan(app: FastAPI):
     # Kick off a background auto-start for docker-compose services and runtimes.
     # This ensures the MCP server, agent runtimes, and supporting containers
     # are up when users first connect, without delaying proxy startup.
-    asyncio.create_task(_autostart_services_bg())
+    def _log_autostart_exc(task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except Exception as exc:
+            log.error("Autostart background task failed: %s", exc, exc_info=True)
+
+    _autostart_task = asyncio.create_task(_autostart_services_bg())
+    _autostart_task.add_done_callback(_log_autostart_exc)
 
     try:
         yield

@@ -16,6 +16,7 @@ Exposes:
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import logging
 from typing import Any
@@ -71,14 +72,15 @@ class RunTaskBody(BaseModel):
 async def _require_admin(request: Request) -> None:
     """Dependency: reject unauthenticated or non-admin callers.
 
-    Reads from request.state.user populated by JWTAuthMiddleware; the previous
-    approach of importing backend.server.get_current_user used the wrong JWT
-    secret (backend.server has its own JWT_SECRET separate from V3_JWT_SECRET)
-    which caused every PUT /runtimes/policy call to 401.
+    Returns 401 for missing/unsigned requests and 403 for authenticated
+    non-admin users so the frontend can distinguish "log in again" from
+    "you'll never have access".
     """
-    user = getattr(request.state, "user", None) or {}
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
     role = user.get("role", "user") if isinstance(user, Mapping) else getattr(user, "role", "user")
-    if not user or role != "admin":
+    if role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
@@ -109,31 +111,31 @@ async def refresh_runtime_health() -> dict:
 _RICH_POLICY_KEY = "ui_routing_policy"
 
 
-def _load_rich_policy() -> dict:
+async def _load_rich_policy() -> dict:
     """Return the persisted rich UI policy (pools + policy + triggers), or {}."""
     try:
         from webui.config_store import JsonConfigStore
-        store = JsonConfigStore()
-        return store.load(_RICH_POLICY_KEY) or {}
+        return (await asyncio.to_thread(JsonConfigStore().load, _RICH_POLICY_KEY)) or {}
     except Exception:
+        log.debug("Could not load rich UI routing policy", exc_info=True)
         return {}
 
 
-def _save_rich_policy(data: dict) -> None:
+async def _save_rich_policy(data: dict) -> None:
+    from webui.config_store import JsonConfigStore
     try:
-        from webui.config_store import JsonConfigStore
-        store = JsonConfigStore()
-        store.save(_RICH_POLICY_KEY, data)
+        await asyncio.to_thread(JsonConfigStore().save, _RICH_POLICY_KEY, data)
     except Exception:
-        pass
+        log.exception("Failed to persist rich UI routing policy")
+        raise
 
 
 @runtime_router.get("/policy")
 async def get_policy() -> dict:
     core = get_runtime_manager().get_policy()
-    rich = _load_rich_policy()
-    # Merge: core fields win for runtime behaviour; UI fields (pools, triggers) come from the rich store.
-    return {"policy": {**core, **rich}}
+    rich = await _load_rich_policy()
+    # Merge: rich provides UI-only keys (pools, triggers); core wins on any collision.
+    return {"policy": {**rich, **core}}
 
 
 @runtime_router.put("/policy")
@@ -171,12 +173,15 @@ async def update_policy(
     if body.triggers is not None:
         rich["triggers"] = body.triggers
     if rich:
-        existing = _load_rich_policy()
+        existing = await _load_rich_policy()
         existing.update(rich)
-        _save_rich_policy(existing)
+        try:
+            await _save_rich_policy(existing)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Failed to persist routing policy")
 
     core = mgr.get_policy()
-    return {"policy": {**core, **_load_rich_policy()}, "message": "Policy updated"}
+    return {"policy": {**(await _load_rich_policy()), **core}, "message": "Policy updated"}
 
 
 @runtime_router.get("/decisions")

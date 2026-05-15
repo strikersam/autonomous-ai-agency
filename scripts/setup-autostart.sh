@@ -43,8 +43,12 @@ if [[ ! -f "$REPO_DIR/docker-compose.yml" ]]; then
 fi
 
 # ── Copy service file, patching WorkingDirectory to the real repo path ────────
+if [[ ! -f "$SERVICE_SRC" ]]; then
+  echo "Error: service file not found at $SERVICE_SRC" >&2
+  exit 1
+fi
 echo "Installing $SERVICE_DST…"
-sed "s|/opt/local-llm-server|$REPO_DIR|g" "$SERVICE_SRC" > "$SERVICE_DST"
+sed "s#/opt/local-llm-server#$REPO_DIR#g" "$SERVICE_SRC" > "$SERVICE_DST"
 chmod 644 "$SERVICE_DST"
 
 # ── Enable and start ──────────────────────────────────────────────────────────
