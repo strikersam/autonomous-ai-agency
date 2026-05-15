@@ -8,9 +8,11 @@ jobs:
   changelog:
     name: Require changelog entry
     runs-on: ubuntu-latest
+    # Dependabot PRs never touch changelog — exempt them
+    if: github.actor != 'dependabot[bot]'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
