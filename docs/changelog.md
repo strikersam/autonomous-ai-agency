@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 ### Fixed
+- `proxy.py` — `GET /api/agent/stream` SSE owner filter used `getattr(j, "owner_id", owner_email)` as the default, meaning jobs with no `owner_id` attribute would always pass the equality check and be visible to any authenticated caller. Changed default to `None` so only jobs explicitly owned by the caller are streamed (consistent with `get_agent_status` filter).
 - `runtimes/adapters/internal_agent.py` — `health_check()` was using synchronous `httpx.get()` inside an async function, blocking the event loop on every health poll. Replaced with `async with httpx.AsyncClient()` and improved the error message when Ollama is unreachable to include the probe URL and a fix hint.
 - `runtimes/health.py` — Health service now fires an immediate async poll on `start()` so runtime health state is populated before the first dispatcher cycle rather than waiting for the initial `poll_interval` (was 30 s). Circuit-breaker threshold reduced from 5 consecutive failures to 3; recovery window reduced from 60 s to 30 s. After the recovery window expires `open_since` is now reset so each re-probe gets a fresh window instead of staying permanently half-open. Successful recovery after a circuit-open is now logged at INFO level.
 - `runtimes/manager.py` — Added `verify_all()` method delegating to `RuntimeHealthService.verify_all()` so callers (e.g. startup) can await a forced health check of every registered runtime.
