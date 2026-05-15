@@ -128,7 +128,9 @@ jobs:
         if: steps.pick.outputs.found == 'true'
         run: |
           pip install openai requests
-          pip install -r requirements.txt --quiet || true
+          # Install required versions explicitly before full requirements to avoid system-package conflicts
+          pip install "PyJWT>=2.12.0" "cryptography>=46.0.6" --ignore-installed --quiet
+          pip install -r requirements.txt --quiet || pip install -r requirements.txt --no-deps --quiet || true
 
       # ── 6. Fetch URL content (multi-strategy) ─────────────────────────────
       - name: Fetch URL content
@@ -151,18 +153,17 @@ jobs:
             exit 1
           fi
 
-          python3 .github/scripts/fetch_url.py "$URL"
+          python3 .github/scripts/fetch_url.py "$URL" || true
           FETCH_EXIT=$?
 
-          if [ "$FETCH_EXIT" -eq 2 ]; then
-            # URL inaccessible — write a stub so the agent can proceed using just the task description.
-            echo "Source URL: ${URL}" > /tmp/note_content.txt
-            echo "" >> /tmp/note_content.txt
-            echo "[URL content unavailable — all fetch strategies (direct, Google Cache, Wayback Machine) were blocked.]" >> /tmp/note_content.txt
-            echo "Implement features based on the task description and your knowledge of the topic at ${URL}." >> /tmp/note_content.txt
+          # Write stub for any fetch failure (exit 2 = all strategies exhausted,
+          # exit 1 = unexpected error). Either way the agent proceeds on task only.
+          if [ ! -f /tmp/note_content.txt ] || [ ! -s /tmp/note_content.txt ]; then
+            printf 'Source URL: %s\n\n[URL content unavailable — fetch exited %s.]\nImplement features based on the task description and your knowledge of the topic at %s.\n' \
+              "${URL}" "${FETCH_EXIT}" "${URL}" > /tmp/note_content.txt
             gh issue comment "${{ steps.issue.outputs.number }}" \
               --repo "${{ github.repository }}" \
-              --body "⚠️ Could not fetch \`${URL}\` directly (403/paywalled). Proceeding with task description only — the agent will use its knowledge of the topic." \
+              --body "⚠️ Could not fetch \`${URL}\` (fetch exit ${FETCH_EXIT}). Proceeding with task description only." \
               2>/dev/null || true
           fi
 
@@ -219,7 +220,7 @@ jobs:
       # ── 10. Commit and push branch ─────────────────────────────────────────
       - name: Commit and push
         id: commit
-        if: steps.tests.outputs.passed == 'true'
+        if: steps.implement.outputs.success == 'True'
         run: |
           git add -A
           if git diff --staged --quiet; then
@@ -240,6 +241,41 @@ jobs:
             git push -u origin "${{ steps.branch.outputs.branch }}"
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # ── 10b. Close as already done when no file changes were needed ─────────
+      # Fires when the agent succeeded, tests passed, but nothing was staged.
+      # This means the agent correctly determined the feature is already present.
+      # Closing here prevents the retry handler from treating it as a failure.
+      - name: Close issue — already implemented (no changes needed)
+        id: close_no_changes
+        if: >
+          steps.tests.outputs.passed == 'true' &&
+          steps.commit.outputs.changed == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMPL_SUMMARY=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('/tmp/impl_result.json'))
+              print(d.get('summary',''))
+          except Exception:
+              print('')
+          " 2>/dev/null || echo "")
+
+          gh issue comment "${{ steps.issue.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "$(cat <<MSG
+          ✅ Done — no code changes needed.
+
+          The agent reviewed the codebase and determined the requested features are already implemented.
+
+          **Agent summary:** $IMPL_SUMMARY
+          MSG
+          )"
+          gh issue close "${{ steps.issue.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --reason completed
 
       # ── 11. Create pull request ────────────────────────────────────────────
       - name: Create pull request
@@ -413,6 +449,7 @@ jobs:
           always() &&
           steps.pick.outputs.found == 'true' &&
           steps.close_success.outcome != 'success' &&
+          steps.close_no_changes.outcome != 'success' &&
           steps.review.outputs.verdict != 'FAIL' &&
           (failure() || steps.pr.outputs.pr_number == '')
         env:

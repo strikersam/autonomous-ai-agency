@@ -1,0 +1,22 @@
+[Unit]
+Description=LLM Relay (local-llm-server) — Docker Compose stack
+Documentation=https://github.com/strikersam/local-llm-server
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Set this to wherever you cloned the repo
+WorkingDirectory=/opt/local-llm-server
+ExecStart=docker compose up -d
+ExecStop=docker compose down
+# Give containers time to pull images on first run
+TimeoutStartSec=300
+# Container-level restart policies (restart: unless-stopped) in docker-compose.yml
+# handle individual service recovery — systemd restart directives have no effect
+# on oneshot units after ExecStart exits successfully.
+
+[Install]
+WantedBy=multi-user.target

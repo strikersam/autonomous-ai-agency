@@ -13,6 +13,7 @@ import hmac
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -72,7 +73,7 @@ from agents.api import agent_router
 from agents.store import get_agent_store, set_agent_store
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from cost_insights import observability_router
-from direct_chat import direct_chat_router
+from direct_chat import direct_chat_router, get_agent_job_manager
 from handlers.anthropic_compat import handle_anthropic_messages
 from handlers.v3_auth import router as v3_auth_router
 from handlers.v3_models import router as v3_models_router
@@ -463,6 +464,62 @@ _task_dispatcher: Optional[TaskDispatcher] = None
 _dispatcher_task: Optional[asyncio.Task] = None
 
 
+_AUTOSTART_INIT_DELAY_S = int(os.environ.get("AUTOSTART_INIT_DELAY_S", "8"))
+
+
+async def _autostart_services_bg() -> None:
+    """Ensure docker-compose services are running.
+
+    Runs as a background task at proxy startup so it never blocks request
+    handling. Safe to call when already inside a compose container — docker
+    compose up -d will fail (no socket) and the function returns silently.
+    """
+    if not shutil.which("docker"):
+        log.debug("Docker not in PATH — skipping compose auto-start")
+        return
+
+    compose_file = Path(__file__).resolve().parent / "docker-compose.yml"
+    if not compose_file.is_file():
+        log.debug("docker-compose.yml not found — skipping compose auto-start")
+        return
+
+    log.info("Auto-starting docker-compose services (this may take up to 3 min on first run)…")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "compose",
+            "--file", str(compose_file),
+            "up", "-d", "--no-recreate",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+        if proc.returncode == 0:
+            log.info("docker-compose services started/verified")
+        else:
+            log.debug(
+                "docker-compose up returned %d: %s",
+                proc.returncode,
+                stderr.decode(errors="replace").strip()[:300],
+            )
+    except asyncio.TimeoutError:
+        log.warning("docker-compose auto-start timed out after 180 s")
+    except Exception as exc:
+        log.debug("docker-compose auto-start skipped: %s", exc)
+
+    # Brief pause for containers to initialise, then attempt runtime health refresh.
+    # Configurable via AUTOSTART_INIT_DELAY_S env var (default 8 s).
+    await asyncio.sleep(_AUTOSTART_INIT_DELAY_S)
+    try:
+        from runtimes.control import start_all_runtimes
+        result = await start_all_runtimes()
+        log.info(
+            "Runtime auto-start: %d runtimes processed",
+            len(result.get("runtimes", {})),
+        )
+    except Exception as exc:
+        log.debug("Runtime auto-start skipped: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _mongo_client, _mongo_db, _task_dispatcher, _dispatcher_task, TASK_AUTOMATION
@@ -579,6 +636,18 @@ async def lifespan(app: FastAPI):
     app.state.webui_workspaces = WEBUI_WORKSPACES
     app.state.PROVIDER_ROUTER = PROVIDER_ROUTER
 
+    # Kick off a background auto-start for docker-compose services and runtimes.
+    # This ensures the MCP server, agent runtimes, and supporting containers
+    # are up when users first connect, without delaying proxy startup.
+    def _log_autostart_exc(task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except Exception as exc:
+            log.error("Autostart background task failed: %s", exc, exc_info=True)
+
+    _autostart_task = asyncio.create_task(_autostart_services_bg())
+    _autostart_task.add_done_callback(_log_autostart_exc)
+
     try:
         yield
     finally:
@@ -646,7 +715,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         request.state.user = None
         auth_header = request.headers.get("authorization", "")
         token = None
-        if auth_header.startswith("Bearer "):
+        if auth_header[:7].lower() == "bearer ":
             token = auth_header[7:].strip()
         elif request.headers.get("x-api-key"):
             token = request.headers.get("x-api-key")
@@ -821,6 +890,111 @@ log.info("Setup wizard mounted at /api/setup/* (public — no API key required)"
 # ─── v3.1: Direct Chat (requires JWT token) ────────────────────────────────────
 app.include_router(direct_chat_router)
 log.info("Direct Chat mounted at /api/chat/* (requires JWT token)")
+
+
+@app.get("/api/agent/stream", response_model=None)
+async def stream_agent_activity(
+    request: Request,
+    session_id: str | None = None,
+    access_token: str | None = None,
+) -> StreamingResponse | JSONResponse:
+    """Server-Sent Events stream of agent job progress events.
+
+    EventSource cannot send custom headers, so the JWT access token is accepted
+    as the `access_token` query parameter in addition to the standard Bearer
+    header (which JWTAuthMiddleware already processes into request.state.user).
+    """
+    user = getattr(request.state, "user", None)
+    if user is None and access_token:
+        try:
+            payload = verify_token(access_token, token_type="access")
+            if payload:
+                user = {
+                    "email": payload.get("email"),
+                    "_id": payload.get("sub"),
+                    "role": payload.get("role", "user"),
+                }
+        except Exception:
+            pass
+
+    if user is None:
+        return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+
+    owner_email: str | None = user.get("email") if isinstance(user, dict) else getattr(user, "email", None)
+    _jobs = get_agent_job_manager()
+
+    async def _event_stream():
+        seen: dict[str, int] = {}
+        while True:
+            jobs = _jobs.list_jobs(session_id=session_id)
+            if owner_email:
+                jobs = [j for j in jobs if getattr(j, "owner_id", owner_email) == owner_email]
+            emitted = False
+            for job in jobs:
+                events = job.progress_events
+                cursor = seen.get(job.job_id, 0)
+                new_events = events[cursor:]
+                for i, evt in enumerate(new_events, start=cursor):
+                    # Normalize to ActivityEvent shape expected by AgentActivityFeed.tsx:
+                    # {id, timestamp, agent, type, content, metadata}
+                    evt_type = evt.get("type", "status")
+                    agent = evt.get("phase") or job.phase or "system"
+                    content = evt.get("message") or evt.get("tool_name") or ""
+                    activity_event = {
+                        "id": f"{job.job_id}-{i}",
+                        "timestamp": evt.get("timestamp", ""),
+                        "agent": agent,
+                        "type": evt_type,
+                        "content": content,
+                        "metadata": {
+                            k: v for k, v in evt.items()
+                            if k not in {"timestamp", "type", "phase", "message"}
+                        },
+                        # extra job context for consumers that want it
+                        "job_id": job.job_id,
+                        "job_status": job.status,
+                    }
+                    yield f"data: {json.dumps(activity_event)}\n\n"
+                    emitted = True
+                seen[job.job_id] = len(events)
+            if not emitted:
+                yield ": keepalive\n\n"
+            await asyncio.sleep(1.0)
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+class AuditLogResponse(BaseModel):
+    entries: list[dict]
+    total: int
+
+
+@app.get("/api/audit-log")
+async def get_audit_log_endpoint(
+    request: Request,
+    limit: int = 100,
+    user_id: str | None = None,
+    resource: str | None = None,
+    outcome: str | None = None,
+) -> AuditLogResponse:
+    """Return RBAC audit log entries (newest first). Requires admin role."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+    from rbac import is_admin as _is_admin
+    if not _is_admin(user):
+        return JSONResponse(status_code=403, content={"detail": "Admin access required"})
+    from rbac import get_audit_log as _get_audit_log
+    entries = _get_audit_log(limit=min(limit, 500), user_id=user_id, resource=resource, outcome=outcome)
+    return AuditLogResponse(entries=entries, total=len(entries))
 
 # ─── v3.1: Cost insights / observability ──────────────────────────────────────
 app.include_router(
