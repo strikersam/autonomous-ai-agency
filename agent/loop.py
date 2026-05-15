@@ -103,7 +103,7 @@ class AgentRunner:
         self.github = GitHubTools(github_token)
         self.ctx = ContextManager()
         # MCP client — delegates heavy workspace/git ops to the mcp-server container.
-        # Falls back to local tools if None or if the circuit breaker is open.
+        # Auto-discovers at localhost:8008 if MCP_SERVER_BASE_URL is not set.
         from agent.mcp_client import get_mcp_client
         self._mcp = get_mcp_client(mcp_base_url)
         # Optional session store for event-log writes (append-only durable log).
@@ -635,9 +635,6 @@ class AgentRunner:
 
     async def _mcp_call(self, tool: str, args: dict) -> Any:
         """Call a tool on the MCP server. Raises MCPUnavailableError if unreachable."""
-        from agent.mcp_client import MCPUnavailableError
-        if self._mcp is None:
-            raise MCPUnavailableError("MCP client not configured")
         return await self._mcp.call_tool(tool, args)
 
     async def _run_command(self, cmd: str, timeout: int = 120) -> str:
@@ -765,12 +762,10 @@ class AgentRunner:
         }
         if tool in _mcp_only_tools:
             from agent.mcp_client import MCPUnavailableError
-            if self._mcp is None:
-                return f"[tool error: MCP_SERVER_BASE_URL not set — cannot run {tool}]"
             try:
                 return await self._mcp_call(tool, args)
             except MCPUnavailableError as exc:
-                return f"[tool error: mcp unavailable — {exc}]"
+                return f"[tool error: mcp server unreachable — {exc}. Ensure the MCP server is running (docker compose up mcp-server).]"
 
         # GitHub Tools
         if tool == "github_get_issue":
