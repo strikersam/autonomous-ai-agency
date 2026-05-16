@@ -424,6 +424,27 @@ jobs:
           MSG
           )"
 
+      # ── 15b. Comment when PR exists but merge failed (non-FAIL verdict) ───────
+      # Fires when the council passed but gh pr merge exited non-zero.
+      # The PR is left open; alert the issue for manual merge.
+      - name: Comment — PR needs manual merge
+        if: >
+          always() &&
+          steps.pr.outputs.pr_number != '' &&
+          steps.merge.outcome != 'success' &&
+          steps.review.outputs.verdict != 'FAIL'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment "${{ steps.issue.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "$(cat <<MSG
+          ⚠️ PR #${{ steps.pr.outputs.pr_number }} was created and council review passed (**${{ steps.review.outputs.verdict }}**) but auto-merge failed.
+
+          Please merge PR #${{ steps.pr.outputs.pr_number }} manually to close this issue.
+          MSG
+          )" 2>/dev/null || true
+
       # ── 16. Auto-retry: reopen issue on failure ────────────────────────────
       # Runs whenever the issue was found but was NOT successfully closed.
       #
@@ -451,7 +472,8 @@ jobs:
           steps.close_success.outcome != 'success' &&
           steps.close_no_changes.outcome != 'success' &&
           steps.review.outputs.verdict != 'FAIL' &&
-          (failure() || steps.pr.outputs.pr_number == '')
+          steps.pr.outputs.pr_number == '' &&
+          (failure() || steps.implement.outputs.success != 'True')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

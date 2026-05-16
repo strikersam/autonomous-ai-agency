@@ -33,11 +33,11 @@ MAX_TURNS = 120
 # Model preference: heavy reasoning model first, reliable fallbacks after.
 # All are free-tier NVIDIA NIM models.
 CANDIDATE_MODELS = [
-    ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
-    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
+    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B — primary)"),
     ("nvidia/llama-3.3-nemotron-super-49b-v1",  "reasoning (Nemotron Super 49B)"),
     ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
     ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
+    ("qwen/qwen3-coder-480b-a35b-instruct",     "coding (Qwen3-Coder 480B — last resort)"),
 ]
 
 
@@ -400,12 +400,28 @@ def main() -> None:
             ]
         messages.append(assistant_entry)
 
-        # No tool calls → terminal turn
+        # No tool calls → check for XML-format tool calls (Qwen3 quirk) then terminal turn
         if not msg.tool_calls:
-            summary = msg.content or summary
-            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed:
+            content = msg.content or ""
+            # Some models (e.g. Qwen3-coder) emit tool calls as XML text in content
+            # instead of structured tool_calls. Detect and switch models rather than
+            # treating the response as a completion.
+            if "<tool_call>" in content or "<function=" in content:
+                print(f"[agent] {model} emitted XML tool calls in content — switching model", file=sys.stderr)
+                messages.pop()  # discard the malformed assistant turn
+                model_idx += 1
+                if model_idx < len(CANDIDATE_MODELS):
+                    model = CANDIDATE_MODELS[model_idx][0]
+                    print(f"[agent] Switched to: {model}", flush=True)
+                    turns -= 1  # don't count this as a real turn
+                else:
+                    print("All candidate models exhausted.", file=sys.stderr)
+                    break
+                continue
+            summary = content or summary
+            if content and "IMPLEMENTATION_COMPLETE" in content and last_pytest_passed:
                 success = True
-                summary = msg.content[:500]
+                summary = content[:500]
             break
 
         # Execute tool calls
