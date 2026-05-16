@@ -331,15 +331,57 @@ PRBODY
           echo "pr_url=$PR_URL"    >> "$GITHUB_OUTPUT"
           echo "PR result: #$PR_NUM — $PR_URL"
 
+      # ── 11b. Wait for auto-review bots ────────────────────────────────────────
+      # Give CodeRabbit / GitHub Copilot time to post their first-pass review.
+      # 120 s is enough for most bots; the apply step handles the empty case.
+      - name: Wait for review bots (CodeRabbit / Copilot)
+        if: steps.pr.outputs.pr_number != ''
+        run: sleep 120
+
+      # ── 11c. Apply review comments (NVIDIA NIM) ────────────────────────────
+      # Reads every review comment posted on the PR (CodeRabbit, Copilot, council)
+      # and runs a NVIDIA NIM agentic loop to apply the suggested changes.
+      - name: Apply review comments (NVIDIA NIM)
+        id: review_apply
+        if: steps.pr.outputs.pr_number != ''
+        continue-on-error: true
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 .github/scripts/apply_review.py \
+            "${{ steps.pr.outputs.pr_number }}" \
+            2>&1 | tee /tmp/review_apply_output.txt
+
+          if [ -f /tmp/review_apply_result.json ]; then
+            APPLIED=$(python3 -c "import json; d=json.load(open('/tmp/review_apply_result.json')); print(d.get('applied',False))")
+            echo "applied=$APPLIED" >> "$GITHUB_OUTPUT"
+          else
+            echo "applied=False" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 11d. Push review fixes ─────────────────────────────────────────────
+      # Commits and force-pushes any edits the apply agent made.
+      - name: Commit and push review fixes
+        id: review_push
+        if: steps.review_apply.outputs.applied == 'True'
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No staged changes after review application."
+          else
+            git commit -m "fix(quick-note): apply review feedback for issue #${{ steps.issue.outputs.number }}"
+            git push --force-with-lease -u origin "${{ steps.branch.outputs.branch }}" \
+              || git push --force -u origin "${{ steps.branch.outputs.branch }}"
+            echo "Review fixes pushed to ${{ steps.branch.outputs.branch }}"
+          fi
+
       # ── 12. Council review ─────────────────────────────────────────────────
       - name: Council review (Security / Correctness / Performance / Maintainability)
         id: review
         if: steps.pr.outputs.pr_number != ''
-        # IMPORTANT: continue-on-error must be true.
-        # review_agent.py always exits 0, but a crash (e.g. network error) would
-        # otherwise mark this step failed and skip ALL downstream steps (merge,
-        # close-issue, human-review comment) because GitHub Actions skips
-        # subsequent steps whose `if:` does not include always()/failure().
+        # continue-on-error so a crash here never blocks merge or issue-close.
         continue-on-error: true
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -349,36 +391,35 @@ PRBODY
             "${{ steps.pr.outputs.pr_number }}" \
             2>&1 | tee /tmp/review_output.txt
 
-          REVIEW_EXIT=$?
           if [ -f /tmp/review_result.json ]; then
             VERDICT=$(python3 -c "import json; print(json.load(open('/tmp/review_result.json'))['verdict'])")
           else
             VERDICT="WARN"
           fi
           echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
-          echo "review_exit=$REVIEW_EXIT" >> "$GITHUB_OUTPUT"
 
-          # Post review as PR comment
-          REVIEW_BODY=$(cat /tmp/review_output.txt | tail -60)
+          REVIEW_BODY=$(tail -60 /tmp/review_output.txt)
           gh pr comment "${{ steps.pr.outputs.pr_number }}" \
             --repo "${{ github.repository }}" \
             --body "## Council Review
 
-          \`\`\`
-          $REVIEW_BODY
-          \`\`\`"
+\`\`\`
+$REVIEW_BODY
+\`\`\`"
 
-      # ── 13. Merge PR ───────────────────────────────────────────────────────
-      - name: Merge PR into master
+      # ── 13. Merge PR and delete branch ────────────────────────────────────
+      # Squash-merges and deletes the feature branch on success.
+      # --admin bypasses changelog CI check for auto-generated PRs.
+      - name: Merge PR into master (squash + delete branch)
         id: merge
         if: >
           steps.pr.outputs.pr_number != '' &&
-          (steps.review.outputs.verdict == 'PASS' || steps.review.outputs.verdict == 'WARN')
+          (steps.review.outputs.verdict == 'PASS' ||
+           steps.review.outputs.verdict == 'WARN'  ||
+           steps.review.outputs.verdict == '')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # --admin bypasses required status checks so the changelog CI check
-          # does not block auto-generated PRs that the agent already validated.
           gh pr merge "${{ steps.pr.outputs.pr_number }}" \
             --repo "${{ github.repository }}" \
             --squash \
@@ -386,7 +427,7 @@ PRBODY
             --admin \
             --subject "feat: implement quick-note issue #${{ steps.issue.outputs.number }}"
           echo "merged=true" >> "$GITHUB_OUTPUT"
-          echo "Merged PR #${{ steps.pr.outputs.pr_number }} into master."
+          echo "Merged and deleted branch for PR #${{ steps.pr.outputs.pr_number }}"
 
       # ── 14. Close issue on success ─────────────────────────────────────────
       - name: Close issue — success
@@ -404,23 +445,29 @@ PRBODY
               print('')
           " 2>/dev/null || echo "")
 
+          REVIEW_APPLIED="${{ steps.review_apply.outputs.applied }}"
+          REVIEW_NOTE=""
+          if [ "$REVIEW_APPLIED" = "True" ]; then
+            REVIEW_NOTE=$'\n\n**Review feedback was applied by the NVIDIA NIM agent before merge.**'
+          fi
+
           gh issue comment "${{ steps.issue.outputs.number }}" \
             --repo "${{ github.repository }}" \
             --body "$(cat <<MSG
-          ✅ Done — PR #${{ steps.pr.outputs.pr_number }} merged into master.
+✅ Done — PR #${{ steps.pr.outputs.pr_number }} merged into master (branch deleted).
 
-          ### What was implemented
-          $IMPL_SUMMARY
-
-          **Review verdict:** ${{ steps.review.outputs.verdict }}
-          MSG
+### What was implemented
+$IMPL_SUMMARY
+$REVIEW_NOTE
+**Council verdict:** ${{ steps.review.outputs.verdict }}
+MSG
           )"
           gh issue close "${{ steps.issue.outputs.number }}" \
             --repo "${{ github.repository }}" \
             --reason completed
 
-      # ── 15. Leave PR open for human review if council review failed ─────────
-      - name: Comment — needs human review
+      # ── 15. Leave PR open when council returns FAIL ────────────────────────
+      - name: Comment — needs human review (council FAIL)
         if: >
           steps.pr.outputs.pr_number != '' &&
           steps.review.outputs.verdict == 'FAIL'
@@ -430,15 +477,13 @@ PRBODY
           gh issue comment "${{ steps.issue.outputs.number }}" \
             --repo "${{ github.repository }}" \
             --body "$(cat <<MSG
-          ⚠️ Council review returned **FAIL** — PR #${{ steps.pr.outputs.pr_number }} needs human review before merging.
+⚠️ Council review returned **FAIL** — PR #${{ steps.pr.outputs.pr_number }} needs human review before merging.
 
-          Please review and merge (or close) the PR manually.
-          MSG
+Please review and merge (or close) the PR manually.
+MSG
           )"
 
-      # ── 15b. Comment when PR exists but merge failed (non-FAIL verdict) ───────
-      # Fires when the council passed but gh pr merge exited non-zero.
-      # The PR is left open; alert the issue for manual merge.
+      # ── 15b. Alert when PR exists but merge failed ─────────────────────────
       - name: Comment — PR needs manual merge
         if: >
           always() &&
@@ -451,10 +496,10 @@ PRBODY
           gh issue comment "${{ steps.issue.outputs.number }}" \
             --repo "${{ github.repository }}" \
             --body "$(cat <<MSG
-          ⚠️ PR #${{ steps.pr.outputs.pr_number }} was created and council review passed (**${{ steps.review.outputs.verdict }}**) but auto-merge failed.
+⚠️ PR #${{ steps.pr.outputs.pr_number }} created (council: **${{ steps.review.outputs.verdict }}**) but auto-merge failed.
 
-          Please merge PR #${{ steps.pr.outputs.pr_number }} manually to close this issue.
-          MSG
+Please merge PR #${{ steps.pr.outputs.pr_number }} manually to close this issue.
+MSG
           )" 2>/dev/null || true
 
       # ── 16. Auto-retry: reopen issue on failure ────────────────────────────

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 ### Added
+- `.github/scripts/apply_review.py` — New NVIDIA NIM agentic loop that reads all PR review comments (CodeRabbit, GitHub Copilot, inline code comments, council reviews) and applies the suggested changes to the codebase before merge. Handles `\`\`\`suggestion` blocks literally. Tries Nemotron-120B → Nemotron-49B → Llama-70B → Qwen-32B in sequence.
+- `process-quick-note.yml` — After PR creation, waits 120 s for review bots (CodeRabbit/Copilot) to post, then runs `apply_review.py` via NVIDIA NIM, pushes any fixes (force-with-lease), runs council review, and finally squash-merges with `--delete-branch`. PRs are no longer merged before review feedback is applied.
+
+### Fixed
 - `provider_router.py` — AWS Bedrock (Converse API) support via `boto3`. When `AWS_ACCESS_KEY_ID` (or `BEDROCK_ACCESS_KEY`) and `AWS_SECRET_ACCESS_KEY` (or `BEDROCK_SECRET_KEY`) are set, a `bedrock` provider is registered at priority 15 (commercial tier). Default model is `us.anthropic.claude-opus-4-7` (Claude Opus 4.7 cross-region inference profile); override with `BEDROCK_MODEL_ID`. Added `_openai_to_bedrock_converse()` and `_bedrock_response_to_openai()` translation helpers plus `_post_bedrock_converse()` using `asyncio.to_thread` for non-blocking boto3 calls. Bedrock is classified as `commercial` tier so it is only attempted after all free-cloud providers. Health check for `type="bedrock"` is satisfied by credential presence alone (no network probe).
 - `router/registry.py` — Added `us.anthropic.claude-opus-4-7` (200k context, reasoning/flagship) and `us.anthropic.claude-sonnet-4-6` (200k context, coder) model capability entries for Bedrock Claude 4 models.
 - `requirements.txt` — Added `boto3>=1.34.0` dependency for AWS Bedrock support.
