@@ -1489,6 +1489,84 @@ async def api_health():
     return JSONResponse({"status": "ok", "ollama": OLLAMA_BASE, "models": models})
 
 
+@app.get("/api/probe-providers")
+async def probe_providers(
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    """Live-probe every configured LLM provider with a minimal real API call.
+
+    Protected by admin auth. Returns per-provider pass/fail with latency and
+    a short reply excerpt so you can verify keys and connectivity at a glance.
+    """
+    from provider_router import ProviderRouter
+
+    router = ProviderRouter.from_env()
+    if not router.providers:
+        return JSONResponse({"error": "No providers discovered — check env vars", "results": []})
+
+    probe_payload = {
+        "model": "",
+        "messages": [{"role": "user", "content": "Reply with the single word: OK"}],
+        "max_tokens": 10,
+        "temperature": 0,
+    }
+
+    results = []
+    for provider in router.providers:
+        payload = {**probe_payload, "model": provider.default_model or ""}
+        t0 = time.time()
+        ok = False
+        detail = ""
+        reply = ""
+        try:
+            result = await asyncio.wait_for(
+                router._try_one_provider(
+                    provider, payload,
+                    original_model=payload["model"],
+                    model_fallbacks=[],
+                    is_primary=True,
+                    max_retries=0,
+                    attempts=[],
+                    provider_timeout_sec=12.0,
+                ),
+                timeout=14.0,
+            )
+            elapsed_ms = int((time.time() - t0) * 1000)
+            if result is not None:
+                ok = True
+                try:
+                    body = result.response.json()
+                    reply = (
+                        (body.get("choices") or [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                        or ""
+                    ).strip()[:80]
+                except Exception:
+                    reply = "(non-JSON response)"
+                detail = f"{elapsed_ms}ms"
+            else:
+                detail = "no result returned"
+        except asyncio.TimeoutError:
+            detail = "timed out after 12s"
+        except Exception as exc:
+            detail = str(exc)[:150]
+
+        results.append({
+            "provider_id": provider.provider_id,
+            "model": provider.default_model or "",
+            "ok": ok,
+            "detail": detail,
+            "reply": reply,
+        })
+
+    passed = sum(1 for r in results if r["ok"])
+    return JSONResponse({
+        "summary": f"{passed}/{len(results)} providers healthy",
+        "results": results,
+    })
+
+
 # ─── Agent Chat (provider-failover-aware) ────────────────────────────────────
 
 
