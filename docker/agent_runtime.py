@@ -29,6 +29,10 @@ _NVIDIA_KEY = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"
 _NVIDIA_BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
 _NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct")
 
+_ZEN_KEY = os.environ.get("OPENCODE_ZEN_API_KEY", "").strip()
+_ZEN_BASE = os.environ.get("OPENCODE_ZEN_BASE_URL", "https://gateway.opencode.ai/v1").rstrip("/")
+_ZEN_MODEL = os.environ.get("OPENCODE_ZEN_MODEL", "zen")
+
 _DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 _DEEPSEEK_BASE = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
 _DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
@@ -77,6 +81,7 @@ _ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"
 def _default_model() -> str:
     for key, model in [
         (_NVIDIA_KEY,    _NVIDIA_DEFAULT_MODEL),
+        (_ZEN_KEY,       _ZEN_MODEL),
         (_DEEPSEEK_KEY,  _DEEPSEEK_MODEL),
         (_SAMBANOVA_KEY, _SAMBANOVA_MODEL),
         (_CEREBRAS_KEY,  _CEREBRAS_MODEL),
@@ -145,6 +150,8 @@ class RuntimeRunRequest(BaseModel):
 def _active_cloud_provider() -> str | None:
     if _NVIDIA_KEY:
         return "nvidia-nim"
+    if _ZEN_KEY:
+        return "opencode-zen"
     if _DEEPSEEK_KEY:
         return "deepseek"
     if _GROQ_KEY:
@@ -308,6 +315,7 @@ async def _chat(
 
     cloud_providers = [
         (_NVIDIA_KEY,    _NVIDIA_BASE,    _NVIDIA_DEFAULT_MODEL),
+        (_ZEN_KEY,       _ZEN_BASE,       _ZEN_MODEL),
         (_DEEPSEEK_KEY,  _DEEPSEEK_BASE,  _DEEPSEEK_MODEL),
         (_SAMBANOVA_KEY, _SAMBANOVA_BASE, _SAMBANOVA_MODEL),
         (_CEREBRAS_KEY,  _CEREBRAS_BASE,  _CEREBRAS_MODEL),

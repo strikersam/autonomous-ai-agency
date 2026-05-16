@@ -183,6 +183,7 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "mistral",
     "google-gemini-free",
     "cloudflare-ai",
+    "opencode-zen",
 }
 # Nvidia NIM is free-tier — treated as highest-priority free cloud provider
 _NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
@@ -560,6 +561,22 @@ class ProviderRouter:
                     api_key=cloudflare_token,
                     default_model=os.environ.get("CLOUDFLARE_MODEL") or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
                     priority=43,
+                )
+            )
+
+        zen_key = os.environ.get("OPENCODE_ZEN_API_KEY")
+        if zen_key:
+            zen_base = (
+                os.environ.get("OPENCODE_ZEN_BASE_URL") or "https://gateway.opencode.ai/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="opencode-zen",
+                    type="openai-compatible",
+                    base_url=zen_base,
+                    api_key=zen_key,
+                    default_model=os.environ.get("OPENCODE_ZEN_MODEL") or "zen",
+                    priority=5,
                 )
             )
 

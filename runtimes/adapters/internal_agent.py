@@ -69,6 +69,10 @@ def _best_cloud_primary_base(local_ollama_base: str) -> str:
     if nvidia_key:
         return (os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL).rstrip("/")
 
+    zen_key = os.environ.get("OPENCODE_ZEN_API_KEY")
+    if zen_key:
+        return (os.environ.get("OPENCODE_ZEN_BASE_URL") or "https://gateway.opencode.ai/v1").rstrip("/")
+
     if os.environ.get("DEEPSEEK_API_KEY"):
         return (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").rstrip("/")
 
