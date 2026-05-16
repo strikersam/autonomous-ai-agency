@@ -29,15 +29,15 @@ services:
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com/v1"
       - key: NVIDIA_DEFAULT_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "nvidia/nemotron-3-super-120b-a12b"
 
       # Agent model defaults (Nvidia NIM free models — confirmed live on NIM API)
       - key: AGENT_PLANNER_MODEL
-        value: "deepseek-ai/deepseek-r1"
+        value: "nvidia/GLM-5.1"
       - key: AGENT_EXECUTOR_MODEL
-        value: "qwen/qwen2.5-coder-32b-instruct"
+        value: "nvidia/StarCoder2-15B"
       - key: AGENT_VERIFIER_MODEL
-        value: "deepseek-ai/deepseek-r1"
+        value: "nvidia/DeepSeek-V4-Pro"
       - key: AGENT_JUDGE_MODEL
         value: "nvidia/nemotron-3-super-120b-a12b"
 
