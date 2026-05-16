@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+
+## [4.1.0] — 2026-05-16
 ### Added
 - `agent/knowledge_sync.py` — Knowledge ingestion pipeline bridging internet trend intelligence into the local RAG system. `fetch_and_store(url, title, tags)` ingests any URL into Sources for RAG search. `sync_trends()` auto-pushes high-relevance alerts to Sources and creates a weekly Wiki digest page. `run_weekly_sync()` is the cron entry-point. Singleton `KnowledgeSync` class wired in `proxy.py`.
 - `/v4/knowledge/ingest` — POST endpoint (admin auth) for on-demand URL ingestion into Sources.
