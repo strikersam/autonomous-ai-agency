@@ -135,7 +135,15 @@ def test_qwen36_35b_a3b_passthrough():
 
 def test_unknown_model_falls_to_heuristic():
     decision = _router().route(requested_model="some-unknown-model-xyz")
-    assert decision.resolved_model in ("qwen3-coder:30b", "deepseek-r1:32b")
+    # Any registered cost_tier=3 model is acceptable — the set grows as new providers are added
+    assert decision.resolved_model in (
+        "qwen3-coder:30b",
+        "deepseek-r1:32b",
+        "us.anthropic.claude-opus-4-7",
+        "deepseek-r1:671b",
+        "qwen3-coder:235b",
+        "deepseek-v3:685b",
+    )
     assert decision.selection_source in ("heuristic", "default")
 
 

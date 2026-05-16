@@ -161,6 +161,7 @@ def extract_openai_text(data: Any) -> str:
 _COMMERCIAL_PROVIDER_IDS = {
     "anthropic",
     "anthropic-universal",
+    "bedrock",
     "openai",
     "openrouter",
     "together-ai",
@@ -580,6 +581,36 @@ class ProviderRouter:
                 )
             )
 
+        aws_access_key = (
+            os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY") or ""
+        ).strip()
+        aws_secret_key = (
+            os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY") or ""
+        ).strip()
+        if aws_access_key and aws_secret_key:
+            aws_region = (
+                os.environ.get("AWS_REGION")
+                or os.environ.get("AWS_DEFAULT_REGION")
+                or "us-east-1"
+            )
+            bedrock_model = (
+                os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-7"
+            )
+            providers.append(
+                ProviderConfig(
+                    provider_id="bedrock",
+                    type="bedrock",
+                    base_url=f"https://bedrock-runtime.{aws_region}.amazonaws.com",
+                    api_key=aws_access_key,
+                    default_model=bedrock_model,
+                    priority=15,
+                    headers={
+                        "X-Bedrock-Secret": aws_secret_key,
+                        "X-Bedrock-Region": aws_region,
+                    },
+                )
+            )
+
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
         if anthropic_key:
             anthropic_base = (
@@ -652,6 +683,8 @@ class ProviderRouter:
 
     async def health_check(self, provider: ProviderConfig) -> bool:
         try:
+            if provider.type == "bedrock":
+                return bool(provider.api_key and provider.headers.get("X-Bedrock-Secret"))
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(10.0, connect=5.0)
             ) as client:
@@ -823,6 +856,8 @@ class ProviderRouter:
         timeout_sec: float = 300.0,
     ) -> httpx.Response:
         headers = provider.auth_headers()
+        if provider.type == "bedrock":
+            return await self._post_bedrock_converse(provider, payload, timeout_sec)
         if provider.type.startswith("emergent-"):
             return await self._post_emergent_chat(provider, payload, timeout_sec)
         async with httpx.AsyncClient(
@@ -1031,6 +1066,120 @@ class ProviderRouter:
         return httpx.Response(
             200, json=body, headers={"content-type": "application/json"}
         )
+
+    async def _post_bedrock_converse(
+        self,
+        provider: ProviderConfig,
+        payload: dict[str, Any],
+        timeout_sec: float = 300.0,
+    ) -> httpx.Response:
+        try:
+            import boto3
+        except ImportError as exc:
+            raise RuntimeError(
+                "boto3 is required for the Bedrock provider. "
+                "Install with: pip install 'boto3>=1.34.0'"
+            ) from exc
+
+        aws_secret = provider.headers.get("X-Bedrock-Secret", "")
+        aws_region = provider.headers.get("X-Bedrock-Region", "us-east-1")
+        model_id = str(payload.get("model") or provider.default_model or "")
+
+        bedrock_payload = self._openai_to_bedrock_converse(payload)
+
+        def _sync_call() -> dict[str, Any]:
+            client = boto3.client(
+                "bedrock-runtime",
+                region_name=aws_region,
+                aws_access_key_id=provider.api_key,
+                aws_secret_access_key=aws_secret,
+            )
+            kwargs: dict[str, Any] = {
+                "modelId": model_id,
+                "messages": bedrock_payload["messages"],
+            }
+            if bedrock_payload.get("system"):
+                kwargs["system"] = bedrock_payload["system"]
+            if bedrock_payload.get("inferenceConfig"):
+                kwargs["inferenceConfig"] = bedrock_payload["inferenceConfig"]
+            return client.converse(**kwargs)  # type: ignore[return-value]
+
+        response_data = await asyncio.wait_for(
+            asyncio.to_thread(_sync_call),
+            timeout=timeout_sec,
+        )
+        return self._bedrock_response_to_openai(response_data, model_id)
+
+    @staticmethod
+    def _openai_to_bedrock_converse(payload: dict[str, Any]) -> dict[str, Any]:
+        """Translate an OpenAI chat/completions payload to Bedrock Converse format."""
+        system_parts: list[dict[str, str]] = []
+        messages: list[dict[str, Any]] = []
+        for msg in payload.get("messages") or []:
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role") or "user")
+            content = msg.get("content")
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                text = " ".join(
+                    item.get("text", "")
+                    for item in content
+                    if isinstance(item, dict) and item.get("type") == "text"
+                )
+            else:
+                text = ""
+            if not text:
+                continue
+            if role == "system":
+                system_parts.append({"text": text})
+            elif role in ("user", "assistant"):
+                messages.append({"role": role, "content": [{"text": text}]})
+
+        inference_config: dict[str, Any] = {}
+        if payload.get("max_tokens"):
+            inference_config["maxTokens"] = int(payload["max_tokens"])
+        if payload.get("temperature") is not None:
+            inference_config["temperature"] = float(payload["temperature"])
+
+        return {
+            "messages": messages or [{"role": "user", "content": [{"text": "Hello"}]}],
+            "system": system_parts,
+            "inferenceConfig": inference_config,
+        }
+
+    @staticmethod
+    def _bedrock_response_to_openai(data: dict[str, Any], model: str) -> httpx.Response:
+        """Translate a Bedrock Converse API response to OpenAI chat.completion format."""
+        output = data.get("output") or {}
+        message = output.get("message") or {}
+        content_blocks = message.get("content") or []
+        text = " ".join(
+            block.get("text", "")
+            for block in content_blocks
+            if isinstance(block, dict) and "text" in block
+        )
+        usage = data.get("usage") or {}
+        body = {
+            "id": f"chatcmpl-bedrock-{uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": int(usage.get("inputTokens") or 0),
+                "completion_tokens": int(usage.get("outputTokens") or 0),
+                "total_tokens": int(usage.get("totalTokens") or 0),
+            },
+        }
+        return httpx.Response(200, json=body, headers={"content-type": "application/json"})
 
     @staticmethod
     def attempts_header(attempts: list[ProviderAttempt]) -> str:

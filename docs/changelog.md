@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- `provider_router.py` — AWS Bedrock (Converse API) support via `boto3`. When `AWS_ACCESS_KEY_ID` (or `BEDROCK_ACCESS_KEY`) and `AWS_SECRET_ACCESS_KEY` (or `BEDROCK_SECRET_KEY`) are set, a `bedrock` provider is registered at priority 15 (commercial tier). Default model is `us.anthropic.claude-opus-4-7` (Claude Opus 4.7 cross-region inference profile); override with `BEDROCK_MODEL_ID`. Added `_openai_to_bedrock_converse()` and `_bedrock_response_to_openai()` translation helpers plus `_post_bedrock_converse()` using `asyncio.to_thread` for non-blocking boto3 calls. Bedrock is classified as `commercial` tier so it is only attempted after all free-cloud providers. Health check for `type="bedrock"` is satisfied by credential presence alone (no network probe).
+- `router/registry.py` — Added `us.anthropic.claude-opus-4-7` (200k context, reasoning/flagship) and `us.anthropic.claude-sonnet-4-6` (200k context, coder) model capability entries for Bedrock Claude 4 models.
+- `requirements.txt` — Added `boto3>=1.34.0` dependency for AWS Bedrock support.
+- `tests/test_bedrock_provider.py` — 20 new tests covering: `_openai_to_bedrock_converse` translation (system extraction, inference config, list content parts, empty messages default), `_bedrock_response_to_openai` response mapping (multi-block, missing fields), `from_env()` discovery (both key variants, custom region/model, missing-key guards), `health_check` for bedrock type, and `_post_bedrock_converse` round-trip with mocked boto3 (credential forwarding, system-prompt gating, ImportError handling).
+
 ### Fixed
 - `provider_router.py` — Added Cerebras (`CEREBRAS_API_KEY`), SambaNova (`SAMBANOVA_API_KEY`), Mistral (`MISTRAL_API_KEY`), Google Gemini (`GOOGLE_API_KEY` / `GEMINI_API_KEY`), and Cloudflare Workers AI (`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`) to `ProviderRouter.from_env()`. Fixed Anthropic to not require `ANTHROPIC_BASE_URL` (defaults to `https://api.anthropic.com`). All new providers classified as `free_cloud` tier. Full priority chain: Nvidia(-10) → DeepSeek(20) → SambaNova(27) → Cerebras(28) → Groq(25) → Qwen(30) → Together(35) → Mistral(38) → Gemini(39) → OpenRouter(40) → Cloudflare(43) → HuggingFace(45) → ZhipuAI(46) → MiniMax(47) → Anthropic(50).
 - `docker/agent_runtime.py` — Extended `_chat()` and `_default_model()` to include SambaNova, Cerebras, Mistral, Gemini, and Anthropic in the cloud provider chain.
