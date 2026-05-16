@@ -58,7 +58,7 @@ DEFAULT_VERIFIER_MODEL = os.environ.get(
 )
 DEFAULT_JUDGE_MODEL = os.environ.get(
     "AGENT_JUDGE_MODEL",
-    "nvidia/llama-3.1-nemotron-70b-instruct"
+    "nvidia/nemotron-3-super-120b-a12b"
     if _nvidia_key
     else DEFAULT_VERIFIER_MODEL,
 )

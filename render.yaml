@@ -39,7 +39,7 @@ services:
       - key: AGENT_VERIFIER_MODEL
         value: "deepseek-ai/deepseek-r1"
       - key: AGENT_JUDGE_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "nvidia/nemotron-3-super-120b-a12b"
 
       # LLM Provider
       - key: LLM_PROVIDER

@@ -254,7 +254,7 @@ def _default_agent_role_models() -> dict[str, str]:
             "planner": os.environ.get("AGENT_PLANNER_MODEL") or "deepseek-ai/deepseek-r1",
             "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "qwen/qwen2.5-coder-32b-instruct",
             "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-ai/deepseek-r1",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "meta/llama-3.3-70b-instruct",
+            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
         }
     return {
         "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",

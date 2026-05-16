@@ -98,10 +98,10 @@ def _build_builtin_model_map() -> dict[str, str]:
     local Ollama models otherwise."""
     nvidia = _nvidia_key_present()
 
-    # Reasoning/planning model: nemotron-ultra (Nvidia) or deepseek-r1 (local)
-    _heavy = "nvidia/llama-3.1-nemotron-70b-instruct" if nvidia else "deepseek-r1:32b"
-    # Largest local-only model (only applies when Nvidia not configured)
-    _largest = "nvidia/llama-3.1-nemotron-70b-instruct" if nvidia else "deepseek-r1:671b"
+    # Heavy reasoning model: nemotron-3-super-120b (MoE, 12B active) or deepseek-r1 (local)
+    _heavy = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:32b"
+    # Largest model: same on NIM (nemotron-3-super is the heaviest free model available)
+    _largest = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:671b"
     # Coding/execution model: qwen2.5-coder (Nvidia) or qwen3-coder (local)
     _coder = "qwen/qwen2.5-coder-32b-instruct" if nvidia else "qwen3-coder:30b"
     # Fast/small model
@@ -133,7 +133,7 @@ def _build_builtin_model_map() -> dict[str, str]:
         # Nvidia NIM short-name aliases (passthrough when key is set)
         "llama-3.3-70b": "meta/llama-3.3-70b-instruct",
         "llama-3.1-405b": "meta/llama-3.1-405b-instruct",
-        "nemotron-ultra": "nvidia/llama-3.1-nemotron-70b-instruct",
+        "nemotron-ultra": "nvidia/nemotron-3-super-120b-a12b",
         "qwen2.5-coder-32b": "qwen/qwen2.5-coder-32b-instruct",
         "deepseek-r1-nim": "deepseek-ai/deepseek-r1",
         # Gemma 4 short-name aliases (local Ollama pull names)
