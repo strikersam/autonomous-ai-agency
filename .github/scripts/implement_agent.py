@@ -33,7 +33,7 @@ MAX_TURNS = 120
 # Model preference: heavy reasoning model first, reliable fallbacks after.
 # All are free-tier NVIDIA NIM models.
 CANDIDATE_MODELS = [
-    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B — primary)"),
+    ("nvidia/nemotron-3-super-120b-a12b",       "reasoning (Nemotron 120B — primary)"),
     ("nvidia/llama-3.3-nemotron-super-49b-v1",  "reasoning (Nemotron Super 49B)"),
     ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
     ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
@@ -306,9 +306,13 @@ def _read_claude_md() -> str:
 
 
 def _run_baseline_pytest() -> str:
+    # Strip API keys so routing tests see the same environment as tool_bash pytest calls.
+    # Without this, NVIDIA_API_KEY in CI changes model-selection behaviour and causes
+    # tests that assert local Ollama model names to fail spuriously.
+    env = {k: v for k, v in os.environ.items() if k not in _API_KEY_ENV_VARS}
     result = subprocess.run(
         ["python", "-m", "pytest", "-x", "-q", "--tb=line", "--no-header"],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=120, env=env,
     )
     lines = (result.stdout + result.stderr).splitlines()
     return "\n".join(lines[-15:])
