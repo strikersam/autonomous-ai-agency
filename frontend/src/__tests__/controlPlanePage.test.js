@@ -188,7 +188,7 @@ test('renders company-style dashboard summary with NVIDIA priority surfaced', as
   renderPage();
 
   expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
-  expect(screen.getByText(/LLM Relay v4\.0 workspace command center/i)).toBeInTheDocument();
+  expect(screen.getByText(/LLM Relay v4\.1/i)).toBeInTheDocument();
 
   await waitFor(() => expect(getUsage).toHaveBeenCalled());
   expect(screen.getByText('$128.40')).toBeInTheDocument();
