@@ -1490,14 +1490,25 @@ async def api_health():
 
 
 @app.get("/api/probe-providers")
-async def probe_providers(
-    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
-):
+async def probe_providers(request: Request):
     """Live-probe every configured LLM provider with a minimal real API call.
 
-    Protected by admin auth. Returns per-provider pass/fail with latency and
-    a short reply excerpt so you can verify keys and connectivity at a glance.
+    Pass your ADMIN_SECRET or any valid API key:
+      ?key=YOUR_KEY   or   Authorization: Bearer YOUR_KEY
     """
+    # Accept key via ?key= query param or Authorization Bearer header
+    key = request.query_params.get("key", "").strip()
+    if not key:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header[:7].lower() == "bearer ":
+            key = auth_header[7:].strip()
+    if not key:
+        raise HTTPException(status_code=401, detail="Pass ?key=YOUR_ADMIN_SECRET")
+    # Validate against ADMIN_SECRET or any configured proxy API key
+    valid = (ADMIN_SECRET and key == ADMIN_SECRET) or (key in VALID_API_KEYS)
+    if not valid:
+        raise HTTPException(status_code=403, detail="Invalid key")
+
     from provider_router import ProviderRouter
 
     router = ProviderRouter.from_env()
