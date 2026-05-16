@@ -59,7 +59,13 @@ from agent.memory import SessionMemory
 from agent.models import AgentRunRequest, AgentSessionCreateRequest
 from agent.permissions import AdaptivePermissions
 from agent.playbook import PlaybookLibrary
-from agent.quick_note import QuickNoteQueue, start_processor
+from agent.quick_note import QuickNoteQueue, start_processor, set_quick_note_queue
+from agent.improvement_loop import ImprovementLoop, set_improvement_loop
+from agent.self_healing import SelfHealingAgent, set_self_healing_agent
+from agent.log_monitor import LogMonitor, set_log_monitor
+from agent.error_interceptor import ErrorInterceptorMiddleware
+from agent.agency import Agency, set_agency
+from agent.v4_router import v4_router
 from agent.scaffolding import ProjectScaffolder
 from agent.scheduler import AgentScheduler
 from agent.skills import SkillLibrary
@@ -74,7 +80,7 @@ from agents.store import get_agent_store, set_agent_store
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from cost_insights import observability_router
 from direct_chat import direct_chat_router, get_agent_job_manager
-from handlers.anthropic_compat import handle_anthropic_messages
+from handlers.anthropic_compat import handle_anthropic_messages, handle_count_tokens
 from handlers.v3_auth import router as v3_auth_router
 from handlers.v3_models import router as v3_models_router
 from hardware import hardware_router
@@ -622,6 +628,19 @@ async def lifespan(app: FastAPI):
     log.info(
         "RuntimeManager started (%d runtimes registered)", len(mgr._registry.ids())
     )
+    # Warm up health state immediately so the first dispatch cycle has real data.
+    # The health service also kicks off its own async initial poll in start(),
+    # but verify_all() ensures we wait for results before accepting tasks.
+    try:
+        health_results = await mgr.verify_all()
+        healthy = [h["runtime_id"] for h in health_results if h.get("available")]
+        unavailable = [h["runtime_id"] for h in health_results if not h.get("available")]
+        log.info(
+            "Runtime health warm-up: %d healthy=%s, %d unavailable=%s",
+            len(healthy), healthy, len(unavailable), unavailable,
+        )
+    except Exception as _hc_exc:
+        log.warning("Runtime health warm-up failed: %s", _hc_exc)
 
     _task_dispatcher = TaskDispatcher(
         workspace_root=str(Path(__file__).resolve().parent),
@@ -698,6 +717,9 @@ class DebugHeadersMiddleware(BaseHTTPMiddleware):
 
 if LOG_LEVEL == "DEBUG":
     app.add_middleware(DebugHeadersMiddleware)
+
+# Error interceptor: catches unhandled 5xx responses and creates self-healing tasks.
+app.add_middleware(ErrorInterceptorMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -817,8 +839,30 @@ COORDINATOR = AgentCoordinator(
 PROVIDER_ROUTER = ProviderRouter.from_env()
 BROWSER_SESSION = BrowserSession()
 QUICK_NOTE_QUEUE = QuickNoteQueue()
+set_quick_note_queue(QUICK_NOTE_QUEUE)
 TASK_AUTOMATION: TaskAutomationService = TaskAutomationService(store=get_task_store())
 start_processor(QUICK_NOTE_QUEUE, repo_root=Path(__file__).resolve().parent)
+
+# ─── Continuous Improvement & Self-Healing ─────────────────────────────────────
+SELF_HEALING_AGENT = SelfHealingAgent()
+set_self_healing_agent(SELF_HEALING_AGENT)
+
+IMPROVEMENT_LOOP = ImprovementLoop(
+    repo_root=Path(__file__).resolve().parent,
+    on_task=SCHEDULER.create,
+)
+set_improvement_loop(IMPROVEMENT_LOOP)
+IMPROVEMENT_LOOP.start()
+
+# Log monitor: captures backend ERROR/CRITICAL log records and creates fix tasks.
+LOG_MONITOR = LogMonitor()
+set_log_monitor(LOG_MONITOR)
+LOG_MONITOR.attach()
+
+# Agency: CEO + specialist agents (Dev, Security, Reviewer, Release).
+AGENCY = Agency()
+set_agency(AGENCY)
+AGENCY.start()
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
@@ -891,6 +935,63 @@ log.info("Setup wizard mounted at /api/setup/* (public — no API key required)"
 app.include_router(direct_chat_router)
 log.info("Direct Chat mounted at /api/chat/* (requires JWT token)")
 
+# ─── v4: Continuous Improvement Dashboard ──────────────────────────────────────
+app.include_router(v4_router)
+log.info("v4 Improvement Dashboard mounted at /v4/*")
+
+# Register standing improvement schedules (run after app boots).
+# Uses cron expressions: daily test scan at 03:00 UTC, weekly dep audit on Monday.
+_default_schedules = [
+    {
+        "name": "daily-test-scan",
+        "cron": "0 3 * * *",
+        "instruction": (
+            "Run the full pytest suite (`pytest -x`). "
+            "If any tests fail, diagnose the root cause and apply the minimum fix. "
+            "Update docs/changelog.md and commit the fix to master."
+        ),
+        "tags": ["auto-improvement", "tests", "daily"],
+    },
+    {
+        "name": "weekly-dep-audit",
+        "cron": "0 4 * * 1",
+        "instruction": (
+            "Run the dependency-audit skill: check requirements.txt for outdated or "
+            "vulnerable packages using `pip list --outdated`. Pin safe upgrades, "
+            "update changelog, and commit."
+        ),
+        "tags": ["auto-improvement", "dependencies", "weekly"],
+    },
+    {
+        "name": "daily-changelog-check",
+        "cron": "0 5 * * *",
+        "instruction": (
+            "Review docs/changelog.md. Ensure [Unreleased] contains entries for all "
+            "recent commits that changed behaviour. Add any missing entries. "
+            "Commit changelog updates with prefix `docs:`."
+        ),
+        "tags": ["auto-improvement", "docs", "daily"],
+    },
+    {
+        "name": "weekly-todo-cleanup",
+        "cron": "0 6 * * 3",
+        "instruction": (
+            "Search the codebase for FIXME and TODO:FIX markers. "
+            "For each one, either resolve it (make the smallest correct fix) or "
+            "convert it to a GitHub issue comment if it requires larger work. "
+            "Commit resolved markers."
+        ),
+        "tags": ["auto-improvement", "cleanup", "weekly"],
+    },
+]
+for _sched in _default_schedules:
+    try:
+        if not any(j.name == _sched["name"] for j in SCHEDULER.list()):
+            SCHEDULER.create(**_sched)
+            log.info("Registered improvement schedule: %s", _sched["name"])
+    except Exception as _sched_exc:
+        log.warning("Could not register schedule %s: %s", _sched["name"], _sched_exc)
+
 
 @app.get("/api/agent/stream", response_model=None)
 async def stream_agent_activity(
@@ -928,7 +1029,7 @@ async def stream_agent_activity(
         while True:
             jobs = _jobs.list_jobs(session_id=session_id)
             if owner_email:
-                jobs = [j for j in jobs if getattr(j, "owner_id", owner_email) == owner_email]
+                jobs = [j for j in jobs if getattr(j, "owner_id", None) == owner_email]
             emitted = False
             for job in jobs:
                 events = job.progress_events
@@ -994,6 +1095,110 @@ async def get_audit_log_endpoint(
         return JSONResponse(status_code=403, content={"detail": "Admin access required"})
     from rbac import get_audit_log as _get_audit_log
     entries = _get_audit_log(limit=min(limit, 500), user_id=user_id, resource=resource, outcome=outcome)
+from typing import Any
+
+# --- Audit session models ---
+class AuditSessionCreateRequest(BaseModel):
+    metadata: Optional[Dict[str, Any]] = None
+
+class AuditSessionResponse(BaseModel):
+    session_id: str
+    messages: List[Dict[str, str]]
+    metadata: Dict[str, Any]
+
+class AuditMessageCreateRequest(BaseModel):
+    role: str
+    content: str
+
+class AuditMessageResponse(BaseModel):
+    role: str
+    content: str
+    timestamp: float
+
+class AuditRollbackRequest(BaseModel):
+    index: int
+
+# --- Audit session endpoints ---
+@app.post("/v1/audit/sessions")
+async def create_audit_session(
+    request: Request,
+    body: AuditSessionCreateRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import create_session
+    import uuid
+    session_id = str(uuid.uuid4())
+    session = create_session(session_id, body.metadata)
+    return AuditSessionResponse(
+        session_id=session_id,
+        messages=session.get_conversation(),
+        metadata=session.metadata,
+    )
+
+@app.get("/v1/audit/sessions/{session_id}")
+async def get_audit_session(
+    session_id: str,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import get_session
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Audit session not found")
+    return AuditSessionResponse(
+        session_id=session.session_id,
+        messages=session.get_conversation(),
+        metadata=session.metadata,
+    )
+
+@app.post("/v1/audit/sessions/{session_id}/messages")
+async def add_audit_message(
+    session_id: str,
+    body: AuditMessageCreateRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import get_session
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Audit session not found")
+    session.add_message(body.role, body.content)
+    # Return the added message
+    msg = session.messages[-1]
+    return AuditMessageResponse(
+        role=msg.role,
+        content=msg.content,
+        timestamp=msg.timestamp,
+    )
+
+@app.post("/v1/audit/sessions/{session_id}/rollback")
+async def rollback_audit_session(
+    session_id: str,
+    body: AuditRollbackRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import get_session
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Audit session not found")
+    try:
+        session.rollback(body.index)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return AuditSessionResponse(
+        session_id=session_id,
+        messages=session.get_conversation(),
+        metadata=session.metadata,
+    )
+
+@app.delete("/v1/audit/sessions/{session_id}")
+async def delete_audit_session(
+    session_id: str,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    from audit import delete_session
+    deleted = delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Audit session not found")
+    return {"status": "deleted"}
     return AuditLogResponse(entries=entries, total=len(entries))
 
 # ─── v3.1: Cost insights / observability ──────────────────────────────────────
@@ -1029,6 +1234,17 @@ log.info("Schedules API mounted at /api/schedules/*")
 # ─── Control Plane: Routing policy ───────────────────────────────────────────
 app.include_router(routing_router)
 log.info("Routing policy API mounted at /api/routing/*")
+
+# ── MCP Server (sub-app) ───────────────────────────────────────────────────────
+# Mounted at /mcp-internal so the agent loop can reach workspace/git tools
+# without a separate container.  On Render, MCP_SERVER_BASE_URL points at
+# this service's own external URL + "/mcp-internal".
+try:
+    from mcp_server.server import app as _mcp_app
+    app.mount("/mcp-internal", _mcp_app)
+    log.info("MCP server mounted at /mcp-internal")
+except Exception as _mcp_err:
+    log.warning("MCP server not mounted: %s", _mcp_err)
 
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
@@ -1359,6 +1575,95 @@ async def api_health():
     except Exception as e:
         return JSONResponse({"status": "ollama_down", "error": str(e)}, status_code=503)
     return JSONResponse({"status": "ok", "ollama": OLLAMA_BASE, "models": models})
+
+
+@app.get("/api/probe-providers")
+async def probe_providers(request: Request):
+    """Live-probe every configured LLM provider with a minimal real API call.
+
+    Pass your ADMIN_SECRET or any valid API key:
+      ?key=YOUR_KEY   or   Authorization: Bearer YOUR_KEY
+    """
+    # Accept key via ?key= query param or Authorization Bearer header
+    key = request.query_params.get("key", "").strip()
+    if not key:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header[:7].lower() == "bearer ":
+            key = auth_header[7:].strip()
+    if not key:
+        raise HTTPException(status_code=401, detail="Pass ?key=YOUR_ADMIN_SECRET")
+    # Validate against ADMIN_SECRET or any configured proxy API key
+    valid = (ADMIN_SECRET and key == ADMIN_SECRET) or (key in VALID_API_KEYS)
+    if not valid:
+        raise HTTPException(status_code=403, detail="Invalid key")
+
+    from provider_router import ProviderRouter
+
+    router = ProviderRouter.from_env()
+    if not router.providers:
+        return JSONResponse({"error": "No providers discovered — check env vars", "results": []})
+
+    probe_payload = {
+        "model": "",
+        "messages": [{"role": "user", "content": "Reply with the single word: OK"}],
+        "max_tokens": 10,
+        "temperature": 0,
+    }
+
+    results = []
+    for provider in router.providers:
+        payload = {**probe_payload, "model": provider.default_model or ""}
+        t0 = time.time()
+        ok = False
+        detail = ""
+        reply = ""
+        try:
+            result = await asyncio.wait_for(
+                router._try_one_provider(
+                    provider, payload,
+                    original_model=payload["model"],
+                    model_fallbacks=[],
+                    is_primary=True,
+                    max_retries=0,
+                    attempts=[],
+                    provider_timeout_sec=12.0,
+                ),
+                timeout=14.0,
+            )
+            elapsed_ms = int((time.time() - t0) * 1000)
+            if result is not None:
+                ok = True
+                try:
+                    body = result.response.json()
+                    reply = (
+                        (body.get("choices") or [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                        or ""
+                    ).strip()[:80]
+                except Exception:
+                    reply = "(non-JSON response)"
+                detail = f"{elapsed_ms}ms"
+            else:
+                detail = "no result returned"
+        except asyncio.TimeoutError:
+            detail = "timed out after 12s"
+        except Exception as exc:
+            detail = str(exc)[:150]
+
+        results.append({
+            "provider_id": provider.provider_id,
+            "model": provider.default_model or "",
+            "ok": ok,
+            "detail": detail,
+            "reply": reply,
+        })
+
+    passed = sum(1 for r in results if r["ok"])
+    return JSONResponse({
+        "summary": f"{passed}/{len(results)} providers healthy",
+        "results": results,
+    })
 
 
 # ─── Agent Chat (provider-failover-aware) ────────────────────────────────────
@@ -2468,6 +2773,19 @@ async def anthropic_messages(
         department=auth.department,
         key_id=auth.key_id,
     )
+
+
+@app.post("/v1/messages/count_tokens")
+async def anthropic_count_tokens(
+    request: Request, auth: AuthContext = Depends(verify_api_key)
+):
+    """Anthropic token counting endpoint.
+
+    Estimates how many input tokens the given messages would consume.
+    Used by Claude Code CLI for preflight context-size checks.
+    Returns: {"input_tokens": N}
+    """
+    return await handle_count_tokens(request=request)
 
 
 @app.get("/v1/models")

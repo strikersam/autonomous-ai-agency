@@ -98,18 +98,18 @@ def _build_builtin_model_map() -> dict[str, str]:
     local Ollama models otherwise."""
     nvidia = _nvidia_key_present()
 
-    # Reasoning/planning model: nemotron-ultra (Nvidia) or deepseek-r1 (local)
+    # Heavy reasoning model: nemotron-3-super-120b (MoE, 12B active) or deepseek-r1 (local)
     _heavy = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:32b"
-    # Largest local-only model (only applies when Nvidia not configured)
+    # Largest model: same on NIM (nemotron-3-super is the heaviest free model available)
     _largest = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:671b"
-    # Coding/execution model: qwen2.5-coder (Nvidia) or qwen3-coder (local)
-    _coder = "qwen/qwen2.5-coder-32b-instruct" if nvidia else "qwen3-coder:30b"
+    # Coding/execution model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
+    _coder = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
     # Fast/small model
     _fast  = "meta/llama-3.1-8b-instruct" if nvidia else "qwen3-coder:7b"
-    # Default general model
-    _gen   = "meta/llama-3.3-70b-instruct" if nvidia else "qwen3-coder:30b"
-    # Deepseek reasoning (available on Nvidia NIM too)
-    _reason = "deepseek-ai/deepseek-r1" if nvidia else "deepseek-r1:32b"
+    # Default general model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
+    _gen   = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
+    # Deepseek reasoning / judge
+    _reason = "deepseek-ai/deepseek-v4-pro" if nvidia else "deepseek-r1:32b"
 
     return {
         # Claude 4.7 family (largest → heaviest reasoning)
@@ -214,7 +214,7 @@ def _default_reasoning_model() -> str:
     if explicit:
         return explicit
     return (
-        "nvidia/nemotron-3-super-120b-a12b"
+        "deepseek-ai/deepseek-r1"
         if _nvidia_key_present()
         else "deepseek-r1:32b"
     )

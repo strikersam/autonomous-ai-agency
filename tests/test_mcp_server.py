@@ -275,11 +275,14 @@ class TestMCPServer:
 # ── MCPClient tests ───────────────────────────────────────────────────────────
 
 class TestMCPClient:
-    def test_falls_back_to_default_url_when_no_url(self):
-        from agent.mcp_client import get_mcp_client
+    def test_no_url_gives_disabled_client(self):
+        from agent.mcp_client import get_mcp_client, MCPUnavailableError
+        import asyncio
         client = get_mcp_client("")
         assert client is not None
-        assert "localhost:8008" in client.base_url
+        assert client.base_url == ""
+        with pytest.raises(MCPUnavailableError, match="not configured"):
+            asyncio.run(client._rpc("tools/list"))
 
     def test_circuit_breaker_opens_after_failures(self):
         from agent.mcp_client import MCPClient, _CB_FAILURE_THRESHOLD

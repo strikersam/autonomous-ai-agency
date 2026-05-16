@@ -38,6 +38,7 @@ CANDIDATE_MODELS = [
     ("nvidia/llama-3.3-nemotron-super-49b-v1",  "reasoning (Nemotron Super 49B)"),
     ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
     ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
+    ("qwen/qwen3-coder-480b-a35b-instruct",     "coding (Qwen3-Coder 480B — last resort)"),
 ]
 
 
@@ -306,9 +307,13 @@ def _read_claude_md() -> str:
 
 
 def _run_baseline_pytest() -> str:
+    # Strip API keys so routing tests see the same environment as tool_bash pytest calls.
+    # Without this, NVIDIA_API_KEY in CI changes model-selection behaviour and causes
+    # tests that assert local Ollama model names to fail spuriously.
+    env = {k: v for k, v in os.environ.items() if k not in _API_KEY_ENV_VARS}
     result = subprocess.run(
         ["python", "-m", "pytest", "-x", "-q", "--tb=line", "--no-header"],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=120, env=env,
     )
     lines = (result.stdout + result.stderr).splitlines()
     return "\n".join(lines[-15:])
@@ -400,12 +405,28 @@ def main() -> None:
             ]
         messages.append(assistant_entry)
 
-        # No tool calls → terminal turn
+        # No tool calls → check for XML-format tool calls (Qwen3 quirk) then terminal turn
         if not msg.tool_calls:
-            summary = msg.content or summary
-            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed:
+            content = msg.content or ""
+            # Some models (e.g. Qwen3-coder) emit tool calls as XML text in content
+            # instead of structured tool_calls. Detect and switch models rather than
+            # treating the response as a completion.
+            if "<tool_call>" in content or "<function=" in content:
+                print(f"[agent] {model} emitted XML tool calls in content — switching model", file=sys.stderr)
+                messages.pop()  # discard the malformed assistant turn
+                model_idx += 1
+                if model_idx < len(CANDIDATE_MODELS):
+                    model = CANDIDATE_MODELS[model_idx][0]
+                    print(f"[agent] Switched to: {model}", flush=True)
+                    turns -= 1  # don't count this as a real turn
+                else:
+                    print("All candidate models exhausted.", file=sys.stderr)
+                    break
+                continue
+            summary = content or summary
+            if content and "IMPLEMENTATION_COMPLETE" in content and last_pytest_passed:
                 success = True
-                summary = msg.content[:500]
+                summary = content[:500]
             break
 
         # Execute tool calls

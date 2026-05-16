@@ -1,7 +1,13 @@
 """Internal runtime adapter that executes tasks via the built-in AgentRunner.
 
-Routes through Nvidia NIM free models by default (no local infra needed).
-Falls back to Ollama when NVIDIA_API_KEY is not set.
+Routes through free cloud LLMs in priority order:
+  1. Nvidia NIM        (NVIDIA_API_KEY)
+  2. DeepSeek API      (DEEPSEEK_API_KEY)
+  3. Groq              (GROQ_API_KEY)
+  4. Qwen/DashScope    (DASHSCOPE_API_KEY / QWEN_API_KEY)
+  5. OpenRouter        (OPENROUTER_API_KEY)
+  6. Together AI free  (TOGETHER_API_KEY)
+  7. Local Ollama      (last resort — no key required)
 """
 
 from __future__ import annotations
@@ -50,6 +56,62 @@ def _nvidia_provider_chain() -> list[ProviderConfig]:
             priority=0,
         )
     ]
+
+
+def _best_cloud_primary_base(local_ollama_base: str) -> str:
+    """Return the highest-priority available cloud LLM base URL.
+
+    Tries free cloud providers in priority order. Falls back to local Ollama
+    only when no cloud key is configured, keeping local out of the fallback
+    chain when a cloud alternative exists.
+    """
+    nvidia_key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+    if nvidia_key:
+        return (os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL).rstrip("/")
+
+    zen_key = os.environ.get("OPENCODE_ZEN_API_KEY")
+    if zen_key:
+        return (os.environ.get("OPENCODE_ZEN_BASE_URL") or "https://gateway.opencode.ai/v1").rstrip("/")
+
+    if os.environ.get("DEEPSEEK_API_KEY"):
+        return (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").rstrip("/")
+
+    if os.environ.get("GROQ_API_KEY"):
+        return "https://api.groq.com/openai/v1"
+
+    if os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY"):
+        return (
+            os.environ.get("DASHSCOPE_BASE_URL")
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        ).rstrip("/")
+
+    if os.environ.get("OPENROUTER_API_KEY"):
+        return (os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").rstrip("/")
+
+    if os.environ.get("TOGETHER_API_KEY"):
+        return (os.environ.get("TOGETHER_BASE_URL") or "https://api.together.xyz/v1").rstrip("/")
+
+    if os.environ.get("MISTRAL_API_KEY"):
+        return "https://api.mistral.ai/v1"
+
+    if os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"):
+        return "https://generativelanguage.googleapis.com/v1beta/openai"
+
+    _cf_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    _cf_account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    if _cf_token and _cf_account:
+        return f"https://api.cloudflare.com/client/v4/accounts/{_cf_account}/ai/v1"
+
+    if os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN"):
+        return (os.environ.get("HF_BASE_URL") or "https://api-inference.huggingface.co/v1").rstrip("/")
+
+    if os.environ.get("ZHIPU_API_KEY"):
+        return "https://open.bigmodel.cn/api/paas/v4"
+
+    if os.environ.get("MINIMAX_API_KEY"):
+        return "https://api.minimax.chat/v1"
+
+    return local_ollama_base
 
 
 class InternalAgentAdapter(RuntimeAdapter):
@@ -129,26 +191,32 @@ class InternalAgentAdapter(RuntimeAdapter):
                 details={"workspace_root": self._workspace_root, "provider": provider_label},
             )
 
-        # Probe local Ollama endpoint conservatively
+        # Probe local Ollama endpoint conservatively using async HTTP
         import httpx
+        base = (os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or self._ollama_base).rstrip("/")
+        # Prefer a lightweight endpoint; many Ollama installs respond on root
+        probe_url = f"{base}/v1/health" if base.endswith(":11434") else base
         try:
-            base = (os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or self._ollama_base).rstrip("/")
-            # Prefer a lightweight endpoint; many Ollama installs respond on root
-            probe_url = f"{base}/v1/health" if base.endswith(":11434") else base
-            resp = httpx.get(probe_url, timeout=1.0)
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(probe_url)
             if resp.status_code >= 200 and resp.status_code < 400:
                 return RuntimeHealth(
                     runtime_id=self.RUNTIME_ID,
                     available=True,
                     details={"workspace_root": self._workspace_root, "provider": provider_label, "probe_url": probe_url},
                 )
+            return RuntimeHealth(
+                runtime_id=self.RUNTIME_ID,
+                available=False,
+                error=f"Ollama probe returned HTTP {resp.status_code} at {probe_url}",
+                details={"workspace_root": self._workspace_root, "provider": provider_label},
+            )
         except Exception:
-            # fall through to unavailable
             pass
         return RuntimeHealth(
             runtime_id=self.RUNTIME_ID,
             available=False,
-            error="Local Ollama not reachable",
+            error=f"Local Ollama not reachable at {probe_url} — start Ollama or set OLLAMA_BASE",
             details={"workspace_root": self._workspace_root, "provider": provider_label},
         )
 
@@ -173,20 +241,14 @@ class InternalAgentAdapter(RuntimeAdapter):
         """
         nvidia_chain = _nvidia_provider_chain()
 
-        # When Nvidia NIM is configured use its base URL as the primary endpoint
-        # so AgentRunner builds the right ProviderConfig internally.
-        if nvidia_chain:
-            primary_base = nvidia_chain[0].base_url
-            # Pass remaining chain entries (if any) as extra providers
-            extra_chain = nvidia_chain[1:]
-        else:
-            primary_base = self._ollama_base
-            extra_chain = []
+        # Pick the best available cloud primary — keeps local Ollama out of the
+        # fallback chain whenever any free cloud key is configured.
+        primary_base = _best_cloud_primary_base(self._ollama_base)
 
         runner = AgentRunner(
             ollama_base=primary_base,
             workspace_root=spec.workspace_path or self._workspace_root,
-            provider_chain=extra_chain,
+            provider_chain=None,  # None → ProviderRouter.from_env() discovers all configured providers
             github_token=spec.context.get("github_token"),
             email=spec.context.get("user_email"),
             department=spec.context.get("department"),

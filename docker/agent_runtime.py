@@ -24,7 +24,81 @@ OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
 OLLAMA_FALLBACK_BASE = os.environ.get(
     "OLLAMA_FALLBACK_BASE", "http://host.docker.internal:11434"
 )
-DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen3-coder:30b")
+# Free cloud providers — tried in priority order before local Ollama
+_NVIDIA_KEY = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+_NVIDIA_BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
+_NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct")
+
+_ZEN_KEY = os.environ.get("OPENCODE_ZEN_API_KEY", "").strip()
+_ZEN_BASE = os.environ.get("OPENCODE_ZEN_BASE_URL", "https://gateway.opencode.ai/v1").rstrip("/")
+_ZEN_MODEL = os.environ.get("OPENCODE_ZEN_MODEL", "zen")
+
+_DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+_DEEPSEEK_BASE = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+_DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
+_GROQ_KEY = os.environ.get("GROQ_API_KEY", "").strip()
+_GROQ_BASE = "https://api.groq.com/openai/v1"
+_GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+_QWEN_KEY = (os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY") or "").strip()
+_QWEN_BASE = os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1").rstrip("/")
+_QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen-plus")
+
+_HF_KEY = (os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN") or "").strip()
+_HF_BASE = os.environ.get("HF_BASE_URL", "https://api-inference.huggingface.co/v1").rstrip("/")
+_HF_MODEL = os.environ.get("HF_MODEL_ID", "Qwen/Qwen2.5-Coder-7B-Instruct")
+
+_ZHIPU_KEY = os.environ.get("ZHIPU_API_KEY", "").strip()
+_ZHIPU_BASE = "https://open.bigmodel.cn/api/paas/v4"
+_ZHIPU_MODEL = os.environ.get("ZHIPU_MODEL", "glm-4-flash")
+
+_MINIMAX_KEY = os.environ.get("MINIMAX_API_KEY", "").strip()
+_MINIMAX_BASE = "https://api.minimax.chat/v1"
+_MINIMAX_MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-Text-01")
+
+_SAMBANOVA_KEY = os.environ.get("SAMBANOVA_API_KEY", "").strip()
+_SAMBANOVA_BASE = "https://api.sambanova.ai/v1"
+_SAMBANOVA_MODEL = os.environ.get("SAMBANOVA_MODEL", "Meta-Llama-3.3-70B-Instruct")
+
+_CEREBRAS_KEY = os.environ.get("CEREBRAS_API_KEY", "").strip()
+_CEREBRAS_BASE = "https://api.cerebras.ai/v1"
+_CEREBRAS_MODEL = os.environ.get("CEREBRAS_MODEL", "llama-3.3-70b")
+
+_MISTRAL_KEY = os.environ.get("MISTRAL_API_KEY", "").strip()
+_MISTRAL_BASE = "https://api.mistral.ai/v1"
+_MISTRAL_MODEL = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
+
+_GEMINI_KEY = (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY") or "").strip()
+_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
+_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+
+_ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+_ANTHROPIC_BASE = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+_ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+
+# Resolve the effective default model: prefer first available cloud key
+def _default_model() -> str:
+    for key, model in [
+        (_NVIDIA_KEY,    _NVIDIA_DEFAULT_MODEL),
+        (_ZEN_KEY,       _ZEN_MODEL),
+        (_DEEPSEEK_KEY,  _DEEPSEEK_MODEL),
+        (_SAMBANOVA_KEY, _SAMBANOVA_MODEL),
+        (_CEREBRAS_KEY,  _CEREBRAS_MODEL),
+        (_GROQ_KEY,      _GROQ_MODEL),
+        (_QWEN_KEY,      _QWEN_MODEL),
+        (_MISTRAL_KEY,   _MISTRAL_MODEL),
+        (_GEMINI_KEY,    _GEMINI_MODEL),
+        (_HF_KEY,        _HF_MODEL),
+        (_ZHIPU_KEY,     _ZHIPU_MODEL),
+        (_MINIMAX_KEY,   _MINIMAX_MODEL),
+        (_ANTHROPIC_KEY, _ANTHROPIC_MODEL),
+    ]:
+        if key:
+            return model
+    return "qwen3-coder:30b"
+
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL") or _default_model()
 TASK_RESULTS: dict[str, dict] = {}
 
 
@@ -73,9 +147,42 @@ class RuntimeRunRequest(BaseModel):
     task_id: str | None = None
 
 
+def _active_cloud_provider() -> str | None:
+    if _NVIDIA_KEY:
+        return "nvidia-nim"
+    if _ZEN_KEY:
+        return "opencode-zen"
+    if _DEEPSEEK_KEY:
+        return "deepseek"
+    if _GROQ_KEY:
+        return "groq"
+    if _QWEN_KEY:
+        return "qwen-dashscope"
+    if _SAMBANOVA_KEY:
+        return "sambanova"
+    if _CEREBRAS_KEY:
+        return "cerebras"
+    if _MISTRAL_KEY:
+        return "mistral"
+    if _GEMINI_KEY:
+        return "google-gemini"
+    if _HF_KEY:
+        return "huggingface"
+    if _ZHIPU_KEY:
+        return "zhipu"
+    if _MINIMAX_KEY:
+        return "minimax"
+    if _ANTHROPIC_KEY:
+        return "anthropic"
+    return None
+
+
 @app.get("/health")
 async def health():
-    """Health check — always 200 if container is up; reports ollama status in body."""
+    """Health check — reports active cloud provider when any key present, otherwise Ollama."""
+    provider = _active_cloud_provider()
+    if provider:
+        return {"status": "ok", "runtime": RUNTIME_NAME, "provider": provider, "model": DEFAULT_MODEL}
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{OLLAMA_BASE}/api/tags")
@@ -83,12 +190,14 @@ async def health():
             return {
                 "status": "ok",
                 "runtime": RUNTIME_NAME,
+                "provider": "ollama",
                 "models": len(resp.json().get("models", [])),
             }
     except Exception as e:
         return {
             "status": "degraded",
             "runtime": RUNTIME_NAME,
+            "provider": "ollama",
             "backend": str(e),
         }
 
@@ -148,6 +257,7 @@ async def _pick_fallback_target(
     raise HTTPException(status_code=503, detail="No Ollama models are installed")
 
 
+
 async def _chat_with_ollama(
     *,
     instruction: str,
@@ -173,6 +283,71 @@ async def _chat_with_ollama(
         return resp.json(), model
 
 
+async def _chat_with_openai_compat(
+    *,
+    base_url: str,
+    api_key: str,
+    messages: list[dict],
+    model: str,
+    temperature: float = 0.7,
+    timeout_sec: float = 60.0,
+) -> tuple[str, str]:
+    """Generic OpenAI-compatible /v1/chat/completions call."""
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {"model": model, "messages": messages, "temperature": temperature, "stream": False}
+    async with httpx.AsyncClient(timeout=timeout_sec) as client:
+        resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        return content, data.get("model", model)
+
+
+async def _chat(
+    *,
+    instruction: str,
+    model: str,
+    temperature: float = 0.7,
+    timeout_sec: float = 60.0,
+) -> tuple[str, str]:
+    """Try free cloud providers in priority order, fall back to local Ollama."""
+    messages = [{"role": "user", "content": instruction}]
+
+    cloud_providers = [
+        (_NVIDIA_KEY,    _NVIDIA_BASE,    _NVIDIA_DEFAULT_MODEL),
+        (_ZEN_KEY,       _ZEN_BASE,       _ZEN_MODEL),
+        (_DEEPSEEK_KEY,  _DEEPSEEK_BASE,  _DEEPSEEK_MODEL),
+        (_SAMBANOVA_KEY, _SAMBANOVA_BASE, _SAMBANOVA_MODEL),
+        (_CEREBRAS_KEY,  _CEREBRAS_BASE,  _CEREBRAS_MODEL),
+        (_GROQ_KEY,      _GROQ_BASE,      _GROQ_MODEL),
+        (_QWEN_KEY,      _QWEN_BASE,      _QWEN_MODEL),
+        (_MISTRAL_KEY,   _MISTRAL_BASE,   _MISTRAL_MODEL),
+        (_GEMINI_KEY,    _GEMINI_BASE,    _GEMINI_MODEL),
+        (_HF_KEY,        _HF_BASE,        _HF_MODEL),
+        (_ZHIPU_KEY,     _ZHIPU_BASE,     _ZHIPU_MODEL),
+        (_MINIMAX_KEY,   _MINIMAX_BASE,   _MINIMAX_MODEL),
+        (_ANTHROPIC_KEY, _ANTHROPIC_BASE, _ANTHROPIC_MODEL),
+    ]
+    for key, base, default_mdl in cloud_providers:
+        if not key:
+            continue
+        try:
+            resolved_model = model if model != DEFAULT_MODEL else default_mdl
+            content, used = await _chat_with_openai_compat(
+                base_url=base, api_key=key, messages=messages,
+                model=resolved_model, temperature=temperature, timeout_sec=timeout_sec,
+            )
+            return content, used
+        except Exception:
+            continue  # try next provider
+
+    # Last resort: local Ollama
+    data, resolved_model = await _chat_with_ollama(
+        instruction=instruction, model=model, temperature=temperature, timeout_sec=timeout_sec
+    )
+    return data.get("message", {}).get("content", ""), resolved_model
+
+
 def _completed_task_payload(*, task_id: str, model: str, output: str) -> dict:
     return {
         "task_id": task_id,
@@ -194,12 +369,11 @@ def _completed_task_payload(*, task_id: str, model: str, output: str) -> dict:
 async def run_task(req: RuntimeTaskRequest):
     """Hermes-compatible task execution endpoint."""
     try:
-        data, resolved_model = await _chat_with_ollama(
+        output, resolved_model = await _chat(
             instruction=req.instruction,
             model=req.model,
             timeout_sec=float(req.timeout_sec),
         )
-        output = data.get("message", {}).get("content", "")
         result = _completed_task_payload(
             task_id=req.task_id,
             model=resolved_model,
@@ -226,11 +400,10 @@ async def get_task(task_id: str):
 async def run_instruction(req: RuntimeRunRequest):
     """OpenCode-compatible single instruction endpoint."""
     try:
-        data, resolved_model = await _chat_with_ollama(
+        output, resolved_model = await _chat(
             instruction=req.instruction,
             model=req.model,
         )
-        output = data.get("message", {}).get("content", "")
         task_id = req.task_id or f"run-{int(time.time() * 1000)}"
         result = {
             "task_id": task_id,
@@ -255,8 +428,9 @@ async def run_instruction(req: RuntimeRunRequest):
 async def chat_completions(req: ChatRequest):
     """OpenAI-compatible chat completion endpoint."""
     try:
-        data, resolved_model = await _chat_with_ollama(
-            instruction="\n\n".join(f"{m.role}: {m.content}" for m in req.messages),
+        instruction = "\n\n".join(f"{m.role}: {m.content}" for m in req.messages)
+        content, resolved_model = await _chat(
+            instruction=instruction,
             model=req.model,
             temperature=req.temperature,
         )
@@ -271,7 +445,7 @@ async def chat_completions(req: ChatRequest):
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": data.get("message", {}).get("content", ""),
+                        "content": content,
                     },
                     "finish_reason": "stop",
                 }

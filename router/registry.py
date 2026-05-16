@@ -288,6 +288,44 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["lightweight", "fast", "installed"],
     ),
+    # ── AWS Bedrock — Claude 4 family ─────────────────────────────────────────
+    "us.anthropic.claude-opus-4-7": ModelCapability(
+        name="us.anthropic.claude-opus-4-7",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["bedrock", "claude", "flagship", "claude4"],
+    ),
+    "us.anthropic.claude-sonnet-4-6": ModelCapability(
+        name="us.anthropic.claude-sonnet-4-6",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "analysis",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="coder",
+        cost_tier=2,
+        tags=["bedrock", "claude", "claude4"],
+    ),
 }
 
 

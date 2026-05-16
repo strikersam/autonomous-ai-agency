@@ -161,6 +161,7 @@ def extract_openai_text(data: Any) -> str:
 _COMMERCIAL_PROVIDER_IDS = {
     "anthropic",
     "anthropic-universal",
+    "bedrock",
     "openai",
     "openrouter",
     "together-ai",
@@ -174,6 +175,16 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "huggingface-serverless",
     "huggingface",
     "deepseek",
+    "groq",
+    "groq-cloud",
+    "qwen-dashscope",
+    "together-free",
+    "cerebras",
+    "sambanova",
+    "mistral",
+    "google-gemini-free",
+    "cloudflare-ai",
+    "opencode-zen",
 }
 # Nvidia NIM is free-tier — treated as highest-priority free cloud provider
 _NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
@@ -192,6 +203,13 @@ _KNOWN_FREE_HOSTS = (
     "huggingface.co",
     "hf.space",
     "deepseek.com",
+    "api.groq.com",
+    "dashscope.aliyuncs.com",
+    "api.cerebras.ai",
+    "api.sambanova.ai",
+    "api.mistral.ai",
+    "generativelanguage.googleapis.com",
+    "api.cloudflare.com",
 )
 _KNOWN_NVIDIA_HOSTS = ("integrate.api.nvidia.com",)
 
@@ -358,8 +376,10 @@ class ProviderRouter:
             )
 
         hf_key = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN")
-        hf_base = os.environ.get("HF_BASE_URL")
-        if hf_key and hf_base:
+        if hf_key:
+            hf_base = (
+                os.environ.get("HF_BASE_URL") or "https://api-inference.huggingface.co/v1"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="huggingface",
@@ -368,13 +388,43 @@ class ProviderRouter:
                     api_key=hf_key,
                     default_model=os.environ.get("HF_MODEL_ID")
                     or "Qwen/Qwen2.5-Coder-7B-Instruct",
-                    priority=20,
+                    priority=45,
+                )
+            )
+
+        zhipu_key = os.environ.get("ZHIPU_API_KEY")
+        if zhipu_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="zhipu",
+                    type="openai-compatible",
+                    base_url="https://open.bigmodel.cn/api/paas/v4",
+                    api_key=zhipu_key,
+                    default_model=os.environ.get("ZHIPU_MODEL") or "glm-4-flash",
+                    priority=46,
+                )
+            )
+
+        minimax_key = os.environ.get("MINIMAX_API_KEY")
+        if minimax_key:
+            minimax_group = os.environ.get("MINIMAX_GROUP_ID", "")
+            providers.append(
+                ProviderConfig(
+                    provider_id="minimax",
+                    type="openai-compatible",
+                    base_url="https://api.minimax.chat/v1",
+                    api_key=minimax_key,
+                    default_model=os.environ.get("MINIMAX_MODEL") or "MiniMax-Text-01",
+                    priority=47,
+                    headers={"GroupId": minimax_group} if minimax_group else {},
                 )
             )
 
         openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-        openrouter_base = os.environ.get("OPENROUTER_BASE_URL")
-        if openrouter_key and openrouter_base:
+        if openrouter_key:
+            openrouter_base = (
+                os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="openrouter",
@@ -382,14 +432,16 @@ class ProviderRouter:
                     base_url=openrouter_base,
                     api_key=openrouter_key,
                     default_model=os.environ.get("OPENROUTER_MODEL")
-                    or "qwen/qwen3-235b-a22b",
-                    priority=30,
+                    or "qwen/qwen3-235b-a22b:free",
+                    priority=40,
                 )
             )
 
         deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
-        deepseek_base = os.environ.get("DEEPSEEK_BASE_URL")
-        if deepseek_key and deepseek_base:
+        if deepseek_key:
+            deepseek_base = (
+                os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="deepseek",
@@ -397,13 +449,173 @@ class ProviderRouter:
                     base_url=deepseek_base,
                     api_key=deepseek_key,
                     default_model=os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat",
-                    priority=40,
+                    priority=20,
+                )
+            )
+
+        groq_key = os.environ.get("GROQ_API_KEY")
+        if groq_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="groq",
+                    type="openai-compatible",
+                    base_url="https://api.groq.com/openai/v1",
+                    api_key=groq_key,
+                    default_model=os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile",
+                    priority=25,
+                )
+            )
+
+        qwen_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY")
+        if qwen_key:
+            qwen_base = (
+                os.environ.get("DASHSCOPE_BASE_URL")
+                or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="qwen-dashscope",
+                    type="openai-compatible",
+                    base_url=qwen_base,
+                    api_key=qwen_key,
+                    default_model=os.environ.get("QWEN_MODEL") or "qwen-plus",
+                    priority=30,
+                )
+            )
+
+        cerebras_key = os.environ.get("CEREBRAS_API_KEY")
+        if cerebras_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="cerebras",
+                    type="openai-compatible",
+                    base_url="https://api.cerebras.ai/v1",
+                    api_key=cerebras_key,
+                    default_model=os.environ.get("CEREBRAS_MODEL") or "llama-3.3-70b",
+                    priority=28,
+                )
+            )
+
+        sambanova_key = os.environ.get("SAMBANOVA_API_KEY")
+        if sambanova_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="sambanova",
+                    type="openai-compatible",
+                    base_url="https://api.sambanova.ai/v1",
+                    api_key=sambanova_key,
+                    default_model=os.environ.get("SAMBANOVA_MODEL") or "Meta-Llama-3.3-70B-Instruct",
+                    priority=27,
+                )
+            )
+
+        together_key = os.environ.get("TOGETHER_API_KEY")
+        if together_key:
+            together_base = (
+                os.environ.get("TOGETHER_BASE_URL") or "https://api.together.xyz/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="together-free",
+                    type="openai-compatible",
+                    base_url=together_base,
+                    api_key=together_key,
+                    default_model=os.environ.get("TOGETHER_MODEL") or "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+                    priority=35,
+                )
+            )
+
+        mistral_key = os.environ.get("MISTRAL_API_KEY")
+        if mistral_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="mistral",
+                    type="openai-compatible",
+                    base_url="https://api.mistral.ai/v1",
+                    api_key=mistral_key,
+                    default_model=os.environ.get("MISTRAL_MODEL") or "mistral-small-latest",
+                    priority=38,
+                )
+            )
+
+        gemini_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        if gemini_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="google-gemini-free",
+                    type="openai-compatible",
+                    base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                    api_key=gemini_key,
+                    default_model=os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash",
+                    priority=39,
+                )
+            )
+
+        cloudflare_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+        cloudflare_account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        if cloudflare_token and cloudflare_account:
+            providers.append(
+                ProviderConfig(
+                    provider_id="cloudflare-ai",
+                    type="openai-compatible",
+                    base_url=f"https://api.cloudflare.com/client/v4/accounts/{cloudflare_account}/ai/v1",
+                    api_key=cloudflare_token,
+                    default_model=os.environ.get("CLOUDFLARE_MODEL") or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                    priority=43,
+                )
+            )
+
+        zen_key = os.environ.get("OPENCODE_ZEN_API_KEY")
+        if zen_key:
+            zen_base = (
+                os.environ.get("OPENCODE_ZEN_BASE_URL") or "https://gateway.opencode.ai/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="opencode-zen",
+                    type="openai-compatible",
+                    base_url=zen_base,
+                    api_key=zen_key,
+                    default_model=os.environ.get("OPENCODE_ZEN_MODEL") or "zen",
+                    priority=5,
+                )
+            )
+
+        aws_access_key = (
+            os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY") or ""
+        ).strip()
+        aws_secret_key = (
+            os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY") or ""
+        ).strip()
+        if aws_access_key and aws_secret_key:
+            aws_region = (
+                os.environ.get("AWS_REGION")
+                or os.environ.get("AWS_DEFAULT_REGION")
+                or "us-east-1"
+            )
+            bedrock_model = (
+                os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-7"
+            )
+            providers.append(
+                ProviderConfig(
+                    provider_id="bedrock",
+                    type="bedrock",
+                    base_url=f"https://bedrock-runtime.{aws_region}.amazonaws.com",
+                    api_key=aws_access_key,
+                    default_model=bedrock_model,
+                    priority=15,
+                    headers={
+                        "X-Bedrock-Secret": aws_secret_key,
+                        "X-Bedrock-Region": aws_region,
+                    },
                 )
             )
 
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        anthropic_base = os.environ.get("ANTHROPIC_BASE_URL")
-        if anthropic_key and anthropic_base:
+        if anthropic_key:
+            anthropic_base = (
+                os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="anthropic",
@@ -411,7 +623,7 @@ class ProviderRouter:
                     base_url=anthropic_base,
                     api_key=anthropic_key,
                     default_model=os.environ.get("ANTHROPIC_MODEL")
-                    or "claude-sonnet-4-5",
+                    or "claude-sonnet-4-6",
                     priority=50,
                 )
             )
@@ -471,6 +683,8 @@ class ProviderRouter:
 
     async def health_check(self, provider: ProviderConfig) -> bool:
         try:
+            if provider.type == "bedrock":
+                return bool(provider.api_key and provider.headers.get("X-Bedrock-Secret"))
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(10.0, connect=5.0)
             ) as client:
@@ -642,6 +856,8 @@ class ProviderRouter:
         timeout_sec: float = 300.0,
     ) -> httpx.Response:
         headers = provider.auth_headers()
+        if provider.type == "bedrock":
+            return await self._post_bedrock_converse(provider, payload, timeout_sec)
         if provider.type.startswith("emergent-"):
             return await self._post_emergent_chat(provider, payload, timeout_sec)
         async with httpx.AsyncClient(
@@ -850,6 +1066,120 @@ class ProviderRouter:
         return httpx.Response(
             200, json=body, headers={"content-type": "application/json"}
         )
+
+    async def _post_bedrock_converse(
+        self,
+        provider: ProviderConfig,
+        payload: dict[str, Any],
+        timeout_sec: float = 300.0,
+    ) -> httpx.Response:
+        try:
+            import boto3
+        except ImportError as exc:
+            raise RuntimeError(
+                "boto3 is required for the Bedrock provider. "
+                "Install with: pip install 'boto3>=1.34.0'"
+            ) from exc
+
+        aws_secret = provider.headers.get("X-Bedrock-Secret", "")
+        aws_region = provider.headers.get("X-Bedrock-Region", "us-east-1")
+        model_id = str(payload.get("model") or provider.default_model or "")
+
+        bedrock_payload = self._openai_to_bedrock_converse(payload)
+
+        def _sync_call() -> dict[str, Any]:
+            client = boto3.client(
+                "bedrock-runtime",
+                region_name=aws_region,
+                aws_access_key_id=provider.api_key,
+                aws_secret_access_key=aws_secret,
+            )
+            kwargs: dict[str, Any] = {
+                "modelId": model_id,
+                "messages": bedrock_payload["messages"],
+            }
+            if bedrock_payload.get("system"):
+                kwargs["system"] = bedrock_payload["system"]
+            if bedrock_payload.get("inferenceConfig"):
+                kwargs["inferenceConfig"] = bedrock_payload["inferenceConfig"]
+            return client.converse(**kwargs)  # type: ignore[return-value]
+
+        response_data = await asyncio.wait_for(
+            asyncio.to_thread(_sync_call),
+            timeout=timeout_sec,
+        )
+        return self._bedrock_response_to_openai(response_data, model_id)
+
+    @staticmethod
+    def _openai_to_bedrock_converse(payload: dict[str, Any]) -> dict[str, Any]:
+        """Translate an OpenAI chat/completions payload to Bedrock Converse format."""
+        system_parts: list[dict[str, str]] = []
+        messages: list[dict[str, Any]] = []
+        for msg in payload.get("messages") or []:
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role") or "user")
+            content = msg.get("content")
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                text = " ".join(
+                    item.get("text", "")
+                    for item in content
+                    if isinstance(item, dict) and item.get("type") == "text"
+                )
+            else:
+                text = ""
+            if not text:
+                continue
+            if role == "system":
+                system_parts.append({"text": text})
+            elif role in ("user", "assistant"):
+                messages.append({"role": role, "content": [{"text": text}]})
+
+        inference_config: dict[str, Any] = {}
+        if payload.get("max_tokens"):
+            inference_config["maxTokens"] = int(payload["max_tokens"])
+        if payload.get("temperature") is not None:
+            inference_config["temperature"] = float(payload["temperature"])
+
+        return {
+            "messages": messages or [{"role": "user", "content": [{"text": "Hello"}]}],
+            "system": system_parts,
+            "inferenceConfig": inference_config,
+        }
+
+    @staticmethod
+    def _bedrock_response_to_openai(data: dict[str, Any], model: str) -> httpx.Response:
+        """Translate a Bedrock Converse API response to OpenAI chat.completion format."""
+        output = data.get("output") or {}
+        message = output.get("message") or {}
+        content_blocks = message.get("content") or []
+        text = " ".join(
+            block.get("text", "")
+            for block in content_blocks
+            if isinstance(block, dict) and "text" in block
+        )
+        usage = data.get("usage") or {}
+        body = {
+            "id": f"chatcmpl-bedrock-{uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": int(usage.get("inputTokens") or 0),
+                "completion_tokens": int(usage.get("outputTokens") or 0),
+                "total_tokens": int(usage.get("totalTokens") or 0),
+            },
+        }
+        return httpx.Response(200, json=body, headers={"content-type": "application/json"})
 
     @staticmethod
     def attempts_header(attempts: list[ProviderAttempt]) -> str:

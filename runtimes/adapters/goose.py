@@ -93,6 +93,9 @@ class GooseAdapter(RuntimeAdapter):
                 latency_ms=round(latency_ms, 1),
                 error=None if resp.status_code == 200 else f"HTTP {resp.status_code}",
             )
+        except httpx.ConnectError:
+            return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False,
+                                 error=f"Service not running at {self._base_url} — use Start to launch it")
         except Exception as exc:
             return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error=str(exc))
 
