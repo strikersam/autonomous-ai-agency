@@ -1,39 +1,33 @@
 # Changelog
 
 ## [Unreleased]
-### Fixed
-- CI: remove stale `.claude/worktrees/` gitlinks from git index and add to `.gitignore` — these orphaned git worktrees were tracked as mode-160000 gitlinks without a `.gitmodules` URL entry, causing every `actions/checkout` step to fail with "exit code 128 — No url found for submodule path". This was the root cause of ALL CI failures (lint 4s, frontend 4s, test 29s, CodeQL 7s).
-- CI: fix `github/codeql-action` from non-existent `@v4` to `@v3` in `codeql.yml`.
-- CI: fix non-existent GitHub Actions versions across all workflow files — `checkout@v6`→`v4`, `setup-python@v6`→`v5`, `setup-node@v6`→`v4`, `upload-artifact@v7`→`v4`. These invalid versions caused all CI jobs to fail immediately at the first step before any user-defined code ran.
-- `scripts/agency_fix.py`: restrict LLM edits to in-repo non-test source files — resolve paths with `relative_to(REPO_ROOT)` and reject `tests/` paths and any traversal outside the repo root (P1 security fix).
-- `scripts/agency_fix.py`: preserve real baseline exit status when reading from a saved pytest output file — derive `exit_code` from whether FAILED lines are present rather than hardcoding `1`, so a green baseline log correctly short-circuits the fix loop (P2 correctness fix).
-
 ### Added
 - `proxy.py` — `/api/ping` GET endpoint (no auth). Returns `{status: "ok", timestamp: "<ISO-8601 UTC>"}`. Registered before the wildcard `/api/{path:path}` handler so it is never swallowed by the Ollama proxy.
 - `tests/test_ping.py` — 4 tests covering status code, response shape, ISO timestamp validity, and auth-free access.
-
-### Added
 - `scripts/agency_fix.py` — Standalone LLM-powered fix agent using NVIDIA NIM (`qwen2.5-coder-32b-instruct`) with Anthropic fallback. Analyses failing pytest output, calls the LLM for JSON-formatted code edits, applies them, re-runs pytest to verify green, and updates changelog. Up to 3 fix iterations per cycle.
 - Agency Cycle workflow: `workflow_run` trigger fires immediately when CI fails (previously waited up to 6 hours for cron). Schedule tightened from every 6 hours to every 2 hours.
 - Agency Cycle workflow: `python scripts/agency_fix.py` replaces the defunct `claude` CLI check — the Claude CLI is never installed on GitHub Actions runners, so fixes were never actually applied. NVIDIA NIM is now the primary repair engine.
 - Agency Cycle workflow: proper env vars passed to baseline pytest run so tests don't fail on missing environment during agency checks.
+- `docs/runbooks/ci-troubleshooting.md` — captures all CI/GitHub Actions failure patterns and fixes discovered during v4.1 stabilisation: YAML heredoc indentation rules, `persist-credentials: false`, `pytest-timeout`, react-router-dom v7 + Jest 27 incompatibility, `@testing-library/dom` peer dep, Python 3.13 compatibility status.
 
 ### Fixed
+- CI: remove stale `.claude/worktrees/` gitlinks from git index and add to `.gitignore` — these orphaned git worktrees were tracked as mode-160000 gitlinks without a `.gitmodules` URL entry, causing every `actions/checkout` step to fail with "exit code 128 — No url found for submodule path". This was the root cause of ALL CI failures (lint 4s, frontend 4s, test 29s, CodeQL 7s).
+- CI: fix `github/codeql-action` from non-existent `@v4` to `@v3` in `codeql.yml`.
+- CI: fix non-existent GitHub Actions versions across all workflow files — `checkout@v6`→`v4`, `setup-python@v6`→`v5`, `setup-node@v6`→`v4`, `upload-artifact@v7`→`v4`. These invalid versions caused all CI jobs to fail immediately at the first step before any user-defined code ran.
 - CI: use `python -m pytest` instead of bare `pytest` in the test job — avoids PATH ambiguity when multiple Python versions are present on the runner.
 - CI: add `python -m pip install --upgrade pip` to the lint job before installing requirements — aligns it with the test job and prevents failures from a stale pip version.
-
 - CI: add global git identity (`user.email`, `user.name`, `commit.gpgsign false`, `init.defaultBranch main`) before running pytest — ensures `test_commit_tracker.py` git subprocess calls work correctly across all CI runner configurations.
 - CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=120` to pytest command — prevents hanging tests from occupying the full 6-hour GitHub Actions job limit and makes timeout failures identifiable; 120 s gives slow runners 2-3× headroom over the local 104 s full-suite runtime.
 - CI: add `persist-credentials: false` to all `actions/checkout` steps — prevents Post Checkout git credential cleanup from failing with exit code 128 on certain GitHub Actions runners, which was causing all three CI jobs (test, lint, frontend) to report spurious git failures.
-- CI: upgrade `github/codeql-action` from v3 to v4 in `codeql.yml` — v3 actions were failing.
 - CI: fix `process-quick-note.yml` YAML syntax — bash heredoc content at column 0 conflicted with YAML block scalar indentation rules, causing the parser to fail with "0 jobs". Indented all heredoc content to match the block scalar level (10 spaces); YAML strips the indentation before passing to bash, so the shell correctly sees the heredoc delimiter at column 0.
 - Frontend: downgraded `react-router-dom` from `^7.x` to `^6.28.2` — react-router-dom v7 uses ESM sub-path exports (`react-router/dom`) that Jest 27 (bundled with react-scripts@5) cannot resolve, causing all router-dependent tests to fail with "Cannot find module".
 - Frontend: added `@testing-library/dom@^10.4.0` to `devDependencies` — `@testing-library/react@16` declares it as a peer dep but npm doesn't auto-install peers, causing "Cannot find module @testing-library/dom" errors.
 - Frontend: test isolation — changed CI test command to `--watchAll=false --forceExit --runInBand` to prevent async timer leaks between test suites from causing flaky failures.
 - Frontend: updated `controlPlanePage.test.js` to match current v4.1 heading text (was asserting `v4.0`).
-
-### Added
-- `docs/runbooks/ci-troubleshooting.md` — captures all CI/GitHub Actions failure patterns and fixes discovered during v4.1 stabilisation: YAML heredoc indentation rules, `persist-credentials: false`, `pytest-timeout`, react-router-dom v7 + Jest 27 incompatibility, `@testing-library/dom` peer dep, Python 3.13 compatibility status.
+- `scripts/agency_fix.py`: restrict LLM edits to in-repo non-test source files — resolve paths with `relative_to(REPO_ROOT)` and reject `tests/` paths and any traversal outside the repo root (P1 security fix).
+- `scripts/agency_fix.py`: preserve real baseline exit status when reading from a saved pytest output file — derive `exit_code` from whether FAILED lines are present rather than hardcoding `1`, so a green baseline log correctly short-circuits the fix loop (P2 correctness fix).
+- `scripts/agency_fix.py`: validate LLM-supplied edit fields are strings before calling `str.replace()` — prevents `TypeError` crash when the LLM returns `null` for the `new` field.
+- `tests/conftest.py`: force `gc.collect()` in a session-scoped async teardown fixture — ensures orphaned asyncio subprocess transports are collected while the event loop is still alive, fixing `PytestUnraisableExceptionWarning: RuntimeError: Event loop is closed` failures on Python 3.13.
 
 ## [4.1.0] — 2026-05-16
 ### Fixed

@@ -212,7 +212,7 @@ def apply_edits(edits: list[dict[str, str]]) -> list[str]:
         rel = edit.get("file", "")
         old = edit.get("old", "")
         new = edit.get("new", "")
-        if not (rel and old):
+        if not (rel and old) or not isinstance(rel, str) or not isinstance(old, str) or not isinstance(new, str):
             continue
         fpath = (REPO_ROOT / rel).resolve()
         try:
