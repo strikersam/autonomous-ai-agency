@@ -509,7 +509,7 @@ class TestAgentGitHubAPITools:
         mock_post, mock_get, mock_put = _build_agent_http_mock(
             llm_responses=[plan, executor, VERIFIER_JSON, JUDGE_JSON],
             github_post_results={"/git/refs": _GH_BRANCH_RESPONSE},
-            github_get_results={"/git/ref/heads/main": {"object": {"sha": "abc123"}}},
+            github_get_results={"/git/refs/heads/main": {"object": {"sha": "abc123"}}},
         )
         monkeypatch.setattr("httpx.AsyncClient.post", mock_post)
         monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
@@ -522,8 +522,8 @@ class TestAgentGitHubAPITools:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}, (
-            f"Job stuck: {job['status']}\n"
+        assert job["status"] == "succeeded", (
+            f"Expected succeeded but got {job['status']!r}\n"
             f"Progress: {[e['phase'] + ': ' + e['message'] for e in job.get('progress_events', [])]}"
         )
 
