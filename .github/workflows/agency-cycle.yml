@@ -161,9 +161,17 @@ jobs:
           else
             TRIGGER="${{ github.event_name }}"
             FAILING="${{ steps.baseline.outputs.failing }}"
+            # Resolve the target branch so we can push in detached-HEAD mode.
+            # workflow_run: use head_branch from the triggering run.
+            # All other triggers: GITHUB_REF_NAME is the branch name.
+            if [ "$TRIGGER" = "workflow_run" ]; then
+              TARGET_BRANCH="${{ github.event.workflow_run.head_branch }}"
+            else
+              TARGET_BRANCH="${GITHUB_REF_NAME}"
+            fi
             git commit -m "fix: agency auto-fix — ${FAILING} [trigger: ${TRIGGER}]"
-            git push origin HEAD
-            echo "Pushed fixes to branch"
+            git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
+            echo "Pushed fixes to ${TARGET_BRANCH}"
           fi
 
       - name: Publish agency cycle summary

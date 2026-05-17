@@ -40,21 +40,24 @@ MAX_CONTEXT_CHARS = 40_000
 
 def call_llm(messages: list[dict[str, str]]) -> str:
     if NVIDIA_KEY:
-        from openai import OpenAI  # type: ignore[import]
-        client = OpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
-            api_key=NVIDIA_KEY,
-        )
-        resp = client.chat.completions.create(
-            model=NVIDIA_MODEL,
-            messages=messages,  # type: ignore[arg-type]
-            temperature=0.1,
-            max_tokens=8192,
-        )
-        if not resp.choices:
-            log.warning("NVIDIA NIM returned empty choices list")
-            return ""
-        return resp.choices[0].message.content or ""
+        try:
+            from openai import OpenAI  # type: ignore[import]
+            client = OpenAI(
+                base_url="https://integrate.api.nvidia.com/v1",
+                api_key=NVIDIA_KEY,
+            )
+            resp = client.chat.completions.create(
+                model=NVIDIA_MODEL,
+                messages=messages,  # type: ignore[arg-type]
+                temperature=0.1,
+                max_tokens=8192,
+            )
+            if not resp.choices:
+                log.warning("NVIDIA NIM returned empty choices list")
+            else:
+                return resp.choices[0].message.content or ""
+        except Exception as exc:
+            log.warning("NVIDIA NIM call failed (%s) — falling back to Anthropic", exc)
 
     if ANTHROPIC_KEY:
         import anthropic  # type: ignore[import]
