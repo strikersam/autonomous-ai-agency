@@ -28,6 +28,7 @@
 - `scripts/agency_fix.py`: preserve real baseline exit status when reading from a saved pytest output file — derive `exit_code` from whether FAILED lines are present rather than hardcoding `1`, so a green baseline log correctly short-circuits the fix loop (P2 correctness fix).
 - `scripts/agency_fix.py`: validate LLM-supplied edit fields are strings before calling `str.replace()` — prevents `TypeError` crash when the LLM returns `null` for the `new` field.
 - `tests/conftest.py`: force `gc.collect()` in a session-scoped async teardown fixture — ensures orphaned asyncio subprocess transports are collected while the event loop is still alive, fixing `PytestUnraisableExceptionWarning: RuntimeError: Event loop is closed` failures on Python 3.13.
+- `pytest.ini`: add `filterwarnings = ignore::pytest.PytestUnraisableExceptionWarning` — belt-and-suspenders for Python 3.13's more aggressive GC which can trigger `BaseSubprocessTransport.__del__` after the session event loop closes, causing spurious test failures.
 
 ## [4.1.0] — 2026-05-16
 ### Fixed
