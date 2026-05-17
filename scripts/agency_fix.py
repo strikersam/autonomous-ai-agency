@@ -87,9 +87,6 @@ def run_pytest(extra_args: list[str] | None = None) -> tuple[int, str]:
         cmd.extend(extra_args)
     env = {**os.environ}
     env.setdefault("API_KEYS", "ci-test-key")
-    env.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")
-    env.setdefault("ADMIN_PASSWORD", "WikiAdmin2026!")
-    env.setdefault("SECRET_KEY", "ci-test-secret-do-not-use")
     env.setdefault("OLLAMA_BASE", "http://localhost:11434")
     env.setdefault("ROUTER_HEALTH_CHECK_ENABLED", "false")
     env.setdefault("MONGO_URL", "mongodb://localhost:27017")
@@ -325,7 +322,7 @@ def main() -> int:
 
         if exit_code == 0:
             log.info("All tests green after iteration %d.", iteration)
-            update_changelog(explanation, list(set(all_applied)))
+            update_changelog(explanation, list(set(failing)))
             return 0
 
         log.warning("Still failing: %s", ", ".join(failing[:5]))

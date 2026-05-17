@@ -12,7 +12,6 @@ Verifies that claimed v4 hardening features stay real:
 
 from __future__ import annotations
 
-import asyncio
 import time
 
 import pytest
@@ -36,7 +35,7 @@ from runtimes.base import (
 
 
 class TestRuntimePreflight:
-    def test_preflight_returns_structured_error_for_missing_task_harness(self):
+    async def test_preflight_returns_structured_error_for_missing_task_harness(self):
         """When task-harness is required but not present, preflight should
         return a structured error with install_hint, not a raw PATH failure."""
         from runtimes.adapters.task_harness import TaskHarnessAdapter
@@ -47,8 +46,7 @@ class TestRuntimePreflight:
             instruction="test",
             task_type="general",
         )
-        # Run the readiness check
-        report = asyncio.run(adapter.readiness_check(spec))
+        report = await adapter.readiness_check(spec)
         if not report.ready:
             # Should have structured issues, not raw exceptions
             assert len(report.issues) > 0
@@ -56,13 +54,13 @@ class TestRuntimePreflight:
                 assert issue.code  # Must have a machine-readable code
                 assert issue.message  # Must have a human-readable message
 
-    def test_preflight_report_has_required_fields(self):
+    async def test_preflight_report_has_required_fields(self):
         """Every preflight report must have runtime_id, ready, summary."""
         from runtimes.adapters.internal_agent import InternalAgentAdapter
 
         adapter = InternalAgentAdapter()
         spec = TaskSpec(task_id="test-2", instruction="test", task_type="general")
-        report = asyncio.run(adapter.readiness_check(spec))
+        report = await adapter.readiness_check(spec)
         assert report.runtime_id
         assert isinstance(report.ready, bool)
         assert isinstance(report.summary, str)
@@ -130,8 +128,10 @@ class TestDirectChatAgentModeSplit:
 
 
 class TestAgentJobLifecycle:
-    def test_job_transitions_queued_running_succeeded(self):
-        """Test job lifecycle from queued to succeeded using asyncio.run()."""
+    async def test_job_transitions_queued_running_succeeded(self):
+        """Test job lifecycle from queued to succeeded."""
+        import asyncio as _asyncio
+
         mgr = AgentJobManager()
         job = mgr.create_job(session_id="test-session", instruction="test")
         assert job.status == "queued"
@@ -140,12 +140,8 @@ class TestAgentJobLifecycle:
             heartbeat("working", "Working...")
             return {"result": "done"}
 
-        async def _run():
-            mgr.start_job(job.job_id, runner)
-            # Give the async task time to complete
-            await asyncio.sleep(0.3)
-
-        asyncio.run(_run())
+        mgr.start_job(job.job_id, runner)
+        await _asyncio.sleep(0.3)
         final_job = mgr.get_job(job.job_id)
         assert final_job.status in {"succeeded", "running"}
 
@@ -155,19 +151,18 @@ class TestAgentJobLifecycle:
         cancelled = mgr.cancel_job(job.job_id)
         assert cancelled.status == "cancelled"
 
-    def test_job_failure_captures_error(self):
+    async def test_job_failure_captures_error(self):
         """Verify that a failing runner records the error properly."""
+        import asyncio as _asyncio
+
         mgr = AgentJobManager()
         job = mgr.create_job(session_id="test-fail", instruction="test")
 
         async def failing_runner(heartbeat):
             raise RuntimeError("boom")
 
-        async def _run():
-            mgr.start_job(job.job_id, failing_runner)
-            await asyncio.sleep(0.3)
-
-        asyncio.run(_run())
+        mgr.start_job(job.job_id, failing_runner)
+        await _asyncio.sleep(0.3)
         final_job = mgr.get_job(job.job_id)
         assert final_job.status == "failed"
         assert final_job.error is not None

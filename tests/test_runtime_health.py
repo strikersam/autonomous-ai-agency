@@ -5,7 +5,7 @@ import pytest
 from runtimes.adapters.internal_agent import InternalAgentAdapter
 
 
-def test_internal_agent_health_reports_unavailable_when_ollama_unreachable(monkeypatch):
+async def test_internal_agent_health_reports_unavailable_when_ollama_unreachable(monkeypatch):
     # Ensure no NVIDIA key present
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("NVidiaApiKey", raising=False)
@@ -18,11 +18,11 @@ def test_internal_agent_health_reports_unavailable_when_ollama_unreachable(monke
     def fake_get(url, timeout=1.0):
         """
         Simulates a failing HTTP GET request by always raising a connection error.
-        
+
         Parameters:
             url (str): The URL that would have been requested.
             timeout (float): The request timeout in seconds (ignored).
-        
+
         Raises:
             httpx.ConnectError: Always raised to simulate a network connection failure.
         """
@@ -31,7 +31,6 @@ def test_internal_agent_health_reports_unavailable_when_ollama_unreachable(monke
     monkeypatch.setattr(httpx, "get", fake_get)
 
     adapter = InternalAgentAdapter(config={})
-    import asyncio
-    result = asyncio.run(adapter.health_check())
+    result = await adapter.health_check()
     assert result.available is False
     assert (result.error and "Ollama" in result.error) or (result.details is not None)

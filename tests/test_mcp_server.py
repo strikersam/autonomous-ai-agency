@@ -8,7 +8,6 @@ Tests:
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -111,17 +110,17 @@ class TestWorkspace:
         ws.delete()
         assert not ws.root.exists()
 
-    def test_run_command(self):
+    async def test_run_command(self):
         ws = self._ws()
         ws.ensure()
-        result = asyncio.run(ws.run_command("echo hello"))
+        result = await ws.run_command("echo hello")
         assert result["exit_code"] == 0
         assert "hello" in result["stdout"]
 
-    def test_run_command_timeout(self):
+    async def test_run_command_timeout(self):
         ws = self._ws()
         ws.ensure()
-        result = asyncio.run(ws.run_command("sleep 10", timeout=1))
+        result = await ws.run_command("sleep 10", timeout=1)
         assert result["exit_code"] == -1
         assert "Timed out" in result["stderr"]
 
@@ -275,14 +274,13 @@ class TestMCPServer:
 # ── MCPClient tests ───────────────────────────────────────────────────────────
 
 class TestMCPClient:
-    def test_no_url_gives_disabled_client(self):
+    async def test_no_url_gives_disabled_client(self):
         from agent.mcp_client import get_mcp_client, MCPUnavailableError
-        import asyncio
         client = get_mcp_client("")
         assert client is not None
         assert client.base_url == ""
         with pytest.raises(MCPUnavailableError, match="not reachable"):
-            asyncio.run(client._rpc("tools/list"))
+            await client._rpc("tools/list")
 
     def test_circuit_breaker_opens_after_failures(self):
         from agent.mcp_client import MCPClient, _CB_FAILURE_THRESHOLD
@@ -306,21 +304,21 @@ class TestMCPClient:
         assert not client._is_open()
         assert client._failures == 0
 
-    def test_rpc_raises_unavailable_when_circuit_open(self):
+    async def test_rpc_raises_unavailable_when_circuit_open(self):
         from agent.mcp_client import MCPClient, MCPUnavailableError, _CB_FAILURE_THRESHOLD
         client = MCPClient("http://localhost:19999")
         for _ in range(_CB_FAILURE_THRESHOLD):
             client._on_failure()
         with pytest.raises(MCPUnavailableError, match="circuit breaker"):
-            asyncio.run(client._rpc("tools/list"))
+            await client._rpc("tools/list")
 
-    def test_rpc_raises_unavailable_when_server_down(self):
+    async def test_rpc_raises_unavailable_when_server_down(self):
         from agent.mcp_client import MCPClient, MCPUnavailableError
         client = MCPClient("http://localhost:19999")
         with pytest.raises(MCPUnavailableError):
-            asyncio.run(client._rpc("tools/list"))
+            await client._rpc("tools/list")
 
-    def test_call_tool_parses_text_content(self):
+    async def test_call_tool_parses_text_content(self):
         from agent.mcp_client import MCPClient
         client = MCPClient("http://localhost:19999")
         mock_result = {
@@ -328,10 +326,10 @@ class TestMCPClient:
             "isError": False,
         }
         with patch.object(client, "_rpc", AsyncMock(return_value=mock_result)):
-            result = asyncio.run(client.call_tool("write_file", {}))
+            result = await client.call_tool("write_file", {})
         assert '{"done": true}' == result
 
-    def test_call_tool_raises_on_is_error(self):
+    async def test_call_tool_raises_on_is_error(self):
         from agent.mcp_client import MCPClient
         client = MCPClient("http://localhost:19999")
         mock_result = {
@@ -340,12 +338,12 @@ class TestMCPClient:
         }
         with patch.object(client, "_rpc", AsyncMock(return_value=mock_result)):
             with pytest.raises(RuntimeError, match="tool error"):
-                asyncio.run(client.call_tool("read_file", {}))
+                await client.call_tool("read_file", {})
 
-    def test_health_returns_false_when_down(self):
+    async def test_health_returns_false_when_down(self):
         from agent.mcp_client import MCPClient
         client = MCPClient("http://localhost:19999")
-        result = asyncio.run(client.health())
+        result = await client.health()
         assert result is False
 
 
@@ -363,25 +361,21 @@ class TestAgentLoopMCPIntegration:
         runner.tools.root = Path("fake-workspace")
         return runner
 
-    def test_mcp_only_tool_returns_unavailable_when_no_client(self):
+    async def test_mcp_only_tool_returns_unavailable_when_no_client(self):
         runner = self._make_runner(mcp_client=None)
-        result = asyncio.run(
-            runner._dispatch_tool("clone_repo", {"workspace_id": "x", "repo_url": "https://github.com/a/b"})
-        )
+        result = await runner._dispatch_tool("clone_repo", {"workspace_id": "x", "repo_url": "https://github.com/a/b"})
         assert result.startswith("[tool error:") and "not set" in result
 
-    def test_mcp_only_tool_delegates_when_client_present(self):
+    async def test_mcp_only_tool_delegates_when_client_present(self):
         from agent.mcp_client import MCPClient
         mock_mcp = MagicMock(spec=MCPClient)
         mock_mcp.call_tool = AsyncMock(return_value='{"cloned": true}')
         runner = self._make_runner(mcp_client=mock_mcp)
-        result = asyncio.run(
-            runner._dispatch_tool("clone_repo", {
-                "workspace_id": "x",
-                "repo_url": "https://github.com/a/b",
-                "branch": "main",
-            })
-        )
+        result = await runner._dispatch_tool("clone_repo", {
+            "workspace_id": "x",
+            "repo_url": "https://github.com/a/b",
+            "branch": "main",
+        })
         mock_mcp.call_tool.assert_called_once_with("clone_repo", {
             "workspace_id": "x",
             "repo_url": "https://github.com/a/b",
@@ -389,7 +383,7 @@ class TestAgentLoopMCPIntegration:
         })
         assert result == '{"cloned": true}'
 
-    def test_run_command_falls_back_to_local_when_mcp_unavailable(self):
+    async def test_run_command_falls_back_to_local_when_mcp_unavailable(self):
         from agent.mcp_client import MCPClient, MCPUnavailableError
         mock_mcp = MagicMock(spec=MCPClient)
         mock_mcp.call_tool = AsyncMock(side_effect=MCPUnavailableError("down"))
@@ -399,30 +393,24 @@ class TestAgentLoopMCPIntegration:
             return f"ran: {cmd}"
 
         runner._run_command = fake_run_command
-        result = asyncio.run(
-            runner._dispatch_tool("run_command", {"cmd": "echo hi"})
-        )
+        result = await runner._dispatch_tool("run_command", {"cmd": "echo hi"})
         assert "ran: echo hi" in result
 
-    def test_write_file_falls_back_to_local_when_mcp_unavailable(self):
+    async def test_write_file_falls_back_to_local_when_mcp_unavailable(self):
         from agent.mcp_client import MCPClient, MCPUnavailableError
         mock_mcp = MagicMock(spec=MCPClient)
         mock_mcp.call_tool = AsyncMock(side_effect=MCPUnavailableError("down"))
         runner = self._make_runner(mcp_client=mock_mcp)
         runner.tools.write_file = MagicMock(return_value={"written": True})
-        asyncio.run(
-            runner._dispatch_tool("write_file", {"path": "f.py", "content": "x"})
-        )
+        await runner._dispatch_tool("write_file", {"path": "f.py", "content": "x"})
         runner.tools.write_file.assert_called_once_with("f.py", "x")
 
-    def test_git_commit_delegates_to_mcp(self):
+    async def test_git_commit_delegates_to_mcp(self):
         from agent.mcp_client import MCPClient
         mock_mcp = MagicMock(spec=MCPClient)
         mock_mcp.call_tool = AsyncMock(return_value='{"committed": true}')
         runner = self._make_runner(mcp_client=mock_mcp)
-        result = asyncio.run(
-            runner._dispatch_tool("git_commit", {"workspace_id": "x", "message": "test"})
-        )
+        result = await runner._dispatch_tool("git_commit", {"workspace_id": "x", "message": "test"})
         mock_mcp.call_tool.assert_called_once_with("git_commit", {
             "workspace_id": "x", "message": "test"
         })

@@ -229,19 +229,14 @@ async def test_directive_has_preferred_runtime(tmp_path: Path, agency: Agency):
     set_improvement_loop(None)
 
 
-def test_history_is_capped(agency: Agency):
+async def test_history_is_capped(agency: Agency):
     """Agency should cap history to 50 entries."""
-    import asyncio
-
-    async def _fill():
-        for _ in range(55):
-            with patch("agent.improvement_loop.get_improvement_loop", return_value=None), \
-                 patch.object(agency, "_dispatch_directive"), \
-                 patch.object(agency, "_ceo_assess_llm", new_callable=AsyncMock,
-                              side_effect=lambda state: agency._ceo_assess_rules(state)):
-                await agency.run_cycle()
-
-    asyncio.run(_fill())
+    for _ in range(55):
+        with patch("agent.improvement_loop.get_improvement_loop", return_value=None), \
+             patch.object(agency, "_dispatch_directive"), \
+             patch.object(agency, "_ceo_assess_llm", new_callable=AsyncMock,
+                          side_effect=lambda state: agency._ceo_assess_rules(state)):
+            await agency.run_cycle()
     assert len(agency._history) <= 50
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import importlib.util
 from pathlib import Path
 
@@ -69,7 +68,7 @@ def test_wrapper_exposes_opencode_run_endpoint(monkeypatch):
     assert module.TASK_RESULTS["run-123"]["output"] == "run ok"
 
 
-def test_wrapper_falls_back_to_installed_model(monkeypatch):
+async def test_wrapper_falls_back_to_installed_model(monkeypatch):
     module = _load_agent_runtime_module()
 
     class _FakeResponse:
@@ -117,11 +116,9 @@ def test_wrapper_falls_back_to_installed_model(monkeypatch):
 
     monkeypatch.setattr(module.httpx, "AsyncClient", _FakeClient)
 
-    data, model = asyncio.run(
-        module._chat_with_ollama(
-            instruction="hello",
-            model="qwen3-coder:30b",
-        )
+    data, model = await module._chat_with_ollama(
+        instruction="hello",
+        model="qwen3-coder:30b",
     )
 
     assert model == "gemma4:latest"

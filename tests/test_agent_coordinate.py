@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from agent.coordinate import (
     AgentConfig,
@@ -107,7 +105,7 @@ def test_build_swarm_returns_swarm_and_agents(tmp_path):
     assert agents[0].agent_id == "a1"
 
 
-def test_coordinate_dependency_order_via_helpers(monkeypatch, tmp_path):
+async def test_coordinate_dependency_order_via_helpers(monkeypatch, tmp_path):
     order: list[str] = []
 
     class FakeRunner:
@@ -142,13 +140,11 @@ def test_coordinate_dependency_order_via_helpers(monkeypatch, tmp_path):
     )
     tasks = build_task_specs(tasks_in)
 
-    result = asyncio.run(
-        swarm.run(
-            goal="test",
-            agents=agents,
-            tasks=tasks,
-            max_concurrent=2,
-        )
+    result = await swarm.run(
+        goal="test",
+        agents=agents,
+        tasks=tasks,
+        max_concurrent=2,
     )
 
     assert order == ["step 1", "step 2"]
