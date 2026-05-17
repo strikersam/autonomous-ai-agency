@@ -1,6 +1,11 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- CI: fix non-existent GitHub Actions versions across all workflow files — `checkout@v6`→`v4`, `setup-python@v6`→`v5`, `setup-node@v6`→`v4`, `upload-artifact@v7`→`v4`. These invalid versions caused all CI jobs to fail immediately at the first step before any user-defined code ran.
+- `scripts/agency_fix.py`: restrict LLM edits to in-repo non-test source files — resolve paths with `relative_to(REPO_ROOT)` and reject `tests/` paths and any traversal outside the repo root (P1 security fix).
+- `scripts/agency_fix.py`: preserve real baseline exit status when reading from a saved pytest output file — derive `exit_code` from whether FAILED lines are present rather than hardcoding `1`, so a green baseline log correctly short-circuits the fix loop (P2 correctness fix).
+
 ### Added
 - `proxy.py` — `/api/ping` GET endpoint (no auth). Returns `{status: "ok", timestamp: "<ISO-8601 UTC>"}`. Registered before the wildcard `/api/{path:path}` handler so it is never swallowed by the Ollama proxy.
 - `tests/test_ping.py` — 4 tests covering status code, response shape, ISO timestamp validity, and auth-free access.

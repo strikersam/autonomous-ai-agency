@@ -207,13 +207,22 @@ def parse_edits(response: str) -> dict[str, Any]:
 
 def apply_edits(edits: list[dict[str, str]]) -> list[str]:
     applied: list[str] = []
+    repo_root_resolved = REPO_ROOT.resolve()
     for edit in edits:
         rel = edit.get("file", "")
         old = edit.get("old", "")
         new = edit.get("new", "")
         if not (rel and old):
             continue
-        fpath = REPO_ROOT / rel
+        fpath = (REPO_ROOT / rel).resolve()
+        try:
+            rel_resolved = fpath.relative_to(repo_root_resolved)
+        except ValueError:
+            log.warning("skip %s — path escapes repo root", rel)
+            continue
+        if rel_resolved.parts[0:1] == ("tests",):
+            log.warning("skip %s — refusing to edit test files", rel)
+            continue
         if not fpath.exists():
             log.warning("skip %s — file not found", rel)
             continue
@@ -253,7 +262,7 @@ def main() -> int:
     initial_output_file = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     if initial_output_file and initial_output_file.exists():
         pytest_output = initial_output_file.read_text()
-        exit_code = 1
+        exit_code = 0 if not extract_failing_tests(pytest_output) else 1
     else:
         log.info("Running pytest baseline...")
         exit_code, pytest_output = run_pytest()
