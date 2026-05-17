@@ -89,7 +89,7 @@ jobs:
           MONGO_URL: "mongodb://localhost:27017"
           DB_NAME: "llm_wiki_dashboard_ci"
         run: |
-          pytest -x -v --tb=short
+          pytest -x -v --tb=short --timeout=60
 
       - name: Upload test results
         if: failure()

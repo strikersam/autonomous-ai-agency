@@ -4,6 +4,9 @@
 
 ### Fixed
 - CI: add global git identity (`user.email`, `user.name`, `commit.gpgsign false`, `init.defaultBranch main`) before running pytest — ensures `test_commit_tracker.py` git subprocess calls work correctly across all CI runner configurations.
+- CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=60` to pytest command — prevents hanging tests from occupying the full 6-hour GitHub Actions job limit and makes timeout failures identifiable.
+- CI: upgrade `github/codeql-action` from v3 to v4 in `codeql.yml` — v3 actions were failing.
+- CI: fix `process-quick-note.yml` YAML syntax — bash heredoc content at column 0 conflicted with YAML block scalar indentation rules, causing the parser to fail with "0 jobs". Indented all heredoc content to match the block scalar level (10 spaces); YAML strips the indentation before passing to bash, so the shell correctly sees the heredoc delimiter at column 0.
 - Frontend: downgraded `react-router-dom` from `^7.x` to `^6.28.2` — react-router-dom v7 uses ESM sub-path exports (`react-router/dom`) that Jest 27 (bundled with react-scripts@5) cannot resolve, causing all router-dependent tests to fail with "Cannot find module".
 - Frontend: added `@testing-library/dom@^10.4.0` to `devDependencies` — `@testing-library/react@16` declares it as a peer dep but npm doesn't auto-install peers, causing "Cannot find module @testing-library/dom" errors.
 - Frontend: test isolation — changed CI test command to `--watchAll=false --forceExit --runInBand` to prevent async timer leaks between test suites from causing flaky failures.
