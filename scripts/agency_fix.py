@@ -316,13 +316,14 @@ def main() -> int:
             log.warning("No edits could be applied.")
             break
 
+        fixed_tests = list(failing)  # snapshot before re-run overwrites failing
         log.info("Re-running pytest...")
         exit_code, pytest_output = run_pytest()
         failing = extract_failing_tests(pytest_output)
 
         if exit_code == 0:
             log.info("All tests green after iteration %d.", iteration)
-            update_changelog(explanation, list(set(failing)))
+            update_changelog(explanation, fixed_tests)
             return 0
 
         log.warning("Still failing: %s", ", ".join(failing[:5]))

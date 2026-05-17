@@ -35,7 +35,7 @@ from runtimes.base import (
 
 
 class TestRuntimePreflight:
-    async def test_preflight_returns_structured_error_for_missing_task_harness(self):
+    async def test_preflight_returns_structured_error_for_missing_task_harness(self) -> None:
         """When task-harness is required but not present, preflight should
         return a structured error with install_hint, not a raw PATH failure."""
         from runtimes.adapters.task_harness import TaskHarnessAdapter
@@ -54,7 +54,7 @@ class TestRuntimePreflight:
                 assert issue.code  # Must have a machine-readable code
                 assert issue.message  # Must have a human-readable message
 
-    async def test_preflight_report_has_required_fields(self):
+    async def test_preflight_report_has_required_fields(self) -> None:
         """Every preflight report must have runtime_id, ready, summary."""
         from runtimes.adapters.internal_agent import InternalAgentAdapter
 
@@ -128,7 +128,7 @@ class TestDirectChatAgentModeSplit:
 
 
 class TestAgentJobLifecycle:
-    async def test_job_transitions_queued_running_succeeded(self):
+    async def test_job_transitions_queued_running_succeeded(self) -> None:
         """Test job lifecycle from queued to succeeded."""
         import asyncio as _asyncio
 
@@ -151,7 +151,7 @@ class TestAgentJobLifecycle:
         cancelled = mgr.cancel_job(job.job_id)
         assert cancelled.status == "cancelled"
 
-    async def test_job_failure_captures_error(self):
+    async def test_job_failure_captures_error(self) -> None:
         """Verify that a failing runner records the error properly."""
         import asyncio as _asyncio
 

@@ -80,7 +80,7 @@ def _artifact_name_for(phase: str) -> str:
 
 
 class TestWorkflowEngineCreate:
-    async def test_create_run_persists_to_db(self, engine: WorkflowEngine):
+    async def test_create_run_persists_to_db(self, engine: WorkflowEngine) -> None:
         req = WorkflowBuildRequest(
             request="Add comprehensive unit tests to the router module"
         )
@@ -98,7 +98,7 @@ class TestWorkflowEngineCreate:
         assert retrieved is not None
         assert retrieved.run_id == result.run_id
 
-    async def test_create_run_builds_phases(self, engine: WorkflowEngine):
+    async def test_create_run_builds_phases(self, engine: WorkflowEngine) -> None:
         req = WorkflowBuildRequest(
             request="Implement the CRISPY workflow engine phase system"
         )
@@ -112,7 +112,7 @@ class TestWorkflowEngineCreate:
         assert "plan" in phase_names
         assert "report" in phase_names
 
-    async def test_list_returns_created_run(self, engine: WorkflowEngine):
+    async def test_list_returns_created_run(self, engine: WorkflowEngine) -> None:
         req = WorkflowBuildRequest(
             request="Build something very important for the project"
         )
@@ -149,7 +149,7 @@ class TestApprovalGate:
             engine._save(r)
         return engine.get(result.run_id)  # type: ignore[return-value]
 
-    async def test_approve_changes_status_to_executing(self, engine: WorkflowEngine):
+    async def test_approve_changes_status_to_executing(self, engine: WorkflowEngine) -> None:
         run = await self._create_run_at_gate(
             engine, "Add authentication to the admin panel module"
         )
@@ -162,17 +162,7 @@ class TestApprovalGate:
         assert updated.approval_gate.approved_by == "alice"  # type: ignore[union-attr]
 
 
-    def test_reject_changes_status_to_failed(self, engine: WorkflowEngine):
-        run = engine.get("wf_nonexistent")
-        # This test doesn't actually need async - it uses sync engine.reject
-        # The original test used _create_run_at_gate which is now async,
-        # so we keep the assertion structure but note this test is fully sync
-        pass
-
-    def test_reject_changes_status_to_failed(self, engine: WorkflowEngine):
-        pass  # placeholder - see async version below
-
-    async def test_reject_changes_status_to_failed_async(self, engine: WorkflowEngine):
+    async def test_reject_changes_status_to_failed(self, engine: WorkflowEngine) -> None:
         run = await self._create_run_at_gate(
             engine, "Refactor the routing system across all modules"
         )
@@ -183,7 +173,7 @@ class TestApprovalGate:
         assert updated.approval_gate.status == "rejected"  # type: ignore[union-attr]
         assert updated.approval_gate.rejection_reason == "Plan is incomplete"  # type: ignore[union-attr]
 
-    async def test_approve_wrong_status_raises_value_error(self, engine: WorkflowEngine):
+    async def test_approve_wrong_status_raises_value_error(self, engine: WorkflowEngine) -> None:
         req = WorkflowBuildRequest(request="Build something critical for the system")
 
         with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
@@ -201,7 +191,7 @@ class TestApprovalGate:
 
 
 class TestCancel:
-    async def test_cancel_pending_run(self, engine: WorkflowEngine):
+    async def test_cancel_pending_run(self, engine: WorkflowEngine) -> None:
         req = WorkflowBuildRequest(request="Implement something that should be cancelled")
 
         with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
@@ -210,7 +200,7 @@ class TestCancel:
         updated = engine.cancel(created.run_id)
         assert updated.status == "cancelled"
 
-    async def test_cancel_done_run_raises(self, engine: WorkflowEngine):
+    async def test_cancel_done_run_raises(self, engine: WorkflowEngine) -> None:
         req = WorkflowBuildRequest(request="Something already complete and done now")
 
         with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
@@ -228,7 +218,7 @@ class TestCancel:
 
 
 class TestEventLog:
-    async def test_events_logged_on_create(self, engine: WorkflowEngine):
+    async def test_events_logged_on_create(self, engine: WorkflowEngine) -> None:
         req = WorkflowBuildRequest(request="Add comprehensive tests to the workflow module")
 
         with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
@@ -238,7 +228,7 @@ class TestEventLog:
         assert len(events) >= 1
         assert events[0]["event_type"] == "workflow_created"
 
-    async def test_events_from_position(self, engine: WorkflowEngine):
+    async def test_events_from_position(self, engine: WorkflowEngine) -> None:
         req = WorkflowBuildRequest(request="Build a multi-step feature with proper testing")
 
         with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
@@ -306,7 +296,7 @@ Some description here.
 
 
 class TestPersistenceAcrossRestart:
-    async def test_runs_survive_engine_restart(self, tmp_path: Path):
+    async def test_runs_survive_engine_restart(self, tmp_path: Path) -> None:
         db_path = tmp_path / "workflow.db"
         arts_path = tmp_path / "artifacts"
 

@@ -1,4 +1,6 @@
 """Tests for agent/browser.py — Browser Automation (stub-mode tests)."""
+from pathlib import Path
+
 import pytest
 
 from agent.browser import BrowserSession, PageState
@@ -9,7 +11,7 @@ def test_session_created():
     assert isinstance(session.available, bool)
 
 
-async def test_stub_mode_navigate():
+async def test_stub_mode_navigate() -> None:
     """When Playwright is not installed, navigate returns a failed BrowserAction."""
     session = BrowserSession()
     if session.available:
@@ -19,7 +21,7 @@ async def test_stub_mode_navigate():
     assert "not started" in result.result.lower()
 
 
-async def test_stub_mode_click():
+async def test_stub_mode_click() -> None:
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright installed")
@@ -27,7 +29,7 @@ async def test_stub_mode_click():
     assert result.success is False
 
 
-async def test_stub_mode_fill():
+async def test_stub_mode_fill() -> None:
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright installed")
@@ -35,15 +37,15 @@ async def test_stub_mode_fill():
     assert result.success is False
 
 
-async def test_stub_mode_screenshot():
+async def test_stub_mode_screenshot(tmp_path: Path) -> None:
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright installed")
-    result = await session.screenshot("/tmp/snap.png")
+    result = await session.screenshot(str(tmp_path / "snap.png"))
     assert result.success is False
 
 
-async def test_stub_mode_get_state():
+async def test_stub_mode_get_state() -> None:
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright installed")

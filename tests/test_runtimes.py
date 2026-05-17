@@ -333,7 +333,7 @@ class TestRuntimeRoutingPolicyEngine:
         engine = RuntimeRoutingPolicyEngine(reg, health, policy=policy)
 
         spec = TaskSpec(task_id="t4", instruction="write code", task_type="code_generation")
-        result, decision = await engine.route_and_execute(spec)
+        _, decision = await engine.route_and_execute(spec)
         assert decision.selected_runtime_id == "stub_t2"
 
 
