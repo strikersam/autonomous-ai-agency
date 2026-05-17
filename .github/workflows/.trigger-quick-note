@@ -32,3 +32,6 @@ Fri May 15 14:59:40 UTC 2026
 2026-05-16T10:45:00Z trigger issue #110 (retry:2, after push-fix)
 2026-05-16T10:45:05Z trigger issue #117 (after push-fix)
 2026-05-16T10:45:10Z trigger issue #125 (after push-fix)
+2026-05-17T05:30:08Z trigger issue #110 (retry:2, yaml-fix)
+2026-05-17T05:30:12Z trigger issue #117 (yaml-fix)
+2026-05-17T05:30:16Z trigger issue #125 (retry:2, yaml-fix)
