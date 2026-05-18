@@ -49,7 +49,7 @@ import httpx
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from langfuse_obs import emit_chat_observation
+from langfuse_obs import _emit_langfuse_http_sync
 from router import get_router, RoutingDecision
 from router.health import invalidate_cache as _invalidate_health_cache
 
@@ -567,7 +567,7 @@ async def _emit_safely(
 ) -> None:
     try:
         await asyncio.to_thread(
-            emit_chat_observation,
+            _emit_langfuse_http_sync,
             email=email,
             department=department,
             key_id=key_id,
@@ -608,6 +608,8 @@ async def handle_anthropic_messages(
 
     # ── Field extraction ───────────────────────────────────────────────────────
     anthropic_model = str(payload.get("model") or "claude-3-5-sonnet-20241022")
+    if not anthropic_model.strip():
+        raise HTTPException(status_code=422, detail="model field is required")
 
     system_raw = payload.get("system")
     system_text = _system_field_to_string(system_raw) if system_raw else None

@@ -683,7 +683,7 @@ def test_chat_send_emits_langfuse_observation_for_direct_chat(client, monkeypatc
 
     monkeypatch.setattr("backend.server.get_active_provider", AsyncMock(return_value={"provider_id": "nvidia-nim"}))
     monkeypatch.setattr("backend.server._build_provider_router", fake_build_provider_router)
-    monkeypatch.setattr("backend.server.emit_chat_observation", emit)
+    monkeypatch.setattr("backend.server._emit_langfuse_http_sync", emit)
 
     response = client.post(
         "/api/chat/send",

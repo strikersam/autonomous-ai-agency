@@ -25,29 +25,18 @@ class WorkspaceTools:
 
 
     def _resolve_path(self, path: str) -> Path:
-        # Strictly validate input for any suspicious traversal patterns
-        if ".." in path:
-             raise ValueError(f"Traversal attempt detected: {path}")
+        # Resolve the candidate path fully (including symlinks and ..)
+        # We strip leading separators to ensure it is treated as relative to root
+        safe_relative = path.lstrip("/").lstrip("\\\\")
+        candidate = (self.root / safe_relative).resolve()
 
-        # Ensure root is absolute
-        root_abs = self.root.resolve()
-
-        # Combine and normalize. We strip leading separators to ensure
-        # the path is treated as relative to the root.
-        safe_relative = path.lstrip("/").lstrip("\\")
-        full_path = os.path.normpath(os.path.join(str(root_abs), safe_relative))
-        resolved = Path(full_path).resolve()
-
-        # Robust prefix check to satisfy static analysis (CodeQL path injection)
-        # os.path.commonpath is the most reliable way to check for path containment.
+        # Check if it stays within root using relative_to (raises ValueError if outside)
         try:
-            if os.path.commonpath([str(root_abs), str(resolved)]) != str(root_abs):
-                raise ValueError(f"Path escapes workspace root: {path}")
+            candidate.relative_to(self.root)
         except ValueError:
-            # commonpath raises ValueError if paths are on different drives (Windows)
-            raise ValueError(f"Path escapes workspace root (different drive): {path}")
+            raise PermissionError(f"Path escapes workspace root: {path}")
 
-        return resolved
+        return candidate
 
     def list_files(self, path: str = ".", limit: int = 200) -> list[str]:
         target = self._resolve_path(path)

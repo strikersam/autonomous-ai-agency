@@ -1,6 +1,19 @@
 # Changelog
 
 ## [Unreleased]
+### Security
+- `proxy.py` — Fixed timing side-channel in admin authentication by always calling `hmac.compare_digest` (P1-A).
+- `proxy.py` — Implemented weak-secret guard to prevent starting with empty or common placeholder `ADMIN_SECRET` values (P1-B).
+- `agent/tools.py` — Strengthened path traversal prevention in `_resolve_path` using `Path.resolve()` and robust prefix validation to prevent symlink-based escapes (P1-C).
+- `proxy.py` — Added `threading.Lock` to the in-memory rate limiter to prevent race conditions and potential bypasses during concurrent requests (P1-D).
+- `admin_auth.py` — Fixed handle leak and initialization in Windows `LogonUserW` implementation (P1-E).
+
+### Fixed
+- `handlers/anthropic_compat.py` — Added validation to ensure the `model` field is non-empty and non-whitespace (P2-A).
+- `proxy.py` — Removed silent fallback to unauthenticated local MongoDB in production environments (P2-B).
+- `agent/loop.py` — Improved fallback reporting when MCP servers are unreachable, marking results as `[DEGRADED]` (P2-C).
+- `langfuse_obs.py` — Future-proofed synchronous HTTP usage by explicitly marking internal sync functions and updating all async call sites (P2-D).
+
 ### Fixed
 - `.github/workflows/openclaw-security-automation.yml` — Made `git push origin master` non-fatal; the push fails when branch protection requires PRs, which was causing the whole workflow run to fail. Now emits a workflow warning instead of a hard failure.
 ### Fixed

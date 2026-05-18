@@ -5,7 +5,7 @@ Covers:
   - best_vision_model() selection
   - ModelRouter vision routing path
   - ModelCapability.vision field on registry entries
-  - session_id propagation in langfuse_obs.emit_chat_observation
+  - session_id propagation in langfuse_obs._emit_langfuse_http_sync
 """
 
 from __future__ import annotations
@@ -214,21 +214,21 @@ class TestVisionRouting:
 
 
 class TestLangfuseSessionId:
-    def test_emit_chat_observation_accepts_session_id(self):
-        """emit_chat_observation must accept session_id without error."""
-        from langfuse_obs import emit_chat_observation
+    def test__emit_langfuse_http_sync_accepts_session_id(self):
+        """_emit_langfuse_http_sync must accept session_id without error."""
+        from langfuse_obs import _emit_langfuse_http_sync
         import inspect
-        sig = inspect.signature(emit_chat_observation)
+        sig = inspect.signature(_emit_langfuse_http_sync)
         assert "session_id" in sig.parameters
 
     def test_session_id_included_in_meta(self):
         """When session_id is provided, it should appear in the meta dict passed to emit functions."""
-        from langfuse_obs import emit_chat_observation
+        from langfuse_obs import _emit_langfuse_http_sync
         import unittest.mock as mock
 
         with mock.patch("langfuse_obs._langfuse_enabled", return_value=False):
             # With Langfuse disabled, the function returns early — just check no error
-            emit_chat_observation(
+            _emit_langfuse_http_sync(
                 email="test@example.com",
                 department="eng",
                 key_id=None,

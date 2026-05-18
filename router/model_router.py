@@ -22,7 +22,7 @@ Usage::
         stream=stream,
     )
     local_model = decision.resolved_model
-    # Pass decision.to_meta() to emit_chat_observation() for tracking
+    # Pass decision.to_meta() to _emit_langfuse_http_sync() for tracking
 """
 
 from __future__ import annotations

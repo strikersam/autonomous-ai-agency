@@ -770,7 +770,10 @@ class AgentRunner:
                     })
                 except MCPUnavailableError:
                     log.debug("MCP unavailable for run_command, falling back to local")
-            return await self._run_command(str(args.get("cmd", "")))
+            res = await self._run_command(str(args.get("cmd", "")))
+            if self._mcp is not None:
+                return f"[DEGRADED: MCP unavailable, using local fallback]\n{res}"
+            return res
         if tool == "write_file":
             from agent.mcp_client import MCPUnavailableError
             if self._mcp is not None:
@@ -783,7 +786,10 @@ class AgentRunner:
                     })
                 except MCPUnavailableError:
                     log.debug("MCP unavailable for write_file, falling back to local")
-            return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
+            res = self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
+            if self._mcp is not None:
+                return f"[DEGRADED: MCP unavailable, using local fallback]\n{res}"
+            return res
         if tool == "apply_diff":
             return self.tools.apply_diff(str(args.get("path", "")), str(args.get("content", "")))
 
@@ -1200,10 +1206,10 @@ class AgentRunner:
             pt = int(usage.get("prompt_tokens") or 0)
             ct = int(usage.get("completion_tokens") or 0)
             try:
-                from langfuse_obs import emit_chat_observation
+                from langfuse_obs import _emit_langfuse_http_sync
                 import asyncio
                 await asyncio.to_thread(
-                    emit_chat_observation,
+                    _emit_langfuse_http_sync,
                     email=self.email,
                     department=self.department or "agent",
                     key_id=self.key_id,

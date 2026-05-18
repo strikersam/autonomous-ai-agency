@@ -115,7 +115,10 @@ def _department_trace_tags(department: str) -> list[str]:
     return [f"dept:{slug}"]
 
 
-def _emit_langfuse_http(
+# NOTE: This function performs synchronous HTTP requests using httpx.Client.
+# It MUST only be called via asyncio.to_thread() from async contexts to avoid
+# blocking the event loop.
+def _emit_langfuse_http_sync(
     *,
     email: str,
     department: str,
@@ -317,7 +320,7 @@ def emit_chat_observation(
     use_http = _env_val("LANGFUSE_USE_HTTP_ONLY").lower() in ("1", "true", "yes")
     if use_http:
         try:
-            _emit_langfuse_http(
+            _emit_langfuse_http_sync(
                 email=email,
                 department=department,
                 key_id=key_id,
@@ -354,7 +357,7 @@ def emit_chat_observation(
     except Exception as e:
         log.info("Langfuse SDK emit failed, trying HTTP API: %s", e)
         try:
-            _emit_langfuse_http(
+            _emit_langfuse_http_sync(
                 email=email,
                 department=department,
                 key_id=key_id,
