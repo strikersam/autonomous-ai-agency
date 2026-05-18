@@ -25,7 +25,7 @@
 - CI: add global git identity before running pytest — fixes `test_commit_tracker.py` git subprocess failures.
 - CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=120` — prevents hanging tests from blocking CI.
 - CI: add `persist-credentials: false` to all `actions/checkout` steps.
-- CI: upgrade `github/codeql-action` from v3 to v4 in `codeql.yml`.
+- CI: remove custom `codeql.yml` workflow — GitHub Default Setup already runs CodeQL (python, javascript-typescript, actions) and passes; the custom workflow was redundant and conflicted with the Default Setup checks.
 - CI: fix `process-quick-note.yml` YAML heredoc indentation causing parser failure with "0 jobs".
 - Frontend: downgraded `react-router-dom` to `^6.28.2` — v7 ESM exports incompatible with Jest 27.
 - Frontend: added `@testing-library/dom@^10.4.0` to devDependencies — peer dep not auto-installed.
