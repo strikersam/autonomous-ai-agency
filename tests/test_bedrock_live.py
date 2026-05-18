@@ -1,5 +1,5 @@
 """
-Live end-to-end test for AWS Bedrock + Claude Opus 4.7.
+Live end-to-end test for AWS Bedrock + Claude Opus 4.6 (highest confirmed-accessible model).
 
 Requires real AWS credentials in the environment:
   AWS_ACCESS_KEY_ID   (or BEDROCK_ACCESS_KEY)
@@ -22,7 +22,7 @@ import pytest
 _ACCESS_KEY = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
 _SECRET_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
 _REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
-_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-7"
+_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-6-v1"
 
 _NEEDS_CREDS = pytest.mark.skipif(
     not (_ACCESS_KEY and _SECRET_KEY),

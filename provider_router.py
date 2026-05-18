@@ -836,6 +836,11 @@ class ProviderRouter:
                 len(skipped_on_cooldown),
             )
             for provider, is_primary in skipped_on_cooldown:
+                # Apply the same Bedrock-affinity filter in the bypass path so that
+                # a Bedrock model ID is never routed to a non-Bedrock provider even
+                # when all providers were on cooldown.
+                if _bedrock_only and provider.type != "bedrock":
+                    continue
                 if is_commercial_provider(provider) and not allow_commercial_fallback:
                     deferred_commercial.append(provider.provider_id)
                     continue

@@ -386,6 +386,33 @@ class TestBedrockRoutingAffinity:
         call_kwargs = mock_client.converse.call_args.kwargs
         assert call_kwargs["modelId"] == "us.anthropic.claude-opus-4-6-v1"
 
+    async def test_bedrock_affinity_preserved_in_cooldown_bypass(self):
+        """Bedrock affinity must hold even in the last-resort cooldown-bypass path."""
+        from unittest.mock import AsyncMock, patch as mock_patch
+        import provider_router as pr_mod
+
+        nim = self._nim_provider()
+        bedrock = _bedrock_provider("us.anthropic.claude-opus-4-6-v1")
+        mock_client = MagicMock()
+        mock_client.converse.return_value = _bedrock_api_response("bypass-ok")
+
+        with _mock_boto3(mock_client):
+            router = ProviderRouter([nim, bedrock])
+            payload = {
+                "model": "us.anthropic.claude-opus-4-6-v1",
+                "messages": [{"role": "user", "content": "hi"}],
+            }
+            # Simulate all providers on cooldown so bypass path is triggered
+            with mock_patch.object(pr_mod, "is_provider_on_cooldown", return_value=True):
+                with mock_patch.object(pr_mod, "mark_provider_failed"):
+                    # Bypass sees skipped_on_cooldown = [nim, bedrock].
+                    # NIM must still be skipped because the model is a Bedrock ID.
+                    result = await router.chat_completion(payload)
+
+        provider_ids = [a.provider_id for a in result.attempts]
+        assert "bedrock" in provider_ids, "Bedrock not attempted in bypass path"
+        assert "nvidia-nim" not in provider_ids, "NIM was incorrectly tried in bypass path"
+
     async def test_non_bedrock_model_still_tries_nim_first(self):
         """Non-Bedrock model IDs still route to NIM first (existing behaviour)."""
         import httpx
