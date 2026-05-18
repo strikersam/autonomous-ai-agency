@@ -6,6 +6,9 @@
 - `.github/workflows/ci-failure-autofix.yml` — Rewrote workflow to fix four CodeQL findings: (1/2) code injection: all `workflow_run` context values (`head_branch`, `head_sha`, `id`) moved to job-level `env:` vars and referenced as `$VAR` in shell — never as `${{ }}` inside `run:` steps; (3/4/5) untrusted code checkout: switched from checking out the PR branch to checking out master only, fetching the failing branch as a non-executed ref, and diffing via `git diff` — untrusted branch code is never executed in the privileged runner context. Added fork guard (`head_repository.full_name == github.repository`).
 
 ### Fixed
+- `.github/workflows/ci-failure-autofix.yml` — Fixed non-fast-forward push rejection (Codex P1): the "Commit and push" step previously committed on master's history then pushed to the feature branch, which is rejected because the branch has diverged. Now: restore master to clean state, create a local branch at `origin/$AUTOFIX_BRANCH`, apply the verified patch with `git apply --3way --index` (tolerates minor context differences), commit, and push as a true fast-forward. Emits a workflow warning if the patch does not apply to the branch tree.
+
+### Fixed
 - `provider_router.py` — Bedrock routing affinity now also enforced in the last-resort cooldown-bypass loop; previously a Bedrock model ID could be silently routed to Nvidia NIM when all providers were on cooldown (P1 bug reported by Codex review).
 - `provider_router.py` — `from_env()` default Bedrock model changed from `us.anthropic.claude-opus-4-7` (requires AWS Sales approval) to `us.anthropic.claude-opus-4-6-v1`; fixes `AccessDeniedException` for accounts without Opus 4.7 access (P1 CodeRabbit finding).
 - `render.yaml` — Updated Bedrock comment to reflect `us.anthropic.claude-opus-4-6-v1` as the confirmed-accessible default.

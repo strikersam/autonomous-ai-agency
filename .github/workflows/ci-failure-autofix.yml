@@ -200,6 +200,22 @@ jobs:
       - name: Commit and push fix to the failing branch
         if: steps.apply.outputs.status == 'ok'
         run: |
+          # The patch was verified on master's tree. Now apply it on top of the
+          # failing branch so the push is a fast-forward (not a force-push).
+          # First restore master to a clean state.
+          git restore --staged . 2>/dev/null || true
+          git checkout . 2>/dev/null || true
+
+          # Switch to a local branch rooted at the failing branch tip.
+          git checkout -b _autofix_work "origin/${AUTOFIX_BRANCH}"
+
+          # Apply with --3way so minor context differences between master and
+          # the branch don't cause a hard failure.
+          if ! git apply --3way --index /tmp/autofix.patch; then
+            echo "::warning::Verified patch does not apply cleanly to branch tree — manual fix needed"
+            exit 0
+          fi
+
           git add -A
           # Commit message uses env var (safe — never ${{ }} in run:)
           git commit -m "fix(ci-autofix): auto-fix CI failure on ${AUTOFIX_BRANCH}
