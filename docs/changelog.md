@@ -1,6 +1,17 @@
 # Changelog
 
 ## [Unreleased]
+
+### Added
+- `provider_router.py` — `_is_bedrock_model_id()` helper and Bedrock routing affinity: requests whose model ID starts with `us.anthropic.*`, `eu.anthropic.*`, `global.anthropic.*`, `arn:aws:bedrock:*`, or `anthropic.claude-*` are now routed exclusively to the `bedrock` provider, bypassing Nvidia NIM and other providers that cannot serve them.
+- `router/registry.py` — Added `us.anthropic.claude-opus-4-6-v1` (Opus 4.6, confirmed accessible) and `us.anthropic.claude-haiku-4-5-20251001-v1:0` to the model capability registry.
+- `tests/test_bedrock_provider.py` — Tests for `_is_bedrock_model_id` (10 cases) and Bedrock routing affinity (3 integration tests including NIM bypass and primary-provider correctness).
+- `tests/test_bedrock_live.py` — Live E2E tests for AWS Bedrock (auto-skipped without credentials): direct boto3 ping, model accessibility, ProviderRouter round-trip, health check.
+
+### Changed
+- `render.yaml` — All agent role models (`AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`, `AGENT_VERIFIER_MODEL`, `AGENT_JUDGE_MODEL`) and coding runtime models (`OPENCODE_MODEL`, `AIDER_MODEL`, `GOOSE_MODEL`) set to `us.anthropic.claude-opus-4-6-v1` (Claude Opus 4.6 via AWS Bedrock — highest confirmed-accessible Opus model). Previous defaults were Nvidia NIM free-tier models.
+- `render.yaml` — Added `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `BEDROCK_MODEL_ID` env var entries (documented for Render dashboard sync).
+- `render.yaml` — `BEDROCK_MODEL_ID` default set to `us.anthropic.claude-opus-4-6-v1`; Opus 4.7 requires AWS Sales approval.
 ### Fixed
 - `.github/workflows/*.yml` — Downgraded futuristic GitHub Action versions (e.g., `actions/checkout@v6`, `actions/setup-python@v6`) to current stable releases (`v4`, `v5`, etc.) across all workflow files to prevent "Action not found" errors.
 - `.github/scripts/*.py` — Fixed `from __future__ import annotations` placement; moved to the very beginning of files (before docstrings) to ensure compatibility with Python 3.13.
