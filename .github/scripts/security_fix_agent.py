@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 """OpenClaw security fix helper.
 
 Lightweight CLI used by CI to check/fix Dependabot and CodeQL alerts.
 Designed to fail-safe: check commands print counts; fix commands attempt work and exit 0.
 """
+
+from __future__ import annotations
 
 
 import os

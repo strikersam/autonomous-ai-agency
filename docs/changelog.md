@@ -53,6 +53,9 @@
 - `agent/prompts.py` — Raised planner step limit to 30 to support advanced coding tasks.
 - `.github/scripts/implement_agent.py` — Enhanced with `search_code` tool and increased turn limits to match backend capabilities.
 
+### Removed
+- None.
+
 ## [v4.1.0] — 2026-05-09
 
 ### Added
