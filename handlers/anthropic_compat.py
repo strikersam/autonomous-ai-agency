@@ -49,7 +49,7 @@ import httpx
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from langfuse_obs import _emit_langfuse_http_sync
+from langfuse_obs import emit_chat_observation
 from router import get_router, RoutingDecision
 from router.health import invalidate_cache as _invalidate_health_cache
 
@@ -567,7 +567,7 @@ async def _emit_safely(
 ) -> None:
     try:
         await asyncio.to_thread(
-            _emit_langfuse_http_sync,
+            emit_chat_observation,
             email=email,
             department=department,
             key_id=key_id,

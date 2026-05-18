@@ -58,7 +58,7 @@ from provider_router import (
     ProviderRouter,
     extract_openai_text,
 )
-from langfuse_obs import _emit_langfuse_http_sync
+from langfuse_obs import emit_chat_observation
 from runtimes.api import runtime_router
 from runtimes.manager import get_runtime_manager
 from schedules import schedules_router
@@ -3082,7 +3082,7 @@ async def call_llm(
             try:
                 usage = response_payload.get("usage") if isinstance(response_payload, dict) else {}
                 usage = usage if isinstance(usage, dict) else {}
-                _emit_langfuse_http_sync(
+                emit_chat_observation(
                     email=str(observation.get("email") or "unknown"),
                     department=str(observation.get("department") or "general"),
                     key_id=str(observation.get("key_id")) if observation.get("key_id") else None,

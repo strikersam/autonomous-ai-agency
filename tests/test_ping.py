@@ -12,7 +12,7 @@ def client():
 
     patches = [
         patch("proxy.AsyncIOMotorClient", return_value=MagicMock()),
-        patch("proxy._emit_langfuse_http_sync", new=AsyncMock()),
+        patch("proxy.emit_chat_observation", new=AsyncMock()),
     ]
     started = [p.start() for p in patches]
 

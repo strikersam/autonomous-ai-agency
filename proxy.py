@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
-from langfuse_obs import _emit_langfuse_http_sync
+from langfuse_obs import emit_chat_observation
 
 # Load .env before any config reads (uvicorn does not load .env by default).
 load_dotenv()
@@ -2889,7 +2889,7 @@ async def proxy_request(
 
                 if out_text:
                     await asyncio.to_thread(
-                        _emit_langfuse_http_sync,
+                        emit_chat_observation,
                         email=auth.email,
                         department=auth.department,
                         key_id=auth.key_id,

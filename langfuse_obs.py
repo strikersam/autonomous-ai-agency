@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Optional Langfuse traces for chat requests (commercial-equivalent metadata)."""
 
-from __future__ import annotations
 
 import json
 import logging

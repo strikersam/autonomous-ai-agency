@@ -1206,10 +1206,10 @@ class AgentRunner:
             pt = int(usage.get("prompt_tokens") or 0)
             ct = int(usage.get("completion_tokens") or 0)
             try:
-                from langfuse_obs import _emit_langfuse_http_sync
+                from langfuse_obs import emit_chat_observation
                 import asyncio
                 await asyncio.to_thread(
-                    _emit_langfuse_http_sync,
+                    emit_chat_observation,
                     email=self.email,
                     department=self.department or "agent",
                     key_id=self.key_id,
