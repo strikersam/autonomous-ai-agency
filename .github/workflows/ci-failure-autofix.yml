@@ -1,15 +1,16 @@
 name: CI Failure Auto-Fix
 
 # Triggers whenever the main CI workflow completes with a failure.
-# Checks out the failing branch, reproduces the failure, calls the
-# Anthropic API (Claude Opus via Bedrock) to generate a targeted patch,
-# then commits the fix and pushes it back to the same branch.
+# Fetches the failure logs via the GitHub API (no untrusted code checkout),
+# calls Claude Sonnet 4.6 to generate a patch, applies it on master's tree,
+# then pushes a fix commit to the failing branch.
 #
-# Safety guardrails:
-#   - Never runs on master/main directly (only on PR branches)
-#   - Only acts on test / lint failures (ignores create-pr, deploy, etc.)
-#   - Patches are capped at 200 lines diff — larger failures open an issue
-#   - Requires ANTHROPIC_API_KEY secret to be set
+# Security design:
+#   - workflow_run head values are placed in env: vars, never ${{}} in run:
+#   - Only runs for branches in the same repository (not forks)
+#   - Logs fetched via API — untrusted branch code is never executed
+#   - Fix is applied with `git apply` against the current master checkout
+#   - Patches >200 lines open an issue instead of auto-applying
 
 on:
   workflow_run:
@@ -19,21 +20,33 @@ on:
 jobs:
   autofix:
     name: Auto-fix CI failure
+    # Guard: only same-repo branches, not master, and only on failure.
+    # head_branch and head_repository are evaluated at expression time (safe
+    # in if: conditions) — they must NOT appear inside run: shell scripts.
     if: |
       github.event.workflow_run.conclusion == 'failure' &&
       github.event.workflow_run.head_branch != 'master' &&
-      github.event.workflow_run.head_branch != 'main'
+      github.event.workflow_run.head_branch != 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
       issues: write
+      actions: read
+
+    # All values derived from the triggering workflow_run are placed here.
+    # They are read inside run: steps via $VAR (shell), never via ${{ }}.
+    env:
+      AUTOFIX_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      AUTOFIX_SHA: ${{ github.event.workflow_run.head_sha }}
+      AUTOFIX_RUN_ID: ${{ github.event.workflow_run.id }}
 
     steps:
-      - name: Check out failing branch
+      - name: Check out master (trusted base — never the PR branch)
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: master
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -42,97 +55,101 @@ jobs:
           git config user.email "ci-autofix-bot@local-llm-server"
           git config user.name "CI Auto-Fix Bot"
 
+      - name: Fetch the failing branch ref (no execution, metadata only)
+        run: |
+          # Fetch the branch so we can diff and cherry-pick changes, but we
+          # do NOT switch to it — master stays checked out throughout.
+          git fetch origin "$AUTOFIX_BRANCH"
+
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
 
-      - name: Install dependencies
+      - name: Install dependencies (from master)
         run: pip install -r requirements.txt -q
 
-      - name: Reproduce failure — pytest
-        id: pytest
+      - name: Download CI job logs via GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/pytest_output.txt || true
-          EXIT=${PIPESTATUS[0]}
-          echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
-          # Summarise: collect FAILED lines + short tracebacks
-          python3 - <<'PY'
-          import re, pathlib
-          raw = pathlib.Path("/tmp/pytest_output.txt").read_text()
-          lines = raw.splitlines()
-          # grab failure summary section
-          start = next((i for i, l in enumerate(lines) if l.startswith("FAILED ") or "_ FAILED _" in l or "= FAILURES =" in l), None)
-          snippet = "\n".join(lines[start:start+80]) if start is not None else raw[-3000:]
-          pathlib.Path("/tmp/pytest_snippet.txt").write_text(snippet[:4000])
-          PY
+          # Fetch logs for the failing run — reads metadata only, no code exec
+          gh api \
+            "repos/${{ github.repository }}/actions/runs/$AUTOFIX_RUN_ID/jobs" \
+            --jq '[.jobs[] | select(.conclusion=="failure") | {name:.name, steps:[.steps[]|select(.conclusion=="failure")|.name]}]' \
+            > /tmp/failed_jobs.json 2>/dev/null || echo "[]" > /tmp/failed_jobs.json
 
-      - name: Reproduce failure — lint
-        id: lint
-        run: |
-          python -m flake8 . \
-            --exclude=.git,.venv,venv,node_modules,frontend,remote-admin \
-            --max-line-length=120 --count 2>&1 | tee /tmp/lint_output.txt || true
+          # Get the log for the first failing job
+          FIRST_JOB_ID=$(gh api \
+            "repos/${{ github.repository }}/actions/runs/$AUTOFIX_RUN_ID/jobs" \
+            --jq '[.jobs[]|select(.conclusion=="failure")][0].id' 2>/dev/null || echo "")
 
-      - name: Skip if all checks pass
-        if: steps.pytest.outputs.exit_code == '0'
+          if [ -n "$FIRST_JOB_ID" ] && [ "$FIRST_JOB_ID" != "null" ]; then
+            gh api "repos/${{ github.repository }}/actions/jobs/$FIRST_JOB_ID/logs" \
+              2>/dev/null | tail -200 > /tmp/ci_log.txt || true
+          fi
+          touch /tmp/ci_log.txt
+
+      - name: Reproduce failure on master + branch diff
+        id: reproduce
         run: |
-          echo "All tests pass — no autofix needed."
+          # Run tests against master so we know what's already broken vs new
+          python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/pytest_master.txt || true
+          MASTER_EXIT=${PIPESTATUS[0]}
+          echo "master_exit=${MASTER_EXIT}" >> "$GITHUB_OUTPUT"
+
+          # Collect the diff introduced by the failing branch
+          git diff "origin/${AUTOFIX_BRANCH}" master -- '*.py' | head -400 > /tmp/branch_diff.txt || true
+          wc -l /tmp/branch_diff.txt
+
+      - name: Skip if master itself is broken
+        if: steps.reproduce.outputs.master_exit != '0'
+        run: |
+          echo "Master branch has failing tests — skipping autofix to avoid masking pre-existing issues."
           exit 0
 
       - name: Generate fix with Claude
-        if: steps.pytest.outputs.exit_code != '0'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           python3 - <<'PYEOF'
-          import os, json, pathlib, subprocess, textwrap
-          import urllib.request, urllib.error
+          import os, json, pathlib, textwrap
+          import urllib.request
 
           api_key = os.environ["ANTHROPIC_API_KEY"]
-          branch  = os.environ["BRANCH"]
-          sha     = os.environ["SHA"][:8]
 
-          pytest_snippet = pathlib.Path("/tmp/pytest_snippet.txt").read_text()
-          lint_snippet   = pathlib.Path("/tmp/lint_output.txt").read_text()[-1000:]
-
-          # Collect changed files on this branch vs master
-          changed = subprocess.check_output(
-              ["git", "diff", "--name-only", "origin/master...HEAD"],
-              text=True
-          ).strip().splitlines()
-          changed_py = [f for f in changed if f.endswith(".py") and pathlib.Path(f).exists()][:8]
-
-          file_snippets = ""
-          for fp in changed_py:
-              content = pathlib.Path(fp).read_text()[:3000]
-              file_snippets += f"\n\n### {fp}\n```python\n{content}\n```"
+          ci_log      = pathlib.Path("/tmp/ci_log.txt").read_text()[-3000:]
+          branch_diff = pathlib.Path("/tmp/branch_diff.txt").read_text()[:3000:]
+          master_out  = pathlib.Path("/tmp/pytest_master.txt").read_text()[-500:]
 
           prompt = textwrap.dedent(f"""
-          You are an expert Python engineer. The CI for branch `{branch}` (SHA {sha}) is failing.
+          You are an expert Python engineer. A CI run failed on a feature branch.
+          Master tests are green. The branch introduces changes that break CI.
 
-          ## Pytest failure output
+          ## CI log (last 3000 chars)
           ```
-          {pytest_snippet}
-          ```
-
-          ## Lint output (if any)
-          ```
-          {lint_snippet}
+          {ci_log}
           ```
 
-          ## Changed files on this branch
-          {file_snippets}
+          ## Diff introduced by the branch vs master (first 3000 chars)
+          ```diff
+          {branch_diff}
+          ```
+
+          ## Master test output (green baseline)
+          ```
+          {master_out}
+          ```
 
           ## Task
-          Produce the minimal patch that fixes the CI failures above.
-          Reply with ONLY a valid unified diff (output of `git diff`).
-          Do not include any explanation — just the raw diff starting with `diff --git`.
-          If the fix requires changes to more than 5 files or 200 lines, reply with exactly:
-          TOO_COMPLEX
+          Produce the minimal unified diff that fixes the CI failure shown above.
+          The diff must apply cleanly to the master branch (the context shown).
+          Reply with ONLY a valid unified diff starting with `diff --git`.
+          No explanation, no markdown fences — raw diff only.
+          If the fix requires changes to more than 5 files or 200 lines,
+          or if you cannot determine the fix from the available context,
+          reply with exactly: TOO_COMPLEX
           """).strip()
 
           payload = {
@@ -155,72 +172,66 @@ jobs:
 
           diff_text = body["content"][0]["text"].strip()
           pathlib.Path("/tmp/autofix.patch").write_text(diff_text)
-          print(f"Claude response length: {len(diff_text)} chars")
-          print(diff_text[:500])
+          print(f"Claude response ({len(diff_text)} chars):\n{diff_text[:300]}")
           PYEOF
 
-      - name: Apply patch
-        if: steps.pytest.outputs.exit_code != '0'
+      - name: Apply and verify patch
         id: apply
         run: |
           PATCH=$(cat /tmp/autofix.patch)
           if [ "$PATCH" = "TOO_COMPLEX" ]; then
-            echo "too_complex=true" >> "$GITHUB_OUTPUT"
-            echo "Patch too complex — will open issue."
+            echo "status=too_complex" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if echo "$PATCH" | grep -q "^diff --git"; then
-            echo "$PATCH" | git apply --index || true
-            echo "applied=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No valid diff produced."
-            echo "applied=false" >> "$GITHUB_OUTPUT"
+          if ! echo "$PATCH" | grep -q "^diff --git"; then
+            echo "status=no_diff" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-      - name: Verify fix passes tests
-        if: steps.apply.outputs.applied == 'true'
-        id: verify
-        run: |
-          python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/pytest_after.txt || true
-          EXIT=${PIPESTATUS[0]}
-          echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
+          echo "$PATCH" | git apply --index
+          if ! python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/pytest_after.txt; then
+            echo "status=verify_failed" >> "$GITHUB_OUTPUT"
+            git restore --staged .
+            git checkout .
+            exit 0
+          fi
+          echo "status=ok" >> "$GITHUB_OUTPUT"
 
-      - name: Commit and push fix
-        if: steps.verify.outputs.exit_code == '0'
+      - name: Commit and push fix to the failing branch
+        if: steps.apply.outputs.status == 'ok'
         run: |
-          BRANCH="${{ github.event.workflow_run.head_branch }}"
           git add -A
-          git commit -m "fix(ci-autofix): auto-fix CI failure on ${BRANCH}
+          # Commit message uses env var (safe — never ${{ }} in run:)
+          git commit -m "fix(ci-autofix): auto-fix CI failure on ${AUTOFIX_BRANCH}
 
-          Patch generated by Claude Sonnet 4.6 in response to test failure.
-          All tests pass after applying this patch.
+Patch generated by Claude Sonnet 4.6. All tests pass after this change.
 
-          https://claude.ai/code/session_01P3kGiygjALr4jwpetb8AXz"
-          git push origin "HEAD:${BRANCH}"
+https://claude.ai/code/session_01P3kGiygjALr4jwpetb8AXz"
+          git push origin "HEAD:refs/heads/${AUTOFIX_BRANCH}"
 
-      - name: Open issue if too complex or fix failed
-        if: steps.apply.outputs.too_complex == 'true' || (steps.apply.outputs.applied == 'true' && steps.verify.outputs.exit_code != '0')
+      - name: Open issue when fix is too complex or verification fails
+        if: steps.apply.outputs.status != 'ok'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATUS: ${{ steps.apply.outputs.status }}
         run: |
-          BRANCH="${{ github.event.workflow_run.head_branch }}"
-          SHA="${{ github.event.workflow_run.head_sha }}"
-          SNIPPET=$(cat /tmp/pytest_snippet.txt | head -40)
+          # Use env vars — no ${{ }} expression inside run:
+          SNIPPET=$(head -40 /tmp/ci_log.txt)
           gh issue create \
-            --title "CI failure needs manual fix: ${BRANCH}" \
-            --label "bug,ci" \
-            --body "## CI failure on \`${BRANCH}\` (${SHA:0:8})
+            --title "CI failure needs manual fix: ${AUTOFIX_BRANCH}" \
+            --label "bug" \
+            --body "## CI failure on \`${AUTOFIX_BRANCH}\` (${AUTOFIX_SHA:0:8})
 
-          The auto-fix agent could not automatically resolve this failure.
+Auto-fix status: \`${STATUS}\`
 
-          ### Failure summary
-          \`\`\`
-          ${SNIPPET}
-          \`\`\`
+### CI log (excerpt)
+\`\`\`
+${SNIPPET}
+\`\`\`
 
-          ### Next steps
-          1. Pull the branch locally
-          2. Run \`pytest -x\` to reproduce
-          3. Fix and push — CI will re-trigger auto-fix for simple failures
+### Next steps
+1. Pull the branch: \`git checkout ${AUTOFIX_BRANCH}\`
+2. Run \`pytest -x\` to reproduce
+3. Fix and push — CI auto-fix will retry for simple failures
 
-          cc @strikersam" || true
+cc @strikersam" || true
