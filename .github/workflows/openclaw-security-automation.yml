@@ -104,6 +104,31 @@ jobs:
             const commitSha       = '${{ github.sha }}';
             const timestamp       = '${{ steps.timestamp.outputs.timestamp }}';
 
+            // Ensure required labels exist before using them
+            const requiredLabels = [
+              { name: 'security',   color: 'e11d48', description: 'Security-related issue' },
+              { name: 'automated',  color: '0075ca', description: 'Automatically generated' },
+            ];
+            for (const label of requiredLabels) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  name:  label.name,
+                });
+              } catch (e) {
+                if (e.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner:       context.repo.owner,
+                    repo:        context.repo.repo,
+                    name:        label.name,
+                    color:       label.color,
+                    description: label.description,
+                  });
+                }
+              }
+            }
+
             // Avoid duplicate open issues
             const { data: existingIssues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
