@@ -1,4 +1,6 @@
 """Tests for agent/browser.py — Browser Automation (stub-mode tests)."""
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest

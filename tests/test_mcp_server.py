@@ -274,10 +274,9 @@ class TestMCPServer:
 # ── MCPClient tests ───────────────────────────────────────────────────────────
 
 class TestMCPClient:
-    async def test_no_url_gives_disabled_client(self):
-        from agent.mcp_client import get_mcp_client, MCPUnavailableError
-        client = get_mcp_client("")
-        assert client is not None
+    async def test_no_url_gives_disabled_client(self) -> None:
+        from agent.mcp_client import MCPClient, MCPUnavailableError
+        client = MCPClient("")  # empty base_url bypasses fallback
         assert client.base_url == ""
         with pytest.raises(MCPUnavailableError, match="not reachable"):
             await client._rpc("tools/list")

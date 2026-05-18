@@ -52,10 +52,10 @@ def call_llm(messages: list[dict[str, str]]) -> str:
                 temperature=0.1,
                 max_tokens=8192,
             )
-            if not resp.choices:
-                log.warning("NVIDIA NIM returned empty choices list")
-            else:
-                return resp.choices[0].message.content or ""
+            content = resp.choices[0].message.content if resp.choices else None
+            if content:
+                return content
+            log.warning("NVIDIA NIM returned empty content — falling back to Anthropic")
         except Exception as exc:
             log.warning("NVIDIA NIM call failed (%s) — falling back to Anthropic", exc)
 
@@ -241,17 +241,25 @@ def update_changelog(explanation: str, fixed_tests: list[str]) -> None:
     if not cl_path.exists():
         return
     content = cl_path.read_text()
-    entry_lines = [
-        "### Fixed",
-        f"- Agency auto-fix: {explanation}",
-    ]
+    bullet = f"- Agency auto-fix: {explanation}"
     for t in fixed_tests[:5]:
-        entry_lines.append(f"  - `{t}`")
-    entry = "\n".join(entry_lines) + "\n"
+        bullet += f"\n  - `{t}`"
     marker = "## [Unreleased]"
-    if marker in content:
-        content = content.replace(marker, f"{marker}\n\n{entry}", 1)
-        cl_path.write_text(content)
+    if marker not in content:
+        return
+    # Find the Unreleased section boundary
+    unreleased_start = content.index(marker)
+    next_section = content.find("\n## ", unreleased_start + len(marker))
+    unreleased_block = content[unreleased_start:next_section] if next_section != -1 else content[unreleased_start:]
+    fixed_heading = "### Fixed"
+    if fixed_heading in unreleased_block:
+        # Append bullet to existing ### Fixed section
+        insert_at = content.index(fixed_heading, unreleased_start) + len(fixed_heading)
+        content = content[:insert_at] + f"\n{bullet}" + content[insert_at:]
+    else:
+        # Create new ### Fixed block after the marker
+        content = content.replace(marker, f"{marker}\n\n{fixed_heading}\n{bullet}", 1)
+    cl_path.write_text(content)
 
 
 def main() -> int:

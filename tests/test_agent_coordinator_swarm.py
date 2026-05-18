@@ -3,7 +3,7 @@ from __future__ import annotations
 from agent.coordinator import AgentSpec, MultiAgentSwarm, TaskSpec
 
 
-async def test_multi_agent_swarm_respects_dependencies(monkeypatch, tmp_path):
+async def test_multi_agent_swarm_respects_dependencies(monkeypatch, tmp_path) -> None:
     order: list[str] = []
 
     class FakeRunner:
@@ -31,7 +31,7 @@ async def test_multi_agent_swarm_respects_dependencies(monkeypatch, tmp_path):
     assert [worker["status"] for worker in result.workers] == ["ok", "ok"]
 
 
-async def test_multi_agent_swarm_blocks_missing_dependency(monkeypatch, tmp_path):
+async def test_multi_agent_swarm_blocks_missing_dependency(monkeypatch, tmp_path) -> None:
     swarm = MultiAgentSwarm(ollama_base="http://localhost:11434", workspace_root=str(tmp_path))
 
     result = await swarm.run(
