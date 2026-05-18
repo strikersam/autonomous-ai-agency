@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -146,7 +145,7 @@ def test_agent_status_endpoint_reports_live_progress_and_tool_calls(client, monk
     assert payload["latest_summary"] == "Fixed the failing tests."
 
 
-def test_agent_stream_endpoint_emits_server_sent_events(client) -> None:
+async def test_agent_stream_endpoint_emits_server_sent_events(client) -> None:
     session_id = f"agent-{uuid.uuid4()}"
     headers = _auth_headers(client)
     me = client.get("/api/auth/me", headers=headers)
@@ -163,10 +162,8 @@ def test_agent_stream_endpoint_emits_server_sent_events(client) -> None:
         {"call_id": "tool-1", "tool_name": "read_file", "args": {"path": "README.md"}, "status": "running"},
     )
 
-    response = asyncio.run(
-        server.stream_agent_activity(session_id=session_id, user={"_id": user_id})
-    )
-    first_chunk = asyncio.run(response.body_iterator.__anext__())
+    response = await server.stream_agent_activity(session_id=session_id, user={"_id": user_id})
+    first_chunk = await response.body_iterator.__anext__()
 
     assert "Started read_file" in first_chunk
 
