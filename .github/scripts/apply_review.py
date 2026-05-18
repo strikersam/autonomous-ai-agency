@@ -29,7 +29,7 @@ log = logging.getLogger("apply_review")
 
 NVIDIA_BASE = "https://integrate.api.nvidia.com/v1"
 # Primary: Anthropic Claude Opus (CEO / agency grade).
-OPUS_MODEL = "claude-opus-4-7"
+OPUS_MODEL = "claude-opus-4-6"
 # Fallback: NVIDIA NIM models.
 NVIDIA_CANDIDATE_MODELS = [
     ("nvidia/nemotron-3-super-120b-a12b",      "reasoning (Nemotron 120B)"),

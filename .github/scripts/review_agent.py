@@ -32,7 +32,7 @@ RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file p
 
 # Opus is preferred for council review (CEO / agency quality).
 # NVIDIA NIM models are the fallback when Anthropic is not configured.
-OPUS_MODEL = "claude-opus-4-7"
+OPUS_MODEL = "claude-opus-4-6"
 NVIDIA_CANDIDATE_MODELS = [
     "qwen/qwen3-coder-480b-a35b-instruct",
     "nvidia/llama-3.1-nemotron-ultra-253b-v1",

@@ -48,8 +48,8 @@ _bedrock_key = (os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_A
     os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
 )
 _opus_model: str | None = (
-    "us.anthropic.claude-opus-4-7" if _bedrock_key
-    else "claude-opus-4-7" if os.environ.get("ANTHROPIC_API_KEY")
+    "us.anthropic.claude-opus-4-6-v1" if _bedrock_key
+    else "claude-opus-4-6" if os.environ.get("ANTHROPIC_API_KEY")
     else None
 )
 DEFAULT_PLANNER_MODEL = os.environ.get(
@@ -171,8 +171,8 @@ class AgentRunner:
             os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
         ) and (os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY"))
         _current_opus: str | None = (
-            "us.anthropic.claude-opus-4-7" if _current_bedrock
-            else "claude-opus-4-7" if os.environ.get("ANTHROPIC_API_KEY")
+            "us.anthropic.claude-opus-4-6-v1" if _current_bedrock
+            else "claude-opus-4-6" if os.environ.get("ANTHROPIC_API_KEY")
             else None
         )
 
