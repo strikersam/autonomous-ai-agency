@@ -64,9 +64,13 @@ def _bedrock_ready() -> bool:
 
 
 _bedrock_key = _bedrock_ready()
+# Always use the generic Anthropic model ID (not the Bedrock-specific one) so
+# ProviderRouter does not treat it as Bedrock-affine.  The Bedrock provider's own
+# default_model ("us.anthropic.claude-opus-4-6-v1") is used internally when Bedrock
+# is tried first; if Bedrock fails the generic ID lets fallback providers (Anthropic
+# direct, NVIDIA NIM) serve the request without being skipped by _is_bedrock_model_id().
 _opus_model: str | None = (
-    "us.anthropic.claude-opus-4-6-v1" if _bedrock_key
-    else "claude-opus-4-6" if os.environ.get("ANTHROPIC_API_KEY")
+    "claude-opus-4-6" if (_bedrock_key or os.environ.get("ANTHROPIC_API_KEY"))
     else None
 )
 DEFAULT_PLANNER_MODEL = os.environ.get(
@@ -185,9 +189,13 @@ class AgentRunner:
         _current_groq_key = os.environ.get("GROQ_API_KEY")
         _current_qwen_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY")
         _current_bedrock = _bedrock_ready()
+        # Use the generic Anthropic model ID regardless of whether Bedrock or Anthropic
+        # direct is configured.  Passing a Bedrock-specific ID ("us.anthropic.*") as the
+        # requested model would trigger _is_bedrock_model_id() routing affinity and bypass
+        # every non-Bedrock provider, killing the NVIDIA/Anthropic-direct fallback chain.
+        # The Bedrock provider's own default_model handles the ID translation internally.
         _current_opus: str | None = (
-            "us.anthropic.claude-opus-4-6-v1" if _current_bedrock
-            else "claude-opus-4-6" if os.environ.get("ANTHROPIC_API_KEY")
+            "claude-opus-4-6" if (_current_bedrock or os.environ.get("ANTHROPIC_API_KEY"))
             else None
         )
 
@@ -202,8 +210,14 @@ class AgentRunner:
             _promoted_providers = []
             for _p in self._router.providers:
                 if _p.type in _opus_types:
+                    # Bedrock: keep its own default_model ("us.anthropic.claude-opus-4-6-v1")
+                    # so it can resolve the generic "claude-opus-4-6" request to the correct ID.
+                    # Anthropic direct: point to Opus explicitly.
+                    new_default = (
+                        _p.default_model if _p.type == "bedrock" else "claude-opus-4-6"
+                    )
                     _promoted_providers.append(
-                        _dc_replace(_p, priority=-20, default_model=_current_opus)
+                        _dc_replace(_p, priority=-20, default_model=new_default)
                     )
                     _promoted_any = True
                 else:
