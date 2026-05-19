@@ -114,7 +114,7 @@ class WindowsCredentialAuthenticator:
             return None
 
         user, domain = self._split_username(username)
-        token = ctypes.c_void_p()
+        token = ctypes.c_void_p(0)
         advapi32 = ctypes.windll.advapi32
         kernel32 = ctypes.windll.kernel32
         ok = advapi32.LogonUserW(
@@ -127,8 +127,11 @@ class WindowsCredentialAuthenticator:
         )
         if not ok:
             return None
-        kernel32.CloseHandle(token)
-        return AdminIdentity(username=username, auth_source="windows")
+
+        try:
+            return AdminIdentity(username=username, auth_source="windows")
+        finally:
+            kernel32.CloseHandle(token)
 
 
 class AdminAuthManager:

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Qwen3-Coder Authenticated Proxy
 --------------------------------
@@ -17,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
+import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -200,6 +202,10 @@ elif VALID_API_KEYS:
         )
         sys.exit(1)
 
+if not ADMIN_SECRET or not ADMIN_SECRET.strip():
+    log.error("Refusing to start: ADMIN_SECRET must not be empty.")
+    sys.exit(1)
+
 if ADMIN_SECRET and ADMIN_SECRET in WEAK_ADMIN_SECRETS:
     log.error(
         "Refusing to start: ADMIN_SECRET is a known weak placeholder. "
@@ -234,33 +240,49 @@ class AuthContext:
 # ─── Rate limiter (in-memory, per key) ─────────────────────────────────────────
 
 _rate_buckets: dict[str, list[float]] = defaultdict(list)
+_rate_lock = threading.Lock()
 _rate_last_sweep = 0.0
 
 
 def _sweep_rate_buckets(now: float, window: float) -> None:
     """Evict keys that have no entries in the current window. Prevents unbounded dict growth."""
-    stale = [k for k, ts in _rate_buckets.items() if not ts or now - ts[-1] >= window]
-    for k in stale:
-        _rate_buckets.pop(k, None)
+    with _rate_lock:
+        buckets_copy = dict(_rate_buckets)
+
+    stale = [k for k, ts in buckets_copy.items() if not ts or now - ts[-1] >= window]
+
+    with _rate_lock:
+        for k in stale:
+            _rate_buckets.pop(k, None)
 
 
 def check_rate_limit(api_key: str) -> None:
     global _rate_last_sweep
     now = time.time()
     window = 60.0
-    bucket = _rate_buckets[api_key]
-    # Drop entries outside the 1-minute window
-    _rate_buckets[api_key] = [t for t in bucket if now - t < window]
-    # Sweep stale keys at most once per window.
-    if now - _rate_last_sweep >= window:
-        _rate_last_sweep = now
+
+    with _rate_lock:
+        bucket = _rate_buckets[api_key]
+        # Drop entries outside the 1-minute window
+        bucket = [t for t in bucket if now - t < window]
+        _rate_buckets[api_key] = bucket
+
+        count = len(bucket)
+        should_sweep = now - _rate_last_sweep >= window
+        if should_sweep:
+            _rate_last_sweep = now
+
+    if should_sweep:
         _sweep_rate_buckets(now, window)
-    if len(_rate_buckets[api_key]) >= RATE_LIMIT_RPM:
+
+    if count >= RATE_LIMIT_RPM:
         raise HTTPException(
             status_code=429,
             detail=f"Rate limit exceeded: {RATE_LIMIT_RPM} req/min. Slow down.",
         )
-    _rate_buckets[api_key].append(now)
+
+    with _rate_lock:
+        _rate_buckets[api_key].append(now)
 
 
 LOCALHOST_BYPASS_PATHS = frozenset(
@@ -398,9 +420,9 @@ def _require_admin(x_admin_secret: Optional[str], authorization: Optional[str]) 
     got = (x_admin_secret or "").strip()
     if not got and authorization and authorization.startswith("Bearer "):
         got = authorization[7:].strip()
-    if not got or not hmac.compare_digest(
-        got.encode("utf-8"), ADMIN_SECRET.encode("utf-8")
-    ):
+    expected = ADMIN_SECRET.encode("utf-8")
+    provided = got.encode("utf-8") if got else b""
+    if not hmac.compare_digest(provided, expected) or not got:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -532,22 +554,33 @@ async def _autostart_services_bg() -> None:
 async def lifespan(app: FastAPI):
     global _mongo_client, _mongo_db, _task_dispatcher, _dispatcher_task, TASK_AUTOMATION
 
-    mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
-    try:
-        _mongo_client = AsyncIOMotorClient(mongo_url)
-        _mongo_db = _mongo_client["local_llm_server"]
-        from agents.store import AgentStore
-        from tasks.store import TaskStore
+    mongo_url = os.environ.get("MONGO_URL")
+    is_prod = os.environ.get("IS_PRODUCTION", "false").lower() in ("true", "1", "yes")
 
-        agent_store = AgentStore(db=_mongo_db)
-        task_store = TaskStore(db=_mongo_db)
-        set_agent_store(agent_store)
-        set_task_store(task_store)
-        log.info("MongoDB connected for agent store persistence")
-    except Exception as e:
-        log.warning(
-            "MongoDB unavailable for agent store: %s. Using in-memory store.", e
-        )
+    _mongo_client = None
+    if not mongo_url:
+        if is_prod:
+            log.warning("MONGO_URL not set in production! Mongo-dependent features (persistence, long-running tasks) will be disabled.")
+        else:
+            mongo_url = "mongodb://localhost:27017"
+
+    if mongo_url:
+        try:
+            _mongo_client = AsyncIOMotorClient(mongo_url)
+            _mongo_db = _mongo_client["local_llm_server"]
+            from agents.store import AgentStore
+            from tasks.store import TaskStore
+
+            agent_store = AgentStore(db=_mongo_db)
+            task_store = TaskStore(db=_mongo_db)
+            set_agent_store(agent_store)
+            set_task_store(task_store)
+            log.info("MongoDB connected for agent store persistence")
+        except Exception as e:
+            log.warning(
+                "MongoDB unavailable for agent store at %s: %s. Using in-memory store.",
+                mongo_url, e
+            )
 
     should_register = os.environ.get("REGISTER_RUNTIMES", "true").lower() in (
         "1",

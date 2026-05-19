@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Anthropic Messages API compatibility layer.
 
@@ -36,7 +37,6 @@ Limitations vs real Anthropic API:
   - Caching / prompt caching headers are accepted but not functional.
 """
 
-from __future__ import annotations
 
 import asyncio
 import json
@@ -608,6 +608,8 @@ async def handle_anthropic_messages(
 
     # ── Field extraction ───────────────────────────────────────────────────────
     anthropic_model = str(payload.get("model") or "claude-3-5-sonnet-20241022")
+    if not anthropic_model.strip():
+        raise HTTPException(status_code=422, detail="model field is required")
 
     system_raw = payload.get("system")
     system_text = _system_field_to_string(system_raw) if system_raw else None
