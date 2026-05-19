@@ -567,7 +567,8 @@ async def run_agent_task(
                 raise HTTPException(status_code=404, detail=f"Unknown workspace: {workspace_id}")
             if requested_model is None and provider_id != "prov_local" and secret.default_model:
                 requested_model = secret.default_model
-            headers = {"Authorization": f"Bearer {secret.api_key}"} if secret.api_key else None
+            _api_key = secret.api_key or auth.key
+            headers = {"Authorization": f"Bearer {_api_key}"} if _api_key else None
             runner = AgentRunner(
                 ollama_base=secret.base_url,
                 workspace_root=ws.path,
@@ -635,7 +636,8 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
                 raise HTTPException(status_code=404, detail=f"Unknown workspace: {workspace_id}")
             if requested_model is None and provider_id != "prov_local" and secret.default_model:
                 requested_model = secret.default_model
-            headers = {"Authorization": f"Bearer {secret.api_key}"} if secret.api_key else None
+            _api_key = secret.api_key or auth.key
+            headers = {"Authorization": f"Bearer {_api_key}"} if _api_key else None
             runner = AgentRunner(
                 ollama_base=secret.base_url,
                 workspace_root=ws.path,
