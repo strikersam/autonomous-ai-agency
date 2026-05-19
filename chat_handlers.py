@@ -12,10 +12,9 @@ from typing import Any, AsyncIterator
 
 import httpx
 from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from langfuse_obs import emit_chat_observation
-from provider_router import ProviderConfig, ProviderFallbackError, ProviderRouter
 from router import get_router
 from router.health import invalidate_cache as _invalidate_health_cache
 
@@ -83,18 +82,12 @@ _STRIP_THINK_TAGS = os.environ.get("PROXY_STRIP_THINK_TAGS", "false").strip().lo
 _DEFAULT_SYSTEM_PROMPT_INLINE = os.environ.get("PROXY_DEFAULT_SYSTEM_PROMPT", "").strip()
 _DEFAULT_SYSTEM_PROMPT_FILE = os.environ.get("PROXY_DEFAULT_SYSTEM_PROMPT_FILE", "").strip()
 _DEFAULT_MAX_TOKENS_RAW = os.environ.get("PROXY_DEFAULT_MAX_TOKENS", "").strip()
-_DEFAULT_TEMPERATURE_RAW = os.environ.get("PROXY_DEFAULT_TEMPERATURE", "").strip()
 _CACHED_DEFAULT_SYSTEM_PROMPT: str | None = None
 
 try:
     _DEFAULT_MAX_TOKENS = int(_DEFAULT_MAX_TOKENS_RAW) if _DEFAULT_MAX_TOKENS_RAW else 0
 except ValueError:
     _DEFAULT_MAX_TOKENS = 0
-
-try:
-    _DEFAULT_TEMPERATURE: float | None = float(_DEFAULT_TEMPERATURE_RAW) if _DEFAULT_TEMPERATURE_RAW else None
-except ValueError:
-    _DEFAULT_TEMPERATURE = None
 
 
 def _load_default_system_prompt() -> str:
@@ -134,52 +127,13 @@ def _inject_default_system_prompt(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _apply_chat_defaults(payload: dict[str, Any]) -> dict[str, Any]:
+    if _DEFAULT_MAX_TOKENS <= 0:
+        return payload
+    if "max_tokens" in payload or "maxTokens" in payload:
+        return payload
     copied = dict(payload)
-    if _DEFAULT_MAX_TOKENS > 0 and "max_tokens" not in payload and "maxTokens" not in payload:
-        copied["max_tokens"] = _DEFAULT_MAX_TOKENS
-    if _DEFAULT_TEMPERATURE is not None and "temperature" not in payload:
-        copied["temperature"] = _DEFAULT_TEMPERATURE
+    copied["max_tokens"] = _DEFAULT_MAX_TOKENS
     return copied
-
-
-def _normalize_response_format(payload: dict[str, Any]) -> dict[str, Any]:
-    """Normalize OpenAI response_format to Ollama-native structured output format.
-
-    OpenAI json_schema:
-        response_format: {"type": "json_schema", "json_schema": {"name": "X", "schema": {...}}}
-    Ollama native (passes schema directly via format field):
-        format: {...schema...}
-
-    json_object mode maps to Ollama's generic JSON mode:
-        response_format: {"type": "json_object"} → format: "json"
-
-    Cloud/Nvidia models (model name contains "/") are OpenAI-compatible natively
-    and receive response_format unchanged.
-    """
-    response_format = payload.get("response_format")
-    if not isinstance(response_format, dict):
-        return payload
-
-    model = payload.get("model", "")
-    if "/" in str(model):
-        return payload
-
-    rf_type = response_format.get("type")
-
-    if rf_type == "json_schema":
-        json_schema_obj = response_format.get("json_schema")
-        if isinstance(json_schema_obj, dict):
-            schema = json_schema_obj.get("schema")
-            if isinstance(schema, dict):
-                payload = dict(payload)
-                payload["format"] = schema
-                del payload["response_format"]
-    elif rf_type == "json_object":
-        payload = dict(payload)
-        payload["format"] = "json"
-        del payload["response_format"]
-
-    return payload
 
 
 def _strip_think_blocks(text: str) -> str:
@@ -188,7 +142,7 @@ def _strip_think_blocks(text: str) -> str:
         return text
     # Non-greedy match of <think> to </think> or end of string
     text = re.sub(r"<think>[\s\S]*?(?:</think>|$)", "", text, flags=re.IGNORECASE)
-    return text.strip().strip()
+    return text.strip()
 
 
 def _extract_exact_output(messages: Any) -> str | None:
@@ -273,9 +227,8 @@ async def handle_openai_chat_completions(
     email: str,
     department: str,
     key_id: str | None,
-    body_override: bytes | None = None,
 ) -> JSONResponse | StreamingResponse:
-    body = body_override if body_override is not None else await request.body()
+    body = await request.body()
 
     try:
         payload: dict[str, Any] = json.loads(body) if body else {}
@@ -288,13 +241,6 @@ async def handle_openai_chat_completions(
     model = payload.get("model")
     if not isinstance(model, str):
         model = ""
-
-    # Extract Claude Code / client session ID for Langfuse correlation
-    session_id: str | None = (
-        request.headers.get("x-session-id")
-        or request.headers.get("x-claude-code-session-id")
-        or None
-    )
 
     # ── Route: resolve the actual local model to use ──────────────────────────
     override_model = request.headers.get("x-model-override") or None
@@ -319,14 +265,13 @@ async def handle_openai_chat_completions(
 
     payload = _inject_default_system_prompt(payload)
     payload = _apply_chat_defaults(payload)
-    payload = _normalize_response_format(payload)
     messages = payload.get("messages")
     stream = bool(payload.get("stream", False))
     exact_output = _extract_exact_output(messages)
 
     if exact_output is not None:
         usage_completion_tokens = max(len(exact_output) // 4, 1) if exact_output else 0
-        await _emit_safely(email, department, key_id, model, messages, exact_output, 0, usage_completion_tokens, routing_meta=routing_meta, session_id=session_id)
+        await _emit_safely(email, department, key_id, model, messages, exact_output, 0, usage_completion_tokens, routing_meta=routing_meta)
         if stream:
             async def _single_exact_stream() -> AsyncIterator[bytes]:
                 yield _openai_chat_stream_bytes(exact_output, model)
@@ -355,7 +300,7 @@ async def handle_openai_chat_completions(
 
     if stream:
         return StreamingResponse(
-            _stream_openai_chat(target_url, headers, forward, email, department, key_id, model, messages, routing_meta=routing_meta, session_id=session_id),
+            _stream_openai_chat(target_url, headers, forward, email, department, key_id, model, messages, routing_meta=routing_meta),
             media_type="text/event-stream",
             headers={
                 "X-Accel-Buffering": "no",
@@ -365,53 +310,19 @@ async def handle_openai_chat_completions(
             },
         )
 
-    primary_provider = ProviderConfig(
-        provider_id="ollama-local",
-        type="ollama",
-        base_url=ollama_base,
-        default_model=model,
-        priority=0,
-    )
-    try:
-        provider_result = await ProviderRouter.from_env(primary_provider=primary_provider).chat_completion(
-            payload,
-            model_fallbacks=routing.fallback_chain,
-        )
-    except ProviderFallbackError as exc:
-        log.error("All LLM providers failed: %s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    resp = await _post_with_fallback(target_url, forward, headers, routing.fallback_chain)
 
-    resp = provider_result.response
-    model = provider_result.model
-    routing_meta = {
-        **routing_meta,
-        "provider_fallback_provider": provider_result.provider.provider_id,
-        "provider_fallback_attempts": ProviderRouter.attempts_header(provider_result.attempts),
-    }
-
-    upstream_ct = resp.headers.get("content-type", "")
-    if upstream_ct.startswith("application/json"):
+    if resp.headers.get("content-type", "").startswith("application/json"):
         data = resp.json()
     else:
-        # Non-JSON error body (HTML from a proxy, plain-text 5xx, etc.): forward
-        # verbatim so the caller can read it — do NOT wrap in JSONResponse, which
-        # would double-encode the string literal.
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            media_type=upstream_ct or "text/plain; charset=utf-8",
-        )
+        return JSONResponse(content=resp.text, status_code=resp.status_code)
 
     out_text, pt, ct = _openai_usage_from_response(data)
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
     return JSONResponse(
         content=data,
         status_code=resp.status_code,
-        headers={
-            "X-Routing-Mode": routing.mode,
-            "X-Routing-Model": model,
-            "X-LLM-Provider": provider_result.provider.provider_id,
-        },
+        headers={"X-Routing-Mode": routing.mode, "X-Routing-Model": model},
     )
 
 
@@ -449,7 +360,6 @@ async def _emit_safely(
     pt: int,
     ct: int,
     routing_meta: dict[str, Any] | None = None,
-    session_id: str | None = None,
 ) -> None:
     try:
         await asyncio.to_thread(
@@ -463,7 +373,6 @@ async def _emit_safely(
             prompt_tokens=pt,
             completion_tokens=ct,
             routing_meta=routing_meta,
-            session_id=session_id,
         )
     except Exception as e:
         log.warning("Observation emit error: %s", e)
@@ -516,38 +425,31 @@ async def _stream_openai_chat(
     model: str,
     messages: Any,
     routing_meta: dict[str, Any] | None = None,
-    session_id: str | None = None,
 ) -> AsyncIterator[bytes]:
     buf = bytearray()
     line_buf = bytearray()
     in_think = False
-    async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0)) as client:
-        try:
-            async with client.stream("POST", url, content=body, headers=headers) as resp:
-                if resp.status_code >= 400:
-                    yield await resp.aread()
-                    return
-                async for chunk in resp.aiter_bytes(chunk_size=1024):
-                    buf.extend(chunk)
-                    if not _STRIP_THINK_TAGS:
-                        yield chunk
-                        continue
-
-                    line_buf.extend(chunk)
-                    while True:
-                        newline = line_buf.find(b"\n")
-                        if newline == -1:
-                            break
-                        raw_line = bytes(line_buf[: newline + 1])
-                        del line_buf[: newline + 1]
-                        filtered_line, in_think = _filter_openai_sse_line(raw_line, in_think)
-                        if filtered_line:
-                            yield filtered_line
-        except Exception as exc:
-            if "client disconnected" in str(exc).lower() or "cancel" in str(exc).lower():
-                log.debug("Client disconnected during stream: %s", exc)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+        async with client.stream("POST", url, content=body, headers=headers) as resp:
+            if resp.status_code >= 400:
+                yield await resp.aread()
                 return
-            raise
+            async for chunk in resp.aiter_bytes(chunk_size=1024):
+                buf.extend(chunk)
+                if not _STRIP_THINK_TAGS:
+                    yield chunk
+                    continue
+
+                line_buf.extend(chunk)
+                while True:
+                    newline = line_buf.find(b"\n")
+                    if newline == -1:
+                        break
+                    raw_line = bytes(line_buf[: newline + 1])
+                    del line_buf[: newline + 1]
+                    filtered_line, in_think = _filter_openai_sse_line(raw_line, in_think)
+                    if filtered_line:
+                        yield filtered_line
 
     if _STRIP_THINK_TAGS and line_buf:
         filtered_line, _ = _filter_openai_sse_line(bytes(line_buf), in_think)
@@ -561,7 +463,7 @@ async def _stream_openai_chat(
         # Rough fallback if usage was not present in stream
         est = max(len(out_text) // 4, 1)
         ct = est
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
 
 
 async def handle_ollama_native_chat(
@@ -587,13 +489,6 @@ async def handle_ollama_native_chat(
     stream = bool(payload.get("stream", False))
     messages = payload.get("messages")
 
-    # Extract Claude Code / client session ID for Langfuse correlation
-    session_id: str | None = (
-        request.headers.get("x-session-id")
-        or request.headers.get("x-claude-code-session-id")
-        or None
-    )
-
     # ── Route: resolve the actual local model ────────────────────────────────
     override_model = request.headers.get("x-model-override") or None
     routing = get_router().route(
@@ -617,21 +512,14 @@ async def handle_ollama_native_chat(
 
     if stream:
         return StreamingResponse(
-            _stream_ollama_chat(target_url, headers, body, email, department, key_id, model, messages, routing_meta=routing_meta, session_id=session_id),
+            _stream_ollama_chat(target_url, headers, body, email, department, key_id, model, messages, routing_meta=routing_meta),
             media_type="application/x-ndjson",
         )
 
     resp = await _post_with_fallback(target_url, body, headers, routing.fallback_chain)
 
-    upstream_ct = resp.headers.get("content-type", "")
-    if not upstream_ct.startswith("application/json"):
-        # Forward non-JSON upstream bodies verbatim instead of JSONResponse-wrapping
-        # a raw string (which would double-encode).
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            media_type=upstream_ct or "text/plain; charset=utf-8",
-        )
+    if not resp.headers.get("content-type", "").startswith("application/json"):
+        return JSONResponse(content=resp.text, status_code=resp.status_code)
 
     data = resp.json()
     out_text = ""
@@ -644,7 +532,7 @@ async def handle_ollama_native_chat(
         pt = int(data.get("prompt_eval_count") or 0)
         ct = int(data.get("eval_count") or 0)
 
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
     return JSONResponse(content=data, status_code=resp.status_code)
 
 
@@ -658,7 +546,6 @@ async def _stream_ollama_chat(
     model: str,
     messages: Any,
     routing_meta: dict[str, Any] | None = None,
-    session_id: str | None = None,
 ) -> AsyncIterator[bytes]:
     buf = bytearray()
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
@@ -674,7 +561,7 @@ async def _stream_ollama_chat(
     if pt == 0 and ct == 0 and out_text:
         est = max(len(out_text) // 4, 1)
         ct = est
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
 
 
 def _parse_ollama_ndjson(buffer: bytes) -> tuple[str, int, int]:
