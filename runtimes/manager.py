@@ -58,37 +58,6 @@ class RuntimeManager:
         health = self._health.get_health(runtime_id)
         return health.as_dict() if health else None
 
-    def list_runtimes(self) -> list[dict]:
-        result = []
-        for adapter in self._registry.all():
-            info = adapter.as_dict()
-            health = self._health.get_health(adapter.RUNTIME_ID)
-            info["health"] = health.as_dict() if health else {"runtime_id": adapter.RUNTIME_ID, "available": None}
-            info["circuit_open"] = not self._health.is_available(adapter.RUNTIME_ID)
-            result.append(info)
-        return result
-
-    def get_runtime(self, runtime_id: str) -> dict | None:
-        adapter = self._registry.get(runtime_id)
-        if not adapter: return None
-        info = adapter.as_dict()
-        health = self._health.get_health(runtime_id)
-        info["health"] = health.as_dict() if health else {"runtime_id": runtime_id, "available": None}
-        return info
-
-    def get_policy(self) -> dict: return self._router.policy.as_dict()
-    def update_policy(self, **kwargs) -> None: self._router.update_policy(**kwargs)
-    def get_decision_log(self, limit: int = 100) -> list[dict]: return self._router.get_decision_log(limit)
-    def health_summary(self) -> list[dict]: return self._health.all_health()
-    async def verify_all(self) -> list[dict]: return await self._health.verify_all()
-    async def refresh_runtime_health(self, runtime_id: str) -> dict | None:
-        adapter = self._registry.get(runtime_id)
-        if adapter is None: return None
-        await self._health._poll_one(runtime_id)
-        health = self._health.get_health(runtime_id)
-        return health.as_dict() if health else None
-
-
 _runtime_manager: RuntimeManager | None = None
 
 def get_runtime_manager() -> RuntimeManager:
