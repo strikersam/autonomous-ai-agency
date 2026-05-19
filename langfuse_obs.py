@@ -1,6 +1,6 @@
-from __future__ import annotations
 """Optional Langfuse traces for chat requests (commercial-equivalent metadata)."""
 
+from __future__ import annotations
 
 import json
 import logging
@@ -42,7 +42,7 @@ def _langfuse_enabled() -> bool:
 
 
 def _base_url() -> str:
-    host = _env_val("LANGFUSE_BASE_URL") or _env_val("LANGFUSE_HOST") or _env_val("LANGFUSE_URL")
+    host = _env_val("LANGFUSE_BASE_URL") or _env_val("LANGFUSE_HOST")
     if not host:
         host = "https://cloud.langfuse.com"
     return host.rstrip("/")
@@ -115,10 +115,7 @@ def _department_trace_tags(department: str) -> list[str]:
     return [f"dept:{slug}"]
 
 
-# NOTE: This function performs synchronous HTTP requests using httpx.Client.
-# It MUST only be called via asyncio.to_thread() from async contexts to avoid
-# blocking the event loop.
-def _emit_langfuse_http_sync(
+def _emit_langfuse_http(
     *,
     email: str,
     department: str,
@@ -130,7 +127,6 @@ def _emit_langfuse_http_sync(
     completion_tokens: int,
     meta: dict[str, Any],
     task_name: str,
-    session_id: str | None = None,
 ) -> None:
     base = _base_url()
     pk, sk = _env_val("LANGFUSE_PUBLIC_KEY"), _env_val("LANGFUSE_SECRET_KEY")
@@ -138,20 +134,14 @@ def _emit_langfuse_http_sync(
     gen_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
-    tags = _department_trace_tags(department)
-    if session_id:
-        tags.append(f"session:{session_id[:64]}")
-
     trace_body: dict[str, Any] = {
         "id": trace_id,
         "timestamp": now,
         "name": task_name,
         "userId": email,
         "metadata": {"department": department},
-        "tags": tags,
+        "tags": _department_trace_tags(department),
     }
-    if session_id:
-        trace_body["sessionId"] = session_id
     gen_body: dict[str, Any] = {
         "id": gen_id,
         "traceId": trace_id,
@@ -191,23 +181,16 @@ def _emit_sdk(
     completion_tokens: int,
     meta: dict[str, Any],
     task_name: str,
-    session_id: str | None = None,
 ) -> None:
     msg_in = _truncate_for_langfuse(messages)
     out = _truncate_for_langfuse(output_text)
-    tags = _department_trace_tags(department)
-    if session_id:
-        tags.append(f"session:{session_id[:64]}")
-    trace_kwargs: dict[str, Any] = {
-        "name": task_name,
-        "user_id": email,
-        "metadata": {"department": department},
-        "tags": tags,
-    }
-    if session_id:
-        trace_kwargs["session_id"] = session_id
     try:
-        trace = lf.trace(**trace_kwargs)
+        trace = lf.trace(
+            name=task_name,
+            user_id=email,
+            metadata={"department": department},
+            tags=_department_trace_tags(department),
+        )
     except TypeError:
         trace = lf.trace(
             name=task_name,
@@ -243,7 +226,6 @@ def emit_chat_observation(
     ttft_ms: int = 0,
     routing_meta: dict[str, Any] | None = None,
     task_name: str = "chat completion",
-    session_id: str | None = None,
 ) -> None:
     """Record one generation in Langfuse (SDK first, then REST fallback).
 
@@ -254,8 +236,6 @@ def emit_chat_observation(
                        model selection mode, task category, selection source, etc.
                        Pass ``None`` to omit routing fields (legacy callers).
         task_name:     The name of the action (e.g. "chat completion", "agent planning").
-        session_id:    Optional client session ID (e.g. CLAUDE_CODE_SESSION_ID from
-                       X-Session-Id header). Groups all turns of a session in Langfuse.
     """
     if not _langfuse_enabled():
         return
@@ -291,8 +271,6 @@ def emit_chat_observation(
         meta["commercial_reference_model"] = eq.commercial_name
     if routing_meta:
         meta.update(routing_meta)
-    if session_id:
-        meta["session_id"] = session_id
 
     # Local Metrics Persistence (for Dashboard)
     mongo_url = os.environ.get("MONGO_URL")
@@ -320,7 +298,7 @@ def emit_chat_observation(
     use_http = _env_val("LANGFUSE_USE_HTTP_ONLY").lower() in ("1", "true", "yes")
     if use_http:
         try:
-            _emit_langfuse_http_sync(
+            _emit_langfuse_http(
                 email=email,
                 department=department,
                 key_id=key_id,
@@ -331,7 +309,6 @@ def emit_chat_observation(
                 completion_tokens=completion_tokens,
                 meta=meta,
                 task_name=task_name,
-                session_id=session_id,
             )
         except Exception as e:
             log.warning("Langfuse HTTP-only emit failed: %s", e)
@@ -352,12 +329,11 @@ def emit_chat_observation(
             completion_tokens=completion_tokens,
             meta=meta,
             task_name=task_name,
-            session_id=session_id,
         )
     except Exception as e:
         log.info("Langfuse SDK emit failed, trying HTTP API: %s", e)
         try:
-            _emit_langfuse_http_sync(
+            _emit_langfuse_http(
                 email=email,
                 department=department,
                 key_id=key_id,
@@ -368,7 +344,6 @@ def emit_chat_observation(
                 completion_tokens=completion_tokens,
                 meta=meta,
                 task_name=task_name,
-                session_id=session_id,
             )
         except Exception as e2:
             log.warning("Langfuse HTTP fallback failed: %s", e2)

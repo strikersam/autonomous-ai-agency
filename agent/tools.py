@@ -3,8 +3,6 @@ from __future__ import annotations
 import difflib
 import os
 from pathlib import Path
-from agent.repowise import RepowiseIntelligence
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -21,22 +19,13 @@ TEXT_EXTENSIONS = {
 class WorkspaceTools:
     def __init__(self, root: str | Path | None = None) -> None:
         self.root = Path(root or os.environ.get("AGENT_WORKSPACE_ROOT") or ".").resolve()
-        self.repowise = RepowiseIntelligence(self.root)
-
 
     def _resolve_path(self, path: str) -> Path:
-        # Resolve the candidate path fully (including symlinks and ..)
-        # We strip leading separators to ensure it is treated as relative to root
-        safe_relative = path.lstrip("/").lstrip("\\\\")
-        candidate = (self.root / safe_relative).resolve()
-
-        # Check if it stays within root using relative_to (raises ValueError if outside)
-        try:
-            candidate.relative_to(self.root)
-        except ValueError:
-            raise PermissionError(f"Path escapes workspace root: {path}")
-
-        return candidate
+        cleaned = path.strip().replace("/", os.sep)
+        resolved = (self.root / cleaned).resolve()
+        if self.root not in resolved.parents and resolved != self.root:
+            raise ValueError("Path escapes workspace root")
+        return resolved
 
     def list_files(self, path: str = ".", limit: int = 200) -> list[str]:
         target = self._resolve_path(path)
@@ -167,108 +156,3 @@ class WorkspaceTools:
                     if len(matches) >= limit:
                         return matches
         return matches
-
-    def list_patterns(self) -> list[dict[str, str]]:
-        """List all available fabric patterns with their descriptions."""
-        patterns_dir = self._resolve_path(".claude/skills/fabric-patterns/patterns")
-        if not patterns_dir.exists():
-            return []
-        
-        patterns = []
-        for pattern_file in patterns_dir.glob("*.md"):
-            try:
-                content = pattern_file.read_text(encoding="utf-8")
-                # Extract frontmatter if present
-                name = pattern_file.stem
-                description = "No description available"
-                
-                if content.startswith("---"):
-                    parts = content.split("---", 2)
-                    if len(parts) >= 3:
-                        frontmatter = parts[1]
-                        for line in frontmatter.split("\n"):
-                            if line.startswith("name:"):
-                                name = line.split(":", 1)[1].strip()
-                            elif line.startswith("description:"):
-                                description = line.split(":", 1)[1].strip()
-                
-                patterns.append({
-                    "name": name,
-                    "description": description,
-                    "file": str(pattern_file.relative_to(self.root))
-                })
-            except Exception:
-                # Skip unreadable files
-                continue
-        
-        return sorted(patterns, key=lambda x: x["name"])
-
-    def get_pattern(self, name: str) -> str:
-        """Retrieve the raw content of a pattern by name."""
-        patterns_dir = self._resolve_path(".claude/skills/fabric-patterns/patterns")
-        pattern_file = patterns_dir / f"{name}.md"
-        
-        if not pattern_file.exists():
-            raise FileNotFoundError(f"Pattern '{name}' not found")
-        
-        return pattern_file.read_text(encoding="utf-8")
-
-    def apply_pattern(self, name: str, variables: dict[str, str]) -> str:
-        """Apply a pattern with variable substitution."""
-        content = self.get_pattern(name)
-        
-        # Extract template content (skip frontmatter if present)
-        if content.startswith("---"):
-            parts = content.split("---", 2)
-            if len(parts) >= 3:
-                template = parts[2]
-            else:
-                template = content
-        else:
-            template = content
-        
-        # Replace variables
-        result = template
-        for key, value in variables.items():
-            result = result.replace(f"{{{{{key}}}}}", value)
-        
-        return result.strip()
-
-    def stitch_patterns(self, pattern_names: list[str], initial_input: str) -> str:
-        """Chain multiple patterns together, passing output of one as input to next."""
-        current_input = initial_input
-        
-        for pattern_name in pattern_names:
-            # Apply the pattern with current input as content
-            variables = {"content": current_input}
-            current_input = self.apply_pattern(pattern_name, variables)
-        
-        return current_input
-
-    def get_overview(self) -> dict[str, Any]:
-        """Provides an architecture summary, module map, and git health."""
-        return self.repowise.get_overview()
-
-    def get_context(self, targets: list[str], include: list[str] = ["source"]) -> str:
-        """Workhorse tool for packing content and metrics of target files."""
-        return self.repowise.get_context(targets, include)
-
-    def get_risk(self, targets: list[str] | None = None, changed_files: list[str] | None = None) -> dict[str, Any]:
-        """Hotspot scores and potential impact analysis."""
-        return self.repowise.get_risk(targets, changed_files)
-
-    def get_why(self, target: str) -> str:
-        """Extracts architectural decisions related to target from git history."""
-        return self.repowise.get_why(target)
-
-    def get_answer(self, question: str) -> str:
-        """One-call RAG over documentation with confidence gating."""
-        return self.repowise.get_answer(question)
-
-    def search_codebase(self, query: str) -> str:
-        """Semantic search over documentation."""
-        return self.repowise.search_codebase(query)
-
-    def get_decision_flownodes(self) -> str:
-        """Extract decision-linked flow nodes."""
-        return self.repowise.get_decision_flownodes()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ctypes
-import hmac
 import os
 import secrets
 import threading
@@ -114,7 +113,7 @@ class WindowsCredentialAuthenticator:
             return None
 
         user, domain = self._split_username(username)
-        token = ctypes.c_void_p(0)
+        token = ctypes.c_void_p()
         advapi32 = ctypes.windll.advapi32
         kernel32 = ctypes.windll.kernel32
         ok = advapi32.LogonUserW(
@@ -127,11 +126,8 @@ class WindowsCredentialAuthenticator:
         )
         if not ok:
             return None
-
-        try:
-            return AdminIdentity(username=username, auth_source="windows")
-        finally:
-            kernel32.CloseHandle(token)
+        kernel32.CloseHandle(token)
+        return AdminIdentity(username=username, auth_source="windows")
 
 
 class AdminAuthManager:
@@ -152,10 +148,7 @@ class AdminAuthManager:
         identity = self.windows.authenticate(username, password)
         if identity:
             return identity
-        if self.admin_secret and hmac.compare_digest(
-            password.strip().encode("utf-8"),
-            self.admin_secret.strip().encode("utf-8"),
-        ):
+        if self.admin_secret and password.strip() == self.admin_secret.strip():
             user = username.strip() or "admin-secret"
             return AdminIdentity(username=user, auth_source="secret")
         return None
