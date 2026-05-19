@@ -1238,8 +1238,8 @@ export default function ChatPage() {
                     <div className="wiki-content text-xs text-[#A0A0A0]">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                     </div>
-  1240	                    {(m.agentHandoff?.recommended_mode === 'agent' || m.intent === 'execution' || m.intent === 'analysis') && (
-  1241	                      <div className="mt-3 border-t border-white/10 pt-3 space-y-2" data-testid="agent-handoff-actions">
+                    {(m.agentHandoff?.recommended_mode === 'agent' || m.intent === 'execution' || m.intent === 'analysis') && (
+                      <div className="mt-3 border-t border-white/10 pt-3 space-y-2" data-testid="agent-handoff-actions">
                         <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#737373]">
                           Recommended next step
                         </div>
