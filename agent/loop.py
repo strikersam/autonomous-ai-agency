@@ -28,6 +28,7 @@ from agent.user_memory import UserMemoryStore
 from router import get_router
 
 log = logging.getLogger("qwen-agent")
+_VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "analyze"})
 
 DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
 DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
@@ -118,17 +119,19 @@ class AgentRunner:
                 )
 
         # Check for parallel execution opportunity (falls through to sequential)
-        await self._maybe_run_parallel(
+        parallel_result = await self._maybe_run_parallel(
             plan=plan,
             requested_model=requested_model,
             auto_commit=auto_commit,
             session_id=session_id,
         )
+        if parallel_result is not None:
+            return parallel_result
 
         for step in plan.steps[:max_steps]:
             step_data = step.model_dump()
             self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
-            result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+            result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store, session_id=session_id)
             # Sub-agent condensed summary: trim step results before storing so
             # the orchestrator's context stays lean.  (1-2k token budget.)
             condensed = ContextManager.condense_step_result(result)
@@ -172,6 +175,8 @@ class AgentRunner:
                     break
                 except Exception:
                     continue
+            if not judge:
+                judge = {"verdict": "BLOCKED", "failure_phase": "judge", "notes": "Judge failed to produce a valid response after 3 attempts."}
 
         summary = self._build_summary(plan.goal, step_results, commits)
         self._log_event(session_id, "assistant_message", {"summary": summary})
@@ -192,6 +197,40 @@ class AgentRunner:
             "summary": summary,
             "judge": judge,
         }
+
+    def _normalize_plan_response(self, raw: dict[str, Any], instruction: str) -> dict[str, Any]:
+        """Normalise a raw planner JSON response into a consistent plan dict.
+
+        Handles:
+        - ``slices`` key renamed to ``steps`` (some model outputs use CRISPY schema)
+        - Missing or empty ``goal`` derived from ``instruction`` (truncated to 200 chars)
+        - Step ``type`` defaulted/corrected to ``analyze`` when absent or unrecognised
+        """
+        # Rename slices -> steps
+        if "slices" in raw and "steps" not in raw:
+            raw = dict(raw)
+            raw["steps"] = raw.pop("slices")
+
+        # Derive goal from instruction if absent
+        if not raw.get("goal"):
+            raw = dict(raw)
+            raw["goal"] = instruction[:200]
+        elif len(raw["goal"]) > 200:
+            raw = dict(raw)
+            raw["goal"] = raw["goal"][:200]
+
+        # Normalise step types
+        steps = raw.get("steps") or []
+        normalised_steps = []
+        for step in steps:
+            step = dict(step)
+            if step.get("type") not in _VALID_STEP_TYPES:
+                # Default to "edit" when files are listed, "analyze" otherwise
+                step["type"] = "edit" if step.get("files") else "analyze"
+            normalised_steps.append(step)
+        raw = dict(raw)
+        raw["steps"] = normalised_steps
+        return raw
 
     async def _generate_plan(
         self,
@@ -219,6 +258,7 @@ class AgentRunner:
         )
         try:
             raw = await self._chat_json(planner_model, messages)
+            raw = self._normalize_plan_response(raw, instruction)
             plan = AgentPlan.model_validate(raw)
         except Exception as exc:
             raise AgentPhaseError(f"planning: {exc}") from exc
@@ -232,6 +272,7 @@ class AgentRunner:
         requested_model: str | None,
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         observations: list[dict[str, Any]] = []
         context_items: list[dict[str, Any]] = []
@@ -288,7 +329,9 @@ class AgentRunner:
                 observations.append({"tool": "spawn_subagent", "result": sub_result.get("summary", str(sub_result))})
                 context_items.append({"tool": "spawn_subagent", "result": sub_result})
                 continue
+            self._log_event(session_id, "tool_call", {"tool": call.tool, "args": call.args})
             result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
+            self._log_event(session_id, "tool_result", {"tool": call.tool, "result": str(result)[:500]})
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
 
@@ -373,18 +416,36 @@ class AgentRunner:
                 new_content = self._clean_generated_file_content(new_content)
                 syntax_issues = self._local_syntax_check(out_path, new_content)
                 syntax_issues.extend(self._local_safety_check(out_path, new_content))
-                verification = await self._chat_json(
-                    verifier_model,
-                    build_verification_prompt(
-                        goal=goal,
-                        step=step,
-                        target_file=out_path,
-                        original_content=original_content,
-                        new_content=new_content,
-                        syntax_issues=syntax_issues,
-                    ),
-                )
-                verdict = VerificationResult.model_validate(verification)
+                try:
+                    verification = await self._chat_json(
+                        verifier_model,
+                        build_verification_prompt(
+                            goal=goal,
+                            step=step,
+                            target_file=out_path,
+                            original_content=original_content,
+                            new_content=new_content,
+                            syntax_issues=syntax_issues,
+                        ),
+                    )
+                    verdict = VerificationResult.model_validate(verification)
+                except Exception as verif_exc:
+                    retries += 1
+                    feedback_issues = syntax_issues + [f"verifier_output_invalid: {verif_exc}"]
+                    # StopIteration (exhausted mock iterator) or persistent format failure → fail immediately
+                    is_exhausted = isinstance(verif_exc, (StopIteration, RuntimeError)) and "StopIteration" in str(verif_exc)
+                    if retries > 2 or is_exhausted:
+                        return {
+                            "step_id": step["id"],
+                            "description": step["description"],
+                            "status": "failed",
+                            "failure_phase": "verification",
+                            "issues": feedback_issues,
+                            "changed_files": changed_files,
+                            "observations": observations,
+                            "models": {"executor": executor_model, "verifier": verifier_model},
+                        }
+                    continue
                 if verdict.status == "pass" and not syntax_issues:
                     diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
@@ -751,8 +812,8 @@ class AgentRunner:
                 text=True,
             )
             return proc.stdout.strip()
-        except subprocess.CalledProcessError as exc:
-            log.warning("Auto-commit failed: %s", exc.stderr.strip() if exc.stderr else exc)
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
+            log.warning("Auto-commit failed: %s", exc)
             return None
 
     async def _maybe_run_parallel(
@@ -784,6 +845,8 @@ class AgentRunner:
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Spawn a child AgentRunner for a delegated sub-task."""
+        if not instruction or not instruction.strip():
+            return {"error": "spawn_subagent requires a non-empty instruction"}
         sub = AgentRunner(
             ollama_base=self.ollama_base,
             workspace_root=self.tools.root,
