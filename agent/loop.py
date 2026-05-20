@@ -562,6 +562,12 @@ class AgentRunner:
             return history
 
     async def _chat_text(self, model: str, messages: list[dict[str, str]]) -> str:
+        """Send chat messages and return the assistant's text output.
+
+        If an Anthropic/Bedrock Opus model is configured and the request targets
+        an Opus/Claude model, prefer calling Anthropic (Opus) directly. Fall
+        back to the Ollama-compatible endpoint otherwise.
+        """
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
@@ -569,6 +575,73 @@ class AgentRunner:
             payload["options"] = {"num_ctx": self.num_ctx}
         if self.keep_alive:
             payload["keep_alive"] = self.keep_alive
+
+        # Prefer Anthropic Opus when available for Claude/Opus-like models
+        try:
+            opus_model = None
+            try:
+                from router.model_router import _opus_model
+                opus_model = _opus_model()
+            except Exception:
+                opus_model = None
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+            target_is_opus = "opus" in model.lower() or model.lower().startswith("claude")
+            if anthropic_key and (target_is_opus or (opus_model and model == opus_model)):
+                try:
+                    import anthropic as _anthropic
+                    client = _anthropic.Anthropic(api_key=anthropic_key)
+                    # Split off system message (Anthropic expects a separate system arg)
+                    system_content = None
+                    anth_messages: list[dict[str, str]] = []
+                    for m in messages:
+                        if m.get("role") == "system":
+                            system_content = m.get("content")
+                        else:
+                            anth_messages.append({"role": m.get("role"), "content": m.get("content")})
+                    use_model = opus_model if opus_model else model
+                    resp = client.messages.create(
+                        model=use_model,
+                        max_tokens=4096,
+                        system=system_content or "",
+                        messages=anth_messages,
+                    )
+                    # Collect text blocks
+                    out_parts: list[str] = []
+                    for block in resp.content:
+                        if getattr(block, "type", None) == "text":
+                            out_parts.append(block.text)
+                    out_text = "\n".join(out_parts)
+
+                    # Try to emit Langfuse observation asynchronously
+                    if self.email:
+                        try:
+                            import asyncio
+                            from langfuse_obs import emit_chat_observation
+                            usage = {}
+                            await asyncio.to_thread(
+                                emit_chat_observation,
+                                email=self.email,
+                                department=self.department or "agent",
+                                key_id=self.key_id,
+                                model=use_model,
+                                messages=messages,
+                                output_text=out_text,
+                                prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                                completion_tokens=int(usage.get("completion_tokens") or 0),
+                                latency_ms=0,
+                                task_name="agent-task",
+                            )
+                        except Exception:
+                            pass
+
+                    return out_text
+                except Exception as exc:
+                    log.debug("Anthropic Opus call failed (falling back to Ollama): %s", exc)
+        except Exception:
+            # Any unexpected error should not break the normal Ollama path
+            pass
+
+        # Fallback: call Ollama-compatible endpoint
         headers = {"Content-Type": "application/json", **self.provider_headers}
         start = time.perf_counter()
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
@@ -577,7 +650,7 @@ class AgentRunner:
         resp.raise_for_status()
         data = resp.json()
         out_text = data["choices"][0]["message"]["content"]
-        
+
         # Emit Langfuse observation
         if self.email:
             usage = data.get("usage", {})
