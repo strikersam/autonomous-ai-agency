@@ -70,3 +70,36 @@ def detect_intent(content: str) -> str:
         return INTENT_CLARIFY
 
     return INTENT_CONVERSATION
+
+
+# New helper: classify into higher-level direct chat categories
+def classify_direct_chat_intent(content: str) -> str:
+    """Map lower-level intents into conversation-driven action categories.
+
+    Returns one of: 'answer_only', 'clarify_needed', 'plan_only', 'execute_now', 'execute_after_approval'
+    """
+    base = detect_intent(content)
+
+    # Quick map for clarity
+    if base == INTENT_CLARIFY:
+        return "clarify_needed"
+    if base == INTENT_CONVERSATION:
+        return "answer_only"
+    if base == INTENT_ANALYSIS:
+        # Analysis typically means the user wants an inspection and a plan
+        return "plan_only"
+
+    # Execution intent: check for sensitive targets or explicit approval cues
+    if base == INTENT_EXECUTION:
+        sensitive_indicators = ["admin_auth", "key_store", "secrets", "password", "credential", "private key", "service_manager", "auth"]
+        lowered = content.lower()
+        if any(si in lowered for si in sensitive_indicators):
+            return "execute_after_approval"
+        # If user asked explicitly for a plan or proposal, only plan
+        if any(phrase in lowered for phrase in ("plan", "proposal", "what would you do", "how would you")):
+            return "plan_only"
+        # Otherwise, proceed to execute now for concrete requests
+        return "execute_now"
+
+    # Default to answer only
+    return "answer_only"

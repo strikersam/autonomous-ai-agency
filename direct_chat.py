@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent.job_manager import AgentJobManager, make_isolated_workspace
-from agent.intent import detect_intent, INTENT_EXECUTION, INTENT_CLARIFY, INTENT_ANALYSIS, INTENT_CONVERSATION
+from agent.intent import detect_intent, classify_direct_chat_intent, INTENT_EXECUTION, INTENT_CLARIFY, INTENT_ANALYSIS, INTENT_CONVERSATION
 from agent.doctor import DirectChatDoctor, translate_error_to_conversational
 from agent.schemas import DirectChatState
 from tokens import verify_token
@@ -205,8 +205,8 @@ async def send_chat_message(
 ):
     """Unified orchestration entry point for all direct chat messages."""
 
-    # 1. Intent Detection
-    intent = detect_intent(req.content)
+    # 1. Intent Detection — classify into higher-level direct-chat categories
+    intent = classify_direct_chat_intent(req.content)
     session_id = req.session_id or str(uuid.uuid4())
     _ensure_session(session_id, user)
 
@@ -219,27 +219,36 @@ async def send_chat_message(
         req.repo_ref = session.repo_ref
 
     # 3. Handle Special Intents
-    if intent == INTENT_CLARIFY:
+    # Note: classify_direct_chat_intent returns higher-level categories like 'clarify_needed', 'answer_only', 'plan_only', 'execute_now', 'execute_after_approval'
+    if intent == "clarify_needed" or intent == INTENT_CLARIFY:
         msg = "I can definitely help with that, but could you please provide a bit more detail on what exactly you'd like me to change or fix? I want to make sure I have all the context before I start."
         _direct_chat_store.append_message(session_id, "user", req.content)
         _direct_chat_store.append_message(session_id, "assistant", msg)
         return JSONResponse(content={"session_id": session_id, "response": msg, "intent": intent, "state": DirectChatState.NEEDS_INPUT})
 
-    # 4. Auto-promotion to Execution Flow
-    # We promote based on intent and context, not explicit agent mode for normal usage
-    # Agent Mode remains as a power-user override for forcing execution
-    is_technical = intent in (INTENT_EXECUTION, INTENT_ANALYSIS)
+    # 4. Auto-promotion to Execution Flow (intent-driven)
     is_trivial = _is_trivial_message(req.content)
 
-    # For normal users: auto-promote on technical non-trivial requests
-    # For power users: agent_mode can force execution even on trivial/clarification requests
-    should_execute = is_technical and not is_trivial
-    force_execute = req.agent_mode and not is_trivial  # Only force on non-trivial to avoid annoying behavior
-
-    if should_execute or force_execute:
-        return await _handle_agent_mode(req, user, request, session_id, intent)
-    else:
+    # Map classifier categories to action
+    if intent == "answer_only":
         return await _handle_regular_chat(req, user, request, session_id)
+
+    # Prepare metadata flags to instruct the agent runner
+    req.metadata = req.metadata or {}
+    if intent == "plan_only":
+        req.metadata["plan_only"] = True
+    if intent == "execute_after_approval":
+        req.metadata["require_approval"] = True
+
+    # Safety: do not auto-execute trivial messages even if classify says execute
+    if is_trivial and intent in ("execute_now", "execute_after_approval", "plan_only") and not req.agent_mode:
+        # Treat as clarification to avoid accidental execution
+        msg = "That sounds like a request to modify the repository. Could you confirm what you want me to change?"
+        _direct_chat_store.append_message(session_id, "assistant", msg)
+        return JSONResponse(content={"session_id": session_id, "response": msg, "intent": "clarify_needed", "state": DirectChatState.NEEDS_INPUT})
+
+    # If we reach here, proceed with agent flow (either plan-only or execution)
+    return await _handle_agent_mode(req, user, request, session_id)
 async def _handle_regular_chat(
     req: ChatSendRequest,
     user: UserInfo,
@@ -479,9 +488,17 @@ async def _do_handle_agent_mode(
             metadata=req.metadata
         )
 
-        # Check for risky plans that need approval
-        if plan.requires_risky_review:
-            heartbeat("needs_approval", f"I've created a plan, but it involves sensitive changes to security or core files. Please review and approve to proceed. Goal: {plan.goal}")
+        # If caller asked for plan-only, return the plan summary and stop here
+        if req.metadata and req.metadata.get("plan_only"):
+            assistant_plan = getattr(plan, "summary", None) or getattr(plan, "goal", None) or str(plan)
+            _direct_chat_store.append_message(session_id, "assistant", assistant_plan)
+            heartbeat("completed", "Plan generated")
+            return {"session_id": session_id, "response": assistant_plan, "status": "planned"}
+
+        # Check for risky plans that need approval OR explicit require_approval flag
+        requires_approval = getattr(plan, "requires_risky_review", False) or (req.metadata and req.metadata.get("require_approval"))
+        if requires_approval:
+            heartbeat("needs_approval", f"I've created a plan, but it involves sensitive changes that need your approval. Goal: {getattr(plan,'goal', '')}")
             resume_data = await wait_for_resume(job.job_id, session_id)
             if resume_data.get("action") != "approve":
                 heartbeat("failed", "Task cancelled by user during approval.")
@@ -499,7 +516,7 @@ async def _do_handle_agent_mode(
         return {"session_id": session_id, "response": assistant_message, "status": "succeeded"}
 
     _agent_jobs.start_job(job.job_id, _run_agent_job)
-    return JSONResponse(status_code=202, content={"session_id": session_id, "job_id": job.job_id, "status": job.status, "phase": job.phase, "message": "Assistant is working on your request."})
+    return JSONResponse(status_code=202, content={"session_id": session_id, "job_id": job.job_id, "status": job.status, "phase": job.phase, "message": "Assistant is working on your request.", "state": DirectChatState.WORKING})
 
 
 @direct_chat_router.get("/agent-status", response_model=AgentStatusResponse)
