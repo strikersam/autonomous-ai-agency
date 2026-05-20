@@ -92,6 +92,9 @@ class AgentRunner:
         # Store current session_id for use by helper methods that need to
         # write into the durable session event log (e.g., tool_call/tool_result).
         self._current_session_id = session_id
+        # Keep the current session marker for the duration of the run so
+        # helper methods like _run_tool can write durable events to the
+        # correct session. Ensure it is cleared on exit.
         try:
             # Context compaction: if history is long, summarise the old portion
             # before planning so the planner doesn't spend tokens on verbatim
@@ -109,96 +112,96 @@ class AgentRunner:
                 instruction, effective_history, requested_model, max_steps, user_id, memory_store
             )
             self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
+
+            step_results: list[dict[str, Any]] = []
+            commits: list[str] = []
+
+            # Warn about risky steps before executing
+            for step in plan.steps[:max_steps]:
+                if step.risky:
+                    log.warning(
+                        "RISKY MODULE: step %d touches security-sensitive files: %s",
+                        step.id, step.files,
+                    )
+
+            # Check for parallel execution opportunity (falls through to sequential)
+            await self._maybe_run_parallel(
+                plan=plan,
+                requested_model=requested_model,
+                auto_commit=auto_commit,
+                session_id=session_id,
+            )
+
+            for step in plan.steps[:max_steps]:
+                step_data = step.model_dump()
+                self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
+                result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+                # Sub-agent condensed summary: trim step results before storing so
+                # the orchestrator's context stays lean.  (1-2k token budget.)
+                condensed = ContextManager.condense_step_result(result)
+                self._log_event(session_id, "step_complete", condensed)
+                step_results.append(result)
+                if auto_commit and result["status"] == "applied" and result["changed_files"]:
+                    commit = self._commit_step(step_data["description"], result["changed_files"])
+                    if commit:
+                        commits.append(commit)
+
+            # Judge the overall run result
+            judge: dict[str, Any] = {}
+            if step_results:
+                judge_model = requested_model or DEFAULT_VERIFIER_MODEL
+                judge_messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a code-review judge. Respond with ONLY a JSON object with keys: "
+                            "verdict (APPROVED, APPROVED_WITH_CONDITIONS, or REJECTED), "
+                            "security (PASS, WARN, or FAIL), correctness (PASS, WARN, or FAIL), "
+                            "notes (string)."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Goal: {plan.goal}\n"
+                            f"Steps completed: {len(step_results)}\n"
+                            f"All applied: {all(s.get('status') == 'applied' for s in step_results)}\n"
+                            f"Risky review required: {plan.requires_risky_review}"
+                        ),
+                    },
+                ]
+                for _ in range(3):
+                    try:
+                        raw = await self._chat_json(judge_model, judge_messages)
+                        if "verdict" not in raw:
+                            continue
+                        judge = raw
+                        break
+                    except Exception:
+                        continue
+
+            summary = self._build_summary(plan.goal, step_results, commits)
+            self._log_event(session_id, "assistant_message", {"summary": summary})
+
+            # Update auth context if passed in run()
+            if user_id:
+                self.email = user_id
+            if department:
+                self.department = department
+            if key_id:
+                self.key_id = key_id
+
+            return {
+                "goal": plan.goal,
+                "plan": plan.model_dump(),
+                "steps": step_results,
+                "commits": commits,
+                "summary": summary,
+                "judge": judge,
+            }
         finally:
             # Clear the ephemeral session marker to avoid accidental cross-session writes
             self._current_session_id = None
-
-        step_results: list[dict[str, Any]] = []
-        commits: list[str] = []
-
-        # Warn about risky steps before executing
-        for step in plan.steps[:max_steps]:
-            if step.risky:
-                log.warning(
-                    "RISKY MODULE: step %d touches security-sensitive files: %s",
-                    step.id, step.files,
-                )
-
-        # Check for parallel execution opportunity (falls through to sequential)
-        await self._maybe_run_parallel(
-            plan=plan,
-            requested_model=requested_model,
-            auto_commit=auto_commit,
-            session_id=session_id,
-        )
-
-        for step in plan.steps[:max_steps]:
-            step_data = step.model_dump()
-            self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
-            result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
-            # Sub-agent condensed summary: trim step results before storing so
-            # the orchestrator's context stays lean.  (1-2k token budget.)
-            condensed = ContextManager.condense_step_result(result)
-            self._log_event(session_id, "step_complete", condensed)
-            step_results.append(result)
-            if auto_commit and result["status"] == "applied" and result["changed_files"]:
-                commit = self._commit_step(step_data["description"], result["changed_files"])
-                if commit:
-                    commits.append(commit)
-
-        # Judge the overall run result
-        judge: dict[str, Any] = {}
-        if step_results:
-            judge_model = requested_model or DEFAULT_VERIFIER_MODEL
-            judge_messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a code-review judge. Respond with ONLY a JSON object with keys: "
-                        "verdict (APPROVED, APPROVED_WITH_CONDITIONS, or REJECTED), "
-                        "security (PASS, WARN, or FAIL), correctness (PASS, WARN, or FAIL), "
-                        "notes (string)."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Goal: {plan.goal}\n"
-                        f"Steps completed: {len(step_results)}\n"
-                        f"All applied: {all(s.get('status') == 'applied' for s in step_results)}\n"
-                        f"Risky review required: {plan.requires_risky_review}"
-                    ),
-                },
-            ]
-            for _ in range(3):
-                try:
-                    raw = await self._chat_json(judge_model, judge_messages)
-                    if "verdict" not in raw:
-                        continue
-                    judge = raw
-                    break
-                except Exception:
-                    continue
-
-        summary = self._build_summary(plan.goal, step_results, commits)
-        self._log_event(session_id, "assistant_message", {"summary": summary})
-
-        # Update auth context if passed in run()
-        if user_id:
-            self.email = user_id
-        if department:
-            self.department = department
-        if key_id:
-            self.key_id = key_id
-
-        return {
-            "goal": plan.goal,
-            "plan": plan.model_dump(),
-            "steps": step_results,
-            "commits": commits,
-            "summary": summary,
-            "judge": judge,
-        }
 
     async def _generate_plan(
         self,
@@ -452,14 +455,14 @@ class AgentRunner:
     ) -> Any:
         # Emit a durable event for the tool call so the harness/UI can show live tool usage
         try:
-            self._log_event(user_id or None, "tool_call", {"tool": tool, "args": args})
+            self._log_event(getattr(self, "_current_session_id", None), "tool_call", {"tool": tool, "args": args})
         except Exception:
             # Non-fatal: logging should not break tool execution
             pass
         try:
             result = await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
             try:
-                self._log_event(user_id or None, "tool_result", {"tool": tool, "result": result})
+                self._log_event(getattr(self, "_current_session_id", None), "tool_result", {"tool": tool, "result": result})
             except Exception:
                 pass
             return result
@@ -471,7 +474,7 @@ class AgentRunner:
             log.warning("tool %r failed: %s", tool, exc)
             err = f"[tool error: {exc}]"
             try:
-                self._log_event(user_id or None, "tool_result", {"tool": tool, "result": err})
+                self._log_event(getattr(self, "_current_session_id", None), "tool_result", {"tool": tool, "result": err})
             except Exception:
                 pass
             return err
