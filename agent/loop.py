@@ -89,22 +89,29 @@ class AgentRunner:
         memory_store: UserMemoryStore | None = None,
         session_id: str | None = None,
     ) -> dict[str, Any]:
-        # Context compaction: if history is long, summarise the old portion
-        # before planning so the planner doesn't spend tokens on verbatim
-        # repetition.  (Anthropic managed-agents: preserve architectural
-        # decisions, discard redundant tool outputs.)
-        effective_history = history
-        if self.ctx.needs_compaction(history):
-            effective_history = await self._compact_history(
-                history, requested_model, session_id
+        # Store current session_id for use by helper methods that need to
+        # write into the durable session event log (e.g., tool_call/tool_result).
+        self._current_session_id = session_id
+        try:
+            # Context compaction: if history is long, summarise the old portion
+            # before planning so the planner doesn't spend tokens on verbatim
+            # repetition.  (Anthropic managed-agents: preserve architectural
+            # decisions, discard redundant tool outputs.)
+            effective_history = history
+            if self.ctx.needs_compaction(history):
+                effective_history = await self._compact_history(
+                    history, requested_model, session_id
+                )
+
+            self._log_event(session_id, "user_message", {"instruction": instruction})
+
+            plan = await self._generate_plan(
+                instruction, effective_history, requested_model, max_steps, user_id, memory_store
             )
-
-        self._log_event(session_id, "user_message", {"instruction": instruction})
-
-        plan = await self._generate_plan(
-            instruction, effective_history, requested_model, max_steps, user_id, memory_store
-        )
-        self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
+            self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
+        finally:
+            # Clear the ephemeral session marker to avoid accidental cross-session writes
+            self._current_session_id = None
 
         step_results: list[dict[str, Any]] = []
         commits: list[str] = []
