@@ -443,15 +443,31 @@ class AgentRunner:
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
     ) -> Any:
+        # Emit a durable event for the tool call so the harness/UI can show live tool usage
         try:
-            return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
+            self._log_event(user_id or None, "tool_call", {"tool": tool, "args": args})
+        except Exception:
+            # Non-fatal: logging should not break tool execution
+            pass
+        try:
+            result = await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
+            try:
+                self._log_event(user_id or None, "tool_result", {"tool": tool, "result": result})
+            except Exception:
+                pass
+            return result
         except Exception as exc:
             # The harness catches tool failures as tool-call errors and feeds
             # them back to the model — it never surfaces raw exceptions.
             # (Anthropic managed-agents: decoupled sandbox; if the container
             # dies the harness returns the failure as a tool result.)
             log.warning("tool %r failed: %s", tool, exc)
-            return f"[tool error: {exc}]"
+            err = f"[tool error: {exc}]"
+            try:
+                self._log_event(user_id or None, "tool_result", {"tool": tool, "result": err})
+            except Exception:
+                pass
+            return err
 
     async def _dispatch_tool(
         self,
