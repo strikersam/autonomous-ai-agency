@@ -226,18 +226,20 @@ async def send_chat_message(
         return JSONResponse(content={"session_id": session_id, "response": msg, "intent": intent, "state": DirectChatState.NEEDS_INPUT})
 
     # 4. Auto-promotion to Execution Flow
-    # We promote if intent is execution/analysis, unless explicitly disabled or trivial
+    # We promote based on intent and context, not explicit agent mode for normal usage
+    # Agent Mode remains as a power-user override for forcing execution
     is_technical = intent in (INTENT_EXECUTION, INTENT_ANALYSIS)
     is_trivial = _is_trivial_message(req.content)
 
-    should_execute = (req.agent_mode or is_technical) and not (is_trivial and not req.agent_mode)
+    # For normal users: auto-promote on technical non-trivial requests
+    # For power users: agent_mode can force execution even on trivial/clarification requests
+    should_execute = is_technical and not is_trivial
+    force_execute = req.agent_mode and not is_trivial  # Only force on non-trivial to avoid annoying behavior
 
-    if should_execute:
+    if should_execute or force_execute:
         return await _handle_agent_mode(req, user, request, session_id, intent)
     else:
         return await _handle_regular_chat(req, user, request, session_id)
-
-
 async def _handle_regular_chat(
     req: ChatSendRequest,
     user: UserInfo,

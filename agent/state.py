@@ -215,6 +215,40 @@ class AgentSessionStore:
 
     # ── event log ─────────────────────────────────────────────────────────────
 
+    def update_repo_context(self, session_id: str, repo_url: str | None, repo_ref: str | None) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            session.repo_url = repo_url
+            session.repo_ref = repo_ref
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET repo_url = ?, repo_ref = ?, updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (repo_url, repo_ref, session.updated_at, session_id),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_task_context(self, session_id: str, objective: str) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            session.active_objective = objective
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET active_objective = ?, updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (objective, session.updated_at, session_id),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
     def append_event(
         self,
         session_id: str,
