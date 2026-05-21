@@ -57,6 +57,9 @@ class AgentSessionStore:
                     title        TEXT NOT NULL,
                     provider_id  TEXT,
                     workspace_id TEXT,
+                    repo_url     TEXT,
+                    repo_ref     TEXT,
+                    active_objective TEXT,
                     created_at   TEXT NOT NULL,
                     updated_at   TEXT NOT NULL,
                     last_plan    TEXT,
@@ -109,6 +112,9 @@ class AgentSessionStore:
                     title=row["title"],
                     provider_id=row["provider_id"],
                     workspace_id=row["workspace_id"],
+                    repo_url=row.get("repo_url"),
+                    repo_ref=row.get("repo_ref"),
+                    active_objective=row.get("active_objective"),
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
                     history=[AgentSessionMessage(role=m["role"], content=m["content"]) for m in msgs],
@@ -122,15 +128,18 @@ class AgentSessionStore:
         conn.execute(
             """
             INSERT OR REPLACE INTO agent_sessions
-                (session_id, title, provider_id, workspace_id, created_at, updated_at,
+                (session_id, title, provider_id, workspace_id, repo_url, repo_ref, active_objective, created_at, updated_at,
                  last_plan, last_result, event_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.session_id,
                 session.title,
                 session.provider_id,
                 session.workspace_id,
+                getattr(session, "repo_url", None),
+                getattr(session, "repo_ref", None),
+                getattr(session, "active_objective", None),
                 session.created_at,
                 session.updated_at,
                 json.dumps(session.last_plan.model_dump()) if session.last_plan else None,
