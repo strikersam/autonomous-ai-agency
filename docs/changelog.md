@@ -4,6 +4,7 @@
 
 ### Fixed
 - PR #200: Improve direct chat intent detection and agent-mode auto-execution; add session repo/task context and related fixes.
+- PR #200: Add doctor/preflight tests, runtime policy tests, and direct-chat intent docs.
 
 
 ### Security
