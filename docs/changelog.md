@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+
+### Fixed
+- PR #200: Improve direct chat intent detection and agent-mode auto-execution; add session repo/task context and related fixes.
+- PR #200: Add doctor/preflight tests, runtime policy tests, and direct-chat intent docs.
+
+
 ### Security
 - `.github/workflows/ci-failure-autofix.yml` — Rewrote workflow to fix four CodeQL findings: (1/2) code injection: all `workflow_run` context values (`head_branch`, `head_sha`, `id`) moved to job-level `env:` vars and referenced as `$VAR` in shell — never as `${{ }}` inside `run:` steps; (3/4/5) untrusted code checkout: switched from checking out the PR branch to checking out master only, fetching the failing branch as a non-executed ref, and diffing via `git diff` — untrusted branch code is never executed in the privileged runner context. Added fork guard (`head_repository.full_name == github.repository`).
 

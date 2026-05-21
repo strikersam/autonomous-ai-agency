@@ -90,113 +90,119 @@ class AgentRunner:
         memory_store: UserMemoryStore | None = None,
         session_id: str | None = None,
     ) -> dict[str, Any]:
-        # Context compaction: if history is long, summarise the old portion
-        # before planning so the planner doesn't spend tokens on verbatim
-        # repetition.  (Anthropic managed-agents: preserve architectural
-        # decisions, discard redundant tool outputs.)
-        effective_history = history
-        if self.ctx.needs_compaction(history):
-            effective_history = await self._compact_history(
-                history, requested_model, session_id
-            )
-
-        self._log_event(session_id, "user_message", {"instruction": instruction})
-
-        plan = await self._generate_plan(
-            instruction, effective_history, requested_model, max_steps, user_id, memory_store
-        )
-        self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
-
-        step_results: list[dict[str, Any]] = []
-        commits: list[str] = []
-
-        # Warn about risky steps before executing
-        for step in plan.steps[:max_steps]:
-            if step.risky:
-                log.warning(
-                    "RISKY MODULE: step %d touches security-sensitive files: %s",
-                    step.id, step.files,
+        # Store current session_id for use by helper methods that need to
+        # write into the durable session event log (e.g., tool_call/tool_result).
+        self._current_session_id = session_id
+        # Keep the current session marker for the duration of the run so
+        # helper methods like _run_tool can write durable events to the
+        # correct session. Ensure it is cleared on exit.
+        try:
+            # Context compaction: if history is long, summarise the old portion
+            # before planning so the planner doesn't spend tokens on verbatim
+            # repetition.  (Anthropic managed-agents: preserve architectural
+            # decisions, discard redundant tool outputs.)
+            effective_history = history
+            if self.ctx.needs_compaction(history):
+                effective_history = await self._compact_history(
+                    history, requested_model, session_id
                 )
 
-        # Check for parallel execution opportunity (falls through to sequential)
-        parallel_result = await self._maybe_run_parallel(
-            plan=plan,
-            requested_model=requested_model,
-            auto_commit=auto_commit,
-            session_id=session_id,
-        )
-        if parallel_result is not None:
-            return parallel_result
+            self._log_event(session_id, "user_message", {"instruction": instruction})
 
-        for step in plan.steps[:max_steps]:
-            step_data = step.model_dump()
-            self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
-            result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store, session_id=session_id)
-            # Sub-agent condensed summary: trim step results before storing so
-            # the orchestrator's context stays lean.  (1-2k token budget.)
-            condensed = ContextManager.condense_step_result(result)
-            self._log_event(session_id, "step_complete", condensed)
-            step_results.append(result)
-            if auto_commit and result["status"] == "applied" and result["changed_files"]:
-                commit = self._commit_step(step_data["description"], result["changed_files"])
-                if commit:
-                    commits.append(commit)
+            plan = await self._generate_plan(
+                instruction, effective_history, requested_model, max_steps, user_id, memory_store
+            )
+            self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
-        # Judge the overall run result
-        judge: dict[str, Any] = {}
-        if step_results:
-            judge_model = requested_model or DEFAULT_VERIFIER_MODEL
-            judge_messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a code-review judge. Respond with ONLY a JSON object with keys: "
-                        "verdict (APPROVED, APPROVED_WITH_CONDITIONS, or REJECTED), "
-                        "security (PASS, WARN, or FAIL), correctness (PASS, WARN, or FAIL), "
-                        "notes (string)."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Goal: {plan.goal}\n"
-                        f"Steps completed: {len(step_results)}\n"
-                        f"All applied: {all(s.get('status') == 'applied' for s in step_results)}\n"
-                        f"Risky review required: {plan.requires_risky_review}"
-                    ),
-                },
-            ]
-            for _ in range(3):
-                try:
-                    raw = await self._chat_json(judge_model, judge_messages)
-                    if "verdict" not in raw:
+            step_results: list[dict[str, Any]] = []
+            commits: list[str] = []
+
+            # Warn about risky steps before executing
+            for step in plan.steps[:max_steps]:
+                if step.risky:
+                    log.warning(
+                        "RISKY MODULE: step %d touches security-sensitive files: %s",
+                        step.id, step.files,
+                    )
+
+            # Check for parallel execution opportunity (falls through to sequential)
+            await self._maybe_run_parallel(
+                plan=plan,
+                requested_model=requested_model,
+                auto_commit=auto_commit,
+                session_id=session_id,
+            )
+
+            for step in plan.steps[:max_steps]:
+                step_data = step.model_dump()
+                self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
+                result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+                # Sub-agent condensed summary: trim step results before storing so
+                # the orchestrator's context stays lean.  (1-2k token budget.)
+                condensed = ContextManager.condense_step_result(result)
+                self._log_event(session_id, "step_complete", condensed)
+                step_results.append(result)
+                if auto_commit and result["status"] == "applied" and result["changed_files"]:
+                    commit = self._commit_step(step_data["description"], result["changed_files"])
+                    if commit:
+                        commits.append(commit)
+
+            # Judge the overall run result
+            judge: dict[str, Any] = {}
+            if step_results:
+                judge_model = requested_model or DEFAULT_VERIFIER_MODEL
+                judge_messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a code-review judge. Respond with ONLY a JSON object with keys: "
+                            "verdict (APPROVED, APPROVED_WITH_CONDITIONS, or REJECTED), "
+                            "security (PASS, WARN, or FAIL), correctness (PASS, WARN, or FAIL), "
+                            "notes (string)."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Goal: {plan.goal}\n"
+                            f"Steps completed: {len(step_results)}\n"
+                            f"All applied: {all(s.get('status') == 'applied' for s in step_results)}\n"
+                            f"Risky review required: {plan.requires_risky_review}"
+                        ),
+                    },
+                ]
+                for _ in range(3):
+                    try:
+                        raw = await self._chat_json(judge_model, judge_messages)
+                        if "verdict" not in raw:
+                            continue
+                        judge = raw
+                        break
+                    except Exception:
                         continue
-                    judge = raw
-                    break
-                except Exception:
-                    continue
-            if not judge:
-                judge = {"verdict": "BLOCKED", "failure_phase": "judge", "notes": "Judge failed to produce a valid response after 3 attempts."}
 
-        summary = self._build_summary(plan.goal, step_results, commits)
-        self._log_event(session_id, "assistant_message", {"summary": summary})
+            summary = self._build_summary(plan.goal, step_results, commits)
+            self._log_event(session_id, "assistant_message", {"summary": summary})
 
-        # Update auth context if passed in run()
-        if user_id:
-            self.email = user_id
-        if department:
-            self.department = department
-        if key_id:
-            self.key_id = key_id
+            # Update auth context if passed in run()
+            if user_id:
+                self.email = user_id
+            if department:
+                self.department = department
+            if key_id:
+                self.key_id = key_id
 
-        return {
-            "goal": plan.goal,
-            "plan": plan.model_dump(),
-            "steps": step_results,
-            "commits": commits,
-            "summary": summary,
-            "judge": judge,
-        }
+            return {
+                "goal": plan.goal,
+                "plan": plan.model_dump(),
+                "steps": step_results,
+                "commits": commits,
+                "summary": summary,
+                "judge": judge,
+            }
+        finally:
+            # Clear the ephemeral session marker to avoid accidental cross-session writes
+            self._current_session_id = None
 
     def _normalize_plan_response(self, raw: dict[str, Any], instruction: str) -> dict[str, Any]:
         """Normalise a raw planner JSON response into a consistent plan dict.
@@ -504,15 +510,31 @@ class AgentRunner:
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
     ) -> Any:
+        # Emit a durable event for the tool call so the harness/UI can show live tool usage
         try:
-            return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
+            self._log_event(getattr(self, "_current_session_id", None), "tool_call", {"tool": tool, "args": args})
+        except Exception:
+            # Non-fatal: logging should not break tool execution
+            pass
+        try:
+            result = await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
+            try:
+                self._log_event(getattr(self, "_current_session_id", None), "tool_result", {"tool": tool, "result": result})
+            except Exception:
+                pass
+            return result
         except Exception as exc:
             # The harness catches tool failures as tool-call errors and feeds
             # them back to the model — it never surfaces raw exceptions.
             # (Anthropic managed-agents: decoupled sandbox; if the container
             # dies the harness returns the failure as a tool result.)
             log.warning("tool %r failed: %s", tool, exc)
-            return f"[tool error: {exc}]"
+            err = f"[tool error: {exc}]"
+            try:
+                self._log_event(getattr(self, "_current_session_id", None), "tool_result", {"tool": tool, "result": err})
+            except Exception:
+                pass
+            return err
 
     async def _dispatch_tool(
         self,
@@ -623,6 +645,12 @@ class AgentRunner:
             return history
 
     async def _chat_text(self, model: str, messages: list[dict[str, str]]) -> str:
+        """Send chat messages and return the assistant's text output.
+
+        If an Anthropic/Bedrock Opus model is configured and the request targets
+        an Opus/Claude model, prefer calling Anthropic (Opus) directly. Fall
+        back to the Ollama-compatible endpoint otherwise.
+        """
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
@@ -630,6 +658,73 @@ class AgentRunner:
             payload["options"] = {"num_ctx": self.num_ctx}
         if self.keep_alive:
             payload["keep_alive"] = self.keep_alive
+
+        # Prefer Anthropic Opus when available for Claude/Opus-like models
+        try:
+            opus_model = None
+            try:
+                from router.model_router import _opus_model
+                opus_model = _opus_model()
+            except Exception:
+                opus_model = None
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+            target_is_opus = "opus" in model.lower() or model.lower().startswith("claude")
+            if anthropic_key and (target_is_opus or (opus_model and model == opus_model)):
+                try:
+                    import anthropic as _anthropic
+                    client = _anthropic.Anthropic(api_key=anthropic_key)
+                    # Split off system message (Anthropic expects a separate system arg)
+                    system_content = None
+                    anth_messages: list[dict[str, str]] = []
+                    for m in messages:
+                        if m.get("role") == "system":
+                            system_content = m.get("content")
+                        else:
+                            anth_messages.append({"role": m.get("role"), "content": m.get("content")})
+                    use_model = opus_model if opus_model else model
+                    resp = client.messages.create(
+                        model=use_model,
+                        max_tokens=4096,
+                        system=system_content or "",
+                        messages=anth_messages,
+                    )
+                    # Collect text blocks
+                    out_parts: list[str] = []
+                    for block in resp.content:
+                        if getattr(block, "type", None) == "text":
+                            out_parts.append(block.text)
+                    out_text = "\n".join(out_parts)
+
+                    # Try to emit Langfuse observation asynchronously
+                    if self.email:
+                        try:
+                            import asyncio
+                            from langfuse_obs import emit_chat_observation
+                            usage = {}
+                            await asyncio.to_thread(
+                                emit_chat_observation,
+                                email=self.email,
+                                department=self.department or "agent",
+                                key_id=self.key_id,
+                                model=use_model,
+                                messages=messages,
+                                output_text=out_text,
+                                prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                                completion_tokens=int(usage.get("completion_tokens") or 0),
+                                latency_ms=0,
+                                task_name="agent-task",
+                            )
+                        except Exception:
+                            pass
+
+                    return out_text
+                except Exception as exc:
+                    log.debug("Anthropic Opus call failed (falling back to Ollama): %s", exc)
+        except Exception:
+            # Any unexpected error should not break the normal Ollama path
+            pass
+
+        # Fallback: call Ollama-compatible endpoint
         headers = {"Content-Type": "application/json", **self.provider_headers}
         start = time.perf_counter()
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
@@ -638,7 +733,7 @@ class AgentRunner:
         resp.raise_for_status()
         data = resp.json()
         out_text = data["choices"][0]["message"]["content"]
-        
+
         # Emit Langfuse observation
         if self.email:
             usage = data.get("usage", {})
