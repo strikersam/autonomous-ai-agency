@@ -248,7 +248,8 @@ async def send_chat_message(
         return JSONResponse(content={"session_id": session_id, "response": msg, "intent": "clarify_needed", "state": DirectChatState.NEEDS_INPUT})
 
     # If we reach here, proceed with agent flow (either plan-only or execution)
-    return await _handle_agent_mode(req, user, request, session_id)
+    return await _handle_agent_mode(req, user, request, session_id, intent)
+
 async def _handle_regular_chat(
     req: ChatSendRequest,
     user: UserInfo,
