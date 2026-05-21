@@ -720,6 +720,66 @@ class AgentRunner:
                     return out_text
                 except Exception as exc:
                     log.debug("Anthropic Opus call failed (falling back to Ollama): %s", exc)
+
+            # Bedrock fallback: used when only AWS credentials are set (no ANTHROPIC_API_KEY)
+            if not anthropic_key and target_is_opus:
+                aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
+                aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
+                aws_region = (
+                    os.environ.get("AWS_REGION")
+                    or os.environ.get("AWS_DEFAULT_REGION")
+                    or os.environ.get("BEDROCK_REGION")
+                    or "us-east-1"
+                )
+                bedrock_model = os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-6-v1"
+                if aws_access and aws_secret:
+                    try:
+                        import anthropic as _anthropic
+                        bedrock_client = _anthropic.AnthropicBedrock(
+                            aws_access_key=aws_access,
+                            aws_secret_key=aws_secret,
+                            aws_region=aws_region,
+                        )
+                        system_content = None
+                        anth_messages: list[dict[str, str]] = []
+                        for m in messages:
+                            if m.get("role") == "system":
+                                system_content = m.get("content")
+                            else:
+                                anth_messages.append({"role": m.get("role"), "content": m.get("content")})
+                        resp = bedrock_client.messages.create(
+                            model=bedrock_model,
+                            max_tokens=4096,
+                            system=system_content or "",
+                            messages=anth_messages,
+                        )
+                        out_parts: list[str] = []
+                        for block in resp.content:
+                            if getattr(block, "type", None) == "text":
+                                out_parts.append(block.text)
+                        out_text = "\n".join(out_parts)
+                        if self.email:
+                            try:
+                                import asyncio
+                                from langfuse_obs import emit_chat_observation
+                                await asyncio.to_thread(
+                                    emit_chat_observation,
+                                    email=self.email,
+                                    department=self.department or "agent",
+                                    key_id=self.key_id,
+                                    model=bedrock_model,
+                                    messages=messages,
+                                    output_text=out_text,
+                                    prompt_tokens=0,
+                                    completion_tokens=0,
+                                    latency_ms=0,
+                                    task_name="agent-task",
+                                )
+                            except Exception:
+                                pass
+                        return out_text
+                    except Exception as exc:
+                        log.debug("Bedrock Opus call failed (falling back to Ollama): %s", exc)
         except Exception:
             # Any unexpected error should not break the normal Ollama path
             pass
