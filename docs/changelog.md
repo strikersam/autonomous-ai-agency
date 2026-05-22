@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Fixed
+- Friday repo maintenance (2026-05-22): Audited all open PRs (none found), verified all 14 CI workflow files for broken action versions and invalid npm packages (all clean), confirmed agent state healthy (status: ready, all checkpoints done), reset agent state for fresh agency cycle.
+
+
+### Fixed
 - `agent/loop.py` — `_chat_text` now supports AWS Bedrock (`AnthropicBedrock`) as a fallback when only AWS credentials are set and no `ANTHROPIC_API_KEY` is present, enabling Render deployments with Bedrock-only auth to route Opus calls correctly.
 - `.github/scripts/implement_agent.py` — Added `_make_anthropic_client()` helper that selects Bedrock over Anthropic direct when AWS credentials are available; Bedrock is now tried as the Claude Opus primary before falling back to NVIDIA NIM.
 - `.github/scripts/review_agent.py` — `_call_review_llm()` now tries Bedrock before Anthropic direct; `main()` accepts AWS credentials as a valid API source.
