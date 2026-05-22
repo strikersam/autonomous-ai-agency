@@ -64,7 +64,9 @@ test('agent-mode accepted job is shown as pending and final result replaces it (
 
   // Agent job panel should appear with queued/running state
   expect(await screen.findByText(/Agent job/i)).toBeInTheDocument();
-  expect(screen.getByText(/queued|running/i)).toBeInTheDocument();
+  // The job panel renders status in multiple elements (pill, subtitle div, etc.);
+  // use getAllByText so the assertion is resilient to additional UI showing the same word.
+  expect(screen.getAllByText(/queued|running/i).length).toBeGreaterThan(0);
 
   // Advance timers to let polling run once (running)
   await act(async () => {

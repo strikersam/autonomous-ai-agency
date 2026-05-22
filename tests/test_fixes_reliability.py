@@ -62,7 +62,7 @@ class TestAgentRunnerPublicPlanMethod:
 
         runner._generate_plan = fake_generate  # type: ignore[method-assign]
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             runner.plan(
                 instruction="Build a feature",
                 history=[],
@@ -160,7 +160,7 @@ class TestTaskDispatcherDiagnostics:
         dispatcher._first_seen["task-abc"] = time.monotonic() - 1.5  # 1.5s ago
 
         with caplog.at_level(logging.INFO, logger="qwen-proxy"):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 dispatcher._execute_task("task-abc")
             )
 
