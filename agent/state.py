@@ -97,6 +97,17 @@ class AgentSessionStore:
                 "CREATE INDEX IF NOT EXISTS idx_events_session "
                 "ON agent_events (session_id, position)"
             )
+            # Schema migrations: add columns that may be absent in older DBs.
+            for _col, _typedef in [
+                ("repo_url", "TEXT"),
+                ("repo_ref", "TEXT"),
+                ("active_objective", "TEXT"),
+                ("event_count", "INTEGER NOT NULL DEFAULT 0"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE agent_sessions ADD COLUMN {_col} {_typedef}")  # noqa: S608
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             conn.commit()
 
     def _load_all(self) -> dict[str, AgentSession]:
