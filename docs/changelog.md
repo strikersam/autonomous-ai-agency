@@ -9,6 +9,9 @@
 - `frontend/src/pages/DashboardHome.js` — Replaced `Promise.all([…])` with `Promise.allSettled(…)`: a single failing API endpoint (e.g. `/api/stats` blip) previously blanked the entire dashboard with `AxiosError: Network Error`. Now shows partial data with a non-blocking amber warning banner.
 - `agent/agency.py` — Added directive de-duplication: directives whose title matches an already-pending/running directive are skipped, preventing the CEO from re-dispatching the same task every cycle and flooding the scheduler.
 - `tasks/dispatcher.py` — Added `_first_seen` time tracking and no-pickup diagnostics: tasks pending >2 min log a `WARNING` with a pointer to `/runtimes/health`; time-to-pickup logged at `INFO` on every dispatch.
+- `.github/scripts/implement_agent.py` — `TOOL_DISPATCH` now uses `.get()` with key fallbacks (`cmd`/`command`/`shell` for bash, `path`/`file` for read/write) so NVIDIA NIM Qwen3-coder alternate key names no longer cause `KeyError` crashes (#208).
+- `agent/state.py` — Added SQLite schema migrations for `repo_url`, `repo_ref`, `active_objective`, and `event_count` columns so older databases upgrade automatically without manual intervention.
+- `runtimes/manager.py` — Exposed `get_policy()` on `RuntimeManager` for runtime policy introspection.
 
 ### Added
 - `scripts/test_ci.sh` — CI-parity helper: starts MongoDB via Docker, installs deps in a fresh venv, sets identical env vars to `ci.yml`, runs `pytest -x -v`. Invoked via `make ci-parity`.
