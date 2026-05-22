@@ -107,14 +107,15 @@ class AgentSessionStore:
                     "SELECT role, content FROM session_messages WHERE session_id = ? ORDER BY id",
                     (row["session_id"],),
                 ).fetchall()
+                _keys = row.keys()
                 sessions[row["session_id"]] = AgentSession(
                     session_id=row["session_id"],
                     title=row["title"],
                     provider_id=row["provider_id"],
                     workspace_id=row["workspace_id"],
-                    repo_url=row.get("repo_url"),
-                    repo_ref=row.get("repo_ref"),
-                    active_objective=row.get("active_objective"),
+                    repo_url=row["repo_url"] if "repo_url" in _keys else None,
+                    repo_ref=row["repo_ref"] if "repo_ref" in _keys else None,
+                    active_objective=row["active_objective"] if "active_objective" in _keys else None,
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
                     history=[AgentSessionMessage(role=m["role"], content=m["content"]) for m in msgs],
