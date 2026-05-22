@@ -104,22 +104,9 @@ def test_coordinate_dependency_aware_tasks_succeed_with_dependencies(monkeypatch
         json={
             "goal": "ship feature",
             "max_concurrent": 2,
-            "agents": [
-                {"agent_id": "planner", "capabilities": ["planning", "general"]},
-                {"agent_id": "coder", "capabilities": ["code"]},
-            ],
-            "tasks": [
-                {
-                    "task_id": "plan",
-                    "instruction": "plan first",
-                    "task_type": "planning",
-                },
-                {
-                    "task_id": "code",
-                    "instruction": "code second",
-                    "task_type": "code",
-                    "dependencies": ["plan"],
-                },
+            "workers": [
+                {"worker_id": "planner", "instruction": "plan first"},
+                {"worker_id": "coder", "instruction": "code second"},
             ],
         },
     )

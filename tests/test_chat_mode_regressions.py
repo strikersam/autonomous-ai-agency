@@ -291,22 +291,21 @@ def test_chat_send_returns_schedule_suggestion_for_recurring_automation_requests
 
 
 def test_chat_send_persists_agent_handoff_metadata_in_session_history(client, monkeypatch) -> None:
+    # pymongo creates a new Collection object on every attribute access, so patching
+    # individual collection methods (insert_one, update_one …) silently patches a
+    # throw-away instance that the handler never sees.  Patch _persist_chat_session
+    # directly to capture what the handler would persist, and separately verify that
+    # the handler does NOT fall through to the regular LLM path for this prompt.
     unexpected_direct_call = AsyncMock(
         side_effect=AssertionError("direct llm path should not attempt workspace actions")
     )
-    update_session = AsyncMock()
-    session_id = ObjectId()
+    persisted_calls: list[list[dict]] = []
+
+    async def _fake_persist(*, messages: list[dict], **_kwargs: object) -> None:
+        persisted_calls.append(messages)
 
     monkeypatch.setattr("backend.server.call_llm", unexpected_direct_call)
-    monkeypatch.setattr(
-        "backend.server.db.chat_sessions.insert_one",
-        AsyncMock(return_value=SimpleNamespace(inserted_id=session_id)),
-    )
-    monkeypatch.setattr(
-        "backend.server.db.chat_sessions.find_one",
-        AsyncMock(return_value={"messages": []}),
-    )
-    monkeypatch.setattr("backend.server.db.chat_sessions.update_one", update_session)
+    monkeypatch.setattr("backend.server._persist_chat_session", _fake_persist)
     headers = _auth_headers(client)
 
     response = client.post(
@@ -322,8 +321,8 @@ def test_chat_send_persists_agent_handoff_metadata_in_session_history(client, mo
     )
 
     assert response.status_code == 200, response.text
-    persisted_messages = update_session.await_args.args[1]["$set"]["messages"]
-    assistant_message = persisted_messages[-1]
+    assert persisted_calls, "expected _persist_chat_session to be called"
+    assistant_message = persisted_calls[-1][-1]
     assert assistant_message["assistant_meta"]["type"] == "agent_handoff"
     assert assistant_message["assistant_meta"]["recommended_mode"] == "agent"
     assert assistant_message["assistant_meta"]["workflow_suggestions"][0]["kind"] == "task"
