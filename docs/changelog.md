@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- `.github/scripts/implement_agent.py` — NVIDIA NIM tool dispatch now tolerates alternate argument key names (`command`/`cmd`, `file`/`path`) that Qwen3-coder occasionally emits instead of the schema-defined names, preventing `KeyError` crashes in the fallback loop.
+
+### Fixed
 - Friday repo maintenance (2026-05-22): Audited all open PRs (none found), verified all 14 CI workflow files for broken action versions and invalid npm packages (all clean), confirmed agent state healthy (status: ready, all checkpoints done), reset agent state for fresh agency cycle.
 
 
