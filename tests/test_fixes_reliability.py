@@ -43,8 +43,14 @@ class TestAgentRunnerPublicPlanMethod:
             "AgentRunner.run() must accept metadata= (direct_chat.py passes it)"
         )
 
-    def test_plan_delegates_to_generate_plan(self, tmp_path):
-        """plan() should delegate to _generate_plan() and return an AgentPlan."""
+    async def test_plan_delegates_to_generate_plan(self, tmp_path):
+        """plan() should delegate to _generate_plan() and return an AgentPlan.
+
+        Uses async def so pytest-asyncio manages the event loop via
+        asyncio_mode = auto — avoids asyncio.run() / asyncio.get_event_loop()
+        which mutate the global loop slot and break session-scoped loops in
+        Python 3.12+.
+        """
         from agent.loop import AgentRunner
         from agent.models import AgentPlan, AgentStep
 
@@ -62,13 +68,11 @@ class TestAgentRunnerPublicPlanMethod:
 
         runner._generate_plan = fake_generate  # type: ignore[method-assign]
 
-        result = asyncio.run(
-            runner.plan(
-                instruction="Build a feature",
-                history=[],
-                requested_model=None,
-                max_steps=5,
-            )
+        result = await runner.plan(
+            instruction="Build a feature",
+            history=[],
+            requested_model=None,
+            max_steps=5,
         )
         assert result is fake_plan
 
@@ -142,8 +146,12 @@ class TestTaskDispatcherDiagnostics:
         )
         assert isinstance(dispatcher._first_seen, dict)
 
-    def test_dispatcher_logs_time_to_pickup(self, caplog):
-        """Executing a task removes it from _first_seen and logs pickup time."""
+    async def test_dispatcher_logs_time_to_pickup(self, caplog):
+        """Executing a task removes it from _first_seen and logs pickup time.
+
+        Uses async def so pytest-asyncio (asyncio_mode = auto) manages the loop
+        rather than asyncio.run(), which would close and clear the session loop.
+        """
         import logging
         from tasks.dispatcher import TaskDispatcher
         from tasks.store import TaskStore
@@ -160,9 +168,7 @@ class TestTaskDispatcherDiagnostics:
         dispatcher._first_seen["task-abc"] = time.monotonic() - 1.5  # 1.5s ago
 
         with caplog.at_level(logging.INFO, logger="qwen-proxy"):
-            asyncio.run(
-                dispatcher._execute_task("task-abc")
-            )
+            await dispatcher._execute_task("task-abc")
 
         assert "task-abc" not in dispatcher._first_seen
         assert any("task-abc" in r.message for r in caplog.records)
