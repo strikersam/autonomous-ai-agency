@@ -154,9 +154,9 @@ def tool_search(query: str) -> str:
 
 
 TOOL_DISPATCH = {
-    "bash": lambda inp: tool_bash(inp["cmd"]),
-    "read_file": lambda inp: tool_read_file(inp["path"]),
-    "write_file": lambda inp: tool_write_file(inp["path"], inp["content"]),
+    "bash": lambda inp: tool_bash(inp.get("cmd") or inp.get("command") or inp.get("shell", "")),
+    "read_file": lambda inp: tool_read_file(inp.get("path") or inp.get("file", "")),
+    "write_file": lambda inp: tool_write_file(inp.get("path") or inp.get("file", ""), inp.get("content", "")),
     "add_changelog_entry": lambda inp: tool_add_changelog_entry(inp["entry"]),
     "list_files": lambda inp: tool_list_files(inp.get("pattern", "**/*.py")),
     "search_code": lambda inp: tool_search(inp["query"]),
