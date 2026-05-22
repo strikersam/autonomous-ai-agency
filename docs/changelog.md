@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- `.github/workflows/deploy-backend.yml` — Added `permissions: contents: read` to limit GITHUB_TOKEN scope (CodeQL P1). Expanded `push.paths` to cover all files copied by `Dockerfile.backend`: `agents/**`, `mcp_server/**`, `schedules/**`, `docker/**`, `sync/**`, `setup/**`, `hardware/**`, `rbac.py`, `secrets_store.py`, `commercial_equivalent.py`, `tokens.py` — previously missing paths caused silent workflow skips on backend-only changes (Codex P1).
+
+### Fixed
 - `runtimes/adapters/internal_agent.py` — Removed `provider_chain=None` kwarg from `AgentRunner()` construction; `AgentRunner.__init__` never accepted this parameter, causing `TypeError: __init__() got an unexpected keyword argument 'provider_chain'` on every `InternalAgentAdapter.execute()` call and silently keeping all runtime-backed tasks idle.
 - `agent/loop.py` — Added public `AgentRunner.plan()` coroutine wrapper; `direct_chat.py` called `runner.plan()` which raised `AttributeError: 'AgentRunner' object has no attribute 'plan'` on every in-context agent execution.
 - `agent/loop.py` — Added `metadata: dict | None = None` parameter to `AgentRunner.plan()` and `AgentRunner.run()`; `direct_chat.py` passed `metadata=req.metadata` to `run()`, causing `TypeError` on every agent job.
