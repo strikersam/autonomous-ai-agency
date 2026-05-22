@@ -37,7 +37,20 @@ class AgentSessionStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = str(path)
         self._lock = threading.RLock()
-        self._init_db()
+        try:
+            self._init_db()
+        except sqlite3.OperationalError as exc:
+            # Some filesystems (virtiofs, network mounts) reject SQLite journal
+            # operations. Fall back to a temp-dir DB so the server remains functional.
+            import tempfile
+            fallback = Path(tempfile.gettempdir()) / ("agent_state_" + path.stem + ".db")
+            log.warning(
+                "AgentSessionStore: could not open DB at %s (%s). "
+                "Falling back to %s — data will not persist across restarts.",
+                self._db_path, exc, fallback,
+            )
+            self._db_path = str(fallback)
+            self._init_db()
         self._sessions: dict[str, AgentSession] = self._load_all()
         log.info("AgentSessionStore loaded %d session(s) from %s", len(self._sessions), self._db_path)
 
@@ -46,6 +59,17 @@ class AgentSessionStore:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        # Prefer MEMORY journaling to avoid disk I/O errors on restricted/virtual
+        # filesystems (virtiofs, Docker overlay, network mounts). MEMORY is safe
+        # here because the store holds its own in-memory cache as the source of
+        # truth; durability is provided by the write-through cache, not the journal.
+        for mode in ("MEMORY", "DELETE", "OFF"):
+            try:
+                result = conn.execute(f"PRAGMA journal_mode={mode}").fetchone()
+                if result and result[0].upper() == mode:
+                    break
+            except sqlite3.OperationalError:
+                continue
         return conn
 
     def _init_db(self) -> None:
@@ -97,7 +121,31 @@ class AgentSessionStore:
                 "CREATE INDEX IF NOT EXISTS idx_events_session "
                 "ON agent_events (session_id, position)"
             )
+            # ── schema migrations: add columns that may be absent in older DBs ──
+            existing = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(agent_sessions)").fetchall()
+            }
+            for col, definition in [
+                ("repo_url",          "TEXT"),
+                ("repo_ref",          "TEXT"),
+                ("active_objective",  "TEXT"),
+                ("event_count",       "INTEGER NOT NULL DEFAULT 0"),
+            ]:
+                if col not in existing:
+                    conn.execute(
+                        f"ALTER TABLE agent_sessions ADD COLUMN {col} {definition}"
+                    )
+                    log.info("Migrated agent_sessions: added column '%s'", col)
             conn.commit()
+
+    @staticmethod
+    def _row_get(row: sqlite3.Row, key: str, default=None):
+        """Safe getter for sqlite3.Row — Row supports index access but not .get()."""
+        try:
+            return row[key]
+        except IndexError:
+            return default
 
     def _load_all(self) -> dict[str, AgentSession]:
         sessions: dict[str, AgentSession] = {}
@@ -107,21 +155,21 @@ class AgentSessionStore:
                     "SELECT role, content FROM session_messages WHERE session_id = ? ORDER BY id",
                     (row["session_id"],),
                 ).fetchall()
-                _keys = row.keys()
+                col_names = row.keys()
                 sessions[row["session_id"]] = AgentSession(
                     session_id=row["session_id"],
                     title=row["title"],
                     provider_id=row["provider_id"],
                     workspace_id=row["workspace_id"],
-                    repo_url=row["repo_url"] if "repo_url" in _keys else None,
-                    repo_ref=row["repo_ref"] if "repo_ref" in _keys else None,
-                    active_objective=row["active_objective"] if "active_objective" in _keys else None,
+                    repo_url=self._row_get(row, "repo_url"),
+                    repo_ref=self._row_get(row, "repo_ref"),
+                    active_objective=self._row_get(row, "active_objective"),
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
                     history=[AgentSessionMessage(role=m["role"], content=m["content"]) for m in msgs],
                     last_plan=json.loads(row["last_plan"]) if row["last_plan"] else None,
                     last_result=json.loads(row["last_result"]) if row["last_result"] else None,
-                    event_count=row["event_count"] if "event_count" in row.keys() else 0,
+                    event_count=row["event_count"] if "event_count" in col_names else 0,
                 )
         return sessions
 
@@ -259,6 +307,28 @@ class AgentSessionStore:
                 )
                 conn.commit()
             return AgentSession.model_validate(session.model_dump())
+    def update_session_metadata(self, session_id: str, metadata: dict) -> AgentSession:
+        """Merge *metadata* into the session's metadata dict (in-memory only; not persisted)."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(f"Session {session_id!r} not found")
+            current = dict(session.metadata or {})
+            current.update(metadata)
+            session.metadata = current
+            session.updated_at = _now()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_resume_payload(self, session_id: str, payload: dict | None) -> AgentSession:
+        """Store or clear the resume payload for a paused agent job."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(f"Session {session_id!r} not found")
+            session.resume_payload = payload
+            session.updated_at = _now()
+            return AgentSession.model_validate(session.model_dump())
+
     def append_event(
         self,
         session_id: str,
