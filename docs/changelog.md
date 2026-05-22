@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- `.github/workflows/deploy-backend.yml` — Replaced unsafe nested-quote `echo` (Python one-liner inside `$()` inside escaped double-quotes) with a simple portable `echo "Deploy triggered successfully (HTTP $HTTP_CODE)"`. The previous syntax caused Bash on GitHub Actions Ubuntu runners to exit with `syntax error near unexpected token` and report workflow failure on every master push, even though the Render deploy hook already accepted the request (HTTP 202).
+
+### Fixed
 - `runtimes/manager.py` — Added missing `list_runtimes() -> list[dict]` method; `runtimes/api.py` `GET /runtimes/` was calling it and crashing with `AttributeError`, causing a 500 on `/api/agents/runtimes` for all users.
 
 ### Changed
