@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+- `runtimes/adapters/internal_agent.py` — Removed `provider_chain=None` kwarg from `AgentRunner()` construction; `AgentRunner.__init__` never accepted this parameter, causing `TypeError: __init__() got an unexpected keyword argument 'provider_chain'` on every `InternalAgentAdapter.execute()` call and silently keeping all runtime-backed tasks idle.
+- `agent/loop.py` — Added public `AgentRunner.plan()` coroutine wrapper; `direct_chat.py` called `runner.plan()` which raised `AttributeError: 'AgentRunner' object has no attribute 'plan'` on every in-context agent execution.
+- `agent/loop.py` — Added `metadata: dict | None = None` parameter to `AgentRunner.plan()` and `AgentRunner.run()`; `direct_chat.py` passed `metadata=req.metadata` to `run()`, causing `TypeError` on every agent job.
+- `frontend/src/pages/DashboardHome.js` — Replaced `Promise.all([…])` with `Promise.allSettled(…)`: a single failing API endpoint (e.g. `/api/stats` blip) previously blanked the entire dashboard with `AxiosError: Network Error`. Now shows partial data with a non-blocking amber warning banner.
+- `agent/agency.py` — Added directive de-duplication: directives whose title matches an already-pending/running directive are skipped, preventing the CEO from re-dispatching the same task every cycle and flooding the scheduler.
+- `tasks/dispatcher.py` — Added `_first_seen` time tracking and no-pickup diagnostics: tasks pending >2 min log a `WARNING` with a pointer to `/runtimes/health`; time-to-pickup logged at `INFO` on every dispatch.
+
+### Added
+- `scripts/test_ci.sh` — CI-parity helper: starts MongoDB via Docker, installs deps in a fresh venv, sets identical env vars to `ci.yml`, runs `pytest -x -v`. Invoked via `make ci-parity`.
+- `Makefile` — `ci-parity` target runs `scripts/test_ci.sh`.
+- `tests/test_fixes_reliability.py` — 11 regression tests covering all fixes above.
+
 ### Added
 - `frontend/src/pages/ChatPage.js` — Auto-escalation: `handleSend()` now detects strong execution intent (multi-reason or execution-signal keywords) and silently upgrades to agent mode, so users never need to manually toggle Agent Mode for coding/repo tasks.
 - `frontend/src/components/AgentStatusPanel.jsx` — Humanized `JobProgressPanel`: when a job is running but no agent cards have spawned yet, shows the current phase label ("Planning the change", "Editing files", etc.), a live event timeline from `progress_events`, and a phase breadcrumb — instead of "No active agents".

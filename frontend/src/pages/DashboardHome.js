@@ -85,21 +85,35 @@ export default function DashboardHome() {
     const loadData = async () => {
       setLoading(true);
       setError(null);
-      try {
-        const [statsRes, activityRes, healthRes] = await Promise.all([
-          getStats(),
-          getActivity(),
-          healthCheck()
-        ]);
-        setStats(statsRes.data);
-        setActivity(activityRes.data);
-        // Health data could be used for a health indicator if needed
-      } catch (err) {
-        setError(err?.response?.data?.detail || 'Failed to load dashboard data');
-        console.error('Dashboard load error:', err);
-      } finally {
-        setLoading(false);
+      // Use allSettled so a single failing endpoint never tanks the whole dashboard.
+      const [statsResult, activityResult] = await Promise.allSettled([
+        getStats(),
+        getActivity(),
+        // healthCheck is fire-and-forget — we don't block rendering on it
+        healthCheck().catch(() => null),
+      ]);
+
+      let partialFailure = false;
+
+      if (statsResult.status === 'fulfilled') {
+        setStats(statsResult.value?.data ?? null);
+      } else {
+        partialFailure = true;
+        console.warn('Dashboard: stats endpoint failed', statsResult.reason);
       }
+
+      if (activityResult.status === 'fulfilled') {
+        setActivity(activityResult.value?.data ?? []);
+      } else {
+        partialFailure = true;
+        console.warn('Dashboard: activity endpoint failed', activityResult.reason);
+      }
+
+      if (partialFailure) {
+        setError('Some dashboard data could not be loaded. The page will keep retrying.');
+      }
+
+      setLoading(false);
     };
 
     loadData();
@@ -121,13 +135,23 @@ export default function DashboardHome() {
     );
   }
 
-  if (error) {
+  // Partial-failure banner — shown inline above the dashboard content rather
+  // than replacing it, so users can still see whatever data did load.
+  const errorBanner = error ? (
+    <div className="mb-4 flex items-start gap-3 rounded-xl bg-[var(--warning)]/10 border border-[var(--warning)]/20 p-4">
+      <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-[var(--warning)]" />
+      <p className="text-[0.85rem] text-[var(--text-secondary)]">{error}</p>
+    </div>
+  ) : null;
+
+  if (false) {
+    // Legacy full-page error block kept for reference — never reached.
     return (
       <div className="p-6">
         <div className="bg-[var(--danger)]/10 border border-[var(--danger)]/20 rounded-xl p-5">
           <AlertCircle size={16} className="mb-3 text-[var(--danger)]" />
           <p className="text-[0.9rem] text-[var(--text-primary)]">Error: {error}</p>
-          <button onClick={() => window.location.reload()} 
+          <button onClick={() => window.location.reload()}
             className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20 rounded-lg font-medium transition-colors">
             Refresh <ArrowUpRight size={12} />
           </button>
@@ -138,6 +162,7 @@ export default function DashboardHome() {
 
   return (
     <div className="p-6">
+      {errorBanner}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

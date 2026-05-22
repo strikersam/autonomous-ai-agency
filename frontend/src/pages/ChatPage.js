@@ -140,7 +140,10 @@ function detectAgentModeRecommendation(content = '', githubConnected = false) {
 
   if (!reasonCodes.length) return null;
   if (asksForExplanation && !hasExecutionSignal) return null;
-  if (reasonCodes.length === 1 && !asksForConcreteChanges) return null;
+  // Allow through when there is an explicit execution verb even with only one
+  // category signal (e.g. "Fix … in the repo and commit the changes" has
+  // workspace keyword + execution signal but no "concrete changes" phrase).
+  if (reasonCodes.length === 1 && !asksForConcreteChanges && !hasExecutionSignal) return null;
 
   return {
     recommended_mode: 'agent',

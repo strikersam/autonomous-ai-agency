@@ -12,6 +12,20 @@ from tokens import create_tokens, verify_token, refresh_access_token
 _OBJECT_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
 
 
+def _configured_v3_email() -> str:
+    """Return the admin e-mail that matches whatever the server is configured with.
+
+    Priority: V3_ADMIN_EMAIL → ADMIN_EMAIL → fallback literal.
+    When the DB is unavailable the server falls back to env-based auth using
+    ADMIN_EMAIL, so this helper must resolve to the same value or the login
+    endpoint will return 401 even with the correct password.
+    """
+    return (
+        os.environ.get("V3_ADMIN_EMAIL")
+        or os.environ.get("ADMIN_EMAIL", "admin@localhost")
+    )
+
+
 def _configured_v3_password() -> str:
     return (
         os.environ.get("V3_ADMIN_PASSWORD")
@@ -93,7 +107,7 @@ def test_invalid_refresh_token():
 @pytest.mark.asyncio
 async def test_v3_auth_login_endpoint(client: TestClient):
     """Test login endpoint returns valid tokens."""
-    admin_email = os.environ.get("V3_ADMIN_EMAIL", "admin@localhost")
+    admin_email = _configured_v3_email()
     admin_secret = _configured_v3_password()
 
     if not admin_secret:
@@ -127,7 +141,7 @@ async def test_v3_auth_login_invalid_credentials(client: TestClient):
 @pytest.mark.asyncio
 async def test_v3_auth_me_endpoint(client: TestClient):
     """Test getting current user with valid token."""
-    admin_email = os.environ.get("V3_ADMIN_EMAIL", "admin@localhost")
+    admin_email = _configured_v3_email()
     admin_secret = _configured_v3_password()
 
     if not admin_secret:
@@ -177,7 +191,7 @@ async def test_v3_auth_me_missing_token(client: TestClient):
 @pytest.mark.asyncio
 async def test_v3_auth_refresh_endpoint(client: TestClient):
     """Test refreshing access token."""
-    admin_email = os.environ.get("V3_ADMIN_EMAIL", "admin@localhost")
+    admin_email = _configured_v3_email()
     admin_secret = _configured_v3_password()
 
     if not admin_secret:
@@ -220,7 +234,7 @@ async def test_v3_auth_refresh_invalid_token(client: TestClient):
 @pytest.mark.asyncio
 async def test_v3_auth_logout_endpoint(client: TestClient):
     """Test logout endpoint."""
-    admin_email = os.environ.get("V3_ADMIN_EMAIL", "admin@localhost")
+    admin_email = _configured_v3_email()
     admin_secret = _configured_v3_password()
 
     if not admin_secret:
