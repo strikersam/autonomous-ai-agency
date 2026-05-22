@@ -401,7 +401,10 @@ def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, 
             # retried — they will never recover and would exhaust all 120 turns before
             # NVIDIA fallback can run.
             status = getattr(exc, "status_code", None)
-            if status in (401, 403, 404):
+            err_str = str(exc)
+            # 400 "credit balance too low" is a billing hard-stop — never recovers
+            is_billing_error = status == 400 and "credit balance" in err_str.lower()
+            if status in (401, 403, 404) or is_billing_error:
                 print(f"Anthropic permanent error ({status}): {exc} — falling back to NVIDIA", file=sys.stderr)
                 break
             print(f"Anthropic transient error: {exc}", file=sys.stderr)
