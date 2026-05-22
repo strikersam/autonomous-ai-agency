@@ -73,7 +73,7 @@ jobs:
             echo "::error::Render deploy hook returned HTTP $HTTP_CODE"
             exit 1
           fi
-          echo "Deploy triggered — ID: $(echo $BODY | python3 -c \"import json,sys; print(json.load(sys.stdin).get('deploy',{}).get('id','unknown'))\" 2>/dev/null)"
+          echo "Deploy triggered successfully (HTTP $HTTP_CODE)"
 
       - name: Wait and verify backend health
         run: |
