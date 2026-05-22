@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- `.github/workflows/deploy-backend.yml` — Auto-deploy backend to Render on every master push that touches backend code (`backend/**`, `agent/**`, `router/**`, `runtimes/**`, `Dockerfile.backend`, etc.). Uses `RENDER_DEPLOY_HOOK_URL` secret; also supports `workflow_dispatch` for manual triggers. Verifies health endpoint post-deploy.
+
+
 ### Fixed
 - `runtimes/adapters/internal_agent.py` — Removed `provider_chain=None` kwarg from `AgentRunner()` construction; `AgentRunner.__init__` never accepted this parameter, causing `TypeError: __init__() got an unexpected keyword argument 'provider_chain'` on every `InternalAgentAdapter.execute()` call and silently keeping all runtime-backed tasks idle.
 - `agent/loop.py` — Added public `AgentRunner.plan()` coroutine wrapper; `direct_chat.py` called `runner.plan()` which raised `AttributeError: 'AgentRunner' object has no attribute 'plan'` on every in-context agent execution.

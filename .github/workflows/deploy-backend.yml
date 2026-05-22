@@ -1,0 +1,80 @@
+name: Deploy Backend to Render
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+      - 'agent/**'
+      - 'router/**'
+      - 'runtimes/**'
+      - 'tasks/**'
+      - 'handlers/**'
+      - 'workflow/**'
+      - 'provider_router.py'
+      - 'proxy.py'
+      - 'key_store.py'
+      - 'admin_auth.py'
+      - 'langfuse_obs.py'
+      - 'requirements.txt'
+      - 'Dockerfile.backend'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual deploy'
+        required: false
+        default: 'manual trigger'
+
+concurrency:
+  group: render-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Trigger Render Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate deploy hook secret is set
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "::error::RENDER_DEPLOY_HOOK_URL secret is not set or is empty."
+            echo "Go to: Render dashboard -> local-llm-server -> Settings -> Deploy Hook"
+            echo "Copy the hook URL (starts with https://api.render.com/deploy/srv-...)"
+            echo "Then add it as a GitHub secret named RENDER_DEPLOY_HOOK_URL"
+            exit 1
+          fi
+
+      - name: Trigger Render deployment
+        run: |
+          echo "Triggering Render deploy for commit ${{ github.sha }}"
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" \
+            -H "Accept: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          echo "Response code: $HTTP_CODE"
+          echo "Response body: $BODY"
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -gt 299 ]; then
+            echo "::error::Render deploy hook returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "Deploy triggered successfully"
+
+      - name: Wait and verify deploy started
+        run: |
+          echo "Waiting 15s for Render to register the deploy..."
+          sleep 15
+          MAX_ATTEMPTS=20
+          ATTEMPT=0
+          until curl -sf --max-time 10 \
+            "https://local-llm-server.onrender.com/api/health" > /dev/null; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+              echo "::warning::Health check timed out — Render free tier can take 60-90s on first request after deploy."
+              exit 0
+            fi
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS — waiting 10s..."
+            sleep 10
+          done
+          echo "Backend healthy at https://local-llm-server.onrender.com/api/health"
