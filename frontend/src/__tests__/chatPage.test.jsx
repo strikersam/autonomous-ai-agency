@@ -194,6 +194,54 @@ test('preflight banner can enable Agent Mode before sending', async () => {
   expect(chatSend.mock.calls[0][5]).toBe(true);
 });
 
+test('auto-escalates to agent mode for messages with clear execution intent', async () => {
+  // Agent mode is OFF in localStorage (the default).
+  localStorage.removeItem('llmrelay_agent_mode');
+
+  chatSend.mockResolvedValueOnce({
+    data: {
+      session_id: 'session-auto',
+      job_id: 'job-auto',
+      status: 'queued',
+      phase: 'planning',
+    },
+  });
+
+  render(<ChatPage />);
+
+  const user = userEvent.setup();
+  // This message has both a workspace keyword ("repo") and an execution signal ("fix "),
+  // which should trigger auto-escalation even without the agent-mode toggle.
+  await user.type(
+    screen.getByTestId('chat-input'),
+    'Fix the failing tests in the repo and commit the changes',
+  );
+  await user.click(screen.getByTestId('chat-send-button'));
+
+  await waitFor(() => expect(chatSend).toHaveBeenCalledTimes(1));
+  // 6th argument (index 5) is agentMode — must be true due to auto-escalation
+  expect(chatSend.mock.calls[0][5]).toBe(true);
+});
+
+test('does NOT auto-escalate for simple explanation-only messages', async () => {
+  localStorage.removeItem('llmrelay_agent_mode');
+
+  chatSend.mockResolvedValueOnce({
+    data: { session_id: 'session-noop', response: 'Sure, here is an explanation…' },
+  });
+
+  render(<ChatPage />);
+
+  const user = userEvent.setup();
+  // Pure explanation query — should NOT escalate to agent mode.
+  await user.type(screen.getByTestId('chat-input'), 'Explain how the repo structure works');
+  await user.click(screen.getByTestId('chat-send-button'));
+
+  await waitFor(() => expect(chatSend).toHaveBeenCalledTimes(1));
+  // agentMode argument must remain false
+  expect(chatSend.mock.calls[0][5]).toBe(false);
+});
+
 test('restores persisted Agent Mode handoff actions when reopening a session', async () => {
   mockParams = { sessionId: 'session-789' };
   getSession.mockResolvedValueOnce({

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from agent.user_memory import UserMemoryStore
 
+from agent.repowise import RepowiseIntelligence
+
 
 TEXT_EXTENSIONS = {
     ".py", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".ps1",
@@ -19,6 +21,36 @@ TEXT_EXTENSIONS = {
 class WorkspaceTools:
     def __init__(self, root: str | Path | None = None) -> None:
         self.root = Path(root or os.environ.get("AGENT_WORKSPACE_ROOT") or ".").resolve()
+        self.repowise = RepowiseIntelligence(root=self.root)
+
+    def get_answer(self, question: str) -> str:
+        """Delegate to RepowiseIntelligence for a natural-language codebase question."""
+        return self.repowise.get_answer(question)
+
+    def search_codebase(self, query: str) -> str:
+        """Delegate to RepowiseIntelligence for a semantic/text codebase search."""
+        return self.repowise.search_codebase(query)
+
+    def get_decision_flownodes(self) -> str:
+        """Delegate to RepowiseIntelligence to list architectural decision nodes."""
+        return self.repowise.get_decision_flownodes()
+
+    def get_overview(self) -> dict:
+        """Return a high-level repository map and hotspot summary."""
+        return self.repowise.get_overview()
+
+    def get_context(self, targets: list[str], include: list[str] | None = None) -> str:
+        """Return a formatted context block for the given file paths."""
+        kwargs = {"include": include} if include is not None else {}
+        return self.repowise.get_context(targets, **kwargs)
+
+    def get_risk(self, targets: list[str] | None = None, changed_files: list[str] | None = None) -> dict:
+        """Return a risk summary for the workspace or a subset of files."""
+        return self.repowise.get_risk(targets=targets, changed_files=changed_files)
+
+    def get_why(self, target: str) -> str:
+        """Return git-blame / decision rationale for a file."""
+        return self.repowise.get_why(target)
 
     def _resolve_path(self, path: str) -> Path:
         cleaned = path.strip().replace("/", os.sep)

@@ -51,6 +51,22 @@ class RuntimeManager:
     def select_runtime(self, task_type: str, preferred_id: str | None = None) -> tuple[RuntimeAdapter | None, list[dict]]:
         return self._router._pick_runtime(task_type, preferred_id)
 
+    def get_runtime(self, runtime_id: str) -> dict | None:
+        """Return cached health snapshot for a runtime (sync, non-blocking).
+
+        Returns a dict of the form ``{"runtime_id": str, "health": {"available": bool, ...}}``
+        so callers can do ``runtime.get("health", {}).get("available")``.
+        Returns ``None`` when the runtime is not registered or has no cached health.
+        """
+        health = self._health.get_health(runtime_id)
+        if health is None:
+            return None
+        return {"runtime_id": runtime_id, "health": health.as_dict()}
+
+    def get_policy(self) -> dict[str, Any]:
+        """Return the active routing policy as a plain dict."""
+        return self._router.policy.as_dict()
+
     async def get_runtime_health(self, runtime_id: str) -> dict | None:
         circuit = self._health._circuits.get(runtime_id)
         if circuit: circuit.record_success()

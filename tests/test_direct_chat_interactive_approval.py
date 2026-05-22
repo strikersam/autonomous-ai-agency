@@ -19,12 +19,16 @@ async def test_risky_plan_approval_gate(monkeypatch, tmp_path):
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat_interactive.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
 
-    # Bypass auth entirely
-    def mock_verify(token, **kwargs):
-        return {"sub": "user123", "email": "test@example.com", "name": "Test User", "role": "user"}
-    monkeypatch.setattr("tokens.verify_token", mock_verify)
-    monkeypatch.setattr("proxy.verify_token", mock_verify)
-    monkeypatch.setattr("direct_chat.verify_token", mock_verify)
+    # Bypass JWT auth via FastAPI dependency override (clean approach for proxy.app)
+    proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
+    # Also patch tokens.verify_token for belt-and-suspenders (used in _get_current_user)
+    monkeypatch.setattr("tokens.verify_token", lambda token, **kw: {"sub": "user123", "email": "test@example.com"})
+
+    # Short-circuit GitHub token lookup — avoids a 30-second MongoDB connection timeout
+    # in _get_github_token_for_user when no secrets store is configured.
+    async def _fake_github_token(email: str) -> None:
+        return None
+    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", _fake_github_token)
 
     # Mock doctor
     class FakeDoctor:
@@ -79,11 +83,12 @@ async def test_risky_plan_approval_gate(monkeypatch, tmp_path):
     async with AsyncClient(transport=httpx.ASGITransport(app=proxy.app), base_url="http://test") as ac:
         session_id = "interactive-session"
 
-        # Start the job
-        # Use a keyword that triggers execution intent to be safe
+        # Start the job — must NOT contain "plan" or other plan_only trigger words,
+        # otherwise classify_direct_chat_intent returns plan_only and the approval
+        # gate is bypassed before requires_risky_review is evaluated.
         headers = {"Authorization": "Bearer fake-token"}
         response = await ac.post("/api/chat/send", json={
-            "content": "Please fix the bugs in this risky plan",
+            "content": "Please fix all the failing tests and commit the changes",
             "agent_mode": True,
             "session_id": session_id
         }, headers=headers)
@@ -128,3 +133,6 @@ async def test_risky_plan_approval_gate(monkeypatch, tmp_path):
             max_wait -= 0.5
 
         assert status_data.get("state") == "completed"
+
+    # Always clean up dependency overrides
+    proxy.app.dependency_overrides.clear()

@@ -244,16 +244,37 @@ async def run_task_on_runtime(
 
 @runtime_router.post("/{runtime_id}/start")
 async def start_runtime_container(runtime_id: str) -> dict:
-    """Start a stopped runtime container."""
-    result = await start_runtime(runtime_id)
-    # 200 with informational payload — not an error (allows UI to show remote/local info)
+    """Start a stopped runtime container.
+
+    Returns 200 with an informational payload when Docker is unavailable
+    or the runtime is managed remotely — the frontend renders a helpful
+    notice rather than surfacing a 500 error to the user.
+    """
+    try:
+        result = await start_runtime(runtime_id)
+    except Exception as exc:
+        log.warning("start %s: unexpected error (non-Docker env?): %s", runtime_id, exc)
+        return {
+            "runtime_id": runtime_id,
+            "action": "start",
+            "status": "informational",
+            "docker_unavailable": True,
+            "message": "Runtime containers are managed remotely or Docker is unavailable on this host.",
+        }
+    # 200 with informational payload — not an error
     if result.get("docker_unavailable") or result.get("remote_managed"):
         return result
     if result.get("status") == "error":
-        # Ensure external errors never leak stack traces or internal details
+        # Log internally but return an informational 200 so the UI can display it
         internal_error = str(result.get("error", "Unknown"))
-        log.error(f"Runtime start failed for {runtime_id}: {internal_error}")
-        raise HTTPException(status_code=500, detail="Internal server error during runtime startup")
+        log.warning(f"Runtime start non-fatal for {runtime_id}: {internal_error}")
+        return {
+            "runtime_id": runtime_id,
+            "action": "start",
+            "status": "informational",
+            "docker_unavailable": True,
+            "message": "Runtime containers are managed remotely or Docker is unavailable on this host.",
+        }
     return result
 
 
@@ -279,7 +300,16 @@ async def start_all() -> dict:
     show per-runtime status even when some runtimes (e.g. Docker-based
     ones) are unavailable on the current host.
     """
-    result = await start_all_runtimes()
+    try:
+        result = await start_all_runtimes()
+    except Exception as exc:
+        log.warning("start-all: unexpected error (non-Docker env?): %s", exc)
+        return {
+            "status": "informational",
+            "docker_unavailable": True,
+            "runtimes": {},
+            "message": "Runtime containers are managed remotely or Docker is unavailable on this host.",
+        }
     errors = {
         rt_id: rt_res.get("error", "Unknown error")
         for rt_id, rt_res in result.get("runtimes", {}).items()
@@ -297,9 +327,20 @@ async def stop_all() -> dict:
     """Stop all runtime containers.
 
     Returns partial results — individual runtime failures are included
-    in the response body rather than raising a 500.
+    in the response body rather than raising a 500.  When Docker is not
+    available this returns an informational 200 payload so the frontend
+    can display a helpful notice rather than an error.
     """
-    result = await stop_all_runtimes()
+    try:
+        result = await stop_all_runtimes()
+    except Exception as exc:
+        log.warning("stop-all: unexpected error (non-Docker env?): %s", exc)
+        return {
+            "status": "informational",
+            "docker_unavailable": True,
+            "runtimes": {},
+            "message": "Runtime containers are managed remotely or Docker is unavailable on this host.",
+        }
     errors = {
         rt_id: rt_res.get("error", "Unknown error")
         for rt_id, rt_res in result.get("runtimes", {}).items()

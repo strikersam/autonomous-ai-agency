@@ -1,5 +1,6 @@
 from __future__ import annotations
 import shutil
+import subprocess
 import httpx
 import logging
 import os
@@ -27,22 +28,56 @@ class DirectChatDoctor:
         issues = []
 
         # 1. Git Binary
-        if not shutil.which("git"):
+        git_ok = bool(shutil.which("git"))
+        if not git_ok:
             issues.append(PreflightIssue(
                 code="missing_git_binary",
                 message="'git' binary not found on PATH.",
                 fix_hint="Install git and ensure it is on PATH."
             ))
 
-        # 2. GitHub Token
+        # 2. GitHub Token presence
         if not self.github_token:
             issues.append(PreflightIssue(
                 code="missing_github_token",
                 message="No GitHub token available for this user.",
                 fix_hint="Add a GitHub token in Settings or set GH_TOKEN/GITHUB_TOKEN."
             ))
-        else:
-            # 3. GitHub Token Validity
+
+        # 3. Git repo access check (via git ls-remote) — done BEFORE the GitHub API
+        #    round-trip so auth failures surface with a concrete git_repo_access code
+        #    rather than an opaque 401 from the API.
+        if repo_url and git_ok and self.github_token and not issues:
+            try:
+                env = dict(**os.environ)
+                env["GIT_TERMINAL_PROMPT"] = "0"
+                auth_url = repo_url
+                if self.github_token and repo_url.startswith("https://"):
+                    auth_url = repo_url.replace("https://", f"https://{self.github_token}@")
+                proc = subprocess.run(
+                    ["git", "ls-remote", "--heads", auth_url],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=env,
+                    timeout=10,
+                )
+                if proc.returncode != 0:
+                    stderr_text = (proc.stderr or b"").decode("utf-8", errors="ignore")
+                    issues.append(PreflightIssue(
+                        code="git_repo_access",
+                        message=f"Cannot access repository: {stderr_text[:200] or 'git ls-remote failed'}",
+                        fix_hint="Check your GitHub token and repository URL in Settings.",
+                        details={"returncode": proc.returncode, "stderr": stderr_text[:500]},
+                    ))
+            except Exception as e:
+                issues.append(PreflightIssue(
+                    code="git_repo_access",
+                    message=f"Repository access check failed: {e}",
+                    fix_hint="Ensure git is installed and the repository URL is reachable.",
+                ))
+
+        # 4. GitHub Token Validity via API (skipped if repo check already failed)
+        if self.github_token and not issues:
             try:
                 headers = {
                     "Authorization": f"token {self.github_token}",
@@ -59,9 +94,8 @@ class DirectChatDoctor:
                         ))
                     else:
                         scopes = resp.headers.get("X-OAuth-Scopes", "").lower()
-                        # Basic check: should have 'repo' for write ops
                         if "repo" not in scopes:
-                             log.warning("GitHub token missing 'repo' scope")
+                            log.warning("GitHub token missing 'repo' scope")
             except Exception as e:
                 issues.append(PreflightIssue(
                     code="github_api_unreachable",

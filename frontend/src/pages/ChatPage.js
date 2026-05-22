@@ -630,7 +630,24 @@ export default function ChatPage() {
     if (!input.trim() || sending) return;
     const content = input.trim();
     setInput('');
-    await sendMessage({ content, appendUserBubble: true });
+
+    // ── Auto-escalate to agent mode when the message has strong execution intent ──
+    // Users don't need to manually toggle agent mode for repo/coding tasks.
+    let effectiveAgentMode = agentMode;
+    if (!agentMode) {
+      const rec = detectAgentModeRecommendation(content, githubStatus.connected);
+      if (rec) {
+        const lower = content.toLowerCase();
+        const hasExecSignal = DIRECT_CHAT_EXECUTION_SIGNALS.some((s) => lower.includes(s));
+        // Escalate when: multiple intent signals OR explicit execution verb detected
+        if (rec.reason_codes.length >= 2 || hasExecSignal) {
+          effectiveAgentMode = true;
+          setAgentMode(true); // persist so subsequent messages stay in agent mode
+        }
+      }
+    }
+
+    await sendMessage({ content, appendUserBubble: true, agentModeOverride: effectiveAgentMode });
   };
 
   const handleApproveCommercialFallback = async () => {
@@ -882,6 +899,7 @@ export default function ChatPage() {
           <AgentStatusPanel
             sessionId={sessionId}
             agents={agentSnapshot.agents}
+            job={agentJob}
             loading={agentWorkspaceState === 'idle'}
             error={agentWorkspaceState === 'auth_error' ? agentWorkspaceError : null}
             className="h-full min-h-[220px]"

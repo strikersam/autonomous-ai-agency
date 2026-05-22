@@ -115,7 +115,7 @@ def _department_trace_tags(department: str) -> list[str]:
     return [f"dept:{slug}"]
 
 
-def _emit_langfuse_http(
+def _emit_langfuse_http_sync(
     *,
     email: str,
     department: str,
@@ -127,6 +127,7 @@ def _emit_langfuse_http(
     completion_tokens: int,
     meta: dict[str, Any],
     task_name: str,
+    session_id: str | None = None,
 ) -> None:
     base = _base_url()
     pk, sk = _env_val("LANGFUSE_PUBLIC_KEY"), _env_val("LANGFUSE_SECRET_KEY")
@@ -134,14 +135,20 @@ def _emit_langfuse_http(
     gen_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
+    tags = _department_trace_tags(department)
+    if session_id:
+        tags = tags + [f"session:{session_id}"]
+
     trace_body: dict[str, Any] = {
         "id": trace_id,
         "timestamp": now,
         "name": task_name,
         "userId": email,
         "metadata": {"department": department},
-        "tags": _department_trace_tags(department),
+        "tags": tags,
     }
+    if session_id:
+        trace_body["sessionId"] = session_id
     gen_body: dict[str, Any] = {
         "id": gen_id,
         "traceId": trace_id,
@@ -169,12 +176,17 @@ def _emit_langfuse_http(
             raise RuntimeError(f"generation HTTP {g.status_code}: {g.text[:500]}")
 
 
+# Backward-compatible alias
+_emit_langfuse_http = _emit_langfuse_http_sync
+
+
 def _emit_sdk(
     lf: Any,
     *,
     email: str,
     department: str,
     model: str,
+    session_id: str | None = None,
     messages: Any,
     output_text: str,
     prompt_tokens: int,
@@ -226,6 +238,7 @@ def emit_chat_observation(
     ttft_ms: int = 0,
     routing_meta: dict[str, Any] | None = None,
     task_name: str = "chat completion",
+    session_id: str | None = None,
 ) -> None:
     """Record one generation in Langfuse (SDK first, then REST fallback).
 

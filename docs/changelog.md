@@ -2,9 +2,27 @@
 
 ## [Unreleased]
 
+### Added
+- `frontend/src/pages/ChatPage.js` — Auto-escalation: `handleSend()` now detects strong execution intent (multi-reason or execution-signal keywords) and silently upgrades to agent mode, so users never need to manually toggle Agent Mode for coding/repo tasks.
+- `frontend/src/components/AgentStatusPanel.jsx` — Humanized `JobProgressPanel`: when a job is running but no agent cards have spawned yet, shows the current phase label ("Planning the change", "Editing files", etc.), a live event timeline from `progress_events`, and a phase breadcrumb — instead of "No active agents".
+- `tests/test_direct_chat_evolution.py` — `test_agent_runner_no_stale_kwargs`: regression guard that verifies `AgentRunner.__init__` is no longer called with the removed `provider_chain`, `allow_commercial_fallback`, or `tool_callback` kwargs.
+- `frontend/src/__tests__/chatPage.test.jsx` — Two new tests: `auto-escalates to agent mode for messages with clear execution intent` and `does NOT auto-escalate for simple explanation-only messages`.
+
 ### Fixed
-- PR #200: Improve direct chat intent detection and agent-mode auto-execution; add session repo/task context and related fixes.
-- PR #200: Add doctor/preflight tests, runtime policy tests, and direct-chat intent docs.
+- `direct_chat.py` — Removed stale `provider_chain`, `allow_commercial_fallback`, and `tool_callback` kwargs from `AgentRunner(...)` instantiation; the `_on_tool_call` closure and orphaned `import time as _time` import were also removed. Previously caused `TypeError` on every agent-mode execution via the `/api/chat/send` route.
+- `agent/loop.py` — Initialized `self._mcp = None` in `AgentRunner.__init__` so `write_file` and other MCP-aware dispatch paths work without a sidecar; previously raised `AttributeError: 'AgentRunner' object has no attribute '_mcp'` on every non-MCP invocation.
+- `backend/server.py` — Removed stale `provider_chain` and `model_overrides` kwargs from `AgentRunner` calls (both dropped from the public API); previously caused `TypeError` and silent job failures in e2e tests.
+- `backend/server.py` — Changed default `serverSelectionTimeoutMS` for the Motor AsyncIOMotorClient from 30 000 ms to 2 000 ms (configurable via `MONGO_SELECTION_TIMEOUT_MS` env var); previously all tests touching the backend auth/login endpoint silently waited 30 s before falling back to the env-based admin.
+- `runtimes/manager.py` — Added sync `get_runtime(runtime_id)` method returning `{"runtime_id": …, "health": {…}}` so `tasks/service.py` scoring logic can call `runtime_manager.get_runtime(agent.runtime_id)` without `AttributeError`.
+- `tasks/service.py` — Runtime health scoring no longer crashes when `get_runtime` is absent from `RuntimeManager`.
+- `scripts/fabric_cli.py` — Added `FABRIC_PATTERNS_DIR` env-var override so tests (and CI) can redirect pattern writes to a temp dir instead of the repo's `.claude/skills/` tree.
+- `tests/test_fabric_patterns.py` — `test_save_and_show_roundtrip` and `test_new_scaffolds_pattern` now use an isolated `tmp_path` patterns dir via `FABRIC_PATTERNS_DIR`; previously failed with `PermissionError` when the sandbox mounted `.claude/skills/` read-only.
+- `tests/test_direct_chat_interactive_approval.py` — Patched `_get_github_token_for_user` to return immediately instead of waiting up to 30 s for a MongoDB connection; fixed test message to avoid `plan_only` intent classification that bypassed the approval gate.
+- `tests/test_e2e_agent_chat.py` — All `httpx.Response(...)` mock helpers now attach a dummy `httpx.Request` so `raise_for_status()` no longer raises `RuntimeError` in newer httpx versions.
+- `tests/test_direct_chat_doctor.py` — Switched to `@pytest.mark.asyncio` + `await` pattern (removed legacy `asyncio.get_event_loop().run_until_complete()` call).
+
+### Added
+- `runtimes/manager.py` — `get_runtime(runtime_id: str) -> dict | None`: sync helper that returns the last cached health snapshot for a runtime without triggering an async poll.
 
 
 ### Security

@@ -653,3 +653,52 @@ def _filter_fragment(text: str, in_think: bool) -> tuple[str, bool]:
         in_think = True
 
     return "".join(out), in_think
+
+
+# ---------------------------------------------------------------------------
+# Structured output normalisation
+# ---------------------------------------------------------------------------
+
+def _normalize_response_format(payload: dict) -> dict:
+    """Translate OpenAI ``response_format`` into Ollama's ``format`` field.
+
+    For *local* models (no ``/`` in the model name) the transformation is:
+    - ``json_schema`` with a valid ``schema`` key → ``format = <schema dict>``
+    - ``json_object``                             → ``format = "json"``
+    - anything else / malformed                   → payload unchanged
+
+    For *cloud* models (model name contains ``/``, e.g. ``nvidia/nemotron`` or
+    ``openai/gpt-4o``) the ``response_format`` is forwarded verbatim so the
+    cloud endpoint can handle it natively.
+
+    Returns a (possibly modified) copy of *payload*.
+    """
+    response_format = payload.get("response_format")
+    if not isinstance(response_format, dict):
+        return payload
+
+    fmt_type = response_format.get("type")
+    model = payload.get("model", "")
+
+    # Cloud / OpenAI-native endpoints: leave response_format intact
+    is_cloud = "/" in model
+    if is_cloud:
+        return payload
+
+    # Local models: translate to Ollama format field
+    if fmt_type == "json_schema":
+        js = response_format.get("json_schema")
+        if not isinstance(js, dict) or "schema" not in js:
+            # Malformed — leave unchanged so the caller can decide
+            return payload
+        out = {k: v for k, v in payload.items() if k != "response_format"}
+        out["format"] = js["schema"]
+        return out
+
+    if fmt_type == "json_object":
+        out = {k: v for k, v in payload.items() if k != "response_format"}
+        out["format"] = "json"
+        return out
+
+    # Unknown / text / etc — pass through unchanged
+    return payload

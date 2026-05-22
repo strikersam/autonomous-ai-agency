@@ -114,6 +114,9 @@ set_scheduler(SCHEDULER)
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "llm_wiki_dashboard")
+# Shorter timeout prevents 30-second hangs when MongoDB is unavailable (e.g. in CI / tests).
+# Override via MONGO_SELECTION_TIMEOUT_MS env var; default is 2 000 ms.
+MONGO_SELECTION_TIMEOUT_MS = int(os.environ.get("MONGO_SELECTION_TIMEOUT_MS", "2000"))
 JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
 JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("V3_ADMIN_EMAIL") or os.environ.get(
@@ -1773,7 +1776,7 @@ app.add_middleware(
     max_age=3600,  # 1 hour for OAuth state
 )
 
-client = AsyncIOMotorClient(MONGO_URL)
+client = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=MONGO_SELECTION_TIMEOUT_MS)
 db = client[DB_NAME]
 
 
@@ -2727,8 +2730,6 @@ async def _run_agent_loop(
         ollama_base=_resolve_ollama_url(provider.get("base_url") or OLLAMA_BASE),
         workspace_root=workspace_root,
         provider_headers=headers,
-        provider_chain=provider_chain,
-        allow_commercial_fallback=allow_commercial_fallback,
         provider_temperature=0.3,  # default for agent
         session_store=AGENT_EVENT_STORE,
         github_token=github_token,
@@ -2771,7 +2772,6 @@ async def _run_agent_loop(
             instruction=agent_instruction,
             history=session_messages,
             requested_model=requested_model,
-            model_overrides=model_overrides,
             auto_commit=True,
             max_steps=8,
             memory_store=UserMemoryStore(),

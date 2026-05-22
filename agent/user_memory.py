@@ -30,13 +30,32 @@ class UserMemoryStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = str(path)
         self._lock = threading.RLock()
-        self._init_db()
+        try:
+            self._init_db()
+        except sqlite3.OperationalError as exc:
+            import tempfile
+            fallback = Path(tempfile.gettempdir()) / ("user_memory_" + path.stem + ".db")
+            log.warning(
+                "UserMemoryStore: could not open DB at %s (%s). "
+                "Falling back to %s — data will not persist across restarts.",
+                self._db_path, exc, fallback,
+            )
+            self._db_path = str(fallback)
+            self._init_db()
 
     # ── internals ────────────────────────────────────────────────────────────
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        # Prefer MEMORY journaling to avoid disk I/O errors on restricted filesystems.
+        for mode in ("MEMORY", "DELETE", "OFF"):
+            try:
+                result = conn.execute(f"PRAGMA journal_mode={mode}").fetchone()
+                if result and result[0].upper() == mode:
+                    break
+            except sqlite3.OperationalError:
+                continue
         return conn
 
     def _init_db(self) -> None:

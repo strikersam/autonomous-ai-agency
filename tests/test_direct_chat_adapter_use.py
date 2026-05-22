@@ -44,10 +44,14 @@ def test_specialized_runtime_execution(monkeypatch, tmp_path):
     client = TestClient(proxy.app)
     session_id = "adapter-session"
 
-    # Simple auth mock that doesn't break middleware
-    monkeypatch.setattr("tokens.verify_token", lambda token, **kwargs: {"sub": "user123", "email": "test@example.com"})
+    # Use FastAPI dependency override — cleaner and doesn't touch module globals
+    proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
 
-    response = client.post("/api/chat/send", json={"content": "Use specialized tool", "agent_mode": True, "session_id": session_id})
+    response = client.post(
+        "/api/chat/send",
+        json={"content": "Use specialized tool", "agent_mode": True, "session_id": session_id},
+        headers={"Authorization": "Bearer fake-token"},
+    )
     assert response.status_code == 202
 
     # Verify execution output reaches session
@@ -62,3 +66,4 @@ def test_specialized_runtime_execution(monkeypatch, tmp_path):
         max_wait -= 0.5
 
     assert status.json()["latest_summary"] == "Specialized output"
+    proxy.app.dependency_overrides.clear()

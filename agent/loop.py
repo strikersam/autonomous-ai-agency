@@ -71,6 +71,9 @@ class AgentRunner:
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
         self._session_store = session_store
+        # MCP client — injected after construction when an MCP sidecar is
+        # available.  None means fall back to local WorkspaceTools for all ops.
+        self._mcp = None
         # Legacy auth storage (prefer passing to run())
         self.email = email
         self.department = department
@@ -125,13 +128,17 @@ class AgentRunner:
                         step.id, step.files,
                     )
 
-            # Check for parallel execution opportunity (falls through to sequential)
-            await self._maybe_run_parallel(
+            # Check for parallel execution opportunity; if it returns a result
+            # dict, short-circuit the sequential loop and use that result directly.
+            parallel_result = await self._maybe_run_parallel(
                 plan=plan,
                 requested_model=requested_model,
                 auto_commit=auto_commit,
                 session_id=session_id,
             )
+            if parallel_result is not None:
+                self._log_event(session_id, "assistant_message", {"summary": parallel_result.get("summary", "")})
+                return parallel_result
 
             for step in plan.steps[:max_steps]:
                 step_data = step.model_dump()
@@ -180,6 +187,16 @@ class AgentRunner:
                         break
                     except Exception:
                         continue
+                # If all judge attempts failed, mark the run as BLOCKED so callers
+                # can surface a clear failure rather than returning an empty verdict.
+                if not judge:
+                    judge = {
+                        "verdict": "BLOCKED",
+                        "security": "FAIL",
+                        "correctness": "FAIL",
+                        "notes": "Judge produced no valid output after 3 attempts.",
+                        "failure_phase": "judge",
+                    }
 
             summary = self._build_summary(plan.goal, step_results, commits)
             self._log_event(session_id, "assistant_message", {"summary": summary})
@@ -601,6 +618,39 @@ class AgentRunner:
                 repo_name=str(args.get("repo_name", ""))
             )
 
+        # ------------------------------------------------------------------
+        # MCP-delegated and MCP-with-local-fallback tools
+        # ------------------------------------------------------------------
+        from agent.mcp_client import MCPUnavailableError
+
+        # write_file — try MCP first; fall back to local WorkspaceTools if unavailable
+        if tool == "write_file":
+            if self._mcp is not None:
+                try:
+                    return await self._mcp.call_tool("write_file", args)
+                except MCPUnavailableError:
+                    pass
+            return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
+
+        # run_command — try MCP first; fall back to local _run_command if unavailable
+        if tool == "run_command":
+            if self._mcp is not None:
+                try:
+                    return await self._mcp.call_tool("run_command", args)
+                except MCPUnavailableError:
+                    pass
+            run_fn = getattr(self, "_run_command", None)
+            if run_fn is not None:
+                return await run_fn(str(args.get("cmd", "")), timeout=int(args.get("timeout", 120)))
+            return "[tool error: run_command not available locally]"
+
+        # MCP-only tools: clone_repo, git_commit — require MCP to be configured
+        _MCP_ONLY = {"clone_repo", "git_commit", "git_push"}
+        if tool in _MCP_ONLY:
+            if self._mcp is None:
+                return f"[tool error: MCP not set \u2014 cannot execute {tool}]"
+            return await self._mcp.call_tool(tool, args)
+
         raise ValueError(f"Unsupported tool: {tool}")
 
     # ------------------------------------------------------------------
@@ -916,8 +966,8 @@ class AgentRunner:
         *,
         plan: Any,
         **kwargs: Any,
-    ) -> None:
-        """Check if plan steps can run in parallel; falls through to sequential execution."""
+    ) -> dict[str, Any] | None:
+        """Check if plan steps can run in parallel; returns result dict or None to fall through."""
         return None
 
     @staticmethod

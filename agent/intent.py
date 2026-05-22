@@ -62,11 +62,15 @@ def detect_intent(content: str) -> str:
     # We'll treat short messages that are not trivial as needing clarification if they don't have clear intent
     # but we already handled trivial above. For now, we'll be conservative and treat short non-trivial as conversation.
     # Alternatively, we could use a set of clarification phrases.
-    clarification_phrases = {
-        "what", "how", "why", "can you", "could you", "please", "help me", "i need",
-        "explain", "tell me", "show me", "guide me", "walk me through"
-    }
-    if any(phrase in stripped for phrase in clarification_phrases):
+    # Use whole-word / phrase matching so "how are you" doesn't trigger INTENT_CLARIFY.
+    # Single-word markers ("how", "why", "what") must appear at the start of the sentence
+    # or follow common question starters to avoid false positives on greetings.
+    _CLARIFY_RE = re.compile(
+        r"(?:^|\s)(?:how (?:do|does|would|should|can)|why |what (?:is|are|should|would|can)|"
+        r"can you |could you |please |help me |i need |tell me |show me |guide me |walk me through )",
+        re.IGNORECASE,
+    )
+    if _CLARIFY_RE.search(stripped):
         return INTENT_CLARIFY
 
     return INTENT_CONVERSATION
@@ -91,7 +95,9 @@ def classify_direct_chat_intent(content: str) -> str:
 
     # Execution intent: check for sensitive targets or explicit approval cues
     if base == INTENT_EXECUTION:
-        sensitive_indicators = ["admin_auth", "key_store", "secrets", "password", "credential", "private key", "service_manager", "auth"]
+        # Use specific module names / terms — avoid generic substrings like "auth"
+        # that would match "authentication" in innocent prompts.
+        sensitive_indicators = ["admin_auth", "key_store", "secrets", "password", "credential", "private key", "service_manager"]
         lowered = content.lower()
         if any(si in lowered for si in sensitive_indicators):
             return "execute_after_approval"
