@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Fixed
+- `runtimes/manager.py` — Added missing `list_runtimes() -> list[dict]` method; `runtimes/api.py` `GET /runtimes/` was calling it and crashing with `AttributeError`, causing a 500 on `/api/agents/runtimes` for all users.
+
+### Changed
+- `backend/server.py` — Bumped FastAPI app title/version to `LLM Relay v4.1` / `4.1.0` to match the frontend.
+
+### Fixed
 - `.github/workflows/deploy-backend.yml` — Added `permissions: contents: read` to limit GITHUB_TOKEN scope (CodeQL P1). Expanded `push.paths` to cover all files copied by `Dockerfile.backend`: `agents/**`, `mcp_server/**`, `schedules/**`, `docker/**`, `sync/**`, `setup/**`, `hardware/**`, `rbac.py`, `secrets_store.py`, `commercial_equivalent.py`, `tokens.py` — previously missing paths caused silent workflow skips on backend-only changes (Codex P1).
 
 ### Fixed

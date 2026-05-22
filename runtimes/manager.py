@@ -63,6 +63,23 @@ class RuntimeManager:
             return None
         return {"runtime_id": runtime_id, "health": health.as_dict()}
 
+    def list_runtimes(self) -> list[dict]:
+        """Return all registered runtimes with their cached health status.
+
+        Each entry: {"runtime_id": str, "available": bool, "health": dict | None}
+        This is a fast, non-blocking call — uses the last cached health snapshot.
+        """
+        result = []
+        for adapter in self._registry.all():
+            rid = adapter.RUNTIME_ID
+            health = self._health.get_health(rid)
+            result.append({
+                "runtime_id": rid,
+                "available": health.available if health is not None else False,
+                "health": health.as_dict() if health is not None else None,
+            })
+        return result
+
     def get_policy(self) -> dict[str, Any]:
         """Return the active routing policy as a plain dict."""
         return self._router.policy.as_dict()
@@ -114,3 +131,4 @@ def _build_default_manager() -> RuntimeManager:
     mgr.register(AiderAdapter())
     mgr.register(JCodeAdapter())
     return mgr
+
