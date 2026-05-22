@@ -71,9 +71,6 @@ class AgentRunner:
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
         self._session_store = session_store
-        # MCP client — injected after construction when an MCP sidecar is
-        # available.  None means fall back to local WorkspaceTools for all ops.
-        self._mcp = None
         # Legacy auth storage (prefer passing to run())
         self.email = email
         self.department = department
@@ -128,17 +125,15 @@ class AgentRunner:
                         step.id, step.files,
                     )
 
-            # Check for parallel execution opportunity; if it returns a result
-            # dict, short-circuit the sequential loop and use that result directly.
-            parallel_result = await self._maybe_run_parallel(
+            # Check for parallel execution opportunity; short-circuit if handled
+            _parallel_result = await self._maybe_run_parallel(
                 plan=plan,
                 requested_model=requested_model,
                 auto_commit=auto_commit,
                 session_id=session_id,
             )
-            if parallel_result is not None:
-                self._log_event(session_id, "assistant_message", {"summary": parallel_result.get("summary", "")})
-                return parallel_result
+            if _parallel_result is not None:
+                return _parallel_result
 
             for step in plan.steps[:max_steps]:
                 step_data = step.model_dump()
@@ -187,16 +182,8 @@ class AgentRunner:
                         break
                     except Exception:
                         continue
-                # If all judge attempts failed, mark the run as BLOCKED so callers
-                # can surface a clear failure rather than returning an empty verdict.
-                if not judge:
-                    judge = {
-                        "verdict": "BLOCKED",
-                        "security": "FAIL",
-                        "correctness": "FAIL",
-                        "notes": "Judge produced no valid output after 3 attempts.",
-                        "failure_phase": "judge",
-                    }
+                if "verdict" not in judge:
+                    judge = {"verdict": "BLOCKED", "failure_phase": "judge"}
 
             summary = self._build_summary(plan.goal, step_results, commits)
             self._log_event(session_id, "assistant_message", {"summary": summary})
@@ -618,39 +605,6 @@ class AgentRunner:
                 repo_name=str(args.get("repo_name", ""))
             )
 
-        # ------------------------------------------------------------------
-        # MCP-delegated and MCP-with-local-fallback tools
-        # ------------------------------------------------------------------
-        from agent.mcp_client import MCPUnavailableError
-
-        # write_file — try MCP first; fall back to local WorkspaceTools if unavailable
-        if tool == "write_file":
-            if self._mcp is not None:
-                try:
-                    return await self._mcp.call_tool("write_file", args)
-                except MCPUnavailableError:
-                    pass
-            return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
-
-        # run_command — try MCP first; fall back to local _run_command if unavailable
-        if tool == "run_command":
-            if self._mcp is not None:
-                try:
-                    return await self._mcp.call_tool("run_command", args)
-                except MCPUnavailableError:
-                    pass
-            run_fn = getattr(self, "_run_command", None)
-            if run_fn is not None:
-                return await run_fn(str(args.get("cmd", "")), timeout=int(args.get("timeout", 120)))
-            return "[tool error: run_command not available locally]"
-
-        # MCP-only tools: clone_repo, git_commit — require MCP to be configured
-        _MCP_ONLY = {"clone_repo", "git_commit", "git_push"}
-        if tool in _MCP_ONLY:
-            if self._mcp is None:
-                return f"[tool error: MCP not set \u2014 cannot execute {tool}]"
-            return await self._mcp.call_tool(tool, args)
-
         raise ValueError(f"Unsupported tool: {tool}")
 
     # ------------------------------------------------------------------
@@ -770,6 +724,66 @@ class AgentRunner:
                     return out_text
                 except Exception as exc:
                     log.debug("Anthropic Opus call failed (falling back to Ollama): %s", exc)
+
+            # Bedrock fallback: used when only AWS credentials are set (no ANTHROPIC_API_KEY)
+            if not anthropic_key and target_is_opus:
+                aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
+                aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
+                aws_region = (
+                    os.environ.get("AWS_REGION")
+                    or os.environ.get("AWS_DEFAULT_REGION")
+                    or os.environ.get("BEDROCK_REGION")
+                    or "us-east-1"
+                )
+                bedrock_model = os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-6-v1"
+                if aws_access and aws_secret:
+                    try:
+                        import anthropic as _anthropic
+                        bedrock_client = _anthropic.AnthropicBedrock(
+                            aws_access_key=aws_access,
+                            aws_secret_key=aws_secret,
+                            aws_region=aws_region,
+                        )
+                        system_content = None
+                        anth_messages: list[dict[str, str]] = []
+                        for m in messages:
+                            if m.get("role") == "system":
+                                system_content = m.get("content")
+                            else:
+                                anth_messages.append({"role": m.get("role"), "content": m.get("content")})
+                        resp = bedrock_client.messages.create(
+                            model=bedrock_model,
+                            max_tokens=4096,
+                            system=system_content or "",
+                            messages=anth_messages,
+                        )
+                        out_parts: list[str] = []
+                        for block in resp.content:
+                            if getattr(block, "type", None) == "text":
+                                out_parts.append(block.text)
+                        out_text = "\n".join(out_parts)
+                        if self.email:
+                            try:
+                                import asyncio
+                                from langfuse_obs import emit_chat_observation
+                                await asyncio.to_thread(
+                                    emit_chat_observation,
+                                    email=self.email,
+                                    department=self.department or "agent",
+                                    key_id=self.key_id,
+                                    model=bedrock_model,
+                                    messages=messages,
+                                    output_text=out_text,
+                                    prompt_tokens=0,
+                                    completion_tokens=0,
+                                    latency_ms=0,
+                                    task_name="agent-task",
+                                )
+                            except Exception:
+                                pass
+                        return out_text
+                    except Exception as exc:
+                        log.debug("Bedrock Opus call failed (falling back to Ollama): %s", exc)
         except Exception:
             # Any unexpected error should not break the normal Ollama path
             pass
@@ -966,8 +980,8 @@ class AgentRunner:
         *,
         plan: Any,
         **kwargs: Any,
-    ) -> dict[str, Any] | None:
-        """Check if plan steps can run in parallel; returns result dict or None to fall through."""
+    ) -> None:
+        """Check if plan steps can run in parallel; falls through to sequential execution."""
         return None
 
     @staticmethod
