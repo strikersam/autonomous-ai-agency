@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+- `.github/workflows/{agency-cycle,ci-failure-autofix,continuous-improvement,openclaw-security-automation,process-quick-note,weekly-trend-digest,auto-merge}.yml` — **QUARANTINED**: disabled `schedule`/`push`/`workflow_run` auto-triggers (kept `workflow_dispatch` for manual runs) pending Agency Core stabilization. These autonomous workflows auto-committed AI-generated patches and dispatched CEO directives faster than they could be verified — the primary source of unverified churn. Re-enable by restoring the commented trigger blocks. See `docs/architecture/agency-core-audit-2026-05-22.md`.
+
+### Removed
+- `agent_loop.py`, `agent_models.py`, `agent_tools.py`, `agent_state.py`, `agent_prompts.py` — Removed dead backward-compat root shims that only re-exported from the `agent/` package; confirmed no module imports them.
+
+### Added
+- `docs/architecture/agency-core-audit-2026-05-22.md` — Ruthless architecture audit, Agency Core target design, and phased migration plan (the "before coding" deliverable).
+- `.gitignore` — Ignore Fabric pattern test scratch files (`tmp_*`, `scaffold_test_*`) under `.claude/skills/fabric-patterns/patterns/` to prevent test leakage.
+
 ### Fixed
 - `.github/workflows/deploy-backend.yml` — Replaced unsafe nested-quote `echo` (Python one-liner inside `$()` inside escaped double-quotes) with a simple portable `echo "Deploy triggered successfully (HTTP $HTTP_CODE)"`. The previous syntax caused Bash on GitHub Actions Ubuntu runners to exit with `syntax error near unexpected token` and report workflow failure on every master push, even though the Render deploy hook already accepted the request (HTTP 202).
 

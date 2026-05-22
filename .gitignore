@@ -67,3 +67,7 @@ Thumbs.db
 .claude/sessions/
 .claude/todos
 render-env-vars.txt
+
+# Fabric pattern test scratch files (prevent test leakage into the tree)
+.claude/skills/fabric-patterns/patterns/tmp_*
+.claude/skills/fabric-patterns/patterns/scaffold_test_*

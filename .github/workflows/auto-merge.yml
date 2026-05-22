@@ -1,10 +1,15 @@
 name: Auto-merge PR
 
+# QUARANTINED 2026-05-22: auto-merge disabled pending Agency Core stabilization.
+# Previously merged any PR with --admin (bypassing branch protection) the instant CI
+# went green — incompatible with reviewing a multi-phase PR before merge.
+# See docs/architecture/agency-core-audit-2026-05-22.md. Re-enable by restoring workflow_run.
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types:
-      - completed
+  # workflow_run:
+  #   workflows: ["CI"]
+  #   types:
+  #     - completed   (QUARANTINED)
+  workflow_dispatch: {}
 
 jobs:
   auto-merge:
