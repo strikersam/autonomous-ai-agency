@@ -75,9 +75,7 @@ def test_humanized_momentum_status(monkeypatch, clean_store):
     mgr = AgentJobManager()
     monkeypatch.setattr(direct_chat, "_agent_jobs", mgr)
 
-    # Bypass auth
-    import proxy as proxy_mod
-    monkeypatch.setattr(proxy_mod.JWTAuthMiddleware, "dispatch", lambda req, cn: cn(req))
+    # Auth is bypassed via dependency_overrides[direct_chat._get_current_user] = _fake_user above
     monkeypatch.setattr("tokens.verify_token", lambda token, **kwargs: {"id": "user123", "email": "test@example.com"})
 
     session_id = "momentum-eval"

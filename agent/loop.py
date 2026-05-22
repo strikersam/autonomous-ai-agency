@@ -55,6 +55,9 @@ class AgentRunner:
         key_id: str | None = None,
         num_ctx: int | None = None,
         keep_alive: str | None = None,
+        provider_chain: list | None = None,
+        allow_commercial_fallback: bool = False,
+        tool_callback: object | None = None,
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -89,6 +92,8 @@ class AgentRunner:
         key_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
         session_id: str | None = None,
+        model_overrides: dict[str, str] | None = None,
+        metadata: dict | None = None,
     ) -> dict[str, Any]:
         # Store current session_id for use by helper methods that need to
         # write into the durable session event log (e.g., tool_call/tool_result).
@@ -547,6 +552,10 @@ class AgentRunner:
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
     ) -> Any:
+        if tool == "write_file":
+            return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
+        if tool == "apply_diff":
+            return self.tools.apply_diff(str(args.get("path", "")), str(args.get("new_content", "")))
         if tool == "read_file":
             return self.tools.read_file(str(args.get("path", "")))
         if tool == "head_file":

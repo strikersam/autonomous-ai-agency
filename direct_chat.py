@@ -224,13 +224,13 @@ async def send_chat_message(
         msg = "I can definitely help with that, but could you please provide a bit more detail on what exactly you'd like me to change or fix? I want to make sure I have all the context before I start."
         _direct_chat_store.append_message(session_id, "user", req.content)
         _direct_chat_store.append_message(session_id, "assistant", msg)
-        return JSONResponse(content={"session_id": session_id, "response": msg, "intent": intent, "state": DirectChatState.NEEDS_INPUT})
+        return JSONResponse(content={"session_id": session_id, "response": msg, "intent": INTENT_CLARIFY, "state": DirectChatState.NEEDS_INPUT})
 
     # 4. Auto-promotion to Execution Flow (intent-driven)
     is_trivial = _is_trivial_message(req.content)
 
     # Map classifier categories to action
-    if intent == "answer_only":
+    if intent == "answer_only" and not req.agent_mode:
         return await _handle_regular_chat(req, user, request, session_id)
 
     # Prepare metadata flags to instruct the agent runner
@@ -245,7 +245,7 @@ async def send_chat_message(
         # Treat as clarification to avoid accidental execution
         msg = "That sounds like a request to modify the repository. Could you confirm what you want me to change?"
         _direct_chat_store.append_message(session_id, "assistant", msg)
-        return JSONResponse(content={"session_id": session_id, "response": msg, "intent": "clarify_needed", "state": DirectChatState.NEEDS_INPUT})
+        return JSONResponse(content={"session_id": session_id, "response": msg, "intent": INTENT_CLARIFY, "state": DirectChatState.NEEDS_INPUT})
 
     # If we reach here, proceed with agent flow (either plan-only or execution)
     return await _handle_agent_mode(req, user, request, session_id, intent)
@@ -524,11 +524,11 @@ async def _do_handle_agent_mode(
 async def get_agent_status(
     request: Request,
     session_id: str | None = None,
+    user: Annotated[UserInfo, Depends(_get_current_user)] = None,
 ) -> AgentStatusResponse:
-    user_state = getattr(request.state, "user", None)
-    if not isinstance(user_state, dict) or not user_state.get("email"):
+    owner_id: str = user.email if user else ""
+    if not owner_id:
         raise HTTPException(status_code=401, detail="Authentication required")
-    owner_id: str = user_state["email"]
     all_jobs = _agent_jobs.list_jobs(session_id=session_id)
     jobs = [j for j in all_jobs if getattr(j, "owner_id", None) == owner_id]
 

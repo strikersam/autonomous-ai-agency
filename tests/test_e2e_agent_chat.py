@@ -68,7 +68,7 @@ JUDGE_JSON = json.dumps({
 })
 
 
-def _openai_response(content: str) -> httpx.Response:
+def _openai_response(content: str, url: str = "http://localhost:11434/v1/chat/completions") -> httpx.Response:
     """Return a real httpx.Response that looks like an OpenAI chat completion."""
     body = {
         "id": "chatcmpl-test",
@@ -83,7 +83,8 @@ def _openai_response(content: str) -> httpx.Response:
         ],
         "usage": {"prompt_tokens": 10, "completion_tokens": 50, "total_tokens": 60},
     }
-    return httpx.Response(200, json=body)
+    request = httpx.Request("POST", url)
+    return httpx.Response(200, json=body, request=request)
 
 
 def _nim_post_factory(responses: list[str]):

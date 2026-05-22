@@ -23,7 +23,6 @@ async def test_risky_plan_approval_gate(monkeypatch, tmp_path):
     def mock_verify(token, **kwargs):
         return {"sub": "user123", "email": "test@example.com", "name": "Test User", "role": "user"}
     monkeypatch.setattr("tokens.verify_token", mock_verify)
-    monkeypatch.setattr("proxy.verify_token", mock_verify)
     monkeypatch.setattr("direct_chat.verify_token", mock_verify)
 
     # Mock doctor
@@ -80,10 +79,10 @@ async def test_risky_plan_approval_gate(monkeypatch, tmp_path):
         session_id = "interactive-session"
 
         # Start the job
-        # Use a keyword that triggers execution intent to be safe
+        # Use a concrete execution keyword; avoid "plan" which routes to plan_only intent
         headers = {"Authorization": "Bearer fake-token"}
         response = await ac.post("/api/chat/send", json={
-            "content": "Please fix the bugs in this risky plan",
+            "content": "Fix the failing tests in my project",
             "agent_mode": True,
             "session_id": session_id
         }, headers=headers)

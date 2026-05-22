@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Fixed
+- `agent/state.py` — Added `update_resume_payload()` method to `AgentSessionStore` to support interactive approval gating; previously `resume_chat_job` endpoint and `wait_for_resume` background helper both called this missing method, causing `AttributeError` at runtime.
+- `agent/loop.py` — Added `write_file` and `apply_diff` dispatch cases to `_dispatch_tool`; previously the executor's `write_file` tool call was rejected with `Unsupported tool: write_file`, making file-creation agent tasks fail silently.
+- `agent/loop.py` — Added `provider_chain`, `allow_commercial_fallback`, and `tool_callback` keyword arguments to `AgentRunner.__init__` and `model_overrides` / `metadata` to `AgentRunner.run()`; fixes `TypeError: unexpected keyword argument` crashes when `direct_chat.py` and `backend/server.py` pass these parameters.
+- `tests/test_direct_chat_interactive_approval.py` — Changed test message from "Please fix the bugs in this risky plan" (classified as `plan_only` because it contains the word "plan") to "Fix the failing tests in my project" so the approval-gate test actually reaches the `needs_approval` state as intended.
+- `tests/test_e2e_agent_chat.py` — `_openai_response()` now attaches a dummy `httpx.Request` to each mocked response; httpx requires the request object to be set before `raise_for_status()` can be called, even for 200 responses.
+
+### Fixed
 - `runtimes/manager.py` — Added `get_policy()` method to `RuntimeManager` delegating to the router's `RoutingPolicy.as_dict()`; fixes `AttributeError: 'RuntimeManager' object has no attribute 'get_policy'` crash in `backend/server.py`.
 - `agent/state.py` — Added `ALTER TABLE ADD COLUMN` migrations in `_init_db` for `repo_url`, `repo_ref`, `active_objective`, and `event_count` so existing SQLite databases created before these columns existed no longer raise `OperationalError` on startup.
 - `.github/scripts/implement_agent.py` — NVIDIA NIM tool dispatch now tolerates alternate argument key names (`command`/`cmd`, `file`/`path`) that Qwen3-coder occasionally emits instead of the schema-defined names, preventing `KeyError` crashes in the fallback loop.

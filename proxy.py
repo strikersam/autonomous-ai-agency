@@ -313,6 +313,9 @@ if ADMIN_AUTH.enabled:
     )
 
 register_admin_gui(app, KEY_STORE, ADMIN_AUTH, SERVICE_MANAGER)
+
+from direct_chat import direct_chat_router
+app.include_router(direct_chat_router)
 class ProviderRouter:
     """Holds external provider configs (e.g., NVIDIA NIM) for use in agent routing."""
 
@@ -921,6 +924,7 @@ async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify
             instruction=w["instruction"],
             model=w.get("model"),
             max_steps=int(w.get("max_steps", 3)),
+            dependencies=w.get("dependencies", []),
         )
         for i, w in enumerate(body.workers)
     ]
@@ -1412,9 +1416,15 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
     # Claude/Anthropic model aliases from MODEL_MAP — lets Claude Code and
     # Anthropic SDK clients discover which model names this proxy accepts.
     alias_set = set(m["id"] for m in local_entries + registry_only)
+    model_map = _get_model_map()
     alias_entries = [
-        {"id": alias, "object": "model", "owned_by": "llm-relay-alias", "description": f"Alias → {_get_model_map().get(alias, alias)}"}
-        for alias in _get_model_map()
+        {
+            "id": alias,
+            "object": "model",
+            "owned_by": "llm-relay-alias",
+            "description": f"Alias → {model_map[alias]}",
+        }
+        for alias in model_map
         if alias not in alias_set
     ]
     return {"object": "list", "data": local_entries + registry_only + alias_entries}

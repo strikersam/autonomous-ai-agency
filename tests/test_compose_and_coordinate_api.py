@@ -125,10 +125,9 @@ def test_coordinate_dependency_aware_tasks_block_missing_dependencies():
         "/agent/coordinate",
         json={
             "goal": "ship feature",
-            "agents": [{"agent_id": "worker", "capabilities": ["general"]}],
-            "tasks": [
+            "workers": [
                 {
-                    "task_id": "blocked",
+                    "worker_id": "blocked",
                     "instruction": "cannot run",
                     "dependencies": ["missing"],
                 }

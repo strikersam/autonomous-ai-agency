@@ -136,6 +136,34 @@ def _apply_chat_defaults(payload: dict[str, Any]) -> dict[str, Any]:
     return copied
 
 
+def _normalize_response_format(payload: dict[str, Any]) -> dict[str, Any]:
+    """Convert OpenAI response_format to Ollama format for local models.
+
+    Cloud models (model name contains '/') receive response_format unchanged.
+    Local models get OpenAI json_schema → Ollama format=<schema>, json_object → format="json".
+    """
+    rf = payload.get("response_format")
+    if not isinstance(rf, dict):
+        return payload
+    model = payload.get("model", "")
+    is_cloud = "/" in model
+    if is_cloud:
+        return payload
+    rf_type = rf.get("type")
+    if rf_type == "json_schema":
+        schema = rf.get("json_schema", {}).get("schema")
+        if schema is None:
+            return payload
+        result = {k: v for k, v in payload.items() if k != "response_format"}
+        result["format"] = schema
+        return result
+    if rf_type == "json_object":
+        result = {k: v for k, v in payload.items() if k != "response_format"}
+        result["format"] = "json"
+        return result
+    return payload
+
+
 def _strip_think_blocks(text: str) -> str:
     """Rigorous regex-based stripping of <think>...</think> blocks from strings."""
     if not text:

@@ -29,6 +29,7 @@ class WorkerSpec:
     )
     model: str | None = None
     max_steps: int = 3
+    dependencies: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -134,6 +135,7 @@ class AgentCoordinator:
                 task_type="general",
                 model=spec.model,
                 max_steps=spec.max_steps,
+                dependencies=spec.dependencies,
             )
             for spec in worker_specs
         ]

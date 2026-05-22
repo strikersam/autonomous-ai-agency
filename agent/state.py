@@ -270,6 +270,19 @@ class AgentSessionStore:
                 )
                 conn.commit()
             return AgentSession.model_validate(session.model_dump())
+
+    def update_session_metadata(self, session_id: str, metadata: dict) -> AgentSession:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(f"Session {session_id!r} not found")
+            session.metadata = metadata
+            session.updated_at = _now()
+            with self._connect() as conn:
+                self._db_upsert_session(conn, session)
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+
     def append_event(
         self,
         session_id: str,
@@ -381,6 +394,14 @@ class AgentSessionStore:
                 conn.commit()
             removed = original_len - len(kept)
             return removed, len(kept)
+
+    def update_resume_payload(self, session_id: str, payload: dict | None) -> None:
+        """Set or clear the transient resume payload for interactive approval gating."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(f"Session {session_id!r} not found")
+            session.resume_payload = payload
 
     def update_result(self, session_id: str, plan: AgentPlan | dict, result: dict) -> AgentSession:
         with self._lock:

@@ -583,3 +583,62 @@ async def handle_anthropic_messages(
             "X-Routing-Model": local_model,
         },
     )
+
+
+# ── Token estimation ──────────────────────────────────────────────────────────
+
+_IMAGE_TOKEN_COST = 1000
+
+
+def _estimate_tokens_for_messages(
+    messages: list[dict],
+    system: str | None,
+    *,
+    tools: list[dict] | None = None,
+) -> int:
+    """Rough token estimate for Anthropic-format messages (4 chars ≈ 1 token)."""
+    total = 0
+    if system:
+        total += max(1, len(system) // 4)
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total += max(1, len(content) // 4)
+        elif isinstance(content, list):
+            for block in content:
+                btype = block.get("type", "")
+                if btype == "text":
+                    total += max(1, len(block.get("text", "")) // 4)
+                elif btype == "image":
+                    total += _IMAGE_TOKEN_COST
+                elif btype in ("tool_result", "tool_use"):
+                    inner = block.get("content", "") or block.get("input", "")
+                    if isinstance(inner, str):
+                        total += max(1, len(inner) // 4)
+                    elif isinstance(inner, dict):
+                        total += max(1, len(str(inner)) // 4)
+    for tool in tools or []:
+        total += max(1, len(str(tool)) // 4)
+    return max(1, total)
+
+
+def _normalize_anthropic_output_format(
+    payload: dict,
+    openai_payload: dict,
+) -> bool:
+    """Extract Anthropic output_format and inject Ollama-compatible format into openai_payload.
+
+    Returns True if output_format was recognized and applied, False otherwise.
+    """
+    of = payload.get("output_format")
+    if not isinstance(of, dict):
+        return False
+    of_type = of.get("type")
+    if of_type == "json_schema":
+        schema = of.get("json_schema", {}).get("schema")
+        openai_payload["format"] = schema if schema is not None else "json"
+        return True
+    if of_type == "json_object":
+        openai_payload["format"] = "json"
+        return True
+    return False
