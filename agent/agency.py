@@ -257,7 +257,25 @@ class Agency:
         # CEO assessment — try LLM first, fall back to rule-based
         assessment, ceo_directives = await self._ceo_assess_llm(state_context)
 
-        directives = qn_directives + ceo_directives
+        # De-duplicate: skip directives whose title is already in a recent
+        # "running" or "pending" directive to prevent the CEO from re-issuing
+        # the same work repeatedly before the previous run finishes.
+        recent_titles: set[str] = {
+            d.title for d in self._directives[-50:]
+            if d.status in {"pending", "running"}
+        }
+        deduped: list[AgentDirective] = []
+        for directive in (qn_directives + ceo_directives):
+            if directive.title in recent_titles:
+                log.debug(
+                    "Agency: skipping duplicate directive '%s' (already pending/running)",
+                    directive.title,
+                )
+            else:
+                deduped.append(directive)
+                recent_titles.add(directive.title)
+
+        directives = deduped
         for directive in directives:
             self._directives.append(directive)
             self._dispatch_directive(directive)

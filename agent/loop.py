@@ -79,6 +79,34 @@ class AgentRunner:
         self.department = department
         self.key_id = key_id
 
+    async def plan(
+        self,
+        *,
+        instruction: str,
+        history: list[dict[str, str]],
+        requested_model: str | None,
+        max_steps: int = 30,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentPlan:
+        """Public wrapper around _generate_plan for callers that want plan-only.
+
+        Returns the AgentPlan so the caller can inspect it (e.g. check
+        requires_risky_review) before deciding whether to proceed with run().
+        The ``metadata`` argument is accepted for forward-compatibility but
+        currently unused.
+        """
+        return await self._generate_plan(
+            instruction=instruction,
+            history=history,
+            requested_model=requested_model,
+            max_steps=max_steps,
+            user_id=user_id,
+            memory_store=memory_store,
+        )
+
     async def run(
         self,
         *,
@@ -92,7 +120,10 @@ class AgentRunner:
         key_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
         session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # ``metadata`` is accepted for forward-compatibility (callers like
+        # direct_chat.py may pass it) but is not consumed by the core loop.
         # Store current session_id for use by helper methods that need to
         # write into the durable session event log (e.g., tool_call/tool_result).
         self._current_session_id = session_id

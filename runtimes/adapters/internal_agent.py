@@ -248,7 +248,7 @@ class InternalAgentAdapter(RuntimeAdapter):
         runner = AgentRunner(
             ollama_base=primary_base,
             workspace_root=spec.workspace_path or self._workspace_root,
-            provider_chain=None,  # None → ProviderRouter.from_env() discovers all configured providers
+            # provider_chain removed — AgentRunner uses ProviderRouter.from_env() directly
             github_token=spec.context.get("github_token"),
             email=spec.context.get("user_email"),
             department=spec.context.get("department"),
