@@ -125,13 +125,15 @@ class AgentRunner:
                         step.id, step.files,
                     )
 
-            # Check for parallel execution opportunity (falls through to sequential)
-            await self._maybe_run_parallel(
+            # Check for parallel execution opportunity; short-circuit if handled
+            _parallel_result = await self._maybe_run_parallel(
                 plan=plan,
                 requested_model=requested_model,
                 auto_commit=auto_commit,
                 session_id=session_id,
             )
+            if _parallel_result is not None:
+                return _parallel_result
 
             for step in plan.steps[:max_steps]:
                 step_data = step.model_dump()
@@ -180,6 +182,8 @@ class AgentRunner:
                         break
                     except Exception:
                         continue
+                if "verdict" not in judge:
+                    judge = {"verdict": "BLOCKED", "failure_phase": "judge"}
 
             summary = self._build_summary(plan.goal, step_results, commits)
             self._log_event(session_id, "assistant_message", {"summary": summary})
