@@ -1,0 +1,95 @@
+name: Deploy Backend to Render
+
+on:
+  push:
+    branches: [master]
+    paths:
+      # --- Dockerfile.backend copies all of these ---
+      - 'backend/**'
+      - 'agent/**'
+      - 'agents/**'
+      - 'router/**'
+      - 'runtimes/**'
+      - 'tasks/**'
+      - 'handlers/**'
+      - 'workflow/**'
+      - 'mcp_server/**'
+      - 'schedules/**'
+      - 'docker/**'
+      - 'sync/**'
+      - 'setup/**'
+      - 'hardware/**'
+      # root-level modules copied by Dockerfile.backend
+      - 'provider_router.py'
+      - 'commercial_equivalent.py'
+      - 'langfuse_obs.py'
+      - 'tokens.py'
+      - 'key_store.py'
+      - 'rbac.py'
+      - 'secrets_store.py'
+      # also deploy if the Dockerfile or this workflow changes
+      - 'Dockerfile.backend'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual deploy'
+        required: false
+        default: 'manual trigger'
+
+# Minimal permissions — this workflow only calls an external webhook
+permissions:
+  contents: read
+
+concurrency:
+  group: render-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Trigger Render Deploy
+    runs-on: ubuntu-latest
+    # No additional permissions needed beyond the workflow-level read
+    steps:
+      - name: Validate deploy hook secret is set
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "::error::RENDER_DEPLOY_HOOK_URL secret is missing."
+            echo "Render dashboard -> local-llm-server -> Settings -> Deploy Hook -> copy URL"
+            exit 1
+          fi
+
+      - name: Trigger Render deployment
+        run: |
+          echo "Triggering Render deploy for commit ${{ github.sha }}"
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" \
+            -H "Accept: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          echo "HTTP: $HTTP_CODE"
+          echo "Body: $BODY"
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -gt 299 ]; then
+            echo "::error::Render deploy hook returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "Deploy triggered — ID: $(echo $BODY | python3 -c \"import json,sys; print(json.load(sys.stdin).get('deploy',{}).get('id','unknown'))\" 2>/dev/null)"
+
+      - name: Wait and verify backend health
+        run: |
+          echo "Waiting 20s for Render to register the deploy..."
+          sleep 20
+          MAX_ATTEMPTS=20
+          ATTEMPT=0
+          until curl -sf --max-time 10 \
+              "https://local-llm-server.onrender.com/api/health" > /dev/null; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+              echo "::warning::Health check timed out after ${MAX_ATTEMPTS} attempts."
+              echo "Render free-tier services can take 60-90s for first request."
+              exit 0
+            fi
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS — retrying in 10s..."
+            sleep 10
+          done
+          echo "Backend healthy at https://local-llm-server.onrender.com/api/health"
