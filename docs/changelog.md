@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+- `runtimes/manager.py` — Added `get_policy()` method to `RuntimeManager` delegating to the router's `RoutingPolicy.as_dict()`; fixes `AttributeError: 'RuntimeManager' object has no attribute 'get_policy'` crash in `backend/server.py`.
+- `agent/state.py` — Added `ALTER TABLE ADD COLUMN` migrations in `_init_db` for `repo_url`, `repo_ref`, `active_objective`, and `event_count` so existing SQLite databases created before these columns existed no longer raise `OperationalError` on startup.
 - `.github/scripts/implement_agent.py` — NVIDIA NIM tool dispatch now tolerates alternate argument key names (`command`/`cmd`, `file`/`path`) that Qwen3-coder occasionally emits instead of the schema-defined names, preventing `KeyError` crashes in the fallback loop.
 
 ### Fixed

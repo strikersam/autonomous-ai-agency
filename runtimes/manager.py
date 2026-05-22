@@ -51,6 +51,9 @@ class RuntimeManager:
     def select_runtime(self, task_type: str, preferred_id: str | None = None) -> tuple[RuntimeAdapter | None, list[dict]]:
         return self._router._pick_runtime(task_type, preferred_id)
 
+    def get_policy(self) -> dict:
+        return self._router.policy.as_dict()
+
     async def get_runtime_health(self, runtime_id: str) -> dict | None:
         circuit = self._health._circuits.get(runtime_id)
         if circuit: circuit.record_success()
