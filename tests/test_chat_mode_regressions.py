@@ -294,19 +294,18 @@ def test_chat_send_persists_agent_handoff_metadata_in_session_history(client, mo
     unexpected_direct_call = AsyncMock(
         side_effect=AssertionError("direct llm path should not attempt workspace actions")
     )
-    update_session = AsyncMock()
-    session_id = ObjectId()
+
+    # Motor creates a fresh AsyncIOMotorCollection proxy on every db.chat_sessions
+    # access (via __getattr__), so patching individual collection methods doesn't
+    # intercept the actual call.  Mock _persist_chat_session directly instead and
+    # inspect the messages list it's given.
+    persist_calls: list[dict] = []
+
+    async def fake_persist(**kwargs):
+        persist_calls.append(kwargs)
 
     monkeypatch.setattr("backend.server.call_llm", unexpected_direct_call)
-    monkeypatch.setattr(
-        "backend.server.db.chat_sessions.insert_one",
-        AsyncMock(return_value=SimpleNamespace(inserted_id=session_id)),
-    )
-    monkeypatch.setattr(
-        "backend.server.db.chat_sessions.find_one",
-        AsyncMock(return_value={"messages": []}),
-    )
-    monkeypatch.setattr("backend.server.db.chat_sessions.update_one", update_session)
+    monkeypatch.setattr("backend.server._persist_chat_session", fake_persist)
     headers = _auth_headers(client)
 
     response = client.post(
@@ -322,7 +321,9 @@ def test_chat_send_persists_agent_handoff_metadata_in_session_history(client, mo
     )
 
     assert response.status_code == 200, response.text
-    persisted_messages = update_session.await_args.args[1]["$set"]["messages"]
+    assert persist_calls, "expected _persist_chat_session to be called at least once"
+    # The last persist call contains the full message list including the assistant handoff
+    persisted_messages = persist_calls[-1]["messages"]
     assistant_message = persisted_messages[-1]
     assert assistant_message["assistant_meta"]["type"] == "agent_handoff"
     assert assistant_message["assistant_meta"]["recommended_mode"] == "agent"
@@ -553,6 +554,9 @@ def test_chat_send_uses_provider_default_model_for_agent_mode_when_model_is_omit
     monkeypatch.setattr("backend.server._build_provider_router", fake_build_provider_router)
     monkeypatch.setattr("backend.server._run_agent_loop", fake_run_agent_loop)
     monkeypatch.setattr(server, "_CHAT_AGENT_JOBS", server.AgentJobManager())
+    # Clear NVIDIA env so _default_agent_role_models() uses local Ollama defaults
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
 
     response = client.post(
         "/api/chat/send",

@@ -15,11 +15,21 @@ from router.registry import get_registry
 
 @pytest.fixture(autouse=True)
 def clear_router(monkeypatch):
-    """Reset the router singleton and model map cache between tests."""
+    """Reset the router singleton and model map cache between tests.
+
+    NVIDIA env vars are cleared so that model-map assertions use the expected
+    Ollama-local model names (deepseek-r1:32b, qwen3-coder:30b, etc.) rather
+    than NVIDIA NIM aliases, which depend on the operator's .env configuration.
+    """
     reset_router()
     # Ensure clean env
     monkeypatch.delenv("MODEL_MAP", raising=False)
     monkeypatch.delenv("ROUTER_EXTRA_MODELS", raising=False)
+    # Clear NVIDIA provider settings so routing resolves to local Ollama models.
+    # Tests that explicitly want NVIDIA routing set these themselves.
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_BASE_URL", raising=False)
+    monkeypatch.delenv("NVIDIA_DEFAULT_MODEL", raising=False)
     # Keep most router tests independent from whichever Ollama models happen
     # to be installed on the host. Availability behavior is covered explicitly
     # in the health-check tests below.

@@ -175,6 +175,16 @@ class TestAgentModeQueuesJob:
         monkeypatch.setattr("runtimes.adapters.internal_agent.InternalAgentAdapter.readiness_check", fake_readiness)
         monkeypatch.setattr("agent.loop.AgentRunner", FakeRunner)
 
+        # DirectChatDoctor runs preflight checks (Ollama ping etc.) that always fail in CI.
+        # Stub it out so it reports ready=True, preventing the 412→200 preflight-failed path.
+        class _FakeDoctor:
+            def __init__(self, **kwargs): pass
+            async def check_all(self, **kwargs):
+                from agent.doctor import PreflightReport
+                return PreflightReport(ready=True, summary="CI stub — all checks passed")
+
+        monkeypatch.setattr("direct_chat.DirectChatDoctor", _FakeDoctor)
+
         client = TestClient(proxy.app)
         try:
             resp = client.post(

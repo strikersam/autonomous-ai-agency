@@ -15,12 +15,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-PATTERNS_DIR = REPO_ROOT / ".claude" / "skills" / "fabric-patterns" / "patterns"
+# Allow tests (or CI) to redirect the patterns directory via env var so that
+# the real .claude/skills/ tree is never mutated during testing.
+_env_patterns_dir = os.environ.get("FABRIC_PATTERNS_DIR")
+PATTERNS_DIR: Path = Path(_env_patterns_dir) if _env_patterns_dir else REPO_ROOT / ".claude" / "skills" / "fabric-patterns" / "patterns"
 
 _SAFE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 

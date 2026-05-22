@@ -226,28 +226,28 @@ async def send_chat_message(
         _direct_chat_store.append_message(session_id, "assistant", msg)
         return JSONResponse(content={"session_id": session_id, "response": msg, "intent": intent, "state": DirectChatState.NEEDS_INPUT})
 
-    # 4. Auto-promotion to Execution Flow (intent-driven)
+    # 4. Route by intent — agent_mode=True is a power-user override that bypasses
+    #    the answer_only path and forces execution regardless of classifier output.
     is_trivial = _is_trivial_message(req.content)
 
-    # Map classifier categories to action
-    if intent == "answer_only":
-        return await _handle_regular_chat(req, user, request, session_id)
-
-    # Prepare metadata flags to instruct the agent runner
+    # Prepare metadata flags for the agent runner
     req.metadata = req.metadata or {}
     if intent == "plan_only":
         req.metadata["plan_only"] = True
     if intent == "execute_after_approval":
         req.metadata["require_approval"] = True
 
-    # Safety: do not auto-execute trivial messages even if classify says execute
+    # answer_only path — only when agent_mode is NOT explicitly set
+    if intent == "answer_only" and not req.agent_mode:
+        return await _handle_regular_chat(req, user, request, session_id)
+
+    # Safety: do not auto-execute trivial messages without explicit agent_mode
     if is_trivial and intent in ("execute_now", "execute_after_approval", "plan_only") and not req.agent_mode:
-        # Treat as clarification to avoid accidental execution
         msg = "That sounds like a request to modify the repository. Could you confirm what you want me to change?"
         _direct_chat_store.append_message(session_id, "assistant", msg)
         return JSONResponse(content={"session_id": session_id, "response": msg, "intent": "clarify_needed", "state": DirectChatState.NEEDS_INPUT})
 
-    # If we reach here, proceed with agent flow (either plan-only or execution)
+    # All other paths — proceed with agent execution
     return await _handle_agent_mode(req, user, request, session_id, intent)
 
 async def _handle_regular_chat(
@@ -349,7 +349,18 @@ async def _do_handle_agent_mode(
     if req.repo_url:
         validation = await ws_mgr.validate_repo_ref(req.repo_url, req.repo_ref)
         if not validation["ok"]:
-            raise HTTPException(status_code=412, detail={"ready": False, "issues": validation["issues"]})
+            # validate_repo_ref returns {"ok": False, "error": "..."} — normalise to
+            # the PreflightReport-style issues list the API contract expects.
+            err_msg = str(validation.get("error") or "Repository access failed")
+            raise HTTPException(
+                status_code=412,
+                detail={
+                    "ready": False,
+                    "summary": "Repository preflight failed",
+                    "issues": [{"code": "git_repo_access", "message": err_msg,
+                                 "fix_hint": "Check your GitHub token and repository URL in Settings."}],
+                },
+            )
 
     import inspect
     _token_res = _get_github_token_for_user(user.email)
@@ -460,25 +471,13 @@ async def _do_handle_agent_mode(
         # Otherwise, proceed with the rich Internal Agent cognition flow
         heartbeat("planning", "Analyzing repository and creating an execution plan")
 
-        _active_job = _agent_jobs.get_job(job.job_id)
-        def _on_tool_call(tn: str, args: dict, res: Any) -> None:
-            if not _active_job: return
-            _active_job.progress_events.append({
-                "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
-                "type": "tool_call", "phase": "execution", "tool_name": tn, "args": args, "message": f"Tool: {tn}"
-            })
-
-        import time as _time
-
-        # Connect the selected adapter's execution logic if it's not the internal agent
-        # For now, we still prefer InternalAgent for the rich interactive features
-        # but we use the adapter's properties.
-
         runner = AgentRunner(
-            ollama_base=ollama_base, workspace_root=str(workspace_root),
-            provider_headers=primary_headers, provider_chain=sorted_providers[1:],
-            allow_commercial_fallback=req.allow_commercial_fallback_once, provider_temperature=req.temperature,
-            github_token=github_token, email=user.email, tool_callback=_on_tool_call,
+            ollama_base=ollama_base,
+            workspace_root=str(workspace_root),
+            provider_headers=primary_headers,
+            provider_temperature=req.temperature,
+            github_token=github_token,
+            email=user.email,
         )
 
         # Cognition Stage: Planning
@@ -524,11 +523,19 @@ async def _do_handle_agent_mode(
 async def get_agent_status(
     request: Request,
     session_id: str | None = None,
+    user: Annotated[UserInfo, Depends(_get_current_user)] = None,  # noqa: B008
 ) -> AgentStatusResponse:
-    user_state = getattr(request.state, "user", None)
-    if not isinstance(user_state, dict) or not user_state.get("email"):
-        raise HTTPException(status_code=401, detail="Authentication required")
-    owner_id: str = user_state["email"]
+    # Resolve owner_id from the injected JWT user or, for backward compatibility
+    # with backend/server.py (which uses session middleware instead), from
+    # request.state.user.  The dependency override in tests replaces _get_current_user
+    # with a stub that returns a UserInfo directly.
+    if user is not None:
+        owner_id: str = user.email
+    else:
+        user_state = getattr(request.state, "user", None)
+        if not isinstance(user_state, dict) or not user_state.get("email"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+        owner_id = user_state["email"]
     all_jobs = _agent_jobs.list_jobs(session_id=session_id)
     jobs = [j for j in all_jobs if getattr(j, "owner_id", None) == owner_id]
 

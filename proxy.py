@@ -65,6 +65,8 @@ from webui.config_store import JsonConfigStore
 from webui.providers import ProviderManager
 from webui.router import register_webui
 from webui.workspaces import WorkspaceManager
+from direct_chat import direct_chat_router
+from features.api import features_router
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -276,9 +278,15 @@ def _get_admin_identity_from_request(
     session = ADMIN_AUTH.sessions.get(token) if token else None
     if session:
         return session.identity
-    if request.session.get("admin_ok"):
-        username = str(request.session.get("admin_user") or "admin")
-        source = str(request.session.get("admin_auth_source") or "session")
+    # SessionMiddleware is only installed when ADMIN_AUTH.enabled is True.
+    # Guard the access so missing middleware raises 401, not an unhandled 500.
+    try:
+        _session = request.session
+    except AssertionError:
+        _session = {}
+    if _session.get("admin_ok"):
+        username = str(_session.get("admin_user") or "admin")
+        source = str(_session.get("admin_auth_source") or "session")
         return AdminIdentity(username=username, auth_source=source)
     raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -514,15 +522,40 @@ async def admin_rotate_user(
     }
 
 
-@app.get("/health")
-async def health():
+@app.get("/live")
+async def live():
+    """Container liveness probe — always 200, no external dependencies checked."""
+    from datetime import datetime, timezone as _tz
+    return {"status": "ok", "timestamp": datetime.now(_tz.utc).isoformat()}
+
+
+async def _health_response() -> JSONResponse:
+    """Shared logic for /health and /api/health."""
     try:
         async with httpx.AsyncClient(timeout=3) as client:
             r = await client.get(f"{OLLAMA_BASE}/api/tags")
             models = [m["name"] for m in r.json().get("models", [])]
     except Exception as e:
         return JSONResponse({"status": "ollama_down", "error": str(e)}, status_code=503)
-    return {"status": "ok", "ollama": OLLAMA_BASE, "models": models}
+    return JSONResponse({"status": "ok", "ollama": OLLAMA_BASE, "models": models})
+
+
+@app.get("/health")
+async def health():
+    return await _health_response()
+
+
+@app.get("/api/health")
+async def api_health():
+    """Public health endpoint — used by the setup wizard and frontend."""
+    return await _health_response()
+
+
+@app.get("/api/ping")
+async def ping():
+    """Lightweight liveness probe — no auth required, no Ollama dependency."""
+    from datetime import datetime, timezone as _tz
+    return {"status": "ok", "timestamp": datetime.now(_tz.utc).isoformat()}
 
 
 @app.post("/agent/sessions")
@@ -832,12 +865,56 @@ async def budget_list(auth: AuthContext = Depends(verify_api_key)):
 
 class CoordinateRequest(BaseModel):
     goal: str = Field(..., min_length=1, max_length=2000)
-    workers: list[dict] = Field(..., min_length=1, max_length=10)
+    # Legacy format: flat list of worker dicts with {instruction, ...}
+    workers: list[dict] | None = Field(default=None, max_length=20)
+    # New format: separate agent pool + dependency-aware task list
+    agents: list[dict] | None = Field(default=None, max_length=20)
+    tasks: list[dict] | None = Field(default=None, max_length=50)
     max_concurrent: int = Field(default=3, ge=1, le=10)
 
 
 @app.post("/agent/coordinate")
 async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify_api_key)):
+    # New agents+tasks format — resolve dependencies then delegate to coordinator
+    if body.tasks is not None:
+        task_ids = {t["task_id"] for t in body.tasks if "task_id" in t}
+        workers_out = []
+        runnable = []
+        for task in body.tasks:
+            deps = task.get("dependencies", [])
+            missing = [d for d in deps if d not in task_ids]
+            if missing:
+                workers_out.append({
+                    "worker_id": task.get("task_id", "unknown"),
+                    "status": "blocked",
+                    "error": f"Missing dependencies: {', '.join(missing)}",
+                })
+            else:
+                runnable.append(task)
+
+        if runnable:
+            specs = [
+                WorkerSpec(
+                    worker_id=t.get("task_id", f"t{i}"),
+                    instruction=t["instruction"],
+                    model=t.get("model"),
+                    max_steps=int(t.get("max_steps", 3)),
+                )
+                for i, t in enumerate(runnable)
+            ]
+            result = await COORDINATOR.run(
+                body.goal, specs, max_concurrent=body.max_concurrent,
+                email=auth.email, department=auth.department, key_id=auth.key_id
+            )
+            base = result.as_dict()
+            base["workers"] = base.get("workers", []) + workers_out
+            return base
+
+        return {"goal": body.goal, "workers": workers_out}
+
+    # Legacy workers format
+    if not body.workers:
+        raise HTTPException(status_code=422, detail="Either 'workers' or 'tasks' must be provided")
     specs = [
         WorkerSpec(
             worker_id=w.get("worker_id", f"w{i}"),
@@ -1270,6 +1347,38 @@ async def anthropic_messages(request: Request, auth: AuthContext = Depends(verif
     )
 
 
+class _CountTokensRequest(BaseModel):
+    model: str = Field(..., min_length=1, max_length=200)
+    messages: list[dict] = Field(default_factory=list)
+    system: str | None = None
+    tools: list[dict] | None = None
+
+
+@app.post("/v1/messages/count_tokens")
+async def count_tokens(request: Request, auth: AuthContext = Depends(verify_api_key)):
+    """Lightweight token estimation — no model call required.
+
+    Returns Anthropic-compatible {input_tokens: N} with anthropic-version header.
+    Uses a 4-chars-per-token heuristic plus fixed costs for images and tools.
+    """
+    try:
+        raw = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    from handlers.anthropic_compat import _estimate_tokens_for_messages
+    messages = raw.get("messages", [])
+    system = raw.get("system")
+    tools = raw.get("tools")
+    if not isinstance(messages, list):
+        raise HTTPException(status_code=400, detail="'messages' must be a list")
+    n = _estimate_tokens_for_messages(messages, system, tools=tools)
+    return JSONResponse(
+        content={"input_tokens": n},
+        headers={"anthropic-version": "2023-06-01"},
+    )
+
+
 @app.get("/v1/models")
 async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
     """List available models — union of live Ollama models, router registry, and Claude aliases.
@@ -1304,11 +1413,23 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
     # Anthropic SDK clients discover which model names this proxy accepts.
     alias_set = set(m["id"] for m in local_entries + registry_only)
     alias_entries = [
-        {"id": alias, "object": "model", "owned_by": "proxy-alias"}
+        {"id": alias, "object": "model", "owned_by": "llm-relay-alias", "description": f"Alias → {_get_model_map().get(alias, alias)}"}
         for alias in _get_model_map()
         if alias not in alias_set
     ]
     return {"object": "list", "data": local_entries + registry_only + alias_entries}
+
+
+# ─── Features API router ─────────────────────────────────────────────────────
+app.include_router(features_router)
+
+# ─── Direct-chat router (JWT-authenticated; must be registered before Ollama catch-all) ──
+# These routes use their own JWT-based auth and must be registered before the
+# /api/{path:path} catch-all so they are matched first.
+app.include_router(direct_chat_router)
+# Expose PROVIDER_ROUTER and webui_workspaces on app.state so direct_chat can read them.
+app.state.PROVIDER_ROUTER = WEBUI_PROVIDERS  # type: ignore[attr-defined]
+app.state.webui_workspaces = WEBUI_WORKSPACES  # type: ignore[attr-defined]
 
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────

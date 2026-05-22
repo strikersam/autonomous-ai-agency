@@ -82,37 +82,7 @@ def load_council_skill() -> str:
 
 def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str:
     """Call the best available LLM for review. Opus is primary; NVIDIA NIM is fallback."""
-    # Primary: AWS Bedrock (when AWS creds present, preferred over direct Anthropic)
-    aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
-    aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
-    aws_region = (
-        os.environ.get("AWS_REGION")
-        or os.environ.get("AWS_DEFAULT_REGION")
-        or os.environ.get("BEDROCK_REGION")
-        or "us-east-1"
-    )
-    bedrock_model = os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-6-v1"
-    if aws_access and aws_secret:
-        try:
-            import anthropic as _anthropic
-            client = _anthropic.AnthropicBedrock(
-                aws_access_key=aws_access,
-                aws_secret_key=aws_secret,
-                aws_region=aws_region,
-            )
-            resp = client.messages.create(
-                model=bedrock_model,
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = next((b.text for b in resp.content if b.type == "text"), "")
-            if text:
-                print(f"[review] Got response from {bedrock_model} (Bedrock)", flush=True)
-                return text
-        except Exception as exc:
-            print(f"[review] Bedrock Opus failed: {exc} — trying Anthropic direct", file=sys.stderr)
-
-    # Primary: Anthropic Claude Opus (direct)
+    # Primary: Anthropic Claude Opus
     if anthropic_key:
         try:
             import anthropic as _anthropic
@@ -153,10 +123,9 @@ def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str
 def main() -> None:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
-    aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
 
-    if not anthropic_key and not nvidia_key and not aws_access:
-        print("ERROR: no API keys set — defaulting to WARN", file=sys.stderr)
+    if not anthropic_key and not nvidia_key:
+        print("ERROR: neither ANTHROPIC_API_KEY nor NVIDIA_API_KEY set — defaulting to WARN", file=sys.stderr)
         with open(RESULT_FILE, "w") as f:
             json.dump({"verdict": "WARN", "summary": "Review skipped (no API key)", "details": ""}, f)
         sys.exit(0)

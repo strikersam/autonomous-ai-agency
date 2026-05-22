@@ -9,9 +9,18 @@ from provider_router import (
     CommercialFallbackRequiredError,
     ProviderConfig,
     ProviderRouter,
+    clear_cooldowns,
     extract_openai_text,
     is_commercial_provider,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_provider_cooldowns():
+    """Clear module-level cooldown state before every test so tests don't bleed into each other."""
+    clear_cooldowns()
+    yield
+    clear_cooldowns()
 
 
 @pytest.mark.anyio

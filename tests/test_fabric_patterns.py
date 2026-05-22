@@ -1,6 +1,7 @@
 """Tests for scripts/fabric_cli.py and the fabric-patterns pattern engine."""
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -80,35 +81,42 @@ def test_stitch_missing_pattern_exits_nonzero() -> None:
 
 
 def test_save_and_show_roundtrip(tmp_path: Path) -> None:
+    # Use an isolated patterns dir so the test is self-contained and
+    # doesn't require write access to the (possibly read-only) real patterns dir.
+    patterns_dir = tmp_path / "patterns"
+    patterns_dir.mkdir()
+    env = {**os.environ, "FABRIC_PATTERNS_DIR": str(patterns_dir)}
+
     source = tmp_path / "my_pattern.md"
     source.write_text("---\nname: tmp_test\ndescription: temp\nversion: \"1.0.0\"\n---\n{{content}} processed.\n")
-    result = subprocess.run(CLI + ["save", "tmp_test_pattern", str(source)], capture_output=True, text=True)
+    result = subprocess.run(CLI + ["save", "tmp_test_pattern", str(source)], capture_output=True, text=True, env=env)
     assert result.returncode == 0
 
-    show = subprocess.run(CLI + ["show", "tmp_test_pattern"], capture_output=True, text=True)
+    show = subprocess.run(CLI + ["show", "tmp_test_pattern"], capture_output=True, text=True, env=env)
     assert show.returncode == 0
     assert "processed" in show.stdout
-
-    # Cleanup
-    (PATTERNS_DIR / "tmp_test_pattern.md").unlink(missing_ok=True)
+    # No explicit cleanup — tmp_path is removed automatically by pytest.
 
 
 def test_new_scaffolds_pattern(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Redirect writes to tmp_path so cleanup is automatic and needs no filesystem permissions.
+    patterns_dir = tmp_path / "patterns"
+    patterns_dir.mkdir()
+    env = {**os.environ, "FABRIC_PATTERNS_DIR": str(patterns_dir)}
+
     name = "scaffold_test_xyz"
-    dest = PATTERNS_DIR / f"{name}.md"
-    dest.unlink(missing_ok=True)
+    dest = patterns_dir / f"{name}.md"
 
     result = subprocess.run(
         CLI + ["new", name, "--description", "Test scaffold"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=env,
     )
     assert result.returncode == 0
     assert dest.exists()
     content = dest.read_text()
     assert "Test scaffold" in content
     assert "{{content}}" in content
-
-    dest.unlink(missing_ok=True)
+    # No explicit unlink — tmp_path is cleaned up automatically by pytest.
 
 
 def test_path_traversal_rejected_in_show() -> None:

@@ -583,3 +583,98 @@ async def handle_anthropic_messages(
             "X-Routing-Model": local_model,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Token estimation helper (lightweight, no model call required)
+# ---------------------------------------------------------------------------
+
+def _estimate_tokens_for_messages(
+    messages: list[dict],
+    system: str | None,
+    tools: list[dict] | None = None,
+) -> int:
+    """Estimate input token count for an Anthropic-format message list.
+
+    Uses a simple character-count heuristic (4 chars ≈ 1 token) plus fixed
+    overhead for images and tool definitions.  Accurate enough for quota
+    preflight checks; not a substitute for real tokenisation.
+    """
+    total_chars = 0
+
+    if system:
+        total_chars += len(system)
+
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            for block in content:
+                btype = block.get("type", "")
+                if btype == "text":
+                    total_chars += len(block.get("text", ""))
+                elif btype in ("image", "image_url"):
+                    # Fixed 1000-token cost per image regardless of size
+                    total_chars += 4000
+                elif btype == "tool_use":
+                    total_chars += len(str(block.get("input", "")))
+                elif btype == "tool_result":
+                    inner = block.get("content", "")
+                    if isinstance(inner, str):
+                        total_chars += len(inner)
+                    elif isinstance(inner, list):
+                        for ib in inner:
+                            total_chars += len(str(ib.get("text", "")))
+
+    # Per-message structural overhead (role, turn markers)
+    total_chars += len(messages) * 16
+
+    # Tool definitions add per-tool overhead
+    for tool in tools or []:
+        total_chars += len(tool.get("name", "")) + len(tool.get("description", "")) + 64
+        schema = tool.get("input_schema", {})
+        total_chars += len(str(schema))
+
+    # 4 chars ≈ 1 token; minimum 1
+    return max(1, total_chars // 4)
+
+
+# ---------------------------------------------------------------------------
+# output_format normalisation helper (Anthropic structured-output extension)
+# ---------------------------------------------------------------------------
+
+def _normalize_anthropic_output_format(
+    payload: dict,
+    openai_payload: dict,
+) -> bool:
+    """Translate Anthropic ``output_format`` into an Ollama ``format`` field.
+
+    Modifies *openai_payload* in place and returns ``True`` when a format was
+    applied (caller should set ``anthropic-beta: structured-outputs-…``).
+
+    Supported types:
+    - ``json_schema``  → ``openai_payload["format"]`` = the schema dict
+    - ``json_object``  → ``openai_payload["format"]`` = ``"json"``
+    - anything else   → no change, returns ``False``
+    """
+    output_format = payload.get("output_format")
+    if not isinstance(output_format, dict):
+        return False
+
+    fmt_type = output_format.get("type")
+
+    if fmt_type == "json_schema":
+        js = output_format.get("json_schema")
+        if isinstance(js, dict) and "schema" in js:
+            openai_payload["format"] = js["schema"]
+        else:
+            # Malformed json_schema — fall back to plain JSON mode
+            openai_payload["format"] = "json"
+        return True
+
+    if fmt_type == "json_object":
+        openai_payload["format"] = "json"
+        return True
+
+    return False

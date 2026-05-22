@@ -342,40 +342,13 @@ def _openai_tools_to_anthropic(tools: list[dict]) -> list[dict]:
     return result
 
 
-def _make_anthropic_client():
-    """Return (client, bedrock_model_or_None) using Bedrock if AWS creds present, else Anthropic direct."""
-    import anthropic as _anthropic
-    aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
-    aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
-    aws_region = (
-        os.environ.get("AWS_REGION")
-        or os.environ.get("AWS_DEFAULT_REGION")
-        or os.environ.get("BEDROCK_REGION")
-        or "us-east-1"
-    )
-    if aws_access and aws_secret:
-        bedrock_model = os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-6-v1"
-        client = _anthropic.AnthropicBedrock(
-            aws_access_key=aws_access,
-            aws_secret_key=aws_secret,
-            aws_region=aws_region,
-        )
-        return client, bedrock_model
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if anthropic_key:
-        client = _anthropic.Anthropic(api_key=anthropic_key)
-        return client, OPUS_MODEL
-    return None, None
-
-
 def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, str, int]:
-    """Run the implementation agent loop using Claude Opus via Anthropic SDK or Bedrock.
+    """Run the implementation agent loop using Claude Opus via Anthropic SDK.
 
     Returns (success, summary, turns_used).
     """
-    client, use_model = _make_anthropic_client()
-    if client is None:
-        return False, "No Anthropic/Bedrock credentials available", 0
+    import anthropic as _anthropic
+    client = _anthropic.Anthropic(api_key=anthropic_key)
     anthropic_tools = _openai_tools_to_anthropic(TOOLS)
 
     messages: list[dict] = [{"role": "user", "content": user_msg}]
@@ -386,11 +359,11 @@ def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, 
 
     while turns < MAX_TURNS:
         turns += 1
-        print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={use_model}", flush=True)
+        print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={OPUS_MODEL} (Anthropic)", flush=True)
 
         try:
             resp = client.messages.create(
-                model=use_model,
+                model=OPUS_MODEL,
                 max_tokens=8192,
                 system=SYSTEM,
                 tools=anthropic_tools,  # type: ignore[arg-type]
@@ -401,10 +374,7 @@ def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, 
             # retried — they will never recover and would exhaust all 120 turns before
             # NVIDIA fallback can run.
             status = getattr(exc, "status_code", None)
-            err_str = str(exc)
-            # 400 "credit balance too low" is a billing hard-stop — never recovers
-            is_billing_error = status == 400 and "credit balance" in err_str.lower()
-            if status in (401, 403, 404) or is_billing_error:
+            if status in (401, 403, 404):
                 print(f"Anthropic permanent error ({status}): {exc} — falling back to NVIDIA", file=sys.stderr)
                 break
             print(f"Anthropic transient error: {exc}", file=sys.stderr)
@@ -488,12 +458,9 @@ def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, 
 def main() -> None:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
-    # Bedrock is usable even without ANTHROPIC_API_KEY
-    aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
-    has_anthropic_or_bedrock = bool(anthropic_key or aws_access)
 
-    if not has_anthropic_or_bedrock and not nvidia_key:
-        print("ERROR: no API keys set (need ANTHROPIC_API_KEY, AWS Bedrock creds, or NVIDIA_API_KEY)", file=sys.stderr)
+    if not anthropic_key and not nvidia_key:
+        print("ERROR: neither ANTHROPIC_API_KEY nor NVIDIA_API_KEY set", file=sys.stderr)
         sys.exit(1)
 
     note_path = Path("/tmp/note_content.txt")  # nosec: B108
@@ -521,13 +488,13 @@ def main() -> None:
     turns = 0
     final_model = OPUS_MODEL
 
-    # Primary: Claude Opus via Anthropic direct or AWS Bedrock
-    if has_anthropic_or_bedrock:
-        print("[agent] Using Claude Opus as primary model (Bedrock or Anthropic direct)", flush=True)
+    # Primary: Claude Opus via Anthropic
+    if anthropic_key:
+        print("[agent] Using Anthropic Claude Opus as primary model", flush=True)
         try:
             success, summary, turns = _run_anthropic_agent_loop(anthropic_key, user_msg)
         except Exception as exc:
-            print(f"[agent] Anthropic/Bedrock agent loop failed: {exc} — falling back to NVIDIA", file=sys.stderr)
+            print(f"[agent] Anthropic agent loop failed: {exc} — falling back to NVIDIA", file=sys.stderr)
 
     # Fallback: NVIDIA NIM
     if not success and nvidia_key:

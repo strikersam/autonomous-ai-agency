@@ -68,8 +68,16 @@ JUDGE_JSON = json.dumps({
 })
 
 
-def _openai_response(content: str) -> httpx.Response:
-    """Return a real httpx.Response that looks like an OpenAI chat completion."""
+def _fake_request(method: str = "POST", url: str = "http://test-llm/v1/chat/completions") -> httpx.Request:
+    """Return a minimal httpx.Request so mock responses satisfy raise_for_status()."""
+    return httpx.Request(method, url)
+
+
+def _openai_response(content: str, url: str = "http://test-llm/v1/chat/completions") -> httpx.Response:
+    """Return a real httpx.Response that looks like an OpenAI chat completion.
+
+    Attaches a dummy request so callers may safely call raise_for_status().
+    """
     body = {
         "id": "chatcmpl-test",
         "object": "chat.completion",
@@ -83,29 +91,31 @@ def _openai_response(content: str) -> httpx.Response:
         ],
         "usage": {"prompt_tokens": 10, "completion_tokens": 50, "total_tokens": 60},
     }
-    return httpx.Response(200, json=body)
+    return httpx.Response(200, json=body, request=_fake_request("POST", url))
 
 
 def _nim_post_factory(responses: list[str]):
     """
     Return an async replacement for httpx.AsyncClient.post that cycles through
     canned responses for /chat/completions calls and passes everything else
-    through as a 503 (no real network in CI).
+    through as a 200 empty response.
     """
     call_index = [0]
 
     async def _mock_post(self, url, *args, **kwargs):
-        if "chat/completions" in str(url) or "messages" in str(url):
+        url_str = str(url)
+        req = _fake_request("POST", url_str)
+        if "chat/completions" in url_str or "messages" in url_str:
             idx = call_index[0] % len(responses)
             call_index[0] += 1
-            return _openai_response(responses[idx])
+            return _openai_response(responses[idx], url_str)
         # Health checks, model lists, etc. — return 200 empty
-        return httpx.Response(200, json={"object": "list", "data": []})
+        return httpx.Response(200, json={"object": "list", "data": []}, request=req)
 
     return _mock_post
 
 
-def _mcp_tool_response(req_id: int, result: dict | str) -> httpx.Response:
+def _mcp_tool_response(req_id: int, result: dict | str, url: str = "http://test/mcp") -> httpx.Response:
     """Build a proper JSON-RPC tools/call response for MCP tool mocks."""
     text = result if isinstance(result, str) else json.dumps(result, default=str)
     return httpx.Response(200, json={
@@ -115,7 +125,7 @@ def _mcp_tool_response(req_id: int, result: dict | str) -> httpx.Response:
             "content": [{"type": "text", "text": text}],
             "isError": False,
         },
-    })
+    }, request=_fake_request("POST", url))
 
 
 def _build_agent_http_mock(
@@ -139,10 +149,11 @@ def _build_agent_http_mock(
 
     async def mock_post(self, url, *args, **kwargs):
         url_str = str(url)
+        req = _fake_request("POST", url_str)
         if "chat/completions" in url_str or "/messages" in url_str:
             idx = llm_idx[0] % len(llm_responses)
             llm_idx[0] += 1
-            return _openai_response(llm_responses[idx])
+            return _openai_response(llm_responses[idx], url_str)
         if "/mcp-internal/mcp" in url_str or url_str.endswith("/mcp"):
             body = kwargs.get("json") or {}
             req_id = body.get("id", 1)
@@ -150,7 +161,7 @@ def _build_agent_http_mock(
             if method == "tools/call":
                 tool_name = (body.get("params") or {}).get("name", "")
                 if tool_name in (mcp_results or {}):
-                    return _mcp_tool_response(req_id, mcp_results[tool_name])
+                    return _mcp_tool_response(req_id, mcp_results[tool_name], url_str)
                 # Unknown tool — return error so mis-dispatched calls fail visibly
                 return httpx.Response(200, json={
                     "jsonrpc": "2.0", "id": req_id,
@@ -158,33 +169,35 @@ def _build_agent_http_mock(
                         "content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}],
                         "isError": True,
                     },
-                })
+                }, request=req)
             # Non-tools/call MCP request (e.g. initialize, list): return empty success
             return httpx.Response(200, json={
                 "jsonrpc": "2.0", "id": req_id,
                 "result": {"content": [{"type": "text", "text": "{}"}], "isError": False},
-            })
+            }, request=req)
         if urllib.parse.urlparse(url_str).netloc == "api.github.com" and github_post_results:
             for frag, resp in github_post_results.items():
                 if frag in url_str:
-                    return httpx.Response(201, json=resp)
-        return httpx.Response(200, json={"object": "list", "data": []})
+                    return httpx.Response(201, json=resp, request=req)
+        return httpx.Response(200, json={"object": "list", "data": []}, request=req)
 
     async def mock_get(self, url, *args, **kwargs):
         url_str = str(url)
+        req = _fake_request("GET", url_str)
         if urllib.parse.urlparse(url_str).netloc == "api.github.com" and github_get_results:
             for frag, resp in github_get_results.items():
                 if frag in url_str:
-                    return httpx.Response(200, json=resp)
-        return httpx.Response(200, json=[])
+                    return httpx.Response(200, json=resp, request=req)
+        return httpx.Response(200, json=[], request=req)
 
     async def mock_put(self, url, *args, **kwargs):
         url_str = str(url)
+        req = _fake_request("PUT", url_str)
         if urllib.parse.urlparse(url_str).netloc == "api.github.com" and github_put_results:
             for frag, resp in github_put_results.items():
                 if frag in url_str:
-                    return httpx.Response(200, json=resp)
-        return httpx.Response(200, json={})
+                    return httpx.Response(200, json=resp, request=req)
+        return httpx.Response(200, json={}, request=req)
 
     return mock_post, mock_get, mock_put
 
