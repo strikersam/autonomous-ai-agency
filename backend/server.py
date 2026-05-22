@@ -1273,7 +1273,7 @@ async def lifespan(app_: "FastAPI"):
     log.info("RuntimeManager stopped")
 
 
-app = FastAPI(title="LLM Relay v4.0 — Unified Platform", version="4.0.0", lifespan=lifespan)
+app = FastAPI(title="LLM Relay v4.1 — Unified Platform", version="4.1.0", lifespan=lifespan)
 
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
@@ -5421,3 +5421,4 @@ if _FRONTEND_BUILD.exists():
         if index.exists():
             return HTMLResponse(index.read_text())
         return JSONResponse({"detail": "Frontend not built"}, status_code=404)
+
