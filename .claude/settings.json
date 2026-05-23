@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && if command -v graphify >/dev/null 2>&1; then graphify . --update --quiet 2>/dev/null && NODES=$(python3 -c \"import json,sys; g=json.load(open(\\\"graph.json\\\")); print(len(g.get(\\\"nodes\\\",[])))\" 2>/dev/null || echo \\\"?\\\") && echo \"[graphify] graph ready — ${NODES} nodes. Query with: graphify query \\\"your question\\\" (saves ~30x tokens vs file reads)\"; else echo \"[graphify] not installed — run: pip install graphifyy && graphify install && graphify .\"; fi'"
+            "command": "bash -c 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); cd \"$ROOT\"; if command -v graphify >/dev/null 2>&1; then graphify . --update --quiet 2>/dev/null; if [ -f \"GRAPH_REPORT.md\" ]; then echo \"=== GRAPHIFY KNOWLEDGE GRAPH (auto-loaded) ===\"; cat GRAPH_REPORT.md; echo \"=== END GRAPH REPORT ===\"; echo \"[graphify] Use graphify query \\\"<question>\\\" or graphify explain \\\"<concept>\\\" instead of reading raw files to save ~30x tokens.\"; else echo \"[graphify] Graph built but GRAPH_REPORT.md not found — run graphify . manually once.\"; fi; else echo \"[graphify] Not installed. Run: pip install graphifyy && graphify install && graphify .\"; fi'"
           }
         ]
       }
