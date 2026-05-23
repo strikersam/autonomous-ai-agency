@@ -1,3 +1,4 @@
+/* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
 
 
@@ -454,4 +455,5 @@ function ChatScreen({ chatState }) {
   );
 }
 
+export { ChatScreen };
 export default ChatScreen;

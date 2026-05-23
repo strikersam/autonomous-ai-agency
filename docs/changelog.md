@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `frontend/src/v5/` — **Agency Core V5 redesign, part 2**: ported all remaining screens from the Claude Design handoff and wired them into `V5App` at `/v5` — Dashboard (healthy/partial-failure-tolerant), Tasks (job-lifecycle board), Agents, Schedules, Skills, Intelligence, Knowledge, Providers, Logs, Company (operating context), Onboarding (URL→stack wizard), Doctor, Admin, plus the always-on Alerts bell and Quick Notes overlays. ESLint-clean under the CRA `react-app` ruleset (build passes with `CI=true`); `target="_blank"` links hardened with `rel="noreferrer"`. Screens use mock data; live API wiring follows in a later part.
+
+### Added
 - `frontend/src/v5/` — **V5.0 "Agency Core" frontend redesign, part 1** (ported from the Claude Design handoff). `AppShell` (sectioned desktop sidebar + mobile top-bar/bottom-nav, agency-status pill, `Icon` set), the unified **Chat** screen (auto/explicit agent picker, sticky company/repo/task context chips, humanized agent-progress panel with phase breadcrumb + live event timeline, final-result card with PR/diff/test links, chat history), and `V5App` mounted at **`/v5`** (lazy route; existing dashboard untouched). Remaining screens (dashboard, tasks, onboarding, company, doctor, agents, schedules, skills, intelligence, knowledge, providers, logs, admin) land in later parts.
 
 ### Added

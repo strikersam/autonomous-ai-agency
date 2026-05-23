@@ -1,22 +1,21 @@
 import React from 'react';
 import { AppShell } from './AppShell';
 import ChatScreen from './screens/ChatScreen';
-
-/**
- * V5App — entry point for the "Agency Core" (V5.0) frontend redesign.
- * Ported from the Claude Design handoff (Agency Core.html). Incremental: the Chat
- * screen is live; the remaining screens are ported in later parts of the redesign PR.
- * Mounted at /v5 so it can be reviewed without disturbing the existing dashboard.
- */
-function ComingSoon({ screen }) {
-  return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', flexDirection:'column', gap:12, padding:24, textAlign:'center' }}>
-      <div style={{ width:52, height:52, borderRadius:16, background:'linear-gradient(135deg,rgba(93,162,255,0.15),rgba(93,162,255,0.05))', border:'1px solid rgba(93,162,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22 }}>✦</div>
-      <div style={{ fontSize:16, fontWeight:800, color:'#fff', letterSpacing:'-0.03em', textTransform:'capitalize' }}>{screen}</div>
-      <div style={{ fontSize:13, color:'var(--text-muted)', fontFamily:'var(--font-mono)', maxWidth:340, lineHeight:1.6 }}>This Agency Core screen is being ported from the design in a later part of the redesign PR.</div>
-    </div>
-  );
-}
+import DashboardScreen from './screens/DashboardScreen';
+import TaskBoardScreen from './screens/TaskBoardScreen';
+import AgentsScreen from './screens/AgentsScreen';
+import SchedulesScreen from './screens/SchedulesScreen';
+import SkillsScreen from './screens/SkillsScreen';
+import IntelligenceScreen from './screens/IntelligenceScreen';
+import KnowledgeScreen from './screens/KnowledgeScreen';
+import ProvidersScreen from './screens/ProvidersScreen';
+import LogsScreen from './screens/LogsScreen';
+import CompanyScreen from './screens/CompanyScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
+import DoctorScreen from './screens/DoctorScreen';
+import AdminScreen from './screens/AdminScreen';
+import AlertsBell from './screens/AlertsBell';
+import QuickNotesFAB from './screens/QuickNotesFAB';
 
 const V5_THEME = `
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
@@ -43,21 +42,44 @@ const V5_THEME = `
 .v5-root ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.12); border-radius:999px; }
 `;
 
+function AdminLocked() {
+  return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', flexDirection:'column', gap:12 }}>
+      <div style={{ fontSize:36 }}>🔒</div>
+      <div style={{ fontSize:15, fontWeight:700, color:'var(--text-secondary)' }}>Admin access required</div>
+    </div>
+  );
+}
+
 export default function V5App() {
   const [screen, setScreen] = React.useState('chat');
-  // isAdmin / agentRunning will be wired to AuthContext + live status in a later part;
-  // defaults mirror the design preview.
   const isAdmin = true;
   const agentRunning = true;
-
+  const go = (s) => setScreen(s);
+  const screens = {
+    chat:         <ChatScreen chatState="idle" />,
+    dashboard:    <DashboardScreen dashboardState="healthy" />,
+    tasks:        <TaskBoardScreen />,
+    agents:       <AgentsScreen onNavigateToChat={() => go('chat')} />,
+    schedules:    <SchedulesScreen />,
+    skills:       <SkillsScreen />,
+    intelligence: <IntelligenceScreen />,
+    knowledge:    <KnowledgeScreen />,
+    providers:    <ProvidersScreen />,
+    logs:         <LogsScreen />,
+    company:      <CompanyScreen />,
+    onboarding:   <OnboardingScreen onComplete={() => go('company')} isAdmin={isAdmin} />,
+    doctor:       <DoctorScreen />,
+    admin:        isAdmin ? <AdminScreen /> : <AdminLocked />,
+  };
   return (
     <div className="v5-root">
       <style>{V5_THEME}</style>
-      <AppShell activeScreen={screen} onNavigate={setScreen} agentRunning={agentRunning} isAdmin={isAdmin}>
-        {screen === 'chat'
-          ? <ChatScreen chatState="idle" />
-          : <ComingSoon screen={screen} />}
+      <AppShell activeScreen={screen} onNavigate={go} agentRunning={agentRunning} isAdmin={isAdmin}>
+        {screens[screen] || screens.chat}
       </AppShell>
+      <AlertsBell onNavigate={go} />
+      <QuickNotesFAB visible={true} />
     </div>
   );
 }
