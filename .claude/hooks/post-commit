@@ -7,4 +7,8 @@
 # Activate with: git config core.hooksPath .claude/hooks
 
 command -v graphify >/dev/null 2>&1 || exit 0
-graphify update . --quiet >/dev/null 2>&1 &
+if command -v flock >/dev/null 2>&1; then
+  flock -n /tmp/graphify-update.lock graphify update . --quiet >/dev/null 2>&1 &
+else
+  graphify update . --quiet >/dev/null 2>&1 &
+fi

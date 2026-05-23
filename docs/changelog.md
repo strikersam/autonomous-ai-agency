@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- `.claude/hooks/post-commit` — apply same `flock -n /tmp/graphify-update.lock` guard as Stop hook so post-commit and Stop/SessionStart updates are serialised; fallback to plain background run when `flock` is absent
 - `graphify-out/graph.json` and `.graphify_labels.json` — removed from git tracking and gitignored. Node IDs in `graph.json` embed the absolute checkout path (`home_user_local_llm_server_…`), making the file non-portable across contributors; large non-semantic diffs would occur on every `graphify update` from a different path. `GRAPH_REPORT.md` (portable text, no path-derived IDs) remains committed. The `SessionStart` hook regenerates `graph.json` locally on each session open.
 - `.claude/settings.json` — Stop hook guards `flock` availability: uses `flock -n /tmp/graphify-update.lock` when present (Linux), falls back to a plain background run on platforms without `flock` (macOS without util-linux, etc.) so the hook never breaks silently
 - `.claude/settings.json` — Stop hook now uses `flock -n /tmp/graphify-update.lock` so concurrent `graphify update` runs (SessionStart + Stop + post-commit) are serialised; a second run skips silently instead of racing on `graphify-out/` writes.
