@@ -46,10 +46,10 @@ graphify .
 
 On success you'll have:
 ```
-graph.json          ← persistent, queryable graph (commit this)
-graph.html          ← interactive visualization (gitignored)
-GRAPH_REPORT.md     ← high-level report: god nodes, surprising edges
-cache/              ← SHA256 change-detection cache
+graphify-out/graph.json        ← persistent, queryable graph (commit this)
+graphify-out/graph.html        ← interactive visualization (gitignored, >5k nodes skipped)
+graphify-out/GRAPH_REPORT.md  ← god nodes, surprising edges, suggested questions
+graphify-out/cache/            ← SHA256 change-detection cache (gitignored)
 ```
 
 ## Session-Start Auto-Refresh
@@ -77,12 +77,12 @@ The hook prints a one-line status so Claude knows the graph state:
 
 | Command | What it does |
 |---------|--------------|
-| `graphify .` | Full build (first run or after major restructure) |
-| `graphify . --update` | Incremental refresh (only changed files) |
+| `graphify .` | Full build with LLM semantic layer (needs API key) |
+| `graphify update .` | Incremental AST-only refresh — **no API key needed** |
 | `graphify query "question"` | Query conceptual relationships |
 | `graphify path "ModelRouter" "proxy"` | Find connection between two nodes |
 | `graphify explain "Concept"` | Detailed concept analysis from graph |
-| `graphify . --watch` | Auto-sync as files change during development |
+| `graphify watch .` | Auto-sync as files change during development |
 
 ### Claude's query protocol (use this instead of Read tool for exploration):
 
@@ -105,17 +105,13 @@ The hook prints a one-line status so Claude knows the graph state:
 ## Graph Artifacts — What to Commit
 
 ```
-graph.json          ✅ commit — enables team-shared graph queries
-GRAPH_REPORT.md     ✅ commit — readable summary, useful in PRs
-graph.html          ❌ gitignore — large binary-like HTML, regenerated on demand
-cache/              ❌ gitignore — local SHA cache
+graphify-out/graph.json        ✅ commit — enables team-shared graph queries
+graphify-out/GRAPH_REPORT.md  ✅ commit — readable summary, useful in PRs
+graphify-out/graph.html        ❌ gitignore — skipped when >5k nodes anyway
+graphify-out/cache/            ❌ gitignore — local SHA cache, machine-specific
 ```
 
-Add to `.gitignore`:
-```
-graph.html
-cache/
-```
+Already configured in `.gitignore` for this repo.
 
 ## Relationship to repowise-intelligence Skill
 

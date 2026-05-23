@@ -132,7 +132,7 @@ The `commit-msg` hook will reject commits with no changelog update (unless the c
 **Always follow this sequence:**
 
 1. **Read the relevant skill** from `.claude/skills/` before starting any non-trivial task.
-2. **Query `graph.json` via `graphify query "…"` before opening source files** — 30x cheaper than reading raw files. Check `GRAPH_REPORT.md` for a free orientation summary.
+2. **Query `graphify-out/graph.json` via `graphify query "…"` before opening source files** — 30x cheaper than reading raw files. Check `graphify-out/GRAPH_REPORT.md` for a free orientation summary.
 3. **Run `pytest -x`** before making changes to confirm baseline passes.
 4. **Use the implementation-planner skill** for any multi-file change.
 4. **Use the risky-module-review skill** for any change to `admin_auth.py`, `key_store.py`, `agent/tools.py`, or auth/billing paths.

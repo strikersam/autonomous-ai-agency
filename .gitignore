@@ -40,8 +40,8 @@ test_reports/
 scratch/verification/report.md
 
 # Graphify knowledge graph — keep graph.json + GRAPH_REPORT.md, ignore large artifacts
-graph.html
-cache/
+graphify-out/graph.html
+graphify-out/cache/
 
 # Temporary / backup files
 *.bak
