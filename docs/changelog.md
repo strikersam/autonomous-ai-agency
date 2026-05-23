@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Added
+- `agent/contract.py`: `AgentJobRequest` now has `extra="forbid"` (Pydantic v2) — unknown kwargs
+  raise `ValidationError` immediately instead of being silently dropped, eliminating the
+  signature-drift bug class. Documented in docstring.
+- `tests/test_agent_contract.py`: two new tests — `test_unknown_kwargs_rejected` verifies
+  `ValidationError` on unknown fields; `test_known_optional_fields_still_accepted` ensures
+  all valid optional fields still work after adding `extra="forbid"`.
+- `.github/workflows/e2e.yml`: new GitHub Actions E2E workflow — starts mongo:7 + uvicorn
+  in CI, generates a real API key inline, runs `tests/e2e/test_live_server.py` with no mocks.
+- `tests/e2e/test_live_server.py`: standalone E2E test script with retries on all HTTP calls
+  (exponential back-off); covers health, auth, providers CRUD, API keys CRUD, wiki CRUD,
+  chat, sessions, activity, activation, and platform/catalog endpoints.
+- `scripts/e2e_generate_key.py`: thin script that issues a real API key and prints exactly
+  one line (plaintext key) for clean shell capture in CI.
+- `frontend/src/pages/.eslintrc.json`: directory-level ESLint override sets `no-unused-vars`
+  to `"off"` for all prototype page files, preventing `CI=true` react-scripts build failures
+  caused by pre-existing unused variables in 14 legacy pages.
+
+### Fixed
+- `pytest.ini`: replaced invalid `collect_ignore_glob` option with `addopts = --ignore=tests/e2e`;
+  prevents pytest from collecting standalone E2E scripts that have no pytest fixtures.
+- `tests/e2e/test_live_server.py`: wiki test now uses the server-computed slug from the POST
+  response (`r.json().get("slug")`) instead of the client-supplied slug field, which the
+  server ignores (it always calls `slugify(title)` internally).
+- `tests/e2e/test_live_server.py`: provider create test now includes required `provider_id`
+  field; all response shapes correctly unwrapped from `{"providers": [...]}` etc. wrapper objects.
+- `tests/test_chat_mode_regressions.py`: collect auth headers against real MongoDB BEFORE
+  installing `get_db` mock, so login succeeds even when DB is subsequently replaced with Mock.
+
+
 ### Fixed
 - `tests/test_chat_mode_regressions.py`: `server.db` was already migrated to
   `get_db()` (lazy Motor client); monkeypatch now patches `server.get_db` to

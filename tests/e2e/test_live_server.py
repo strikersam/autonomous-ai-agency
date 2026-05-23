@@ -231,16 +231,20 @@ def test_api_keys(c: httpx.Client, h: dict) -> None:
 
 def test_wiki(c: httpx.Client, h: dict) -> None:
     Suite.section("5 · Wiki pages")
-    slug = f"e2e-{uuid.uuid4().hex[:8]}"
+    # Use a unique title so slugify() produces a unique slug each run
+    unique = uuid.uuid4().hex[:8]
+    title = f"E2E Test Page {unique}"
 
-    # Create
+    # Create — server ignores the slug field; it calls slugify(title) internally
     r = req("POST", c, "/api/wiki/pages", headers=h, json={
-        "title": "E2E Test Page",
-        "slug": slug,
+        "title": title,
         "content": "# E2E\n\nCreated by the E2E test suite.",
         "tags": ["e2e"],
     })
     check(r.status_code in (200, 201), "POST /api/wiki/pages → 200/201", r)
+    # Use the slug returned by the server (computed from title, not our input)
+    slug = r.json().get("slug", "")
+    check(bool(slug), "POST response must include slug", r)
     ok(f"POST /api/wiki/pages → slug={slug}")
 
     # Read
@@ -251,7 +255,7 @@ def test_wiki(c: httpx.Client, h: dict) -> None:
 
     # Update
     r = req("PUT", c, f"/api/wiki/pages/{slug}", headers=h, json={
-        "title": "E2E Test Page (updated)",
+        "title": title + " (updated)",
         "content": "# Updated\n\nUpdated by the E2E suite.",
         "tags": ["e2e"],
     })

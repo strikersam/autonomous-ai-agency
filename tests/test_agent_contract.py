@@ -62,6 +62,35 @@ class TestAgentJobRequest:
         with pytest.raises(ValidationError):
             AgentJobRequest(session_id="s-1", instruction="x" * 33_000)
 
+    def test_unknown_kwargs_rejected(self) -> None:
+        """extra='forbid' must reject unknown fields to kill signature-drift bugs.
+
+        Without this, passing provider_chain=[...] or bogus_kwarg=123 would be
+        silently dropped by Pydantic's default extra='ignore' — the exact
+        bug class the audit set out to prevent.
+        """
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            AgentJobRequest(
+                session_id="s-1",
+                instruction="Do it",
+                provider_chain=["fallback-provider"],  # not in contract
+                bogus_kwarg=123,                        # not in contract
+            )
+
+    def test_known_optional_fields_still_accepted(self) -> None:
+        """Ensure extra='forbid' didn't accidentally remove valid optional fields."""
+        req = AgentJobRequest(
+            session_id="s-1",
+            instruction="Do it",
+            owner_id="u-1",
+            requested_model="qwen3-coder",
+            provider_id="ollama-local",
+            runtime_id="claude_code",
+            allow_commercial_fallback=False,
+        )
+        assert req.provider_id == "ollama-local"
+        assert req.runtime_id == "claude_code"
+
 
 # ─── AgentJobResult ───────────────────────────────────────────────────────────
 

@@ -34,9 +34,14 @@ class AgentJobRequest(BaseModel):
 
     Passed from the API handler into ``AgentJobManager.create_job()`` so that
     all inputs are type-checked and documented before they touch the job queue.
+
+    ``extra="forbid"`` is intentional: any unknown kwarg raises a
+    ``ValidationError`` at the call site rather than being silently dropped.
+    This kills the signature-drift bug class — if a caller passes
+    ``provider_chain=...`` or ``bogus_kwarg=123``, CI catches it immediately.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     # Caller context
     session_id: str = Field(
