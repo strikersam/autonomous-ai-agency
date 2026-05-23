@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- `.claude/hooks/post-commit` — Git hook that runs `graphify update .` in the background after every commit, keeping the knowledge graph in sync with committed state automatically.
+- `.claude/settings.json` `Stop` hook — fires after every Claude turn and runs `graphify update .` silently in the background. Means any AI session editing files gets a fresh graph on the very next query, with no manual steps. Combined with the existing `SessionStart` hook, the graph is self-maintaining across new sessions, existing sessions, and git commits.
 - `.claude/skills/graphify/SKILL.md` — New skill integrating [graphify](https://github.com/safishamsi/graphify) knowledge-graph tool. Converts the codebase into a queryable `graph.json` (local AST parsing, no API calls for code files) so AI sessions query the graph instead of reading raw source files — upstream benchmark: 71.5x fewer tokens per query on large corpora. Includes token-savings table, Claude query protocol (check `GRAPH_REPORT.md` → `graphify query` → open files only for edits), and complementary relationship with the existing `repowise-intelligence` skill.
 - `.claude/settings.json` — `SessionStart` hook that runs `graphify . --update` at the beginning of every Claude Code session, keeping the knowledge graph incrementally current. Reports node count and a one-line reminder to use `graphify query` instead of raw file reads.
 - `.gitignore` — Added `graph.html` and `cache/` (graphify local artifacts). `graph.json` and `GRAPH_REPORT.md` remain committed for team-shared graph queries.

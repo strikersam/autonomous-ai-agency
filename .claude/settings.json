@@ -9,6 +9,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); cd \"$ROOT\"; command -v graphify >/dev/null 2>&1 && graphify update . --quiet >/dev/null 2>&1 &'"
+          }
+        ]
+      }
     ]
   }
 }
