@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- `.claude/skills/graphify/SKILL.md` — New skill integrating [graphify](https://github.com/safishamsi/graphify) knowledge-graph tool. Converts the codebase into a queryable `graph.json` (local AST parsing, no API calls for code files) so AI sessions query the graph instead of reading raw source files — upstream benchmark: 71.5x fewer tokens per query on large corpora. Includes token-savings table, Claude query protocol (check `GRAPH_REPORT.md` → `graphify query` → open files only for edits), and complementary relationship with the existing `repowise-intelligence` skill.
+- `.claude/settings.json` — `SessionStart` hook that runs `graphify . --update` at the beginning of every Claude Code session, keeping the knowledge graph incrementally current. Reports node count and a one-line reminder to use `graphify query` instead of raw file reads.
+- `.gitignore` — Added `graph.html` and `cache/` (graphify local artifacts). `graph.json` and `GRAPH_REPORT.md` remain committed for team-shared graph queries.
+
+### Changed
+- `CLAUDE.md` — "How Claude Should Work" sequence now lists querying `graph.json` via `graphify` as step 2 (before opening source files). Skill table now includes `graphify` as the first entry for exploration/token-saving tasks.
+
 ### Fixed
 - `.github/workflows/deploy-backend.yml` — Replaced unsafe nested-quote `echo` (Python one-liner inside `$()` inside escaped double-quotes) with a simple portable `echo "Deploy triggered successfully (HTTP $HTTP_CODE)"`. The previous syntax caused Bash on GitHub Actions Ubuntu runners to exit with `syntax error near unexpected token` and report workflow failure on every master push, even though the Render deploy hook already accepted the request (HTTP 202).
 

@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && if command -v graphify >/dev/null 2>&1; then graphify . --update --quiet 2>/dev/null && NODES=$(python3 -c \"import json,sys; g=json.load(open(\\\"graph.json\\\")); print(len(g.get(\\\"nodes\\\",[])))\" 2>/dev/null || echo \\\"?\\\") && echo \"[graphify] graph ready — ${NODES} nodes. Query with: graphify query \\\"your question\\\" (saves ~30x tokens vs file reads)\"; else echo \"[graphify] not installed — run: pip install graphifyy && graphify install && graphify .\"; fi'"
+          }
+        ]
+      }
+    ]
+  }
+}

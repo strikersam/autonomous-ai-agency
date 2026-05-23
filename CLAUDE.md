@@ -132,17 +132,19 @@ The `commit-msg` hook will reject commits with no changelog update (unless the c
 **Always follow this sequence:**
 
 1. **Read the relevant skill** from `.claude/skills/` before starting any non-trivial task.
-2. **Run `pytest -x`** before making changes to confirm baseline passes.
-3. **Use the implementation-planner skill** for any multi-file change.
+2. **Query `graph.json` via `graphify query "…"` before opening source files** — 30x cheaper than reading raw files. Check `GRAPH_REPORT.md` for a free orientation summary.
+3. **Run `pytest -x`** before making changes to confirm baseline passes.
+4. **Use the implementation-planner skill** for any multi-file change.
 4. **Use the risky-module-review skill** for any change to `admin_auth.py`, `key_store.py`, `agent/tools.py`, or auth/billing paths.
-5. **Update `docs/changelog.md`** as part of every meaningful change.
-6. **Run `pytest -x`** again after changes.
-7. **Update `.claude/state/`** checkpoints after milestones.
+6. **Update `docs/changelog.md`** as part of every meaningful change.
+7. **Run `pytest -x`** again after changes.
+8. **Update `.claude/state/`** checkpoints after milestones.
 
 **When to invoke which skill:**
 
 | Situation | Skill to use |
 |-----------|-------------|
+| Exploring codebase / saving tokens | `graphify` |
 | Planning a multi-file feature | `implementation-planner` |
 | Writing or fixing tests | `test-first-executor` |
 | Any auth/key/agent-tools change | `risky-module-review` |
