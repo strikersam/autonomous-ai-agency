@@ -279,3 +279,8 @@
 
 ### Added
 - **`as_dict()` enhancements** (`features/matrix.py`) — `FeatureMatrix.as_dict()` now returns `schema_version: "1"`, a top-level `entries` list (for consumers that prefer arrays over keyed maps), and a top-level `by_maturity` dict alongside the existing `features` dict and `summary` block.
+
+### Fixed (CI)
+- `AdminScreen.jsx`: recovered `INITIAL_USERS`, `INITIAL_REQUESTS`, `INITIAL_KEYS`, `roleConfig`, `RoleBadge`, `setUserOnboardingFlag` constants accidentally removed with old HMAC helpers
+- `ActivityPage.js`: added missing lucide-react imports (`MessageSquare`, `BookOpen`, `Upload`, `Shield`, `AlertCircle`, `ArrowUpRight`, `Clock`)
+- `tests/test_chat_mode_regressions.py`: moved `_auth_headers()` call before `monkeypatch.setattr(server, "get_db", ...)` so login runs against the real CI MongoDB; previously the bare `Mock()` caused non-async attribute calls in the login/bootstrap path

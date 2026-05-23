@@ -22,6 +22,44 @@ import AdminOnboardingPanel from './AdminOnboardingPanel';
 // canary exposes them. Removing the canary too requires understanding both layers.
 
 // Legacy HMAC helpers removed — server-backed activation in activation_api.py
+
+// ── Mock data (stub until wired to live API in a future session) ──────────────
+const INITIAL_USERS = [
+  { id:'u-1', name:'Sam Striker',  email:'admin@llmrelay.local', role:'admin',      status:'active',  lastActive:'2m ago',  sessions:142, apiKeys:2, onboardingAllowed:true,  onboardingDone:true },
+  { id:'u-2', name:'Alex Chen',    email:'alex@acme-store.com',  role:'power_user', status:'active',  lastActive:'1h ago',  sessions:67,  apiKeys:1, onboardingAllowed:true,  onboardingDone:true },
+  { id:'u-3', name:'Jordan Kim',   email:'jordan@acme-store.com',role:'user',       status:'active',  lastActive:'3d ago',  sessions:18,  apiKeys:1, onboardingAllowed:false, onboardingDone:false },
+  { id:'u-4', name:'Casey Morgan', email:'casey@acme-store.com', role:'user',       status:'pending', lastActive:'never',   sessions:0,   apiKeys:0, onboardingAllowed:false, onboardingDone:false },
+];
+
+const INITIAL_REQUESTS = [
+  { id:'req-1', from:'Jordan Kim',   email:'jordan@acme-store.com', ts:'1h ago', message:'I manage our Shopify store — would like to connect it for AI automation.', status:'pending' },
+  { id:'req-2', from:'Casey Morgan', email:'casey@acme-store.com',  ts:'2h ago', message:'New to the team. Would love to set up our marketing stack.', status:'pending' },
+];
+
+const INITIAL_KEYS = [
+  { id:'k-1', label:'Claude Code (dev)',  key:'sk-relay-dev-••••••••', userId:'u-1', created:'2026-01-12', lastUsed:'2m ago', requests:14211 },
+  { id:'k-2', label:'Cursor integration', key:'sk-relay-cur-••••••••', userId:'u-1', created:'2026-02-03', lastUsed:'1h ago', requests:8842 },
+  { id:'k-3', label:'Alex dev key',       key:'sk-relay-alx-••••••••', userId:'u-2', created:'2026-03-08', lastUsed:'1h ago', requests:3201 },
+];
+
+const roleConfig = {
+  admin:      { color:'#ff6b7d', bg:'rgba(255,107,125,0.10)', border:'rgba(255,107,125,0.22)', label:'Admin' },
+  power_user: { color:'#7c9dff', bg:'rgba(124,157,255,0.10)', border:'rgba(124,157,255,0.22)', label:'Power User' },
+  user:       { color:'#46d9a4', bg:'rgba(70,217,164,0.08)',  border:'rgba(70,217,164,0.18)',  label:'User' },
+};
+
+function RoleBadge({ role }) {
+  const rc = roleConfig[role] || roleConfig.user;
+  return <span style={{ fontSize:10, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'2px 8px', borderRadius:999, color:rc.color, background:rc.bg, border:`1px solid ${rc.border}` }}>{rc.label}</span>;
+}
+
+// setUserOnboardingFlag — stub retained for AdminScreen state updates;
+// real persistence goes through AdminOnboardingPanel → activation_api.py
+function setUserOnboardingFlag(userId, val) {  // eslint-disable-line no-unused-vars
+  // TODO(next-session): call PUT /api/activation/users/{userId}/onboarding
+  console.log('setUserOnboardingFlag', userId, val);
+}
+
 function ActivationPanel() {
   // Delegated to server-backed AdminOnboardingPanel (activation_api.py)
   // Replaces the old client-side HMAC implementation.

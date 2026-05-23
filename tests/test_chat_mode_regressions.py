@@ -331,18 +331,23 @@ def test_chat_send_persists_agent_handoff_metadata_in_session_history(client, mo
 
 
 def test_uuid_fallback_chat_session_can_be_reloaded_and_deleted(client, monkeypatch) -> None:
-    direct_reply = AsyncMock(return_value="Docker explanation")
+    # Collect auth headers against the real (CI) MongoDB BEFORE mocking get_db,
+    # so that login + bootstrap run against the live database and return a valid token.
+    # After auth is obtained we install the mock to simulate a DB outage only for
+    # the chat persistence path.
+    headers = _auth_headers(client)
 
+    direct_reply = AsyncMock(return_value="Docker explanation")
     monkeypatch.setattr("backend.server.call_llm", direct_reply)
-    # Patch get_db() so insert_one raises, simulating a DB outage.
-    # server.db was removed in favour of the lazy server.get_db() function;
-    # mock the whole db object returned by get_db() to control chat_sessions.
+
+    # Patch get_db() so insert_one raises, simulating a DB outage mid-request.
     mock_db = Mock()
     mock_db.chat_sessions.insert_one = AsyncMock(side_effect=RuntimeError("db unavailable"))
     mock_db.chat_sessions.find_one    = AsyncMock(return_value=None)
+    # All other collections (users, providers, wiki_pages, etc.) return safe defaults
+    # via the Mock auto-spec; awaiting a plain Mock raises TypeError which every
+    # call-site already wraps in `except Exception`, so no real call leaks through.
     monkeypatch.setattr(server, "get_db", lambda: mock_db)
-
-    headers = _auth_headers(client)
     response = client.post(
         "/api/chat/send",
         headers=headers,

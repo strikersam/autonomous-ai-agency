@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getActivity } from '../api';
-import { Filter, Trash2, Activity } from 'lucide-react';
+import { Filter, Trash2, Activity, MessageSquare, BookOpen, Upload, Shield, AlertCircle, ArrowUpRight, Clock } from 'lucide-react';
 
 export default function ActivityPage() {
   const [entries, setEntries] = useState([]);
