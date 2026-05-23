@@ -295,3 +295,8 @@
 
 ### Changed
 - `tests/conftest.py`: Added `SKIP_DB_TESTS` guard and `requires_db` marker registration; existing `client` and `wiki_client` fixtures unchanged
+
+### Fixed (CI round 2)
+- `pytest.ini`: added `collect_ignore_glob = ["tests/e2e/*"]` so the E2E standalone script is not collected as pytest tests (was causing "fixture 'c' not found" error)
+- `frontend/src/pages/RoutingPolicyPage.js`: removed unused `loadError`/`setLoadError` state that caused `CI=true` build failure
+- `tests/e2e/test_live_server.py`: fixed API response shapes — `GET /api/providers` returns `{"providers":[]}`, `GET /api/keys` returns `{"keys":[]}`, `GET /api/wiki/pages` returns `{"pages":[]}`, `GET /api/activity` returns `{"logs":[]}`, `GET /api/models/catalog` returns `{"catalog":[]}` — all unwrapped correctly; `POST /api/providers` now includes required `provider_id` field
