@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+- `.claude/settings.json` — Stop hook now uses `flock -n /tmp/graphify-update.lock` so concurrent `graphify update` runs (SessionStart + Stop + post-commit) are serialised; a second run skips silently instead of racing on `graphify-out/` writes.
+- `.gitignore` — Added `graphify-out/.graphify_root` and `graphify-out/manifest.json`; both contain machine-specific absolute paths and must not be versioned. Removed both files from git tracking.
+- `CLAUDE.md` — Fixed duplicate step numbers in working sequence (was `4, 4, 6`; now `4, 5, 6`).
+- `.claude/skills/graphify/SKILL.md` — Added `text` language tag to all untagged fenced code blocks (MD040).
+
 ### Added
 - `.claude/hooks/post-commit` — Git hook that runs `graphify update .` in the background after every commit, keeping the knowledge graph in sync with committed state automatically.
 - `.claude/settings.json` `Stop` hook — fires after every Claude turn and runs `graphify update .` silently in the background. Means any AI session editing files gets a fresh graph on the very next query, with no manual steps. Combined with the existing `SessionStart` hook, the graph is self-maintaining across new sessions, existing sessions, and git commits.

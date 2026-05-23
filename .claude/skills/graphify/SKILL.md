@@ -45,7 +45,7 @@ graphify .
 ```
 
 On success you'll have:
-```
+```text
 graphify-out/graph.json        ← persistent, queryable graph (commit this)
 graphify-out/graph.html        ← interactive visualization (gitignored, >5k nodes skipped)
 graphify-out/GRAPH_REPORT.md  ← god nodes, surprising edges, suggested questions
@@ -66,7 +66,7 @@ The hook prints a one-line status so Claude knows the graph state:
 
 ### Instead of reading raw files:
 
-```
+```text
 # EXPENSIVE (reads 300-line file = ~1200 tokens)
 /graphify explain "How does ModelRouter select a model?"
 
@@ -104,11 +104,13 @@ The hook prints a one-line status so Claude knows the graph state:
 
 ## Graph Artifacts — What to Commit
 
-```
+```text
 graphify-out/graph.json        ✅ commit — enables team-shared graph queries
 graphify-out/GRAPH_REPORT.md  ✅ commit — readable summary, useful in PRs
 graphify-out/graph.html        ❌ gitignore — skipped when >5k nodes anyway
 graphify-out/cache/            ❌ gitignore — local SHA cache, machine-specific
+graphify-out/.graphify_root    ❌ gitignore — machine-specific absolute path
+graphify-out/manifest.json     ❌ gitignore — machine-specific absolute paths
 ```
 
 Already configured in `.gitignore` for this repo.

@@ -39,9 +39,11 @@ dist/
 test_reports/
 scratch/verification/report.md
 
-# Graphify knowledge graph — keep graph.json + GRAPH_REPORT.md, ignore large artifacts
+# Graphify knowledge graph — keep graph.json + GRAPH_REPORT.md, ignore machine-specific artifacts
 graphify-out/graph.html
 graphify-out/cache/
+graphify-out/.graphify_root
+graphify-out/manifest.json
 
 # Temporary / backup files
 *.bak
