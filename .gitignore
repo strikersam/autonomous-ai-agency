@@ -39,7 +39,9 @@ dist/
 test_reports/
 scratch/verification/report.md
 
-# Graphify knowledge graph — keep graph.json + GRAPH_REPORT.md, ignore machine-specific artifacts
+# Graphify knowledge graph — only GRAPH_REPORT.md is portable; all others are machine-specific
+graphify-out/graph.json
+graphify-out/.graphify_labels.json
 graphify-out/graph.html
 graphify-out/cache/
 graphify-out/.graphify_root

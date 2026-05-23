@@ -105,14 +105,17 @@ The hook prints a one-line status so Claude knows the graph state:
 ## Graph Artifacts — What to Commit
 
 ```text
-graphify-out/graph.json        ✅ commit — enables team-shared graph queries
-graphify-out/GRAPH_REPORT.md  ✅ commit — readable summary, useful in PRs
+graphify-out/GRAPH_REPORT.md   ✅ commit — portable readable summary (no machine-specific IDs)
+graphify-out/graph.json        ❌ gitignore — node IDs embed absolute checkout path; not portable
+graphify-out/.graphify_labels.json  ❌ gitignore — machine-specific
 graphify-out/graph.html        ❌ gitignore — skipped when >5k nodes anyway
-graphify-out/cache/            ❌ gitignore — local SHA cache, machine-specific
+graphify-out/cache/            ❌ gitignore — local SHA cache
 graphify-out/.graphify_root    ❌ gitignore — machine-specific absolute path
 graphify-out/manifest.json     ❌ gitignore — machine-specific absolute paths
 ```
 
+`graph.json` is regenerated locally by the `SessionStart` hook (`graphify update .`) on every
+session open — so each contributor gets a correct graph for their own checkout path.
 Already configured in `.gitignore` for this repo.
 
 ## Relationship to repowise-intelligence Skill
