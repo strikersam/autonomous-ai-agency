@@ -10,6 +10,15 @@
 
 ## TL;DR — where we are
 
+> **Session-3 update:** Frontend redesign **complete (parts 1+2)** and pushed —
+> commits `05e1fea` + `0869840`. Full "Agency Core" V5 UI at **`/v5`**: AppShell +
+> all 14 screens (Chat, Dashboard, Tasks, Agents, Schedules, Skills, Intelligence,
+> Knowledge, Providers, Logs, Company, Onboarding, Doctor, Admin) + Alerts/QuickNotes
+> overlays. ESLint-clean (CRA `react-app`, so CI build passes with `CI=true`) and
+> Babel-validated. Screens render mock data; **live API wiring + auth gating is the
+> next frontend part.** Backend Phases 1 (typed contract) / CI-parity remain — they
+> need a validated test env (py3.13 + Mongo) this sandbox lacks.
+
 > **Session-2 update (2026-05-22):** Draft **PR #218** opened
 > (https://github.com/strikersam/local-llm-server/pull/218) — kept as a draft so
 > master's `auto-merge` cannot merge it on green CI. Branch tip now `c23df7d`.
