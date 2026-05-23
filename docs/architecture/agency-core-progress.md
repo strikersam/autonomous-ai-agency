@@ -10,6 +10,15 @@
 
 ## TL;DR — where we are
 
+> **Session-2 update (2026-05-22):** Draft **PR #218** opened
+> (https://github.com/strikersam/local-llm-server/pull/218) — kept as a draft so
+> master's `auto-merge` cannot merge it on green CI. Branch tip now `c23df7d`.
+> Added the **Doctor** diagnostics (`scripts/doctor.py` + `make doctor`).
+> **Blocked:** implementing the `Agency Core.html` frontend design — the design
+> SPA can't be fetched (no rendered browser, likely auth-gated) and no Chrome is
+> connected. Unblock by saving `Agency Core.html` into the repo folder, or
+> connecting the Chrome extension.
+
 - ✅ **Audit delivered** (Sections 1–5) → `agency-core-audit-2026-05-22.md`.
 - ✅ **Phase 0 pushed** → branch `agency-core-migration`, commit `713184a`.
 - ⏳ **Next:** CI-parity hardening (make the unit suite runnable without MongoDB),
