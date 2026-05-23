@@ -9,7 +9,7 @@ UVICORN ?= .venv/bin/uvicorn
 
 .PHONY: help install dev test test-fast test-verbose lint hooks-install
 .PHONY: changelog-check ai-start ai-status ai-resume ai-stop ai-logs
-.PHONY: manifest summary audit ui-docs ci-parity
+.PHONY: manifest summary audit ui-docs ci-parity doctor
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 
@@ -122,3 +122,6 @@ audit:
 
 ui-docs:
 	python3 scripts/gen_webui_screenshots.py
+
+doctor: ## Run environment & CI-parity diagnostics (claw-code style)
+	$(PYTHON) scripts/doctor.py

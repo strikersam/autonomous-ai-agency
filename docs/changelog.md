@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- `scripts/doctor.py` + `make doctor` — claw-code-style environment & CI-parity diagnostics (Python version vs CI 3.13, required env, core-dep import, MongoDB/Ollama reachability, Node, git state). Pure stdlib; never raises; `--strict` exits non-zero on hard failures. Directly addresses "why didn't this run?" / "why did CI fail but local pass?".
+- `docs/runbooks/doctor.md` — how/why to use the doctor.
+- `docs/architecture/frontend-redesign-prompt.md` — frontend redesign brief for the Agency Core UI.
+
 ### Changed
 - `.github/workflows/{agency-cycle,ci-failure-autofix,continuous-improvement,openclaw-security-automation,process-quick-note,weekly-trend-digest,auto-merge}.yml` — **QUARANTINED**: disabled `schedule`/`push`/`workflow_run` auto-triggers (kept `workflow_dispatch` for manual runs) pending Agency Core stabilization. These autonomous workflows auto-committed AI-generated patches and dispatched CEO directives faster than they could be verified — the primary source of unverified churn. Re-enable by restoring the commented trigger blocks. See `docs/architecture/agency-core-audit-2026-05-22.md`.
 
