@@ -32,6 +32,10 @@ Point Cursor, Claude Code, Aider, Continue, or any OpenAI SDK client at `http://
 
 No GPU required to start: set `NVIDIA_API_KEY` and free NIM inference handles everything.
 
+### Where it's heading — Agency Core (V5.0, in development)
+
+The next major version turns LLM Relay into a **company-level autonomous agency**. Give it a production website URL (plus optional repos, docs, and credentials) and it inspects your site, infers your stack and domain, asks a few tailored questions, builds a persistent **company graph**, and provisions company-specific specialist agents that plan, build, fix, test, and maintain your digital estate — across industries, not just code. The redesigned **V5 interface** (a chat-first workspace plus dashboard, tasks, agents, onboarding, company graph, and a claw-code-style **Doctor**) is in preview at `/v5`. Architecture and migration plan: [`docs/architecture/agency-core-audit-2026-05-22.md`](docs/architecture/agency-core-audit-2026-05-22.md).
+
 <p align="center">
   <img src="docs/screenshots/readme/v4-control-plane.png" alt="LLM Relay control plane" width="100%"/>
   <br/>
@@ -39,6 +43,28 @@ No GPU required to start: set `NVIDIA_API_KEY` and free NIM inference handles ev
 </p>
 
 ---
+
+## Pages & screens (V5 Agency Core)
+
+The V5 interface is a single workspace with a sectioned sidebar. Every screen below is in the preview at `/v5` (run `cd frontend && npm start`). Captures marked _current_ are from the shipping v4 UI; the V5 visual refresh ships in the [Agency Core redesign PR](https://github.com/strikersam/local-llm-server/pull/218). Screens marked _new in V5_ are part of that PR.
+
+| Page | Section | What it does | Screenshot |
+|------|---------|--------------|------------|
+| **Sign in** | — | Authenticate into the relay (SSO / passwordless) | [current](docs/screenshots/readme/v4-login.png) · [mobile](docs/screenshots/readme/v4-login-mobile.png) |
+| **Chat** | Workspace | Unified assistant — auto agent-selection, sticky company/repo/task context, humanized agent-progress timeline, final-result card with PR/diff/tests | [current](docs/screenshots/readme/v4-chat.png) |
+| **Dashboard** | Workspace | System overview; partial-failure-tolerant widgets (no whole-page network errors) | [current](docs/screenshots/readme/v4-control-plane.png) |
+| **Tasks** | Workspace | Job-lifecycle board: classify → plan → execute → verify → judge | [current](docs/screenshots/readme/v4-tasks-kanban.png) |
+| **Agents** | Agency | The autonomous agency team and their status | [current](docs/screenshots/readme/v4-agents.png) |
+| **Schedules** | Agency | Autopilot jobs and cadences | [current](docs/screenshots/readme/v4-schedules.png) |
+| **Skills** | Agency | Agentic commerce/domain skills | _new in V5_ |
+| **Intelligence** | Agency | Competitor & trend intelligence | _new in V5_ |
+| **Knowledge** | Agency | Docs, sources, and activity | [current](docs/screenshots/readme/v4-knowledge.png) |
+| **Providers** | Infrastructure | Models, Ollama, and MCP servers | [current](docs/screenshots/readme/v4-providers.png) |
+| **Logs** | Infrastructure | Traces & observability | [current](docs/screenshots/readme/v4-logs.png) |
+| **Company** | Context | The persistent operating context / company graph | _new in V5_ |
+| **Onboarding** | Context | Company setup wizard: production URL → inferred stack → tailored questions → specialists | [current](docs/screenshots/readme/v4-setup-wizard.png) |
+| **Doctor** | System | Diagnostics & CI-parity checks (`make doctor`) — "why didn't this run? why did CI fail but local pass?" | _new in V5_ |
+| **Admin** | System | Users & access control | [current](docs/screenshots/readme/v4-admin.png) |
 
 ## Autonomous Agency
 
