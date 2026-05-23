@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Fixed
+- `tests/test_chat_mode_regressions.py`: `server.db` was already migrated to
+  `get_db()` (lazy Motor client); monkeypatch now patches `server.get_db` to
+  return a `Mock` whose `chat_sessions.insert_one` raises `RuntimeError`, giving
+  the test the DB-outage scenario it needs without touching the real client.
+- `frontend/.eslintrc.json` (new): adds `{ "extends": "react-app" }` so
+  `react-scripts build` loads all CRA plugins (including `eslint-plugin-jsx-a11y`)
+  before processing `eslint-disable jsx-a11y/anchor-is-valid` comments; without
+  this CRA treats the unknown-rule disable comment as an error under `CI=true`.
+
+
+### Fixed
 - `frontend/package.json` overrides: removed `axios` (cannot override a direct
   dependency; caused `EOVERRIDE` in CI `npm install`).
 - `tests/test_chat_mode_regressions.py`: replaced

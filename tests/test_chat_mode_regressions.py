@@ -334,10 +334,13 @@ def test_uuid_fallback_chat_session_can_be_reloaded_and_deleted(client, monkeypa
     direct_reply = AsyncMock(return_value="Docker explanation")
 
     monkeypatch.setattr("backend.server.call_llm", direct_reply)
-    monkeypatch.setattr(
-        server.db.chat_sessions, "insert_one",
-        AsyncMock(side_effect=RuntimeError("db unavailable")),
-    )
+    # Patch get_db() so insert_one raises, simulating a DB outage.
+    # server.db was removed in favour of the lazy server.get_db() function;
+    # mock the whole db object returned by get_db() to control chat_sessions.
+    mock_db = Mock()
+    mock_db.chat_sessions.insert_one = AsyncMock(side_effect=RuntimeError("db unavailable"))
+    mock_db.chat_sessions.find_one    = AsyncMock(return_value=None)
+    monkeypatch.setattr(server, "get_db", lambda: mock_db)
 
     headers = _auth_headers(client)
     response = client.post(
