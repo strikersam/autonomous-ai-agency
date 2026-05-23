@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `frontend/src/v5/` — **V5.0 "Agency Core" frontend redesign, part 1** (ported from the Claude Design handoff). `AppShell` (sectioned desktop sidebar + mobile top-bar/bottom-nav, agency-status pill, `Icon` set), the unified **Chat** screen (auto/explicit agent picker, sticky company/repo/task context chips, humanized agent-progress panel with phase breadcrumb + live event timeline, final-result card with PR/diff/test links, chat history), and `V5App` mounted at **`/v5`** (lazy route; existing dashboard untouched). Remaining screens (dashboard, tasks, onboarding, company, doctor, agents, schedules, skills, intelligence, knowledge, providers, logs, admin) land in later parts.
+
+### Added
 - `scripts/doctor.py` + `make doctor` — claw-code-style environment & CI-parity diagnostics (Python version vs CI 3.13, required env, core-dep import, MongoDB/Ollama reachability, Node, git state). Pure stdlib; never raises; `--strict` exits non-zero on hard failures. Directly addresses "why didn't this run?" / "why did CI fail but local pass?".
 - `docs/runbooks/doctor.md` — how/why to use the doctor.
 - `docs/architecture/frontend-redesign-prompt.md` — frontend redesign brief for the Agency Core UI.

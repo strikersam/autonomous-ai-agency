@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './pages/LoginPage';
@@ -6,6 +6,8 @@ import AuthCallback from './pages/AuthCallback';
 import DashboardLayout from './pages/DashboardLayout';
 import SetupWizardPage from './pages/SetupWizardPage';
 import { getSetupState, getBackendUrl } from './api';
+
+const V5App = React.lazy(() => import('./v5/V5App'));
 
 function LoadingScreen({ message }) {
   return (
@@ -61,6 +63,9 @@ function AppRoutes() {
 
       {/* Pre-auth setup wizard — configure backend URL before logging in */}
       <Route path="/bootstrap" element={<SetupWizardPage />} />
+
+      {/* V5.0 Agency Core redesign preview (incremental; unauthenticated for review) */}
+      <Route path="/v5/*" element={<Suspense fallback={<LoadingScreen message="Loading Agency Core" />}><V5App /></Suspense>} />
 
       {/* Protected dashboard (includes /setup as a nested route) */}
       <Route
