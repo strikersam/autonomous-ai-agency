@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- `docs/architecture/NEXT-SESSION-PROMPT.md` — detailed, self-contained handoff prompt for a fresh Cowork session (Sonnet-friendly) covering all remaining work.
+- `scripts/e2e_smoke.py` + `.github/workflows/e2e.yml` — real-API end-to-end smoke (health, models, chat completion) runnable manually against a live relay via a GitHub `test` environment (`RELAY_BASE_URL` var + `RELAY_API_KEY` secret); skips cleanly when unconfigured.
+- `.devcontainer/devcontainer.json` — Python 3.13 + Node 20 dev container matching CI, for CI/local parity.
+
+### Changed
+- `.python-version` — pinned to `3.13` to match CI (was `3.12.13`).
+
+### Added
 - `frontend/src/v5/` — **Agency Core V5 redesign, part 2**: ported all remaining screens from the Claude Design handoff and wired them into `V5App` at `/v5` — Dashboard (healthy/partial-failure-tolerant), Tasks (job-lifecycle board), Agents, Schedules, Skills, Intelligence, Knowledge, Providers, Logs, Company (operating context), Onboarding (URL→stack wizard), Doctor, Admin, plus the always-on Alerts bell and Quick Notes overlays. ESLint-clean under the CRA `react-app` ruleset (build passes with `CI=true`); `target="_blank"` links hardened with `rel="noreferrer"`. Screens use mock data; live API wiring follows in a later part.
 
 ### Added

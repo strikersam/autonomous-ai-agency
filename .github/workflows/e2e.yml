@@ -1,0 +1,29 @@
+name: E2E (real API)
+
+# Manual only. Runs the real-API smoke test against a RUNNING relay instance.
+# URL + key come from the GitHub `test` environment (Settings -> Environments).
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Base URL of the running relay (overrides the test env var)"
+        required: false
+        default: ""
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run real-API E2E smoke
+        env:
+          RELAY_BASE_URL: ${{ github.event.inputs.base_url != '' && github.event.inputs.base_url || vars.RELAY_BASE_URL }}
+          RELAY_API_KEY: ${{ secrets.RELAY_API_KEY }}
+          RELAY_E2E_MODEL: ${{ vars.RELAY_E2E_MODEL }}
+        run: python scripts/e2e_smoke.py
