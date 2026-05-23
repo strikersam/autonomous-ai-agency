@@ -4,6 +4,7 @@
 
 ### Fixed
 - `graphify-out/graph.json` and `.graphify_labels.json` — removed from git tracking and gitignored. Node IDs in `graph.json` embed the absolute checkout path (`home_user_local_llm_server_…`), making the file non-portable across contributors; large non-semantic diffs would occur on every `graphify update` from a different path. `GRAPH_REPORT.md` (portable text, no path-derived IDs) remains committed. The `SessionStart` hook regenerates `graph.json` locally on each session open.
+- `.claude/settings.json` — Stop hook guards `flock` availability: uses `flock -n /tmp/graphify-update.lock` when present (Linux), falls back to a plain background run on platforms without `flock` (macOS without util-linux, etc.) so the hook never breaks silently
 - `.claude/settings.json` — Stop hook now uses `flock -n /tmp/graphify-update.lock` so concurrent `graphify update` runs (SessionStart + Stop + post-commit) are serialised; a second run skips silently instead of racing on `graphify-out/` writes.
 - `.gitignore` — Added `graphify-out/.graphify_root` and `graphify-out/manifest.json`; both contain machine-specific absolute paths and must not be versioned. Removed both files from git tracking.
 - `CLAUDE.md` — Fixed duplicate step numbers in working sequence (was `4, 4, 6`; now `4, 5, 6`).

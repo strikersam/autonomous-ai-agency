@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); cd \"$ROOT\"; command -v graphify >/dev/null 2>&1 && flock -n /tmp/graphify-update.lock graphify update . --quiet >/dev/null 2>&1 &'"
+            "command": "bash -c 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); cd \"$ROOT\"; command -v graphify >/dev/null 2>&1 && { if command -v flock >/dev/null 2>&1; then flock -n /tmp/graphify-update.lock graphify update . --quiet >/dev/null 2>&1; else graphify update . --quiet >/dev/null 2>&1; fi } &'"
           }
         ]
       }
