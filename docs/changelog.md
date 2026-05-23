@@ -3,6 +3,42 @@
 ## [Unreleased]
 
 ### Added
+- `activation.py` — Ed25519-signed instance activation system; instanceId generated on
+  first run, token verified against embedded owner public key; tamper-proof even if repo
+  is forked (relay validates same token server-side).
+- `activation_api.py` — FastAPI routes: `GET /api/activation/status` (public),
+  `POST /api/activation/activate` (admin), `GET/PUT /api/activation/users/{id}/onboarding`
+  (admin toggle), `GET /api/activation/audit-log` (admin). Persists state to
+  `.activation_token` / `.onboarding_state.json` (git-ignored).
+- `frontend/src/v5/screens/ActivationGate.jsx` — pre-login activation wizard; shows
+  instanceId, email-draft link, token input; unlocks the whole app on success.
+- `frontend/src/v5/screens/AdminOnboardingPanel.jsx` — admin panel: activation status,
+  per-user onboarding_allowed toggle, audit log table.
+- `setup/api.py` — `_require_onboarding_gate()` guard on all step/complete endpoints;
+  returns `403` with structured error if instance not activated or user not allowed.
+- `frontend/package.json` npm `overrides` — pins vulnerable transitive deps to safe
+  versions: nth-check ≥2.1.1, serialize-javascript ≥6.0.2, postcss ≥8.4.31, ws ≥8.17.1,
+  svgo ≥2.8.0, jsonpath ≥1.1.1, qs ≥6.11.0, uuid ≥9.0.0, bfj ≥8.0.0 (fixes 1 high,
+  8 moderate, 1 low Dependabot alerts).
+
+### Changed
+- `frontend/src/v5/V5App.jsx` — entire app now wrapped in `<ActivationGate>`; shows
+  activation wizard before login if instance is not yet activated.
+- `frontend/src/v5/screens/AdminScreen.jsx` — `ActivationPanel` replaced with server-
+  backed `AdminOnboardingPanel`; removed old client-side HMAC helpers.
+- `README.md` — full rewrite: plain-English use-case explanation, non-technical quick
+  start, activation flow guide, team-management docs, developer reference.
+- `.gitignore` — added `.instance_id`, `.activation_token`, `.onboarding_state.json`,
+  `.activation_audit.jsonl`.
+
+### Security
+- Replaced client-side HMAC activation (reversible) with server-side Ed25519 JWT
+  verification; private key never committed to repo; bypass at UI layer does not grant
+  relay access.
+- npm dependency overrides resolve 10 Dependabot CVEs (1 high, 8 moderate, 1 low).
+
+
+### Added
 - `docs/architecture/NEXT-SESSION-PROMPT.md` — detailed, self-contained handoff prompt for a fresh Cowork session (Sonnet-friendly) covering all remaining work.
 - `scripts/e2e_smoke.py` + `.github/workflows/e2e.yml` — real-API end-to-end smoke (health, models, chat completion) runnable manually against a live relay via a GitHub `test` environment (`RELAY_BASE_URL` var + `RELAY_API_KEY` secret); skips cleanly when unconfigured.
 - `.devcontainer/devcontainer.json` — Python 3.13 + Node 20 dev container matching CI, for CI/local parity.

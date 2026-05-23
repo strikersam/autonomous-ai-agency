@@ -16,6 +16,7 @@ import DoctorScreen from './screens/DoctorScreen';
 import AdminScreen from './screens/AdminScreen';
 import AlertsBell from './screens/AlertsBell';
 import QuickNotesFAB from './screens/QuickNotesFAB';
+import ActivationGate from './screens/ActivationGate';
 
 const V5_THEME = `
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
@@ -73,13 +74,15 @@ export default function V5App() {
     admin:        isAdmin ? <AdminScreen /> : <AdminLocked />,
   };
   return (
-    <div className="v5-root">
-      <style>{V5_THEME}</style>
-      <AppShell activeScreen={screen} onNavigate={go} agentRunning={agentRunning} isAdmin={isAdmin}>
-        {screens[screen] || screens.chat}
-      </AppShell>
-      <AlertsBell onNavigate={go} />
-      <QuickNotesFAB visible={true} />
-    </div>
+    <ActivationGate>
+      <div className="v5-root">
+        <style>{V5_THEME}</style>
+        <AppShell activeScreen={screen} onNavigate={go} agentRunning={agentRunning} isAdmin={isAdmin}>
+          {screens[screen] || screens.chat}
+        </AppShell>
+        <AlertsBell onNavigate={go} />
+        <QuickNotesFAB visible={true} />
+      </div>
+    </ActivationGate>
   );
 }

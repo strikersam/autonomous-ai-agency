@@ -2,549 +2,272 @@
 
 # LLM Relay
 
-### Self-hosted OpenAI-compatible proxy that runs as an autonomous AI agency.
+### Your own private AI assistant that actually works — for your whole team.
 
-**Route any AI tool through 15+ providers. Let agents scan, fix, and ship your codebase continuously. Keep your data yours.**
+**No monthly per-seat bill. No data leaving your control. No vendor lock-in.**
 
 [![Version](https://img.shields.io/badge/version-4.1.0-4D8CFF?style=for-the-badge)](docs/changelog.md)
 [![Stars](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&color=FFD43B&logo=github)](https://github.com/strikersam/local-llm-server/stargazers)
-[![Forks](https://img.shields.io/github/forks/strikersam/local-llm-server?style=for-the-badge&color=4D8CFF&logo=git)](https://github.com/strikersam/local-llm-server/network)
 [![CI](https://img.shields.io/github/actions/workflow/status/strikersam/local-llm-server/ci.yml?style=for-the-badge&label=CI&logo=github-actions)](https://github.com/strikersam/local-llm-server/actions)
 [![License](https://img.shields.io/badge/license-Open%20Source-22C55E?style=for-the-badge)](LICENSE)
 
-[**Quick start**](#quick-start) · [**Agency**](#autonomous-agency) · [**Providers**](#providers) · [**What's new**](#whats-new) · [**Screenshots**](#see-the-product) · [**Docs**](#technical-docs)
+[**What is this?**](#what-is-this) · [**Who is it for?**](#who-is-it-for) · [**How it works**](#how-it-works-plain-english) · [**Quick start**](#quick-start) · [**Getting activated**](#getting-activated) · [**For developers**](#for-developers)
 
 </div>
 
 ---
 
-## What is LLM Relay?
+## What is this?
 
-A **FastAPI proxy** that sits between your AI tools and your models — and also runs as a self-managing AI agency that continuously improves its own codebase.
+**LLM Relay is a self-hosted AI platform** — you install it on your own server (or laptop), and it gives your team access to powerful AI tools without paying per-user fees to OpenAI, Anthropic, or similar services.
 
-Point Cursor, Claude Code, Aider, Continue, or any OpenAI SDK client at `http://localhost:8000` and get:
+Think of it like having your own private ChatGPT, but:
+- **Your data never leaves your server** — nothing is sent to third parties
+- **One installation serves your whole team** — no per-seat pricing
+- **It works with every major AI service** — swap between local models and cloud providers in one click
+- **It runs itself** — autonomous agents scan your codebase for issues and fix them overnight while you sleep
 
-- **Smart routing** — free-first, local-first, cost-aware, or quality-first strategies across 15+ providers
-- **Anthropic + OpenAI API compatibility** — both `/v1/messages` and `/v1/chat/completions` on the same server
-- **Async agent engine** — plan → execute → verify pipeline with per-role model assignment
-- **Team control plane** — React dashboard with an **Intelligent Assistant** that automatically detects coding intent, manages workspaces, and handles interactive task approval.
-- **Autonomous agency** — CEO + specialist agents scan, fix, and ship improvements every 15 minutes
-
-No GPU required to start: set `NVIDIA_API_KEY` and free NIM inference handles everything.
-
-### Where it's heading — Agency Core (V5.0, in development)
-
-The next major version turns LLM Relay into a **company-level autonomous agency**. Give it a production website URL (plus optional repos, docs, and credentials) and it inspects your site, infers your stack and domain, asks a few tailored questions, builds a persistent **company graph**, and provisions company-specific specialist agents that plan, build, fix, test, and maintain your digital estate — across industries, not just code. The redesigned **V5 interface** (a chat-first workspace plus dashboard, tasks, agents, onboarding, company graph, and a claw-code-style **Doctor**) is in preview at `/v5`. Architecture and migration plan: [`docs/architecture/agency-core-audit-2026-05-22.md`](docs/architecture/agency-core-audit-2026-05-22.md).
-
-<p align="center">
-  <img src="docs/screenshots/readme/v4-control-plane.png" alt="LLM Relay control plane" width="100%"/>
-  <br/>
-  <sub><em>The main control plane: chat, tasks, agents, models, knowledge, and system health in one screen.</em></sub>
-</p>
+> **Not technical?** You only need to follow the [Quick Start](#quick-start) steps. Everything else is taken care of automatically.
 
 ---
 
-## Pages & screens (V5 Agency Core)
+## Who is it for?
 
-The V5 interface is a single workspace with a sectioned sidebar. Every screen below is in the preview at `/v5` (run `cd frontend && npm start`). Captures marked _current_ are from the shipping v4 UI; the V5 visual refresh ships in the [Agency Core redesign PR](https://github.com/strikersam/local-llm-server/pull/218). Screens marked _new in V5_ are part of that PR.
-
-| Page | Section | What it does | Screenshot |
-|------|---------|--------------|------------|
-| **Sign in** | — | Authenticate into the relay (SSO / passwordless) | [current](docs/screenshots/readme/v4-login.png) · [mobile](docs/screenshots/readme/v4-login-mobile.png) |
-| **Chat** | Workspace | Unified assistant — auto agent-selection, sticky company/repo/task context, humanized agent-progress timeline, final-result card with PR/diff/tests | [current](docs/screenshots/readme/v4-chat.png) |
-| **Dashboard** | Workspace | System overview; partial-failure-tolerant widgets (no whole-page network errors) | [current](docs/screenshots/readme/v4-control-plane.png) |
-| **Tasks** | Workspace | Job-lifecycle board: classify → plan → execute → verify → judge | [current](docs/screenshots/readme/v4-tasks-kanban.png) |
-| **Agents** | Agency | The autonomous agency team and their status | [current](docs/screenshots/readme/v4-agents.png) |
-| **Schedules** | Agency | Autopilot jobs and cadences | [current](docs/screenshots/readme/v4-schedules.png) |
-| **Skills** | Agency | Agentic commerce/domain skills | _new in V5_ |
-| **Intelligence** | Agency | Competitor & trend intelligence | _new in V5_ |
-| **Knowledge** | Agency | Docs, sources, and activity | [current](docs/screenshots/readme/v4-knowledge.png) |
-| **Providers** | Infrastructure | Models, Ollama, and MCP servers | [current](docs/screenshots/readme/v4-providers.png) |
-| **Logs** | Infrastructure | Traces & observability | [current](docs/screenshots/readme/v4-logs.png) |
-| **Company** | Context | The persistent operating context / company graph | _new in V5_ |
-| **Onboarding** | Context | Company setup wizard: production URL → inferred stack → tailored questions → specialists | [current](docs/screenshots/readme/v4-setup-wizard.png) |
-| **Doctor** | System | Diagnostics & CI-parity checks (`make doctor`) — "why didn't this run? why did CI fail but local pass?" | _new in V5_ |
-| **Admin** | System | Users & access control | [current](docs/screenshots/readme/v4-admin.png) |
-
-## Autonomous Agency
-
-LLM Relay runs itself. The moment the server boots, an autonomous agency starts managing the codebase — scanning for issues, dispatching fixes, and reporting progress. No human needed to keep the code healthy.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Autonomous Agency                        │
-│                                                             │
-│  CEO Agent  (every 15 min)                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ 1. Read improvement-loop state                      │   │
-│  │ 2. Assess: failing tests? security issues? debt?    │   │
-│  │ 3. Issue directives to specialist agents            │   │
-│  └───────────────────┬─────────────────────────────────┘   │
-│                      │ directives                           │
-│          ┌───────────┼───────────┬──────────┐              │
-│          ▼           ▼           ▼          ▼              │
-│      Dev Agent  Security   Reviewer   Release Agent         │
-│     (fix tests)  Agent    (council    (readiness +          │
-│                 (CVEs,     review)    changelog)            │
-│                 secrets)                                    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### How the agency works
-
-**Every 15 minutes — CEO assessment cycle:**
-
-| Priority | Trigger | Action |
-|----------|---------|--------|
-| P1 | Failing tests detected | Dev Agent: runs pytest, fixes failures, commits to master |
-| P2 | Security findings | Security Agent: remediates bandit/CVE/secret issues |
-| P4 | Backend errors logged | Dev Agent: fixes root cause from log context |
-| P6 | Every 4th cycle | Reviewer Agent: council review of recent changes |
-| P8 | Weekly | Release Agent: readiness check, changelog, version bump |
-
-**Every 6 hours — Improvement loop scan:**
-- Runs the full test suite and registers failing tests as issues
-- Grepping for `FIXME`, `TODO:FIX`, and `HACK:URGENT` markers
-- Detecting Python modules with no test coverage
-- Running bandit (SAST), safety (CVE audit), and secret-pattern grep
-
-**Real-time — Backend error capture:**
-- Every `ERROR`/`CRITICAL` log line from the running server creates a self-healing task (rate-limited: one task per unique error per hour)
-- Every unhandled 500 response or exception traceback creates a fix task
-- CI failure webhooks arrive from GitHub Actions and trigger the Dev Agent
-
-**GitHub Actions automation:**
-
-| Workflow | Schedule | What it does |
-|----------|----------|--------------|
-| `agency-cycle.yml` | Every 6 hours | CEO assessment + Dev Agent fixes + commits to master |
-| `continuous-improvement.yml` | Daily 09:00 UTC | pytest run + auto-creates/closes GitHub issues |
-| `security-scan.yml` | Weekly + on push | bandit + safety + secret grep + GitHub issue creation |
-
-### v4 Improvement Dashboard
-
-Browse and control the agency from `remote-admin/v4-dashboard.html`:
-
-```
-GET  /v4/status                     — CEO assessment, loop state, recent events
-GET  /v4/improvements               — active/resolved issue list
-POST /v4/improvements/scan          — trigger immediate full scan
-POST /v4/improvements/security-scan — bandit + safety + secrets only
-POST /v4/improvements/{id}/resolve  — mark issue resolved
-POST /v4/report-bug                 — submit a bug → self-healing queue
-GET  /v4/quick-notes                — queued implementation notes
-POST /v4/quick-notes                — add a note (URL or plain text)
-GET  /v4/scheduler/jobs             — all improvement cron jobs
-POST /v4/scheduler/trigger/{id}     — fire a job immediately
-GET  /v4/agency/status              — CEO history, directive queue
-POST /v4/agency/run-cycle           — trigger an immediate CEO cycle
-GET  /v4/log-monitor/stats          — backend error capture stats
-POST /v4/ci-failure                 — CI failure webhook endpoint
-```
-
-### Standing improvement jobs (auto-registered at startup)
-
-| Job | Schedule | Instruction |
-|-----|----------|-------------|
-| `daily-test-scan` | Daily 03:00 UTC | pytest → fix failures → changelog |
-| `weekly-dep-audit` | Monday 04:00 UTC | pip outdated → safe upgrades |
-| `daily-changelog-check` | Daily 05:00 UTC | audit and complete changelog |
-| `weekly-todo-cleanup` | Wednesday 06:00 UTC | resolve FIXME/TODO markers |
-
-### Quick Notes — iPhone → Code
-
-Send a URL or plain-text instruction from your iPhone Shortcut and the agency implements it:
-
-```
-iPhone Shortcut → POST /v1/quick-notes
-                       → queue
-                       → processor fetches URL / reads instruction
-                       → Claude Code implements it
-                       → git commit + push to master
-```
+| If you are… | LLM Relay helps you… |
+|-------------|----------------------|
+| A **small engineering team** | Get AI coding help without $20/month per developer |
+| A **startup** | Run AI on your own infrastructure, keep IP private |
+| A **solo developer** | Point every AI tool (Cursor, Claude Code, Aider) at one server |
+| A **business owner** | Let your team use AI through a controlled, audited gateway |
+| A **developer building AI tools** | Get a clean OpenAI-compatible API to build against |
 
 ---
 
-## Supported Models
+## How it works (plain English)
 
-### Local (via Ollama)
-
-| Model | Type | Context | Vision |
-|---|---|---|---|
-| `qwen3-coder:7b` | Coder | 32k | — |
-| `qwen3-coder:30b` | Coder | 32k | — |
-| `qwen3-coder:235b` | Coder | 131k | — |
-| `qwen3.6:35b` | General | 128k | ✓ |
-| `deepseek-r1:32b` | Reasoning | 32k | — |
-| `deepseek-r1:671b` | Reasoning | 131k | — |
-| `deepseek-v3:685b` | Coder | 131k | — |
-| `gemma4:9b` | General | 128k | ✓ |
-| `gemma4:27b` | General | 128k | ✓ |
-| `llama4-scout:17b` | General | 10M | ✓ |
-| `llama4-maverick:17b` | General | 1M | ✓ |
-
-> Add any Ollama model at runtime via `ROUTER_EXTRA_MODELS` without touching code.
-
-### NVIDIA NIM (free tier)
-
-Set `NVIDIA_API_KEY` — proxy routes to NIM at highest priority (−10).
-
-| Model slug | Notes |
-|---|---|
-| `nvidia/nemotron-3-super-120b-a12b` | Default · general purpose |
-| Any NIM model | Override with `NVIDIA_DEFAULT_MODEL` |
-
-### Free Cloud APIs
-
-| Provider | Env var | Default model |
-|---|---|---|
-| Groq | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
-| DeepSeek API | `DEEPSEEK_API_KEY` | `deepseek-chat` |
-| Google Gemini | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-2.0-flash` |
-| Cerebras | `CEREBRAS_API_KEY` | `llama-3.3-70b` |
-| SambaNova | `SAMBANOVA_API_KEY` | `Meta-Llama-3.3-70B-Instruct` |
-| Together AI | `TOGETHER_API_KEY` | `Llama-3.3-70B-Instruct-Turbo-Free` |
-| Mistral | `MISTRAL_API_KEY` | `mistral-small-latest` |
-| Hugging Face | `HF_TOKEN` | serverless inference |
-| Cloudflare AI | `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
-| Qwen DashScope | `DASHSCOPE_API_KEY` or `QWEN_API_KEY` | `qwen-plus` |
-| ZhipuAI | `ZHIPU_API_KEY` | `glm-4-flash` |
-| MiniMax | `MINIMAX_API_KEY` | `MiniMax-Text-01` |
-
-### Commercial Cloud APIs
-
-Tried last, only when all free and local providers are exhausted.
-
-| Provider | Env var | Default model |
-|---|---|---|
-| AWS Bedrock | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | `us.anthropic.claude-opus-4-7` |
-| Anthropic | `ANTHROPIC_API_KEY` | configurable |
-| OpenRouter | `OPENROUTER_API_KEY` | configurable |
-
----
-
-## Providers
-
-Provider chain sorted automatically: **NVIDIA NIM → local Ollama → free cloud → commercial**.
+Imagine LLM Relay as a **smart telephone exchange** for AI:
 
 ```
-Provider priority order (lower = tried first)
-──────────────────────────────────────────────
-  0  NVIDIA NIM          (free, no local GPU needed)
-  1  Local Ollama        (private, on-device)
-  3  Free cloud APIs     (Groq, Gemini, DeepSeek, …)
-  4  Commercial APIs     (Bedrock, Anthropic, …)
+Your team's tools                 LLM Relay               AI Providers
+─────────────────    ─────────────────────────────    ─────────────────
+Cursor (coding)  →  │  Checks who's asking         │ → Local Ollama model
+Claude Code      →  │  Picks the best model        │ → NVIDIA free cloud
+ChatGPT clients  →  │  Logs usage & cost           │ → OpenAI GPT-4o
+Custom scripts   →  │  Runs autonomous agents      │ → Anthropic Claude
+                    │  Shows you a dashboard       │
+                    └─────────────────────────────┘
 ```
 
-Each provider gets a bounded per-request timeout and failure-aware cooldown:
-- `401/403` → 5-minute cooldown
-- connection error → 15-second cooldown
-- other errors → 30-second cooldown
+Everyone on your team connects their tools to `http://your-server:8000` instead of directly to OpenAI. LLM Relay handles the rest — routing requests to the cheapest available model, enforcing usage limits, and keeping an audit trail.
 
----
+### The autonomous agency
 
-## API Compatibility
+Beyond routing, LLM Relay runs a small team of AI agents in the background:
 
-### OpenAI-compatible endpoints
+- **Dev Agent** — runs your tests every 15 minutes; if something breaks, it diagnoses and fixes it automatically
+- **Security Agent** — scans for vulnerabilities (CVEs, leaked secrets, unsafe dependencies) and files fixes
+- **Reviewer Agent** — conducts code review on recent changes
+- **Release Agent** — checks weekly if the codebase is ready to ship, updates the changelog
 
-```
-POST /v1/chat/completions     # Streaming + non-streaming chat
-GET  /v1/models               # Lists all models including Claude aliases
-POST /v1/completions          # Legacy text completion
-POST /v1/embeddings           # Embeddings passthrough
-```
-
-### Anthropic-compatible endpoints
-
-```
-POST /v1/messages             # Full Anthropic Messages API
-POST /v1/messages/count_tokens  # Token counting (Claude Code CLI uses this)
-```
-
-### Ollama-native passthrough
-
-```
-POST /api/chat    # Ollama NDJSON streaming
-POST /api/generate
-GET  /api/tags
-POST /api/pull
-```
-
----
-
-## What's new
-
-### v4.1 — Autonomous Agency (2026-05-16)
-
-The biggest update since launch: LLM Relay now manages itself.
-
-**CEO + Specialist Agent Loop**
-
-A `CEO` agent wakes every 15 minutes, reads the improvement state, and dispatches directives to four specialist roles: `Dev` (fix tests and errors), `Security` (remediate findings), `Reviewer` (council review), and `Release` (readiness + changelog). Directives queue as scheduled jobs, fire via the `TaskDispatcher`, and execute inside the existing `AgentRunner` pipeline — no new infrastructure needed.
-
-**Continuous Improvement Loop**
-
-A background scanner runs every 6 hours and:
-- Runs the full pytest suite — failing tests become P1 fix tasks
-- Greps for `FIXME`/`TODO:FIX`/`HACK:URGENT` markers
-- Detects modules missing test coverage
-- Runs bandit SAST, safety CVE audit, and secret-pattern grep
-
-All findings are persisted to `.claude/state/improvement-state.json` and surfaced in the v4 dashboard.
-
-**Self-Healing Agent**
-
-Three entry points for external failure signals:
-- `POST /v4/ci-failure` — CI failure webhook from GitHub Actions
-- `on_github_issue()` — triggered when a bug-labelled issue is opened
-- `POST /v4/report-bug` — manual report from the v4 dashboard
-
-Each signal creates a `DetectedIssue`, schedules a fix job, and tracks resolution.
-
-**Backend Error Capture**
-
-A custom Python `logging.Handler` is attached to the root logger at startup. Every `ERROR`/`CRITICAL` record from non-noisy loggers creates a self-healing fix task (rate-limited: one task per unique error per hour, identified by SHA-256 signature). Unhandled 500 responses are also captured by `ErrorInterceptorMiddleware`.
-
-**GitHub Actions automation**
-
-Three new workflows ship with the repo:
-- `agency-cycle.yml` (every 6h) — CEO assessment + automated fixes pushed directly to master
-- `continuous-improvement.yml` (daily) — pytest + auto-creates/closes GitHub issues with `auto-detected` label
-- `security-scan.yml` (weekly + push) — bandit, safety, secret grep + GitHub issue creation
-
-**v4 Dashboard**
-
-New static SPA at `remote-admin/v4-dashboard.html` with live KPIs, active issue table, bug report form, quick-note queue, scheduler job panel, agency cycle history, and self-healing event feed.
-
-### v4.0 — Async agents, NVIDIA NIM, mobile UI (2026-05-09)
-
-- `agent_mode=true` returns 202 Accepted immediately — no more blocking requests
-- NVIDIA NIM as priority-0 free provider; per-role model configuration
-- Mobile-first UI with safe-area-aware chrome
-- Runtime preflight validation with structured error diagnostics
-- Vision routing (`image_url` → vision-capable model)
-- `POST /v1/messages/count_tokens` — Claude Code CLI token counting
-- Extended thinking → reasoning model routing
-- Anthropic `output_format` → Ollama `format` translation
-- Langfuse traces from direct chat with token/latency attribution
-- JWT `iat`/`jti` claims — replay attacks closed
-- AWS Bedrock (Claude 4 Opus/Sonnet via Converse API)
-
-See [`docs/changelog.md`](docs/changelog.md) for the full diff.
+These agents work like a night-shift team — you check the dashboard in the morning and find issues fixed, PRs ready, and a status report waiting.
 
 ---
 
 ## Quick start
 
-### Fastest path — free cloud AI, no GPU needed
+### Step 1 — Install
 
+**On Mac or Linux:**
 ```bash
 git clone https://github.com/strikersam/local-llm-server
 cd local-llm-server
-
-cat > .env <<'ENV'
-API_KEYS=sk-relay-dev
-ADMIN_SECRET=replace-with-a-long-random-secret
-ADMIN_EMAIL=admin@llmrelay.local
-ADMIN_PASSWORD=replace-with-a-strong-password
-JWT_SECRET=replace-with-another-long-random-secret
-NVIDIA_API_KEY=nvapi-...
-ENV
-
-docker compose up -d
-docker compose --profile dashboard up -d
+cp .env.example .env          # create your config file
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn proxy:app --port 8000
 ```
 
-| URL | What's there |
-|---|---|
-| `http://localhost:3000` | Full control plane (chat, tasks, agents, knowledge) |
-| `http://localhost:8000/admin/ui/login` | Built-in admin portal (API keys, health) |
-| `http://localhost:8000/app` | Built-in web UI |
-| `http://localhost:8000/v4/status` | Improvement loop & agency status (JSON) |
-| `remote-admin/v4-dashboard.html` | v4 Continuous Improvement Dashboard (open locally) |
+**On Windows:**
+```powershell
+git clone https://github.com/strikersam/local-llm-server
+cd local-llm-server
+copy .env.example .env
+.\install.ps1
+.\run.bat
+```
 
-### Add local models (Ollama)
+Open `http://localhost:8000` in your browser. You'll see the admin dashboard.
+
+### Step 2 — Set your admin password
+
+Edit `.env` and set:
+```
+ADMIN_SECRET=choose-a-strong-password-here
+```
+
+Restart the server. Log in at `http://localhost:8000/admin`.
+
+### Step 3 — Get activated
+
+LLM Relay requires a one-time activation before onboarding users. This is free — see [Getting activated](#getting-activated) below.
+
+### Step 4 — Add AI providers
+
+In the dashboard, go to **Providers** and add at least one:
+
+| Provider | Cost | Setup |
+|----------|------|-------|
+| **NVIDIA NIM** | Free tier available | Paste your API key (get one at [build.nvidia.com](https://build.nvidia.com)) |
+| **Ollama** (local) | Free, needs a GPU or Apple Silicon | [Install Ollama](https://ollama.com), run `ollama pull qwen2.5-coder` |
+| **OpenAI** | Pay per token | Paste your OpenAI API key |
+| **Anthropic** | Pay per token | Paste your Anthropic API key |
+
+You only need one to start. NVIDIA NIM is free and requires no hardware.
+
+### Step 5 — Connect your tools
+
+Once the server is running, point your AI tools at it:
+
+**Cursor** — Settings → AI → OpenAI API Base URL → `http://localhost:8000/v1`
+
+**Claude Code** — `claude --api-base-url http://localhost:8000`
+
+**Continue (VS Code)** — see `client-configs/continue/` for a ready-made config
+
+**Any OpenAI SDK** — just set `OPENAI_BASE_URL=http://localhost:8000/v1`
+
+---
+
+## Getting activated
+
+LLM Relay uses a **one-time instance activation** to prevent unauthorized copying and to ensure you get proper support. This is free and takes less than 24 hours.
+
+**How it works:**
+
+1. When you first open the app, you'll see your **Instance ID** — a unique code for your installation
+2. Click **"Open email draft"** to send it to [strikersam@gmail.com](mailto:strikersam@gmail.com)
+3. You'll receive a signed **activation code** by reply, usually within a few hours
+4. Paste the code into the activation screen — you're done
+
+**Why is this required?**
+
+The activation code is cryptographically signed with a private key that only the repo owner holds. This means:
+- Even if someone forks the repo and removes the UI check, they can't generate valid activation codes
+- Each code is tied to your specific Instance ID — it can't be reused elsewhere
+- The relay service validates the same token server-side, so there's no way to bypass it
+
+**After activation**, admins control which users can proceed through onboarding via the **Admin → Activation & Onboarding** panel.
+
+---
+
+## For admins — managing your team
+
+### Allowing users to onboard
+
+After your instance is activated:
+1. Go to **Admin → Activation & Onboarding**
+2. Under **User Onboarding Access**, type a user's ID or email
+3. Click **Allow** — that user can now complete the setup wizard
+
+Users who aren't on the list see a friendly "request access" message and can email you directly.
+
+### Revoking access
+
+Click **Revoke** next to any user to remove their onboarding access. The audit log tracks every change with timestamps.
+
+### Monitoring usage
+
+The **Dashboard** shows live metrics:
+- Which models are being used and how much they cost
+- Which team members are most active
+- Agent status and recent autonomous actions
+- System health (CPU, memory, model response times)
+
+---
+
+## For developers
+
+### Architecture overview
+
+```
+proxy.py              — FastAPI entry point, auth middleware, model routing
+backend/server.py     — Main app server: users, tasks, agents, workspaces
+activation.py         — Instance activation (Ed25519 signed JWT)
+activation_api.py     — Activation REST API + per-user onboarding gate
+router/               — Model routing: classifier, registry, health checks
+agent/loop.py         — AgentRunner: plan → execute → verify cycle
+handlers/             — Anthropic + Ollama native API compatibility
+frontend/src/v5/      — React V5 dashboard (all screens, activation gate)
+```
+
+### Running tests
 
 ```bash
-docker exec llm-server-ollama ollama pull qwen3-coder:30b
-docker exec llm-server-ollama ollama pull deepseek-r1:32b
+pytest -x              # fast fail — run before every commit
+pytest -v              # verbose output
 ```
 
-### Core proxy only (no Docker)
+### Environment variables
 
-```bash
-source .venv/bin/activate
-uvicorn proxy:app --reload --port 8000
-# Agency, improvement loop, log monitor, and error interceptor start automatically.
-```
+All config is in `.env`. Key variables:
 
-### Optional agency env vars
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `ADMIN_SECRET` | Admin dashboard password | `a-very-strong-password` |
+| `API_KEYS` | Comma-separated bearer tokens for API access | `sk-abc,sk-xyz` |
+| `OLLAMA_BASE` | Ollama server URL | `http://localhost:11434` |
+| `NVIDIA_API_KEY` | NVIDIA NIM API key | `nvapi-...` |
+| `OPENAI_API_KEY` | OpenAI API key | `sk-...` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | `sk-ant-...` |
+| `LANGFUSE_PUBLIC_KEY` | Observability (optional) | `pk-lf-...` |
+| `MONGO_URL` | MongoDB for multi-user backend (optional) | `mongodb://localhost:27017` |
 
-```bash
-AGENCY_TICK_MINUTES=15        # CEO assessment interval (default: 15)
-IMPROVEMENT_SCAN_INTERVAL_HOURS=6  # Full scan interval (default: 6)
-QUICK_NOTE_PUSH_BRANCH=master # Branch for quick-note auto-commits
-QUICK_NOTE_INTERVAL_HOURS=4   # Note processing interval (default: 4)
-```
+### Coding rules
+
+1. Type annotations on all public functions
+2. No secrets in source — all config via environment variables
+3. Pydantic models for all API I/O
+4. Async for all I/O
+5. Log with `logging`, not `print`
+6. Any change to auth files (`admin_auth.py`, `key_store.py`) requires a risky-module-review
+7. Every meaningful commit updates `docs/changelog.md`
+
+### Model routing
+
+LLM Relay automatically routes requests based on your configured strategy:
+
+| Strategy | Behaviour |
+|----------|-----------|
+| `free_first` | Tries NVIDIA NIM or local Ollama before paid APIs |
+| `local_first` | Prefers Ollama; falls back to cloud only if unavailable |
+| `quality_first` | Always uses the highest-capability model |
+| `cost_optimised` | Picks the cheapest model that can handle the task |
+
+Configure in `.env` as `ROUTING_STRATEGY=free_first`.
+
+### Contributing
+
+PRs welcome. Please run `pytest -x` and update `docs/changelog.md` before submitting. See `CLAUDE.md` for the full contribution guide.
 
 ---
 
-## Sign in
+## What's new
 
-| Surface | Credentials |
-|---|---|
-| Control plane (`localhost:3000`) | `ADMIN_EMAIL` / `ADMIN_PASSWORD` |
-| Built-in admin portal (`localhost:8000/admin/ui/login`) | any username / `ADMIN_SECRET` |
-| v4 Dashboard API (`/v4/*`) | `Authorization: Bearer <ADMIN_SECRET>` |
+See [docs/changelog.md](docs/changelog.md) for the full history.
 
----
-
-## Connect your tools
-
-### Claude Code
-
-```bash
-export ANTHROPIC_BASE_URL=http://localhost:8000
-export ANTHROPIC_API_KEY=sk-relay-...
-claude
-```
-
-### Cursor
-
-```
-API Key:                  sk-relay-...
-Override OpenAI Base URL: http://localhost:8000/v1
-```
-
-### Python / OpenAI SDK
-
-```python
-from openai import OpenAI
-client = OpenAI(base_url="http://localhost:8000/v1", api_key="sk-relay-...")
-response = client.chat.completions.create(
-    model="qwen3-coder:30b",
-    messages=[{"role": "user", "content": "hello"}]
-)
-```
-
-Aider, Continue, Zed, VS Code, and script examples live in [`client-configs/`](client-configs/).
-
----
-
-## See the product
-
-### 🛬 Login
-
-<p align="center">
-  <img src="docs/screenshots/readme/v4-login.png" width="58%" alt="LLM Relay v4 login (desktop)"/>
-  &nbsp;
-  <img src="docs/screenshots/readme/v4-login-mobile.png" width="28%" alt="LLM Relay v4 login (mobile)"/>
-</p>
-
-### 🧙 Setup Wizard
-
-<p align="center">
-  <img src="docs/screenshots/readme/v4-setup-wizard.png" width="58%" alt="Setup Wizard v4"/>
-  &nbsp;
-  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="28%" alt="Setup Wizard v4 mobile"/>
-</p>
-
-### 🏠 Dashboard
-
-<p align="center"><img src="docs/screenshots/readme/v4-control-plane.png" width="92%" alt="LLM Relay v4 Dashboard"/></p>
-
-### 💬 Chat
-
-> **Agent Mode async contract:** `agent_mode=true` returns `202 Accepted` with `(session_id, job_id, status, phase, message)`. Poll `/api/chat/agent-jobs/{job_id}` for status. On completion, render `final_message` as the assistant reply.
-
-<p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Direct Chat v4"/></p>
-
-### 🗂 Task Board
-
-<p align="center"><img src="docs/screenshots/readme/v4-tasks-kanban.png" width="92%" alt="Kanban Task Board v4"/></p>
-
-### 🤖 Agent Roster
-
-<p align="center"><img src="docs/screenshots/readme/v4-agents.png" width="92%" alt="Agent Roster v4"/></p>
-
-### ⚙️ Runtimes
-
-<p align="center"><img src="docs/screenshots/readme/v4-runtimes.png" width="92%" alt="Agent Runtimes v4"/></p>
-
-### 🛣 Routing Policy
-
-<p align="center"><img src="docs/screenshots/readme/v4-routing.png" width="92%" alt="Routing Policy v4"/></p>
-
-### 📚 Knowledge
-
-<p align="center"><img src="docs/screenshots/readme/v4-knowledge.png" width="92%" alt="Knowledge and Wiki v4"/></p>
-
-### 🔭 Logs and Activity
-
-<p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs v4"/></p>
-
-### 🗓 Schedules
-
-<p align="center"><img src="docs/screenshots/readme/v4-schedules.png" width="92%" alt="Schedules v4"/></p>
-
----
-
-## Feature overview
-
-| Category | What's included |
-|---|---|
-| **API compatibility** | OpenAI `/v1/chat/completions`, Anthropic `/v1/messages` + `/count_tokens`, Ollama `/api/chat` |
-| **Model routing** | Free-first · local-first · cost-aware · quality strategies |
-| **Vision routing** | Auto-detects `image_url`, routes to vision-capable model |
-| **Thinking routing** | `thinking: {type: "enabled"}` → reasoning model (DeepSeek-R1, QwQ) |
-| **Structured outputs** | `json_schema` / `json_object` translated to Ollama `format` automatically |
-| **Auth** | Bearer tokens · per-user API keys · JWT (iat/jti) · social login · RBAC |
-| **Agent engine** | Async 202 jobs · plan/execute/verify pipeline · per-role models |
-| **Autonomous agency** | CEO + Dev/Security/Reviewer/Release agents · 15-min tick · self-healing |
-| **Continuous improvement** | 6h scan cycle · test failures · FIXME markers · missing coverage · security |
-| **Log monitoring** | ERROR/CRITICAL capture → fix tasks · rate-limited per error signature |
-| **Error interception** | 500 responses + unhandled exceptions → fix tasks via middleware |
-| **Security scanning** | bandit SAST · safety CVE audit · secret-pattern grep · GitHub issues |
-| **Self-healing** | CI webhook + GitHub issue + dashboard report → queued fix tasks |
-| **Quick Notes** | iPhone Shortcut → URL/text → Claude Code implements → git push |
-| **Task management** | Kanban board · concurrent fanout · approvals · retry |
-| **Schedules** | Cron jobs · run-now · webhook triggers · 4 built-in improvement jobs |
-| **Observability** | Langfuse traces (chat + agent) · session clustering · token/latency attribution |
-| **Knowledge** | Wiki pages · source ingestion (GitHub, URL, file) · agent retrieval |
-| **GitHub integration** | Repo · branch · file · PR flows |
-| **Secrets** | Encrypted secrets store |
-| **Telegram bot** | Remote control via Telegram |
-| **Hardware detection** | GPU / CPU / memory profiling |
-| **Extensibility** | `ROUTER_EXTRA_MODELS` · `MODEL_MAP` · `FEATURE_DISABLE/ENABLE` |
-
----
-
-## Technical docs
-
-- [Documentation index](docs/README.md)
-- [Architecture overview](docs/architecture/overview.md)
-- [Agent orchestration](docs/architecture/agent-orchestration.md)
-- [Feature guide](docs/features.md)
-- [API surfaces and route map](docs/api-surfaces.md)
-- [Configuration reference](docs/configuration-reference.md)
-- [Model routing guide](docs/model-routing.md)
-- [Claude Code setup](docs/claude-code-setup.md)
-- [Agent runtime setup](docs/runbooks/agent-runtime-setup.md)
-- [Langfuse observability](docs/langfuse-observability.md)
-- [Changelog](docs/changelog.md)
-
----
-
-## License
-
-Open source. Use it, change it, and make it better.
+**v4.1.0** (current)
+- V5 dashboard — redesigned React UI with 15 screens including Company Graph, Doctor, and Knowledge Base
+- Instance activation system — Ed25519-signed phone-home licensing
+- Per-user onboarding control — admin toggles access per user
+- Autonomous agency — CEO + specialist agents continuously improve the codebase
+- Devcontainer — Python 3.13 + Node 20 for CI/local parity
 
 ---
 
 <div align="center">
 
-If LLM Relay saves you time or money, a star helps other people find it.
+**Questions?** Email [strikersam@gmail.com](mailto:strikersam@gmail.com) or open an issue.
 
-[![Star this repo](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&logo=github&color=FFD43B)](https://github.com/strikersam/local-llm-server/stargazers)
+Made with ☕ by [@strikersam](https://github.com/strikersam)
 
 </div>
