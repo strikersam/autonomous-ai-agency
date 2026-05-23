@@ -284,3 +284,14 @@
 - `AdminScreen.jsx`: recovered `INITIAL_USERS`, `INITIAL_REQUESTS`, `INITIAL_KEYS`, `roleConfig`, `RoleBadge`, `setUserOnboardingFlag` constants accidentally removed with old HMAC helpers
 - `ActivityPage.js`: added missing lucide-react imports (`MessageSquare`, `BookOpen`, `Upload`, `Shield`, `AlertCircle`, `ArrowUpRight`, `Clock`)
 - `tests/test_chat_mode_regressions.py`: moved `_auth_headers()` call before `monkeypatch.setattr(server, "get_db", ...)` so login runs against the real CI MongoDB; previously the bare `Mock()` caused non-async attribute calls in the login/bootstrap path
+
+### Added (Phase 1 / E2E)
+- `agent/contract.py`: Pydantic v2 typed contract — `AgentJobRequest`, `AgentJobResult`, `AgentJobError`, `AgentJobSnapshot` — replacing raw dict passing in the agent job lifecycle
+- `tests/test_agent_contract.py`: Full test suite for all contract types (28 assertions)
+- `.github/workflows/e2e.yml`: New E2E workflow — boots real server + MongoDB in CI, generates a real API key via `scripts/e2e_generate_key.py`, runs `tests/e2e/test_live_server.py` against live HTTP (no mocks); uploads server log on failure
+- `tests/e2e/test_live_server.py`: Live end-to-end test hitting health, auth, providers, API keys, wiki CRUD, chat, session list, activity/stats, activation API, and platform info; every HTTP call retried up to 3× with exponential back-off
+- `scripts/e2e_generate_key.py`: CI helper — prints exactly one line (the plaintext API key) for clean shell capture in GitHub Actions
+- `tests/conftest.py`: Added `requires_db` pytest marker + `SKIP_DB_TESTS=1` env-var guard so local runs without MongoDB can skip DB-dependent tests
+
+### Changed
+- `tests/conftest.py`: Added `SKIP_DB_TESTS` guard and `requires_db` marker registration; existing `client` and `wiki_client` fixtures unchanged
