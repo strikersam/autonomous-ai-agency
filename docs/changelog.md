@@ -24,6 +24,25 @@
 - `.gitignore` — Ignore Fabric pattern test scratch files (`tmp_*`, `scaffold_test_*`) under `.claude/skills/fabric-patterns/patterns/` to prevent test leakage.
 
 ### Fixed
+- `.claude/hooks/post-commit` — apply same `flock -n /tmp/graphify-update.lock` guard as Stop hook so post-commit and Stop/SessionStart updates are serialised; fallback to plain background run when `flock` is absent
+- `graphify-out/graph.json` and `.graphify_labels.json` — removed from git tracking and gitignored. Node IDs in `graph.json` embed the absolute checkout path (`home_user_local_llm_server_…`), making the file non-portable across contributors; large non-semantic diffs would occur on every `graphify update` from a different path. `GRAPH_REPORT.md` (portable text, no path-derived IDs) remains committed. The `SessionStart` hook regenerates `graph.json` locally on each session open.
+- `.claude/settings.json` — Stop hook guards `flock` availability: uses `flock -n /tmp/graphify-update.lock` when present (Linux), falls back to a plain background run on platforms without `flock` (macOS without util-linux, etc.) so the hook never breaks silently
+- `.claude/settings.json` — Stop hook now uses `flock -n /tmp/graphify-update.lock` so concurrent `graphify update` runs (SessionStart + Stop + post-commit) are serialised; a second run skips silently instead of racing on `graphify-out/` writes.
+- `.gitignore` — Added `graphify-out/.graphify_root` and `graphify-out/manifest.json`; both contain machine-specific absolute paths and must not be versioned. Removed both files from git tracking.
+- `CLAUDE.md` — Fixed duplicate step numbers in working sequence (was `4, 4, 6`; now `4, 5, 6`).
+- `.claude/skills/graphify/SKILL.md` — Added `text` language tag to all untagged fenced code blocks (MD040).
+
+### Added
+- `.claude/hooks/post-commit` — Git hook that runs `graphify update .` in the background after every commit, keeping the knowledge graph in sync with committed state automatically.
+- `.claude/settings.json` `Stop` hook — fires after every Claude turn and runs `graphify update .` silently in the background. Means any AI session editing files gets a fresh graph on the very next query, with no manual steps. Combined with the existing `SessionStart` hook, the graph is self-maintaining across new sessions, existing sessions, and git commits.
+- `.claude/skills/graphify/SKILL.md` — New skill integrating [graphify](https://github.com/safishamsi/graphify) knowledge-graph tool. Converts the codebase into a queryable `graph.json` (local AST parsing, no API calls for code files) so AI sessions query the graph instead of reading raw source files — upstream benchmark: 71.5x fewer tokens per query on large corpora. Includes token-savings table, Claude query protocol (check `GRAPH_REPORT.md` → `graphify query` → open files only for edits), and complementary relationship with the existing `repowise-intelligence` skill.
+- `.claude/settings.json` — `SessionStart` hook that runs `graphify . --update` at the beginning of every Claude Code session, keeping the knowledge graph incrementally current. Reports node count and a one-line reminder to use `graphify query` instead of raw file reads.
+- `.gitignore` — Added `graph.html` and `cache/` (graphify local artifacts). `graph.json` and `GRAPH_REPORT.md` remain committed for team-shared graph queries.
+
+### Changed
+- `CLAUDE.md` — "How Claude Should Work" sequence now lists querying `graph.json` via `graphify` as step 2 (before opening source files). Skill table now includes `graphify` as the first entry for exploration/token-saving tasks.
+
+### Fixed
 - `.github/workflows/deploy-backend.yml` — Replaced unsafe nested-quote `echo` (Python one-liner inside `$()` inside escaped double-quotes) with a simple portable `echo "Deploy triggered successfully (HTTP $HTTP_CODE)"`. The previous syntax caused Bash on GitHub Actions Ubuntu runners to exit with `syntax error near unexpected token` and report workflow failure on every master push, even though the Render deploy hook already accepted the request (HTTP 202).
 
 ### Fixed
