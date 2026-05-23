@@ -335,7 +335,7 @@ def test_uuid_fallback_chat_session_can_be_reloaded_and_deleted(client, monkeypa
 
     monkeypatch.setattr("backend.server.call_llm", direct_reply)
     monkeypatch.setattr(
-        "backend.server.db.chat_sessions.insert_one",
+        server.db.chat_sessions, "insert_one",
         AsyncMock(side_effect=RuntimeError("db unavailable")),
     )
 

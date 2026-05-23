@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+- `frontend/package.json` overrides: removed `axios` (cannot override a direct
+  dependency; caused `EOVERRIDE` in CI `npm install`).
+- `tests/test_chat_mode_regressions.py`: replaced
+  `monkeypatch.setattr("backend.server.db.chat_sessions.insert_one", ...)` with
+  the object form `monkeypatch.setattr(server.db.chat_sessions, "insert_one", ...)`
+  — the dotted-string form triggers a module-import attempt in pytest ≥9 which
+  fails because `backend.server` is a file, not a package.
+
+
 ### Added
 - `activation.py` — Ed25519-signed instance activation system; instanceId generated on
   first run, token verified against embedded owner public key; tamper-proof even if repo
