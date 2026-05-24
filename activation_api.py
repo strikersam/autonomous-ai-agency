@@ -252,3 +252,54 @@ async def activation_audit_log(request: Request, limit: int = 100) -> list[dict]
         except json.JSONDecodeError:
             pass
     return records
+
+
+class _RoleUpdateBody(BaseModel):
+    """Request body for changing a user's role."""
+    role: str
+
+
+@activation_router.post("/users/{user_id}/role")
+async def change_user_role(
+    user_id: str,
+    body: _RoleUpdateBody,
+    request: Request,
+) -> dict:
+    """Change the role of a registered user (admin only).
+
+    Allowed roles: ``user``, ``power_user``, ``admin``.
+    """
+    admin_id = _require_admin(request)
+
+    allowed_roles = {"user", "power_user", "admin"}
+    role = body.role.strip().lower()
+    if role not in allowed_roles:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid role {body.role!r}. Allowed: {sorted(allowed_roles)}",
+        )
+
+    db = get_db()
+    try:
+        from bson import ObjectId
+        try:
+            query = {"_id": ObjectId(user_id)}
+        except Exception:
+            query = {"email": user_id}
+        result = await db.users.update_one(query, {"$set": {"role": role}})
+    except Exception as exc:
+        log.error("change_user_role DB error: %s", exc)
+        raise HTTPException(status_code=503, detail="Database error") from exc
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    audit(
+        "change_user_role",
+        getattr(request.state, "user", {"email": admin_id}),
+        resource=user_id,
+        detail=f"role={role}",
+        request=request,
+    )
+    return {"user_id": user_id, "role": role, "updated": True}
+

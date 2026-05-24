@@ -239,7 +239,7 @@ export const updateAgent = (id, data) => API.put(`/api/agents/${id}`, data);
 export const deleteAgent = (id) => API.delete(`/api/agents/${id}`);
 
 // ── Audit log (v3) ────────────────────────────────────────────────────────────
-export const getAuditLog = (limit = 100) => API.get('/api/audit-log', { params: { limit } });
+export const getAuditLog = (limit = 100) => API.get('/api/activation/audit-log', { params: { limit } });
 
 // ── Hardware (v3.1) ───────────────────────────────────────────────────────────
 export const getHardwareProfile = () => API.get('/api/hardware/profile');
@@ -257,9 +257,9 @@ export const updateSecret = (id, data) => API.put(`/api/secrets/${id}`, data);
 export const deleteSecret = (id) => API.delete(`/api/secrets/${id}`);
 
 // ── Social auth (v3.1) ────────────────────────────────────────────────────────
-export const listUsers = () => API.get('/api/auth/users');
+export const listUsers = () => API.get('/api/activation/users');
 export const changeUserRole = (userId, role) =>
-  API.post(`/api/auth/users/${userId}/role`, { role });
+  API.post(`/api/activation/users/${userId}/role`, { role });
 
 // ── Setup wizard (v3.1) ───────────────────────────────────────────────────────
 export const getSetupState = () => API.get('/api/setup/state');

@@ -50,6 +50,7 @@ from agents.store import AgentStore, set_agent_store
 from agent.scheduler import AgentScheduler, get_scheduler, set_scheduler
 from agent.skills import SkillLibrary
 from agent.job_manager import AgentJobManager, make_isolated_workspace
+from agent.contract import AgentJobRequest, AgentJobSnapshot
 from agent.state import AgentSessionStore
 from provider_router import (
     CommercialFallbackRequiredError,
@@ -60,6 +61,7 @@ from provider_router import (
 )
 from langfuse_obs import emit_chat_observation
 from runtimes.api import runtime_router
+from router import get_router as _get_model_router
 from runtimes.manager import get_runtime_manager
 from schedules import schedules_router
 from tasks.automation import TaskAutomationService
@@ -3497,12 +3499,22 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             or primary_provider.get("default_model")
         )
 
-        job = _CHAT_AGENT_JOBS.create_job(
+        _job_req = AgentJobRequest(
             session_id=sid,
             owner_id=str(uid),
             instruction=body.content,
             requested_model=requested_agent_model,
             provider_id=primary_provider.get("provider_id"),
+            runtime_id="internal_agent",
+            allow_commercial_fallback=policy.get("allow_commercial_fallback", True),
+        )
+        job = _CHAT_AGENT_JOBS.create_job(
+            session_id=_job_req.session_id,
+            owner_id=_job_req.owner_id,
+            instruction=_job_req.instruction,
+            requested_model=_job_req.requested_model,
+            provider_id=_job_req.provider_id,
+            runtime_id=_job_req.runtime_id,
         )
         workspace_root = make_isolated_workspace(_CHAT_AGENT_WORKSPACE_ROOT, sid, job.job_id)
         job.workspace_path = str(workspace_root)
@@ -3648,11 +3660,31 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     model_messages, cfg, body.model or session.get("model")
                 )
         llm_messages = [system_msg] + history_for_llm
+
+        # Phase 2 — ModelRouter model hint: classify the instruction and resolve
+        # the best local model name.  Only overrides when the caller did not
+        # explicitly request a model.  Failures are non-fatal; fall through to
+        # whatever the provider default is.
+        _direct_chat_model = body.model or session.get("model")
+        if not _direct_chat_model:
+            try:
+                _routing = _get_model_router().route(body.content, provider_id=provider_hint_id)
+                if _routing.resolved_model:
+                    _direct_chat_model = _routing.resolved_model
+                    log.debug(
+                        "ModelRouter resolved %r (source=%s, task=%s) for direct chat",
+                        _direct_chat_model,
+                        _routing.selection_source,
+                        _routing.task_type,
+                    )
+            except Exception as _mr_exc:
+                log.debug("ModelRouter skipped: %s", _mr_exc)
+
         try:
             response_text = await asyncio.wait_for(
                 call_llm(
                     llm_messages,
-                    model=body.model or session.get("model"),
+                    model=_direct_chat_model,
                     temperature=float(temperature),
                     provider_id=provider_hint_id,
                     allow_commercial_fallback_once=body.allow_commercial_fallback_once,
@@ -3675,7 +3707,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 response_text = await _recover_direct_chat_response(
                     llm_messages=llm_messages,
                     provider_id=provider_hint_id,
-                    requested_model=body.model or session.get("model"),
+                    requested_model=_direct_chat_model,
                     session_model=session.get("model"),
                     temperature=float(temperature),
                     allow_commercial_fallback_once=body.allow_commercial_fallback_once,
@@ -3698,7 +3730,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 response_text = await _recover_direct_chat_response(
                     llm_messages=llm_messages,
                     provider_id=provider_hint_id,
-                    requested_model=body.model or session.get("model"),
+                    requested_model=_direct_chat_model,
                     session_model=session.get("model"),
                     temperature=float(temperature),
                     allow_commercial_fallback_once=body.allow_commercial_fallback_once,
@@ -3755,7 +3787,7 @@ async def get_chat_agent_job(job_id: str, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="Agent job not found")
     if job.owner_id and job.owner_id != str(user.get("_id")):
         raise HTTPException(status_code=403, detail="Forbidden")
-    return job.as_dict()
+    return AgentJobSnapshot.from_agent_job(job).model_dump()
 
 
 @app.post("/api/chat/agent-jobs/{job_id}/cancel")
@@ -3767,7 +3799,71 @@ async def cancel_chat_agent_job(job_id: str, user: dict = Depends(get_current_us
         raise HTTPException(status_code=403, detail="Forbidden")
     cancelled = _CHAT_AGENT_JOBS.cancel_job(job_id)
     assert cancelled is not None
-    return cancelled.as_dict()
+    return AgentJobSnapshot.from_agent_job(cancelled).model_dump()
+
+
+
+
+# ── Agent HITL resume ─────────────────────────────────────────────────────────
+
+class _ResumeRequest(BaseModel):
+    action: str = "approve"   # "approve" | "deny" | "input"
+    input: str = ""
+
+
+@app.post("/api/chat/resume/{session_id}")
+async def resume_agent_chat_job(
+    session_id: str,
+    body: _ResumeRequest,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Resume a paused agent job for *session_id*.
+
+    When the agent loop reaches a human-in-the-loop checkpoint (phase
+    ``needs_approval`` or ``needs_input``) the frontend calls this endpoint
+    with the user's decision.  Three actions are supported:
+
+    * ``approve`` — allow the agent to continue (optionally with *input*).
+    * ``deny``    — cancel the job; the user can send a new message.
+    * ``input``   — provide a freeform text answer to a question the agent asked.
+    """
+    uid = str(user.get("_id", ""))
+    # Find the most recent non-terminal job for this session that the caller owns.
+    jobs = [
+        j for j in _CHAT_AGENT_JOBS.list_jobs(session_id=session_id)
+        if (j.owner_id is None or j.owner_id == uid)
+        and j.status in {"queued", "running"}
+    ]
+    job = max(jobs, key=lambda j: j.created_at, default=None)
+
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No active agent job found for this session. "
+                   "The job may have already completed or been cancelled.",
+        )
+
+    action = (body.action or "approve").lower().strip()
+
+    if action == "deny":
+        cancelled = _CHAT_AGENT_JOBS.cancel_job(job.job_id)
+        if cancelled is None:
+            raise HTTPException(status_code=409, detail="Job could not be cancelled.")
+        return AgentJobSnapshot.from_agent_job(cancelled).model_dump()
+
+    # approve / input — record the human decision as a progress event so the
+    # polling client can observe it, then mark the job as continuing.
+    # Full HITL wiring (waking a suspended coroutine) is Phase 3;
+    # for now we surface the decision in the job's progress_events so the
+    # frontend can display it and move on.
+    job.progress_events.append({
+        "timestamp": job.updated_at,
+        "phase": "resuming",
+        "message": f"Human decision: {action}"
+                   + (f" — {body.input[:200]}" if body.input else ""),
+    })
+    job.phase = "resuming"
+    return AgentJobSnapshot.from_agent_job(job).model_dump()
 
 
 @app.get("/api/chat/sessions")

@@ -31,6 +31,7 @@ from runtimes.base import (
     RuntimePreflightError,
     RuntimeUnavailableError,
 )
+from rbac import require_authenticated
 from runtimes.manager import get_runtime_manager
 from runtimes.control import start_runtime, stop_runtime, start_all_runtimes, stop_all_runtimes
 
@@ -87,14 +88,14 @@ async def _require_admin(request: Request) -> None:
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @runtime_router.get("/")
-async def list_runtimes() -> dict:
+async def list_runtimes(user: dict = Depends(require_authenticated)) -> dict:
     """List all registered runtimes with current health status."""
     mgr = get_runtime_manager()
     return {"runtimes": mgr.list_runtimes()}
 
 
 @runtime_router.get("/health")
-async def runtime_health_summary() -> dict:
+async def runtime_health_summary(user: dict = Depends(require_authenticated)) -> dict:
     """Health snapshot for all runtimes (circuit-breaker state included)."""
     mgr = get_runtime_manager()
     return {"health": mgr.health_summary()}
@@ -131,7 +132,7 @@ async def _save_rich_policy(data: dict) -> None:
 
 
 @runtime_router.get("/policy")
-async def get_policy() -> dict:
+async def get_policy(user: dict = Depends(require_authenticated)) -> dict:
     core = get_runtime_manager().get_policy()
     rich = await _load_rich_policy()
     # Merge: rich provides UI-only keys (pools, triggers); core wins on any collision.
@@ -185,7 +186,7 @@ async def update_policy(
 
 
 @runtime_router.get("/decisions")
-async def get_decision_log(limit: int = 100) -> dict:
+async def get_decision_log(user: dict = Depends(require_authenticated), limit: int = 100) -> dict:
     """Routing decision audit log (newest first)."""
     if limit < 1 or limit > 1000:
         limit = 100
@@ -194,7 +195,7 @@ async def get_decision_log(limit: int = 100) -> dict:
 
 
 @runtime_router.get("/{runtime_id}")
-async def get_runtime(runtime_id: str) -> dict:
+async def get_runtime(runtime_id: str, user: dict = Depends(require_authenticated)) -> dict:
     """Get details for a single runtime."""
     mgr = get_runtime_manager()
     info = mgr.get_runtime(runtime_id)
@@ -207,6 +208,7 @@ async def get_runtime(runtime_id: str) -> dict:
 async def run_task_on_runtime(
     runtime_id: str,
     body: RunTaskBody,
+    user: dict = Depends(require_authenticated),
 ) -> dict:
     """Execute a task on a specific runtime (bypasses routing policy)."""
     mgr = get_runtime_manager()

@@ -1,3 +1,44 @@
+## [Unreleased]
+
+### Added
+- `backend/server.py`: `POST /api/chat/resume/{session_id}` — new HITL endpoint.
+  The frontend can submit `{action, input}` when an agent job reaches a
+  `needs_approval` or `needs_input` checkpoint. Action `deny` cancels the job
+  via `AgentJobManager.cancel_job()`; action `approve`/`input` records the
+  human decision as a progress event and sets `phase="resuming"`. Returns a
+  typed `AgentJobSnapshot`. (Phase 3 will fully suspend/resume the coroutine.)
+- `activation_api.py`: `POST /api/activation/users/{user_id}/role` — admin
+  endpoint to change a user's role (`user` | `power_user` | `admin`). Validates
+  role value, updates MongoDB, and emits an audit event.
+
+### Changed
+- `backend/server.py`: `get_chat_agent_job` and `cancel_chat_agent_job` now
+  return `AgentJobSnapshot.from_agent_job(job).model_dump()` instead of the
+  raw `job.as_dict()` dict, giving callers a stable, typed response shape.
+- `backend/server.py`: Agent job creation in `chat_send` now validates inputs
+  through `AgentJobRequest` (Pydantic v2, `extra="forbid"`) before calling
+  `AgentJobManager.create_job()` — unknown kwargs now raise `ValidationError`
+  immediately rather than being silently dropped.
+- `backend/server.py` (Phase 2): Direct-chat path now calls
+  `ModelRouter.route(content)` to select the best model for the task type
+  (code, reasoning, fast-response, etc.) before falling back to the provider
+  default. Failures are non-fatal: the provider default is used on any
+  `ModelRouter` exception.
+- `runtimes/api.py`: All runtime read endpoints (`GET /runtimes/`,
+  `/runtimes/{id}`, `/runtimes/health`, `/runtimes/policy`,
+  `/runtimes/decisions`) and the task-execution endpoint (`POST
+  /runtimes/{id}/run`) now require a valid Bearer token via
+  `Depends(require_authenticated)`. Previously all reads were unauthenticated.
+
+### Fixed
+- `frontend/src/api.js`: `getAuditLog` corrected from `/api/audit-log` →
+  `/api/activation/audit-log` to match the backend activation router.
+- `frontend/src/api.js`: `listUsers` corrected from `/api/auth/users` →
+  `/api/activation/users`.
+- `frontend/src/api.js`: `changeUserRole` corrected from
+  `/api/auth/users/{id}/role` → `/api/activation/users/{id}/role` (new
+  endpoint added in this release).
+
 # Changelog
 
 ## [5.0.0] — 2026-05-24
