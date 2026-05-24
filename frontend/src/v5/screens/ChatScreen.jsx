@@ -35,7 +35,7 @@ const CHAT_HISTORY = [
   { id:'h-3', title:'Explain agent pipeline modes',     preview:'Here is how each mode works…', ts:'1h ago',  agent:'ceo',      screen:'final' },
   { id:'h-4', title:'Contentful publishing workflow',   preview:'I can automate that for you.', ts:'3h ago',  agent:'content',  screen:'final' },
   { id:'h-5', title:'Cart abandonment analysis',        preview:'Based on your GA4 data…', ts:'1d ago',  agent:'analytics',screen:'final' },
-  { id:'h-6', title:'Dependency audit v4.1',            preview:'14 safe upgrades found.', ts:'3d ago',  agent:'release',  screen:'final' },
+  { id:'h-6', title:'Dependency audit v5.0',            preview:'14 safe upgrades found.', ts:'3d ago',  agent:'release',  screen:'final' },
 ];
 
 const SUGGESTIONS = [

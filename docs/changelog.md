@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Changed
+- **README**: complete rewrite — full feature reality, autonomous agency use cases, step-by-step
+  onboarding guide, screen-by-screen control plane reference, provider chain, security model,
+  and updated roadmap showing phases 1–5 complete. Deploy and config sections expanded with
+  Render free-tier notes and Nvidia NIM no-GPU path.
+- **Frontend mock data**: updated demo card labels from v4.1 → v5.0 in TaskBoardScreen and
+  ChatScreen; UI now consistently reflects the current release.
+
 ### Added
 - `scripts/enrich_quick_note_issues.py`: new automation script that finds all open GitHub quick-note issues and posts a standardized "LLM Implementation Context" comment to each issue, with repo constraints (`CLAUDE.md`, testing, changelog, risky-path guidance) to reduce low-signal implementations when source URLs are inaccessible. Supports `--dry-run` and skips issues that already contain the context marker.
 
