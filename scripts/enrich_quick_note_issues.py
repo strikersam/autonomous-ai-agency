@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import os
 from textwrap import dedent
+from urllib.parse import urlparse
 
 import requests
 
@@ -27,19 +28,45 @@ def _headers() -> dict[str, str]:
 
 
 def _fetch_open_issues() -> list[dict]:
-    res = requests.get(f"{API}/issues", params={"state": "open", "per_page": 100}, headers=_headers(), timeout=30)
-    res.raise_for_status()
-    return [i for i in res.json() if "pull_request" not in i]
+    issues: list[dict] = []
+    page = 1
+    while True:
+        res = requests.get(
+            f"{API}/issues",
+            params={"state": "open", "per_page": 100, "page": page},
+            headers=_headers(),
+            timeout=30,
+        )
+        res.raise_for_status()
+        batch = [item for item in res.json() if "pull_request" not in item]
+        if not batch:
+            break
+        issues.extend(batch)
+        page += 1
+    return issues
 
 
 def _is_quick_note(issue: dict) -> bool:
     title = issue.get("title", "").lower()
-    labels = [l["name"].lower() for l in issue.get("labels", [])]
-    return title.startswith("quick-note:") or any("quick-note" in l for l in labels) or "quick note" in title
+    labels = [label["name"].lower() for label in issue.get("labels", [])]
+    return title.startswith("quick-note:") or any("quick-note" in label for label in labels) or "quick note" in title
+
+
+def _extract_source(issue: dict) -> str:
+    title = issue.get("title", "").strip()
+    if ":" in title and title.lower().startswith("quick-note"):
+        return title.split(":", 1)[1].strip()
+    body = (issue.get("body") or "").strip()
+    if body:
+        return body.splitlines()[0].strip()
+    url = issue.get("html_url", "")
+    if url and urlparse(url).scheme:
+        return url
+    return title
 
 
 def _comment_body(issue: dict) -> str:
-    source = issue["title"].split("quick-note:", 1)[-1].strip()
+    source = _extract_source(issue)
     return dedent(
         f"""
         ## LLM Implementation Context (auto-added)
@@ -93,7 +120,10 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    issues = [i for i in _fetch_open_issues() if _is_quick_note(i)]
+    if not args.dry_run and not (os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")):
+        raise SystemExit("GITHUB_TOKEN or GH_TOKEN is required unless --dry-run is used")
+
+    issues = [issue for issue in _fetch_open_issues() if _is_quick_note(issue)]
     print(f"found {len(issues)} quick-note issue(s)")
 
     for issue in issues:
