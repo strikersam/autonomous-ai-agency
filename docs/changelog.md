@@ -30,6 +30,15 @@
   field; all response shapes correctly unwrapped from `{"providers": [...]}` etc. wrapper objects.
 - `tests/test_chat_mode_regressions.py`: collect auth headers against real MongoDB BEFORE
   installing `get_db` mock, so login succeeds even when DB is subsequently replaced with Mock.
+- `tests/test_setup_api.py`: patch `setup.api.is_activated` and `setup.api.is_user_onboarding_allowed`
+  to return `True` in both setup wizard tests so they pass in CI where the instance is not yet
+  activated; previously the activation gate returned HTTP 403 causing `assert 403 == 200`.
+- `frontend/src/pages/ActivityPage.js`: fix `no-template-curly-in-string` — line 100 used
+  `${...}` inside a regular `"..."` string; changed to a JSX template literal `` className={`...`} ``.
+- `frontend/src/pages/.eslintrc.json`: also suppress `no-template-curly-in-string` for all
+  prototype page files (belt-and-suspenders alongside the `no-unused-vars` override already there).
+- `tests/e2e/test_live_server.py`: chat test now accepts HTTP 503 alongside 200/409 (call_llm
+  raises 503 when no LLM provider is reachable in CI without Ollama).
 
 
 ### Fixed

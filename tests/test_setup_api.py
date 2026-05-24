@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -48,31 +49,38 @@ def test_setup_state_persists_in_collection_across_cache_resets() -> None:
     clear_wizard_state_cache()
     client = _setup_client()
 
-    try:
-        save_response = client.put(
-            "/api/setup/step/1",
-            json={
-                "use_nvidia_nim": True,
-                "use_ollama": False,
-                "ollama_base_url": "http://localhost:11434",
-            },
-        )
-        assert save_response.status_code == 200, save_response.text
+    # Patch the activation gate so this test runs without a live activated instance.
+    # _require_onboarding_gate() calls is_activated() and is_user_onboarding_allowed()
+    # from setup.api; patch them at the call site so they always pass.
+    with (
+        patch("setup.api.is_activated", return_value=True),
+        patch("setup.api.is_user_onboarding_allowed", return_value=True),
+    ):
+        try:
+            save_response = client.put(
+                "/api/setup/step/1",
+                json={
+                    "use_nvidia_nim": True,
+                    "use_ollama": False,
+                    "ollama_base_url": "http://localhost:11434",
+                },
+            )
+            assert save_response.status_code == 200, save_response.text
 
-        complete_response = client.post("/api/setup/complete")
-        assert complete_response.status_code == 200, complete_response.text
+            complete_response = client.post("/api/setup/complete")
+            assert complete_response.status_code == 200, complete_response.text
 
-        clear_wizard_state_cache()
+            clear_wizard_state_cache()
 
-        state_response = client.get("/api/setup/state")
-        assert state_response.status_code == 200, state_response.text
-        payload = state_response.json()
-        assert payload["completed"] is True
-        assert payload["step1_providers"]["use_nvidia_nim"] is True
-        assert payload["user_id"] == "admin@example.com"
-    finally:
-        clear_wizard_state_cache()
-        set_wizard_state_collection(None)
+            state_response = client.get("/api/setup/state")
+            assert state_response.status_code == 200, state_response.text
+            payload = state_response.json()
+            assert payload["completed"] is True
+            assert payload["step1_providers"]["use_nvidia_nim"] is True
+            assert payload["user_id"] == "admin@example.com"
+        finally:
+            clear_wizard_state_cache()
+            set_wizard_state_collection(None)
 
 
 def test_reset_wizard_removes_persisted_collection_state() -> None:
@@ -81,28 +89,32 @@ def test_reset_wizard_removes_persisted_collection_state() -> None:
     clear_wizard_state_cache()
     client = _setup_client()
 
-    try:
-        save_response = client.put(
-            "/api/setup/step/5",
-            json={
-                "never_use_paid_providers": True,
-                "require_approval_before_paid": True,
-                "enable_langfuse": True,
-                "langfuse_host": "https://trace.example.com",
-            },
-        )
-        assert save_response.status_code == 200, save_response.text
-        assert "admin@example.com" in collection.docs
+    with (
+        patch("setup.api.is_activated", return_value=True),
+        patch("setup.api.is_user_onboarding_allowed", return_value=True),
+    ):
+        try:
+            save_response = client.put(
+                "/api/setup/step/5",
+                json={
+                    "never_use_paid_providers": True,
+                    "require_approval_before_paid": True,
+                    "enable_langfuse": True,
+                    "langfuse_host": "https://trace.example.com",
+                },
+            )
+            assert save_response.status_code == 200, save_response.text
+            assert "admin@example.com" in collection.docs
 
-        reset_response = client.post("/api/setup/reset", json={"user_id": "admin@example.com"})
-        assert reset_response.status_code == 200, reset_response.text
+            reset_response = client.post("/api/setup/reset", json={"user_id": "admin@example.com"})
+            assert reset_response.status_code == 200, reset_response.text
 
-        clear_wizard_state_cache()
-        state_response = client.get("/api/setup/state")
-        assert state_response.status_code == 200, state_response.text
-        payload = state_response.json()
-        assert payload["completed"] is False
-        assert payload["step5_policy"] == {}
-    finally:
-        clear_wizard_state_cache()
-        set_wizard_state_collection(None)
+            clear_wizard_state_cache()
+            state_response = client.get("/api/setup/state")
+            assert state_response.status_code == 200, state_response.text
+            payload = state_response.json()
+            assert payload["completed"] is False
+            assert payload["step5_policy"] == {}
+        finally:
+            clear_wizard_state_cache()
+            set_wizard_state_collection(None)
