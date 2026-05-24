@@ -12,10 +12,15 @@ name: CI Failure Auto-Fix
 #   - Fix is applied with `git apply` against the current master checkout
 #   - Patches >200 lines open an issue instead of auto-applying
 
+# QUARANTINED 2026-05-22: auto-trigger disabled pending Agency Core stabilization.
+# See docs/architecture/agency-core-audit-2026-05-22.md. This workflow auto-committed
+# AI-generated patches to branches and was a major source of unverified churn.
+# Re-enable by restoring the `workflow_run:` block below.
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  # workflow_run:
+  #   workflows: ["CI"]
+  #   types: [completed]   (QUARANTINED)
+  workflow_dispatch: {}
 
 jobs:
   autofix:

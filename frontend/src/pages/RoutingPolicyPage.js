@@ -103,7 +103,6 @@ export default function RoutingPolicyPage() {
   const [newModel, setNewModel] = useState('');
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
-  const [loadError, setLoadError] = useState('');
   const [saveError, setSaveError] = useState('');
 
   const load = useCallback(async () => {

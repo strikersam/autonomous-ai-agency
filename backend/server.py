@@ -67,6 +67,7 @@ from tasks.api import task_router
 from tasks.dispatcher import TaskDispatcher
 from tasks.store import TaskStore, get_task_store, set_task_store
 from setup import setup_router
+from activation_api import activation_router
 from setup.api import get_wizard_state
 from secrets_store import secrets_router, get_secrets_store
 
@@ -218,7 +219,7 @@ async def _persist_chat_session(
 ) -> None:
     updated_at = datetime.now(timezone.utc).isoformat()
     if storage_mode == "db" and db_session_id is not None:
-        await db.chat_sessions.update_one(
+        await get_db().chat_sessions.update_one(
             {"_id": db_session_id, "user_id": user_id},
             {
                 "$set": {
@@ -1203,7 +1204,7 @@ async def get_current_user(request: Request) -> dict:
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
         try:
-            user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+            user = await get_db().users.find_one({"_id": ObjectId(payload["sub"])})
         except Exception:
             # DB fallback for CI/limited mode
             if payload.get("email") == ADMIN_EMAIL:
@@ -1304,7 +1305,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
         raise HTTPException(status_code=400, detail="Missing code or state")
 
     # Repo-connect flow: state was stored in MongoDB by /api/github/oauth/start
-    state_doc = await db.oauth_states.find_one({"state": state})
+    state_doc = await get_db().oauth_states.find_one({"state": state})
     if state_doc and state_doc.get("flow_type") == "repo":
         # Don't delete state until token exchange succeeds — allows clean retry on failure
         user_id: str = state_doc["user_id"]
@@ -1350,9 +1351,9 @@ async def github_callback(request: Request, code: str = None, state: str = None)
                 False, error_msg="GitHub did not return a username. Please try again."
             )
         # State consumed — delete now that everything succeeded
-        await db.oauth_states.delete_one({"state": state})
+        await get_db().oauth_states.delete_one({"state": state})
         now_iso = datetime.now(timezone.utc).isoformat()
-        await db.github_settings.update_one(
+        await get_db().github_settings.update_one(
             {"user_id": user_id},
             {
                 "$set": {
@@ -1365,7 +1366,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             upsert=True,
         )
         # Also sync to the user document so the agent runner can read it directly
-        await db.users.update_one(
+        await get_db().users.update_one(
             {"_id": ObjectId(user_id)},
             {
                 "$set": {
@@ -1434,7 +1435,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             )
 
         # 4. Find or create user
-        user = await db.users.find_one({"email": email.lower()})
+        user = await get_db().users.find_one({"email": email.lower()})
         uid_str = str(gh_user["id"])
         now = datetime.now(timezone.utc).isoformat()
 
@@ -1450,7 +1451,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
                 "created_at": now,
                 "last_login": now,
             }
-            result = await db.users.insert_one(new_user)
+            result = await get_db().users.insert_one(new_user)
             user_id = str(result.inserted_id)
             await log_activity(
                 "auth", f"New user {email} registered via GitHub", user_id=user_id
@@ -1458,7 +1459,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
         else:
             # Update existing user with social info if missing or just update last_login
             user_id = str(user["_id"])
-            await db.users.update_one(
+            await get_db().users.update_one(
                 {"_id": user["_id"]},
                 {
                     "$set": {
@@ -1556,7 +1557,7 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
         # Note: We associate the token with the authenticated user.
         # Ideally, we should check if the GitHub email matches the logged-in user email.
         # For simplicity in this local tool, we just update the user.
-        await db.users.update_one(
+        await get_db().users.update_one(
             {"email": email.lower()},
             {
                 "$set": {
@@ -1621,7 +1622,7 @@ class AuthorizeReposBody(BaseModel):
 async def github_authorize_repos(
     body: AuthorizeReposBody, user: dict = Depends(get_current_user)
 ):
-    await db.users.update_one(
+    await get_db().users.update_one(
         {"_id": ObjectId(user["_id"])}, {"$set": {"authorized_repos": body.repo_names}}
     )
     await log_activity(
@@ -1638,7 +1639,7 @@ async def github_status(user: dict = Depends(get_current_user)):
     token = user.get("github_repo_token")
     gh_login = user.get("github_login")
     if not token:
-        doc = await db.github_settings.find_one({"user_id": user["_id"]})
+        doc = await get_db().github_settings.find_one({"user_id": user["_id"]})
         if doc:
             token = doc.get("token")
             gh_login = gh_login or doc.get("github_login")
@@ -1710,7 +1711,7 @@ async def google_callback(request: Request, code: str = None, state: str = None)
             )
 
         # 3. Find or create user
-        user = await db.users.find_one({"email": email.lower()})
+        user = await get_db().users.find_one({"email": email.lower()})
         uid_str = str(g_user.get("sub"))
         now = datetime.now(timezone.utc).isoformat()
 
@@ -1725,7 +1726,7 @@ async def google_callback(request: Request, code: str = None, state: str = None)
                 "created_at": now,
                 "last_login": now,
             }
-            result = await db.users.insert_one(new_user)
+            result = await get_db().users.insert_one(new_user)
             user_id = str(result.inserted_id)
             try:
                 await log_activity(
@@ -1735,7 +1736,7 @@ async def google_callback(request: Request, code: str = None, state: str = None)
                 pass
         else:
             user_id = str(user["_id"])
-            await db.users.update_one(
+            await get_db().users.update_one(
                 {"_id": user["_id"]},
                 {
                     "$set": {
@@ -1776,8 +1777,25 @@ app.add_middleware(
     max_age=3600,  # 1 hour for OAuth state
 )
 
-client = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=MONGO_SELECTION_TIMEOUT_MS)
-db = client[DB_NAME]
+# MongoDB client — lazy-initialized to avoid connection attempts on import.
+# Use get_db() everywhere instead of the module-level `db` variable.
+_mongo_client: "AsyncIOMotorClient | None" = None
+_mongo_db = None
+
+
+def get_db():
+    """Return the Motor database, creating the client on first call.
+
+    Lazy initialization prevents connection attempts during import (which
+    breaks CI environments without a running MongoDB service).
+    """
+    global _mongo_client, _mongo_db
+    if _mongo_client is None:
+        _mongo_client = AsyncIOMotorClient(
+            MONGO_URL, serverSelectionTimeoutMS=MONGO_SELECTION_TIMEOUT_MS
+        )
+        _mongo_db = _mongo_client[DB_NAME]
+    return _mongo_db
 
 
 class JWTUserStateMiddleware(BaseHTTPMiddleware):
@@ -1796,7 +1814,7 @@ class JWTUserStateMiddleware(BaseHTTPMiddleware):
                 if payload.get("type") == "access":
                     user = None
                     try:
-                        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+                        user = await get_db().users.find_one({"_id": ObjectId(payload["sub"])})
                     except Exception:
                         pass
                     if not user and payload.get("email") == ADMIN_EMAIL:
@@ -1834,26 +1852,26 @@ async def ensure_bootstrap() -> None:
         async with _BOOTSTRAP_LOCK:
             if _BOOTSTRAP_DONE:
                 return
-            await db.users.create_index("email", unique=True)
-            await db.wiki_pages.create_index("slug", unique=True)
-            await db.wiki_pages.create_index([("title", "text"), ("content", "text")])
-            await db.sources.create_index("created_at")
-            await db.activity_log.create_index("created_at")
-            await db.chat_sessions.create_index("user_id")
-            await db.providers.create_index("provider_id", unique=True)
-            await db.api_keys.create_index("key_id", unique=True)
-            await db.github_settings.create_index("user_id", unique=True)
+            await get_db().users.create_index("email", unique=True)
+            await get_db().wiki_pages.create_index("slug", unique=True)
+            await get_db().wiki_pages.create_index([("title", "text"), ("content", "text")])
+            await get_db().sources.create_index("created_at")
+            await get_db().activity_log.create_index("created_at")
+            await get_db().chat_sessions.create_index("user_id")
+            await get_db().providers.create_index("provider_id", unique=True)
+            await get_db().api_keys.create_index("key_id", unique=True)
+            await get_db().github_settings.create_index("user_id", unique=True)
             # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
-            await db.oauth_states.create_index("created_at", expireAfterSeconds=600)
+            await get_db().oauth_states.create_index("created_at", expireAfterSeconds=600)
             # Indexes for feature routers
-            await db.agent_definitions.create_index("agent_id", unique=True)
-            await db.agent_definitions.create_index("owner_id")
-            await db.tasks.create_index("task_id", unique=True)
-            await db.tasks.create_index("owner_id")
-            await db.tasks.create_index("status")
+            await get_db().agent_definitions.create_index("agent_id", unique=True)
+            await get_db().agent_definitions.create_index("owner_id")
+            await get_db().tasks.create_index("task_id", unique=True)
+            await get_db().tasks.create_index("owner_id")
+            await get_db().tasks.create_index("status")
             # Wire feature stores to the shared MongoDB connection
-            set_agent_store(AgentStore(db=db))
-            set_task_store(TaskStore(db=db))
+            set_agent_store(AgentStore(db=get_db()))
+            set_task_store(TaskStore(db=get_db()))
             await seed_admin()
             await seed_default_agents()
             await seed_default_providers()
@@ -1890,7 +1908,7 @@ async def _sync_ollama_model() -> None:
     if not installed:
         return
 
-    prov = await db.providers.find_one({"provider_id": "ollama-local"})
+    prov = await get_db().providers.find_one({"provider_id": "ollama-local"})
     current = (prov or {}).get("default_model", "")
 
     # If the currently configured model is already installed, nothing to do.
@@ -1902,7 +1920,7 @@ async def _sync_ollama_model() -> None:
     preferred = [m for m in installed for kw in _PREFER if kw in m.lower()]
     best = preferred[0] if preferred else installed[0]
 
-    await db.providers.update_one(
+    await get_db().providers.update_one(
         {"provider_id": "ollama-local"},
         {"$set": {"default_model": best}},
     )
@@ -1915,9 +1933,9 @@ async def _sync_ollama_model() -> None:
 
 
 async def seed_admin():
-    existing = await db.users.find_one({"email": ADMIN_EMAIL})
+    existing = await get_db().users.find_one({"email": ADMIN_EMAIL})
     if existing is None:
-        await db.users.insert_one(
+        await get_db().users.insert_one(
             {
                 "email": ADMIN_EMAIL,
                 "password_hash": hash_password(ADMIN_PASSWORD),
@@ -1933,7 +1951,7 @@ async def seed_admin():
         # Sync DB password from the effective admin password env var on restart so the
         # configured credential always works. Operators change this via .env
         # or the Render dashboard — not by editing the DB directly.
-        await db.users.update_one(
+        await get_db().users.update_one(
             {"email": ADMIN_EMAIL},
             {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}},
         )
@@ -1972,7 +1990,7 @@ async def seed_default_agents() -> None:
 
     for role, profile in profiles.items():
         # Idempotency: skip if an agent with this role tag already exists
-        existing = await db.agent_definitions.find_one({"tags": f"crispy:{role}"})
+        existing = await get_db().agent_definitions.find_one({"tags": f"crispy:{role}"})
         if existing:
             continue
 
@@ -2158,10 +2176,10 @@ async def seed_default_providers():
         },
     ]
     for p in defaults:
-        existing = await db.providers.find_one({"provider_id": p["provider_id"]})
+        existing = await get_db().providers.find_one({"provider_id": p["provider_id"]})
         if not existing:
             p["created_at"] = datetime.now(timezone.utc).isoformat()
-            await db.providers.insert_one(p)
+            await get_db().providers.insert_one(p)
         else:
             # Always sync env-var-backed fields so .env changes take effect
             # without requiring a manual DB wipe.
@@ -2186,7 +2204,7 @@ async def seed_default_providers():
             if new_priority is not None and existing.get("priority") != new_priority:
                 update["priority"] = new_priority
             if update:
-                await db.providers.update_one(
+                await get_db().providers.update_one(
                     {"provider_id": p["provider_id"]}, {"$set": update}
                 )
                 log.info(
@@ -2808,7 +2826,7 @@ async def log_activity(
     category: str, message: str, user_id: str = None, meta: dict = None
 ):
     try:
-        await db.activity_log.insert_one(
+        await get_db().activity_log.insert_one(
             {
                 "category": category,
                 "message": message,
@@ -2834,7 +2852,7 @@ async def login(body: LoginBody):
     try:
         await ensure_bootstrap()
         email = body.email.strip().lower()
-        user = await db.users.find_one({"email": email})
+        user = await get_db().users.find_one({"email": email})
     except Exception as exc:
         log.warning("DB query failed during login (limited mode): %s", exc)
         # Fallback to env-based admin
@@ -2904,7 +2922,7 @@ async def refresh_token(request: Request):
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token type")
         try:
-            user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+            user = await get_db().users.find_one({"_id": ObjectId(payload["sub"])})
         except Exception:
             if payload.get("sub") == "admin_user_001":
                 user = {
@@ -2927,9 +2945,9 @@ async def refresh_token(request: Request):
 
 async def get_active_provider():
     try:
-        prov = await db.providers.find_one({"is_default": True})
+        prov = await get_db().providers.find_one({"is_default": True})
         if not prov:
-            prov = await db.providers.find_one({})
+            prov = await get_db().providers.find_one({})
         return prov
     except Exception:
         return None
@@ -2974,7 +2992,7 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
 
 async def _list_configured_provider_records() -> list[dict]:
     try:
-        records = await db.providers.find({}).to_list(length=200)
+        records = await get_db().providers.find({}).to_list(length=200)
     except Exception:
         records = _builtin_provider_records()
     filtered: list[dict] = []
@@ -3049,7 +3067,7 @@ async def call_llm(
     observation: Optional[Dict[str, object]] = None,
 ) -> str:
     provider = (
-        await db.providers.find_one({"provider_id": provider_id})
+        await get_db().providers.find_one({"provider_id": provider_id})
         if provider_id
         else await get_active_provider()
     )
@@ -3349,7 +3367,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         try:
             active = await get_active_provider()
             default_pid = active.get("provider_id") if active else "ollama-local"
-            result = await db.chat_sessions.insert_one(
+            result = await get_db().chat_sessions.insert_one(
                 {
                     "user_id": uid,
                     "title": body.content[:60],
@@ -3372,7 +3390,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             db_session_id = None
     try:
         session = (
-            await db.chat_sessions.find_one({"_id": db_session_id, "user_id": uid})
+            await get_db().chat_sessions.find_one({"_id": db_session_id, "user_id": uid})
             if (not _db_limited and db_session_id is not None)
             else None
         )
@@ -3407,7 +3425,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
 
     wiki_pages = []
     try:
-        async for page in db.wiki_pages.find({}, {"_id": 0, "slug": 1, "title": 1}).limit(50):
+        async for page in get_db().wiki_pages.find({}, {"_id": 0, "slug": 1, "title": 1}).limit(50):
             wiki_pages.append(f"- {page['title']} ({page['slug']})")
     except Exception:
         pass
@@ -3611,7 +3629,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         history_for_llm = model_messages[-20:]
         if len(messages) > _COMPACT_THRESHOLD:
             provider = (
-                await db.providers.find_one({"provider_id": provider_id})
+                await get_db().providers.find_one({"provider_id": provider_id})
                 if provider_id
                 else await get_active_provider()
             )
@@ -3757,7 +3775,7 @@ async def list_sessions(user: dict = Depends(get_current_user)):
     sessions = []
     try:
         async for s in (
-            db.chat_sessions.find({"user_id": user["_id"]}, {"messages": 0})
+            get_db().chat_sessions.find({"user_id": user["_id"]}, {"messages": 0})
             .sort("updated_at", -1)
             .limit(50)
         ):
@@ -3777,7 +3795,7 @@ async def get_session(session_id: str, user: dict = Depends(get_current_user)):
     session = None
     if db_session_id is not None:
         try:
-            session = await db.chat_sessions.find_one(
+            session = await get_db().chat_sessions.find_one(
                 {"_id": db_session_id, "user_id": user["_id"]}
             )
         except Exception:
@@ -3796,7 +3814,7 @@ async def delete_session(session_id: str, user: dict = Depends(get_current_user)
     deleted = False
     if db_session_id is not None:
         try:
-            result = await db.chat_sessions.delete_one(
+            result = await get_db().chat_sessions.delete_one(
                 {"_id": db_session_id, "user_id": user["_id"]}
             )
             deleted = result.deleted_count > 0
@@ -3897,7 +3915,7 @@ async def list_wiki_pages(q: str = None, user: dict = Depends(get_current_user))
     query = {"$text": {"$search": q}} if q else {}
     pages = []
     async for p in (
-        db.wiki_pages.find(query, {"content": 0}).sort("updated_at", -1).limit(200)
+        get_db().wiki_pages.find(query, {"content": 0}).sort("updated_at", -1).limit(200)
     ):
         p["_id"] = str(p["_id"])
         pages.append(p)
@@ -3906,7 +3924,7 @@ async def list_wiki_pages(q: str = None, user: dict = Depends(get_current_user))
 
 @app.get("/api/wiki/pages/{slug}")
 async def get_wiki_page(slug: str, user: dict = Depends(get_current_user)):
-    page = await db.wiki_pages.find_one({"slug": slug})
+    page = await get_db().wiki_pages.find_one({"slug": slug})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
     page["_id"] = str(page["_id"])
@@ -3918,7 +3936,7 @@ async def create_wiki_page(
     body: WikiPageCreate, user: dict = Depends(get_current_user)
 ):
     slug = slugify(body.title)
-    if await db.wiki_pages.find_one({"slug": slug}):
+    if await get_db().wiki_pages.find_one({"slug": slug}):
         raise HTTPException(
             status_code=409, detail="Page with this title already exists"
         )
@@ -3933,7 +3951,7 @@ async def create_wiki_page(
         "updated_at": now,
         "created_by": user["_id"],
     }
-    result = await db.wiki_pages.insert_one(doc)
+    result = await get_db().wiki_pages.insert_one(doc)
     doc["_id"] = str(result.inserted_id)
     await log_activity("wiki", f"Created page: {body.title}", user_id=user["_id"])
     return doc
@@ -3950,10 +3968,10 @@ async def update_wiki_page(
         updates["content"] = body.content
     if body.tags is not None:
         updates["tags"] = body.tags
-    result = await db.wiki_pages.update_one({"slug": slug}, {"$set": updates})
+    result = await get_db().wiki_pages.update_one({"slug": slug}, {"$set": updates})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Page not found")
-    page = await db.wiki_pages.find_one({"slug": slug})
+    page = await get_db().wiki_pages.find_one({"slug": slug})
     page["_id"] = str(page["_id"])
     await log_activity("wiki", f"Updated page: {slug}", user_id=user["_id"])
     return page
@@ -3961,7 +3979,7 @@ async def update_wiki_page(
 
 @app.delete("/api/wiki/pages/{slug}")
 async def delete_wiki_page(slug: str, user: dict = Depends(get_current_user)):
-    result = await db.wiki_pages.delete_one({"slug": slug})
+    result = await get_db().wiki_pages.delete_one({"slug": slug})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Page not found")
     await log_activity("wiki", f"Deleted page: {slug}", user_id=user["_id"])
@@ -3971,7 +3989,7 @@ async def delete_wiki_page(slug: str, user: dict = Depends(get_current_user)):
 @app.post("/api/wiki/lint")
 async def lint_wiki(user: dict = Depends(get_current_user)):
     pages = []
-    async for p in db.wiki_pages.find(
+    async for p in get_db().wiki_pages.find(
         {}, {"_id": 0, "title": 1, "slug": 1, "content": 1, "tags": 1}
     ):
         pages.append(p)
@@ -4044,7 +4062,7 @@ async def ingest_source(
         "created_at": now,
         "created_by": user["_id"],
     }
-    result = await db.sources.insert_one(doc)
+    result = await get_db().sources.insert_one(doc)
     source_id = str(result.inserted_id)
     try:
         summary = await call_llm(
@@ -4056,7 +4074,7 @@ async def ingest_source(
                 {"role": "user", "content": raw_content[:8000]},
             ]
         )
-        await db.sources.update_one(
+        await get_db().sources.update_one(
             {"_id": ObjectId(source_id)},
             {"$set": {"status": "processed", "summary": summary}},
         )
@@ -4067,7 +4085,7 @@ async def ingest_source(
             meta={"source_id": source_id},
         )
     except Exception as e:
-        await db.sources.update_one(
+        await get_db().sources.update_one(
             {"_id": ObjectId(source_id)},
             {"$set": {"status": "failed", "summary": f"Processing failed: {e}"}},
         )
@@ -4079,7 +4097,7 @@ async def ingest_source(
 async def list_sources(user: dict = Depends(get_current_user)):
     sources = []
     async for s in (
-        db.sources.find({}, {"raw_content": 0}).sort("created_at", -1).limit(100)
+        get_db().sources.find({}, {"raw_content": 0}).sort("created_at", -1).limit(100)
     ):
         s["_id"] = str(s["_id"])
         sources.append(s)
@@ -4088,7 +4106,7 @@ async def list_sources(user: dict = Depends(get_current_user)):
 
 @app.get("/api/sources/{source_id}")
 async def get_source(source_id: str, user: dict = Depends(get_current_user)):
-    source = await db.sources.find_one({"_id": ObjectId(source_id)})
+    source = await get_db().sources.find_one({"_id": ObjectId(source_id)})
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     source["_id"] = str(source["_id"])
@@ -4097,7 +4115,7 @@ async def get_source(source_id: str, user: dict = Depends(get_current_user)):
 
 @app.delete("/api/sources/{source_id}")
 async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
-    await db.sources.delete_one({"_id": ObjectId(source_id)})
+    await get_db().sources.delete_one({"_id": ObjectId(source_id)})
     return {"ok": True}
 
 
@@ -4108,7 +4126,7 @@ async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
 async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
     logs = []
     try:
-        async for entry in db.activity_log.find({}).sort("created_at", -1).limit(limit):
+        async for entry in get_db().activity_log.find({}).sort("created_at", -1).limit(limit):
             entry["_id"] = str(entry["_id"])
             logs.append(entry)
     except Exception as exc:
@@ -4127,15 +4145,15 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
 
 @app.get("/api/stats")
 async def get_stats(user: dict = Depends(get_current_user)):
-    wiki_count = await db.wiki_pages.count_documents({})
-    source_count = await db.sources.count_documents({})
-    session_count = await db.chat_sessions.count_documents({})
-    log_count = await db.activity_log.count_documents({})
-    provider_count = await db.providers.count_documents({})
-    key_count = await db.api_keys.count_documents({})
+    wiki_count = await get_db().wiki_pages.count_documents({})
+    source_count = await get_db().sources.count_documents({})
+    session_count = await get_db().chat_sessions.count_documents({})
+    log_count = await get_db().activity_log.count_documents({})
+    provider_count = await get_db().providers.count_documents({})
+    key_count = await get_db().api_keys.count_documents({})
     recent_pages = []
     async for p in (
-        db.wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "updated_at": 1})
+        get_db().wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "updated_at": 1})
         .sort("updated_at", -1)
         .limit(5)
     ):
@@ -4182,7 +4200,7 @@ class ProviderUpdate(BaseModel):
 async def list_providers(user: dict = Depends(get_current_user)):
     providers = []
     try:
-        async for p in db.providers.find({}).sort("created_at", 1):
+        async for p in get_db().providers.find({}).sort("created_at", 1):
             p["_id"] = str(p["_id"])
             if p.get("api_key"):
                 p["api_key_masked"] = (
@@ -4206,14 +4224,14 @@ async def list_providers(user: dict = Depends(get_current_user)):
 
 @app.post("/api/providers")
 async def create_provider(body: ProviderCreate, user: dict = Depends(get_current_user)):
-    if await db.providers.find_one({"provider_id": body.provider_id}):
+    if await get_db().providers.find_one({"provider_id": body.provider_id}):
         raise HTTPException(status_code=409, detail="Provider ID already exists")
     if body.is_default:
-        await db.providers.update_many({}, {"$set": {"is_default": False}})
+        await get_db().providers.update_many({}, {"$set": {"is_default": False}})
     doc = body.dict()
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "configured"
-    await db.providers.insert_one(doc)
+    await get_db().providers.insert_one(doc)
     await log_activity("provider", f"Added provider: {body.name}", user_id=user["_id"])
     return {"ok": True, "provider_id": body.provider_id}
 
@@ -4226,11 +4244,11 @@ async def update_provider(
     for k, v in body.dict(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
-        await db.providers.update_many(
+        await get_db().providers.update_many(
             {"provider_id": {"$ne": provider_id}}, {"$set": {"is_default": False}}
         )
     if updates:
-        result = await db.providers.update_one(
+        result = await get_db().providers.update_one(
             {"provider_id": provider_id}, {"$set": updates}
         )
         if result.matched_count == 0:
@@ -4243,7 +4261,7 @@ async def update_provider(
 
 @app.delete("/api/providers/{provider_id}")
 async def delete_provider(provider_id: str, user: dict = Depends(get_current_user)):
-    result = await db.providers.delete_one({"provider_id": provider_id})
+    result = await get_db().providers.delete_one({"provider_id": provider_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Provider not found")
     await log_activity(
@@ -4254,7 +4272,7 @@ async def delete_provider(provider_id: str, user: dict = Depends(get_current_use
 
 @app.post("/api/providers/{provider_id}/test")
 async def test_provider(provider_id: str, user: dict = Depends(get_current_user)):
-    prov = await db.providers.find_one({"provider_id": provider_id})
+    prov = await get_db().providers.find_one({"provider_id": provider_id})
     if not prov:
         raise HTTPException(status_code=404, detail="Provider not found")
     try:
@@ -4265,7 +4283,7 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
             async with httpx.AsyncClient(timeout=15) as c:
                 r = await c.get(f"{resolved_base}/api/tags")
                 models = [m["name"] for m in r.json().get("models", [])]
-            await db.providers.update_one(
+            await get_db().providers.update_one(
                 {"provider_id": provider_id}, {"$set": {"status": "online"}}
             )
             return {"ok": True, "models": models}
@@ -4277,12 +4295,12 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
                 default_model=(str(prov.get("default_model") or "").strip() or None),
             )
             models = await list_openai_models(cfg)
-            await db.providers.update_one(
+            await get_db().providers.update_one(
                 {"provider_id": provider_id}, {"$set": {"status": "online"}}
             )
             return {"ok": True, "models": models}
     except Exception as e:
-        await db.providers.update_one(
+        await get_db().providers.update_one(
             {"provider_id": provider_id}, {"$set": {"status": "error"}}
         )
         return {"ok": False, "error": str(e)}
@@ -4290,7 +4308,7 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
 
 @app.get("/api/providers/{provider_id}/models")
 async def provider_models(provider_id: str, user: dict = Depends(get_current_user)):
-    prov = await db.providers.find_one({"provider_id": provider_id})
+    prov = await get_db().providers.find_one({"provider_id": provider_id})
     if not prov:
         raise HTTPException(status_code=404, detail="Provider not found")
 
@@ -4370,7 +4388,7 @@ async def list_models(user: dict = Depends(get_current_user)):
     except Exception:
         pass
     # Add cloud model references from providers
-    async for prov in db.providers.find({"type": {"$ne": "ollama"}}):
+    async for prov in get_db().providers.find({"type": {"$ne": "ollama"}}):
         if prov.get("default_model"):
             models.append(
                 {
@@ -4428,7 +4446,7 @@ class ApiKeyCreate(BaseModel):
 @app.get("/api/keys")
 async def list_api_keys(user: dict = Depends(get_current_user)):
     keys = []
-    async for k in db.api_keys.find({}, {"secret_hash": 0}).sort("created_at", -1):
+    async for k in get_db().api_keys.find({}, {"secret_hash": 0}).sort("created_at", -1):
         k["_id"] = str(k["_id"])
         keys.append(k)
     return {"keys": keys}
@@ -4449,14 +4467,14 @@ async def create_api_key(body: ApiKeyCreate, user: dict = Depends(get_current_us
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": user["_id"],
     }
-    await db.api_keys.insert_one(doc)
+    await get_db().api_keys.insert_one(doc)
     await log_activity("keys", f"Created API key for {body.email}", user_id=user["_id"])
     return {"key_id": key_id, "api_key": plain, "email": body.email}
 
 
 @app.delete("/api/keys/{key_id}")
 async def delete_api_key(key_id: str, user: dict = Depends(get_current_user)):
-    result = await db.api_keys.delete_one({"key_id": key_id})
+    result = await get_db().api_keys.delete_one({"key_id": key_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Key not found")
     await log_activity("keys", f"Revoked API key: {key_id}", user_id=user["_id"])
@@ -4480,7 +4498,7 @@ def _period_cutoff(period: str) -> datetime:
 async def _load_local_metrics_since(cutoff: datetime) -> list[dict]:
     docs: list[dict] = []
     try:
-        cursor = db.local_metrics.find({"timestamp": {"$gte": cutoff}}).sort("timestamp", 1)
+        cursor = get_db().local_metrics.find({"timestamp": {"$gte": cutoff}}).sort("timestamp", 1)
         async for doc in cursor:
             docs.append(doc)
     except Exception:
@@ -4686,7 +4704,7 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
             }
         },
     ]
-    cursor = db.local_metrics.aggregate(pipeline)
+    cursor = get_db().local_metrics.aggregate(pipeline)
     agg = await cursor.to_list(length=1)
     summary = (
         agg[0]
@@ -4697,7 +4715,7 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
 
     # Recent activity
     recent = []
-    async for m in db.local_metrics.find({}).sort("timestamp", -1).limit(10):
+    async for m in get_db().local_metrics.find({}).sort("timestamp", -1).limit(10):
         m["_id"] = str(m["_id"])
         m["timestamp"] = m["timestamp"].isoformat()
         recent.append(m)
@@ -4725,7 +4743,7 @@ async def platform_info(user: dict = Depends(get_current_user)):
 @app.get("/api/health")
 async def health():
     try:
-        await db.command("ping")
+        await get_db().command("ping")
         mongo_ok = True
     except Exception:
         mongo_ok = False
@@ -4760,13 +4778,13 @@ async def health():
 
 # ─── GitHub Integration ─────────────────────────────────────────────────────────
 # All GitHub API calls are proxied through the backend so the PAT never
-# leaves the server. The token is stored per-user in db.github_settings.
+# leaves the server. The token is stored per-user in get_db().github_settings.
 
 GITHUB_API = "https://api.github.com"
 
 
 async def _get_github_token(user_id: str) -> Optional[str]:
-    doc = await db.github_settings.find_one({"user_id": user_id})
+    doc = await get_db().github_settings.find_one({"user_id": user_id})
     return doc.get("token") if doc else None
 
 
@@ -4801,7 +4819,7 @@ async def github_oauth_start(
             detail="GitHub OAuth not configured on this server. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, then restart.",
         )
     state = secrets.token_urlsafe(32)
-    await db.oauth_states.insert_one(
+    await get_db().oauth_states.insert_one(
         {
             "state": state,
             "user_id": user["_id"],
@@ -4859,13 +4877,13 @@ async def github_oauth_callback(
     if error or not code or not state:
         return await _error(error_description or error or "Authorization denied")
 
-    state_doc = await db.oauth_states.find_one({"state": state})
+    state_doc = await get_db().oauth_states.find_one({"state": state})
     if not state_doc:
         return await _error("OAuth state expired or invalid — please try again.")
 
     is_redirect: bool = state_doc.get("redirect", False)
     user_id: str = state_doc["user_id"]
-    await db.oauth_states.delete_one({"state": state})
+    await get_db().oauth_states.delete_one({"state": state})
 
     # Exchange the temporary code for a long-lived access token.
     try:
@@ -4910,7 +4928,7 @@ async def github_oauth_callback(
 
     login: str = gh_user.get("login", "")
 
-    await db.github_settings.update_one(
+    await get_db().github_settings.update_one(
         {"user_id": user_id},
         {
             "$set": {
@@ -4948,7 +4966,7 @@ async def set_github_token(
         ) from exc
     now_iso = datetime.now(timezone.utc).isoformat()
     gh_login = gh_user.get("login", "")
-    await db.github_settings.update_one(
+    await get_db().github_settings.update_one(
         {"user_id": uid},
         {
             "$set": {
@@ -4961,7 +4979,7 @@ async def set_github_token(
         upsert=True,
     )
     # Sync to user document so the agent runner can read it directly
-    await db.users.update_one(
+    await get_db().users.update_one(
         {"_id": ObjectId(uid)},
         {
             "$set": {
@@ -4977,9 +4995,9 @@ async def set_github_token(
 
 @app.delete("/api/github/token")
 async def delete_github_token(user: dict = Depends(get_current_user)):
-    await db.github_settings.delete_one({"user_id": user["_id"]})
+    await get_db().github_settings.delete_one({"user_id": user["_id"]})
     # Clear from user document too
-    await db.users.update_one(
+    await get_db().users.update_one(
         {"_id": ObjectId(user["_id"])},
         {
             "$unset": {
@@ -5007,7 +5025,7 @@ async def list_github_repos(
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             if q:
-                doc = await db.github_settings.find_one({"user_id": user["_id"]})
+                doc = await get_db().github_settings.find_one({"user_id": user["_id"]})
                 login = doc.get("github_login", "") if doc else ""
                 r = await c.get(
                     f"{GITHUB_API}/search/repositories",
@@ -5389,11 +5407,12 @@ app.include_router(runtime_router)
 app.include_router(task_router)
 app.include_router(schedules_router, dependencies=[Depends(get_current_user)])
 app.include_router(setup_router)
+app.include_router(activation_router)
 app.include_router(secrets_router)
 
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.
-get_secrets_store(db=db)
+get_secrets_store(db=get_db())
 
 # ─── Mount MCP server in-process ────────────────────────────────────────────
 # Serves at /mcp-internal so MCP_SERVER_BASE_URL can point at this service's

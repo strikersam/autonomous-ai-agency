@@ -48,5 +48,17 @@
     "@testing-library/user-event": "^14.6.1",
     "jsdom": "^29.1.1",
     "react-scripts": "^5.0.1"
+  },
+  "overrides": {
+    "nth-check": ">=2.1.1",
+    "serialize-javascript": ">=6.0.2",
+    "postcss": ">=8.4.31",
+    "ws": ">=8.17.1",
+    "svgo": ">=2.8.0",
+    "jsonpath": ">=1.1.1",
+    "qs": ">=6.11.0",
+    "uuid": ">=9.0.0",
+    "bfj": ">=8.0.0",
+    "css-select": ">=5.1.0"
   }
 }
