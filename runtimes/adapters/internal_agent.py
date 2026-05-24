@@ -13,6 +13,9 @@ Routes through free cloud LLMs in priority order:
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -245,9 +248,19 @@ class InternalAgentAdapter(RuntimeAdapter):
         # fallback chain whenever any free cloud key is configured.
         primary_base = _best_cloud_primary_base(self._ollama_base)
 
+        # --- Worktree isolation -------------------------------------------
+        # Each task executes in its own git worktree (or a temp dir copy if
+        # the workspace is not a git repo).  This prevents concurrent tasks
+        # from clobbering each other's in-flight edits.
+        base_workspace = spec.workspace_path or self._workspace_root
+        worktree_path, _worktree_tmp = self._create_worktree(
+            base_workspace, spec.task_id or "adhoc"
+        )
+        # ------------------------------------------------------------------
+
         runner = AgentRunner(
             ollama_base=primary_base,
-            workspace_root=spec.workspace_path or self._workspace_root,
+            workspace_root=worktree_path,
             # provider_chain removed — AgentRunner uses ProviderRouter.from_env() directly
             github_token=spec.context.get("github_token"),
             email=spec.context.get("user_email"),
@@ -278,6 +291,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 session_id=spec.context.get("session_id"),
             )
         except Exception as exc:
+            self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
             raise RuntimeExecutionError(self.RUNTIME_ID, str(exc), spec.task_id) from exc
 
         # Collect every file that was actually written to disk across all steps.
@@ -311,6 +325,9 @@ class InternalAgentAdapter(RuntimeAdapter):
         # or if the agent produced a meaningful informational report/answer.
         did_work = (bool(unique_files or applied_steps) or len(output_text.strip()) > 20) and judge_verdict != "BLOCKED"
 
+        # Clean up the isolated worktree once the agent is done.
+        self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
+
         provider_label = "nvidia-nim" if nvidia_chain else "ollama"
         return TaskResult(
             runtime_id=self.RUNTIME_ID,
@@ -324,3 +341,111 @@ class InternalAgentAdapter(RuntimeAdapter):
             execution_time_ms=(time.perf_counter() - started) * 1000,
             metadata=metadata,
         )
+
+    # ── Worktree helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _create_worktree(
+        workspace: str,
+        task_id: str,
+    ) -> "tuple[str, tempfile.TemporaryDirectory | None]":
+        """Create an isolated execution context for a single task.
+
+        Tries ``git worktree add`` first so the agent gets a full index and
+        history without duplicating the object store.  Falls back to a plain
+        ``tempfile.TemporaryDirectory`` copy when the workspace is not a git
+        repo or worktree creation fails.
+
+        Returns:
+            (worktree_path, tmp_dir_or_None)
+            tmp_dir is non-None only when we fell back to a plain copy.
+        """
+        import logging as _logging
+        _log = _logging.getLogger("qwen-proxy")
+
+        task_slug = str(task_id).replace("/", "-")[:40]
+        wt_path = os.path.join(tempfile.gettempdir(), f"llm-task-wt-{task_slug}")
+
+        # Prune any stale worktree from a previous crash before adding a new one.
+        if os.path.exists(wt_path):
+            try:
+                subprocess.run(
+                    ["git", "worktree", "prune"],
+                    cwd=workspace,
+                    capture_output=True,
+                    timeout=10,
+                )
+                shutil.rmtree(wt_path, ignore_errors=True)
+            except Exception:
+                pass
+
+        try:
+            result = subprocess.run(
+                ["git", "worktree", "add", "--detach", wt_path, "HEAD"],
+                cwd=workspace,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                _log.debug("Worktree created at %s for task %s", wt_path, task_id)
+                return wt_path, None
+            _log.debug(
+                "git worktree add failed (%s): %s — using temp copy",
+                result.returncode,
+                result.stderr.strip(),
+            )
+        except Exception as exc:
+            _log.debug("git worktree unavailable (%s) — using temp copy", exc)
+
+        # Fallback: copy the workspace into a temporary directory.
+        tmp = tempfile.TemporaryDirectory(prefix=f"llm-task-copy-{task_slug}-")
+        try:
+            shutil.copytree(
+                workspace,
+                tmp.name,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(
+                    ".git", "__pycache__", "*.pyc", "node_modules"
+                ),
+            )
+        except Exception as exc:
+            _log.warning(
+                "Workspace copy failed: %s — using original workspace", exc
+            )
+            tmp.cleanup()
+            return workspace, None
+        _log.debug("Workspace copied to %s for task %s", tmp.name, task_id)
+        return tmp.name, tmp
+
+    @staticmethod
+    def _remove_worktree(
+        workspace: str,
+        worktree_path: str,
+        tmp: "tempfile.TemporaryDirectory | None",
+    ) -> None:
+        """Clean up the worktree or temp copy created by ``_create_worktree``."""
+        import logging as _logging
+        _log = _logging.getLogger("qwen-proxy")
+
+        if worktree_path == workspace:
+            return  # used the original workspace — nothing to clean up
+
+        if tmp is not None:
+            try:
+                tmp.cleanup()
+            except Exception as exc:
+                _log.debug("Temp worktree cleanup failed: %s", exc)
+            return
+
+        # Git worktree — remove via git first, then rmtree as a safety net.
+        try:
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", worktree_path],
+                cwd=workspace,
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception as exc:
+            _log.debug("git worktree remove failed: %s", exc)
+        shutil.rmtree(worktree_path, ignore_errors=True)

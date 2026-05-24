@@ -1,6 +1,38 @@
 ## [Unreleased]
 
 ### Added
+- **Phase 4 — Runtime resilience:**
+- `tasks/store.py`: `TaskStore.reconcile_stranded_tasks(active_task_ids, stale_threshold_s)` —
+  re-queues tasks left stranded IN_PROGRESS by a prior server crash or hard-kill.
+  Skips tasks currently executing in this process (active_task_ids), tasks not yet past
+  the stale threshold (default 5 min), and tasks not in IN_PROGRESS status.
+- `tasks/dispatcher.py`: `TaskDispatcher` now calls reconcile once on startup (crash-recovery)
+  and every `TASK_RECONCILE_EVERY_POLLS` cycles (default 60 ≈ 5 min at 5 s poll interval).
+  Stale threshold is tunable via `TASK_STALE_THRESHOLD_SEC` (default 300 s).
+- `runtimes/adapters/internal_agent.py`: per-task worktree isolation via `git worktree add`.
+  Each task executes in its own detached worktree so concurrent tasks cannot clobber each
+  other's in-flight edits. Falls back to `shutil.copytree` when workspace is not a git repo.
+  Worktree is pruned after execution (success or failure).
+- `runtimes/manager.py`: `_env_flag()` helper; external runtimes (Hermes, OpenCode, Goose,
+  ClaudeCode, Aider, JCode, OpenHands, TaskHarness, Docker) are now opt-in via
+  `RUNTIME_<NAME>_ENABLED=true` env vars. `InternalAgentAdapter` is always registered as
+  the production default.
+- `tests/test_phase4_runtime_resilience.py`: 13 tests covering reconciliation logic,
+  dispatcher startup reconcile, env-flag gating, and worktree helpers.
+
+### Security
+- `frontend/package-lock.json`: bump `qs` 6.14.2 → 6.15.2 (resolves moderate CVE in
+  indirect dev dependency; supersedes Dependabot PR #222).
+
+### Changed
+- `runtimes/manager.py`: `_build_default_manager()` registers only `InternalAgentAdapter`
+  by default. All other adapters are opt-in. Eliminates health-poll churn against
+  unavailable external runtimes in standard deployments.
+- `tests/test_runtimes.py`: updated `TestJCodeAdapterMetadata` to assert JCode is opt-in
+  (RUNTIME_JCODE_ENABLED=true) rather than always-on.
+
+
+### Added
 - `db/sqlite_store.py`: async SQLite storage backend with Motor-compatible collection API
   (`find_one`, `find`, `insert_one`, `update_one`, `delete_one`, `count_documents`,
   `aggregate`, `distinct`, `replace_one`). Supports full query operators: `$set`, `$push`,
