@@ -225,6 +225,7 @@ class TestRuntimePreflight:
         from fastapi.testclient import TestClient
         from runtimes.api import runtime_router
         from runtimes.manager import RuntimeManager
+        from rbac import require_authenticated
 
         manager = RuntimeManager()
         manager.register(TaskHarnessStub())
@@ -233,6 +234,8 @@ class TestRuntimePreflight:
 
         app = FastAPI()
         app.include_router(runtime_router)
+        # Override auth so the test reaches the preflight logic (not a 401).
+        app.dependency_overrides[require_authenticated] = lambda: {"email": "test@example.com", "role": "admin"}
         client = TestClient(app)
 
         response = client.post(

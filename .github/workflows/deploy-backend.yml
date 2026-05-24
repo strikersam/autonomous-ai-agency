@@ -25,6 +25,9 @@ on:
       - 'langfuse_obs.py'
       - 'tokens.py'
       - 'key_store.py'
+      - 'activation.py'
+      - 'activation_api.py'
+      - 'infra_cost.py'
       - 'rbac.py'
       - 'secrets_store.py'
       # also deploy if the Dockerfile or this workflow changes

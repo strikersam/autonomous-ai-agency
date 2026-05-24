@@ -132,7 +132,7 @@ rest.
   "why didn't this task run?" diagnostics. Consolidates `agent/doctor.py` +
   `runtimes/health.py`.
 
-- **CompanyHelm → isolated reliable runtime.** **One** production runtime:
+- **prior-system → isolated reliable runtime.** **One** production runtime:
   git-worktree-per-task isolation, safe defaults, multi-repo capable, can run
   tests and reproduce CI. Every other runtime (opencode/aider/goose/openclaw) is
   demoted behind an experimental flag and never in the default path.
@@ -168,7 +168,7 @@ one agent contract, one doctor.
             │ Doctor /     │ │ One Runtime  │ │ One Provider  │
             │ Diagnostics  │ │ (worktree    │ │ Router        │
             │ (claw-code)  │ │  isolation,  │ │ (Bedrock/NIM/ │
-            │              │ │  CompanyHelm)│ │  Ollama)      │
+            │              │ │  prior-system)│ │  Ollama)      │
             └──────────────┘ └──────────────┘ └───────────────┘
                     │
             ┌───────▼───────────────────────────────────────────┐

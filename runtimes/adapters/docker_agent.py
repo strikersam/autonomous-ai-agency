@@ -1,7 +1,7 @@
 """runtimes/adapters/docker_agent.py — Docker-based agent runtime adapter.
 
 Spawns a fresh Docker container for each task execution to provide
-strong isolation, similar to the E2B setup in CompanyHelm.
+strong isolation, similar to the E2B setup in prior-system.
 """
 
 from __future__ import annotations

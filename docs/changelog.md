@@ -1,3 +1,83 @@
+## [Unreleased]
+
+### Added
+- `infra_cost.py`: added to `Dockerfile.backend` COPY statements and `deploy-backend.yml`
+  trigger paths — was imported by `backend/server.py` at startup but never included in the
+  container build, causing `ModuleNotFoundError` on every Render deploy.
+- `activation.py` / `activation_api.py` added to `deploy-backend.yml` trigger paths so
+  changes to those files automatically re-trigger a Render deploy.
+
+### Fixed
+- `backend/server.py`: `ModelRouter.route()` call used positional arg (`body.content`) and
+  invalid kwarg (`provider_id=`) — both illegal given `route()`'s keyword-only signature.
+  Corrected to `route(messages=[...], requested_model=...)`.
+
+### Changed
+- `frontend/package.json`: version `4.0.0` → `5.0.0`, name `llm-wiki-dashboard` → `local-llm-server`.
+- All frontend components updated from "LLM Relay v4.1" → "Agency Core v5.0"
+  (HeroSection, PanelSection, DashboardLayout, LoginPage, ControlPlanePage, SetupWizardPage).
+- `frontend/src/App.js`: V5 Agency Core UI is now the default authenticated route (`/v5`);
+  legacy v4 dashboard moved to `/legacy` for rollback access. Previously authenticated
+  users landed on the old dashboard by default.
+- `README.md`: full rewrite — covers the autonomous agency product story, onboarding
+  flow (5 steps), all 14 V5 screens, architecture diagram, full config reference,
+  deployment guide, security posture, and roadmap phases 1-7.
+## [Unreleased]
+
+### Added
+- `Dockerfile.backend`: added `COPY activation.py` and `COPY activation_api.py` —
+  both files were imported at startup by `backend/server.py` but missing from the
+  Docker build context, causing all Render deploys to fail with `ModuleNotFoundError`.
+- `backend/requirements.txt`: added `cryptography>=41.0.0` — required by
+  `activation.py` (top-level Ed25519 import); without it the container crashes at import.
+
+### Changed
+- `README.md`: bumped version badge and "What's New" section from v4.1.0 → v5.0.0
+  with accurate feature descriptions for the v5 release.
+- Replaced all internal `CompanyHelm` references with generic names
+  (`prior-system`, `legacy-rt`) in `runtimes/adapters/docker_agent.py` and
+  two architecture docs — no company-specific branding in the public repo.
+
+
+### Added
+- `backend/server.py`: `POST /api/chat/resume/{session_id}` — new HITL endpoint.
+  The frontend can submit `{action, input}` when an agent job reaches a
+  `needs_approval` or `needs_input` checkpoint. Action `deny` cancels the job
+  via `AgentJobManager.cancel_job()`; action `approve`/`input` records the
+  human decision as a progress event and sets `phase="resuming"`. Returns a
+  typed `AgentJobSnapshot`. (Phase 3 will fully suspend/resume the coroutine.)
+- `activation_api.py`: `POST /api/activation/users/{user_id}/role` — admin
+  endpoint to change a user's role (`user` | `power_user` | `admin`). Validates
+  role value, updates MongoDB, and emits an audit event.
+
+### Changed
+- `backend/server.py`: `get_chat_agent_job` and `cancel_chat_agent_job` now
+  return `AgentJobSnapshot.from_agent_job(job).model_dump()` instead of the
+  raw `job.as_dict()` dict, giving callers a stable, typed response shape.
+- `backend/server.py`: Agent job creation in `chat_send` now validates inputs
+  through `AgentJobRequest` (Pydantic v2, `extra="forbid"`) before calling
+  `AgentJobManager.create_job()` — unknown kwargs now raise `ValidationError`
+  immediately rather than being silently dropped.
+- `backend/server.py` (Phase 2): Direct-chat path now calls
+  `ModelRouter.route(content)` to select the best model for the task type
+  (code, reasoning, fast-response, etc.) before falling back to the provider
+  default. Failures are non-fatal: the provider default is used on any
+  `ModelRouter` exception.
+- `runtimes/api.py`: All runtime read endpoints (`GET /runtimes/`,
+  `/runtimes/{id}`, `/runtimes/health`, `/runtimes/policy`,
+  `/runtimes/decisions`) and the task-execution endpoint (`POST
+  /runtimes/{id}/run`) now require a valid Bearer token via
+  `Depends(require_authenticated)`. Previously all reads were unauthenticated.
+
+### Fixed
+- `frontend/src/api.js`: `getAuditLog` corrected from `/api/audit-log` →
+  `/api/activation/audit-log` to match the backend activation router.
+- `frontend/src/api.js`: `listUsers` corrected from `/api/auth/users` →
+  `/api/activation/users`.
+- `frontend/src/api.js`: `changeUserRole` corrected from
+  `/api/auth/users/{id}/role` → `/api/activation/users/{id}/role` (new
+  endpoint added in this release).
+
 # Changelog
 
 ## [5.0.0] — 2026-05-24

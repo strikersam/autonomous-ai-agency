@@ -29,6 +29,9 @@ COPY commercial_equivalent.py commercial_equivalent.py
 COPY langfuse_obs.py langfuse_obs.py
 COPY tokens.py tokens.py
 COPY key_store.py key_store.py
+COPY activation.py activation.py
+COPY activation_api.py activation_api.py
+COPY infra_cost.py infra_cost.py
 
 EXPOSE 8001
 
