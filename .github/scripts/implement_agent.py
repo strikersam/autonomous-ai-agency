@@ -15,6 +15,7 @@ Writes /tmp/impl_result.json with {"success": bool, "summary": str}
 
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -23,6 +24,10 @@ import time
 from pathlib import Path
 
 from openai import OpenAI
+
+# CLI script: log to stdout so messages stay visible and ordered in CI logs.
+logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
+log = logging.getLogger("implement_agent")
 
 # ---------------------------------------------------------------------------
 # Args
@@ -491,7 +496,7 @@ def main() -> None:
     # Primary engine: NVIDIA NIM. Opus-via-Anthropic is only an optional fallback
     # (the Opus/Bedrock path is unreliable here), so NVIDIA does the real work.
     if nvidia_key:
-        print("[agent] Using NVIDIA NIM as the primary engine", flush=True)
+        log.info("[agent] Using NVIDIA NIM as the primary engine")
         client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
 
         messages: list[dict] = [
@@ -611,12 +616,12 @@ def main() -> None:
 
     # Optional fallback: Claude Opus via Anthropic, only if NVIDIA did not finish.
     if not success and anthropic_key:
-        print("[agent] NVIDIA did not complete — trying Anthropic Claude Opus fallback", flush=True)
+        log.info("[agent] NVIDIA did not complete — trying Anthropic Claude Opus fallback")
         final_model = OPUS_MODEL
         try:
             success, summary, turns = _run_anthropic_agent_loop(anthropic_key, user_msg)
         except Exception as exc:
-            print(f"[agent] Anthropic fallback failed: {exc}", file=sys.stderr)
+            log.exception("[agent] Anthropic fallback failed: %s", exc)
 
     result = {"success": success, "summary": summary, "turns": turns}
     with open(RESULT_FILE, "w") as f:

@@ -42,9 +42,13 @@ function ActivationStatus() {
   const [loading, setLoading] = React.useState(false);
   const [msg,     setMsg]     = React.useState('');
   const [err,     setErr]     = React.useState('');
+  const [loadErr, setLoadErr] = React.useState('');
 
   const load = () => {
-    api.get('/api/activation/status').then(r => setStatus(r.data)).catch(() => {});
+    setLoadErr('');
+    api.get('/api/activation/status')
+      .then(r => setStatus(r.data))
+      .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load activation status.'));
   };
   React.useEffect(load, []);
 
@@ -59,7 +63,15 @@ function ActivationStatus() {
     finally { setLoading(false); }
   };
 
-  if (!status) return <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'8px 0' }}>Loading…</div>;
+  if (!status) {
+    if (loadErr) return (
+      <div style={{ fontSize:13, color:'#ff8a97', padding:'8px 0' }}>
+        ⚠ {loadErr}{' '}
+        <button onClick={load} style={{ marginLeft:8, padding:'2px 10px', borderRadius:7, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'#6CB0FF', fontSize:12, cursor:'pointer' }}>Retry</button>
+      </div>
+    );
+    return <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'8px 0' }}>Loading…</div>;
+  }
 
   return (
     <div>
@@ -120,10 +132,14 @@ function UserOnboardingTable() {
   const [newUid,  setNewUid]  = React.useState('');
   const [loading, setLoading] = React.useState({});
   const [status,  setStatus]  = React.useState(null);
+  const [loadErr, setLoadErr] = React.useState('');
 
-  const loadStatus = () => api.get('/api/activation/status').then(r => setStatus(r.data)).catch(() => {});
-  const loadUsers  = () => api.get('/api/activation/users').then(r => setUsers(r.data || [])).catch(() => {});
-  React.useEffect(() => { loadStatus(); loadUsers(); }, []);
+  const loadStatus = () => api.get('/api/activation/status').then(r => setStatus(r.data))
+    .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load activation status.'));
+  const loadUsers  = () => api.get('/api/activation/users').then(r => setUsers(r.data || []))
+    .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load users.'));
+  const reload = () => { setLoadErr(''); loadStatus(); loadUsers(); };
+  React.useEffect(() => { reload(); }, []);
 
   const toggle = async (userId, allowed) => {
     setLoading(p => ({ ...p, [userId]: true }));
@@ -142,6 +158,15 @@ function UserOnboardingTable() {
   };
 
   const activated = status?.activated;
+
+  if (loadErr) {
+    return (
+      <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,107,125,0.06)', border:'1px solid rgba(255,107,125,0.18)', fontSize:13, color:'#ff8a97' }}>
+        ⚠ {loadErr}{' '}
+        <button onClick={reload} style={{ marginLeft:8, padding:'2px 10px', borderRadius:7, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'#6CB0FF', fontSize:12, cursor:'pointer' }}>Retry</button>
+      </div>
+    );
+  }
 
   if (!activated) {
     return (
@@ -207,10 +232,20 @@ function UserOnboardingTable() {
 // ── 3. Audit log ─────────────────────────────────────────────────────────────
 function AuditLog() {
   const [log, setLog] = React.useState([]);
-  React.useEffect(() => {
-    api.get('/api/activation/audit-log?limit=50').then(r => setLog(r.data || [])).catch(() => {});
-  }, []);
+  const [loadErr, setLoadErr] = React.useState('');
+  const load = () => {
+    setLoadErr('');
+    api.get('/api/activation/audit-log?limit=50').then(r => setLog(r.data || []))
+      .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load the audit log.'));
+  };
+  React.useEffect(load, []);
 
+  if (loadErr) return (
+    <div style={{ fontSize:13, color:'#ff8a97', padding:'8px 0' }}>
+      ⚠ {loadErr}{' '}
+      <button onClick={load} style={{ marginLeft:8, padding:'2px 10px', borderRadius:7, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'#6CB0FF', fontSize:12, cursor:'pointer' }}>Retry</button>
+    </div>
+  );
   if (!log.length) return <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'8px 0' }}>No events yet.</div>;
 
   return (

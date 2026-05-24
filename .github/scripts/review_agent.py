@@ -19,6 +19,7 @@ blocked by a reviewer crash.
 
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -26,6 +27,10 @@ import textwrap
 from pathlib import Path
 
 from openai import OpenAI
+
+# CLI script: log to stdout so messages stay visible and ordered in CI logs.
+logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
+log = logging.getLogger("review_agent")
 
 PR_NUMBER = sys.argv[1] if len(sys.argv) > 1 else ""
 RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility
@@ -95,10 +100,10 @@ def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str
                 )
                 text = response.choices[0].message.content or ""
                 if text:
-                    print(f"[review] Got response from {model} (NVIDIA NIM)", flush=True)
+                    log.info("[review] Got response from %s (NVIDIA NIM)", model)
                     return text
             except Exception as exc:
-                print(f"[review] Model {model} failed: {exc}", file=sys.stderr)
+                log.warning("[review] Model %s failed: %s", model, exc)
                 continue
 
     # Optional fallback: Anthropic Claude Opus
@@ -113,10 +118,10 @@ def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str
             )
             text = next((b.text for b in resp.content if b.type == "text"), "")
             if text:
-                print(f"[review] Got response from {OPUS_MODEL} (Anthropic fallback)", flush=True)
+                log.info("[review] Got response from %s (Anthropic fallback)", OPUS_MODEL)
                 return text
         except Exception as exc:
-            print(f"[review] Anthropic Opus fallback failed: {exc}", file=sys.stderr)
+            log.exception("[review] Anthropic Opus fallback failed: %s", exc)
 
     return ""
 

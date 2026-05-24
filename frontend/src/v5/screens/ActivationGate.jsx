@@ -57,6 +57,7 @@ function Step({ num, title, children, done }) {
 
 export default function ActivationGate({ children }) {
   const [status,   setStatus]   = React.useState(null);   // null = loading
+  const [statusError, setStatusError] = React.useState('');
   const [token,    setToken]    = React.useState('');
   const [error,    setError]    = React.useState('');
   const [loading,  setLoading]  = React.useState(false);
@@ -64,8 +65,12 @@ export default function ActivationGate({ children }) {
 
   React.useEffect(() => {
     api.get('/api/activation/status')
-      .then(r => setStatus(r.data))
-      .catch(() => setStatus({ activated: false, instance_id: 'unknown', register_email: 'strikersam@gmail.com' }));
+      .then(r => { setStatusError(''); setStatus(r.data); })
+      .catch(e => {
+        // Don't disguise an unreachable backend as "not activated" — surface it.
+        setStatusError(e.response?.data?.detail || 'Unable to reach the activation service. Is the backend running?');
+        setStatus({ activated: false, instance_id: 'unknown', register_email: '' });
+      });
   }, []);
 
   if (status === null) {
@@ -117,6 +122,12 @@ export default function ActivationGate({ children }) {
             This LLM Relay is not yet activated. Follow the three steps below to unlock onboarding and start using the platform.
           </p>
         </div>
+
+        {statusError && (
+          <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:12, background:'rgba(255,189,102,0.07)', border:'1px solid rgba(255,189,102,0.25)', color:'#ffbd66', fontSize:12, lineHeight:1.5, textAlign:'center' }}>
+            ⚠ {statusError}
+          </div>
+        )}
 
         {/* Card */}
         <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:20, padding:'28px 24px' }}>
