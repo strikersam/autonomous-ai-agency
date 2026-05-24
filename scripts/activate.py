@@ -57,6 +57,7 @@ _KEYPAIR_FILE = _REPO_ROOT / ".activation_keypair.json"
 
 
 def _derive_public_b64(private_b64: str) -> str:
+    """Derive the base64 raw Ed25519 public key from a base64 raw private key."""
     raw_priv = base64.b64decode(private_b64)
     priv = Ed25519PrivateKey.from_private_bytes(raw_priv)
     pub_raw = priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
@@ -85,6 +86,7 @@ def _load_or_create_keypair() -> tuple[str, str, bool]:
 
 
 def main() -> int:
+    """Mint an activation token for this instance and install it (or print it)."""
     parser = argparse.ArgumentParser(description="Self-mint and install an instance activation token.")
     parser.add_argument("--instance-id", default="", help="Instance ID (default: read/create .instance_id).")
     parser.add_argument("--email", default="self-hosted@localhost", help="Email stamped into the token.")

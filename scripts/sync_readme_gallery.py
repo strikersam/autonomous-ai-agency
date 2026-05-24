@@ -81,7 +81,7 @@ GALLERY: tuple[GallerySection, ...] = (
     ),
     GallerySection(
         heading="### 🔭 Logs and activity",
-        summary="This helps you answer, ‘what just happened?’ — every LLM call, token count, latency, and cost.",
+        summary="This helps you answer, 'what just happened?' — every LLM call, token count, latency, and cost.",
         screenshots=(Screenshot("docs/screenshots/readme/v4-logs.png", "Logs"),),
     ),
     GallerySection(
