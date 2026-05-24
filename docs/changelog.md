@@ -21,6 +21,10 @@
   caused by pre-existing unused variables in 14 legacy pages.
 
 ### Security
+- `activation_api.py`: fix `audit()` call argument order in `toggle_user_onboarding`
+  — was passing `request` as first positional arg (should be `action: str`) and using
+  `details=` (not a parameter); now calls `audit("toggle_user_onboarding", user, ...)`.
+  Flagged by Codex review (P1).
 - `.github/workflows/e2e.yml`: add `permissions: contents: read` at workflow level to
   satisfy CodeQL "Workflow does not contain permissions" rule and enforce least-privilege
   GITHUB_TOKEN scope.

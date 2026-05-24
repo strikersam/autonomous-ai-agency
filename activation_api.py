@@ -224,10 +224,11 @@ async def toggle_user_onboarding(
     data = state.get(user_id, {})
     log.info("Admin %s set onboarding_allowed=%s for user %s", admin_id, body.allowed, user_id)
     audit(
-        request,
-        action="toggle_user_onboarding",
+        "toggle_user_onboarding",
+        getattr(request.state, "user", {"email": admin_id}),
         resource=user_id,
-        details={"allowed": body.allowed},
+        detail=f"allowed={body.allowed}",
+        request=request,
     )
     return UserOnboardingRecord(
         user_id=user_id,
