@@ -1,6 +1,32 @@
 ## [Unreleased]
 
 ### Added
+- **Phase 6 — Workflow engine:**
+- `agent/workflow.py`: `WorkflowPhase` state machine (CLASSIFY → PLAN → SELECT_SPECIALIST →
+  PREFLIGHT → EXECUTE → VERIFY → JUDGE → SUMMARIZE → DONE/FAILED/BLOCKED).
+  Every phase transition is persisted to the task store before advancing — crash-safe by design.
+  `WorkflowEngine.run()` drives the loop with configurable `max_phases` guard against infinite
+  loops; exhaustion marks the task FAILED and writes a log entry.
+  `classify_domain()` maps title+description keywords to domain tags (security / testing / docs /
+  infra / dev). Added "runbook" to docs keywords.
+  `_dispatch()` handles both sync and async phase methods via `inspect.iscoroutine`.
+- `agent/safe_agency.py`: async GitHub operations for the workflow VERIFY phase.
+  `verify_pr_exists()` — checks PR existence by number (404 → False, open/merged → True).
+  `safe_create_branch()` — creates a branch from a SHA; idempotent on 422 (already exists).
+  `safe_create_pr()` — creates a PR, falls back to fetching the existing PR on 422.
+  `add_pr_comment()` — posts an issue-thread comment on a PR.
+  All functions redact tokens from logs and raise descriptive errors.
+- `tasks/models.py`: `Task` gains two new fields:
+  `workflow_phase: str | None` — current workflow phase, updated by WorkflowEngine.
+  `workflow_history: list[dict]` — ordered append-only list of `WorkflowTransition` dicts.
+- `tasks/service.py`: `TaskExecutionCoordinator.execute()` now injects workflow phases into the
+  execution path: CLASSIFY (domain tagging) → EXECUTE → VERIFY on success, FAILED on timeout.
+  Phase transitions are logged as typed `execution_log` entries with `event_type=workflow_*`.
+- `tests/test_phase6_workflow.py`: 29 tests covering WorkflowPhase enum, classify_domain,
+  WorkflowTransition model, Task workflow fields, WorkflowEngine phase handlers (classify, judge,
+  summarize, happy-path run, max-phases guard), and all safe_agency operations with mocked httpx.
+
+### Added
 - `scripts/enrich_quick_note_issues.py`: new automation script that finds all open GitHub quick-note issues and posts a standardized "LLM Implementation Context" comment to each issue, with repo constraints (`CLAUDE.md`, testing, changelog, risky-path guidance) to reduce low-signal implementations when source URLs are inaccessible. Supports `--dry-run` and skips issues that already contain the context marker.
 
 ### Added

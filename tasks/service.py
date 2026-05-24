@@ -14,8 +14,15 @@ from runtimes.base import RuntimeUnavailableError, TaskResult, TaskSpec
 from runtimes.manager import RuntimeManager, get_runtime_manager
 from tasks.models import Task, TaskComment, TaskStatus
 from tasks.store import TaskStore, get_task_store
+from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
 
 log = logging.getLogger("qwen-proxy")
+
+def _get_workflow_engine() -> WorkflowEngine:
+    """Return a lazily-created WorkflowEngine singleton."""
+    if not hasattr(_get_workflow_engine, "_instance"):
+        _get_workflow_engine._instance = WorkflowEngine(get_task_store())
+    return _get_workflow_engine._instance
 
 
 ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
@@ -400,6 +407,24 @@ class TaskExecutionCoordinator:
             await self.store.update(task)
 
             spec = self._build_spec(task, agent)
+
+            # ── Workflow phase: CLASSIFY then EXECUTE ──
+            domain = classify_domain(f"{task.title} {task.description}")
+            task.workflow_phase = WorkflowPhase.CLASSIFY.value
+            task.add_log(
+                f"Workflow: classified domain='{domain}'",
+                event_type="workflow_classify",
+                actor="system:workflow",
+                metadata={"domain": domain},
+            )
+            await self.store.update(task)
+            task.workflow_phase = WorkflowPhase.EXECUTE.value
+            task.add_log(
+                "Workflow: executing",
+                event_type="workflow_execute",
+                actor="system:workflow",
+            )
+            await self.store.update(task)
             result, decision = await asyncio.wait_for(
                 self.runtime_manager.execute(spec),
                 timeout=self.execution_timeout_s,
@@ -426,12 +451,19 @@ class TaskExecutionCoordinator:
             )
 
             await self._apply_result(task, agent, result)
+            task.workflow_phase = WorkflowPhase.VERIFY.value
+            task.add_log(
+                "Workflow: verifying result",
+                event_type="workflow_verify",
+                actor="system:workflow",
+            )
         except asyncio.TimeoutError:
             message = (
                 f"Execution timed out after {self.execution_timeout_s:.0f}s"
             )
             log.error("Task %s %s", task.task_id, message)
             task.error_message = message
+            task.workflow_phase = WorkflowPhase.FAILED.value
             self.workflow.transition(
                 task,
                 TaskStatus.FAILED,
