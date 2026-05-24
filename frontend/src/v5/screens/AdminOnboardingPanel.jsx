@@ -8,9 +8,7 @@
  * Embedded inside AdminScreen.jsx as collapsible sections.
  */
 import React from 'react';
-import axios from 'axios';
-
-const API = process.env.REACT_APP_API_BASE || '';
+import api from '../../api';
 
 function Badge({ children, color }) {
   const bg = color === 'green' ? 'rgba(70,217,164,0.10)' : color === 'red' ? 'rgba(255,107,125,0.10)' : 'rgba(255,255,255,0.06)';
@@ -46,7 +44,7 @@ function ActivationStatus() {
   const [err,     setErr]     = React.useState('');
 
   const load = () => {
-    axios.get(`${API}/api/activation/status`).then(r => setStatus(r.data)).catch(() => {});
+    api.get('/api/activation/status').then(r => setStatus(r.data)).catch(() => {});
   };
   React.useEffect(load, []);
 
@@ -54,7 +52,7 @@ function ActivationStatus() {
     if (!token.trim()) return;
     setLoading(true); setMsg(''); setErr('');
     try {
-      const r = await axios.post(`${API}/api/activation/activate`, { token: token.trim() });
+      const r = await api.post('/api/activation/activate', { token: token.trim() });
       if (r.data.success) { setMsg(`Activated for ${r.data.email}`); setToken(''); load(); }
       else setErr(r.data.error || 'Activation failed');
     } catch (e) { setErr(e.response?.data?.detail || 'Error'); }
@@ -123,14 +121,14 @@ function UserOnboardingTable() {
   const [loading, setLoading] = React.useState({});
   const [status,  setStatus]  = React.useState(null);
 
-  const loadStatus = () => axios.get(`${API}/api/activation/status`).then(r => setStatus(r.data)).catch(() => {});
-  const loadUsers  = () => axios.get(`${API}/api/activation/users`).then(r => setUsers(r.data || [])).catch(() => {});
+  const loadStatus = () => api.get('/api/activation/status').then(r => setStatus(r.data)).catch(() => {});
+  const loadUsers  = () => api.get('/api/activation/users').then(r => setUsers(r.data || [])).catch(() => {});
   React.useEffect(() => { loadStatus(); loadUsers(); }, []);
 
   const toggle = async (userId, allowed) => {
     setLoading(p => ({ ...p, [userId]: true }));
     try {
-      await axios.put(`${API}/api/activation/users/${encodeURIComponent(userId)}/onboarding`, { allowed });
+      await api.put(`/api/activation/users/${encodeURIComponent(userId)}/onboarding`, { allowed });
       setUsers(u => u.map(x => x.user_id === userId ? { ...x, onboarding_allowed: allowed } : x));
     } catch(e) { alert(e.response?.data?.detail || 'Error'); }
     finally { setLoading(p => ({ ...p, [userId]: false })); }
@@ -210,7 +208,7 @@ function UserOnboardingTable() {
 function AuditLog() {
   const [log, setLog] = React.useState([]);
   React.useEffect(() => {
-    axios.get(`${API}/api/activation/audit-log?limit=50`).then(r => setLog(r.data || [])).catch(() => {});
+    api.get('/api/activation/audit-log?limit=50').then(r => setLog(r.data || [])).catch(() => {});
   }, []);
 
   if (!log.length) return <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'8px 0' }}>No events yet.</div>;

@@ -28,6 +28,7 @@ from activation import (
     save_activation,
 )
 from rbac import require_admin, audit
+from db import get_store
 
 log = logging.getLogger("qwen-proxy")
 
@@ -259,6 +260,13 @@ class _RoleUpdateBody(BaseModel):
     role: str
 
 
+class _RoleUpdateResponse(BaseModel):
+    """Response for a successful role change."""
+    user_id: str
+    role: str
+    updated: bool
+
+
 @activation_router.post("/users/{user_id}/role")
 async def change_user_role(
     user_id: str,
@@ -280,7 +288,7 @@ async def change_user_role(
             detail=f"Invalid role {body.role!r}. Allowed: {sorted(allowed_roles)}",
         )
 
-    db = get_db()
+    db = get_store()
     try:
         from bson import ObjectId
         try:
