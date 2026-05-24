@@ -44,6 +44,11 @@
   (auth gate, role validation, update, and 404).
 
 ### Changed
+- **Quick-note engine now runs on NVIDIA NIM as the primary engine.** The Opus-via-Anthropic
+  path was unreliable (Opus/Bedrock integration never worked), so `implement_agent.py`,
+  `review_agent.py`, and `apply_review.py` now use NVIDIA NIM (Qwen3-Coder 480B first) as the
+  real workhorse, with Claude Opus demoted to an optional fallback that only runs if NVIDIA fails
+  and `ANTHROPIC_API_KEY` is set. `tests/test_quick_note_engine.py` guards the NVIDIA-primary wiring.
 - **README screenshots restored.** The README rewrite dropped the screen gallery (and its
   inject markers), so the page had no visuals. Re-added a `## Screens` section with the
   `README_UI_GALLERY` markers and pointed `scripts/sync_readme_gallery.py` at the current

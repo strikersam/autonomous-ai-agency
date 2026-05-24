@@ -33,8 +33,8 @@ TASK = sys.argv[3] if len(sys.argv) > 3 else ""
 RESULT_FILE = "/tmp/impl_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility; secure temp file used internally
 MAX_TURNS = 120
 
-# Primary: Claude Opus via Anthropic (CEO / agency grade).
-# Fallback: NVIDIA NIM free-tier models.
+# Primary engine: NVIDIA NIM free-tier models (the real workhorse).
+# Optional fallback: Claude Opus via Anthropic, used only if NVIDIA fails and a key is set.
 OPUS_MODEL = "claude-opus-4-6"
 NVIDIA_CANDIDATE_MODELS = [
     ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
@@ -486,19 +486,12 @@ def main() -> None:
     success = False
     summary = "No implementation performed"
     turns = 0
-    final_model = OPUS_MODEL
+    final_model = NVIDIA_CANDIDATE_MODELS[0][0]
 
-    # Primary: Claude Opus via Anthropic
-    if anthropic_key:
-        print("[agent] Using Anthropic Claude Opus as primary model", flush=True)
-        try:
-            success, summary, turns = _run_anthropic_agent_loop(anthropic_key, user_msg)
-        except Exception as exc:
-            print(f"[agent] Anthropic agent loop failed: {exc} — falling back to NVIDIA", file=sys.stderr)
-
-    # Fallback: NVIDIA NIM
-    if not success and nvidia_key:
-        print("[agent] Falling back to NVIDIA NIM models", flush=True)
+    # Primary engine: NVIDIA NIM. Opus-via-Anthropic is only an optional fallback
+    # (the Opus/Bedrock path is unreliable here), so NVIDIA does the real work.
+    if nvidia_key:
+        print("[agent] Using NVIDIA NIM as the primary engine", flush=True)
         client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
 
         messages: list[dict] = [
@@ -615,6 +608,15 @@ def main() -> None:
 
         if not success and turns >= MAX_TURNS:
             summary = f"Agent hit turn limit ({MAX_TURNS}) without completing"
+
+    # Optional fallback: Claude Opus via Anthropic, only if NVIDIA did not finish.
+    if not success and anthropic_key:
+        print("[agent] NVIDIA did not complete — trying Anthropic Claude Opus fallback", flush=True)
+        final_model = OPUS_MODEL
+        try:
+            success, summary, turns = _run_anthropic_agent_loop(anthropic_key, user_msg)
+        except Exception as exc:
+            print(f"[agent] Anthropic fallback failed: {exc}", file=sys.stderr)
 
     result = {"success": success, "summary": summary, "turns": turns}
     with open(RESULT_FILE, "w") as f:
