@@ -1,6 +1,30 @@
 ## [Unreleased]
 
 ### Added
+- `infra_cost.py`: added to `Dockerfile.backend` COPY statements and `deploy-backend.yml`
+  trigger paths — was imported by `backend/server.py` at startup but never included in the
+  container build, causing `ModuleNotFoundError` on every Render deploy.
+- `activation.py` / `activation_api.py` added to `deploy-backend.yml` trigger paths so
+  changes to those files automatically re-trigger a Render deploy.
+
+### Fixed
+- `backend/server.py`: `ModelRouter.route()` call used positional arg (`body.content`) and
+  invalid kwarg (`provider_id=`) — both illegal given `route()`'s keyword-only signature.
+  Corrected to `route(messages=[...], requested_model=...)`.
+
+### Changed
+- `frontend/package.json`: version `4.0.0` → `5.0.0`, name `llm-wiki-dashboard` → `local-llm-server`.
+- All frontend components updated from "LLM Relay v4.1" → "Agency Core v5.0"
+  (HeroSection, PanelSection, DashboardLayout, LoginPage, ControlPlanePage, SetupWizardPage).
+- `frontend/src/App.js`: V5 Agency Core UI is now the default authenticated route (`/v5`);
+  legacy v4 dashboard moved to `/legacy` for rollback access. Previously authenticated
+  users landed on the old dashboard by default.
+- `README.md`: full rewrite — covers the autonomous agency product story, onboarding
+  flow (5 steps), all 14 V5 screens, architecture diagram, full config reference,
+  deployment guide, security posture, and roadmap phases 1-7.
+## [Unreleased]
+
+### Added
 - `Dockerfile.backend`: added `COPY activation.py` and `COPY activation_api.py` —
   both files were imported at startup by `backend/server.py` but missing from the
   Docker build context, causing all Render deploys to fail with `ModuleNotFoundError`.

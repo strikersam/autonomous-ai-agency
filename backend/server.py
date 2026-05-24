@@ -3668,7 +3668,10 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         _direct_chat_model = body.model or session.get("model")
         if not _direct_chat_model:
             try:
-                _routing = _get_model_router().route(body.content, provider_id=provider_hint_id)
+                _routing = _get_model_router().route(
+                    messages=[{"role": "user", "content": body.content}],
+                    requested_model=provider_hint_id or None,
+                )
                 if _routing.resolved_model:
                     _direct_chat_model = _routing.resolved_model
                     log.debug(

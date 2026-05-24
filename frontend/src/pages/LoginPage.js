@@ -84,7 +84,7 @@ export default function LoginPage() {
             </div>
             <div>
               <div className="text-[1.35rem] font-extrabold text-[var(--text-primary)] tracking-[-0.04em]"
-                style={{ fontFamily: 'var(--font-main)' }}>LLM Relay v4.1</div>
+                style={{ fontFamily: 'var(--font-main)' }}>Agency Core v5.0</div>
               <div className="text-[0.8rem] text-[var(--text-muted)] font-mono leading-none mt-1 tracking-[0.16em] uppercase">Autonomous AI Agency</div>
             </div>
           </div>
@@ -135,7 +135,7 @@ export default function LoginPage() {
               <Lock size={18} className="text-white" />
             </div>
             <div>
-              <div className="text-[1.1rem] font-extrabold tracking-[-0.04em] text-[var(--text-primary)]">LLM Relay v4.1</div>
+              <div className="text-[1.1rem] font-extrabold tracking-[-0.04em] text-[var(--text-primary)]">Agency Core v5.0</div>
               <div className="text-[0.72rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)]">Autonomous AI Agency</div>
             </div>
           </div>

@@ -1,275 +1,302 @@
 <div align="center">
 
-# LLM Relay
+# Agency Core
 
-### Your own private AI assistant that actually works — for your whole team.
+### The autonomous AI platform for engineering teams — self-hosted, privacy-first, runs on your hardware.
 
-**No monthly per-seat bill. No data leaving your control. No vendor lock-in.**
-
-[![Version](https://img.shields.io/badge/version-5.0.0-4D8CFF?style=for-the-badge)](docs/changelog.md)
-[![Stars](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&color=FFD43B&logo=github)](https://github.com/strikersam/local-llm-server/stargazers)
-[![CI](https://img.shields.io/github/actions/workflow/status/strikersam/local-llm-server/ci.yml?style=for-the-badge&label=CI&logo=github-actions)](https://github.com/strikersam/local-llm-server/actions)
-[![License](https://img.shields.io/badge/license-Open%20Source-22C55E?style=for-the-badge)](LICENSE)
-
-[**What is this?**](#what-is-this) · [**Who is it for?**](#who-is-it-for) · [**How it works**](#how-it-works-plain-english) · [**Quick start**](#quick-start) · [**Getting activated**](#getting-activated) · [**For developers**](#for-developers)
+[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/strikersam/local-llm-server/releases/tag/v5.0.0)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![CI](https://github.com/strikersam/local-llm-server/actions/workflows/ci.yml/badge.svg)](https://github.com/strikersam/local-llm-server/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
 
 </div>
 
 ---
 
-## What is this?
+## What is Agency Core?
 
-**LLM Relay is a self-hosted AI platform** — you install it on your own server (or laptop), and it gives your team access to powerful AI tools without paying per-user fees to OpenAI, Anthropic, or similar services.
+Agency Core is a **self-hosted autonomous AI platform** that turns your local GPU into a private team of AI specialists — a Dev Agent, a Release Agent, an Analyst, a Content writer, and a CEO orchestrator — all working together on real engineering and business tasks without sending your code or data to the cloud.
 
-Think of it like having your own private ChatGPT, but:
-- **Your data never leaves your server** — nothing is sent to third parties
-- **One installation serves your whole team** — no per-seat pricing
-- **It works with every major AI service** — swap between local models and cloud providers in one click
-- **It runs itself** — autonomous agents scan your codebase for issues and fix them overnight while you sleep
-
-> **Not technical?** You only need to follow the [Quick Start](#quick-start) steps. Everything else is taken care of automatically.
+Point it at your codebase, describe what you want, and your agents will plan the work, write the code, open pull requests, handle approvals, and loop back to you only when a human decision is genuinely needed.
 
 ---
 
-## Who is it for?
+## Who is this for?
 
-| If you are… | LLM Relay helps you… |
-|-------------|----------------------|
-| A **small engineering team** | Get AI coding help without $20/month per developer |
-| A **startup** | Run AI on your own infrastructure, keep IP private |
-| A **solo developer** | Point every AI tool (Cursor, Claude Code, Aider) at one server |
-| A **business owner** | Let your team use AI through a controlled, audited gateway |
-| A **developer building AI tools** | Get a clean OpenAI-compatible API to build against |
-
----
-
-## How it works (plain English)
-
-Imagine LLM Relay as a **smart telephone exchange** for AI:
-
-```
-Your team's tools                 LLM Relay               AI Providers
-─────────────────    ─────────────────────────────    ─────────────────
-Cursor (coding)  →  │  Checks who's asking         │ → Local Ollama model
-Claude Code      →  │  Picks the best model        │ → NVIDIA free cloud
-ChatGPT clients  →  │  Logs usage & cost           │ → OpenAI GPT-4o
-Custom scripts   →  │  Runs autonomous agents      │ → Anthropic Claude
-                    │  Shows you a dashboard       │
-                    └─────────────────────────────┘
-```
-
-Everyone on your team connects their tools to `http://your-server:8000` instead of directly to OpenAI. LLM Relay handles the rest — routing requests to the cheapest available model, enforcing usage limits, and keeping an audit trail.
-
-### The autonomous agency
-
-Beyond routing, LLM Relay runs a small team of AI agents in the background:
-
-- **Dev Agent** — runs your tests every 15 minutes; if something breaks, it diagnoses and fixes it automatically
-- **Security Agent** — scans for vulnerabilities (CVEs, leaked secrets, unsafe dependencies) and files fixes
-- **Reviewer Agent** — conducts code review on recent changes
-- **Release Agent** — checks weekly if the codebase is ready to ship, updates the changelog
-
-These agents work like a night-shift team — you check the dashboard in the morning and find issues fixed, PRs ready, and a status report waiting.
+| You want… | Agency Core gives you… |
+|-----------|------------------------|
+| AI coding help without uploading code to OpenAI/Anthropic | Local LLMs (Qwen3-Coder, DeepSeek-R1) — your data never leaves your machine |
+| A team of AI agents that can work autonomously overnight | CEO + specialist agent fleet with a structured task board and HITL approval gates |
+| A drop-in OpenAI API for Cursor, Continue, Aider, Claude Code | `http://localhost:8000` — fully OpenAI-compatible with Bearer auth |
+| Visibility into what your AI is doing and why | Langfuse observability, Logs screen, Agent job tracker |
+| Admin control over who can use the AI and how much | Per-user role management, rate limiting, activation licensing |
 
 ---
 
-## Quick start
+## The Autonomous Agency — What your agents can do
 
-### Step 1 — Install
+Once onboarded, Agency Core runs a fleet of specialists orchestrated by a CEO agent. You talk to the CEO; it delegates to the right specialist and brings back results with evidence (PR links, test output, diffs).
 
-**On Mac or Linux:**
-```bash
-git clone https://github.com/strikersam/local-llm-server
-cd local-llm-server
-cp .env.example .env          # create your config file
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn proxy:app --port 8000
-```
+### Out of the box your agents can:
 
-**On Windows:**
-```powershell
-git clone https://github.com/strikersam/local-llm-server
-cd local-llm-server
-copy .env.example .env
-.\install.ps1
-.\run.bat
-```
+**Development**
+- Analyse a bug report, write a fix, open a PR, and wait for your approval before merging
+- Run the full test suite, detect failures, and auto-fix the most common categories
+- Perform a dependency audit and create a safe upgrade PR
+- Review open PRs for security, performance, and correctness
+- Generate and maintain API documentation from source code
 
-Open `http://localhost:8000` in your browser. You'll see the admin dashboard.
+**Content & Knowledge**
+- Write SEO-optimised product descriptions from your catalogue
+- Keep your internal wiki accurate — agents update docs when code changes
+- Schedule weekly trend digests, changelogs, and release notes automatically
 
-### Step 2 — Set your admin password
+**Operations**
+- Monitor CI/CD pipelines and alert you when something needs human attention
+- Manage schedules, reminders, and recurring tasks
+- Provide a real-time health dashboard for all running agents and runtimes
 
-Edit `.env` and set:
-```
-ADMIN_SECRET=choose-a-strong-password-here
-```
-
-Restart the server. Log in at `http://localhost:8000/admin`.
-
-### Step 3 — Get activated
-
-LLM Relay requires a one-time activation before onboarding users. This is free — see [Getting activated](#getting-activated) below.
-
-### Step 4 — Add AI providers
-
-In the dashboard, go to **Providers** and add at least one:
-
-| Provider | Cost | Setup |
-|----------|------|-------|
-| **NVIDIA NIM** | Free tier available | Paste your API key (get one at [build.nvidia.com](https://build.nvidia.com)) |
-| **Ollama** (local) | Free, needs a GPU or Apple Silicon | [Install Ollama](https://ollama.com), run `ollama pull qwen2.5-coder` |
-| **OpenAI** | Pay per token | Paste your OpenAI API key |
-| **Anthropic** | Pay per token | Paste your Anthropic API key |
-
-You only need one to start. NVIDIA NIM is free and requires no hardware.
-
-### Step 5 — Connect your tools
-
-Once the server is running, point your AI tools at it:
-
-**Cursor** — Settings → AI → OpenAI API Base URL → `http://localhost:8000/v1`
-
-**Claude Code** — `claude --api-base-url http://localhost:8000`
-
-**Continue (VS Code)** — see `client-configs/continue/` for a ready-made config
-
-**Any OpenAI SDK** — just set `OPENAI_BASE_URL=http://localhost:8000/v1`
+**Intelligence**
+- Classify every incoming request and route it to the optimal local model (code → Qwen3-Coder, reasoning → DeepSeek-R1, fast replies → a smaller model)
+- Build a company knowledge graph from your codebase, docs, and past decisions
+- Run cost-vs-cloud analysis so you know the real TCO of every inference request
 
 ---
 
-## Getting activated
+## How it works — From onboarding to autonomous work
 
-LLM Relay uses a **one-time instance activation** to prevent unauthorized copying and to ensure you get proper support. This is free and takes less than 24 hours.
+### Step 1 — Onboard your instance
 
-**How it works:**
+Open the web UI and run the 5-step setup wizard. You'll connect your Ollama instance (or the bundled one), generate your first API key, and configure which models to use for which tasks.
 
-1. When you first open the app, you'll see your **Instance ID** — a unique code for your installation
-2. Click **"Open email draft"** to send it to [strikersam@gmail.com](mailto:strikersam@gmail.com)
-3. You'll receive a signed **activation code** by reply, usually within a few hours
-4. Paste the code into the activation screen — you're done
+> 📸 _Screenshot: Setup wizard — model selection step_
 
-**Why is this required?**
+### Step 2 — Describe your company
 
-The activation code is cryptographically signed with a private key that only the repo owner holds. This means:
-- Even if someone forks the repo and removes the UI check, they can't generate valid activation codes
-- Each code is tied to your specific Instance ID — it can't be reused elsewhere
-- The relay service validates the same token server-side, so there's no way to bypass it
+The Company screen is where Agency Core learns about your organisation. Paste your repo URL, describe your stack, and answer a short set of tailored questions. The system builds an internal knowledge graph that the agents use to give context-aware answers instead of generic ones.
 
-**After activation**, admins control which users can proceed through onboarding via the **Admin → Activation & Onboarding** panel.
+> 📸 _Screenshot: Company screen — stack onboarding_
 
----
+### Step 3 — Talk to your CEO agent
 
-## For admins — managing your team
+Open the Chat screen and describe what you want — in plain English, the same way you'd brief a senior engineer. The CEO agent breaks the request into a structured plan, assigns subtasks to the right specialist, and kicks off autonomous work.
 
-### Allowing users to onboard
+> 📸 _Screenshot: Chat screen — CEO agent conversation_
 
-After your instance is activated:
-1. Go to **Admin → Activation & Onboarding**
-2. Under **User Onboarding Access**, type a user's ID or email
-3. Click **Allow** — that user can now complete the setup wizard
+### Step 4 — Watch the task board
 
-Users who aren't on the list see a friendly "request access" message and can email you directly.
+Every agent job appears on the Task Board with live status: `queued → planning → executing → review → done`. You can drill into any task to see the plan, the steps taken, and the output produced.
 
-### Revoking access
+> 📸 _Screenshot: Task Board — live agent jobs_
 
-Click **Revoke** next to any user to remove their onboarding access. The audit log tracks every change with timestamps.
+### Step 5 — Approve or redirect
 
-### Monitoring usage
+When an agent needs a human decision — before merging a PR, before deploying to production, before sending an external message — it pauses and pings you. You approve, deny, or redirect, and the agent continues.
 
-The **Dashboard** shows live metrics:
-- Which models are being used and how much they cost
-- Which team members are most active
-- Agent status and recent autonomous actions
-- System health (CPU, memory, model response times)
+> 📸 _Screenshot: HITL approval gate_
 
 ---
 
-## For developers
+## The V5 Control Plane — Screen by screen
 
-### Architecture overview
+| Screen | What it does |
+|--------|-------------|
+| **Dashboard** | Live health of all agents, runtimes, and recent activity at a glance |
+| **Chat** | Conversational interface to the CEO agent; full history per session |
+| **Task Board** | Kanban view of all agent jobs: queued, in-progress, awaiting approval, done |
+| **Agents** | All registered specialist agents, their capabilities, and current workload |
+| **Providers** | Connected LLM providers (Ollama, Bedrock, NIM) with health status and cost |
+| **Runtimes** | Execution substrates — local Docker, internal loop, external harness |
+| **Knowledge** | Internal wiki built and maintained by agents from your code and docs |
+| **Schedules** | Recurring agent tasks — daily digests, weekly audits, CI monitors |
+| **Skills** | The agent skill library — what each agent knows how to do |
+| **Intelligence** | Routing policy editor — control which model handles which task type |
+| **Logs** | Full trace of every LLM call, token count, latency, and cost |
+| **Company** | Your organisation profile, stack description, and knowledge graph seed |
+| **Admin** | User management, role assignment, instance activation, audit log |
+| **Doctor** | Self-diagnostics — checks all dependencies, connectivity, and config |
 
-```
-proxy.py              — FastAPI entry point, auth middleware, model routing
-backend/server.py     — Main app server: users, tasks, agents, workspaces
-activation.py         — Instance activation (Ed25519 signed JWT)
-activation_api.py     — Activation REST API + per-user onboarding gate
-router/               — Model routing: classifier, registry, health checks
-agent/loop.py         — AgentRunner: plan → execute → verify cycle
-handlers/             — Anthropic + Ollama native API compatibility
-frontend/src/v5/      — React V5 dashboard (all screens, activation gate)
-```
+> 📸 _Screenshot: Dashboard screen — full control plane_
 
-### Running tests
+---
+
+## Quickstart
+
+### Prerequisites
+
+- Python 3.13+
+- [Ollama](https://ollama.com/) running locally with at least one model pulled (e.g. `ollama pull qwen2.5-coder:7b`)
+- Node 20+ (for the web UI)
+
+### 1. Clone and install
 
 ```bash
-pytest -x              # fast fail — run before every commit
-pytest -v              # verbose output
+git clone https://github.com/strikersam/local-llm-server.git
+cd local-llm-server
+python -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
 ```
 
-### Environment variables
+### 2. Configure
 
-All config is in `.env`. Key variables:
+```bash
+cp .env.example .env
+# Edit .env — set OLLAMA_BASE_URL, SECRET_KEY, MONGO_URL (or STORAGE_BACKEND=sqlite)
+```
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `ADMIN_SECRET` | Admin dashboard password | `a-very-strong-password` |
-| `API_KEYS` | Comma-separated bearer tokens for API access | `sk-abc,sk-xyz` |
-| `OLLAMA_BASE` | Ollama server URL | `http://localhost:11434` |
-| `NVIDIA_API_KEY` | NVIDIA NIM API key | `nvapi-...` |
-| `OPENAI_API_KEY` | OpenAI API key | `sk-...` |
-| `ANTHROPIC_API_KEY` | Anthropic API key | `sk-ant-...` |
-| `LANGFUSE_PUBLIC_KEY` | Observability (optional) | `pk-lf-...` |
-| `MONGO_URL` | MongoDB for multi-user backend (optional) | `mongodb://localhost:27017` |
+### 3. Start the server
 
-### Coding rules
+```bash
+uvicorn proxy:app --reload --port 8000
+```
 
-1. Type annotations on all public functions
-2. No secrets in source — all config via environment variables
-3. Pydantic models for all API I/O
-4. Async for all I/O
-5. Log with `logging`, not `print`
-6. Any change to auth files (`admin_auth.py`, `key_store.py`) requires a risky-module-review
-7. Every meaningful commit updates `docs/changelog.md`
+### 4. Open the UI
 
-### Model routing
+Visit [http://localhost:8000/v5](http://localhost:8000/v5) — the setup wizard will guide you through the rest.
 
-LLM Relay automatically routes requests based on your configured strategy:
+### 5. Connect your AI coding tools
 
-| Strategy | Behaviour |
-|----------|-----------|
-| `free_first` | Tries NVIDIA NIM or local Ollama before paid APIs |
-| `local_first` | Prefers Ollama; falls back to cloud only if unavailable |
-| `quality_first` | Always uses the highest-capability model |
-| `cost_optimised` | Picks the cheapest model that can handle the task |
+Point any OpenAI-compatible tool at `http://localhost:8000` with your generated API key:
 
-Configure in `.env` as `ROUTING_STRATEGY=free_first`.
+```json
+// Cursor — settings.json
+{
+  "cursor.ai.openaiBaseUrl": "http://localhost:8000",
+  "cursor.ai.openaiApiKey": "your-api-key-here"
+}
+```
 
-### Contributing
-
-PRs welcome. Please run `pytest -x` and update `docs/changelog.md` before submitting. See `CLAUDE.md` for the full contribution guide.
+See [`client-configs/`](client-configs/) for Aider, Continue, Zed, VSCode, and Claude Code examples.
 
 ---
 
-## What's new
+## Architecture in brief
 
-See [docs/changelog.md](docs/changelog.md) for the full history.
+```
+┌─────────────────────────────────────────────────────┐
+│  Web UI (React, /v5)          Remote Admin (Vercel) │
+└────────────────────┬────────────────────────────────┘
+                     │ HTTP / WebSocket
+┌────────────────────▼────────────────────────────────┐
+│  proxy.py  —  FastAPI, JWT auth, rate limiting       │
+│  ├─ /v1/chat/completions  (OpenAI-compatible)        │
+│  ├─ /api/chat/send         (Agency Core chat)        │
+│  ├─ /api/agent/*           (job management)          │
+│  └─ /api/activation/*      (licensing / users)       │
+├─────────────────────────────────────────────────────┤
+│  ModelRouter  —  task classification → model hint    │
+│  ├─ Code tasks    → qwen3-coder                      │
+│  ├─ Reasoning     → deepseek-r1                      │
+│  └─ Fast replies  → smallest capable model           │
+├─────────────────────────────────────────────────────┤
+│  AgentRunner  —  plan → execute → verify loop        │
+│  ├─ CEO agent (orchestrator)                         │
+│  ├─ Dev / Release / Content / Analytics specialists  │
+│  └─ HITL gates (approve / deny / redirect)           │
+├─────────────────────────────────────────────────────┤
+│  Runtimes  —  where agent code runs                  │
+│  ├─ Internal loop (in-process, fast)                 │
+│  └─ Docker agent (isolated, production-safe)         │
+├─────────────────────────────────────────────────────┤
+│  Storage  —  MongoDB (default) · SQLite (optional)   │
+│  Observability  —  Langfuse traces + local cost model│
+└─────────────────────────────────────────────────────┘
+```
 
-**v5.0.0** (current)
-- **V5 dashboard** — redesigned React UI with 20+ screens: Tasks kanban, Agent Roster, Schedules, Runtimes, Routing Policy, Knowledge Base, Logs, and more
-- **Typed agent contract** — `AgentJobRequest`/`AgentJobResult` Pydantic models with `extra="forbid"` enforce strict API boundaries between the scheduler and runners
-- **ModelRouter wiring** — all chat paths (proxy and web UI) now route through `ModelRouter.route()` for task-aware model selection before provider fallback
-- **HITL resume endpoint** — `POST /api/chat/resume/{session_id}` lets the UI send human approve/deny/input decisions to paused agent jobs
-- **Instance activation system** — Ed25519-signed phone-home licensing with per-user onboarding control
-- **Real E2E CI** — GitHub Actions spins up MongoDB + the full server and runs 30+ assertions with no mocks
-- **Security hardening** — runtime read endpoints require authentication; audit trail for all role changes
+---
+
+## Configuration reference
+
+| Environment variable | Default | Description |
+|---------------------|---------|-------------|
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Where Ollama is listening |
+| `SECRET_KEY` | *(required)* | JWT signing key — generate with `openssl rand -hex 32` |
+| `MONGO_URL` | `mongodb://localhost:27017` | MongoDB connection string |
+| `STORAGE_BACKEND` | `mongo` | Set to `sqlite` for zero-dependency storage |
+| `LANGFUSE_HOST` | *(optional)* | Enable Langfuse observability |
+| `LANGFUSE_PUBLIC_KEY` | *(optional)* | Langfuse project public key |
+| `LANGFUSE_SECRET_KEY` | *(optional)* | Langfuse project secret key |
+| `TELEGRAM_BOT_TOKEN` | *(optional)* | Enable Telegram remote control |
+| `RENDER_BACKEND_URL` | *(optional)* | Public URL for the deployed backend (Render) |
+| `ADMIN_EMAIL` | *(optional)* | First admin user — created on first boot |
+
+Full variable list: [`docs/configuration.md`](docs/configuration.md)
+
+---
+
+## Deployment
+
+### Local (development)
+```bash
+uvicorn proxy:app --reload --port 8000
+```
+
+### Docker (production)
+```bash
+docker build -f Dockerfile.backend -t agency-core-backend .
+docker run -p 8000:8000 --env-file .env agency-core-backend
+```
+
+### Render + GitHub Pages (cloud)
+Push to `master` — GitHub Actions automatically:
+1. Builds and deploys the backend to Render
+2. Builds the React frontend and deploys to GitHub Pages
+
+Set `RENDER_DEPLOY_HOOK_URL` and `RENDER_BACKEND_URL` in your repository secrets.
+
+---
+
+## Development
+
+```bash
+# Run tests
+pytest -x                    # fast-fail
+pytest -v                    # verbose
+
+# Activate git hooks (blocks commits without changelog entries)
+git config core.hooksPath .claude/hooks
+
+# Run the AI session watchdog
+python scripts/ai_runner.py start
+```
+
+See [`CLAUDE.md`](CLAUDE.md) for the full contributor guide, skill map, and risky-module policy.
+
+---
+
+## Security
+
+- All secrets via environment variables — nothing hardcoded
+- Ed25519 instance activation signatures
+- RBAC with three roles: `user`, `power_user`, `admin`
+- Bearer token auth on all API endpoints
+- Audit log for all admin actions
+- Bandit SAST + CodeQL + secret scanning on every push
+
+Found a vulnerability? Open a [security advisory](https://github.com/strikersam/local-llm-server/security/advisories/new).
+
+---
+
+## Roadmap
+
+| Phase | Status | What |
+|-------|--------|------|
+| Phase 1 — Typed agent contract | ✅ Done | `AgentJobRequest` Pydantic contract, E2E tests |
+| Phase 2 — ModelRouter wiring | ✅ Done | Single router for all request types |
+| Phase 3 — One backend (SQLite) | 🔄 In progress | Drop Mongo from hot path, fold backends |
+| Phase 4 — One runtime | 📋 Planned | Consolidate `runtimes/` + `agent/loop.py` |
+| Phase 5 — Doctor + resilience | 📋 Planned | `/api/doctor`, partial-failure-tolerant UI |
+| Phase 6 — Workflow engine | 📋 Planned | Persisted state machine, safe CEO agency |
+| Phase 7 — Onboarding engine | 📋 Planned | URL → stack inference → specialist provisioning |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE)
 
 ---
 
 <div align="center">
-
-**Questions?** Email [strikersam@gmail.com](mailto:strikersam@gmail.com) or open an issue.
-
-Made with ☕ by [@strikersam](https://github.com/strikersam)
-
+<sub>Built for engineers who want the power of frontier AI without the cloud bill or the privacy compromise.</sub>
 </div>
