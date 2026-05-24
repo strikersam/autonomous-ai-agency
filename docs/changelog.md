@@ -34,6 +34,25 @@
 - `tests/test_runtimes.py`: updated `TestJCodeAdapterMetadata` to assert JCode is opt-in
   (RUNTIME_JCODE_ENABLED=true) rather than always-on.
 
+- **Phase 5 — Doctor & dashboard resilience:**
+- `GET /api/doctor` endpoint in `backend/server.py`: consolidated system health report
+  combining `DirectChatDoctor` preflight checks (git binary, GitHub token, repo access)
+  with `RuntimeManager` cached health for each registered runtime, plus Langfuse
+  configuration and LLM provider reachability checks. Partial-failure tolerant: each
+  check section is independently guarded so one failing probe doesn't abort the report.
+  Returns a typed `_DoctorReport` (ready, summary, checks[], run_at).
+- `frontend/src/v5/hooks/useSafeData.js`: `useSafeData(baseUrl, endpoints, options)` —
+  `Promise.allSettled`-based multi-fetch hook. Each endpoint slot gets its own
+  `{loading, error}` state so one dead API never blanks the whole page. Supports
+  auto-refresh (`refreshMs`), per-key transforms, and JWT auth from localStorage.
+- `frontend/src/v5/screens/DoctorScreen.jsx`: fully rewritten to consume live
+  `/api/doctor` data. Skeleton loading states per-check, inline error banner with
+  Retry button when the endpoint fails, live score bar (pass/warn/fail counts), and
+  auto-refresh every 60 s. No mock data remains.
+- `tests/test_phase5_doctor.py`: 8 tests covering response shape, field validation,
+  status constraint (pass/warn/fail only), Langfuse check presence, partial-failure
+  tolerance when RuntimeManager or DirectChatDoctor raises.
+
 
 ### Added
 - `db/sqlite_store.py`: async SQLite storage backend with Motor-compatible collection API

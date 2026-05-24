@@ -5494,6 +5494,158 @@ async def legacy_scheduler_toggle(
         raise HTTPException(status_code=404, detail="Job not found") from exc
 
 
+
+
+# ─── Doctor / System Health endpoint ────────────────────────────────────────────
+
+class _DoctorCheck(BaseModel):
+    id: str
+    category: str
+    label: str
+    status: Literal["pass", "warn", "fail"]
+    detail: str
+    action: Optional[dict] = None
+    explanation: Optional[str] = None
+
+
+class _DoctorReport(BaseModel):
+    ready: bool
+    summary: str
+    checks: list[_DoctorCheck] = []
+    run_at: str
+
+
+@app.get("/api/doctor", response_model=_DoctorReport)
+async def get_doctor_report(user: dict = Depends(get_current_user)) -> _DoctorReport:
+    """Consolidated system health report: preflight checks + runtime health.
+
+    Returns a structured list of named checks (pass / warn / fail) sourced from:
+    - DirectChatDoctor: git binary, GitHub token, GitHub API access
+    - RuntimeManager: each registered runtime's circuit-breaker state
+    - Internal probes: Ollama reachability, Langfuse configuration
+    """
+    from agent.doctor import DirectChatDoctor
+    import datetime
+
+    github_token = user.get("github_token") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    doctor = DirectChatDoctor(github_token=github_token)
+
+    checks: list[_DoctorCheck] = []
+
+    # ── 1. Preflight report from agent.doctor ────────────────────────────────
+    try:
+        preflight = await doctor.check_all()
+        if not preflight.issues:
+            checks.append(_DoctorCheck(
+                id="preflight",
+                category="Setup",
+                label="Preflight checks",
+                status="pass",
+                detail="git binary found, GitHub token valid and repo accessible.",
+            ))
+        else:
+            for issue in preflight.issues:
+                checks.append(_DoctorCheck(
+                    id=issue.code,
+                    category="Setup",
+                    label=issue.message[:80],
+                    status="fail",
+                    detail=issue.message,
+                    action={"label": "Fix", "hint": issue.fix_hint},
+                    explanation=issue.fix_hint,
+                ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="preflight_error",
+            category="Setup",
+            label="Preflight check failed",
+            status="warn",
+            detail=f"Could not run preflight checks: {exc}",
+        ))
+
+    # ── 2. Runtime health (from RuntimeManager cache — non-blocking) ─────────
+    try:
+        mgr = get_runtime_manager()
+        for rt in mgr.list_runtimes():
+            rid = rt["runtime_id"]
+            available = rt.get("available", False)
+            health = rt.get("health") or {}
+            circuit_open = (health.get("circuit_open") is True)
+            detail_parts = []
+            if health.get("details"):
+                for k, v in health["details"].items():
+                    detail_parts.append(f"{k}: {v}")
+            detail = health.get("error") or (", ".join(detail_parts) if detail_parts else ("Healthy" if available else "Unavailable"))
+            checks.append(_DoctorCheck(
+                id=f"runtime_{rid}",
+                category="Runtime",
+                label=f"Runtime: {rid}",
+                status="pass" if available else ("warn" if circuit_open else "fail"),
+                detail=str(detail)[:200],
+                action={"label": "Check health", "href": f"/runtimes/{rid}/health"} if not available else None,
+                explanation="Circuit breaker is OPEN — runtime failed 3+ consecutive health checks." if circuit_open else None,
+            ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="runtime_error",
+            category="Runtime",
+            label="Runtime health unavailable",
+            status="warn",
+            detail=f"Could not query RuntimeManager: {exc}",
+        ))
+
+    # ── 3. Langfuse configuration ─────────────────────────────────────────────
+    langfuse_pk = os.environ.get("LANGFUSE_PUBLIC_KEY") or os.environ.get("LANGFUSE_PK")
+    langfuse_sk = os.environ.get("LANGFUSE_SECRET_KEY") or os.environ.get("LANGFUSE_SK")
+    checks.append(_DoctorCheck(
+        id="langfuse",
+        category="Observability",
+        label="Langfuse tracing",
+        status="pass" if (langfuse_pk and langfuse_sk) else "warn",
+        detail="Langfuse keys configured — traces will be emitted." if (langfuse_pk and langfuse_sk)
+               else "LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set — tracing disabled.",
+        action=None if (langfuse_pk and langfuse_sk) else {"label": "Configure", "hint": "Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in environment."},
+        explanation=None if (langfuse_pk and langfuse_sk) else "Without Langfuse, LLM call traces are not stored. Set the keys and restart to enable observability.",
+    ))
+
+    # ── 4. Ollama reachability (quick probe via RuntimeManager health cache) ──
+    try:
+        mgr = get_runtime_manager()
+        internal_health = mgr.get_runtime("internal_agent")
+        if internal_health:
+            available = internal_health.get("health", {}).get("available", False)
+            provider = (internal_health.get("health", {}).get("details") or {}).get("provider", "unknown")
+            checks.append(_DoctorCheck(
+                id="llm_provider",
+                category="Models",
+                label=f"LLM provider ({provider})",
+                status="pass" if available else "fail",
+                detail=f"Provider '{provider}' is {'reachable' if available else 'unreachable'}.",
+                action=None if available else {"label": "Check config", "hint": "Set NVIDIA_API_KEY or ensure Ollama is running on OLLAMA_BASE."},
+            ))
+    except Exception:
+        pass
+
+    ready = all(c.status != "fail" for c in checks)
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    warn_count = sum(1 for c in checks if c.status == "warn")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+
+    if ready and warn_count == 0:
+        summary = f"All {pass_count} checks passing — system healthy."
+    elif ready:
+        summary = f"{pass_count} passing, {warn_count} warning(s) — review recommended."
+    else:
+        summary = f"{fail_count} check(s) failing — action required."
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
 # ─── Feature Routers ────────────────────────────────────────────────────────────
 app.include_router(agent_router)
 app.include_router(runtime_router)
