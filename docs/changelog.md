@@ -1,5 +1,20 @@
 ## [Unreleased]
 
+### Fixed
+- **Onboarding/activation showed "Instance ID: unknown" and could not activate.**
+  `ActivationGate` and `AdminOnboardingPanel` called the activation API with raw `axios`
+  keyed on `REACT_APP_API_BASE` — an env var used nowhere else in the app — instead of the
+  shared `src/api.js` client (which resolves the backend URL the same way as login and attaches
+  the auth header). When the dashboard and backend ran on different origins, the status fetch
+  hit the wrong origin and failed (→ "unknown"), and admin re-activation failed with no
+  `Authorization` header. Both screens now use the shared `api` client.
+- **`/openapi.json` returned 500 (broke `/docs` and the role endpoint).** `change_user_role`
+  in `activation_api.py` referenced undefined names `_RoleUpdateResponse` and `get_db`; the
+  missing response model crashed OpenAPI schema generation and the route itself. Added the
+  `_RoleUpdateResponse` model and switched to `get_store()` (matching all other call sites).
+  Added `tests/test_activation_api.py` covering status, OpenAPI generation, and the role route
+  (auth gate, role validation, update, and 404).
+
 ### Changed
 - **README**: complete rewrite — full feature reality, autonomous agency use cases, step-by-step
   onboarding guide, screen-by-screen control plane reference, provider chain, security model,

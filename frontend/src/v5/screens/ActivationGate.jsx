@@ -13,9 +13,7 @@
  *        • On success → reload
  */
 import React from 'react';
-import axios from 'axios';
-
-const API = process.env.REACT_APP_API_BASE || '';
+import api from '../../api';
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = React.useState(false);
@@ -65,7 +63,7 @@ export default function ActivationGate({ children }) {
   const [success,  setSuccess]  = React.useState(false);
 
   React.useEffect(() => {
-    axios.get(`${API}/api/activation/status`)
+    api.get('/api/activation/status')
       .then(r => setStatus(r.data))
       .catch(() => setStatus({ activated: false, instance_id: 'unknown', register_email: 'strikersam@gmail.com' }));
   }, []);
@@ -84,7 +82,7 @@ export default function ActivationGate({ children }) {
     if (!token.trim()) return;
     setLoading(true); setError('');
     try {
-      const r = await axios.post(`${API}/api/activation/activate`, { token: token.trim() });
+      const r = await api.post('/api/activation/activate', { token: token.trim() });
       if (r.data.success) {
         setSuccess(true);
         setTimeout(() => window.location.reload(), 1500);
