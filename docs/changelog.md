@@ -11,7 +11,7 @@
   `STORAGE_BACKEND` env var (`mongo` default, `sqlite` for dev/CI).
 - `tests/test_sqlite_store.py`: 19 unit tests covering all collection operations, query
   operators, upsert, cursor sort/limit, and the `get_store()` factory.
-- `backend/requirements.txt`: added `aiosqlite>=0.19.0`.
+- `backend/requirements.txt` and `requirements.txt`: added `aiosqlite>=0.19.0`.
 - `Dockerfile.backend`: added `COPY db/ db/`.
 
 ### Changed

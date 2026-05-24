@@ -22,7 +22,13 @@ import time
 import uuid
 from typing import Any
 
-import aiosqlite
+try:
+    import aiosqlite
+except ModuleNotFoundError as _e:  # pragma: no cover
+    raise ModuleNotFoundError(
+        "aiosqlite is required for STORAGE_BACKEND=sqlite. "
+        "Install with: pip install aiosqlite"
+    ) from _e
 
 log = logging.getLogger("agency-core.sqlite")
 
