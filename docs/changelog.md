@@ -1,6 +1,35 @@
 ## [Unreleased]
 
 ### Added
+- `db/sqlite_store.py`: async SQLite storage backend with Motor-compatible collection API
+  (`find_one`, `find`, `insert_one`, `update_one`, `delete_one`, `count_documents`,
+  `aggregate`, `distinct`, `replace_one`). Supports full query operators: `$set`, `$push`,
+  `$pull`, `$addToSet`, `$inc`, `$or`, `$and`, `$in`, `$nin`, `$ne`, `$exists`, `$regex`.
+  Indexed columns for hot-path lookups (email, user_id, slug, etc.).
+- `db/mongo_store.py`: thin Motor wrapper making MongoStore interchangeable with SQLiteStore.
+- `db/__init__.py`: `get_store()` singleton — returns MongoStore or SQLiteStore based on
+  `STORAGE_BACKEND` env var (`mongo` default, `sqlite` for dev/CI).
+- `tests/test_sqlite_store.py`: 19 unit tests covering all collection operations, query
+  operators, upsert, cursor sort/limit, and the `get_store()` factory.
+- `backend/requirements.txt`: added `aiosqlite>=0.19.0`.
+- `Dockerfile.backend`: added `COPY db/ db/`.
+
+### Changed
+- `backend/server.py`: `get_db()` now delegates to `db.get_store()` instead of directly
+  creating a Motor client. All 112+ call sites unchanged. Set `STORAGE_BACKEND=sqlite` to
+  run with zero external dependencies.
+
+### Removed
+- `routing/` directory: dead code — the `routing_router` was never mounted in `proxy.py`
+  or `backend/server.py`. The equivalent `/api/routing/*` endpoints already exist in
+  `runtimes/api.py` (which IS mounted). Removed to eliminate router confusion.
+- `agent/v4_router.py`: dead code — not imported anywhere in the active codebase.
+  Comment reference in `agent/quick_note.py` updated.
+- `tests/test_control_plane_api.py`: removed duplicate `/api/routing/*` test section
+  (routing/ deleted); schedule tests retained.
+## [Unreleased]
+
+### Added
 - `infra_cost.py`: added to `Dockerfile.backend` COPY statements and `deploy-backend.yml`
   trigger paths — was imported by `backend/server.py` at startup but never included in the
   container build, causing `ModuleNotFoundError` on every Render deploy.

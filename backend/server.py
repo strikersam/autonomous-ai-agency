@@ -39,7 +39,7 @@ from llm_providers import (
     list_openai_models,
     normalize_base_url,
 )
-from motor.motor_asyncio import AsyncIOMotorClient
+# Motor is used via db.MongoStore when STORAGE_BACKEND=mongo (default)
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -1779,25 +1779,19 @@ app.add_middleware(
     max_age=3600,  # 1 hour for OAuth state
 )
 
-# MongoDB client — lazy-initialized to avoid connection attempts on import.
-# Use get_db() everywhere instead of the module-level `db` variable.
-_mongo_client: "AsyncIOMotorClient | None" = None
-_mongo_db = None
+# Storage backend — delegates to either MongoStore (default) or SQLiteStore.
+# Switch with: STORAGE_BACKEND=sqlite  (no MongoDB required)
+# All 112+ call sites use get_db() unchanged.
+from db import get_store as _get_store
 
 
 def get_db():
-    """Return the Motor database, creating the client on first call.
+    """Return the active storage backend (Mongo or SQLite).
 
-    Lazy initialization prevents connection attempts during import (which
-    breaks CI environments without a running MongoDB service).
+    Lazy-initialised singleton.  Set ``STORAGE_BACKEND=sqlite`` to use the
+    zero-dependency SQLite backend (ideal for development and CI).
     """
-    global _mongo_client, _mongo_db
-    if _mongo_client is None:
-        _mongo_client = AsyncIOMotorClient(
-            MONGO_URL, serverSelectionTimeoutMS=MONGO_SELECTION_TIMEOUT_MS
-        )
-        _mongo_db = _mongo_client[DB_NAME]
-    return _mongo_db
+    return _get_store()
 
 
 class JWTUserStateMiddleware(BaseHTTPMiddleware):

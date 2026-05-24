@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 from agent.scheduler import AgentScheduler, set_scheduler, get_scheduler, ScheduledJob
 from schedules.api import schedules_router
-from routing.api import routing_router
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -46,14 +45,6 @@ def mock_runtime_manager():
     }
     mgr.get_decision_log.return_value = []
     return mgr
-
-
-@pytest.fixture
-def routing_client(mock_runtime_manager):
-    app = FastAPI()
-    app.include_router(routing_router)
-    with patch("routing.api.get_runtime_manager", return_value=mock_runtime_manager):
-        yield TestClient(app)
 
 
 # ── Scheduler singleton ───────────────────────────────────────────────────────
@@ -209,23 +200,3 @@ def test_schedule_runs_history(schedules_client):
     assert data["schedule_id"] == job_id
     assert data["run_count"] >= 1
 
-
-# ── /api/routing endpoints ────────────────────────────────────────────────────
-
-def test_get_routing_policy(routing_client, mock_runtime_manager):
-    with patch("routing.api.get_runtime_manager", return_value=mock_runtime_manager):
-        resp = routing_client.get("/api/routing/policy")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "policy" in data
-    assert "never_use_paid_providers" in data["policy"]
-
-
-def test_get_routing_stats(routing_client, mock_runtime_manager):
-    with patch("routing.api.get_runtime_manager", return_value=mock_runtime_manager):
-        resp = routing_client.get("/api/routing/stats")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "total_decisions" in data
-    assert "local_ratio" in data
-    assert "decisions" in data
