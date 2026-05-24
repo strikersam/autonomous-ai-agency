@@ -75,21 +75,27 @@ def _decode_jwt_unverified(token: str) -> tuple[dict, dict, bytes, bytes]:
 
 # ── Public key loading ────────────────────────────────────────────────────────
 
+# Ed25519 SubjectPublicKeyInfo DER prefix (RFC 8410)
+_ED25519_DER_PREFIX = bytes.fromhex("302a300506032b6570032100")
+
+
+def owner_public_key_b64() -> str:
+    """Return the trusted owner public key (base64, raw 32 bytes).
+
+    Operators self-hosting their own instance can override the embedded key by
+    setting ``ACTIVATION_PUBLIC_KEY_B64`` in the environment. This lets them mint
+    activation tokens with their own keypair (via ``scripts/activate.py``) without
+    editing source. Falls back to the embedded owner key when the env var is unset.
+    """
+    return os.environ.get("ACTIVATION_PUBLIC_KEY_B64", "").strip() or _OWNER_PUBLIC_KEY_B64
+
+
 def _load_public_key() -> Ed25519PublicKey:
-    raw = base64.b64decode(_OWNER_PUBLIC_KEY_B64)
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey as _K
+    raw = base64.b64decode(owner_public_key_b64())
+    if len(raw) != 32:
+        raise ValueError(f"Ed25519 public key must be 32 raw bytes, got {len(raw)}")
     from cryptography.hazmat.primitives.serialization import load_der_public_key
-    # Build from raw bytes using cryptography primitives
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-    # The cryptography library requires DER-encoded key for from_encoded_point;
-    # easiest path is to reconstruct via the raw key interface.
-    import struct
-    # Ed25519 SubjectPublicKeyInfo DER prefix (RFC 8410)
-    DER_PREFIX = bytes.fromhex(
-        "302a300506032b6570032100"
-    )
-    from cryptography.hazmat.primitives.serialization import load_der_public_key
-    return load_der_public_key(DER_PREFIX + raw)
+    return load_der_public_key(_ED25519_DER_PREFIX + raw)  # type: ignore[return-value]
 
 
 # ── Instance ID ───────────────────────────────────────────────────────────────
@@ -209,11 +215,36 @@ def save_activation(token: str) -> ActivationResult:
 
 _activation_cache: ActivationResult | None = None
 _activation_loaded = False
+_bypass_warned = False
+
+
+def activation_required() -> bool:
+    """Whether the licensing gate is enforced.
+
+    Self-hosters who own the instance can disable the gate entirely by setting
+    ``ACTIVATION_REQUIRED=false``. Defaults to enforced (``true``) so the
+    signed-token path remains the standard for distributed installs.
+    """
+    val = os.environ.get("ACTIVATION_REQUIRED", "true").strip().lower()
+    return val not in ("0", "false", "no", "off")
 
 
 def is_activated() -> bool:
-    """Fast in-process check. Loads from disk on first call."""
-    global _activation_cache, _activation_loaded
+    """Fast in-process check. Loads from disk on first call.
+
+    When ``ACTIVATION_REQUIRED=false`` the gate is bypassed and the instance is
+    always treated as activated (self-hosted mode). This never weakens signature
+    verification — it only makes the gate opt-out for the operator running the box.
+    """
+    global _activation_cache, _activation_loaded, _bypass_warned
+    if not activation_required():
+        if not _bypass_warned:
+            log.warning(
+                "ACTIVATION_REQUIRED=false — instance activation gate is DISABLED "
+                "(self-hosted mode). Onboarding is unlocked without a signed token."
+            )
+            _bypass_warned = True
+        return True
     if not _activation_loaded:
         _activation_cache = load_activation()
         _activation_loaded = True

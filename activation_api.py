@@ -104,9 +104,12 @@ class ActivationStatusResponse(BaseModel):
     # Registration hint for non-activated instances
     register_email: str = "strikersam@gmail.com"
     register_instructions: str = (
-        "Copy your Instance ID above and email it to strikersam@gmail.com with the subject "
-        "'LLM Relay Activation Request'. You'll receive a signed activation code by reply. "
-        "Paste it in the Activation panel to unlock onboarding."
+        "If you own this instance you can activate it yourself — no email needed. "
+        "Either set ACTIVATION_REQUIRED=false in the backend environment to disable the "
+        "licensing gate, or run `python scripts/activate.py` to mint a signed code with "
+        "your own key (set the printed ACTIVATION_PUBLIC_KEY_B64 in the backend env, then "
+        "paste the code below). See docs/runbooks/activation.md. "
+        "Otherwise, email your Instance ID to strikersam@gmail.com to request a code."
     )
 
 
@@ -145,14 +148,19 @@ async def activation_status() -> ActivationStatusResponse:
     Safe to call before login (needed to show the activation wizard).
     """
     iid = instance_id()
-    act = get_activation()
-    if act and act.valid:
+    if is_activated():
+        act = get_activation()
+        if act and act.valid:
+            return ActivationStatusResponse(
+                activated=True,
+                instance_id=iid,
+                email=act.email,
+                issued_at=act.issued_at,
+                expires_at=act.expires_at,
+            )
+        # Activated via ACTIVATION_REQUIRED=false — no signed token on disk.
         return ActivationStatusResponse(
-            activated=True,
-            instance_id=iid,
-            email=act.email,
-            issued_at=act.issued_at,
-            expires_at=act.expires_at,
+            activated=True, instance_id=iid, email="activation-not-required"
         )
     return ActivationStatusResponse(activated=False, instance_id=iid)
 

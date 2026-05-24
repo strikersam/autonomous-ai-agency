@@ -170,6 +170,16 @@ export default function ActivationGate({ children }) {
           </Step>
         </div>
 
+        {/* Owner / self-host note */}
+        <div style={{ marginTop:16, padding:'12px 16px', borderRadius:12, background:'rgba(70,217,164,0.05)', border:'1px solid rgba(70,217,164,0.18)' }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#46d9a4', marginBottom:4 }}>Own this instance? Activate it yourself.</div>
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', lineHeight:1.6 }}>
+            Set <code style={{ fontFamily:'var(--font-mono, monospace)', color:'#a0b4d0' }}>ACTIVATION_REQUIRED=false</code> in the backend
+            environment to unlock onboarding, or run <code style={{ fontFamily:'var(--font-mono, monospace)', color:'#a0b4d0' }}>python scripts/activate.py</code> to
+            mint your own signed code. See <code style={{ fontFamily:'var(--font-mono, monospace)', color:'#a0b4d0' }}>docs/runbooks/activation.md</code>.
+          </div>
+        </div>
+
         {/* Footer note */}
         <p style={{ textAlign:'center', fontSize:11, color:'rgba(255,255,255,0.2)', marginTop:20, lineHeight:1.6, fontFamily:'var(--font-mono, monospace)' }}>
           Activation is tied to this Instance ID. If you reinstall, you'll need a new code.<br/>

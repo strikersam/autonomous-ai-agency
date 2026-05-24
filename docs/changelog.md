@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+### Security
+- **Self-service instance activation (unblocks the owner/self-hoster).** The activation gate
+  previously had only one path — email the owner for a signed code — with no tool to mint one,
+  so the operator was locked out of their own instance. Added `ACTIVATION_REQUIRED=false`
+  (opt-in, off by default) to disable the gate for self-hosters, and `ACTIVATION_PUBLIC_KEY_B64`
+  so an operator can trust their own keypair via env without editing source. Signature
+  verification is unchanged — the escape hatch only stops *enforcing* the gate. Verified via the
+  `risky-module-review` skill.
+
+### Added
+- `scripts/activate.py`: CLI that mints and installs an Ed25519-signed activation token for the
+  current instance (generates a keypair if none exists; writes git-ignored files at `0600`).
+- `docs/runbooks/activation.md`: owner/admin activation procedure (disable gate · self-mint · request).
+- `activation.owner_public_key_b64()` / `activation.activation_required()` helpers, with
+  `tests/test_activation_selfservice.py` covering key round-trip, instance binding, untrusted-key
+  rejection, the escape hatch, and the CLI.
+
 ### Fixed
 - **Onboarding/activation showed "Instance ID: unknown" and could not activate.**
   `ActivationGate` and `AdminOnboardingPanel` called the activation API with raw `axios`
