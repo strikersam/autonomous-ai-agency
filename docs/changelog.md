@@ -16,8 +16,19 @@
 - `activation.owner_public_key_b64()` / `activation.activation_required()` helpers, with
   `tests/test_activation_selfservice.py` covering key round-trip, instance binding, untrusted-key
   rejection, the escape hatch, and the CLI.
+- **Version single source of truth.** `version.py` (canonical Python) + `frontend/src/version.js`
+  (canonical frontend — CRA can't import `package.json` from `src/`). `scripts/bump_version.py X.Y.Z`
+  propagates the version to `version.py`, `version.js`, `frontend/package.json`,
+  `frontend/public/index.html`, and the README badge in one command;
+  `tests/test_version_consistency.py` fails CI if any of them drift.
 
 ### Fixed
+- **Stale `v4.1` / wrong version strings.** The browser tab title and meta in
+  `frontend/public/index.html` said "LLM Relay v4.1", the FastAPI app title said
+  "LLM Relay v4.1 — Unified Platform" (`version="4.1.0"`), and `/api/platform` returned
+  `"2.0.0"`. All now read from `version.py`/`version.js` and show the current release.
+  Sidebar/topbar brand in `AppShell.jsx` also said "LLM Relay V5.0" (inconsistent with the
+  "Agency Core" branding elsewhere) — now sourced from `APP_LABEL`.
 - **Onboarding/activation showed "Instance ID: unknown" and could not activate.**
   `ActivationGate` and `AdminOnboardingPanel` called the activation API with raw `axios`
   keyed on `REACT_APP_API_BASE` — an env var used nowhere else in the app — instead of the
