@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Changed
+- **README**: complete rewrite — full feature reality, autonomous agency use cases, step-by-step
+  onboarding guide, screen-by-screen control plane reference, provider chain, security model,
+  and updated roadmap showing phases 1–5 complete. Deploy and config sections expanded with
+  Render free-tier notes and Nvidia NIM no-GPU path.
+- **Frontend mock data**: updated demo card labels from v4.1 → v5.0 in TaskBoardScreen and
+  ChatScreen; UI now consistently reflects the current release.
+
 ### Added
 - **Phase 6 — Workflow engine:**
 - `agent/workflow.py`: `WorkflowPhase` state machine (CLASSIFY → PLAN → SELECT_SPECIALIST →
