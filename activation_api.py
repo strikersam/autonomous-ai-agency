@@ -264,12 +264,13 @@ async def change_user_role(
     user_id: str,
     body: _RoleUpdateBody,
     request: Request,
-) -> dict:
+) -> _RoleUpdateResponse:
     """Change the role of a registered user (admin only).
 
     Allowed roles: ``user``, ``power_user``, ``admin``.
     """
-    admin_id = _require_admin(request)
+    require_admin(request)
+    admin_id = getattr(request.state, "user_id", "admin")
 
     allowed_roles = {"user", "power_user", "admin"}
     role = body.role.strip().lower()
@@ -301,5 +302,5 @@ async def change_user_role(
         detail=f"role={role}",
         request=request,
     )
-    return {"user_id": user_id, "role": role, "updated": True}
+    return _RoleUpdateResponse(user_id=user_id, role=role, updated=True)
 

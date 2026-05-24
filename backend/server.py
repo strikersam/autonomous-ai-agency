@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional, Dict, List, Tuple, Union
+from typing import Any, Optional, Dict, List, Tuple, Union, Literal
 
 import bcrypt
 import httpx
@@ -3807,7 +3807,7 @@ async def cancel_chat_agent_job(job_id: str, user: dict = Depends(get_current_us
 # ── Agent HITL resume ─────────────────────────────────────────────────────────
 
 class _ResumeRequest(BaseModel):
-    action: str = "approve"   # "approve" | "deny" | "input"
+    action: Literal["approve", "deny", "input"] = "approve"
     input: str = ""
 
 
@@ -3857,7 +3857,7 @@ async def resume_agent_chat_job(
     # for now we surface the decision in the job's progress_events so the
     # frontend can display it and move on.
     job.progress_events.append({
-        "timestamp": job.updated_at,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "phase": "resuming",
         "message": f"Human decision: {action}"
                    + (f" — {body.input[:200]}" if body.input else ""),
