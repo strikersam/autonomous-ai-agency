@@ -565,12 +565,22 @@ class TestJCodeAdapterMetadata:
                     )
                 )
 
-    def test_jcode_registered_in_default_manager(self):
-        """jcode must be registered in the default RuntimeManager."""
+    def test_jcode_registered_when_flag_set(self, monkeypatch):
+        """JCodeAdapter is registered only when RUNTIME_JCODE_ENABLED=true."""
         from runtimes.manager import _build_default_manager
+        monkeypatch.setenv("RUNTIME_JCODE_ENABLED", "true")
         mgr = _build_default_manager()
         ids = mgr._registry.ids()
         assert "jcode" in ids
+
+    def test_jcode_not_registered_by_default(self, monkeypatch):
+        """JCodeAdapter is NOT in the default RuntimeManager (opt-in only)."""
+        from runtimes.manager import _build_default_manager
+        monkeypatch.delenv("RUNTIME_JCODE_ENABLED", raising=False)
+        mgr = _build_default_manager()
+        ids = mgr._registry.ids()
+        assert "jcode" not in ids
+        assert "internal_agent" in ids
 
 
 class TestStartLocalRuntime:
