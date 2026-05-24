@@ -371,8 +371,15 @@ def test_activation_api(c: httpx.Client, h: dict) -> None:
     # Invalid token must be rejected
     r = req("POST", c, "/api/activation/activate", retries=1,
             json={"token": "invalid.token.value"})
-    check(r.status_code in (400, 422), "invalid activation token → 400/422", r)
-    ok("POST /api/activation/activate (bad token) → rejected correctly")
+    # Endpoint returns 200 with {"success": false, "error": "..."} for bad tokens
+    # (it normalises all activation errors into the response body rather than HTTP status).
+    check(r.status_code in (200, 400, 422), "invalid activation token → not 5xx", r)
+    if r.status_code == 200:
+        body = r.json()
+        check(body.get("success") is False, "bad token must set success=false", r)
+        ok(f"POST /api/activation/activate (bad token) → success=false ({body.get('error','')[:60]})")
+    else:
+        ok(f"POST /api/activation/activate (bad token) → {r.status_code} rejected")
 
 
 def test_platform_info(c: httpx.Client, h: dict) -> None:
