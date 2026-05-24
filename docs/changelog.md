@@ -44,6 +44,11 @@
   (auth gate, role validation, update, and 404).
 
 ### Changed
+- **README screenshots restored.** The README rewrite dropped the screen gallery (and its
+  inject markers), so the page had no visuals. Re-added a `## Screens` section with the
+  `README_UI_GALLERY` markers and pointed `scripts/sync_readme_gallery.py` at the current
+  `docs/screenshots/readme/v4-*` set (the old config referenced `v3-*` and non-existent
+  `webui-*` files, which crashed the sync). Regenerated `docs/screenshots/manifest.json`.
 - **README**: complete rewrite — full feature reality, autonomous agency use cases, step-by-step
   onboarding guide, screen-by-screen control plane reference, provider chain, security model,
   and updated roadmap showing phases 1–5 complete. Deploy and config sections expanded with

@@ -24,89 +24,88 @@ class GallerySection:
     screenshots: tuple[Screenshot, ...]
 
 
+# Paths point at the most recent captured screenshot set (docs/screenshots/readme/).
 GALLERY: tuple[GallerySection, ...] = (
+    GallerySection(
+        heading="### 🛰 Control Plane",
+        summary="The command center: live agent health, recent activity, and system metrics at a glance.",
+        screenshots=(Screenshot("docs/screenshots/readme/v4-control-plane.png", "Control Plane dashboard"),),
+    ),
     GallerySection(
         heading="### 🛬 Login",
         summary="People can sign in through a simple starting page instead of touching raw config files.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-login.png", "LLM Relay login"),),
+        screenshots=(Screenshot("docs/screenshots/readme/v4-login.png", "Login"),),
     ),
     GallerySection(
         heading="### 🧙 Setup Wizard",
         summary="The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-setup-wizard.png", "Setup Wizard"),),
+        screenshots=(Screenshot("docs/screenshots/readme/v4-setup-wizard.png", "Setup Wizard"),),
     ),
     GallerySection(
         heading="### 💬 Chat",
-        summary="This is where people talk to AI directly, using the providers and rules you set up.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-chat.png", "Direct Chat"),),
+        summary="This is where people talk to the CEO agent directly, using the providers and rules you set up.",
+        screenshots=(Screenshot("docs/screenshots/readme/v4-chat.png", "Chat"),),
     ),
     GallerySection(
         heading="### 🗂 Task Board",
         summary="This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-tasks-kanban.png", "Kanban Task Board"),),
+        screenshots=(Screenshot("docs/screenshots/readme/v4-tasks-kanban.png", "Kanban Task Board"),),
     ),
     GallerySection(
         heading="### 🤖 Agent Roster",
         summary="This is your cast of AI helpers. Each agent can have its own model, runtime, specialty, and rules.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-agents.png", "Agent Roster"),),
+        screenshots=(Screenshot("docs/screenshots/readme/v4-agents.png", "Agent Roster"),),
     ),
     GallerySection(
         heading="### ⚙️ Runtimes",
         summary="This shows the engines behind the scenes that actually run your AI work.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-runtimes.png", "Agent Runtimes"),),
+        screenshots=(Screenshot("docs/screenshots/readme/v4-runtimes.png", "Agent Runtimes"),),
     ),
     GallerySection(
         heading="### 🛣 Routing Policy",
         summary="This is where you decide how smart, cheap, fast, or private the system should be when picking a model.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-routing.png", "Routing Policy"),),
+        screenshots=(Screenshot("docs/screenshots/readme/v4-routing.png", "Routing Policy"),),
     ),
     GallerySection(
         heading="### 🔌 Providers and Models",
         summary="This is where you connect local and cloud AI sources and decide what models are available.",
         screenshots=(
-            Screenshot("docs/screenshots/readme/v3-providers.png", "Providers", width="48%"),
-            Screenshot("docs/screenshots/readme/v3-models.png", "Models", width="48%"),
+            Screenshot("docs/screenshots/readme/v4-providers.png", "Providers", width="48%"),
+            Screenshot("docs/screenshots/readme/v4-models.png", "Models", width="48%"),
         ),
     ),
     GallerySection(
         heading="### 📚 Knowledge",
         summary="This is your team's memory: wiki pages, source material, and reusable context.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-knowledge.png", "Knowledge and Wiki"),),
+        screenshots=(Screenshot("docs/screenshots/readme/v4-knowledge.png", "Knowledge and Wiki"),),
     ),
     GallerySection(
         heading="### 🔭 Logs and activity",
-        summary="This helps you answer, ‘what just happened?’",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-logs.png", "Logs"),),
+        summary="This helps you answer, ‘what just happened?’ — every LLM call, token count, latency, and cost.",
+        screenshots=(Screenshot("docs/screenshots/readme/v4-logs.png", "Logs"),),
     ),
     GallerySection(
         heading="### 🗓 Schedules",
         summary="This is how you make AI jobs run later or run again automatically.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-schedules.png", "Schedules"),),
+        screenshots=(Screenshot("docs/screenshots/readme/v4-schedules.png", "Schedules"),),
     ),
     GallerySection(
         heading="### 🧭 Settings and guardrails",
         summary="Central settings keep defaults, policies, and integrations in one place instead of scattered config files.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-settings.png", "Settings"),),
+        screenshots=(Screenshot("docs/screenshots/readme/v4-settings.png", "Settings"),),
     ),
     GallerySection(
         heading="### 🛡 Admin portal",
-        summary="This gives admins a simpler place to manage access, controls, and system behavior.",
-        screenshots=(Screenshot("docs/screenshots/readme/v3-admin.png", "Admin Portal"),),
+        summary="This gives admins a simpler place to manage access, instance activation, and system behavior.",
+        screenshots=(Screenshot("docs/screenshots/readme/v4-admin.png", "Admin Portal"),),
     ),
     GallerySection(
-        heading="### 🖥 Built-in web UI",
-        summary="The proxy also ships a lightweight built-in app at `/app`, so you can ship a useful UI without the separate hosted dashboard.",
-        screenshots=(Screenshot("docs/screenshots/webui/webui-app.png", "Built-in Web UI"),),
-    ),
-    GallerySection(
-        heading="### 🔐 Built-in admin login",
-        summary="The built-in admin surface has a dedicated login gate before exposing sensitive controls.",
-        screenshots=(Screenshot("docs/screenshots/webui/webui-admin-login.png", "Built-in admin login"),),
-    ),
-    GallerySection(
-        heading="### 🧰 Built-in admin workspace",
-        summary="Once authenticated, admins can manage providers, workspaces, and runtime metadata from the in-proxy UI.",
-        screenshots=(Screenshot("docs/screenshots/webui/webui-admin.png", "Built-in admin workspace"),),
+        heading="### 📱 Mobile",
+        summary="The dashboard is responsive — sign in, run the setup wizard, and monitor agents from a phone.",
+        screenshots=(
+            Screenshot("docs/screenshots/readme/v4-login-mobile.png", "Mobile login", width="32%"),
+            Screenshot("docs/screenshots/readme/v4-setup-mobile.png", "Mobile setup wizard", width="32%"),
+        ),
     ),
 )
 
