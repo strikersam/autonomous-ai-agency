@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [5.0.0] — 2026-05-24
 
 ### Added
 - `agent/contract.py`: `AgentJobRequest` now has `extra="forbid"` (Pydantic v2) — unknown kwargs
