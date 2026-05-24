@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """
-CI helper: generate an API key and print ONLY the plaintext to stdout.
-Used by the E2E GitHub Actions workflow so the key can be captured cleanly.
+CI helper: generate an API key and write it to a file (not stdout).
 
-Usage:
+Writing to a file rather than stdout avoids the CodeQL
+"clear-text logging of sensitive data" finding — the key never appears
+in the Actions log; the workflow reads and immediately masks it.
+
+Usage (CI):
+    export E2E_KEY_OUTPUT_FILE=/tmp/e2e_api_key.txt
+    python scripts/e2e_generate_key.py --keys-file e2e-keys.json
+
+Usage (local, writes to stdout-compatible path /dev/stdout):
     python scripts/e2e_generate_key.py --keys-file e2e-keys.json
 """
 from __future__ import annotations
@@ -23,8 +30,12 @@ def main() -> int:
 
     ks = KeyStore(Path(args.keys_file))
     plain, _ = issue_new_api_key(ks, args.email, args.department)
-    # Print ONLY the key so the workflow can do: KEY=$(python ...) without parsing
-    print(plain)
+
+    # Write to E2E_KEY_OUTPUT_FILE if set (CI); fall back to /dev/stdout (local).
+    # Never print the key directly — keeps it out of the Actions log until the
+    # workflow masks it with  echo "::add-mask::$(cat $file)".
+    output_path = os.environ.get("E2E_KEY_OUTPUT_FILE", "/dev/stdout")
+    Path(output_path).write_text(plain, encoding="utf-8")
     return 0
 
 

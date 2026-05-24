@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: ["main", "master"]
 
+# Least-privilege token — this job only reads the repo; it writes nothing to
+# GitHub (no deployments, no packages, no issues). Satisfies CodeQL rule
+# "Workflow does not contain permissions".
+permissions:
+  contents: read
+
 concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
@@ -83,11 +89,15 @@ jobs:
 
       - name: Generate E2E API key
         run: |
-          # Prints exactly one line: the plaintext key
-          KEY=$(python scripts/e2e_generate_key.py \
+          # Script writes key to E2E_KEY_OUTPUT_FILE (not stdout) to avoid
+          # clear-text logging of sensitive data in the Actions log.
+          export E2E_KEY_OUTPUT_FILE=/tmp/e2e_api_key.txt
+          python scripts/e2e_generate_key.py \
             --keys-file "$KEYS_FILE" \
             --email ci@llmrelay.local \
-            --department ci)
+            --department ci
+          KEY=$(cat /tmp/e2e_api_key.txt)
+          rm -f /tmp/e2e_api_key.txt
           echo "::add-mask::$KEY"
           echo "E2E_API_KEY=$KEY" >> "$GITHUB_ENV"
           echo "✓ API key generated and masked"

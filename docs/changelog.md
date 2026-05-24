@@ -20,6 +20,14 @@
   to `"off"` for all prototype page files, preventing `CI=true` react-scripts build failures
   caused by pre-existing unused variables in 14 legacy pages.
 
+### Security
+- `.github/workflows/e2e.yml`: add `permissions: contents: read` at workflow level to
+  satisfy CodeQL "Workflow does not contain permissions" rule and enforce least-privilege
+  GITHUB_TOKEN scope.
+- `scripts/e2e_generate_key.py`: write API key to `E2E_KEY_OUTPUT_FILE` temp file (not
+  stdout) to satisfy CodeQL "Clear-text logging of sensitive information" rule; workflow
+  reads and masks the file immediately before using it.
+
 ### Fixed
 - `pytest.ini`: replaced invalid `collect_ignore_glob` option with `addopts = --ignore=tests/e2e`;
   prevents pytest from collecting standalone E2E scripts that have no pytest fixtures.
