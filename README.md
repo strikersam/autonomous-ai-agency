@@ -6,7 +6,7 @@
 
 **No monthly per-seat bill. No data leaving your control. No vendor lock-in.**
 
-[![Version](https://img.shields.io/badge/version-4.1.0-4D8CFF?style=for-the-badge)](docs/changelog.md)
+[![Version](https://img.shields.io/badge/version-5.0.0-4D8CFF?style=for-the-badge)](docs/changelog.md)
 [![Stars](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&color=FFD43B&logo=github)](https://github.com/strikersam/local-llm-server/stargazers)
 [![CI](https://img.shields.io/github/actions/workflow/status/strikersam/local-llm-server/ci.yml?style=for-the-badge&label=CI&logo=github-actions)](https://github.com/strikersam/local-llm-server/actions)
 [![License](https://img.shields.io/badge/license-Open%20Source-22C55E?style=for-the-badge)](LICENSE)
@@ -255,12 +255,14 @@ PRs welcome. Please run `pytest -x` and update `docs/changelog.md` before submit
 
 See [docs/changelog.md](docs/changelog.md) for the full history.
 
-**v4.1.0** (current)
-- V5 dashboard — redesigned React UI with 15 screens including Company Graph, Doctor, and Knowledge Base
-- Instance activation system — Ed25519-signed phone-home licensing
-- Per-user onboarding control — admin toggles access per user
-- Autonomous agency — CEO + specialist agents continuously improve the codebase
-- Devcontainer — Python 3.13 + Node 20 for CI/local parity
+**v5.0.0** (current)
+- **V5 dashboard** — redesigned React UI with 20+ screens: Tasks kanban, Agent Roster, Schedules, Runtimes, Routing Policy, Knowledge Base, Logs, and more
+- **Typed agent contract** — `AgentJobRequest`/`AgentJobResult` Pydantic models with `extra="forbid"` enforce strict API boundaries between the scheduler and runners
+- **ModelRouter wiring** — all chat paths (proxy and web UI) now route through `ModelRouter.route()` for task-aware model selection before provider fallback
+- **HITL resume endpoint** — `POST /api/chat/resume/{session_id}` lets the UI send human approve/deny/input decisions to paused agent jobs
+- **Instance activation system** — Ed25519-signed phone-home licensing with per-user onboarding control
+- **Real E2E CI** — GitHub Actions spins up MongoDB + the full server and runs 30+ assertions with no mocks
+- **Security hardening** — runtime read endpoints require authentication; audit trail for all role changes
 
 ---
 

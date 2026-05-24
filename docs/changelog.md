@@ -1,6 +1,21 @@
 ## [Unreleased]
 
 ### Added
+- `Dockerfile.backend`: added `COPY activation.py` and `COPY activation_api.py` —
+  both files were imported at startup by `backend/server.py` but missing from the
+  Docker build context, causing all Render deploys to fail with `ModuleNotFoundError`.
+- `backend/requirements.txt`: added `cryptography>=41.0.0` — required by
+  `activation.py` (top-level Ed25519 import); without it the container crashes at import.
+
+### Changed
+- `README.md`: bumped version badge and "What's New" section from v4.1.0 → v5.0.0
+  with accurate feature descriptions for the v5 release.
+- Replaced all internal `CompanyHelm` references with generic names
+  (`prior-system`, `legacy-rt`) in `runtimes/adapters/docker_agent.py` and
+  two architecture docs — no company-specific branding in the public repo.
+
+
+### Added
 - `backend/server.py`: `POST /api/chat/resume/{session_id}` — new HITL endpoint.
   The frontend can submit `{action, input}` when an agent job reaches a
   `needs_approval` or `needs_input` checkpoint. Action `deny` cancels the job

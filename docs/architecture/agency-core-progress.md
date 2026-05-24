@@ -78,7 +78,7 @@ make ci-parity                        # == bash scripts/test_ci.sh  (needs Docke
 ### Audit (committed)
 - `docs/architecture/agency-core-audit-2026-05-22.md` — brutal truth, Keep/
   Salvage/Replace/Remove table, chosen foundation (Claude Code + oh-my-codex +
-  claw-code + CompanyHelm hybrid), Agency Core design, 7-phase migration plan.
+  claw-code + prior-system hybrid), Agency Core design, 7-phase migration plan.
 
 ### Phase 0 — Stabilize & quarantine (commit `713184a`, pushed)
 - **Quarantined 7 autonomous workflows** to `workflow_dispatch`-only (triggers
