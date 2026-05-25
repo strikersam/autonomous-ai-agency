@@ -44,403 +44,474 @@ from backend.server import get_optional_user, get_current_user
 
 log = logging.getLogger("company_api")
 
-# =============================================================================
-# REQUEST/RESPONSE MODELS (Temporary - will be replaced by models.company_graph)
-# =============================================================================
-
-class CompanyBase(BaseModel):
-    name: str
-    domain: str
-    business_category: str = "other"
-    description: str = ""
-
-class CompanyCreateRequest(CompanyBase):
-    pass
-
-class CompanyUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    domain: Optional[str] = None
-    business_category: Optional[str] = None
-    description: Optional[str] = None
-    tagline: Optional[str] = None
-    is_active: Optional[bool] = None
-
-class CompanyResponse(BaseModel):
-    id: str
-    name: str
-    domain: str
-    business_category: str
-    description: str
-    tagline: str = ""
-    is_active: bool = True
-    onboarding_status: str = "not_started"
-    onboarding_progress: float = 0.0
-    created_at: str
-    updated_at: str
-    message: str = ""
-
-class CompanyListResponse(BaseModel):
-    companies: List[CompanyResponse]
-    total: int
-    limit: int
-    offset: int
-
-class WebsiteScanRequest(BaseModel):
-    website_url: str
-    scan_depth: str = "standard"
-    include_sitemap: bool = True
-    max_pages: int = 20
-
-class WebsiteScanResult(BaseModel):
-    scan_id: str
-    website_url: str
-    status: str
-    inferred_stack: Optional[dict] = None
-    detected_systems: List[dict] = []
-    pages_scanned: int = 0
-    errors: List[str] = []
-    started_at: str
-    completed_at: Optional[str] = None
-
-class SpecialistProvisionRequest(BaseModel):
-    specialist_family: str
-    name: Optional[str] = None
-    capabilities: List[str] = []
-    system_types: List[str] = []
-    auto_provision: bool = True
-
-class SpecialistProvisionResult(BaseModel):
-    request_id: str
-    specialist_id: Optional[str] = None
-    status: str
-    message: str
-    errors: List[str] = []
-    provisioned_at: str
-
-class OnboardingProgressResponse(BaseModel):
-    company_id: str
-    current_step: str
-    total_steps: int
-    completed_steps: int
-    progress_percent: float
-    status: str
-    steps: List[dict] = []
-    errors: List[str] = []
+# Create the router
+router = APIRouter(prefix="/api/company", tags=["company"])
 
 # =============================================================================
-# ROUTER
+# AUTHENTICATION HELPERS
 # =============================================================================
 
-router = APIRouter(prefix="/api/company", tags=["company", "company-graph"])
+async def get_company_access(
+    company_id: str, 
+    user: dict = Depends(get_current_user)
+) -> Company:
+    """
+    Verify user has access to a company and return the company.
+    Raises HTTPException if access is denied.
+    """
+    store = get_company_graph_store()
+    company = await store.get_company(company_id)
+    
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Company {company_id} not found"
+        )
+    
+    # Check if user is owner or admin
+    user_id = str(user.get("_id") or user.get("id"))
+    if company.owner_id != user_id and user_id not in (company.admin_ids or []):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this company"
+        )
+    
+    return company
+
+
+async def get_optional_company_access(
+    company_id: str,
+    user: Optional[dict] = Depends(get_optional_user)
+) -> Optional[Company]:
+    """
+    Verify user has access to a company (if authenticated).
+    Returns None if company not found or user not authenticated.
+    """
+    if not user:
+        return None
+    
+    store = get_company_graph_store()
+    company = await store.get_company(company_id)
+    
+    if not company:
+        return None
+    
+    user_id = str(user.get("_id") or user.get("id"))
+    if company.owner_id != user_id and user_id not in (company.admin_ids or []):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this company"
+        )
+    
+    return company
 
 
 # =============================================================================
 # COMPANY ENDPOINTS
 # =============================================================================
 
-@router.get("", response_model=CompanyListResponse)
-async def list_companies(
-    owner_id: Optional[str] = Query(None, description="Filter by owner ID"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of companies"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    search: Optional[str] = Query(None, description="Search by name or domain"),
-    user: Optional[dict] = Depends(get_optional_user)
-):
-    """
-    List all companies.
-    
-    Returns a paginated list of companies that the user has access to.
-    """
-    # TODO: Implement with CompanyGraphStore
-    # For now, return mock data
-    mock_companies = []
-    for i in range(min(limit, 5)):
-        mock_companies.append(CompanyResponse(
-            id=f"company_{i}",
-            name=f"Company {i}",
-            domain=f"company{i}.com",
-            business_category="saas",
-            description=f"Test company {i}",
-            created_at=datetime.utcnow().isoformat(),
-            updated_at=datetime.utcnow().isoformat()
-        ))
-    
-    return CompanyListResponse(
-        companies=mock_companies,
-        total=5,
-        limit=limit,
-        offset=offset
-    )
-
-
-@router.post("", response_model=CompanyResponse)
+@router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def create_company(
     request: CompanyCreateRequest,
     user: dict = Depends(get_current_user)
-):
+) -> CompanyResponse:
     """
     Create a new company.
     
-    Creates a new company and initializes its Company Graph.
+    This is the entry point for the Company Graph.
+    Creates a company and initializes its graph structure.
     """
-    # TODO: Implement with CompanyGraphStore
-    # For now, return mock response
-    company_id = f"company_{secrets.token_hex(4)}"
+    user_id = str(user.get("_id") or user.get("id"))
     
-    return CompanyResponse(
-        id=company_id,
+    service = get_company_graph_service()
+    
+    # Create the company
+    company = await service.create_company(
         name=request.name,
         domain=request.domain,
-        business_category=request.business_category,
-        description=request.description,
-        created_at=datetime.utcnow().isoformat(),
-        updated_at=datetime.utcnow().isoformat(),
-        message="Company created successfully (mock)"
+        business_category=request.business_category or "other",
+        description=request.description or "",
+        owner_id=user_id,
+        tagline=request.tagline
+    )
+    
+    # Create initial company graph
+    graph = await service.get_or_create_company_graph(company.id)
+    
+    log.info(f"Created company {company.id} with graph {graph.id}")
+    
+    return CompanyResponse(
+        company=company,
+        message="Company created successfully"
     )
 
 
 @router.get("/{company_id}", response_model=CompanyResponse)
 async def get_company(
-    company_id: str,
-    user: Optional[dict] = Depends(get_optional_user)
-):
+    company_id: str = Path(..., description="Company ID"),
+    user: dict = Depends(get_current_user)
+) -> CompanyResponse:
     """
     Get a company by ID.
     
-    Returns detailed information about a specific company.
+    Returns the company with its current state and onboarding progress.
     """
-    # TODO: Implement with CompanyGraphStore
-    # For now, return mock response
+    company = await get_company_access(company_id, user)
+    
+    service = get_company_graph_service()
+    graph = await service.get_company_graph(company.id)
     
     return CompanyResponse(
-        id=company_id,
-        name="Test Company",
-        domain="test.com",
-        business_category="saas",
-        description="A test company",
-        created_at=datetime.utcnow().isoformat(),
-        updated_at=datetime.utcnow().isoformat(),
-        message="Company retrieved successfully (mock)"
+        company=company,
+        graph=graph,
+        message="Company retrieved successfully"
     )
 
 
-@router.put("/{company_id}", response_model=CompanyResponse)
-async def update_company(
-    company_id: str,
-    request: CompanyUpdateRequest,
-    user: dict = Depends(get_current_user)
-):
-    """
-    Update a company.
-    
-    Updates company information. Requires admin access.
-    """
-    # TODO: Implement with CompanyGraphStore
-    # For now, return mock response
-    
-    return CompanyResponse(
-        id=company_id,
-        name=request.name or "Test Company",
-        domain=request.domain or "test.com",
-        business_category=request.business_category or "saas",
-        description=request.description or "",
-        created_at=datetime.utcnow().isoformat(),
-        updated_at=datetime.utcnow().isoformat(),
-        message="Company updated successfully (mock)"
-    )
-
-
-@router.delete("/{company_id}", response_model=CompanyResponse)
-async def delete_company(
-    company_id: str,
-    force: bool = Query(False, description="Force deletion"),
-    user: dict = Depends(get_current_user)
-):
-    """
-    Delete a company.
-    
-    Deletes a company and all its associated data. Requires admin access.
-    """
-    # TODO: Implement with CompanyGraphStore
-    if not force:
-        raise HTTPException(
-            status_code=400,
-            detail="Force parameter required for deletion"
-        )
-    
-    return CompanyResponse(
-        id=company_id,
-        name="Deleted Company",
-        domain="",
-        business_category="other",
-        description="",
-        created_at=datetime.utcnow().isoformat(),
-        updated_at=datetime.utcnow().isoformat(),
-        message="Company deleted successfully (mock)"
-    )
-
+# =============================================================================
 
 # =============================================================================
 # COMPANY GRAPH ENDPOINTS
 # =============================================================================
 
-@router.get("/{company_id}/graph", response_model=Any)
+@router.get("/{company_id}/graph", response_model=CompanyGraphResponse)
 async def get_company_graph(
-    company_id: str,
-    include: Optional[str] = Query(None, description="What to include"),
-    depth: Optional[str] = Query("standard", description="Depth of graph"),
-    user: Optional[dict] = Depends(get_optional_user)
-):
+    company_id: str = Path(..., description="Company ID"),
+    include_detected_systems: bool = Query(True, description="Include detected systems"),
+    include_specialists: bool = Query(True, description="Include specialists"),
+    include_workflows: bool = Query(True, description="Include workflows"),
+    user: dict = Depends(get_current_user)
+) -> CompanyGraphResponse:
     """
     Get the complete Company Graph for a company.
     
-    Returns the Company Graph including websites, repos, systems, specialists, etc.
+    Returns the company's graph with all entities and relationships.
     """
-    # TODO: Implement with CompanyGraphStore
-    return {
-        "company_id": company_id,
-        "company": {
-            "id": company_id,
-            "name": "Test Company",
-            "domain": "test.com"
-        },
-        "websites": [],
-        "repos": [],
-        "systems": [],
-        "specialists": [],
-        "workflows": [],
-        "knowledge": [],
-        "connectors": [],
-        "detected_systems": [],
-        "is_complete": False,
-        "completeness_score": 0.0,
-        "message": "Company Graph retrieved successfully (mock)"
-    }
+    company = await get_company_access(company_id, user)
+    
+    service = get_company_graph_service()
+    graph = await service.get_company_graph(
+        company_id=company.id,
+        include_detected_systems=include_detected_systems,
+        include_specialists=include_specialists,
+        include_workflows=include_workflows
+    )
+    
+    if not graph:
+        # Create a new graph if it doesn't exist
+        graph = await service.get_or_create_company_graph(company.id)
+    
+    # Calculate completeness score
+    completeness = await service.calculate_graph_completeness(company.id)
+    
+    return CompanyGraphResponse(
+        company_id=company.id,
+        graph=graph,
+        completeness_score=completeness,
+        message="Company Graph retrieved successfully"
+    )
+
+
+@router.post("/{company_id}/graph/sync", response_model=CompanyGraphResponse)
+async def sync_company_graph(
+    company_id: str = Path(..., description="Company ID"),
+    force_rescan: bool = Body(False, description="Force re-scan of all websites and repos"),
+    user: dict = Depends(get_current_user)
+) -> CompanyGraphResponse:
+    """
+    Synchronize the Company Graph.
+    
+    Re-scans all websites and repositories, updates detected systems,
+    and re-provisions specialists if needed.
+    """
+    company = await get_company_access(company_id, user)
+    
+    service = get_company_graph_service()
+    
+    # Get existing graph
+    graph = await service.get_or_create_company_graph(company.id)
+    
+    # Get all websites and repos
+    store = get_company_graph_store()
+    websites = await store.list_websites(company.id)
+    repos = await store.list_repos(company.id)
+    
+    # Re-scan if requested or if it's been a while
+    if force_rescan or not websites or not repos:
+        for website in websites:
+            if force_rescan or not website.last_scanned:
+                await scan_website(
+                    website_url=website.url,
+                    company_id=company.id,
+                    scan_depth="standard"
+                )
+        
+        for repo in repos:
+            if force_rescan or not repo.last_scanned:
+                await scan_repo(
+                    repo_url=repo.url,
+                    company_id=company.id
+                )
+    
+    # Update graph with latest data
+    updated_graph = await service.get_or_create_company_graph(company.id)
+    
+    # Calculate completeness
+    completeness = await service.calculate_graph_completeness(company.id)
+    
+    log.info(f"Synced Company Graph for {company_id}")
+    
+    return CompanyGraphResponse(
+        company_id=company.id,
+        graph=updated_graph,
+        completeness_score=completeness,
+        message="Company Graph synchronized successfully"
+    )
 
 
 # =============================================================================
-# WEBSITE SCAN ENDPOINTS
+# SCANNING ENDPOINTS
 # =============================================================================
 
 @router.post("/{company_id}/scan/website", response_model=WebsiteScanResult)
-async def scan_website(
-    company_id: str,
-    request: WebsiteScanRequest,
+async def scan_website_endpoint(
+    company_id: str = Path(..., description="Company ID"),
+    request: WebsiteScanRequest = Body(...),
     user: dict = Depends(get_current_user)
-):
+) -> WebsiteScanResult:
     """
-    Scan a website and detect its technology stack.
+    Scan a website for technology stack and systems.
     
-    Scans the specified website and returns detected systems and stack inference.
+    This performs a comprehensive scan of the website, detecting:
+    - Frontend frameworks (React, Vue, Angular, etc.)
+    - Backend technologies (Node.js, Django, Rails, etc.)
+    - CMS platforms (WordPress, Shopify, etc.)
+    - E-commerce platforms (Shopify, WooCommerce, etc.)
+    - Analytics tools (Google Analytics, etc.)
+    - And more...
     """
-    # TODO: Implement with WebsiteScanner
-    return WebsiteScanResult(
-        scan_id=f"scan_{secrets.token_hex(8)}",
+    company = await get_company_access(company_id, user)
+    
+    # Perform the scan
+    result = await scan_website(
         website_url=request.website_url,
-        status="success",
-        inferred_stack={
-            "frameworks": ["React", "Next.js"],
-            "languages": ["JavaScript", "TypeScript"],
-            "cms": [],
-            "analytics": ["Google Analytics"],
-            "confidence_scores": {
-                "React": 0.95,
-                "Next.js": 0.9,
-                "Google Analytics": 0.85
-            }
-        },
-        detected_systems=[
-            {
-                "system_type": "CMS",
-                "name": "Next.js",
-                "confidence": 0.95,
-                "evidence": [
-                    {"type": "meta_tag", "value": "next.js", "location": "head"}
-                ]
-            },
-            {
-                "system_type": "analytics",
-                "name": "Google Analytics",
-                "confidence": 0.85,
-                "evidence": [
-                    {"type": "script", "value": "google-analytics.com", "location": "body"}
-                ]
-            }
-        ],
-        pages_scanned=1,
-        started_at=datetime.utcnow().isoformat(),
-        completed_at=datetime.utcnow().isoformat()
+        company_id=company.id,
+        scan_depth=request.scan_depth,
+        include_sitemap=request.include_sitemap,
+        max_pages=request.max_pages
     )
+    
+    # If scan was successful, add website to company
+    if result.status == "success":
+        service = get_company_graph_service()
+        
+        # Check if website already exists
+        store = get_company_graph_store()
+        existing_websites = await store.list_websites(company.id)
+        website_exists = any(w.url == request.website_url for w in existing_websites)
+        
+        if not website_exists:
+            website = Website(
+                url=request.website_url,
+                company_id=company.id,
+                is_primary=len(existing_websites) == 0,  # First website is primary
+                inferred_stack=result.inferred_stack,
+                detected_systems=result.detected_systems,
+                last_scanned=result.completed_at or datetime.utcnow(),
+                scan_status="success",
+                confidence_scores=result.inferred_stack.confidence_scores if result.inferred_stack else {}
+            )
+            await store.create_website(website)
+            log.info(f"Created website {request.website_url} for company {company_id}")
+        else:
+            # Update existing website
+            for existing in existing_websites:
+                if existing.url == request.website_url:
+                    updated_website = existing.model_copy(update={
+                        "inferred_stack": result.inferred_stack,
+                        "detected_systems": result.detected_systems,
+                        "last_scanned": result.completed_at or datetime.utcnow(),
+                        "scan_status": "success",
+                        "confidence_scores": result.inferred_stack.confidence_scores if result.inferred_stack else {}
+                    })
+                    await store.update_website(updated_website)
+                    log.info(f"Updated website {request.website_url} for company {company_id}")
+                    break
+        
+        # Add detected systems to company graph
+        for system in result.detected_systems:
+            existing_systems = await store.list_detected_systems(
+                company_id=company.id,
+                system_type=system.system_type
+            )
+            if not any(ds.name == system.name for ds in existing_systems):
+                await store.create_detected_system(system)
+                log.debug(f"Added detected system {system.name} ({system.system_type}) to company {company_id}")
+    
+    return result
+
+
+@router.post("/{company_id}/scan/repo", response_model=WebsiteScanResult)
+async def scan_repo_endpoint(
+    company_id: str = Path(..., description="Company ID"),
+    request: RepoScanRequest = Body(...),
+    user: dict = Depends(get_current_user)
+) -> WebsiteScanResult:
+    """
+    Scan a repository for technology stack and systems.
+    """
+    company = await get_company_access(company_id, user)
+    
+    # Perform the scan
+    result = await scan_repo(
+        repo_url=request.repo_url,
+        company_id=company.id,
+        provider=request.provider
+    )
+    
+    # If scan was successful, add repo to company
+    if result.status == "success" and result.inferred_stack:
+        service = get_company_graph_service()
+        
+        # Check if repo already exists
+        store = get_company_graph_store()
+        existing_repos = await store.list_repos(company.id)
+        repo_exists = any(r.url == request.repo_url for r in existing_repos)
+        
+        if not repo_exists:
+            from services.scanner import RepoScanner
+            scanner = RepoScanner(company_id)
+            provider = scanner._detect_provider(request.repo_url)
+            
+            repo = Repo(
+                url=request.repo_url,
+                company_id=company.id,
+                provider=provider,
+                name=request.repo_url.split('/')[-1],
+                full_name=request.repo_url,
+                inferred_stack=result.inferred_stack,
+                last_scanned=result.completed_at or datetime.utcnow()
+            )
+            await store.create_repo(repo)
+            log.info(f"Created repo {request.repo_url} for company {company_id}")
+        else:
+            # Update existing repo
+            for existing in existing_repos:
+                if existing.url == request.repo_url:
+                    updated_repo = existing.model_copy(update={
+                        "inferred_stack": result.inferred_stack,
+                        "last_scanned": result.completed_at or datetime.utcnow()
+                    })
+                    await store.update_repo(updated_repo)
+                    log.info(f"Updated repo {request.repo_url} for company {company_id}")
+                    break
+    
+    return result
 
 
 # =============================================================================
 # SPECIALIST ENDPOINTS
 # =============================================================================
 
-@router.get("/{company_id}/specialists", response_model=Any)
+@router.get("/{company_id}/specialists", response_model=SpecialistListResponse)
 async def list_specialists(
-    company_id: str,
-    family: Optional[str] = Query(None, description="Filter by specialist family"),
+    company_id: str = Path(..., description="Company ID"),
+    family: Optional[SpecialistFamily] = Query(None, description="Filter by specialist family"),
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    user: Optional[dict] = Depends(get_optional_user)
-):
+    user: dict = Depends(get_current_user)
+) -> SpecialistListResponse:
     """
     List all specialists for a company.
     
     Returns specialists provisioned for the specified company.
     """
-    # TODO: Implement with SpecialistService
-    mock_specialists = [
-        {
-            "id": "spec_1",
-            "name": "Engineering Specialist",
-            "family": "engineering",
-            "capabilities": ["code", "development", "bug_fixing"],
-            "status": "available",
-            "is_provisioned": True
-        },
-        {
-            "id": "spec_2",
-            "name": "QA Specialist",
-            "family": "qa",
-            "capabilities": ["testing", "quality_assurance"],
-            "status": "available",
-            "is_provisioned": True
-        }
-    ]
+    company = await get_company_access(company_id, user)
     
-    if family:
-        mock_specialists = [s for s in mock_specialists if s["family"] == family]
+    specialist_service = get_specialist_service()
+    specialists = await specialist_service.list_specialists(
+        company_id=company.id,
+        family=family,
+        status=status,
+        limit=limit,
+        offset=offset
+    )
     
-    return {
-        "specialists": mock_specialists[:limit],
-        "company_id": company_id,
-        "total": len(mock_specialists),
-        "message": "Specialists retrieved successfully (mock)"
-    }
+    # Get total count
+    total = await specialist_service.count_specialists(company_id=company.id)
+    
+    return SpecialistListResponse(
+        specialists=specialists,
+        company_id=company.id,
+        total=total,
+        limit=limit,
+        offset=offset,
+        message="Specialists retrieved successfully"
+    )
 
 
 @router.post("/{company_id}/specialists", response_model=SpecialistProvisionResult)
 async def provision_specialist(
-    company_id: str,
-    request: SpecialistProvisionRequest,
+    company_id: str = Path(..., description="Company ID"),
+    request: SpecialistProvisionRequest = Body(...),
     user: dict = Depends(get_current_user)
-):
+) -> SpecialistProvisionResult:
     """
     Provision a new specialist for a company.
     
     Creates and provisions a specialist based on the specified parameters.
     """
-    # TODO: Implement with SpecialistService
-    return SpecialistProvisionResult(
-        request_id=f"req_{secrets.token_hex(8)}",
-        specialist_id=f"spec_{secrets.token_hex(4)}",
-        status="success",
-        message="Specialist provisioned successfully (mock)",
-        provisioned_at=datetime.utcnow().isoformat()
+    company = await get_company_access(company_id, user)
+    
+    specialist_service = get_specialist_service()
+    
+    result = await specialist_service.provision_specialist(
+        company_id=company.id,
+        specialist_family=request.specialist_family,
+        name=request.name,
+        auto_detect=request.auto_detect,
+        system_types=request.system_types
     )
+    
+    if result.status == "success":
+        log.info(f"Provisioned specialist {result.specialist_id} for company {company_id}")
+    else:
+        log.warning(f"Failed to provision specialist for company {company_id}: {result.message}")
+    
+    return result
+
+
+@router.post("/{company_id}/specialists/match", response_model=List[Specialist])
+async def match_specialists(
+    company_id: str = Path(..., description="Company ID"),
+    task_description: str = Body(..., description="Description of the task"),
+    capabilities: List[str] = Body([], description="Required capabilities"),
+    system_types: List[SystemType] = Body([], description="Relevant system types"),
+    limit: int = Body(5, ge=1, le=20),
+    user: dict = Depends(get_current_user)
+) -> List[Specialist]:
+    """
+    Match specialists to a task.
+    
+    Returns the best specialists for the given task based on:
+    - Capabilities match
+    - System type compatibility
+    - Success rate
+    - Availability
+    """
+    company = await get_company_access(company_id, user)
+    
+    specialist_service = get_specialist_service()
+    specialists = await specialist_service.get_specialists_for_task(
+        company_id=company.id,
+        task_description=task_description,
+        capabilities=capabilities,
+        system_types=system_types,
+        limit=limit
+    )
+    
+    return specialists
 
 
 # =============================================================================
@@ -449,65 +520,161 @@ async def provision_specialist(
 
 @router.get("/{company_id}/onboarding", response_model=OnboardingProgressResponse)
 async def get_onboarding_progress(
-    company_id: str,
+    company_id: str = Path(..., description="Company ID"),
     user: dict = Depends(get_current_user)
-):
+) -> OnboardingProgressResponse:
     """
     Get the current onboarding progress for a company.
     
     Returns the onboarding status, current step, and progress percentage.
     """
-    # TODO: Implement with OnboardingService
+    company = await get_company_access(company_id, user)
+    
+    onboarding_service = get_onboarding_service()
+    progress = await onboarding_service.get_onboarding_progress(company.id)
+    
+    if not progress:
+        # Create default progress if not exists
+        progress = OnboardingProgress(
+            company_id=company.id,
+            current_step="not_started",
+            total_steps=5,
+            completed_steps=0,
+            progress_percent=0.0,
+            status="not_started",
+            started_at=company.created_at,
+            steps=[]
+        )
+    
     return OnboardingProgressResponse(
-        company_id=company_id,
-        current_step="scan_websites",
-        total_steps=5,
-        completed_steps=2,
-        progress_percent=40.0,
-        status="in_progress",
-        steps=[
-            {"name": "create_company", "status": "completed", "completed_at": datetime.utcnow().isoformat()},
-            {"name": "scan_websites", "status": "in_progress", "started_at": datetime.utcnow().isoformat()},
-            {"name": "scan_repositories", "status": "pending"},
-            {"name": "detect_systems", "status": "pending"},
-            {"name": "provision_specialists", "status": "pending"}
-        ],
-        errors=[]
+        company_id=progress.company_id,
+        current_step=progress.current_step,
+        total_steps=progress.total_steps,
+        completed_steps=progress.completed_steps,
+        progress_percent=progress.progress_percent,
+        status=progress.status,
+        steps=progress.steps,
+        errors=progress.errors,
+        started_at=progress.started_at,
+        completed_at=progress.completed_at,
+        message=f"Onboarding progress for {company.name}"
     )
 
 
 @router.post("/{company_id}/onboarding/start", response_model=OnboardingProgressResponse)
 async def start_onboarding(
-    company_id: str,
+    company_id: str = Path(..., description="Company ID"),
     website_urls: List[str] = Body([], description="Website URLs to scan"),
     repo_urls: List[str] = Body([], description="Repository URLs to scan"),
     skip_website_scan: bool = Body(False, description="Skip website scanning"),
     skip_repo_scan: bool = Body(False, description="Skip repository scanning"),
     auto_provision_specialists: bool = Body(True, description="Auto-provision specialists"),
     user: dict = Depends(get_current_user)
-):
+) -> OnboardingProgressResponse:
     """
     Start the onboarding process for a company.
-    
-    Initiates the onboarding flow: website scanning, repo scanning, system detection,
-    and specialist provisioning.
     """
-    # TODO: Implement with OnboardingService
+    company = await get_company_access(company_id, user)
+    
+    onboarding_service = get_onboarding_service()
+    progress = await onboarding_service.start_onboarding(
+        company_id=company.id,
+        website_urls=website_urls,
+        repo_urls=repo_urls,
+        skip_website_scan=skip_website_scan,
+        skip_repo_scan=skip_repo_scan,
+        auto_provision_specialists=auto_provision_specialists
+    )
+    
+    log.info(f"Started onboarding for company {company_id}")
+    
     return OnboardingProgressResponse(
-        company_id=company_id,
-        current_step="scan_websites",
-        total_steps=5,
-        completed_steps=1,
-        progress_percent=20.0,
-        status="in_progress",
-        steps=[
-            {"name": "create_company", "status": "completed", "completed_at": datetime.utcnow().isoformat()},
-            {"name": "scan_websites", "status": "in_progress", "started_at": datetime.utcnow().isoformat()},
-            {"name": "scan_repositories", "status": "pending"},
-            {"name": "detect_systems", "status": "pending"},
-            {"name": "provision_specialists", "status": "pending"}
-        ],
-        errors=[]
+        company_id=progress.company_id,
+        current_step=progress.current_step,
+        total_steps=progress.total_steps,
+        completed_steps=progress.completed_steps,
+        progress_percent=progress.progress_percent,
+        status=progress.status,
+        steps=progress.steps,
+        errors=progress.errors,
+        started_at=progress.started_at,
+        completed_at=progress.completed_at,
+        message="Onboarding started successfully"
+    )
+
+
+@router.post("/{company_id}/onboarding/pause", response_model=OnboardingProgressResponse)
+async def pause_onboarding(
+    company_id: str = Path(..., description="Company ID"),
+    user: dict = Depends(get_current_user)
+) -> OnboardingProgressResponse:
+    """Pause the onboarding process for a company."""
+    company = await get_company_access(company_id, user)
+    onboarding_service = get_onboarding_service()
+    progress = await onboarding_service.pause_onboarding(company.id)
+    log.info(f"Paused onboarding for company {company_id}")
+    return OnboardingProgressResponse(
+        company_id=progress.company_id,
+        current_step=progress.current_step,
+        total_steps=progress.total_steps,
+        completed_steps=progress.completed_steps,
+        progress_percent=progress.progress_percent,
+        status=progress.status,
+        steps=progress.steps,
+        errors=progress.errors,
+        started_at=progress.started_at,
+        completed_at=progress.completed_at,
+        message="Onboarding paused successfully"
+    )
+
+
+@router.post("/{company_id}/onboarding/resume", response_model=OnboardingProgressResponse)
+async def resume_onboarding(
+    company_id: str = Path(..., description="Company ID"),
+    user: dict = Depends(get_current_user)
+) -> OnboardingProgressResponse:
+    """Resume a paused onboarding process."""
+    company = await get_company_access(company_id, user)
+    onboarding_service = get_onboarding_service()
+    progress = await onboarding_service.resume_onboarding(company.id)
+    log.info(f"Resumed onboarding for company {company_id}")
+    return OnboardingProgressResponse(
+        company_id=progress.company_id,
+        current_step=progress.current_step,
+        total_steps=progress.total_steps,
+        completed_steps=progress.completed_steps,
+        progress_percent=progress.progress_percent,
+        status=progress.status,
+        steps=progress.steps,
+        errors=progress.errors,
+        started_at=progress.started_at,
+        completed_at=progress.completed_at,
+        message="Onboarding resumed successfully"
+    )
+
+
+@router.post("/{company_id}/onboarding/cancel", response_model=OnboardingProgressResponse)
+async def cancel_onboarding(
+    company_id: str = Path(..., description="Company ID"),
+    user: dict = Depends(get_current_user)
+) -> OnboardingProgressResponse:
+    """Cancel the onboarding process for a company."""
+    company = await get_company_access(company_id, user)
+    onboarding_service = get_onboarding_service()
+    progress = await onboarding_service.cancel_onboarding(company.id)
+    log.info(f"Cancelled onboarding for company {company_id}")
+    return OnboardingProgressResponse(
+        company_id=progress.company_id,
+        current_step=progress.current_step,
+        total_steps=progress.total_steps,
+        completed_steps=progress.completed_steps,
+        progress_percent=progress.progress_percent,
+        status=progress.status,
+        steps=progress.steps,
+        errors=progress.errors,
+        started_at=progress.started_at,
+        completed_at=progress.completed_at,
+        message="Onboarding cancelled"
     )
 
 
@@ -526,12 +693,12 @@ async def get_public_doctor_report():
     # Import here to avoid circular imports
     from backend.server import _DoctorCheck, _DoctorReport
     import datetime
+    import shutil
     
     checks = []
     
     # Basic checks that don't require auth
     # 1. Git binary
-    import shutil
     git_ok = bool(shutil.which("git"))
     checks.append(_DoctorCheck(
         id="git_binary",
@@ -551,6 +718,29 @@ async def get_public_doctor_report():
         detail="Basic system checks passed",
         explanation="System is operational"
     ))
+    
+    # 3. Storage backend
+    try:
+        store = get_company_graph_store()
+        # Try a simple operation
+        count = await store.count_companies()
+        checks.append(_DoctorCheck(
+            id="storage_backend",
+            category="Storage",
+            label="Storage backend",
+            status="pass",
+            detail=f"Storage backend connected ({count} companies)",
+            explanation="Storage backend is operational"
+        ))
+    except Exception as e:
+        checks.append(_DoctorCheck(
+            id="storage_backend",
+            category="Storage",
+            label="Storage backend",
+            status="fail",
+            detail=f"Storage backend connection failed: {str(e)}",
+            explanation="Check storage configuration and connection"
+        ))
     
     ready = all(c.status != "fail" for c in checks)
     fail_count = sum(1 for c in checks if c.status == "fail")
@@ -572,6 +762,5 @@ async def get_public_doctor_report():
 # =============================================================================
 # EXPORT ROUTER
 # =============================================================================
-
 # This will be included in backend/server.py
 # app.include_router(router)
