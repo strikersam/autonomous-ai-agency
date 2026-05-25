@@ -138,8 +138,9 @@ function UserOnboardingTable() {
     .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load activation status.'));
   const loadUsers  = () => api.get('/api/activation/users').then(r => setUsers(r.data || []))
     .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load users.'));
-  const reload = () => { setLoadErr(''); loadStatus(); loadUsers(); };
-  React.useEffect(() => { reload(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const reload = React.useCallback(() => { setLoadErr(''); loadStatus(); loadUsers(); }, []);
+  React.useEffect(() => { reload(); }, [reload]);
 
   const toggle = async (userId, allowed) => {
     setLoading(p => ({ ...p, [userId]: true }));
