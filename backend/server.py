@@ -72,6 +72,7 @@ from setup import setup_router
 from activation_api import activation_router
 from setup.api import get_wizard_state
 from secrets_store import secrets_router, get_secrets_store
+from version import __version__, APP_NAME, APP_LABEL, APP_TAGLINE
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -1276,7 +1277,7 @@ async def lifespan(app_: "FastAPI"):
     log.info("RuntimeManager stopped")
 
 
-app = FastAPI(title="LLM Relay v4.1 — Unified Platform", version="4.1.0", lifespan=lifespan)
+app = FastAPI(title=f"{APP_LABEL} — {APP_TAGLINE}", version=__version__, lifespan=lifespan)
 
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
@@ -4822,8 +4823,8 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
 @app.get("/api/platform")
 async def platform_info(user: dict = Depends(get_current_user)):
     return {
-        "name": "LLM Relay Platform",
-        "version": "2.0.0",
+        "name": APP_NAME,
+        "version": __version__,
         "ngrok_domain": NGROK_DOMAIN,
         "ngrok_configured": bool(NGROK_TOKEN),
         "langfuse_configured": bool(LANGFUSE_PK and LANGFUSE_SK),

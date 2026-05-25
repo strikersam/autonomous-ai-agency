@@ -172,6 +172,113 @@ Agents run on schedule, push results to the Task Board, and only interrupt you w
 
 ---
 
+## Screens
+
+A visual tour of the dashboard. Screenshots reflect the most recent captured UI and are
+regenerated from `scripts/sync_readme_gallery.py`.
+
+<!-- README_UI_GALLERY:START -->
+### 🛰 Control Plane
+
+The command center: live agent health, recent activity, and system metrics at a glance.
+
+<p align="center"><img src="docs/screenshots/readme/v4-control-plane.png" width="92%" alt="Control Plane dashboard"/></p>
+
+### 🛬 Login
+
+People can sign in through a simple starting page instead of touching raw config files.
+
+<p align="center"><img src="docs/screenshots/readme/v4-login.png" width="92%" alt="Login"/></p>
+
+### 🧙 Setup Wizard
+
+The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.
+
+<p align="center"><img src="docs/screenshots/readme/v4-setup-wizard.png" width="92%" alt="Setup Wizard"/></p>
+
+### 💬 Chat
+
+This is where people talk to the CEO agent directly, using the providers and rules you set up.
+
+<p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Chat"/></p>
+
+### 🗂 Task Board
+
+This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.
+
+<p align="center"><img src="docs/screenshots/readme/v4-tasks-kanban.png" width="92%" alt="Kanban Task Board"/></p>
+
+### 🤖 Agent Roster
+
+This is your cast of AI helpers. Each agent can have its own model, runtime, specialty, and rules.
+
+<p align="center"><img src="docs/screenshots/readme/v4-agents.png" width="92%" alt="Agent Roster"/></p>
+
+### ⚙️ Runtimes
+
+This shows the engines behind the scenes that actually run your AI work.
+
+<p align="center"><img src="docs/screenshots/readme/v4-runtimes.png" width="92%" alt="Agent Runtimes"/></p>
+
+### 🛣 Routing Policy
+
+This is where you decide how smart, cheap, fast, or private the system should be when picking a model.
+
+<p align="center"><img src="docs/screenshots/readme/v4-routing.png" width="92%" alt="Routing Policy"/></p>
+
+### 🔌 Providers and Models
+
+This is where you connect local and cloud AI sources and decide what models are available.
+
+<p align="center">
+  <img src="docs/screenshots/readme/v4-providers.png" width="48%" alt="Providers"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-models.png" width="48%" alt="Models"/>
+</p>
+
+### 📚 Knowledge
+
+This is your team's memory: wiki pages, source material, and reusable context.
+
+<p align="center"><img src="docs/screenshots/readme/v4-knowledge.png" width="92%" alt="Knowledge and Wiki"/></p>
+
+### 🔭 Logs and activity
+
+This helps you answer, ‘what just happened?’ — every LLM call, token count, latency, and cost.
+
+<p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs"/></p>
+
+### 🗓 Schedules
+
+This is how you make AI jobs run later or run again automatically.
+
+<p align="center"><img src="docs/screenshots/readme/v4-schedules.png" width="92%" alt="Schedules"/></p>
+
+### 🧭 Settings and guardrails
+
+Central settings keep defaults, policies, and integrations in one place instead of scattered config files.
+
+<p align="center"><img src="docs/screenshots/readme/v4-settings.png" width="92%" alt="Settings"/></p>
+
+### 🛡 Admin portal
+
+This gives admins a simpler place to manage access, instance activation, and system behavior.
+
+<p align="center"><img src="docs/screenshots/readme/v4-admin.png" width="92%" alt="Admin Portal"/></p>
+
+### 📱 Mobile
+
+The dashboard is responsive — sign in, run the setup wizard, and monitor agents from a phone.
+
+<p align="center">
+  <img src="docs/screenshots/readme/v4-login-mobile.png" width="32%" alt="Mobile login"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="32%" alt="Mobile setup wizard"/>
+</p>
+<!-- README_UI_GALLERY:END -->
+
+---
+
 ## Architecture
 
 ```

@@ -83,5 +83,6 @@ render-env-vars.txt
 # Instance activation (generated at runtime — never commit)
 .instance_id
 .activation_token
+.activation_keypair.json
 .onboarding_state.json
 .activation_audit.jsonl

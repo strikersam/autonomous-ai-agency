@@ -19,6 +19,7 @@ blocked by a reviewer crash.
 
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -27,11 +28,15 @@ from pathlib import Path
 
 from openai import OpenAI
 
+# CLI script: log to stdout so messages stay visible and ordered in CI logs.
+logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
+log = logging.getLogger("review_agent")
+
 PR_NUMBER = sys.argv[1] if len(sys.argv) > 1 else ""
 RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility
 
-# Opus is preferred for council review (CEO / agency quality).
-# NVIDIA NIM models are the fallback when Anthropic is not configured.
+# NVIDIA NIM is the primary engine for council review.
+# Opus-via-Anthropic is only an optional fallback when configured.
 OPUS_MODEL = "claude-opus-4-6"
 NVIDIA_CANDIDATE_MODELS = [
     "qwen/qwen3-coder-480b-a35b-instruct",
@@ -81,25 +86,9 @@ def load_council_skill() -> str:
 
 
 def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str:
-    """Call the best available LLM for review. Opus is primary; NVIDIA NIM is fallback."""
-    # Primary: Anthropic Claude Opus
-    if anthropic_key:
-        try:
-            import anthropic as _anthropic
-            client = _anthropic.Anthropic(api_key=anthropic_key)
-            resp = client.messages.create(
-                model=OPUS_MODEL,
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = next((b.text for b in resp.content if b.type == "text"), "")
-            if text:
-                print(f"[review] Got response from {OPUS_MODEL} (Anthropic)", flush=True)
-                return text
-        except Exception as exc:
-            print(f"[review] Anthropic Opus failed: {exc} — trying NVIDIA fallback", file=sys.stderr)
-
-    # Fallback: NVIDIA NIM
+    """Call the best available LLM for review. NVIDIA NIM is the primary engine;
+    Opus-via-Anthropic is only an optional fallback."""
+    # Primary: NVIDIA NIM
     if nvidia_key:
         client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
         for model in NVIDIA_CANDIDATE_MODELS:
@@ -111,11 +100,28 @@ def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str
                 )
                 text = response.choices[0].message.content or ""
                 if text:
-                    print(f"[review] Got response from {model} (NVIDIA NIM)", flush=True)
+                    log.info("[review] Got response from %s (NVIDIA NIM)", model)
                     return text
             except Exception as exc:
-                print(f"[review] Model {model} failed: {exc}", file=sys.stderr)
+                log.warning("[review] Model %s failed: %s", model, exc)
                 continue
+
+    # Optional fallback: Anthropic Claude Opus
+    if anthropic_key:
+        try:
+            import anthropic as _anthropic
+            client = _anthropic.Anthropic(api_key=anthropic_key)
+            resp = client.messages.create(
+                model=OPUS_MODEL,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = next((b.text for b in resp.content if b.type == "text"), "")
+            if text:
+                log.info("[review] Got response from %s (Anthropic fallback)", OPUS_MODEL)
+                return text
+        except Exception as exc:
+            log.exception("[review] Anthropic Opus fallback failed: %s", exc)
 
     return ""
 

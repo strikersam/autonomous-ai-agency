@@ -1,6 +1,34 @@
 ## [Unreleased]
 
+### Security
+- **Self-service instance activation (unblocks the owner/self-hoster).** The activation gate
+  previously had only one path — email the owner for a signed code — with no tool to mint one,
+  so the operator was locked out of their own instance. Added `ACTIVATION_REQUIRED=false`
+  (opt-in, off by default) to disable the gate for self-hosters, and `ACTIVATION_PUBLIC_KEY_B64`
+  so an operator can trust their own keypair via env without editing source. Signature
+  verification is unchanged — the escape hatch only stops *enforcing* the gate. Verified via the
+  `risky-module-review` skill.
+
+### Added
+- `scripts/activate.py`: CLI that mints and installs an Ed25519-signed activation token for the
+  current instance (generates a keypair if none exists; writes git-ignored files at `0600`).
+- `docs/runbooks/activation.md`: owner/admin activation procedure (disable gate · self-mint · request).
+- `activation.owner_public_key_b64()` / `activation.activation_required()` helpers, with
+  `tests/test_activation_selfservice.py` covering key round-trip, instance binding, untrusted-key
+  rejection, the escape hatch, and the CLI.
+- **Version single source of truth.** `version.py` (canonical Python) + `frontend/src/version.js`
+  (canonical frontend — CRA can't import `package.json` from `src/`). `scripts/bump_version.py X.Y.Z`
+  propagates the version to `version.py`, `version.js`, `frontend/package.json`,
+  `frontend/public/index.html`, and the README badge in one command;
+  `tests/test_version_consistency.py` fails CI if any of them drift.
+
 ### Fixed
+- **Stale `v4.1` / wrong version strings.** The browser tab title and meta in
+  `frontend/public/index.html` said "LLM Relay v4.1", the FastAPI app title said
+  "LLM Relay v4.1 — Unified Platform" (`version="4.1.0"`), and `/api/platform` returned
+  `"2.0.0"`. All now read from `version.py`/`version.js` and show the current release.
+  Sidebar/topbar brand in `AppShell.jsx` also said "LLM Relay V5.0" (inconsistent with the
+  "Agency Core" branding elsewhere) — now sourced from `APP_LABEL`.
 - **Onboarding/activation showed "Instance ID: unknown" and could not activate.**
   `ActivationGate` and `AdminOnboardingPanel` called the activation API with raw `axios`
   keyed on `REACT_APP_API_BASE` — an env var used nowhere else in the app — instead of the
@@ -16,6 +44,16 @@
   (auth gate, role validation, update, and 404).
 
 ### Changed
+- **Quick-note engine now runs on NVIDIA NIM as the primary engine.** The Opus-via-Anthropic
+  path was unreliable (Opus/Bedrock integration never worked), so `implement_agent.py`,
+  `review_agent.py`, and `apply_review.py` now use NVIDIA NIM (Qwen3-Coder 480B first) as the
+  real workhorse, with Claude Opus demoted to an optional fallback that only runs if NVIDIA fails
+  and `ANTHROPIC_API_KEY` is set. `tests/test_quick_note_engine.py` guards the NVIDIA-primary wiring.
+- **README screenshots restored.** The README rewrite dropped the screen gallery (and its
+  inject markers), so the page had no visuals. Re-added a `## Screens` section with the
+  `README_UI_GALLERY` markers and pointed `scripts/sync_readme_gallery.py` at the current
+  `docs/screenshots/readme/v4-*` set (the old config referenced `v3-*` and non-existent
+  `webui-*` files, which crashed the sync). Regenerated `docs/screenshots/manifest.json`.
 - **README**: complete rewrite — full feature reality, autonomous agency use cases, step-by-step
   onboarding guide, screen-by-screen control plane reference, provider chain, security model,
   and updated roadmap showing phases 1–5 complete. Deploy and config sections expanded with
