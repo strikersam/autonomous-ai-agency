@@ -5664,6 +5664,10 @@ app.include_router(setup_router)
 app.include_router(activation_router)
 app.include_router(secrets_router)
 
+# Company Graph API
+from backend.company_api import router as company_router
+app.include_router(company_router)
+
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.
 get_secrets_store(db=get_db())
