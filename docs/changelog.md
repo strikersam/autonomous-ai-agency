@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **Doctor page 404 on production.** `DoctorScreen.jsx` was using `REACT_APP_API_URL` (always `undefined` in the GitHub Pages build) instead of `REACT_APP_BACKEND_URL`. Requests were hitting the Pages domain instead of the Render backend. Also added `version.py` to the `deploy-backend.yml` path trigger list so changes to the version SSOT correctly trigger a Render redeploy.
 - **Render deploy fix.** `Dockerfile.backend` was missing `COPY version.py version.py`, causing `ModuleNotFoundError: No module named 'version'` on every deploy since the version SSOT refactor.
 
 ### Security

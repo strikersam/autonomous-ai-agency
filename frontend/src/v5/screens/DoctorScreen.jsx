@@ -2,7 +2,7 @@
 import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
 
-const API = process.env.REACT_APP_API_URL || '';
+const API = process.env.REACT_APP_BACKEND_URL || '';
 
 // ── status helpers ────────────────────────────────────────────────────────────
 function statusStyle(s) {
