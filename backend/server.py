@@ -1188,7 +1188,8 @@ def _token_response(*, uid: str, email: str, name: str, role: str, access: str, 
     }
 
 
-async def get_current_user(request: Request) -> dict:
+async def get_optional_user(request: Request) -> Optional[dict]:
+    """Get user if authenticated, otherwise return None (for public endpoints)."""
     token = None
     auth = request.headers.get("Authorization", "")
     x_api_key = request.headers.get("x-api-key", "")
@@ -1201,11 +1202,11 @@ async def get_current_user(request: Request) -> dict:
     if not token:
         token = request.cookies.get("access_token")
     if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        return None
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "access":
-            raise HTTPException(status_code=401, detail="Invalid token type")
+            return None
         try:
             user = await get_db().users.find_one({"_id": ObjectId(payload["sub"])})
         except Exception:
@@ -1219,23 +1220,22 @@ async def get_current_user(request: Request) -> dict:
                 }
             else:
                 user = None
-
         if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+            return None
         user["_id"] = str(user["_id"])
         user.pop("password_hash", None)
         return user
-    except HTTPException:
-        raise
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, Exception):
+        return None
 
 
-@asynccontextmanager
+async def get_current_user(request: Request) -> dict:
+    user = await get_optional_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
 async def lifespan(app_: "FastAPI"):
     dispatcher: Optional[TaskDispatcher] = None
     dispatcher_task: Optional[asyncio.Task] = None
@@ -1282,9 +1282,17 @@ app = FastAPI(title=f"{APP_LABEL} — {APP_TAGLINE}", version=__version__, lifes
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 _raw_cors_origins = os.environ.get("CORS_ORIGINS", "*").strip()
+# Default CORS origins: GitHub Pages + wildcard for development
+_default_cors = [
+    "https://strikersam.github.io",
+    "https://*.github.io",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://localhost:8001",
+]
 CORS_ORIGINS = [
     origin.strip() for origin in _raw_cors_origins.split(",") if origin.strip()
-] or ["*"]
+] or _default_cors
 
 # ─── Social Login (GitHub & Google) ───────────────────────────────────────────
 
@@ -5517,7 +5525,7 @@ class _DoctorReport(BaseModel):
 
 
 @app.get("/api/doctor", response_model=_DoctorReport)
-async def get_doctor_report(user: dict = Depends(get_current_user)) -> _DoctorReport:
+async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -> _DoctorReport:
     """Consolidated system health report: preflight checks + runtime health.
 
     Returns a structured list of named checks (pass / warn / fail) sourced from:
