@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- **Render deploy fix.** `Dockerfile.backend` was missing `COPY version.py version.py`, causing `ModuleNotFoundError: No module named 'version'` on every deploy since the version SSOT refactor.
+
 ### Security
 - **Frontend dependency security patches.** Bumped `qs` 6.14.2→6.15.2, `postcss` 7.0.39→8.5.13, `serialize-javascript` 4.0.0→6.0.2, and `nth-check` to resolve known CVEs in frontend build dependencies.
 - **Self-service instance activation (unblocks the owner/self-hoster).** The activation gate
