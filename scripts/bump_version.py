@@ -66,19 +66,27 @@ def main() -> int:
     pkg_path.write_text(json.dumps(pkg, indent=2) + "\n")
     print(f"updated: {pkg_path.relative_to(_ROOT)}")
 
-    # index.html — "Agency Core vX.Y" in title + description.
-    n = _replace(_ROOT / "frontend/public/index.html", r"Agency Core v\d+\.\d+", f"Agency Core v{minor}")
-    print(f"{'updated' if n else 'NO MATCH'}: frontend/public/index.html ({n} refs)")
-    if not n:
-        missing.append("frontend/public/index.html")
+    # index.html — update both <title> and <meta name="description"> independently.
+    html_path = _ROOT / "frontend/public/index.html"
+    n_title = _replace(html_path, r"(<title>Agency Core v)\d+\.\d+", f"\g<1>{minor}", count=1)
+    n_meta  = _replace(html_path, r'(content="Agency Core v)\d+\.\d+', f'\\g<1>{minor}', count=1)
+    print(f"{'updated' if n_title else 'NO MATCH'}: frontend/public/index.html <title> ({n_title} refs)")
+    print(f"{'updated' if n_meta  else 'NO MATCH'}: frontend/public/index.html <meta description> ({n_meta} refs)")
+    if not n_title:
+        missing.append("frontend/public/index.html (<title>)")
+    if not n_meta:
+        missing.append("frontend/public/index.html (<meta description>)")
 
-    # README badge + release tag link.
+    # README badge + release tag link — both patterns must match independently.
     readme = _ROOT / "README.md"
     n1 = _replace(readme, r"version-\d+\.\d+\.\d+-blue", f"version-{new}-blue")
     n2 = _replace(readme, r"releases/tag/v\d+\.\d+\.\d+", f"releases/tag/v{new}")
-    print(f"{'updated' if (n1 or n2) else 'NO MATCH'}: README.md ({n1 + n2} refs)")
-    if not (n1 or n2):
-        missing.append("README.md")
+    print(f"{'updated' if n1 else 'NO MATCH'}: README.md badge ({n1} refs)")
+    print(f"{'updated' if n2 else 'NO MATCH'}: README.md release link ({n2} refs)")
+    if not n1:
+        missing.append("README.md (version badge)")
+    if not n2:
+        missing.append("README.md (release tag link)")
 
     if missing:
         print("ERROR: version bump incomplete; patterns not found in:", file=sys.stderr)
