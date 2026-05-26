@@ -5,7 +5,7 @@ Provides all endpoints for managing companies, their graphs, and related entitie
 This is the canonical API for the Agency Core v5 Company Graph.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, status
 from typing import List, Optional, Any
 from datetime import datetime
 import logging
@@ -13,32 +13,34 @@ import secrets
 
 from pydantic import BaseModel
 
-# Import models (will work once we implement the services)
-# from models.company_graph import (
-#     Company,
-#     CompanyCreateRequest,
-#     CompanyUpdateRequest,
-#     CompanyResponse,
-#     CompanyGraph,
-#     CompanyGraphResponse,
-#     Website,
-#     WebsiteScanRequest,
-#     WebsiteScanResult,
-#     Repo,
-#     RepoScanRequest,
-#     Specialist,
-#     SpecialistProvisionRequest,
-#     SpecialistProvisionResult,
-#     SpecialistListResponse,
-#     Workflow,
-#     WorkflowListResponse,
-#     KnowledgeItem,
-#     Connector,
-#     ApprovalPolicy,
-#     OnboardingProgress,
-#     WorkflowExecutionRequest,
-#     WorkflowExecutionResult,
-# )
+from models.company_graph import (
+    Company,
+    CompanyCreateRequest,
+    CompanyUpdateRequest,
+    CompanyResponse,
+    CompanyGraph,
+    CompanyGraphResponse,
+    Website,
+    WebsiteScanRequest,
+    WebsiteScanResult,
+    Repo,
+    RepoScanRequest,
+    Specialist,
+    SpecialistProvisionRequest,
+    SpecialistProvisionResult,
+    SpecialistListResponse,
+    Workflow,
+    WorkflowListResponse,
+    KnowledgeItem,
+    Connector,
+    ApprovalPolicy,
+    OnboardingProgress,
+    WorkflowExecutionRequest,
+    WorkflowExecutionResult,
+)
+# Alias for response model (OnboardingProgress is the canonical model)
+OnboardingProgressResponse = OnboardingProgress
+from services.company_graph_store import get_company_graph_store
 
 from backend.server import get_optional_user, get_current_user
 

@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **Agency Core v5 Company Graph — fix import NameError.** `backend/company_api.py` had all model imports commented out with a placeholder comment, causing `NameError: name 'Company' is not defined` at module load time. This broke server startup, all Python tests, and the E2E suite. Uncommented the `models.company_graph` import block, added `from services.company_graph_store import get_company_graph_store`, added `status` to the FastAPI imports, and aliased `OnboardingProgressResponse = OnboardingProgress` (the canonical model already carries all required fields).
 - **Doctor page 404 on production.** `DoctorScreen.jsx` was using `REACT_APP_API_URL` (always `undefined` in the GitHub Pages build) instead of `REACT_APP_BACKEND_URL`. Requests were hitting the Pages domain instead of the Render backend. Also added `version.py` to the `deploy-backend.yml` path trigger list so changes to the version SSOT correctly trigger a Render redeploy.
 - **Render deploy fix.** `Dockerfile.backend` was missing `COPY version.py version.py`, causing `ModuleNotFoundError: No module named 'version'` on every deploy since the version SSOT refactor.
 
