@@ -32,6 +32,7 @@ from .company_graph import (
     WebsiteScanRequest,
     WebsiteScanResult,
     RepoScanRequest,
+    RepoScanResult,
     OnboardingProgress,
     # Specialist Provisioning
     SpecialistProvisionRequest,
@@ -79,6 +80,7 @@ __all__ = [
     "WebsiteScanRequest",
     "WebsiteScanResult",
     "RepoScanRequest",
+    "RepoScanResult",
     "OnboardingProgress",
     # Specialist Provisioning
     "SpecialistProvisionRequest",

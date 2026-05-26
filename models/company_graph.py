@@ -1660,6 +1660,21 @@ class SpecialistProvisionResult(BaseModel):
 # WORKFLOW EXECUTION MODELS
 # =============================================================================
 
+
+class RepoScanResult(BaseModel):
+    """Result of a repository scan with detected stack and systems."""
+    model_config = {"extra": "ignore"}
+
+    scan_id: str = Field(default_factory=lambda: secrets.token_hex(8), description="Unique scan identifier")
+    repo_url: str = Field(..., description="Repository URL that was scanned")
+    company_id: Optional[str] = Field(default=None, description="Associated company ID")
+    status: str = Field(default="pending", description="Scan status: pending/success/partial/failed")
+    inferred_stack: Optional[Any] = Field(default=None, description="Inferred technology stack")
+    detected_systems: List[Any] = Field(default_factory=list, description="Detected systems")
+    files_scanned: int = Field(default=0, description="Number of files scanned")
+    errors: List[str] = Field(default_factory=list, description="Any errors encountered")
+    started_at: Optional[datetime] = Field(default=None, description="When scan started")
+
 class WorkflowExecutionRequest(BaseModel):
     """Request to execute a workflow."""
     model_config = {"frozen": True, "extra": "forbid"}
