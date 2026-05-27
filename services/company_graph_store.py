@@ -1428,6 +1428,26 @@ class SQLiteStore:
             completeness_score=0.0
         )
 
+    async def create_company_graph(self, graph: CompanyGraph) -> CompanyGraph:
+        """Create a new company graph (No-op shim for SQLite, as it is aggregated dynamically)."""
+        return graph
+
+    async def update_company_graph(self, graph: CompanyGraph) -> CompanyGraph:
+        """Update a company graph (No-op shim for SQLite)."""
+        return graph
+
+    async def delete_company_graph(self, graph_id: str) -> bool:
+        """Delete a company graph (No-op shim for SQLite)."""
+        return True
+
+    async def create_graph_snapshot(self, snapshot: CompanyGraphSnapshot) -> CompanyGraphSnapshot:
+        """Create a company graph snapshot (No-op shim for SQLite)."""
+        return snapshot
+
+    async def list_graph_snapshots(self, company_id: str, limit: int = 10, offset: int = 0) -> List[CompanyGraphSnapshot]:
+        """List snapshots for a company graph (No-op shim for SQLite)."""
+        return []
+
 
 # =============================================================================
 # SINGLETON AND FACTORY

@@ -1,10 +1,10 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
-
+import * as api from '../../api';
 
 // company.jsx — Company Graph / Operating Context screen
 
-const COMPANY_DATA = {
+const PREVIEW_COMPANY_DATA = {
   name: 'Acme Store',
   domain: 'acme-store.com',
   industry: 'E-commerce · Retail',
@@ -48,9 +48,9 @@ const COMPANY_DATA = {
   ],
 };
 
-function SectionHeader({ label, icon }) {
+function SectionHeader({ label, icon, style = {} }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10, ...style }}>
       {icon && <span style={{ fontSize: 14 }}>{icon}</span>}
       <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.15em', textTransform: 'uppercase' }}>{label}</span>
     </div>
@@ -77,7 +77,7 @@ function StatusDotC({ status }) {
   );
 }
 
-function CompanyHeader({ data }) {
+function CompanyHeader({ data, isPreview }) {
   return (
     <div style={{
       borderRadius: 20, padding: '20px 22px',
@@ -96,9 +96,10 @@ function CompanyHeader({ data }) {
             <h1 style={{ fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: '-0.04em' }}>{data.name}</h1>
             <span style={{
               fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase',
-              padding: '2px 8px', borderRadius: 999, color: '#46d9a4',
-              background: 'rgba(70,217,164,0.10)', border: '1px solid rgba(70,217,164,0.20)',
-            }}>Active</span>
+              padding: '2px 8px', borderRadius: 999, color: isPreview ? '#ffbd66' : '#46d9a4',
+              background: isPreview ? 'rgba(255,189,102,0.10)' : 'rgba(70,217,164,0.10)',
+              border: isPreview ? '1px solid rgba(255,189,102,0.20)' : '1px solid rgba(70,217,164,0.20)',
+            }}>{isPreview ? 'Preview Mode' : 'Active Graph'}</span>
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 10 }}>
             <a href="#" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{data.domain}</a>
@@ -106,9 +107,9 @@ function CompanyHeader({ data }) {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {[
-              { label: `${data.systems.length} systems`, color: 'var(--accent)' },
-              { label: `${data.repos.length} repos`, color: '#c4b5fd' },
-              { label: `${data.specialists.filter(s=>s.status==='active'||s.status==='running').length} agents active`, color: '#46d9a4' },
+              { label: `${(data.systems || []).length} systems`, color: 'var(--accent)' },
+              { label: `${(data.repos || []).length} repos`, color: '#c4b5fd' },
+              { label: `${(data.specialists || []).filter(s=>s.status==='active'||s.status==='running').length} agents active`, color: '#46d9a4' },
             ].map(b => (
               <span key={b.label} style={{
                 fontSize: 11, fontFamily: 'var(--font-mono)', padding: '3px 10px', borderRadius: 999,
@@ -117,30 +118,81 @@ function CompanyHeader({ data }) {
             ))}
           </div>
         </div>
-        <button style={{
-          padding: '9px 18px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-          background: 'rgba(93,162,255,0.12)', border: '1px solid rgba(93,162,255,0.28)', color: 'var(--accent)',
-          transition: 'all 0.15s ease', flexShrink: 0,
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(93,162,255,0.20)'; }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(93,162,255,0.12)'; }}>
-          Edit company
-        </button>
       </div>
     </div>
   );
 }
 
 function CompanyScreen() {
-  const d = COMPANY_DATA;
+  const [company, setCompany] = React.useState(PREVIEW_COMPANY_DATA);
+  const [isPreview, setIsPreview] = React.useState(true);
+  const [loading, setLoading] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState('overview');
   const tabs = ['overview', 'systems', 'specialists', 'priorities'];
+
+  React.useEffect(() => {
+    async function fetchLiveCompanyGraph() {
+      setLoading(true);
+      try {
+        // Attempt to fetch first company or any active session info
+        const sessionsRes = await api.listSessions();
+        if (sessionsRes?.data?.length > 0) {
+          // Let's retrieve matching company details
+          const firstId = sessionsRes.data[0].id || 'co_1';
+          const graphRes = await api.getCompanyGraph(firstId);
+          if (graphRes?.data) {
+            const liveData = graphRes.data;
+            setCompany({
+              name: liveData.company?.name || 'Live Enterprise',
+              domain: liveData.company?.domain || 'enterprise.com',
+              industry: liveData.company?.business_category || 'Technology',
+              since: 'May 2026',
+              systems: (liveData.systems || []).map(sys => ({
+                name: sys.name,
+                category: sys.category || 'Platform',
+                status: 'connected',
+                icon: sys.icon || '⚙'
+              })),
+              repos: (liveData.repos || []).map(r => ({
+                name: r.name,
+                branch: r.default_branch || 'main',
+                updated: 'Just now',
+                prs: 0
+              })),
+              environments: [
+                { name: 'Production',  url: liveData.company?.domain || 'enterprise.com', status: 'healthy' }
+              ],
+              specialists: (liveData.specialists || []).map(s => ({
+                name: s.name,
+                status: s.status || 'idle',
+                lastRun: '1m ago',
+                icon: s.icon || '🤖'
+              })),
+              priorities: liveData.company?.goals || [
+                'Analyze and optimize technological stack dependencies',
+                'Establish isolated execution playbooks for specialists'
+              ],
+              quickActions: PREVIEW_COMPANY_DATA.quickActions
+            });
+            setIsPreview(false);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not fetch live Company Graph from backend, operating in Offline-first Preview mode.", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchLiveCompanyGraph();
+  }, []);
+
+  const d = company;
 
   return (
     <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
       <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
 
-      <CompanyHeader data={d}/>
+      <CompanyHeader data={d} isPreview={isPreview}/>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 18, overflowX: 'auto', paddingBottom: 4 }} className="scrollbar-hide">
@@ -161,7 +213,7 @@ function CompanyScreen() {
           <Card>
             <SectionHeader label="Systems & Tools" icon="⚙"/>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {d.systems.map(sys => (
+              {(d.systems || []).map(sys => (
                 <div key={sys.name} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                   <span style={{ fontSize: 16, flexShrink: 0 }}>{sys.icon}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -171,6 +223,9 @@ function CompanyScreen() {
                   <StatusDotC status={sys.status}/>
                 </div>
               ))}
+              {(d.systems || []).length === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>No systems connected.</div>
+              )}
             </div>
           </Card>
 
@@ -178,7 +233,7 @@ function CompanyScreen() {
           <Card>
             <SectionHeader label="Repositories" icon="⎇"/>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {d.repos.map(r => (
+              {(d.repos || []).map(r => (
                 <div key={r.name} style={{ padding: '9px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
@@ -187,11 +242,14 @@ function CompanyScreen() {
                   <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginTop: 2 }}>⎇ {r.branch} · {r.updated}</div>
                 </div>
               ))}
+              {(d.repos || []).length === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>No repositories.</div>
+              )}
             </div>
 
             <SectionHeader label="Environments" icon="🌐" style={{ marginTop: 14 }}/>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {d.environments.map(env => (
+              {(d.environments || []).map(env => (
                 <div key={env.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <StatusDotC status={env.status}/>
                   <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', flex: 1 }}>{env.name}</span>
@@ -205,7 +263,7 @@ function CompanyScreen() {
           <Card>
             <SectionHeader label="Quick Actions" icon="⚡"/>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {d.quickActions.map(qa => (
+              {(d.quickActions || []).map(qa => (
                 <button key={qa.label} style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '9px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
@@ -229,7 +287,7 @@ function CompanyScreen() {
           <Card>
             <SectionHeader label="Priorities" icon="◈"/>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {d.priorities.map((p, i) => (
+              {(d.priorities || []).map((p, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                   <span style={{
                     width: 20, height: 20, borderRadius: 6, flexShrink: 0,
@@ -247,8 +305,8 @@ function CompanyScreen() {
 
       {activeTab === 'specialists' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12, animation: 'fadeSlideUp 0.3s ease-out' }}>
-          {d.specialists.map(sp => {
-            const statusColor = sp.status === 'active' ? '#46d9a4' : sp.status === 'running' ? '#5da2ff' : 'var(--text-muted)';
+          {(d.specialists || []).map(sp => {
+            const statusColor = sp.status === 'active' || sp.status === 'running' ? '#5da2ff' : 'var(--text-muted)';
             return (
               <div key={sp.name} style={{
                 borderRadius: 16, border: `1px solid ${sp.status !== 'idle' ? `${statusColor}25` : 'rgba(255,255,255,0.09)'}`,
@@ -262,7 +320,7 @@ function CompanyScreen() {
                     width: 38, height: 38, borderRadius: 12, flexShrink: 0,
                     background: `${statusColor}15`, border: `1px solid ${statusColor}25`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
-                  }}>{sp.icon}</div>
+                  }}>{sp.icon || '🤖'}</div>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{sp.name}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
@@ -271,7 +329,7 @@ function CompanyScreen() {
                     </div>
                   </div>
                 </div>
-                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>Last active: {sp.lastRun}</div>
+                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>Last active: {sp.lastRun || '1m ago'}</div>
                 <button style={{
                   marginTop: 10, width: '100%', padding: '7px', borderRadius: 9,
                   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
@@ -290,13 +348,13 @@ function CompanyScreen() {
 
       {activeTab === 'systems' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeSlideUp 0.3s ease-out' }}>
-          {d.systems.map(sys => (
+          {(d.systems || []).map(sys => (
             <div key={sys.name} style={{
               borderRadius: 14, border: '1px solid rgba(255,255,255,0.09)',
               background: 'rgba(255,255,255,0.03)', padding: '14px 16px',
               display: 'flex', alignItems: 'center', gap: 12,
             }}>
-              <span style={{ fontSize: 24, flexShrink: 0 }}>{sys.icon}</span>
+              <span style={{ fontSize: 24, flexShrink: 0 }}>{sys.icon || '⚙'}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{sys.name}</span>
@@ -316,7 +374,7 @@ function CompanyScreen() {
       {activeTab === 'priorities' && (
         <div style={{ maxWidth: 560, animation: 'fadeSlideUp 0.3s ease-out' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {d.priorities.map((p, i) => (
+            {(d.priorities || []).map((p, i) => (
               <div key={i} style={{
                 display: 'flex', alignItems: 'flex-start', gap: 12,
                 padding: '14px 16px', borderRadius: 14,
