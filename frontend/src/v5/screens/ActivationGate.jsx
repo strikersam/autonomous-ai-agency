@@ -13,9 +13,7 @@
  *        • On success → reload
  */
 import React from 'react';
-import axios from 'axios';
-
-const API = process.env.REACT_APP_API_BASE || '';
+import api from '../../api';
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = React.useState(false);
@@ -59,15 +57,20 @@ function Step({ num, title, children, done }) {
 
 export default function ActivationGate({ children }) {
   const [status,   setStatus]   = React.useState(null);   // null = loading
+  const [statusError, setStatusError] = React.useState('');
   const [token,    setToken]    = React.useState('');
   const [error,    setError]    = React.useState('');
   const [loading,  setLoading]  = React.useState(false);
   const [success,  setSuccess]  = React.useState(false);
 
   React.useEffect(() => {
-    axios.get(`${API}/api/activation/status`)
-      .then(r => setStatus(r.data))
-      .catch(() => setStatus({ activated: false, instance_id: 'unknown', register_email: 'strikersam@gmail.com' }));
+    api.get('/api/activation/status')
+      .then(r => { setStatusError(''); setStatus(r.data); })
+      .catch(e => {
+        // Don't disguise an unreachable backend as "not activated" — surface it.
+        setStatusError(e.response?.data?.detail || 'Unable to reach the activation service. Is the backend running?');
+        setStatus({ activated: false, instance_id: 'unknown', register_email: '' });
+      });
   }, []);
 
   if (status === null) {
@@ -84,7 +87,7 @@ export default function ActivationGate({ children }) {
     if (!token.trim()) return;
     setLoading(true); setError('');
     try {
-      const r = await axios.post(`${API}/api/activation/activate`, { token: token.trim() });
+      const r = await api.post('/api/activation/activate', { token: token.trim() });
       if (r.data.success) {
         setSuccess(true);
         setTimeout(() => window.location.reload(), 1500);
@@ -119,6 +122,12 @@ export default function ActivationGate({ children }) {
             This LLM Relay is not yet activated. Follow the three steps below to unlock onboarding and start using the platform.
           </p>
         </div>
+
+        {statusError && (
+          <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:12, background:'rgba(255,189,102,0.07)', border:'1px solid rgba(255,189,102,0.25)', color:'#ffbd66', fontSize:12, lineHeight:1.5, textAlign:'center' }}>
+            ⚠ {statusError}
+          </div>
+        )}
 
         {/* Card */}
         <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:20, padding:'28px 24px' }}>
@@ -170,6 +179,16 @@ export default function ActivationGate({ children }) {
               ) : success ? '✓ Activated' : '→ Activate instance'}
             </button>
           </Step>
+        </div>
+
+        {/* Owner / self-host note */}
+        <div style={{ marginTop:16, padding:'12px 16px', borderRadius:12, background:'rgba(70,217,164,0.05)', border:'1px solid rgba(70,217,164,0.18)' }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#46d9a4', marginBottom:4 }}>Own this instance? Activate it yourself.</div>
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', lineHeight:1.6 }}>
+            Set <code style={{ fontFamily:'var(--font-mono, monospace)', color:'#a0b4d0' }}>ACTIVATION_REQUIRED=false</code> in the backend
+            environment to unlock onboarding, or run <code style={{ fontFamily:'var(--font-mono, monospace)', color:'#a0b4d0' }}>python scripts/activate.py</code> to
+            mint your own signed code. See <code style={{ fontFamily:'var(--font-mono, monospace)', color:'#a0b4d0' }}>docs/runbooks/activation.md</code>.
+          </div>
         </div>
 
         {/* Footer note */}

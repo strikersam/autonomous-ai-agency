@@ -52,7 +52,7 @@ const BOARD_TASKS = [
     updated: '3h ago', trusted: false,
   },
   {
-    id: 't-007', title: 'Changelog audit — v4.1 release', stage: 'judge',
+    id: 't-007', title: 'Changelog audit — v5.0 release', stage: 'judge',
     priority: 'medium', type: 'task', agent: 'Release Agent',
     evidence: { pr: '#1845', tests: '100% pass' },
     updated: '45m ago', trusted: false,

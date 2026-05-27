@@ -8,9 +8,7 @@
  * Embedded inside AdminScreen.jsx as collapsible sections.
  */
 import React from 'react';
-import axios from 'axios';
-
-const API = process.env.REACT_APP_API_BASE || '';
+import api from '../../api';
 
 function Badge({ children, color }) {
   const bg = color === 'green' ? 'rgba(70,217,164,0.10)' : color === 'red' ? 'rgba(255,107,125,0.10)' : 'rgba(255,255,255,0.06)';
@@ -44,9 +42,13 @@ function ActivationStatus() {
   const [loading, setLoading] = React.useState(false);
   const [msg,     setMsg]     = React.useState('');
   const [err,     setErr]     = React.useState('');
+  const [loadErr, setLoadErr] = React.useState('');
 
   const load = () => {
-    axios.get(`${API}/api/activation/status`).then(r => setStatus(r.data)).catch(() => {});
+    setLoadErr('');
+    api.get('/api/activation/status')
+      .then(r => setStatus(r.data))
+      .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load activation status.'));
   };
   React.useEffect(load, []);
 
@@ -54,14 +56,22 @@ function ActivationStatus() {
     if (!token.trim()) return;
     setLoading(true); setMsg(''); setErr('');
     try {
-      const r = await axios.post(`${API}/api/activation/activate`, { token: token.trim() });
+      const r = await api.post('/api/activation/activate', { token: token.trim() });
       if (r.data.success) { setMsg(`Activated for ${r.data.email}`); setToken(''); load(); }
       else setErr(r.data.error || 'Activation failed');
     } catch (e) { setErr(e.response?.data?.detail || 'Error'); }
     finally { setLoading(false); }
   };
 
-  if (!status) return <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'8px 0' }}>Loading…</div>;
+  if (!status) {
+    if (loadErr) return (
+      <div style={{ fontSize:13, color:'#ff8a97', padding:'8px 0' }}>
+        ⚠ {loadErr}{' '}
+        <button onClick={load} style={{ marginLeft:8, padding:'2px 10px', borderRadius:7, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'#6CB0FF', fontSize:12, cursor:'pointer' }}>Retry</button>
+      </div>
+    );
+    return <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'8px 0' }}>Loading…</div>;
+  }
 
   return (
     <div>
@@ -122,15 +132,20 @@ function UserOnboardingTable() {
   const [newUid,  setNewUid]  = React.useState('');
   const [loading, setLoading] = React.useState({});
   const [status,  setStatus]  = React.useState(null);
+  const [loadErr, setLoadErr] = React.useState('');
 
-  const loadStatus = () => axios.get(`${API}/api/activation/status`).then(r => setStatus(r.data)).catch(() => {});
-  const loadUsers  = () => axios.get(`${API}/api/activation/users`).then(r => setUsers(r.data || [])).catch(() => {});
-  React.useEffect(() => { loadStatus(); loadUsers(); }, []);
+  const loadStatus = () => api.get('/api/activation/status').then(r => setStatus(r.data))
+    .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load activation status.'));
+  const loadUsers  = () => api.get('/api/activation/users').then(r => setUsers(r.data || []))
+    .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load users.'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const reload = React.useCallback(() => { setLoadErr(''); loadStatus(); loadUsers(); }, []);
+  React.useEffect(() => { reload(); }, [reload]);
 
   const toggle = async (userId, allowed) => {
     setLoading(p => ({ ...p, [userId]: true }));
     try {
-      await axios.put(`${API}/api/activation/users/${encodeURIComponent(userId)}/onboarding`, { allowed });
+      await api.put(`/api/activation/users/${encodeURIComponent(userId)}/onboarding`, { allowed });
       setUsers(u => u.map(x => x.user_id === userId ? { ...x, onboarding_allowed: allowed } : x));
     } catch(e) { alert(e.response?.data?.detail || 'Error'); }
     finally { setLoading(p => ({ ...p, [userId]: false })); }
@@ -144,6 +159,15 @@ function UserOnboardingTable() {
   };
 
   const activated = status?.activated;
+
+  if (loadErr) {
+    return (
+      <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,107,125,0.06)', border:'1px solid rgba(255,107,125,0.18)', fontSize:13, color:'#ff8a97' }}>
+        ⚠ {loadErr}{' '}
+        <button onClick={reload} style={{ marginLeft:8, padding:'2px 10px', borderRadius:7, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'#6CB0FF', fontSize:12, cursor:'pointer' }}>Retry</button>
+      </div>
+    );
+  }
 
   if (!activated) {
     return (
@@ -209,10 +233,20 @@ function UserOnboardingTable() {
 // ── 3. Audit log ─────────────────────────────────────────────────────────────
 function AuditLog() {
   const [log, setLog] = React.useState([]);
-  React.useEffect(() => {
-    axios.get(`${API}/api/activation/audit-log?limit=50`).then(r => setLog(r.data || [])).catch(() => {});
-  }, []);
+  const [loadErr, setLoadErr] = React.useState('');
+  const load = () => {
+    setLoadErr('');
+    api.get('/api/activation/audit-log?limit=50').then(r => setLog(r.data || []))
+      .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load the audit log.'));
+  };
+  React.useEffect(load, []);
 
+  if (loadErr) return (
+    <div style={{ fontSize:13, color:'#ff8a97', padding:'8px 0' }}>
+      ⚠ {loadErr}{' '}
+      <button onClick={load} style={{ marginLeft:8, padding:'2px 10px', borderRadius:7, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'#6CB0FF', fontSize:12, cursor:'pointer' }}>Retry</button>
+    </div>
+  );
   if (!log.length) return <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'8px 0' }}>No events yet.</div>;
 
   return (

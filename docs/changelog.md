@@ -1,5 +1,100 @@
 ## [Unreleased]
 
+### Fixed
+- **Doctor page 404 on production.** `DoctorScreen.jsx` was using `REACT_APP_API_URL` (always `undefined` in the GitHub Pages build) instead of `REACT_APP_BACKEND_URL`. Requests were hitting the Pages domain instead of the Render backend. Also added `version.py` to the `deploy-backend.yml` path trigger list so changes to the version SSOT correctly trigger a Render redeploy.
+- **Render deploy fix.** `Dockerfile.backend` was missing `COPY version.py version.py`, causing `ModuleNotFoundError: No module named 'version'` on every deploy since the version SSOT refactor.
+
+### Security
+- **Frontend dependency security patches.** Bumped `qs` 6.14.2→6.15.2, `postcss` 7.0.39→8.5.13, `serialize-javascript` 4.0.0→6.0.2, and `nth-check` to resolve known CVEs in frontend build dependencies.
+- **Self-service instance activation (unblocks the owner/self-hoster).** The activation gate
+  previously had only one path — email the owner for a signed code — with no tool to mint one,
+  so the operator was locked out of their own instance. Added `ACTIVATION_REQUIRED=false`
+  (opt-in, off by default) to disable the gate for self-hosters, and `ACTIVATION_PUBLIC_KEY_B64`
+  so an operator can trust their own keypair via env without editing source. Signature
+  verification is unchanged — the escape hatch only stops *enforcing* the gate. Verified via the
+  `risky-module-review` skill.
+
+### Added
+- `scripts/activate.py`: CLI that mints and installs an Ed25519-signed activation token for the
+  current instance (generates a keypair if none exists; writes git-ignored files at `0600`).
+- `docs/runbooks/activation.md`: owner/admin activation procedure (disable gate · self-mint · request).
+- `activation.owner_public_key_b64()` / `activation.activation_required()` helpers, with
+  `tests/test_activation_selfservice.py` covering key round-trip, instance binding, untrusted-key
+  rejection, the escape hatch, and the CLI.
+- **Version single source of truth.** `version.py` (canonical Python) + `frontend/src/version.js`
+  (canonical frontend — CRA can't import `package.json` from `src/`). `scripts/bump_version.py X.Y.Z`
+  propagates the version to `version.py`, `version.js`, `frontend/package.json`,
+  `frontend/public/index.html`, and the README badge in one command;
+  `tests/test_version_consistency.py` fails CI if any of them drift.
+
+### Fixed
+- **Stale `v4.1` / wrong version strings.** The browser tab title and meta in
+  `frontend/public/index.html` said "LLM Relay v4.1", the FastAPI app title said
+  "LLM Relay v4.1 — Unified Platform" (`version="4.1.0"`), and `/api/platform` returned
+  `"2.0.0"`. All now read from `version.py`/`version.js` and show the current release.
+  Sidebar/topbar brand in `AppShell.jsx` also said "LLM Relay V5.0" (inconsistent with the
+  "Agency Core" branding elsewhere) — now sourced from `APP_LABEL`.
+- **Onboarding/activation showed "Instance ID: unknown" and could not activate.**
+  `ActivationGate` and `AdminOnboardingPanel` called the activation API with raw `axios`
+  keyed on `REACT_APP_API_BASE` — an env var used nowhere else in the app — instead of the
+  shared `src/api.js` client (which resolves the backend URL the same way as login and attaches
+  the auth header). When the dashboard and backend ran on different origins, the status fetch
+  hit the wrong origin and failed (→ "unknown"), and admin re-activation failed with no
+  `Authorization` header. Both screens now use the shared `api` client.
+- **`/openapi.json` returned 500 (broke `/docs` and the role endpoint).** `change_user_role`
+  in `activation_api.py` referenced undefined names `_RoleUpdateResponse` and `get_db`; the
+  missing response model crashed OpenAPI schema generation and the route itself. Added the
+  `_RoleUpdateResponse` model and switched to `get_store()` (matching all other call sites).
+  Added `tests/test_activation_api.py` covering status, OpenAPI generation, and the role route
+  (auth gate, role validation, update, and 404).
+
+### Changed
+- **Quick-note engine now runs on NVIDIA NIM as the primary engine.** The Opus-via-Anthropic
+  path was unreliable (Opus/Bedrock integration never worked), so `implement_agent.py`,
+  `review_agent.py`, and `apply_review.py` now use NVIDIA NIM (Qwen3-Coder 480B first) as the
+  real workhorse, with Claude Opus demoted to an optional fallback that only runs if NVIDIA fails
+  and `ANTHROPIC_API_KEY` is set. `tests/test_quick_note_engine.py` guards the NVIDIA-primary wiring.
+- **README screenshots restored.** The README rewrite dropped the screen gallery (and its
+  inject markers), so the page had no visuals. Re-added a `## Screens` section with the
+  `README_UI_GALLERY` markers and pointed `scripts/sync_readme_gallery.py` at the current
+  `docs/screenshots/readme/v4-*` set (the old config referenced `v3-*` and non-existent
+  `webui-*` files, which crashed the sync). Regenerated `docs/screenshots/manifest.json`.
+- **README**: complete rewrite — full feature reality, autonomous agency use cases, step-by-step
+  onboarding guide, screen-by-screen control plane reference, provider chain, security model,
+  and updated roadmap showing phases 1–5 complete. Deploy and config sections expanded with
+  Render free-tier notes and Nvidia NIM no-GPU path.
+- **Frontend mock data**: updated demo card labels from v4.1 → v5.0 in TaskBoardScreen and
+  ChatScreen; UI now consistently reflects the current release.
+
+### Added
+- **Phase 6 — Workflow engine:**
+- `agent/workflow.py`: `WorkflowPhase` state machine (CLASSIFY → PLAN → SELECT_SPECIALIST →
+  PREFLIGHT → EXECUTE → VERIFY → JUDGE → SUMMARIZE → DONE/FAILED/BLOCKED).
+  Every phase transition is persisted to the task store before advancing — crash-safe by design.
+  `WorkflowEngine.run()` drives the loop with configurable `max_phases` guard against infinite
+  loops; exhaustion marks the task FAILED and writes a log entry.
+  `classify_domain()` maps title+description keywords to domain tags (security / testing / docs /
+  infra / dev). Added "runbook" to docs keywords.
+  `_dispatch()` handles both sync and async phase methods via `inspect.iscoroutine`.
+- `agent/safe_agency.py`: async GitHub operations for the workflow VERIFY phase.
+  `verify_pr_exists()` — checks PR existence by number (404 → False, open/merged → True).
+  `safe_create_branch()` — creates a branch from a SHA; idempotent on 422 (already exists).
+  `safe_create_pr()` — creates a PR, falls back to fetching the existing PR on 422.
+  `add_pr_comment()` — posts an issue-thread comment on a PR.
+  All functions redact tokens from logs and raise descriptive errors.
+- `tasks/models.py`: `Task` gains two new fields:
+  `workflow_phase: str | None` — current workflow phase, updated by WorkflowEngine.
+  `workflow_history: list[dict]` — ordered append-only list of `WorkflowTransition` dicts.
+- `tasks/service.py`: `TaskExecutionCoordinator.execute()` now injects workflow phases into the
+  execution path: CLASSIFY (domain tagging) → EXECUTE → VERIFY on success, FAILED on timeout.
+  Phase transitions are logged as typed `execution_log` entries with `event_type=workflow_*`.
+- `tests/test_phase6_workflow.py`: 29 tests covering WorkflowPhase enum, classify_domain,
+  WorkflowTransition model, Task workflow fields, WorkflowEngine phase handlers (classify, judge,
+  summarize, happy-path run, max-phases guard), and all safe_agency operations with mocked httpx.
+
+### Added
+- `scripts/enrich_quick_note_issues.py`: new automation script that finds all open GitHub quick-note issues and posts a standardized "LLM Implementation Context" comment to each issue, with repo constraints (`CLAUDE.md`, testing, changelog, risky-path guidance) to reduce low-signal implementations when source URLs are inaccessible. Supports `--dry-run` and skips issues that already contain the context marker.
+
 ### Added
 - `.github/workflows/enrich-quick-note-context.yml`: new scheduled workflow (every 15 minutes) plus manual dispatch to run `scripts/enrich_quick_note_issues.py` using `GITHUB_TOKEN`, ensuring open quick-note issues continuously receive standardized LLM implementation context comments.
 - `scripts/enrich_quick_note_issues.py`: new automation script that finds all open GitHub quick-note issues and posts a standardized "LLM Implementation Context" comment to each issue, with repo constraints (`CLAUDE.md`, testing, changelog, risky-path guidance) to reduce low-signal implementations when source URLs are inaccessible. Supports `--dry-run` and skips issues that already contain the context marker.
@@ -34,6 +129,25 @@
   unavailable external runtimes in standard deployments.
 - `tests/test_runtimes.py`: updated `TestJCodeAdapterMetadata` to assert JCode is opt-in
   (RUNTIME_JCODE_ENABLED=true) rather than always-on.
+
+- **Phase 5 — Doctor & dashboard resilience:**
+- `GET /api/doctor` endpoint in `backend/server.py`: consolidated system health report
+  combining `DirectChatDoctor` preflight checks (git binary, GitHub token, repo access)
+  with `RuntimeManager` cached health for each registered runtime, plus Langfuse
+  configuration and LLM provider reachability checks. Partial-failure tolerant: each
+  check section is independently guarded so one failing probe doesn't abort the report.
+  Returns a typed `_DoctorReport` (ready, summary, checks[], run_at).
+- `frontend/src/v5/hooks/useSafeData.js`: `useSafeData(baseUrl, endpoints, options)` —
+  `Promise.allSettled`-based multi-fetch hook. Each endpoint slot gets its own
+  `{loading, error}` state so one dead API never blanks the whole page. Supports
+  auto-refresh (`refreshMs`), per-key transforms, and JWT auth from localStorage.
+- `frontend/src/v5/screens/DoctorScreen.jsx`: fully rewritten to consume live
+  `/api/doctor` data. Skeleton loading states per-check, inline error banner with
+  Retry button when the endpoint fails, live score bar (pass/warn/fail counts), and
+  auto-refresh every 60 s. No mock data remains.
+- `tests/test_phase5_doctor.py`: 8 tests covering response shape, field validation,
+  status constraint (pass/warn/fail only), Langfuse check presence, partial-failure
+  tolerance when RuntimeManager or DirectChatDoctor raises.
 
 
 ### Added

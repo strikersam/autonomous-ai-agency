@@ -1,7 +1,8 @@
 import React from 'react';
+import { APP_NAME, APP_LABEL } from '../version';
 
 
-// nav.jsx — LLM Relay V5.0 navigation (clean, all screens)
+// nav.jsx — Agency Core navigation (clean, all screens)
 
 const NAV_ITEMS = [
   { id:'chat',       label:'Chat',       icon:'MessageSquare',  desc:'Unified assistant',      section:'WORKSPACE' },
@@ -74,8 +75,8 @@ function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin }
             <Icon name="Cpu" size={16} style={{ color:'#fff' }}/>
           </div>
           <div>
-            <div style={{ fontSize:14, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>LLM Relay</div>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.14em', textTransform:'uppercase', marginTop:2 }}>V5.0 · Agency Core</div>
+            <div style={{ fontSize:14, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>{APP_NAME}</div>
+            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.14em', textTransform:'uppercase', marginTop:2 }}>{APP_LABEL}</div>
           </div>
         </div>
         <AgentStatus running={agentRunning}/>
@@ -217,7 +218,7 @@ function MobileTopBar({ title, subtitle, onMenuOpen }) {
         <Icon name="Cpu" size={13} style={{ color:'#fff' }}/>
       </div>
       <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:15, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>LLM Relay V5.0</div>
+        <div style={{ fontSize:15, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>{APP_LABEL}</div>
         {subtitle && <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.14em', textTransform:'uppercase', marginTop:1 }}>{subtitle}</div>}
       </div>
     </div>
@@ -241,7 +242,7 @@ function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin })
       )}
       <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, height:'100%', overflow:'hidden' }}>
         <div className="mobile-topbar">
-          <MobileTopBar title="LLM Relay V5.0" subtitle={navItem.label} onMenuOpen={()=>setSidebarOpen(true)}/>
+          <MobileTopBar title={APP_LABEL} subtitle={navItem.label} onMenuOpen={()=>setSidebarOpen(true)}/>
         </div>
         <div style={{ flex:1, overflowY:'auto', overflowX:'hidden' }}>
           {children}
