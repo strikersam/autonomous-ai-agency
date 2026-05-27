@@ -174,7 +174,6 @@
   Comment reference in `agent/quick_note.py` updated.
 - `tests/test_control_plane_api.py`: removed duplicate `/api/routing/*` test section
   (routing/ deleted); schedule tests retained.
-## [Unreleased]
 
 ### Added
 - `infra_cost.py`: added to `Dockerfile.backend` COPY statements and `deploy-backend.yml`
@@ -198,7 +197,6 @@
 - `README.md`: full rewrite — covers the autonomous agency product story, onboarding
   flow (5 steps), all 14 V5 screens, architecture diagram, full config reference,
   deployment guide, security posture, and roadmap phases 1-7.
-## [Unreleased]
 
 ### Added
 - `Dockerfile.backend`: added `COPY activation.py` and `COPY activation_api.py` —
