@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Added
+- `.github/workflows/enrich-quick-note-context.yml`: new scheduled workflow (every 15 minutes) plus manual dispatch to run `scripts/enrich_quick_note_issues.py` using `GITHUB_TOKEN`, ensuring open quick-note issues continuously receive standardized LLM implementation context comments.
+- `scripts/enrich_quick_note_issues.py`: new automation script that finds all open GitHub quick-note issues and posts a standardized "LLM Implementation Context" comment to each issue, with repo constraints (`CLAUDE.md`, testing, changelog, risky-path guidance) to reduce low-signal implementations when source URLs are inaccessible. Supports `--dry-run` and skips issues that already contain the context marker.
+
+### Added
 - **Phase 4 — Runtime resilience:**
 - `tasks/store.py`: `TaskStore.reconcile_stranded_tasks(active_task_ids, stale_threshold_s)` —
   re-queues tasks left stranded IN_PROGRESS by a prior server crash or hard-kill.
