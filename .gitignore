@@ -86,3 +86,8 @@ render-env-vars.txt
 .activation_keypair.json
 .onboarding_state.json
 .activation_audit.jsonl
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
