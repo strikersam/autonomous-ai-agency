@@ -43,13 +43,21 @@ from urllib.parse import urlparse
 
 
 def _is_safe_url(url: str) -> bool:
-    """Block SSRF: reject loopback, link-local, and private IPs."""
+    """Block SSRF: reject loopback, link-local, private, and non-HTTP schemes."""
     try:
         parsed = urlparse(url)
+        # Only allow http/https
+        if parsed.scheme not in ("http", "https"):
+            return False
         hostname = parsed.hostname
         if not hostname:
             return False
-        # Resolve hostname to IP and check
+        # Block obvious internal hostnames
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            return False
+        if hostname.endswith(".local") or hostname.endswith(".internal"):
+            return False
+        # Resolve and check IP ranges
         resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
         for family, _, _, _, sockaddr in resolved:
             ip = ipaddress.ip_address(sockaddr[0])
@@ -58,6 +66,22 @@ def _is_safe_url(url: str) -> bool:
     except (socket.gaierror, ValueError):
         return False
     return True
+
+
+def _hostname_is(url: str, domain: str) -> bool:
+    """Check if URL hostname exactly matches or is a subdomain of the given domain."""
+    try:
+        hostname = urlparse(url).hostname or ""
+        hostname = hostname.lower()
+        domain = domain.lower()
+        return hostname == domain or hostname.endswith("." + domain)
+    except Exception:
+        return False
+
+
+def _hostname_contains(url: str, *domains: str) -> bool:
+    """Check if URL hostname matches any of the given domains."""
+    return any(_hostname_is(url, d) for d in domains)
 
 class WebsiteScanner:
     """
@@ -218,7 +242,7 @@ class WebsiteScanner:
         
         # CMS Detection
         # Shopify
-        if 'shopify' in str(soup).lower() or 'myshopify.com' in url.lower():
+        if 'shopify' in str(soup).lower() or _hostname_is(url, 'myshopify.com'):
             systems.append(DetectedSystem(
                 system_type="CMS",
                 name="Shopify",
@@ -250,7 +274,7 @@ class WebsiteScanner:
             ))
         
         # Wix
-        if 'wix.com' in url.lower() or 'wix' in str(soup).lower():
+        if _hostname_is(url, 'wix.com') or 'wix' in str(soup).lower():
             systems.append(DetectedSystem(
                 system_type="CMS",
                 name="Wix",
@@ -266,7 +290,7 @@ class WebsiteScanner:
             ))
         
         # Squarespace
-        if 'squarespace.com' in url.lower() or 'squarespace' in str(soup).lower():
+        if _hostname_is(url, 'squarespace.com') or 'squarespace' in str(soup).lower():
             systems.append(DetectedSystem(
                 system_type="CMS",
                 name="Squarespace",
@@ -440,7 +464,7 @@ class WebsiteScanner:
         
         # E-commerce Platform Detection
         # BigCommerce
-        if 'bigcommerce.com' in url.lower() or 'bigcommerce' in str(soup).lower():
+        if _hostname_is(url, 'bigcommerce.com') or 'bigcommerce' in str(soup).lower():
             systems.append(DetectedSystem(
                 system_type="ecommerce",
                 name="BigCommerce",
@@ -583,7 +607,7 @@ class WebsiteScanner:
             confidence_scores["Python"] = 0.7
         
         # CMS Detection (from stack inference perspective)
-        if 'shopify' in html_lower or 'myshopify.com' in url.lower():
+        if 'shopify' in html_lower or _hostname_is(url, 'myshopify.com'):
             cms.append("Shopify")
             confidence_scores["Shopify"] = 0.95
         
@@ -591,7 +615,7 @@ class WebsiteScanner:
             cms.append("WordPress")
             confidence_scores["WordPress"] = 0.9
         
-        if 'wix.com' in url.lower():
+        if _hostname_is(url, 'wix.com'):
             cms.append("Wix")
             confidence_scores["Wix"] = 0.85
         
@@ -772,21 +796,28 @@ class RepoScanner:
         Returns:
             Provider name (github, gitlab, bitbucket, etc.)
         """
-        if 'github.com' in repo_url:
+        parsed = urlparse(repo_url)
+        hostname = (parsed.hostname or '').lower()
+
+        def _match(*domains):
+            return any(hostname == d or hostname.endswith('.' + d) for d in domains)
+
+        if _match('github.com'):
             return 'github'
-        elif 'gitlab.com' in repo_url:
+        elif _match('gitlab.com'):
             return 'gitlab'
-        elif 'bitbucket.org' in repo_url:
+        elif _match('bitbucket.org'):
             return 'bitbucket'
-        elif 'azure.com' in repo_url or 'dev.azure.com' in repo_url:
+        elif _match('azure.com', 'dev.azure.com'):
             return 'azure_devops'
-        elif 'git@' in repo_url:
-            # SSH URL
-            if 'github.com' in repo_url:
+        elif repo_url.startswith('git@'):
+            # SSH URL: git@github.com:user/repo
+            ssh_host = repo_url.split('@')[1].split(':')[0] if '@' in repo_url else ''
+            if ssh_host == 'github.com':
                 return 'github'
-            elif 'gitlab.com' in repo_url:
+            elif ssh_host == 'gitlab.com':
                 return 'gitlab'
-            elif 'bitbucket.org' in repo_url:
+            elif ssh_host == 'bitbucket.org':
                 return 'bitbucket'
             else:
                 return 'other'

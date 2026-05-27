@@ -14,6 +14,8 @@ Usage:
 """
 
 from __future__ import annotations
+
+from urllib.parse import urlparse
 from typing import Any, List, Optional, Dict, Tuple
 from datetime import datetime
 import logging
@@ -452,8 +454,10 @@ class CompanyGraphService:
             name = name[:-4]
         full_name = url
         
-        if 'github.com' in url:
-            parts = url.replace('https://github.com/', '').replace('.git', '').split('/')
+        parsed_url = urlparse(url)
+        if parsed_url.hostname == 'github.com':
+            path = parsed_url.path.strip('/').replace('.git', '')
+            parts = path.split('/')
             if len(parts) >= 2:
                 full_name = f"{parts[0]}/{parts[1]}"
                 name = parts[1]

@@ -25,6 +25,8 @@ Usage:
 """
 
 from __future__ import annotations
+
+from urllib.parse import urlparse
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import logging
@@ -858,20 +860,28 @@ class OnboardingService:
         Returns:
             Provider name
         """
-        if 'github.com' in repo_url:
+        parsed = urlparse(repo_url)
+        hostname = (parsed.hostname or repo_url).lower()
+
+        def _host_match(*domains):
+            return any(hostname == d or hostname.endswith('.' + d) for d in domains)
+
+        if _host_match('github.com'):
             return 'github'
-        elif 'gitlab.com' in repo_url:
+        elif _host_match('gitlab.com'):
             return 'gitlab'
-        elif 'bitbucket.org' in repo_url:
+        elif _host_match('bitbucket.org'):
             return 'bitbucket'
-        elif 'azure.com' in repo_url or 'dev.azure.com' in repo_url:
+        elif _host_match('azure.com', 'dev.azure.com'):
             return 'azure'
-        elif 'git@' in repo_url:
-            if 'github.com' in repo_url:
+        elif repo_url.startswith('git@'):
+            # SSH URLs: git@github.com:user/repo
+            ssh_host = repo_url.split('@')[1].split(':')[0] if '@' in repo_url else ''
+            if ssh_host == 'github.com':
                 return 'github'
-            elif 'gitlab.com' in repo_url:
+            elif ssh_host == 'gitlab.com':
                 return 'gitlab'
-            elif 'bitbucket.org' in repo_url:
+            elif ssh_host == 'bitbucket.org':
                 return 'bitbucket'
             else:
                 return 'unknown'
