@@ -653,7 +653,6 @@ class OnboardingService:
         # Create website
         website = Website(
             url=url,
-            company_id=company_id,
             is_primary=True,  # First website is primary
             scan_status="success",
             inferred_stack=scan_result.inferred_stack,
@@ -749,7 +748,7 @@ class OnboardingService:
             company_id=company_id,
             name="Development",
             description="Standard development workflow",
-            phases=["plan", "develop", "review", "test", "deploy"],
+            phases=["plan", "executing", "reviewing", "verifying", "monitor"],
             triggers=["code_push", "pr_created", "issue_created"],
             is_active=True,
             is_default=True
@@ -757,7 +756,7 @@ class OnboardingService:
         created = await self.graph_service.add_workflow(
             company_id=company_id,
             name="Development",
-            phases=["plan", "develop", "review", "test", "deploy"],
+            phases=["plan", "executing", "reviewing", "verifying", "monitor"],
             description="Standard development workflow",
             triggers=["code_push", "pr_created", "issue_created"]
         )
@@ -768,14 +767,14 @@ class OnboardingService:
             company_id=company_id,
             name="Quality Assurance",
             description="QA and testing workflow",
-            phases=["test_plan", "test_execution", "bug_reporting", "verification"],
+            phases=["plan", "executing", "reviewing", "verifying"],
             triggers=["pr_merged", "release_created"],
             is_active=True
         )
         created = await self.graph_service.add_workflow(
             company_id=company_id,
             name="Quality Assurance",
-            phases=["test_plan", "test_execution", "bug_reporting", "verification"],
+            phases=["plan", "executing", "reviewing", "verifying"],
             description="QA and testing workflow",
             triggers=["pr_merged", "release_created"]
         )
