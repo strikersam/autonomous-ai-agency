@@ -1,11 +1,22 @@
 [
   {
+    "heading": "### \ud83d\udef0 Control Plane",
+    "summary": "The command center: live agent health, recent activity, and system metrics at a glance.",
+    "screenshots": [
+      {
+        "path": "docs/screenshots/readme/v4-control-plane.png",
+        "alt": "Control Plane dashboard",
+        "width": "92%"
+      }
+    ]
+  },
+  {
     "heading": "### \ud83d\udeec Login",
     "summary": "People can sign in through a simple starting page instead of touching raw config files.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-login.png",
-        "alt": "LLM Relay login",
+        "path": "docs/screenshots/readme/v4-login.png",
+        "alt": "Login",
         "width": "92%"
       }
     ]
@@ -15,7 +26,7 @@
     "summary": "The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-setup-wizard.png",
+        "path": "docs/screenshots/readme/v4-setup-wizard.png",
         "alt": "Setup Wizard",
         "width": "92%"
       }
@@ -23,11 +34,11 @@
   },
   {
     "heading": "### \ud83d\udcac Chat",
-    "summary": "This is where people talk to AI directly, using the providers and rules you set up.",
+    "summary": "This is where people talk to the CEO agent directly, using the providers and rules you set up.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-chat.png",
-        "alt": "Direct Chat",
+        "path": "docs/screenshots/readme/v4-chat.png",
+        "alt": "Chat",
         "width": "92%"
       }
     ]
@@ -37,7 +48,7 @@
     "summary": "This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-tasks-kanban.png",
+        "path": "docs/screenshots/readme/v4-tasks-kanban.png",
         "alt": "Kanban Task Board",
         "width": "92%"
       }
@@ -48,7 +59,7 @@
     "summary": "This is your cast of AI helpers. Each agent can have its own model, runtime, specialty, and rules.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-agents.png",
+        "path": "docs/screenshots/readme/v4-agents.png",
         "alt": "Agent Roster",
         "width": "92%"
       }
@@ -59,7 +70,7 @@
     "summary": "This shows the engines behind the scenes that actually run your AI work.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-runtimes.png",
+        "path": "docs/screenshots/readme/v4-runtimes.png",
         "alt": "Agent Runtimes",
         "width": "92%"
       }
@@ -70,7 +81,7 @@
     "summary": "This is where you decide how smart, cheap, fast, or private the system should be when picking a model.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-routing.png",
+        "path": "docs/screenshots/readme/v4-routing.png",
         "alt": "Routing Policy",
         "width": "92%"
       }
@@ -81,12 +92,12 @@
     "summary": "This is where you connect local and cloud AI sources and decide what models are available.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-providers.png",
+        "path": "docs/screenshots/readme/v4-providers.png",
         "alt": "Providers",
         "width": "48%"
       },
       {
-        "path": "docs/screenshots/readme/v3-models.png",
+        "path": "docs/screenshots/readme/v4-models.png",
         "alt": "Models",
         "width": "48%"
       }
@@ -97,7 +108,7 @@
     "summary": "This is your team's memory: wiki pages, source material, and reusable context.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-knowledge.png",
+        "path": "docs/screenshots/readme/v4-knowledge.png",
         "alt": "Knowledge and Wiki",
         "width": "92%"
       }
@@ -105,10 +116,10 @@
   },
   {
     "heading": "### \ud83d\udd2d Logs and activity",
-    "summary": "This helps you answer, \u2018what just happened?\u2019",
+    "summary": "This helps you answer, \u2018what just happened?\u2019 \u2014 every LLM call, token count, latency, and cost.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-logs.png",
+        "path": "docs/screenshots/readme/v4-logs.png",
         "alt": "Logs",
         "width": "92%"
       }
@@ -119,7 +130,7 @@
     "summary": "This is how you make AI jobs run later or run again automatically.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-schedules.png",
+        "path": "docs/screenshots/readme/v4-schedules.png",
         "alt": "Schedules",
         "width": "92%"
       }
@@ -130,7 +141,7 @@
     "summary": "Central settings keep defaults, policies, and integrations in one place instead of scattered config files.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-settings.png",
+        "path": "docs/screenshots/readme/v4-settings.png",
         "alt": "Settings",
         "width": "92%"
       }
@@ -138,45 +149,28 @@
   },
   {
     "heading": "### \ud83d\udee1 Admin portal",
-    "summary": "This gives admins a simpler place to manage access, controls, and system behavior.",
+    "summary": "This gives admins a simpler place to manage access, instance activation, and system behavior.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v3-admin.png",
+        "path": "docs/screenshots/readme/v4-admin.png",
         "alt": "Admin Portal",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83d\udda5 Built-in web UI",
-    "summary": "The proxy also ships a lightweight built-in app at `/app`, so you can ship a useful UI without the separate hosted dashboard.",
+    "heading": "### \ud83d\udcf1 Mobile",
+    "summary": "The dashboard is responsive \u2014 sign in, run the setup wizard, and monitor agents from a phone.",
     "screenshots": [
       {
-        "path": "docs/screenshots/webui/webui-app.png",
-        "alt": "Built-in Web UI",
-        "width": "92%"
-      }
-    ]
-  },
-  {
-    "heading": "### \ud83d\udd10 Built-in admin login",
-    "summary": "The built-in admin surface has a dedicated login gate before exposing sensitive controls.",
-    "screenshots": [
+        "path": "docs/screenshots/readme/v4-login-mobile.png",
+        "alt": "Mobile login",
+        "width": "32%"
+      },
       {
-        "path": "docs/screenshots/webui/webui-admin-login.png",
-        "alt": "Built-in admin login",
-        "width": "92%"
-      }
-    ]
-  },
-  {
-    "heading": "### \ud83e\uddf0 Built-in admin workspace",
-    "summary": "Once authenticated, admins can manage providers, workspaces, and runtime metadata from the in-proxy UI.",
-    "screenshots": [
-      {
-        "path": "docs/screenshots/webui/webui-admin.png",
-        "alt": "Built-in admin workspace",
-        "width": "92%"
+        "path": "docs/screenshots/readme/v4-setup-mobile.png",
+        "alt": "Mobile setup wizard",
+        "width": "32%"
       }
     ]
   }

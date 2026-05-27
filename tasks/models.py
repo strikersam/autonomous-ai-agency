@@ -115,6 +115,16 @@ class Task(BaseModel):
     blocked_reason: str | None = None
     review_reason: str | None = None
 
+    # Workflow engine — persisted state machine
+    workflow_phase: str | None = Field(
+        default=None,
+        description="Current workflow phase (see WorkflowPhase enum in agent/workflow.py)",
+    )
+    workflow_history: list[dict] = Field(
+        default_factory=list,
+        description="Ordered list of WorkflowTransition dicts; append-only.",
+    )
+
     # Origin / automation metadata
     source: str = "manual"
     source_id: str | None = None

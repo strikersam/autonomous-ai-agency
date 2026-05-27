@@ -1,12 +1,15 @@
 name: Process Quick Note
 
 # Triggered on schedule, manually, push of sentinel file, or by the self-retry mechanism.
+# QUARANTINED 2026-05-22: auto-triggers disabled pending Agency Core stabilization.
+# See docs/architecture/agency-core-audit-2026-05-22.md. Re-enable by restoring the
+# `schedule:` and `push:` blocks below.
 on:
-  schedule:
-    - cron: '0 */4 * * *'
-  push:
-    branches: [master]
-    paths: ['.github/workflows/.trigger-quick-note']
+  # schedule:
+  #   - cron: '0 */4 * * *'   (QUARANTINED)
+  # push:
+  #   branches: [master]
+  #   paths: ['.github/workflows/.trigger-quick-note']   (QUARANTINED)
   workflow_dispatch:
     inputs:
       issue_number:

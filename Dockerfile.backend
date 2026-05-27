@@ -9,6 +9,7 @@ COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
 COPY backend/ backend/
+COPY db/ db/
 COPY agent/ agent/
 COPY router/ router/
 COPY agents/ agents/
@@ -29,6 +30,12 @@ COPY commercial_equivalent.py commercial_equivalent.py
 COPY langfuse_obs.py langfuse_obs.py
 COPY tokens.py tokens.py
 COPY key_store.py key_store.py
+COPY version.py version.py
+COPY activation.py activation.py
+COPY activation_api.py activation_api.py
+COPY infra_cost.py infra_cost.py
+COPY models/ models/
+COPY services/ services/
 
 EXPOSE 8001
 

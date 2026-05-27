@@ -1,524 +1,505 @@
 <div align="center">
 
-# LLM Relay
+# Agency Core
 
-### Self-hosted OpenAI-compatible proxy that runs as an autonomous AI agency.
+### The autonomous AI platform for engineering teams — self-hosted, privacy-first, runs anywhere.
 
-**Route any AI tool through 15+ providers. Let agents scan, fix, and ship your codebase continuously. Keep your data yours.**
+[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/strikersam/local-llm-server/releases/tag/v5.0.0)
+[![CI](https://github.com/strikersam/local-llm-server/actions/workflows/ci.yml/badge.svg)](https://github.com/strikersam/local-llm-server/actions/workflows/ci.yml)
+[![Deploy](https://github.com/strikersam/local-llm-server/actions/workflows/deploy-backend.yml/badge.svg)](https://github.com/strikersam/local-llm-server/actions/workflows/deploy-backend.yml)
+[![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-[![Version](https://img.shields.io/badge/version-4.1.0-4D8CFF?style=for-the-badge)](docs/changelog.md)
-[![Stars](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&color=FFD43B&logo=github)](https://github.com/strikersam/local-llm-server/stargazers)
-[![Forks](https://img.shields.io/github/forks/strikersam/local-llm-server?style=for-the-badge&color=4D8CFF&logo=git)](https://github.com/strikersam/local-llm-server/network)
-[![CI](https://img.shields.io/github/actions/workflow/status/strikersam/local-llm-server/ci.yml?style=for-the-badge&label=CI&logo=github-actions)](https://github.com/strikersam/local-llm-server/actions)
-[![License](https://img.shields.io/badge/license-Open%20Source-22C55E?style=for-the-badge)](LICENSE)
-
-[**Quick start**](#quick-start) · [**Agency**](#autonomous-agency) · [**Providers**](#providers) · [**What's new**](#whats-new) · [**Screenshots**](#see-the-product) · [**Docs**](#technical-docs)
+**[Live Demo](https://strikersam.github.io/local-llm-server/) · [API Docs](https://local-llm-server.onrender.com/docs) · [Changelog](docs/changelog.md)**
 
 </div>
 
 ---
 
-## What is LLM Relay?
+## What is Agency Core?
 
-A **FastAPI proxy** that sits between your AI tools and your models — and also runs as a self-managing AI agency that continuously improves its own codebase.
+Agency Core is a **self-hosted autonomous AI platform** that turns any server — your laptop, a $10 VPS, or a GPU box — into a private AI team. It ships a CEO orchestrator agent and a fleet of domain specialists that work together on real engineering and business tasks: writing code, opening pull requests, running tests, updating docs, and managing recurring operations — all without sending your data to the cloud.
 
-Point Cursor, Claude Code, Aider, Continue, or any OpenAI SDK client at `http://localhost:8000` and get:
-
-- **Smart routing** — free-first, local-first, cost-aware, or quality-first strategies across 15+ providers
-- **Anthropic + OpenAI API compatibility** — both `/v1/messages` and `/v1/chat/completions` on the same server
-- **Async agent engine** — plan → execute → verify pipeline with per-role model assignment
-- **Team control plane** — React dashboard with an **Intelligent Assistant** that automatically detects coding intent, manages workspaces, and handles interactive task approval.
-- **Autonomous agency** — CEO + specialist agents scan, fix, and ship improvements every 15 minutes
-
-No GPU required to start: set `NVIDIA_API_KEY` and free NIM inference handles everything.
-
-<p align="center">
-  <img src="docs/screenshots/readme/v4-control-plane.png" alt="LLM Relay control plane" width="100%"/>
-  <br/>
-  <sub><em>The main control plane: chat, tasks, agents, models, knowledge, and system health in one screen.</em></sub>
-</p>
+At its core it is also a **drop-in OpenAI-compatible proxy** for Ollama, so Cursor, Continue, Aider, Claude Code, and any other AI coding tool can point at `http://localhost:8000` and use your local models through a single authenticated endpoint.
 
 ---
 
-## Autonomous Agency
+## Why self-hosted autonomous agents?
 
-LLM Relay runs itself. The moment the server boots, an autonomous agency starts managing the codebase — scanning for issues, dispatching fixes, and reporting progress. No human needed to keep the code healthy.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Autonomous Agency                        │
-│                                                             │
-│  CEO Agent  (every 15 min)                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ 1. Read improvement-loop state                      │   │
-│  │ 2. Assess: failing tests? security issues? debt?    │   │
-│  │ 3. Issue directives to specialist agents            │   │
-│  └───────────────────┬─────────────────────────────────┘   │
-│                      │ directives                           │
-│          ┌───────────┼───────────┬──────────┐              │
-│          ▼           ▼           ▼          ▼              │
-│      Dev Agent  Security   Reviewer   Release Agent         │
-│     (fix tests)  Agent    (council    (readiness +          │
-│                 (CVEs,     review)    changelog)            │
-│                 secrets)                                    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### How the agency works
-
-**Every 15 minutes — CEO assessment cycle:**
-
-| Priority | Trigger | Action |
-|----------|---------|--------|
-| P1 | Failing tests detected | Dev Agent: runs pytest, fixes failures, commits to master |
-| P2 | Security findings | Security Agent: remediates bandit/CVE/secret issues |
-| P4 | Backend errors logged | Dev Agent: fixes root cause from log context |
-| P6 | Every 4th cycle | Reviewer Agent: council review of recent changes |
-| P8 | Weekly | Release Agent: readiness check, changelog, version bump |
-
-**Every 6 hours — Improvement loop scan:**
-- Runs the full test suite and registers failing tests as issues
-- Grepping for `FIXME`, `TODO:FIX`, and `HACK:URGENT` markers
-- Detecting Python modules with no test coverage
-- Running bandit (SAST), safety (CVE audit), and secret-pattern grep
-
-**Real-time — Backend error capture:**
-- Every `ERROR`/`CRITICAL` log line from the running server creates a self-healing task (rate-limited: one task per unique error per hour)
-- Every unhandled 500 response or exception traceback creates a fix task
-- CI failure webhooks arrive from GitHub Actions and trigger the Dev Agent
-
-**GitHub Actions automation:**
-
-| Workflow | Schedule | What it does |
-|----------|----------|--------------|
-| `agency-cycle.yml` | Every 6 hours | CEO assessment + Dev Agent fixes + commits to master |
-| `continuous-improvement.yml` | Daily 09:00 UTC | pytest run + auto-creates/closes GitHub issues |
-| `security-scan.yml` | Weekly + on push | bandit + safety + secret grep + GitHub issue creation |
-
-### v4 Improvement Dashboard
-
-Browse and control the agency from `remote-admin/v4-dashboard.html`:
-
-```
-GET  /v4/status                     — CEO assessment, loop state, recent events
-GET  /v4/improvements               — active/resolved issue list
-POST /v4/improvements/scan          — trigger immediate full scan
-POST /v4/improvements/security-scan — bandit + safety + secrets only
-POST /v4/improvements/{id}/resolve  — mark issue resolved
-POST /v4/report-bug                 — submit a bug → self-healing queue
-GET  /v4/quick-notes                — queued implementation notes
-POST /v4/quick-notes                — add a note (URL or plain text)
-GET  /v4/scheduler/jobs             — all improvement cron jobs
-POST /v4/scheduler/trigger/{id}     — fire a job immediately
-GET  /v4/agency/status              — CEO history, directive queue
-POST /v4/agency/run-cycle           — trigger an immediate CEO cycle
-GET  /v4/log-monitor/stats          — backend error capture stats
-POST /v4/ci-failure                 — CI failure webhook endpoint
-```
-
-### Standing improvement jobs (auto-registered at startup)
-
-| Job | Schedule | Instruction |
-|-----|----------|-------------|
-| `daily-test-scan` | Daily 03:00 UTC | pytest → fix failures → changelog |
-| `weekly-dep-audit` | Monday 04:00 UTC | pip outdated → safe upgrades |
-| `daily-changelog-check` | Daily 05:00 UTC | audit and complete changelog |
-| `weekly-todo-cleanup` | Wednesday 06:00 UTC | resolve FIXME/TODO markers |
-
-### Quick Notes — iPhone → Code
-
-Send a URL or plain-text instruction from your iPhone Shortcut and the agency implements it:
-
-```
-iPhone Shortcut → POST /v1/quick-notes
-                       → queue
-                       → processor fetches URL / reads instruction
-                       → Claude Code implements it
-                       → git commit + push to master
-```
-
----
-
-## Supported Models
-
-### Local (via Ollama)
-
-| Model | Type | Context | Vision |
-|---|---|---|---|
-| `qwen3-coder:7b` | Coder | 32k | — |
-| `qwen3-coder:30b` | Coder | 32k | — |
-| `qwen3-coder:235b` | Coder | 131k | — |
-| `qwen3.6:35b` | General | 128k | ✓ |
-| `deepseek-r1:32b` | Reasoning | 32k | — |
-| `deepseek-r1:671b` | Reasoning | 131k | — |
-| `deepseek-v3:685b` | Coder | 131k | — |
-| `gemma4:9b` | General | 128k | ✓ |
-| `gemma4:27b` | General | 128k | ✓ |
-| `llama4-scout:17b` | General | 10M | ✓ |
-| `llama4-maverick:17b` | General | 1M | ✓ |
-
-> Add any Ollama model at runtime via `ROUTER_EXTRA_MODELS` without touching code.
-
-### NVIDIA NIM (free tier)
-
-Set `NVIDIA_API_KEY` — proxy routes to NIM at highest priority (−10).
-
-| Model slug | Notes |
+| The problem | What Agency Core does instead |
 |---|---|
-| `nvidia/nemotron-3-super-120b-a12b` | Default · general purpose |
-| Any NIM model | Override with `NVIDIA_DEFAULT_MODEL` |
-
-### Free Cloud APIs
-
-| Provider | Env var | Default model |
-|---|---|---|
-| Groq | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
-| DeepSeek API | `DEEPSEEK_API_KEY` | `deepseek-chat` |
-| Google Gemini | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-2.0-flash` |
-| Cerebras | `CEREBRAS_API_KEY` | `llama-3.3-70b` |
-| SambaNova | `SAMBANOVA_API_KEY` | `Meta-Llama-3.3-70B-Instruct` |
-| Together AI | `TOGETHER_API_KEY` | `Llama-3.3-70B-Instruct-Turbo-Free` |
-| Mistral | `MISTRAL_API_KEY` | `mistral-small-latest` |
-| Hugging Face | `HF_TOKEN` | serverless inference |
-| Cloudflare AI | `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
-| Qwen DashScope | `DASHSCOPE_API_KEY` or `QWEN_API_KEY` | `qwen-plus` |
-| ZhipuAI | `ZHIPU_API_KEY` | `glm-4-flash` |
-| MiniMax | `MINIMAX_API_KEY` | `MiniMax-Text-01` |
-
-### Commercial Cloud APIs
-
-Tried last, only when all free and local providers are exhausted.
-
-| Provider | Env var | Default model |
-|---|---|---|
-| AWS Bedrock | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | `us.anthropic.claude-opus-4-7` |
-| Anthropic | `ANTHROPIC_API_KEY` | configurable |
-| OpenRouter | `OPENROUTER_API_KEY` | configurable |
+| Frontier AI tools upload your code to third-party servers | Everything runs on hardware you control; data never leaves your perimeter |
+| ChatGPT / Copilot give one-shot answers, not persistent work | Agents plan, execute, verify, and loop back only when a human decision is needed |
+| Managing multiple AI tools means multiple accounts, keys, and bills | One platform, one API key, one dashboard — unlimited local inference |
+| AI "agents" are demo toys that can't commit code or open PRs | Full git integration: branch → commit → PR → CI watch → HITL approval gate → merge |
+| No visibility into what the AI did or why | Langfuse observability: every LLM call, token count, latency, cost, and decision trace |
+| Cloud AI pricing scales with usage — costs explode at team scale | Marginal inference cost is electricity; scale a 50-person team for the same server bill |
 
 ---
 
-## Providers
+## The autonomous agency — what your agents can do
 
-Provider chain sorted automatically: **NVIDIA NIM → local Ollama → free cloud → commercial**.
+Once onboarded, Agency Core runs a fleet of specialists coordinated by a CEO agent. You describe what you want in plain English; the CEO decomposes it into a structured plan, assigns subtasks to the right specialist, and returns results with evidence — PR links, test output, diffs, and reasoning traces.
 
-```
-Provider priority order (lower = tried first)
-──────────────────────────────────────────────
-  0  NVIDIA NIM          (free, no local GPU needed)
-  1  Local Ollama        (private, on-device)
-  3  Free cloud APIs     (Groq, Gemini, DeepSeek, …)
-  4  Commercial APIs     (Bedrock, Anthropic, …)
-```
+### Engineering agents
 
-Each provider gets a bounded per-request timeout and failure-aware cooldown:
-- `401/403` → 5-minute cooldown
-- connection error → 15-second cooldown
-- other errors → 30-second cooldown
+- **Bug fixing**: analyse a bug report, write a fix, open a PR, watch CI, wait for your approval before merging
+- **Dependency audit**: scan for CVEs, create a safe upgrade PR with passing tests
+- **Code review**: check any PR for security holes, N+1 queries, missing error handling, and injection risks
+- **Test generation**: write unit and integration tests for new or existing code
+- **Refactoring**: identify tech debt hotspots, propose a refactor plan, execute on approval
+- **Release management**: bump version, draft changelog, tag, verify CI, open the release PR
+- **Documentation**: keep API docs, architecture records, and runbooks in sync with code changes
 
----
+### Content & knowledge agents
 
-## API Compatibility
+- Write product descriptions, blog posts, or wiki articles from a brief
+- Keep your internal knowledge base accurate — agents update docs when code changes
+- Summarise and classify incoming GitHub issues, Slack threads, and support tickets
+- Schedule weekly trend digests and release notes automatically
 
-### OpenAI-compatible endpoints
+### Operations agents
 
-```
-POST /v1/chat/completions     # Streaming + non-streaming chat
-GET  /v1/models               # Lists all models including Claude aliases
-POST /v1/completions          # Legacy text completion
-POST /v1/embeddings           # Embeddings passthrough
-```
-
-### Anthropic-compatible endpoints
-
-```
-POST /v1/messages             # Full Anthropic Messages API
-POST /v1/messages/count_tokens  # Token counting (Claude Code CLI uses this)
-```
-
-### Ollama-native passthrough
-
-```
-POST /api/chat    # Ollama NDJSON streaming
-POST /api/generate
-GET  /api/tags
-POST /api/pull
-```
+- Monitor CI/CD pipelines and alert you when something needs a human decision
+- Manage recurring schedules: daily summaries, weekly audits, on-call handoffs
+- Classify every request to the optimal local model (code → Qwen3-Coder, reasoning → DeepSeek-R1)
+- Provide real-time health diagnostics for all running agents, runtimes, and providers
 
 ---
 
-## What's new
+## From onboarding to autonomous work — step by step
 
-### v4.1 — Autonomous Agency (2026-05-16)
+### Step 1 — Boot and activate
 
-The biggest update since launch: LLM Relay now manages itself.
+Deploy Agency Core (Docker, Render, or `uvicorn` locally). On first boot, open the web UI and run the **Setup Wizard** — it walks you through five steps:
 
-**CEO + Specialist Agent Loop**
+1. Connect your Ollama instance (or enter a cloud provider key — Nvidia NIM, AWS Bedrock, Anthropic)
+2. Generate your first API key
+3. Create your admin account
+4. Pull a model (`qwen2.5-coder:7b` for starters — free, no GPU required via Nvidia NIM)
+5. Run a health check — the system confirms every dependency is reachable
 
-A `CEO` agent wakes every 15 minutes, reads the improvement state, and dispatches directives to four specialist roles: `Dev` (fix tests and errors), `Security` (remediate findings), `Reviewer` (council review), and `Release` (readiness + changelog). Directives queue as scheduled jobs, fire via the `TaskDispatcher`, and execute inside the existing `AgentRunner` pipeline — no new infrastructure needed.
+The **Doctor** screen (accessible any time from the sidebar) repeats this check live: git binary, GitHub token, repo access, Langfuse connectivity, and all registered runtimes. Green across the board means you're ready.
 
-**Continuous Improvement Loop**
-
-A background scanner runs every 6 hours and:
-- Runs the full pytest suite — failing tests become P1 fix tasks
-- Greps for `FIXME`/`TODO:FIX`/`HACK:URGENT` markers
-- Detects modules missing test coverage
-- Runs bandit SAST, safety CVE audit, and secret-pattern grep
-
-All findings are persisted to `.claude/state/improvement-state.json` and surfaced in the v4 dashboard.
-
-**Self-Healing Agent**
-
-Three entry points for external failure signals:
-- `POST /v4/ci-failure` — CI failure webhook from GitHub Actions
-- `on_github_issue()` — triggered when a bug-labelled issue is opened
-- `POST /v4/report-bug` — manual report from the v4 dashboard
-
-Each signal creates a `DetectedIssue`, schedules a fix job, and tracks resolution.
-
-**Backend Error Capture**
-
-A custom Python `logging.Handler` is attached to the root logger at startup. Every `ERROR`/`CRITICAL` record from non-noisy loggers creates a self-healing fix task (rate-limited: one task per unique error per hour, identified by SHA-256 signature). Unhandled 500 responses are also captured by `ErrorInterceptorMiddleware`.
-
-**GitHub Actions automation**
-
-Three new workflows ship with the repo:
-- `agency-cycle.yml` (every 6h) — CEO assessment + automated fixes pushed directly to master
-- `continuous-improvement.yml` (daily) — pytest + auto-creates/closes GitHub issues with `auto-detected` label
-- `security-scan.yml` (weekly + push) — bandit, safety, secret grep + GitHub issue creation
-
-**v4 Dashboard**
-
-New static SPA at `remote-admin/v4-dashboard.html` with live KPIs, active issue table, bug report form, quick-note queue, scheduler job panel, agency cycle history, and self-healing event feed.
-
-### v4.0 — Async agents, NVIDIA NIM, mobile UI (2026-05-09)
-
-- `agent_mode=true` returns 202 Accepted immediately — no more blocking requests
-- NVIDIA NIM as priority-0 free provider; per-role model configuration
-- Mobile-first UI with safe-area-aware chrome
-- Runtime preflight validation with structured error diagnostics
-- Vision routing (`image_url` → vision-capable model)
-- `POST /v1/messages/count_tokens` — Claude Code CLI token counting
-- Extended thinking → reasoning model routing
-- Anthropic `output_format` → Ollama `format` translation
-- Langfuse traces from direct chat with token/latency attribution
-- JWT `iat`/`jti` claims — replay attacks closed
-- AWS Bedrock (Claude 4 Opus/Sonnet via Converse API)
-
-See [`docs/changelog.md`](docs/changelog.md) for the full diff.
+> **No local GPU?** Set `LLM_PROVIDER=nvidia-nim` and `NVIDIA_API_KEY=<your-key>` to use Nvidia's free-tier hosted models. Zero local hardware required.
 
 ---
 
-## Quick start
+### Step 2 — Describe your company
 
-### Fastest path — free cloud AI, no GPU needed
+Open the **Company** screen. Paste your repository URL and answer a short set of tailored questions about your stack, team size, and goals. Agency Core builds an internal knowledge graph so agents give context-aware answers ("use Pydantic v2 for this, that's what your codebase uses") instead of generic advice.
 
-```bash
-git clone https://github.com/strikersam/local-llm-server
-cd local-llm-server
-
-cat > .env <<'ENV'
-API_KEYS=sk-relay-dev
-ADMIN_SECRET=replace-with-a-long-random-secret
-ADMIN_EMAIL=admin@llmrelay.local
-ADMIN_PASSWORD=replace-with-a-strong-password
-JWT_SECRET=replace-with-another-long-random-secret
-NVIDIA_API_KEY=nvapi-...
-ENV
-
-docker compose up -d
-docker compose --profile dashboard up -d
-```
-
-| URL | What's there |
-|---|---|
-| `http://localhost:3000` | Full control plane (chat, tasks, agents, knowledge) |
-| `http://localhost:8000/admin/ui/login` | Built-in admin portal (API keys, health) |
-| `http://localhost:8000/app` | Built-in web UI |
-| `http://localhost:8000/v4/status` | Improvement loop & agency status (JSON) |
-| `remote-admin/v4-dashboard.html` | v4 Continuous Improvement Dashboard (open locally) |
-
-### Add local models (Ollama)
-
-```bash
-docker exec llm-server-ollama ollama pull qwen3-coder:30b
-docker exec llm-server-ollama ollama pull deepseek-r1:32b
-```
-
-### Core proxy only (no Docker)
-
-```bash
-source .venv/bin/activate
-uvicorn proxy:app --reload --port 8000
-# Agency, improvement loop, log monitor, and error interceptor start automatically.
-```
-
-### Optional agency env vars
-
-```bash
-AGENCY_TICK_MINUTES=15        # CEO assessment interval (default: 15)
-IMPROVEMENT_SCAN_INTERVAL_HOURS=6  # Full scan interval (default: 6)
-QUICK_NOTE_PUSH_BRANCH=master # Branch for quick-note auto-commits
-QUICK_NOTE_INTERVAL_HOURS=4   # Note processing interval (default: 4)
-```
+You can update this profile any time. Agents re-index it on each task cycle.
 
 ---
 
-## Sign in
+### Step 3 — Talk to the CEO agent
 
-| Surface | Credentials |
-|---|---|
-| Control plane (`localhost:3000`) | `ADMIN_EMAIL` / `ADMIN_PASSWORD` |
-| Built-in admin portal (`localhost:8000/admin/ui/login`) | any username / `ADMIN_SECRET` |
-| v4 Dashboard API (`/v4/*`) | `Authorization: Bearer <ADMIN_SECRET>` |
+Open **Chat**. Describe what you want the way you'd brief a senior engineer:
 
----
+> "There's a memory leak in the session manager reported in issue #142. Find the root cause, write a fix, and open a PR for my review."
 
-## Connect your tools
+The CEO agent:
+1. Reads the issue and the relevant source files
+2. Produces a structured plan — you can review and edit it before execution starts
+3. Delegates to the Dev specialist
+4. Returns a PR link, a summary of the fix, and the test results
 
-### Claude Code
-
-```bash
-export ANTHROPIC_BASE_URL=http://localhost:8000
-export ANTHROPIC_API_KEY=sk-relay-...
-claude
-```
-
-### Cursor
-
-```
-API Key:                  sk-relay-...
-Override OpenAI Base URL: http://localhost:8000/v1
-```
-
-### Python / OpenAI SDK
-
-```python
-from openai import OpenAI
-client = OpenAI(base_url="http://localhost:8000/v1", api_key="sk-relay-...")
-response = client.chat.completions.create(
-    model="qwen3-coder:30b",
-    messages=[{"role": "user", "content": "hello"}]
-)
-```
-
-Aider, Continue, Zed, VS Code, and script examples live in [`client-configs/`](client-configs/).
+Every conversation is persisted. Pick up where you left off across sessions.
 
 ---
 
-## See the product
+### Step 4 — Watch the Task Board
+
+Every agent job appears on the **Task Board** with live status:
+
+```
+queued → planning → executing → verifying → awaiting approval → done
+```
+
+Drill into any task to see:
+- The original plan the CEO agent produced
+- Every step the executing agent took (with diffs and tool call logs)
+- The verification result (did the tests pass?)
+- The judge's verdict (is the output production-ready?)
+- A plain-English summary you can paste into Slack
+
+---
+
+### Step 5 — HITL approval gates
+
+Agency Core never merges code, deploys to production, or sends external messages without your sign-off. When an agent reaches a gate it:
+
+1. Pauses and surfaces the decision in your dashboard
+2. Shows you exactly what will happen — the diff, the deploy command, the message body
+3. Waits for your **Approve**, **Deny**, or **Redirect** (send back with comments)
+
+Gates are configurable per task type: auto-approve low-risk operations like reformatting docs, require explicit sign-off on anything touching production.
+
+---
+
+### Step 6 — Schedule recurring work
+
+Open **Schedules** and set up recurring agent tasks:
+
+- **Daily**: summarise open PRs and surface anything blocked
+- **Weekly**: dependency CVE audit, changelog draft, code quality report
+- **Per-commit**: trigger a doc-sync agent on every merge to master
+- **On-demand**: one-click "run all agents" for a sprint review
+
+Agents run on schedule, push results to the Task Board, and only interrupt you when a human decision is needed.
+
+---
+
+## The V5 Control Plane — every screen
+
+| Screen | What it does |
+|--------|-------------|
+| **Dashboard** | Live health of all agents, recent activity, and system metrics at a glance |
+| **Chat** | Conversational interface to the CEO agent; full persistent history per session |
+| **Task Board** | Kanban view of all agent jobs: queued → planning → executing → review → done |
+| **Agents** | All registered specialists with capabilities, current workload, runtime, and model |
+| **Providers** | Connected LLM providers (Ollama, AWS Bedrock, Nvidia NIM) with health and cost data |
+| **Runtimes** | Execution substrates — internal loop, Docker agent, external harnesses (OpenCode, Aider, Goose) |
+| **Knowledge** | Internal wiki maintained by agents from your code, docs, and past decisions |
+| **Schedules** | Recurring agent tasks with cron-style timing and run history |
+| **Skills** | The agent skill library — what each specialist knows how to do and when it activates |
+| **Intelligence** | Routing policy editor — control which model handles which task type and at what cost tier |
+| **Logs** | Full trace of every LLM call: token count, latency, provider, cost, and decision context |
+| **Company** | Your organisation profile, tech stack, and knowledge graph seed data |
+| **Admin** | User management, role assignment, instance activation, audit log, onboarding controls |
+| **Doctor** | Self-diagnostics — checks every dependency, connectivity, and configuration item live |
+
+---
+
+## Screens
+
+A visual tour of the dashboard. Screenshots reflect the most recent captured UI and are
+regenerated from `scripts/sync_readme_gallery.py`.
+
+<!-- README_UI_GALLERY:START -->
+### 🛰 Control Plane
+
+The command center: live agent health, recent activity, and system metrics at a glance.
+
+<p align="center"><img src="docs/screenshots/readme/v4-control-plane.png" width="92%" alt="Control Plane dashboard"/></p>
 
 ### 🛬 Login
 
-<p align="center">
-  <img src="docs/screenshots/readme/v4-login.png" width="58%" alt="LLM Relay v4 login (desktop)"/>
-  &nbsp;
-  <img src="docs/screenshots/readme/v4-login-mobile.png" width="28%" alt="LLM Relay v4 login (mobile)"/>
-</p>
+People can sign in through a simple starting page instead of touching raw config files.
+
+<p align="center"><img src="docs/screenshots/readme/v4-login.png" width="92%" alt="Login"/></p>
 
 ### 🧙 Setup Wizard
 
-<p align="center">
-  <img src="docs/screenshots/readme/v4-setup-wizard.png" width="58%" alt="Setup Wizard v4"/>
-  &nbsp;
-  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="28%" alt="Setup Wizard v4 mobile"/>
-</p>
+The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.
 
-### 🏠 Dashboard
-
-<p align="center"><img src="docs/screenshots/readme/v4-control-plane.png" width="92%" alt="LLM Relay v4 Dashboard"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-setup-wizard.png" width="92%" alt="Setup Wizard"/></p>
 
 ### 💬 Chat
 
-> **Agent Mode async contract:** `agent_mode=true` returns `202 Accepted` with `(session_id, job_id, status, phase, message)`. Poll `/api/chat/agent-jobs/{job_id}` for status. On completion, render `final_message` as the assistant reply.
+This is where people talk to the CEO agent directly, using the providers and rules you set up.
 
-<p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Direct Chat v4"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Chat"/></p>
 
 ### 🗂 Task Board
 
-<p align="center"><img src="docs/screenshots/readme/v4-tasks-kanban.png" width="92%" alt="Kanban Task Board v4"/></p>
+This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.
+
+<p align="center"><img src="docs/screenshots/readme/v4-tasks-kanban.png" width="92%" alt="Kanban Task Board"/></p>
 
 ### 🤖 Agent Roster
 
-<p align="center"><img src="docs/screenshots/readme/v4-agents.png" width="92%" alt="Agent Roster v4"/></p>
+This is your cast of AI helpers. Each agent can have its own model, runtime, specialty, and rules.
+
+<p align="center"><img src="docs/screenshots/readme/v4-agents.png" width="92%" alt="Agent Roster"/></p>
 
 ### ⚙️ Runtimes
 
-<p align="center"><img src="docs/screenshots/readme/v4-runtimes.png" width="92%" alt="Agent Runtimes v4"/></p>
+This shows the engines behind the scenes that actually run your AI work.
+
+<p align="center"><img src="docs/screenshots/readme/v4-runtimes.png" width="92%" alt="Agent Runtimes"/></p>
 
 ### 🛣 Routing Policy
 
-<p align="center"><img src="docs/screenshots/readme/v4-routing.png" width="92%" alt="Routing Policy v4"/></p>
+This is where you decide how smart, cheap, fast, or private the system should be when picking a model.
+
+<p align="center"><img src="docs/screenshots/readme/v4-routing.png" width="92%" alt="Routing Policy"/></p>
+
+### 🔌 Providers and Models
+
+This is where you connect local and cloud AI sources and decide what models are available.
+
+<p align="center">
+  <img src="docs/screenshots/readme/v4-providers.png" width="48%" alt="Providers"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-models.png" width="48%" alt="Models"/>
+</p>
 
 ### 📚 Knowledge
 
-<p align="center"><img src="docs/screenshots/readme/v4-knowledge.png" width="92%" alt="Knowledge and Wiki v4"/></p>
+This is your team's memory: wiki pages, source material, and reusable context.
 
-### 🔭 Logs and Activity
+<p align="center"><img src="docs/screenshots/readme/v4-knowledge.png" width="92%" alt="Knowledge and Wiki"/></p>
 
-<p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs v4"/></p>
+### 🔭 Logs and activity
+
+This helps you answer, ‘what just happened?’ — every LLM call, token count, latency, and cost.
+
+<p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs"/></p>
 
 ### 🗓 Schedules
 
-<p align="center"><img src="docs/screenshots/readme/v4-schedules.png" width="92%" alt="Schedules v4"/></p>
+This is how you make AI jobs run later or run again automatically.
+
+<p align="center"><img src="docs/screenshots/readme/v4-schedules.png" width="92%" alt="Schedules"/></p>
+
+### 🧭 Settings and guardrails
+
+Central settings keep defaults, policies, and integrations in one place instead of scattered config files.
+
+<p align="center"><img src="docs/screenshots/readme/v4-settings.png" width="92%" alt="Settings"/></p>
+
+### 🛡 Admin portal
+
+This gives admins a simpler place to manage access, instance activation, and system behavior.
+
+<p align="center"><img src="docs/screenshots/readme/v4-admin.png" width="92%" alt="Admin Portal"/></p>
+
+### 📱 Mobile
+
+The dashboard is responsive — sign in, run the setup wizard, and monitor agents from a phone.
+
+<p align="center">
+  <img src="docs/screenshots/readme/v4-login-mobile.png" width="32%" alt="Mobile login"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="32%" alt="Mobile setup wizard"/>
+</p>
+<!-- README_UI_GALLERY:END -->
 
 ---
 
-## Feature overview
+## Architecture
 
-| Category | What's included |
+```
+┌──────────────────────────────────────────────────────────────────┐
+│   React V5 SPA (GitHub Pages)     Remote Admin (Vercel)          │
+└──────────────────┬───────────────────────────────────────────────┘
+                   │ HTTPS / JWT Bearer
+┌──────────────────▼───────────────────────────────────────────────┐
+│  FastAPI Backend (Render / Docker)                                │
+│  ├─ /v1/chat/completions     OpenAI-compatible proxy             │
+│  ├─ /api/chat/send           Agency Core conversational API      │
+│  ├─ /api/tasks/*             Task CRUD + async dispatcher        │
+│  ├─ /api/agent/*             Agent job management + HITL gates   │
+│  ├─ /api/doctor              Live system health diagnostics      │
+│  ├─ /api/activation/*        Instance licensing + user mgmt      │
+│  └─ /mcp-internal            MCP server for agent tool calls     │
+├──────────────────────────────────────────────────────────────────┤
+│  ModelRouter — task classification → optimal model selection     │
+│  ├─ Code tasks      → Qwen3-Coder / DeepSeek-Coder              │
+│  ├─ Reasoning       → DeepSeek-R1                                │
+│  └─ Fast / chat     → smallest capable model                     │
+├──────────────────────────────────────────────────────────────────┤
+│  AgentRunner — plan → execute → verify → judge → summarise       │
+│  ├─ CEO agent (orchestrator + domain classifier)                 │
+│  ├─ Dev / Release / Content / Analytics / Infra specialists      │
+│  └─ Workflow engine (persisted state machine, HITL gates)        │
+├──────────────────────────────────────────────────────────────────┤
+│  Task Dispatcher — async poll loop + crash-recovery reconciler   │
+│  ├─ Per-task git worktree isolation (concurrent-safe execution)  │
+│  └─ Opt-in external runtimes: Docker, OpenCode, Aider, Goose    │
+├──────────────────────────────────────────────────────────────────┤
+│  Storage (swappable at runtime)                                  │
+│  ├─ MongoDB (default) — Motor async driver                       │
+│  └─ SQLite (STORAGE_BACKEND=sqlite) — zero external deps         │
+│  Observability — Langfuse traces + local TCO cost model          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Quickstart
+
+### Prerequisites
+
+- Python 3.13+
+- [Ollama](https://ollama.com/) with at least one model — **or** a free [Nvidia NIM](https://build.nvidia.com/) API key (no local GPU needed)
+- Node 20+ (for the web UI)
+- MongoDB — **or** set `STORAGE_BACKEND=sqlite` to skip it entirely
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/strikersam/local-llm-server.git
+cd local-llm-server
+python -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
+```
+
+### 2. Configure
+
+```bash
+cp .env.example .env
+# Minimum required:
+#   SECRET_KEY=$(openssl rand -hex 32)
+#   STORAGE_BACKEND=sqlite          # skip MongoDB
+#   ADMIN_EMAIL=you@example.com
+#   ADMIN_PASSWORD=changeme
+#
+# Add one of:
+#   OLLAMA_BASE_URL=http://localhost:11434   # local GPU
+#   NVIDIA_API_KEY=nvapi-...                 # free cloud inference
+```
+
+### 3. Start the backend
+
+```bash
+uvicorn backend.server:app --reload --port 8001
+```
+
+### 4. Start the frontend (development)
+
+```bash
+cd frontend
+npm install
+REACT_APP_BACKEND_URL=http://localhost:8001 npm start
+```
+
+Visit [http://localhost:3000](http://localhost:3000) — the setup wizard appears on first boot.
+
+### 5. Connect your AI coding tools
+
+```jsonc
+// Cursor — settings.json
+{
+  "cursor.ai.openaiBaseUrl": "http://localhost:8000",
+  "cursor.ai.openaiApiKey": "your-api-key-here"
+}
+```
+
+See [`client-configs/`](client-configs/) for Aider, Continue, Zed, VSCode, and Claude Code configs.
+
+---
+
+## Cloud deployment (Render + GitHub Pages)
+
+Push to `master` — GitHub Actions does the rest automatically:
+
+1. **CI**: Python 3.13 tests, frontend build, lint, SAST, secret scan, CVE audit
+2. **Backend**: Docker build → Render deploy hook → health check
+3. **Frontend**: React build → GitHub Pages
+
+**Required repository secrets:**
+
+| Secret | Where to get it |
 |---|---|
-| **API compatibility** | OpenAI `/v1/chat/completions`, Anthropic `/v1/messages` + `/count_tokens`, Ollama `/api/chat` |
-| **Model routing** | Free-first · local-first · cost-aware · quality strategies |
-| **Vision routing** | Auto-detects `image_url`, routes to vision-capable model |
-| **Thinking routing** | `thinking: {type: "enabled"}` → reasoning model (DeepSeek-R1, QwQ) |
-| **Structured outputs** | `json_schema` / `json_object` translated to Ollama `format` automatically |
-| **Auth** | Bearer tokens · per-user API keys · JWT (iat/jti) · social login · RBAC |
-| **Agent engine** | Async 202 jobs · plan/execute/verify pipeline · per-role models |
-| **Autonomous agency** | CEO + Dev/Security/Reviewer/Release agents · 15-min tick · self-healing |
-| **Continuous improvement** | 6h scan cycle · test failures · FIXME markers · missing coverage · security |
-| **Log monitoring** | ERROR/CRITICAL capture → fix tasks · rate-limited per error signature |
-| **Error interception** | 500 responses + unhandled exceptions → fix tasks via middleware |
-| **Security scanning** | bandit SAST · safety CVE audit · secret-pattern grep · GitHub issues |
-| **Self-healing** | CI webhook + GitHub issue + dashboard report → queued fix tasks |
-| **Quick Notes** | iPhone Shortcut → URL/text → Claude Code implements → git push |
-| **Task management** | Kanban board · concurrent fanout · approvals · retry |
-| **Schedules** | Cron jobs · run-now · webhook triggers · 4 built-in improvement jobs |
-| **Observability** | Langfuse traces (chat + agent) · session clustering · token/latency attribution |
-| **Knowledge** | Wiki pages · source ingestion (GitHub, URL, file) · agent retrieval |
-| **GitHub integration** | Repo · branch · file · PR flows |
-| **Secrets** | Encrypted secrets store |
-| **Telegram bot** | Remote control via Telegram |
-| **Hardware detection** | GPU / CPU / memory profiling |
-| **Extensibility** | `ROUTER_EXTRA_MODELS` · `MODEL_MAP` · `FEATURE_DISABLE/ENABLE` |
+| `RENDER_DEPLOY_HOOK_URL` | Render dashboard → service → Settings → Deploy Hook |
+| `RENDER_BACKEND_URL` | Your Render service URL (e.g. `https://my-service.onrender.com`) |
+
+Live demo:
+- **Frontend**: `https://strikersam.github.io/local-llm-server/`
+- **Backend API**: `https://local-llm-server.onrender.com/docs`
+
+> **Render free tier note**: the backend sleeps after 15 minutes of inactivity and takes ~30 s to wake. Upgrade to Starter ($7/mo) to eliminate cold starts in production.
 
 ---
 
-## Technical docs
+## Configuration reference
 
-- [Documentation index](docs/README.md)
-- [Architecture overview](docs/architecture/overview.md)
-- [Agent orchestration](docs/architecture/agent-orchestration.md)
-- [Feature guide](docs/features.md)
-- [API surfaces and route map](docs/api-surfaces.md)
-- [Configuration reference](docs/configuration-reference.md)
-- [Model routing guide](docs/model-routing.md)
-- [Claude Code setup](docs/claude-code-setup.md)
-- [Agent runtime setup](docs/runbooks/agent-runtime-setup.md)
-- [Langfuse observability](docs/langfuse-observability.md)
-- [Changelog](docs/changelog.md)
+| Variable | Default | Description |
+|---|---|---|
+| `SECRET_KEY` | *(required)* | JWT signing key — `openssl rand -hex 32` |
+| `STORAGE_BACKEND` | `mongo` | Set to `sqlite` for zero-dependency storage |
+| `MONGO_URL` | `mongodb://localhost:27017` | MongoDB connection string |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Local Ollama server |
+| `LLM_PROVIDER` | `ollama` | `ollama` · `nvidia-nim` · `deepseek` · `bedrock` · `anthropic` |
+| `NVIDIA_API_KEY` | *(optional)* | Nvidia NIM free-tier models — no local GPU required |
+| `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | *(optional)* | AWS Bedrock (Claude Opus, Titan) |
+| `ANTHROPIC_API_KEY` | *(optional)* | Direct Anthropic API |
+| `DEEPSEEK_API_KEY` | *(optional)* | DeepSeek cloud API |
+| `GITHUB_TOKEN` | *(optional)* | Required for agents that open PRs, review code, or read issues |
+| `LANGFUSE_HOST` + `_PUBLIC_KEY` + `_SECRET_KEY` | *(optional)* | Observability traces |
+| `TELEGRAM_BOT_TOKEN` | *(optional)* | Remote control via Telegram |
+| `ADMIN_EMAIL` + `ADMIN_PASSWORD` | *(optional)* | First admin — created on first boot |
+| `RUNTIME_DOCKER_ENABLED` | `false` | Enable Docker agent runtime |
+| `RUNTIME_OPENHANDS_ENABLED` | `false` | Enable OpenHands runtime |
+| `RUNTIME_AIDER_ENABLED` | `false` | Enable Aider runtime |
+
+Full reference: [`docs/configuration.md`](docs/configuration.md)
+
+### Provider priority chain
+
+Agency Core tries providers in order until one responds:
+
+```
+AWS Bedrock (15) → Nvidia NIM (10) → DeepSeek (8) → Anthropic (7) → HuggingFace (5) → Ollama (3)
+```
+
+Only providers with keys configured are tried. Set just the keys you have.
+
+---
+
+## Security
+
+- **No secrets in source** — all configuration via environment variables; nothing hardcoded
+- **Ed25519 instance activation** — tamper-evident licensing signatures
+- **RBAC**: three roles — `user`, `power_user`, `admin`
+- **Bearer token auth** on every API endpoint; JWT with configurable expiry
+- **Audit log** for all admin actions (user creation, key generation, role changes)
+- **Bandit SAST** + **CodeQL** + **GitHub secret scanning** on every push
+- **Dependency CVE audit** on every PR via pip-audit
+- **Per-task git worktree isolation** — concurrent agents cannot clobber each other's in-flight edits
+- **Crash-recovery reconciler** — stranded `IN_PROGRESS` tasks are automatically re-queued on restart
+
+Found a vulnerability? Open a [security advisory](https://github.com/strikersam/local-llm-server/security/advisories/new) — please don't file a public issue.
+
+---
+
+## Development
+
+```bash
+# Run tests — always before committing
+pytest -x            # fast-fail mode
+pytest -v            # verbose with full output
+
+# Activate git hooks (blocks commits missing changelog entries)
+git config core.hooksPath .claude/hooks
+
+# Generate a new API key
+python generate_api_key.py
+
+# AI session watchdog (auto-resume AI coding sessions)
+python scripts/ai_runner.py start
+python scripts/ai_runner.py status
+python scripts/ai_runner.py resume
+```
+
+See [`CLAUDE.md`](CLAUDE.md) for the full contributor guide, skill map, risky-module policy, and AI agent working rules.
+
+---
+
+## Roadmap
+
+| Phase | Status | Description |
+|---|---|---|
+| Phase 1 — Typed agent contract | ✅ Done | `AgentJobRequest` / `AgentJobResult` Pydantic contract, E2E tests |
+| Phase 2 — ModelRouter wiring | ✅ Done | Single router for all request types; classification → model hint |
+| Phase 3 — SQLite + one backend | ✅ Done | Swappable storage adapter, dead-router removal, zero-dep option |
+| Phase 4 — Runtime resilience | ✅ Done | Crash-recovery reconciler, worktree isolation, opt-in external runtimes |
+| Phase 5 — Doctor & dashboard resilience | ✅ Done | `/api/doctor` endpoint, `useSafeData` hook, live DoctorScreen |
+| Phase 6 — Workflow engine | 🔄 In progress | Persisted state machine, safe CEO agency (branch/PR safety) |
+| Phase 7 — Onboarding engine | 📋 Planned | URL → stack inference → tailored questions → specialist provisioning |
+| Phase 8 — Multi-tenant | 📋 Planned | Organisation isolation, per-tenant model budgets, SSO |
 
 ---
 
 ## License
 
-Open source. Use it, change it, and make it better.
+MIT — see [LICENSE](LICENSE)
 
 ---
 
 <div align="center">
-
-If LLM Relay saves you time or money, a star helps other people find it.
-
-[![Star this repo](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&logo=github&color=FFD43B)](https://github.com/strikersam/local-llm-server/stargazers)
-
+<sub>Built for engineers who want the power of frontier AI without the cloud bill or the privacy compromise.</sub>
 </div>

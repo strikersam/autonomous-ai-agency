@@ -40,6 +40,8 @@ except ImportError:  # pragma: no cover - optional in some minimal environments
     AsyncIOMotorClient = None
 
 from rbac import UserRole, audit, get_user_role, require_admin
+from activation import is_activated
+from activation_api import is_user_onboarding_allowed
 from secrets_store import get_secrets_store, SecretRecord
 
 log = logging.getLogger("qwen-proxy")
@@ -296,10 +298,27 @@ async def _detect_ollama_models(base_url: str = "http://localhost:11434") -> lis
 
 @setup_router.get("/state")
 async def get_setup_state(request: Request):
-    """Return the current wizard state for this user."""
+    """Return the current wizard state for this user.
+
+    Includes activation/onboarding gate flags so the frontend can show
+    the appropriate wizard screen without extra round-trips.
+    """
     uid   = _uid(request)
     state = await get_wizard_state(uid)
-    return state.as_dict()
+    result = state.as_dict()
+    # Activation gate: if instance is not activated, block onboarding entirely
+    activated = is_activated()
+    onboarding_allowed = is_user_onboarding_allowed(uid) if activated else False
+    result["_activation"] = {
+        "instance_activated": activated,
+        "onboarding_allowed": onboarding_allowed,
+        # If blocked, tell the frontend why
+        "blocked_reason": (
+            None if (activated and onboarding_allowed)
+            else ("instance_not_activated" if not activated else "onboarding_not_allowed")
+        ),
+    }
+    return result
 
 
 @setup_router.get("/detect/providers")
@@ -351,8 +370,32 @@ async def detect_models_for_wizard(ollama_url: str = "http://localhost:11434"):
     return {"models": models, "total": len(models), "ollama_url": ollama_url}
 
 
+
+def _require_onboarding_gate(request: Request) -> None:
+    """Raise 403 if instance is not activated or user is not allowed to onboard."""
+    uid = _uid(request)
+    if not is_activated():
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "instance_not_activated",
+                "message": "This LLM Relay instance has not been activated. "
+                           "Email strikersam@gmail.com with your Instance ID to request an activation code.",
+            },
+        )
+    if not is_user_onboarding_allowed(uid):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "onboarding_not_allowed",
+                "message": "Your account has not been approved for onboarding. "
+                           "Contact your administrator.",
+            },
+        )
+
 @setup_router.put("/step/1")
 async def save_step1(request: Request, body: Step1Request):
+    _require_onboarding_gate(request)
     """Save Step 1: Provider setup."""
     uid   = _uid(request)
     state = await get_wizard_state(uid)
@@ -365,6 +408,7 @@ async def save_step1(request: Request, body: Step1Request):
 
 @setup_router.put("/step/2")
 async def save_step2(request: Request, body: Step2Request):
+    _require_onboarding_gate(request)
     """Save Step 2: Model selection."""
     uid   = _uid(request)
     state = await get_wizard_state(uid)
@@ -377,6 +421,7 @@ async def save_step2(request: Request, body: Step2Request):
 
 @setup_router.put("/step/3")
 async def save_step3(request: Request, body: Step3Request):
+    _require_onboarding_gate(request)
     """Save Step 3: Runtime configuration."""
     uid   = _uid(request)
     state = await get_wizard_state(uid)
@@ -389,6 +434,7 @@ async def save_step3(request: Request, body: Step3Request):
 
 @setup_router.put("/step/4")
 async def save_step4(request: Request, body: Step4Request):
+    _require_onboarding_gate(request)
     """Save Step 4: Default agent."""
     uid   = _uid(request)
     state = await get_wizard_state(uid)
@@ -401,6 +447,7 @@ async def save_step4(request: Request, body: Step4Request):
 
 @setup_router.put("/step/5")
 async def save_step5(request: Request, body: Step5Request):
+    _require_onboarding_gate(request)
     """Save Step 5: Policy preferences."""
     uid   = _uid(request)
     state = await get_wizard_state(uid)
@@ -413,6 +460,7 @@ async def save_step5(request: Request, body: Step5Request):
 
 @setup_router.post("/complete")
 async def complete_wizard(request: Request):
+    _require_onboarding_gate(request)
     """Mark wizard as complete.  Will not be shown again on next login."""
     uid   = _uid(request)
     state = await get_wizard_state(uid)

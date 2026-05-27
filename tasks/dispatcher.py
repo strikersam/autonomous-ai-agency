@@ -15,9 +15,22 @@ log = logging.getLogger("qwen-proxy")
 # How often (in polls) to emit a "queue depth" diagnostic log line.
 _QUEUE_DEPTH_LOG_EVERY = 12  # ~1 min at 5 s poll interval
 
+# How often (in polls) to run the stranded-task reconciler.
+# Default: every 60 polls ≈ 5 minutes at 5 s poll interval.
+_RECONCILE_EVERY = int(os.environ.get("TASK_RECONCILE_EVERY_POLLS", "60"))
+
+# A task is "stranded" if it has been IN_PROGRESS without completing for this
+# many seconds.  Default is 2× the coordinator's default execution timeout (150 s).
+_STALE_THRESHOLD_S = float(os.environ.get("TASK_STALE_THRESHOLD_SEC", "300"))
+
 
 class TaskDispatcher:
     """Polls for queued task work and executes it through the coordinator.
+
+    Crash recovery: on every ``_RECONCILE_EVERY``-th poll (and once on startup)
+    the dispatcher calls ``store.reconcile_stranded_tasks()`` to re-queue any
+    task that was left IN_PROGRESS by a previous server process that crashed or
+    was hard-killed mid-execution.
 
     Diagnostics emitted (all at INFO level, queryable via /api/activity):
       - queue depth every ~1 min
@@ -58,6 +71,10 @@ class TaskDispatcher:
             self.workspace_root,
             self.max_concurrency,
         )
+        # Run reconciler immediately on startup to recover any tasks that were
+        # left stranded by a previous server process.
+        await self._reconcile()
+
         while not self._stop:
             try:
                 await self._poll_and_execute()
@@ -65,8 +82,28 @@ class TaskDispatcher:
                 log.error("TaskDispatcher error: %s", exc, exc_info=True)
             await asyncio.sleep(self.poll_interval_s)
 
+    async def _reconcile(self) -> None:
+        """Re-queue tasks stranded by a prior crash or hard-kill."""
+        try:
+            active = set(self.coordinator._active_task_ids)  # snapshot under lock
+            recovered = await self.store.reconcile_stranded_tasks(
+                active_task_ids=active,
+                stale_threshold_s=_STALE_THRESHOLD_S,
+            )
+            if recovered:
+                log.info(
+                    "TaskDispatcher reconciler: recovered %d stranded task(s)", recovered
+                )
+        except Exception as exc:  # pragma: no cover
+            log.error("TaskDispatcher reconciler error: %s", exc, exc_info=True)
+
     async def _poll_and_execute(self) -> None:
         self._poll_count += 1
+
+        # Periodic reconciliation to catch tasks stranded by mid-flight crashes.
+        if _RECONCILE_EVERY > 0 and self._poll_count % _RECONCILE_EVERY == 0:
+            await self._reconcile()
+
         tasks = await self.store.list_pending(limit=self.max_concurrency)
 
         # Emit periodic queue-depth diagnostic

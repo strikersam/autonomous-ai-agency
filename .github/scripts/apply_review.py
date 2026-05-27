@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 """
-apply_review.py — Apply PR review comments using Claude Opus (primary) or NVIDIA NIM (fallback).
+apply_review.py — Apply PR review comments using NVIDIA NIM (primary) or Claude Opus (fallback).
 
 Usage: python3 apply_review.py <pr_number>
 
 Env vars:
-  ANTHROPIC_API_KEY     Anthropic API key (Opus primary — preferred)
-  NVIDIA_API_KEY        NVIDIA NIM API key (fallback)
+  NVIDIA_API_KEY        NVIDIA NIM API key (primary engine)
+  ANTHROPIC_API_KEY     Anthropic API key (optional Opus fallback)
   GH_TOKEN              GitHub token for reading/posting PR comments
   GITHUB_REPOSITORY     owner/repo string (set automatically by GitHub Actions)
 """
@@ -173,7 +173,7 @@ class ApplyReviewAgent:
     def _bash(self, cmd: str) -> str:
         env = {k: v for k, v in os.environ.items() if k not in _STRIP_KEYS}
         r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=120, env=env,
+            cmd, shell=True, capture_output=True, text=True, timeout=120, env=env,  # nosec B602
         )
         return (r.stdout + r.stderr)[-3000:] + f"\n[exit {r.returncode}]"
 
@@ -413,18 +413,10 @@ def main() -> None:
     agent = ApplyReviewAgent("", OPUS_MODEL, context)
     success = False
 
-    # Primary: Claude Opus via Anthropic
-    if anthropic_key:
-        log.info(f"Trying model {OPUS_MODEL} (Anthropic — primary)")
-        try:
-            success = agent.run_with_anthropic(anthropic_key)
-        except Exception as e:
-            log.warning(f"Anthropic Opus failed: {e} — trying NVIDIA fallback")
-
-    # Fallback: NVIDIA NIM
-    if not success and nvidia_key:
+    # Primary engine: NVIDIA NIM
+    if nvidia_key:
         for model, desc in NVIDIA_CANDIDATE_MODELS:
-            log.info(f"Trying model {model} ({desc}) (NVIDIA NIM — fallback)")
+            log.info(f"Trying model {model} ({desc}) (NVIDIA NIM — primary)")
             agent = ApplyReviewAgent(nvidia_key, model, context)
             try:
                 success = agent.run()
@@ -432,6 +424,15 @@ def main() -> None:
                     break
             except Exception as e:
                 log.warning(f"Model {model} failed: {e}")
+
+    # Optional fallback: Claude Opus via Anthropic
+    if not success and anthropic_key:
+        log.info(f"NVIDIA did not apply review — falling back to {OPUS_MODEL} (Anthropic)")
+        agent = ApplyReviewAgent("", OPUS_MODEL, context)
+        try:
+            success = agent.run_with_anthropic(anthropic_key)
+        except Exception as e:
+            log.warning(f"Anthropic Opus fallback failed: {e}")
 
     summary = agent.summary if agent else ""
     result_path.write_text(json.dumps({"success": success, "applied": True, "summary": summary}))

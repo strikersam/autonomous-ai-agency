@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './pages/LoginPage';
@@ -6,6 +6,8 @@ import AuthCallback from './pages/AuthCallback';
 import DashboardLayout from './pages/DashboardLayout';
 import SetupWizardPage from './pages/SetupWizardPage';
 import { getSetupState, getBackendUrl } from './api';
+
+const V5App = React.lazy(() => import('./v5/V5App'));
 
 function LoadingScreen({ message }) {
   return (
@@ -62,9 +64,21 @@ function AppRoutes() {
       {/* Pre-auth setup wizard — configure backend URL before logging in */}
       <Route path="/bootstrap" element={<SetupWizardPage />} />
 
-      {/* Protected dashboard (includes /setup as a nested route) */}
+      {/* V5.0 Agency Core — primary authenticated UI */}
       <Route
-        path="/*"
+        path="/v5/*"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<LoadingScreen message="Loading Agency Core" />}>
+              <V5App />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Legacy v4 dashboard — kept for rollback; accessible at /legacy */}
+      <Route
+        path="/legacy/*"
         element={
           <ProtectedRoute>
             <SetupGuard>
@@ -72,6 +86,12 @@ function AppRoutes() {
             </SetupGuard>
           </ProtectedRoute>
         }
+      />
+
+      {/* Default: redirect authenticated users to Agency Core v5 */}
+      <Route
+        path="/*"
+        element={user ? <Navigate to="/v5" replace /> : <Navigate to="/login" replace />}
       />
     </Routes>
   );

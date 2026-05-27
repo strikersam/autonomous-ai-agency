@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "local-llm-server",
+  "compatibility_date": "2026-05-27",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "remote-admin"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}

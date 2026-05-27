@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getActivity } from '../api';
-import { Filter, Trash2, Activity } from 'lucide-react';
+import { Filter, Trash2, Activity, MessageSquare, BookOpen, Upload, Shield, AlertCircle, ArrowUpRight, Clock } from 'lucide-react';
 
 export default function ActivityPage() {
   const [entries, setEntries] = useState([]);
@@ -97,11 +97,11 @@ export default function ActivityPage() {
 
       {/* Stats Bar */}
       <div className="flex flex-wrap items-center gap-2 mb-6 stagger-1">
-        <div className="px-3 py-1.5 rounded-lg text-[0.85rem] font-medium border transition-all capitalize ${
-          filter === 'all' 
+        <div className={`px-3 py-1.5 rounded-lg text-[0.85rem] font-medium border transition-all capitalize ${
+          filter === 'all'
             ? 'border-[var(--accent)]/60 text-[var(--text-primary)] bg-[var(--accent)]/15'
             : 'border-[var(--border)]/8 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--border)]/14'
-        }">
+        }`}>
           All ({entries.length})
         </div>
         {Object.keys(categoryConfig).map(cat => (
