@@ -42,7 +42,7 @@ from models.company_graph import (
 log = logging.getLogger("company_graph.store")
 
 # Configuration
-STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "mongodb").lower()
+STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "mongo").lower()
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "agency_core")
 MONGO_SELECTION_TIMEOUT_MS = int(os.environ.get("MONGO_SELECTION_TIMEOUT_MS", "2000"))
