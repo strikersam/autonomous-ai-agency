@@ -26,7 +26,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
@@ -81,6 +81,8 @@ class UserInfo(BaseModel):
     email: str
     default_company_id: Optional[str] = None
 
+
+UserInfo.model_rebuild()
 
 class AgentEventModel(BaseModel):
     """Tool-call event shape consumed by ToolCallViewer.jsx.
