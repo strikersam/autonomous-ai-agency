@@ -38,7 +38,7 @@ jobs:
       DB_NAME: llm_relay_e2e
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
-      ADMIN_PASSWORD: E2EAdmin2026!
+      ADMIN_PASSWORD: WikiAdmin2026!
       SECRET_KEY: e2e-ci-secret-do-not-use-in-production
       OLLAMA_BASE: http://localhost:11434
       LANGFUSE_SECRET_KEY: ""
