@@ -83,6 +83,15 @@ def _hostname_contains(url: str, *domains: str) -> bool:
     """Check if URL hostname matches any of the given domains."""
     return any(_hostname_is(url, d) for d in domains)
 
+
+def _content_contains_domain(content: str, *domains: str) -> bool:
+    """Check if HTML content mentions any of the given domains.
+    Only used for detection of known services in fetched page content,
+    not for URL validation. Domains are from a fixed whitelist."""
+    content_lower = content.lower()
+    return any(domain.lower() in content_lower for domain in domains)
+
+
 class WebsiteScanner:
     """
     Scanner for detecting technology stack and systems from websites.
@@ -134,27 +143,33 @@ class WebsiteScanner:
             if not website_url.startswith(("http://", "https://")):
                 website_url = f"https://{website_url}"
             
-            # SSRF protection: block internal/private networks
-            if not _is_safe_url(website_url):
+            # SSRF protection: validate URL and rebuild from parsed components
+            parsed = urlparse(website_url)
+            if parsed.scheme not in ("http", "https"):
                 return WebsiteScanResult(
-                    scan_id=scan_id,
-                    website_url=website_url,
-                    company_id=self.company_id,
-                    status="failed",
-                    errors=["Blocked: target resolves to private/internal network"],
-                    started_at=started_at.isoformat(),
-                    completed_at=datetime.utcnow().isoformat()
+                    scan_id=scan_id, website_url=website_url, company_id=self.company_id,
+                    status="failed", errors=["Blocked: only http/https schemes allowed"],
+                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
                 )
-            
+            # Rebuild URL from parsed components to strip any injected credentials
+            _safe_url = parsed._replace(fragment="").geturl()
+
+            if not _is_safe_url(_safe_url):
+                return WebsiteScanResult(
+                    scan_id=scan_id, website_url=website_url, company_id=self.company_id,
+                    status="failed", errors=["Blocked: target resolves to private/internal network"],
+                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                )
+
             # Fetch the homepage
             async with httpx.AsyncClient(
                 timeout=self.timeout,
-                follow_redirects=True,
+                follow_redirects=False,
                 max_redirects=self.max_redirects,
                 headers={"User-Agent": self.user_agent}
             ) as client:
                 try:
-                    response = await client.get(website_url)
+                    response = await client.get(_safe_url)
                     response.raise_for_status()
                     html = response.text
                     status_code = response.status_code
@@ -311,7 +326,7 @@ class WebsiteScanner:
         # Google Analytics
         for script in scripts:
             script_text = str(script)
-            if 'googletagmanager.com' in script_text or 'google-analytics.com' in script_text:
+            if _content_contains_domain(script_text, 'googletagmanager.com', 'google-analytics.com'):
                 systems.append(DetectedSystem(
                     system_type="analytics",
                     name="Google Analytics",
@@ -330,7 +345,7 @@ class WebsiteScanner:
         # Google Tag Manager
         for script in scripts:
             script_text = str(script)
-            if 'googletagmanager.com/gtm.js' in script_text:
+            if _content_contains_domain(script_text, 'googletagmanager.com/gtm.js'):
                 systems.append(DetectedSystem(
                     system_type="analytics",
                     name="Google Tag Manager",
@@ -349,7 +364,7 @@ class WebsiteScanner:
         # Mixpanel
         for script in scripts:
             script_text = str(script)
-            if 'mixpanel.com' in script_text:
+            if _content_contains_domain(script_text, 'mixpanel.com'):
                 systems.append(DetectedSystem(
                     system_type="analytics",
                     name="Mixpanel",
@@ -368,7 +383,7 @@ class WebsiteScanner:
         # Amplitude
         for script in scripts:
             script_text = str(script)
-            if 'amplitude.com' in script_text:
+            if _content_contains_domain(script_text, 'amplitude.com'):
                 systems.append(DetectedSystem(
                     system_type="analytics",
                     name="Amplitude",
@@ -388,7 +403,7 @@ class WebsiteScanner:
         # Stripe
         for script in scripts:
             script_text = str(script)
-            if 'stripe.com' in script_text or 'stripe.js' in script_text:
+            if _content_contains_domain(script_text, 'stripe.com', 'stripe.js'):
                 systems.append(DetectedSystem(
                     system_type="payment_gateway",
                     name="Stripe",
@@ -407,7 +422,7 @@ class WebsiteScanner:
         # PayPal
         for script in scripts:
             script_text = str(script)
-            if 'paypal.com' in script_text or 'paypalobjects.com' in script_text:
+            if _content_contains_domain(script_text, 'paypal.com', 'paypalobjects.com'):
                 systems.append(DetectedSystem(
                     system_type="payment_gateway",
                     name="PayPal",
@@ -427,7 +442,7 @@ class WebsiteScanner:
         # HubSpot
         for script in scripts:
             script_text = str(script)
-            if 'hubspot.com' in script_text:
+            if _content_contains_domain(script_text, 'hubspot.com'):
                 systems.append(DetectedSystem(
                     system_type="CRM",
                     name="HubSpot",
@@ -446,7 +461,7 @@ class WebsiteScanner:
         # Salesforce
         for script in scripts:
             script_text = str(script)
-            if 'salesforceliveagent.com' in script_text or 'force.com' in script_text:
+            if _content_contains_domain(script_text, 'salesforceliveagent.com', 'force.com'):
                 systems.append(DetectedSystem(
                     system_type="CRM",
                     name="Salesforce",
@@ -620,15 +635,15 @@ class WebsiteScanner:
             confidence_scores["Wix"] = 0.85
         
         # Analytics Detection
-        if 'google-analytics.com' in html_lower or 'googletagmanager.com' in html_lower:
+        if _content_contains_domain(html_lower, 'google-analytics.com', 'googletagmanager.com'):
             analytics.append("Google Analytics")
             confidence_scores["Google Analytics"] = 0.85
         
-        if 'mixpanel.com' in html_lower:
+        if _content_contains_domain(html_lower, 'mixpanel.com'):
             analytics.append("Mixpanel")
             confidence_scores["Mixpanel"] = 0.8
         
-        if 'amplitude.com' in html_lower:
+        if _content_contains_domain(html_lower, 'amplitude.com'):
             analytics.append("Amplitude")
             confidence_scores["Amplitude"] = 0.8
         
