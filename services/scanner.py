@@ -37,6 +37,28 @@ from models.company_graph import (
 log = logging.getLogger("company_graph.scanner")
 
 
+import ipaddress
+import socket
+from urllib.parse import urlparse
+
+
+def _is_safe_url(url: str) -> bool:
+    """Block SSRF: reject loopback, link-local, and private IPs."""
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        # Resolve hostname to IP and check
+        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for family, _, _, _, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+    except (socket.gaierror, ValueError):
+        return False
+    return True
+
 class WebsiteScanner:
     """
     Scanner for detecting technology stack and systems from websites.
@@ -87,6 +109,18 @@ class WebsiteScanner:
             # Normalize URL
             if not website_url.startswith(("http://", "https://")):
                 website_url = f"https://{website_url}"
+            
+            # SSRF protection: block internal/private networks
+            if not _is_safe_url(website_url):
+                return WebsiteScanResult(
+                    scan_id=scan_id,
+                    website_url=website_url,
+                    company_id=self.company_id,
+                    status="failed",
+                    errors=["Blocked: target resolves to private/internal network"],
+                    started_at=started_at.isoformat(),
+                    completed_at=datetime.utcnow().isoformat()
+                )
             
             # Fetch the homepage
             async with httpx.AsyncClient(

@@ -281,15 +281,30 @@ async def sync_company_graph(
         for website in websites:
             if force_rescan or not website.last_scanned:
                 ws = WebsiteScanner(company_id=company.id)
-                await ws.scan_website(
+                result = await ws.scan_website(
                     website_url=website.url,
                     scan_depth="standard"
                 )
+                if result.status == "success":
+                    updated = website.model_copy(update={
+                        "inferred_stack": result.inferred_stack,
+                        "detected_systems": result.detected_systems,
+                        "last_scanned": datetime.utcnow(),
+                        "scan_status": "success",
+                    })
+                    await store.update_website(updated)
 
         for repo in repos:
             if force_rescan or not repo.last_scanned:
                 rs = RepoScanner(company_id=company.id)
-                await rs.scan_repo(repo_url=repo.url)
+                result = await rs.scan_repo(repo_url=repo.url)
+                if result.status == "success" and result.inferred_stack:
+                    updated = repo.model_copy(update={
+                        "inferred_stack": result.inferred_stack,
+                        "last_scanned": datetime.utcnow(),
+                        "scan_status": "success",
+                    })
+                    await store.update_repo(updated)
     
     # Update graph with latest data
     updated_graph = await service.get_or_create_company_graph(company.id)
