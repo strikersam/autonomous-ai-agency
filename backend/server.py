@@ -1236,6 +1236,7 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
+@asynccontextmanager
 async def lifespan(app_: "FastAPI"):
     dispatcher: Optional[TaskDispatcher] = None
     dispatcher_task: Optional[asyncio.Task] = None
@@ -5665,8 +5666,8 @@ app.include_router(activation_router)
 app.include_router(secrets_router)
 
 # Company Graph API
-from backend.company_api import router as company_router
-app.include_router(company_router)
+import backend.company_api as company_api_module
+app.include_router(company_api_module.router)
 
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.
