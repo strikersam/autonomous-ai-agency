@@ -1070,38 +1070,202 @@
 
     <!-- Interactive JS Script -->
     <script>
-        // Interactive Scanner Simulator data
-        const SCAN_SIMULATIONS = {
-            "shopify": {
-                name: "Shopify Storefront",
-                category: "ecommerce",
-                systems: ["🛍 Shopify Plus (99% confidence)", "📊 GA4 & GTM (95% confidence)", "📧 Klaviyo Newsletter (90% confidence)", "💬 Gorgias Live Support (85% confidence)", "⚡ Gatsby + React (92% confidence)"],
+        // Wappalyzer-grade Database & Heuristics for dynamic scan simulations
+        const KNOWN_DOMAINS = {
+            "gucci.com": {
+                name: "SAP Commerce Cloud Stack",
+                category: "luxury & commerce",
+                systems: [
+                    "🛍 SAP Commerce Cloud (OMS - 95% confidence)",
+                    "⚛ React & Next.js 18 (Frontend - 98% confidence)",
+                    "📊 Google Tag Manager (Tag Manager - 99% confidence)",
+                    "📈 Adobe Analytics (Analytics - 94% confidence)",
+                    "💬 Salesforce LiveAgent (Support - 88% confidence)",
+                    "⚡ Akamai CDN & WAF (Security/Hosting - 96% confidence)",
+                    "💳 Adyen Checkout (Payment Gateway - 95% confidence)",
+                    "🎯 Meta Pixel / Facebook (Tracking Pixel - 96% confidence)",
+                    "⚙ jQuery Library v3.6.0 (Utility - 95% confidence)",
+                    "🎨 FontAwesome Icons (Style - 92% confidence)"
+                ],
                 specialists: [
-                    { name: "Commerce Merchandiser Agent", icon: "🛍️", desc: "Monitors catalog updates, cart checkout events, and runs retail audits." },
-                    { name: "SEO & Content Editor Agent", icon: "📄", desc: "Handles Gatsby pages, audits metadata, and synchronizes Contentful CMS." },
-                    { name: "Analytics Auditor Agent", icon: "📊", desc: "Verifies checkout trigger conversion schemas and evaluates performance." }
+                    { name: "OMS Merchandiser Agent", icon: "🛍️", desc: "Monitors SAP Commerce inventory, checkout flows, and price changes." },
+                    { name: "Frontend Developer Agent", icon: "⚛", desc: "Optimizes server-side rendered (SSR) Next.js/React templates." },
+                    { name: "Analytics Auditor Agent", icon: "📊", desc: "Verifies GTM and Adobe Analytics trigger schemas." }
                 ]
             },
-            "saas": {
-                name: "SaaS Application",
-                category: "saas",
-                systems: ["💳 Stripe Billing (99% confidence)", "📊 Adobe Analytics (90% confidence)", "⚡ React + Next.js (96% confidence)", "🏛️ Node.js API (94% confidence)", "🔒 AWS CloudFront (98% confidence)"],
+            "apple.com": {
+                name: "Enterprise Custom Java Stack",
+                category: "technology & retail",
+                systems: [
+                    "⚙ Custom WebObjects Java (OMS - 95% confidence)",
+                    "⚛ React & custom Micro-Frontends (Frontend - 92% confidence)",
+                    "📈 Adobe Analytics (Analytics - 98% confidence)",
+                    "⚡ Akamai CDN (CDN/Hosting - 99% confidence)",
+                    "💳 Apple Pay Checkout (Payment Gateway - 99% confidence)",
+                    "🔒 Apple ID Federated Auth (Auth - 99% confidence)"
+                ],
                 specialists: [
-                    { name: "Full-Stack Dev Agent", icon: "⚙️", desc: "Maintains API services, runs database schema checks, and patches code." },
-                    { name: "Security Auditor Agent", icon: "🛡️", desc: "Scans dependency trees, intercepts vulnerable packages, and opens PR fixes." },
-                    { name: "Portfolio & agile planner", icon: "🏃", desc: "Maps code change metrics directly with company priority KPIs." }
+                    { name: "Backend Core Agent", icon: "⚙️", desc: "Maintains legacy Java services and custom checkout logic." },
+                    { name: "Frontend Accessibility Agent", icon: "⚛", desc: "Ensures compliance with web accessibility and premium Apple UI design." }
                 ]
             },
-            "generic": {
-                name: "Enterprise Site",
-                category: "technology",
-                systems: ["📄 WordPress CMS (98% confidence)", "📊 Google Tag Manager (96% confidence)", "💬 LiveChat Widget (92% confidence)", "🎨 Tailwind CSS (95% confidence)"],
+            "nike.com": {
+                name: "Headless Commerce Cloud",
+                category: "athletics & retail",
+                systems: [
+                    "🛍 Salesforce Commerce Cloud (OMS - 92% confidence)",
+                    "⚛ Next.js + React (Frontend - 96% confidence)",
+                    "📈 Adobe Analytics & GA4 (Analytics - 95% confidence)",
+                    "⚡ Akamai CDN & Shield (CDN/Hosting - 98% confidence)",
+                    "💬 LiveChat Web Widget (Support - 85% confidence)",
+                    "💳 PayPal Checkout (Payment - 94% confidence)",
+                    "🎯 Meta Pixel & TikTok Pixel (Tracking Pixel - 96% confidence)",
+                    "🏃 Nike Member Federated Auth (Auth - 98% confidence)"
+                ],
                 specialists: [
-                    { name: "SEO Content Auditor Agent", icon: "📄", desc: "Scans and publishes blogs, analyzes LCP page speed issues, and coordinates SEO." },
-                    { name: "Agile Scrum Master", icon: "🏃", desc: "Automates ticket workflows, coordinates daily updates, and updates task boards." }
+                    { name: "Commerce Merchandiser Agent", icon: "🛍️", desc: "Integrates Salesforce Commerce product data and checkout funnels." },
+                    { name: "Frontend Developer Agent", icon: "⚛", desc: "Optimizes server-side rendered pages and LCP metrics." }
+                ]
+            },
+            "stripe.com": {
+                name: "SaaS Headless Stack",
+                category: "finance & saas",
+                systems: [
+                    "💳 Stripe Billing (Payment - 99% confidence)",
+                    "⚛ React + Next.js (Frontend - 98% confidence)",
+                    "📄 Contentful CMS (CMS - 92% confidence)",
+                    "📊 Google Tag Manager & GA4 (Analytics - 96% confidence)",
+                    "⚡ AWS & Vercel (Hosting - 95% confidence)",
+                    "🎯 Microsoft Clarity & Hotjar (Analytics - 92% confidence)",
+                    "💬 Intercom Support Chat (Support - 94% confidence)",
+                    "🔒 Auth0 OAuth Secure ID (Auth - 95% confidence)"
+                ],
+                specialists: [
+                    { name: "Invoicing & Billing Agent", icon: "💳", desc: "Automates custom invoicing, payment flows, and billing logic." },
+                    { name: "SEO Content Auditor Agent", icon: "📄", desc: "Synchronizes Contentful editorial changes and metadata templates." }
                 ]
             }
         };
+
+        function getDynamicScanResult(rawUrl) {
+            const domain = rawUrl.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
+            
+            // 1. Return exact match if in known database
+            if (KNOWN_DOMAINS[domain]) {
+                return KNOWN_DOMAINS[domain];
+            }
+            for (const key of Object.keys(KNOWN_DOMAINS)) {
+                if (domain.includes(key)) {
+                    return KNOWN_DOMAINS[key];
+                }
+            }
+            
+            // 2. Fall back to smart heuristic profiler
+            const urlLower = rawUrl.toLowerCase();
+            
+            // Retail & E-commerce Heuristic
+            if (urlLower.includes("shop") || urlLower.includes("store") || urlLower.includes("buy") || urlLower.includes("commerce") || urlLower.includes("retail") || urlLower.includes("boutique") || urlLower.includes("apparel") || urlLower.includes("goods") || urlLower.includes("market")) {
+                if (domain.length > 12) {
+                    return {
+                        name: "Salesforce Commerce Cloud Stack",
+                        category: "retail & e-commerce",
+                        systems: [
+                            "🛍 Salesforce Commerce Cloud (OMS - 92% confidence)",
+                            "⚛ Next.js + React (Frontend - 95% confidence)",
+                            "📈 Adobe Analytics & GA4 (Analytics - 94% confidence)",
+                            "⚡ Akamai CDN & Security (CDN - 96% confidence)",
+                            "💳 PayPal Checkout & Apple Pay (Payment - 95% confidence)",
+                            "🎯 Meta Pixel & Pinterest Tag (Tracking Pixel - 92% confidence)",
+                            "💬 LiveChat Widget (Support - 88% confidence)",
+                            "🎨 FontAwesome Icons (Icons - 90% confidence)"
+                        ],
+                        specialists: [
+                            { name: "Commerce Merchandiser Agent", icon: "🛍️", desc: "Monitors Salesforce Commerce inventories, cart drops, and product data." },
+                            { name: "Frontend Developer Agent", icon: "⚛", desc: "Maintains high-fidelity Next.js/React templates." }
+                        ]
+                    };
+                } else {
+                    return {
+                        name: "Shopify Plus Cloud",
+                        category: "e-commerce",
+                        systems: [
+                            "🛍 Shopify Plus (OMS/CMS - 98% confidence)",
+                            "📊 Google Tag Manager & GA4 (Analytics - 96% confidence)",
+                            "📧 Klaviyo Newsletter (92% confidence)",
+                            "💬 Gorgias Live Support (88% confidence)",
+                            "💳 Shop Pay & Stripe Checkout (Payment Gateway - 97% confidence)",
+                            "🎯 Meta Pixel & TikTok Pixel (Tracking Pixel - 94% confidence)",
+                            "⚙ jQuery Library v3.5.1 (Utility - 95% confidence)"
+                        ],
+                        specialists: [
+                            { name: "Commerce Merchandiser Agent", icon: "🛍️", desc: "Optimizes Shopify theme elements, collection listings, and catalog data." },
+                            { name: "SEO Content Auditor Agent", icon: "📄", desc: "Scans collection pages, identifies indexation gaps, and optimizes copies." }
+                        ]
+                    };
+                }
+            }
+            
+            // SaaS & Tech Heuristic
+            if (urlLower.includes("app") || urlLower.includes("saas") || urlLower.includes("cloud") || urlLower.includes("api") || urlLower.includes("tech") || urlLower.includes("dev") || urlLower.includes("software") || urlLower.includes("system") || urlLower.includes("tool")) {
+                return {
+                    name: "Next.js SaaS Stack",
+                    category: "software & saas",
+                    systems: [
+                        "⚛ React + Next.js (Frontend - 98% confidence)",
+                        "💳 Stripe Billing (Payment - 99% confidence)",
+                        "📊 Google Analytics 4 (Analytics - 95% confidence)",
+                        "⚡ AWS & Vercel (Hosting - 94% confidence)",
+                        "💬 Intercom Chat Widget (Support - 92% confidence)",
+                        "🎯 Microsoft Clarity & Hotjar (Analytics - 90% confidence)",
+                        "🎨 Tailwind CSS (Style - 96% confidence)",
+                        "🔒 Auth0 OAuth Secure ID (Auth - 95% confidence)"
+                    ],
+                    specialists: [
+                        { name: "Full-Stack Dev Agent", icon: "⚙️", desc: "Maintains React client services, hooks APIs, and resolves schema drops." },
+                        { name: "Security Auditor Agent", icon: "🛡️", desc: "Scans dependency lockfiles, flags open CVEs, and drafts security PRs." }
+                    ]
+                };
+            }
+            
+            // Media & Blogging Heuristic
+            if (urlLower.includes("blog") || urlLower.includes("news") || urlLower.includes("article") || urlLower.includes("press") || urlLower.includes("journal") || urlLower.includes("media") || urlLower.includes("post") || urlLower.includes("daily")) {
+                return {
+                    name: "WordPress CMS",
+                    category: "media & content",
+                    systems: [
+                        "📄 WordPress CMS (CMS - 98% confidence)",
+                        "⚙ PHP & MySQL (Backend - 95% confidence)",
+                        "📊 Google Analytics (Analytics - 96% confidence)",
+                        "⚡ Cloudflare Security & WAF (Security - 98% confidence)",
+                        "🎯 Meta Pixel & Mailchimp CRM (Marketing - 90% confidence)",
+                        "💬 Zendesk Web Widget (Support - 92% confidence)",
+                        "🎨 Yoast SEO (Optimization - 96% confidence)"
+                    ],
+                    specialists: [
+                        { name: "SEO Content Auditor Agent", icon: "📄", desc: "Scans newly published articles, optimizes title tags, and resolves metadata." },
+                        { name: "Agile Scrum Master", icon: "🏃", desc: "Automates editorial calendar priorities and synchronizes task boards." }
+                    ]
+                };
+            }
+            
+            // Standard Enterprise Fallback
+            return {
+                name: "React Enterprise Stack",
+                category: "technology",
+                systems: [
+                    "⚛ React JS Library (Frontend - 92% confidence)",
+                    "📊 Google Analytics 4 (Analytics - 94% confidence)",
+                    "🎨 Tailwind CSS (Style - 95% confidence)",
+                    "⚡ Cloudflare CDN & WAF (Hosting - 96% confidence)",
+                    "💳 Stripe Payments (Payment - 94% confidence)",
+                    "🎯 Hotjar Feedback Polls (Analytics - 90% confidence)"
+                ],
+                specialists: [
+                    { name: "Frontend Developer Agent", icon: "⚛", desc: "Maintains React component systems and styles files." },
+                    { name: "Agile Scrum Master", icon: "🏃", desc: "Manages task prioritization, sprint boards, and ticket statuses." }
+                ]
+            };
+        }
 
         function runDiscoveryScan() {
             const urlInput = document.getElementById("scanUrl").value.trim();
@@ -1121,15 +1285,7 @@
             btn.disabled = true;
             consoleBox.innerHTML = "";
 
-            // Determine site category based on input url
-            let simType = "generic";
-            if (urlInput.toLowerCase().includes("store") || urlInput.toLowerCase().includes("shop") || urlInput.toLowerCase().includes("gucci")) {
-                simType = "shopify";
-            } else if (urlInput.toLowerCase().includes("app") || urlInput.toLowerCase().includes("saas") || urlInput.toLowerCase().includes("cloud")) {
-                simType = "saas";
-            }
-
-            const simData = SCAN_SIMULATIONS[simType];
+            const simData = getDynamicScanResult(urlInput);
 
             // Multistep Log messages simulation
             const logSteps = [

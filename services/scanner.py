@@ -387,6 +387,249 @@ class WebsiteScanner:
                 evidence=[Evidence(type="script", value="liveagent.js loader", location="html", confidence=0.90)]
             )
 
+        # PayPal Checkout
+        if 'paypalobjects.com' in soup_str or 'paypal.com/sdk/js' in soup_str:
+            systems_map["paypal"] = DetectedSystem(
+                system_type="payment_gateway",
+                name="PayPal Checkout",
+                confidence=0.96,
+                evidence=[Evidence(type="script", value="paypalobjects.com / sdk/js", location="html", confidence=0.96)]
+            )
+
+        # Klarna Financing
+        if 'js.klarna.com' in soup_str or 'klarna.com' in soup_str:
+            systems_map["klarna"] = DetectedSystem(
+                system_type="billing",
+                name="Klarna Financing",
+                confidence=0.94,
+                evidence=[Evidence(type="script", value="js.klarna.com SDK", location="html", confidence=0.94)]
+            )
+
+        # Afterpay / Clearpay
+        if 'js.afterpay.com' in soup_str or 'afterpay.com' in soup_str:
+            systems_map["afterpay"] = DetectedSystem(
+                system_type="billing",
+                name="Afterpay / Clearpay",
+                confidence=0.94,
+                evidence=[Evidence(type="script", value="js.afterpay.com", location="html", confidence=0.94)]
+            )
+
+        # Affirm Buy-Now-Pay-Later
+        if 'cdn1.affirm.com' in soup_str or 'affirm.com' in soup_str:
+            systems_map["affirm"] = DetectedSystem(
+                system_type="billing",
+                name="Affirm BNPL",
+                confidence=0.94,
+                evidence=[Evidence(type="script", value="cdn1.affirm.com", location="html", confidence=0.94)]
+            )
+
+        # Adyen Payment Terminal
+        if 'checkoutshopper-live.adyen.com' in soup_str or 'adyen.com' in soup_str:
+            systems_map["adyen"] = DetectedSystem(
+                system_type="payment_gateway",
+                name="Adyen Checkout",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="checkoutshopper-live.adyen.com", location="html", confidence=0.95)]
+            )
+
+        # Shop Pay
+        if 'shop.app/pay' in soup_str or 'shopify-pay' in soup_str:
+            systems_map["shop_pay"] = DetectedSystem(
+                system_type="payment_gateway",
+                name="Shop Pay Checkout",
+                confidence=0.98,
+                evidence=[Evidence(type="script", value="shopify-pay/shop.app", location="html", confidence=0.98)]
+            )
+
+        # Facebook Pixel (Meta Pixel)
+        if 'connect.facebook.net' in soup_str or 'fbevents.js' in soup_str or 'fbq(' in soup_str:
+            systems_map["facebook_pixel"] = DetectedSystem(
+                system_type="analytics",
+                name="Meta Pixel (Facebook)",
+                confidence=0.96,
+                evidence=[Evidence(type="script", value="connect.facebook.net/fbevents.js", location="html", confidence=0.96)]
+            )
+
+        # TikTok Pixel
+        if 'analytics.tiktok.com' in soup_str or 'tiktok.com/i18n/pixel/sdk.js' in soup_str:
+            systems_map["tiktok_pixel"] = DetectedSystem(
+                system_type="analytics",
+                name="TikTok Pixel",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="analytics.tiktok.com SDK", location="html", confidence=0.95)]
+            )
+
+        # Pinterest Tag
+        if 'ct.pinterest.com' in soup_str or 'pinterest.com/js/pinit.js' in soup_str:
+            systems_map["pinterest_tag"] = DetectedSystem(
+                system_type="analytics",
+                name="Pinterest Tag",
+                confidence=0.92,
+                evidence=[Evidence(type="script", value="pinterest.com SDK", location="html", confidence=0.92)]
+            )
+
+        # Hotjar Heatmaps
+        if 'static.hotjar.com' in soup_str or 'hotjar-' in soup_str:
+            systems_map["hotjar"] = DetectedSystem(
+                system_type="analytics",
+                name="Hotjar Heatmaps",
+                confidence=0.94,
+                evidence=[Evidence(type="script", value="static.hotjar.com loader", location="html", confidence=0.94)]
+            )
+
+        # Microsoft Clarity
+        if 'www.clarity.ms' in soup_str or 'clarity.js' in soup_str:
+            systems_map["clarity"] = DetectedSystem(
+                system_type="analytics",
+                name="Microsoft Clarity",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="www.clarity.ms loader", location="html", confidence=0.95)]
+            )
+
+        # HubSpot Analytics & Tracking
+        if 'js.hs-scripts.com' in soup_str or 'hs-analytics' in soup_str:
+            systems_map["hubspot"] = DetectedSystem(
+                system_type="analytics",
+                name="HubSpot Analytics",
+                confidence=0.94,
+                evidence=[Evidence(type="script", value="js.hs-scripts.com Tracking", location="html", confidence=0.94)]
+            )
+
+        # Crazy Egg Heatmaps
+        if 'script.crazyegg.com' in soup_str or 'crazyegg.js' in soup_str:
+            systems_map["crazyegg"] = DetectedSystem(
+                system_type="analytics",
+                name="Crazy Egg Heatmaps",
+                confidence=0.92,
+                evidence=[Evidence(type="script", value="script.crazyegg.com", location="html", confidence=0.92)]
+            )
+
+        # Segment Tag Manager
+        if 'cdn.segment.com' in soup_str or 'analytics.js' in soup_str:
+            systems_map["segment"] = DetectedSystem(
+                system_type="analytics",
+                name="Segment Segment Tag Manager",
+                confidence=0.94,
+                evidence=[Evidence(type="script", value="cdn.segment.com / analytics.js", location="html", confidence=0.94)]
+            )
+
+        # Amplitude Analytics
+        if 'cdn.amplitude.com' in soup_str or 'amplitude.js' in soup_str:
+            systems_map["amplitude"] = DetectedSystem(
+                system_type="analytics",
+                name="Amplitude Analytics",
+                confidence=0.92,
+                evidence=[Evidence(type="script", value="cdn.amplitude.com", location="html", confidence=0.92)]
+            )
+
+        # Mailchimp Marketing
+        if 'chimpstatic.com' in soup_str or 'mailchimp.com' in soup_str:
+            systems_map["mailchimp"] = DetectedSystem(
+                system_type="email_service",
+                name="Mailchimp CRM",
+                confidence=0.92,
+                evidence=[Evidence(type="script", value="chimpstatic.com", location="html", confidence=0.92)]
+            )
+
+        # Zendesk Help Widget
+        if 'static.zdassets.com' in soup_str or 'zendesk.com' in soup_str:
+            systems_map["zendesk"] = DetectedSystem(
+                system_type="support",
+                name="Zendesk Web Widget",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="static.zdassets.com Web SDK", location="html", confidence=0.95)]
+            )
+
+        # Intercom Conversations
+        if 'widget.intercom.io' in soup_str or 'intercomcdn.com' in soup_str:
+            systems_map["intercom"] = DetectedSystem(
+                system_type="support",
+                name="Intercom Chat",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="widget.intercom.io SDK", location="html", confidence=0.95)]
+            )
+
+        # LiveChat Widget
+        if 'accounts.livechatinc.com' in soup_str or 'livechat.js' in soup_str:
+            systems_map["livechat"] = DetectedSystem(
+                system_type="support",
+                name="LiveChat Widget",
+                confidence=0.94,
+                evidence=[Evidence(type="script", value="livechat.js loader", location="html", confidence=0.94)]
+            )
+
+        # Tawk.to Support
+        if 'embed.tawk.to' in soup_str or 'tawk.to' in soup_str:
+            systems_map["tawk_to"] = DetectedSystem(
+                system_type="support",
+                name="Tawk.to Chat",
+                confidence=0.94,
+                evidence=[Evidence(type="script", value="embed.tawk.to loader", location="html", confidence=0.94)]
+            )
+
+        # Yoast SEO
+        if 'yoast-schema-graph' in soup_str or 'yoast seo' in soup_str:
+            systems_map["yoast_seo"] = DetectedSystem(
+                system_type="custom",
+                name="Yoast SEO (WordPress)",
+                confidence=0.96,
+                evidence=[Evidence(type="meta_tag", value="yoast-schema-graph", location="html", confidence=0.96)]
+            )
+
+        # Cloudflare Rocket Loader
+        if 'rocket-loader' in soup_str or 'ajax.cloudflare.com/cdn-cgi/scripts/' in soup_str:
+            systems_map["cloudflare_rocket"] = DetectedSystem(
+                system_type="custom",
+                name="Cloudflare Rocket Loader",
+                confidence=0.98,
+                evidence=[Evidence(type="script", value="rocket-loader scripts", location="html", confidence=0.98)]
+            )
+
+        # Google Maps Widget
+        if 'maps.googleapis.com' in soup_str or 'maps.google.com' in soup_str:
+            systems_map["google_maps"] = DetectedSystem(
+                system_type="custom",
+                name="Google Maps Widget",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="maps.googleapis.com API", location="html", confidence=0.95)]
+            )
+
+        # FontAwesome Fonts
+        if 'fontawesome.com' in soup_str or 'font-awesome' in soup_str:
+            systems_map["fontawesome"] = DetectedSystem(
+                system_type="custom",
+                name="FontAwesome Icons",
+                confidence=0.95,
+                evidence=[Evidence(type="link", value="fontawesome.com stylesheet", location="html", confidence=0.95)]
+            )
+
+        # jQuery Library
+        if 'jquery.min.js' in soup_str or 'jquery-' in soup_str or 'jquery.' in soup_str:
+            systems_map["jquery"] = DetectedSystem(
+                system_type="custom",
+                name="jQuery Library",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="jquery.min.js loader", location="html", confidence=0.95)]
+            )
+
+        # Bootstrap CSS Framework
+        if 'bootstrap.min.css' in soup_str or 'bootstrap.min.js' in soup_str:
+            systems_map["bootstrap"] = DetectedSystem(
+                system_type="custom",
+                name="Bootstrap CSS",
+                confidence=0.95,
+                evidence=[Evidence(type="link", value="bootstrap.min.css", location="html", confidence=0.95)]
+            )
+
+        # Tailwind CSS
+        if 'tailwindcss' in soup_str or 'tailwind.config' in soup_str:
+            systems_map["tailwind"] = DetectedSystem(
+                system_type="custom",
+                name="Tailwind CSS",
+                confidence=0.95,
+                evidence=[Evidence(type="link", value="tailwindcss stylesheet", location="html", confidence=0.95)]
+            )
+
         # ── 2. Dynamic LLM-Assisted Technology Stack Analysis ─────────────────
         try:
             from backend.server import call_llm
