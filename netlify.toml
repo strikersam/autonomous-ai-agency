@@ -1,0 +1,13 @@
+[build]
+  command = "cd frontend && npm install && npm run build"
+  publish = "frontend/build"
+  base = "/"
+
+[build.environment]
+  NODE_VERSION = "20"
+  REACT_APP_BACKEND_URL = "https://autonomous-ai-agency.netlify.app"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
