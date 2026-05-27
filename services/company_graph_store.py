@@ -62,16 +62,20 @@ class CompanyGraphStore:
         Args:
             backend: 'mongodb' or 'sqlite'. Defaults to STORAGE_BACKEND env var.
         """
-        self.backend = backend or STORAGE_BACKEND
+        raw_backend = backend or STORAGE_BACKEND
+        # Normalise "mongo" alias → "mongodb"
+        self.backend = "mongodb" if raw_backend in {"mongo", "mongodb"} else raw_backend
         self._mongodb_store: MongoDBStore | None = None
         self._sqlite_store: SQLiteStore | None = None
 
         if self.backend == "mongodb":
             self._mongodb_store = MongoDBStore()
             log.info(f"Company Graph Store initialized with MongoDB backend: {MONGO_URL}")
-        else:
+        elif self.backend == "sqlite":
             self._sqlite_store = SQLiteStore()
             log.info(f"Company Graph Store initialized with SQLite backend: {SQLITE_PATH}")
+        else:
+            raise ValueError(f"Unsupported storage backend: {self.backend!r}. Use 'mongodb' or 'sqlite'.")
 
     # =========================================================================
     # COMPANY OPERATIONS

@@ -19,6 +19,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from bson import ObjectId
 import re
+import secrets
 
 # =============================================================================
 # ENUMS AND LITERALS
@@ -1674,6 +1675,7 @@ class RepoScanResult(BaseModel):
     files_scanned: int = Field(default=0, description="Number of files scanned")
     errors: List[str] = Field(default_factory=list, description="Any errors encountered")
     started_at: Optional[datetime] = Field(default=None, description="When scan started")
+    completed_at: Optional[datetime] = Field(default=None, description="When scan completed")
 
 class WorkflowExecutionRequest(BaseModel):
     """Request to execute a workflow."""
@@ -1814,6 +1816,10 @@ class CompanyCreateRequest(BaseModel):
         default="",
         description="Company description"
     )
+    tagline: str = Field(
+        default="",
+        description="Company tagline"
+    )
     owner_id: str | None = Field(
         default=None,
         description="User ID of the company owner"
@@ -1890,6 +1896,10 @@ class CompanyResponse(BaseModel):
         ...,
         description="The company"
     )
+    graph: Optional[Any] = Field(
+        default=None,
+        description="Company graph"
+    )
     message: str = Field(
         default="",
         description="Status message"
@@ -1903,6 +1913,14 @@ class CompanyGraphResponse(BaseModel):
     graph: CompanyGraph = Field(
         ...,
         description="The company graph"
+    )
+    company_id: str = Field(
+        default="",
+        description="Company ID"
+    )
+    completeness_score: float = Field(
+        default=0.0,
+        description="Graph completeness score (0.0-1.0)"
     )
     message: str = Field(
         default="",
@@ -1925,6 +1943,14 @@ class SpecialistListResponse(BaseModel):
     total: int = Field(
         default=0,
         description="Total number of specialists"
+    )
+    limit: int = Field(
+        default=100,
+        description="Page limit"
+    )
+    offset: int = Field(
+        default=0,
+        description="Page offset"
     )
     message: str = Field(
         default="",

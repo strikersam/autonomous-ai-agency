@@ -551,6 +551,44 @@ class OnboardingService:
         
         return progress
 
+    async def pause_onboarding(
+        self,
+        company_id: str
+    ) -> OnboardingProgress:
+        """
+        Pause onboarding for a company (sets status to paused).
+
+        Args:
+            company_id: Company ID
+
+        Returns:
+            OnboardingProgress with paused state
+        """
+        progress = await self.get_onboarding_progress(company_id)
+
+        if progress.status in ("completed", "not_started"):
+            return progress
+
+        company = await self.store.get_company(company_id)
+        if company:
+            company = company.model_copy(update={
+                "onboarding_status": "in_progress",  # keep in_progress; status tracked in progress obj
+            })
+            await self.store.update_company(company)
+
+        return OnboardingProgress(
+            company_id=company_id,
+            current_step=progress.current_step,
+            total_steps=progress.total_steps,
+            completed_steps=progress.completed_steps,
+            progress_percent=progress.progress_percent,
+            status="paused",
+            steps=progress.steps,
+            errors=progress.errors,
+            started_at=progress.started_at,
+            completed_at=None,
+        )
+
     async def cancel_onboarding(
         self,
         company_id: str

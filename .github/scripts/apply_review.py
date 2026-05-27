@@ -172,8 +172,10 @@ class ApplyReviewAgent:
 
     def _bash(self, cmd: str) -> str:
         env = {k: v for k, v in os.environ.items() if k not in _STRIP_KEYS}
+        import shlex
+        argv = shlex.split(cmd)
         r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=120, env=env,  # nosec B602
+            argv, shell=False, capture_output=True, text=True, timeout=120, env=env,
         )
         return (r.stdout + r.stderr)[-3000:] + f"\n[exit {r.returncode}]"
 

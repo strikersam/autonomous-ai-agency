@@ -745,7 +745,7 @@ class RepoScanner:
         elif 'bitbucket.org' in repo_url:
             return 'bitbucket'
         elif 'azure.com' in repo_url or 'dev.azure.com' in repo_url:
-            return 'azure'
+            return 'azure_devops'
         elif 'git@' in repo_url:
             # SSH URL
             if 'github.com' in repo_url:
@@ -755,9 +755,9 @@ class RepoScanner:
             elif 'bitbucket.org' in repo_url:
                 return 'bitbucket'
             else:
-                return 'unknown'
+                return 'other'
         else:
-            return 'unknown'
+            return 'other'
 
     async def _scan_github_repo(
         self,

@@ -25,6 +25,7 @@ from models.company_graph import (
     WebsiteScanResult,
     Repo,
     RepoScanRequest,
+    RepoScanResult,
     Specialist,
     SpecialistFamily,
     SystemType,
@@ -40,9 +41,19 @@ from models.company_graph import (
     WorkflowExecutionRequest,
     WorkflowExecutionResult,
 )
-# Alias for response model (OnboardingProgress is the canonical model)
-OnboardingProgressResponse = OnboardingProgress
+from pydantic import Field as _Field
+
+
+class OnboardingProgressResponse(OnboardingProgress):
+    """OnboardingProgress extended with an optional status message."""
+    model_config = {"frozen": True, "extra": "forbid"}
+    message: str = _Field(default="", description="Status message")
+
+
 from services.company_graph_store import get_company_graph_store
+from services.company_graph import get_company_graph_service
+from services.specialist import get_specialist_service
+from services.onboarding import OnboardingService
 # Thunk functions to avoid circular import with backend.server
 def _get_current_user_thunk(request):
     from backend.server import get_current_user
@@ -249,20 +260,19 @@ async def sync_company_graph(
     
     # Re-scan if requested or if it's been a while
     if force_rescan or not websites or not repos:
+        from services.scanner import WebsiteScanner, RepoScanner
         for website in websites:
             if force_rescan or not website.last_scanned:
-                await scan_website(
+                ws = WebsiteScanner(company_id=company.id)
+                await ws.scan_website(
                     website_url=website.url,
-                    company_id=company.id,
                     scan_depth="standard"
                 )
-        
+
         for repo in repos:
             if force_rescan or not repo.last_scanned:
-                await scan_repo(
-                    repo_url=repo.url,
-                    company_id=company.id
-                )
+                rs = RepoScanner(company_id=company.id)
+                await rs.scan_repo(repo_url=repo.url)
     
     # Update graph with latest data
     updated_graph = await service.get_or_create_company_graph(company.id)
@@ -302,11 +312,12 @@ async def scan_website_endpoint(
     - And more...
     """
     company = await get_company_access(company_id, user)
-    
+
     # Perform the scan
-    result = await scan_website(
+    from services.scanner import WebsiteScanner
+    _ws = WebsiteScanner(company_id=company.id)
+    result = await _ws.scan_website(
         website_url=request.website_url,
-        company_id=company.id,
         scan_depth=request.scan_depth,
         include_sitemap=request.include_sitemap,
         max_pages=request.max_pages
@@ -362,23 +373,21 @@ async def scan_website_endpoint(
     return result
 
 
-@router.post("/{company_id}/scan/repo", response_model=WebsiteScanResult)
+@router.post("/{company_id}/scan/repo", response_model=RepoScanResult)
 async def scan_repo_endpoint(
     company_id: str = Path(..., description="Company ID"),
     request: RepoScanRequest = Body(...),
     user: dict = Depends(_get_current_user_thunk)
-) -> WebsiteScanResult:
+) -> RepoScanResult:
     """
     Scan a repository for technology stack and systems.
     """
     company = await get_company_access(company_id, user)
-    
+
     # Perform the scan
-    result = await scan_repo(
-        repo_url=request.repo_url,
-        company_id=company.id,
-        provider=request.provider
-    )
+    from services.scanner import RepoScanner
+    _rs = RepoScanner(company_id=company.id)
+    result = await _rs.scan_repo(repo_url=request.repo_url)
     
     # If scan was successful, add repo to company
     if result.status == "success" and result.inferred_stack:
@@ -449,9 +458,9 @@ async def list_specialists(
         offset=offset
     )
     
-    # Get total count
-    total = await specialist_service.count_specialists(company_id=company.id)
-    
+    # Get total count — use the already-fetched list length
+    total = len(specialists)
+
     return SpecialistListResponse(
         specialists=specialists,
         company_id=company.id,
@@ -477,16 +486,10 @@ async def provision_specialist(
     
     specialist_service = get_specialist_service()
     
-    result = await specialist_service.provision_specialist(
-        company_id=company.id,
-        specialist_family=request.specialist_family,
-        name=request.name,
-        auto_detect=request.auto_detect,
-        system_types=request.system_types
-    )
-    
+    result = await specialist_service.provision_specialist(request)
+
     if result.status == "success":
-        log.info(f"Provisioned specialist {result.specialist_id} for company {company_id}")
+        log.info(f"Provisioned specialist {result.specialist.id} for company {company_id}")
     else:
         log.warning(f"Failed to provision specialist for company {company_id}: {result.message}")
     
@@ -516,7 +519,6 @@ async def match_specialists(
     specialist_service = get_specialist_service()
     specialists = await specialist_service.get_specialists_for_task(
         company_id=company.id,
-        task_description=task_description,
         capabilities=capabilities,
         system_types=system_types,
         limit=limit
