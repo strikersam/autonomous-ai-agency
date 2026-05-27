@@ -41,7 +41,8 @@ NVIDIA_CANDIDATE_MODELS = [
 CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
 MAX_TURNS = 50
 _STRIP_KEYS = ("NVIDIA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-               "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY")
+               "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
+               "GH_TOKEN", "GITHUB_TOKEN")
 
 
 # ── GitHub API helpers ────────────────────────────────────────────────────────
@@ -172,8 +173,10 @@ class ApplyReviewAgent:
 
     def _bash(self, cmd: str) -> str:
         env = {k: v for k, v in os.environ.items() if k not in _STRIP_KEYS}
+        import shlex
+        argv = shlex.split(cmd)
         r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=120, env=env,
+            argv, shell=False, capture_output=True, text=True, timeout=120, env=env,
         )
         return (r.stdout + r.stderr)[-3000:] + f"\n[exit {r.returncode}]"
 

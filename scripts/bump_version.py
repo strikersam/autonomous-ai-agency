@@ -68,7 +68,7 @@ def main() -> int:
 
     # index.html — update both <title> and <meta name="description"> independently.
     html_path = _ROOT / "frontend/public/index.html"
-    n_title = _replace(html_path, r"(<title>Agency Core v)\d+\.\d+", f"\g<1>{minor}", count=1)
+    n_title = _replace(html_path, r"(<title>Agency Core v)\d+\.\d+", f"\\g<1>{minor}", count=1)
     n_meta  = _replace(html_path, r'(content="Agency Core v)\d+\.\d+', f'\\g<1>{minor}', count=1)
     print(f"{'updated' if n_title else 'NO MATCH'}: frontend/public/index.html <title> ({n_title} refs)")
     print(f"{'updated' if n_meta  else 'NO MATCH'}: frontend/public/index.html <meta description> ({n_meta} refs)")

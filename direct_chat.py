@@ -7,14 +7,23 @@ Protected by JWT authentication (v3 auth system).
 Delegates to LLM providers via the proxy's routing system.
 """
 
-
 import asyncio
 import json
 import logging
+import re
+
+# Company Graph integration
+try:
+    from models.company_graph import CompanyGraph
+    from services.company_graph import get_company_graph_service
+    from services.company_graph_store import get_company_graph_store
+    _company_graph_available = True
+except ImportError:
+    _company_graph_available = False
 import os
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
@@ -67,7 +76,10 @@ class UserInfo(BaseModel):
     """Current user from JWT token."""
     id: str
     email: str
+    default_company_id: Optional[str] = None
 
+
+UserInfo.model_rebuild()
 
 class AgentEventModel(BaseModel):
     """Tool-call event shape consumed by ToolCallViewer.jsx.
@@ -88,6 +100,159 @@ class AgentEventModel(BaseModel):
     args: dict | None = None
     result: str | None = None
     message: str | None = None
+
+
+
+
+
+# =============================================================================
+# DIRECT CHAT SESSION WITH COMPANY GRAPH INTEGRATION
+# =============================================================================
+
+class DirectChatSession:
+    """Direct chat session with Company Graph context binding."""
+    
+    def __init__(self, session_id: str, user: UserInfo):
+        self.session_id = session_id
+        self.user = user
+        self.company_id: str | None = None
+        self.repo_id: str | None = None
+        self._company_graph: CompanyGraph | None = None
+        self._graph_service = get_company_graph_service() if _company_graph_available else None
+        self._graph_store = get_company_graph_store() if _company_graph_available else None
+    
+    async def bind_company(self, company_id: str) -> CompanyGraph | None:
+        """Bind a company to this chat session and load its Company Graph."""
+        if not _company_graph_available:
+            log.warning("Company Graph not available, cannot bind company")
+            return None
+        
+        self.company_id = company_id
+        try:
+            self._company_graph = await self._graph_service.get_or_create_company_graph(company_id)
+            log.info(f"Bound company {company_id} to session {self.session_id}")
+            return self._company_graph
+        except Exception as e:
+            log.error(f"Failed to bind company {company_id}: {e}")
+            return None
+    
+    async def bind_repo(self, repo_id: str) -> None:
+        """Bind a repository to this chat session."""
+        self.repo_id = repo_id
+        log.info(f"Bound repo {repo_id} to session {self.session_id}")
+    
+    def get_company_graph(self) -> CompanyGraph | None:
+        """Get the bound Company Graph."""
+        return self._company_graph
+    
+    async def get_context(self) -> dict:
+        """Get enriched context including Company Graph data."""
+        context = {
+            "session_id": self.session_id,
+            "user_id": self.user.id,
+            "user_email": self.user.email
+        }
+        
+        if self.company_id:
+            context["company_id"] = self.company_id
+        if self.repo_id:
+            context["repo_id"] = self.repo_id
+        
+        if self._company_graph:
+            context["company"] = {
+                "name": self._company_graph.company.name,
+                "domain": self._company_graph.company.domain,
+                "business_category": self._company_graph.company.business_category
+            }
+            context["detected_systems"] = [
+                {"system_type": s.system_type, "name": s.name, "confidence": s.confidence}
+                for s in self._company_graph.detected_systems
+            ]
+            context["available_specialists"] = [
+                {"id": s.id, "name": s.name, "family": s.family, "capabilities": s.capabilities}
+                for s in self._company_graph.specialists
+                if s.is_provisioned and s.status == "available"
+            ]
+        
+        return context
+
+
+# =============================================================================
+# CONTEXT DETECTION FUNCTIONS
+# =============================================================================
+
+async def detect_company_id(message: str, session: DirectChatSession) -> str | None:
+    """Detect company ID from message or session context."""
+    if not _company_graph_available:
+        return None
+    
+    # Check if message mentions a domain
+    domains = re.findall(r'(?:https?://)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})', message)
+    if domains:
+        try:
+            store = get_company_graph_store()
+            companies = await store.list_companies(search=domains[0])
+            if companies:
+                return companies[0].id
+        except Exception as e:
+            log.error(f"Failed to look up company by domain: {e}")
+    
+    # Check if user has a default company
+    if hasattr(session.user, 'default_company_id') and session.user.default_company_id:
+        return session.user.default_company_id
+    
+    return None
+
+
+def detect_repo_id(message: str) -> str | None:
+    """Detect repository ID from message."""
+    # Look for GitHub/GitLab/Bitbucket URLs
+    repo_patterns = [
+        r'github\.com/[^/]+/[^/]+',
+        r'gitlab\.com/[^/]+/[^/]+',
+        r'bitbucket\.org/[^/]+/[^/]+'
+    ]
+    
+    for pattern in repo_patterns:
+        match = re.search(pattern, message)
+        if match:
+            return match.group(0)
+    
+    return None
+
+
+async def handle_chat_message_with_context(session: DirectChatSession, message: str) -> tuple[str, dict]:
+    """Handle chat message with Company Graph context enrichment."""
+    # Check if message contains company or repo information
+    company_id = await detect_company_id(message, session)
+    repo_id = detect_repo_id(message)
+    
+    if company_id:
+        await session.bind_company(company_id)
+    if repo_id:
+        await session.bind_repo(repo_id)
+    
+    # Get enriched context
+    context = await session.get_context()
+    
+    # Add context to the message for the LLM
+    company_info = context.get('company', {})
+    detected_systems = context.get('detected_systems', [])
+    available_specialists = context.get('available_specialists', [])
+    
+    systems_str = ', '.join([s['name'] for s in detected_systems]) if detected_systems else 'None detected'
+    specialists_str = ', '.join([s['name'] for s in available_specialists]) if available_specialists else 'None available'
+    
+    enriched_message = f"""Company Context:
+- Company: {company_info.get('name', 'Unknown')}
+- Domain: {company_info.get('domain', 'Unknown')}
+- Business Category: {company_info.get('business_category', 'Unknown')}
+- Detected Systems: {systems_str}
+- Available Specialists: {specialists_str}
+
+User Message: {message}"""
+    
+    return enriched_message, context
 
 
 class AgentJobModel(BaseModel):

@@ -99,7 +99,7 @@ class ServiceDaemon:
             import httpx
             response = httpx.get("http://localhost:8000/health", timeout=2)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
     def check_ollama(self) -> bool:
@@ -108,7 +108,7 @@ class ServiceDaemon:
             import httpx
             response = httpx.get("http://localhost:11434/api/tags", timeout=2)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
     def start_proxy(self) -> tuple[bool, str]:
@@ -146,7 +146,7 @@ class ServiceDaemon:
             try:
                 self.proxy_process.terminate()
                 self.proxy_process.wait(timeout=5)
-            except:
+            except Exception:
                 self.proxy_process.kill()
             self.proxy_process = None
 
@@ -188,7 +188,7 @@ class ServiceDaemon:
             try:
                 self.tunnel_process.terminate()
                 self.tunnel_process.wait(timeout=5)
-            except:
+            except Exception:
                 self.tunnel_process.kill()
             self.tunnel_process = None
 

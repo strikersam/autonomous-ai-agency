@@ -41,7 +41,7 @@ class ServiceManager:
             import httpx
             response = httpx.get("http://localhost:8000/health", timeout=2)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
     def check_ollama(self):
@@ -49,7 +49,7 @@ class ServiceManager:
             import httpx
             response = httpx.get("http://localhost:11434/api/tags", timeout=2)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
     def start_proxy(self):

@@ -1,6 +1,8 @@
 fastapi>=0.136.1
 uvicorn[standard]>=0.47.0
 httpx>=0.28.1
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
 pydantic>=2.13.4
 python-dotenv>=1.2.2
 langfuse>=4.6.1,<5
