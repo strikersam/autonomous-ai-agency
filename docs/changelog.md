@@ -11,7 +11,7 @@
 - **PR #271 CodeRabbit review — `company_api.py` free-function scan calls.** `scan_website(...)` and `scan_repo(...)` were called as free functions; replaced with `WebsiteScanner(...).scan_website(...)` and `RepoScanner(...).scan_repo(...)`.
 - **PR #271 CodeRabbit review — `/scan/repo` wrong response model.** Endpoint declared `response_model=WebsiteScanResult` but returned a `RepoScanResult`. Fixed to `response_model=RepoScanResult`.
 - **PR #271 CodeRabbit review — `OnboardingProgressResponse` extra-field error.** Replaced the bare alias `OnboardingProgressResponse = OnboardingProgress` (which has `extra="forbid"`) with a proper subclass that adds a `message` field.
-- **PR #271 CodeRabbit review — `pause_onboarding` missing service method.** `OnboardingService` had no `pause_onboarding` method. Implemented it to return an `OnboardingProgress` with `status="paused"`.
+- **PR #271 CodeRabbit review — `pause_onboarding` missing service method.** `OnboardingService` had no `pause_onboarding` method. Implemented it to set `onboarding_status="paused"` on the company and return `OnboardingProgress` with `status="paused"`.
 - **PR #271 CodeRabbit review — specialist endpoint API mismatches.** `count_specialists` (non-existent) replaced with `len(specialists)`. `provision_specialist` now passes the `SpecialistProvisionRequest` object directly. `get_specialists_for_task` no longer passes the non-existent `task_description=` kwarg.
 
 ### Fixed

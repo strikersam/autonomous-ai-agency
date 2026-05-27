@@ -39,7 +39,7 @@ The PR deleted the `env:` key and `services:` block but left the remaining env v
 STORAGE_BACKEND: sqlite
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
-      ADMIN_PASSWORD: WikiAdmin2026!
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
 ```
 
 **Impact:** YAML parse error → E2E pipeline completely broken.

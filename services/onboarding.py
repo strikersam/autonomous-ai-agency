@@ -574,7 +574,7 @@ class OnboardingService:
         company = await self.store.get_company(company_id)
         if company:
             company = company.model_copy(update={
-                "onboarding_status": "in_progress",  # keep in_progress; status tracked in progress obj
+                "onboarding_status": "paused",
             })
             await self.store.update_company(company)
 

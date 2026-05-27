@@ -1664,7 +1664,7 @@ class SpecialistProvisionResult(BaseModel):
 
 class RepoScanResult(BaseModel):
     """Result of a repository scan with detected stack and systems."""
-    model_config = {"extra": "ignore"}
+    model_config = {"extra": "allow"}
 
     scan_id: str = Field(default_factory=lambda: secrets.token_hex(8), description="Unique scan identifier")
     repo_url: str = Field(..., description="Repository URL that was scanned")
@@ -1676,6 +1676,12 @@ class RepoScanResult(BaseModel):
     errors: List[str] = Field(default_factory=list, description="Any errors encountered")
     started_at: Optional[datetime] = Field(default=None, description="When scan started")
     completed_at: Optional[datetime] = Field(default=None, description="When scan completed")
+    default_branch: Optional[str] = Field(default=None, description="Default branch name")
+    is_private: bool = Field(default=False, description="Whether the repo is private")
+    stars: int = Field(default=0, description="Number of stars")
+    forks: int = Field(default=0, description="Number of forks")
+    open_issues: int = Field(default=0, description="Number of open issues")
+    language: Optional[str] = Field(default=None, description="Primary language")
 
 class WorkflowExecutionRequest(BaseModel):
     """Request to execute a workflow."""

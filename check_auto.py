@@ -56,8 +56,10 @@ def check_feature(line):
                             # check if any sym matched
                             matched_any = any(sym.lower() in content for sym in sym_list)
                             # weak heuristic, just pass
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        missing_symbols.append(f"{f}: {exc}")
+        if missing_symbols:
+            return num, feature, "⚠️", f"Symbol check skipped: {len(missing_symbols)} issue(s)"
         return num, feature, "✅", ""
     return None
 
