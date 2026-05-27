@@ -66,6 +66,23 @@ def _get_optional_user_thunk(request):
 
 log = logging.getLogger("company_api")
 
+# Local doctor models (mirrors server.py _DoctorCheck/_DoctorReport)
+class _DoctorCheck(BaseModel):
+    id: str
+    category: str
+    label: str
+    status: str  # "pass" | "warn" | "fail"
+    detail: str = ""
+    explanation: Optional[str] = None
+
+
+class _DoctorReport(BaseModel):
+    ready: bool
+    summary: str
+    checks: list[_DoctorCheck] = []
+    run_at: str = ""
+
+
 # Create the router
 router = APIRouter(prefix="/api/company", tags=["company"])
 
