@@ -26,6 +26,8 @@ from models.company_graph import (
     Repo,
     RepoScanRequest,
     Specialist,
+    SpecialistFamily,
+    SystemType,
     SpecialistProvisionRequest,
     SpecialistProvisionResult,
     SpecialistListResponse,
@@ -41,8 +43,17 @@ from models.company_graph import (
 # Alias for response model (OnboardingProgress is the canonical model)
 OnboardingProgressResponse = OnboardingProgress
 from services.company_graph_store import get_company_graph_store
+# Import dependency functions lazily to avoid circular imports
+import importlib
 
-from backend.server import get_optional_user, get_current_user
+def _get_current_user():
+    module = importlib.import_module('backend.server')
+    return module.get_current_user
+
+def _get_optional_user():
+    module = importlib.import_module('backend.server')
+    return module.get_optional_user
+
 
 log = logging.getLogger("company_api")
 
@@ -55,7 +66,7 @@ router = APIRouter(prefix="/api/company", tags=["company"])
 
 async def get_company_access(
     company_id: str, 
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> Company:
     """
     Verify user has access to a company and return the company.
@@ -83,7 +94,7 @@ async def get_company_access(
 
 async def get_optional_company_access(
     company_id: str,
-    user: Optional[dict] = Depends(get_optional_user)
+    user: Optional[dict] = Depends(_get_optional_user())
 ) -> Optional[Company]:
     """
     Verify user has access to a company (if authenticated).
@@ -115,7 +126,7 @@ async def get_optional_company_access(
 @router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def create_company(
     request: CompanyCreateRequest,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> CompanyResponse:
     """
     Create a new company.
@@ -151,7 +162,7 @@ async def create_company(
 @router.get("/{company_id}", response_model=CompanyResponse)
 async def get_company(
     company_id: str = Path(..., description="Company ID"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> CompanyResponse:
     """
     Get a company by ID.
@@ -182,7 +193,7 @@ async def get_company_graph(
     include_detected_systems: bool = Query(True, description="Include detected systems"),
     include_specialists: bool = Query(True, description="Include specialists"),
     include_workflows: bool = Query(True, description="Include workflows"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> CompanyGraphResponse:
     """
     Get the complete Company Graph for a company.
@@ -218,7 +229,7 @@ async def get_company_graph(
 async def sync_company_graph(
     company_id: str = Path(..., description="Company ID"),
     force_rescan: bool = Body(False, description="Force re-scan of all websites and repos"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> CompanyGraphResponse:
     """
     Synchronize the Company Graph.
@@ -279,7 +290,7 @@ async def sync_company_graph(
 async def scan_website_endpoint(
     company_id: str = Path(..., description="Company ID"),
     request: WebsiteScanRequest = Body(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> WebsiteScanResult:
     """
     Scan a website for technology stack and systems.
@@ -357,7 +368,7 @@ async def scan_website_endpoint(
 async def scan_repo_endpoint(
     company_id: str = Path(..., description="Company ID"),
     request: RepoScanRequest = Body(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> WebsiteScanResult:
     """
     Scan a repository for technology stack and systems.
@@ -422,7 +433,7 @@ async def list_specialists(
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> SpecialistListResponse:
     """
     List all specialists for a company.
@@ -457,7 +468,7 @@ async def list_specialists(
 async def provision_specialist(
     company_id: str = Path(..., description="Company ID"),
     request: SpecialistProvisionRequest = Body(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> SpecialistProvisionResult:
     """
     Provision a new specialist for a company.
@@ -491,7 +502,7 @@ async def match_specialists(
     capabilities: List[str] = Body([], description="Required capabilities"),
     system_types: List[SystemType] = Body([], description="Relevant system types"),
     limit: int = Body(5, ge=1, le=20),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> List[Specialist]:
     """
     Match specialists to a task.
@@ -523,7 +534,7 @@ async def match_specialists(
 @router.get("/{company_id}/onboarding", response_model=OnboardingProgressResponse)
 async def get_onboarding_progress(
     company_id: str = Path(..., description="Company ID"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> OnboardingProgressResponse:
     """
     Get the current onboarding progress for a company.
@@ -571,7 +582,7 @@ async def start_onboarding(
     skip_website_scan: bool = Body(False, description="Skip website scanning"),
     skip_repo_scan: bool = Body(False, description="Skip repository scanning"),
     auto_provision_specialists: bool = Body(True, description="Auto-provision specialists"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> OnboardingProgressResponse:
     """
     Start the onboarding process for a company.
@@ -608,7 +619,7 @@ async def start_onboarding(
 @router.post("/{company_id}/onboarding/pause", response_model=OnboardingProgressResponse)
 async def pause_onboarding(
     company_id: str = Path(..., description="Company ID"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> OnboardingProgressResponse:
     """Pause the onboarding process for a company."""
     company = await get_company_access(company_id, user)
@@ -633,7 +644,7 @@ async def pause_onboarding(
 @router.post("/{company_id}/onboarding/resume", response_model=OnboardingProgressResponse)
 async def resume_onboarding(
     company_id: str = Path(..., description="Company ID"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> OnboardingProgressResponse:
     """Resume a paused onboarding process."""
     company = await get_company_access(company_id, user)
@@ -658,7 +669,7 @@ async def resume_onboarding(
 @router.post("/{company_id}/onboarding/cancel", response_model=OnboardingProgressResponse)
 async def cancel_onboarding(
     company_id: str = Path(..., description="Company ID"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(_get_current_user())
 ) -> OnboardingProgressResponse:
     """Cancel the onboarding process for a company."""
     company = await get_company_access(company_id, user)
@@ -693,7 +704,6 @@ async def get_public_doctor_report():
     This is the public version of the Doctor endpoint.
     """
     # Import here to avoid circular imports
-    from backend.server import _DoctorCheck, _DoctorReport
     import datetime
     import shutil
     

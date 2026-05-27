@@ -43,12 +43,12 @@ class TestCompanyGraphModels:
     
     def test_company_model_creation(self):
         """Test Company model creation."""
-        from models.company_graph import Company, BusinessCategory
+        from models.company_graph import Company
         
         company = Company(
             name="Test Company",
             domain="test.com",
-            business_category=BusinessCategory.saas,
+            business_category="saas",
             description="A test company",
         )
         
@@ -74,11 +74,11 @@ class TestCompanyGraphModels:
     
     def test_specialist_model_creation(self):
         """Test Specialist model creation."""
-        from models.company_graph import Specialist, SpecialistFamily
+        from models.company_graph import Specialist
         
         specialist = Specialist(
             name="Test Specialist",
-            family=SpecialistFamily.engineering,
+            family="engineering",
             capabilities=["code", "development", "python"],
             is_provisioned=True,
             status="available",
@@ -96,7 +96,6 @@ class TestCompanyGraphModels:
         
         website = Website(
             url="https://example.com",
-            company_id="comp_1",
             is_primary=True,
         )
         
