@@ -56,7 +56,7 @@ def check_feature(line):
                             # check if any sym matched
                             matched_any = any(sym.lower() in content for sym in sym_list)
                             # weak heuristic, just pass
-                    except:
+                    except Exception:
                         pass
         return num, feature, "✅", ""
     return None

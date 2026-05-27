@@ -1,28 +1,25 @@
 from __future__ import annotations
 from agent.user_memory import UserMemoryStore
-"""direct_chat.py — Direct chat endpoints
-# Company Graph integration
-import re
-
-try:
-    from models.company_graph import CompanyGraph
-    from services.company_graph import get_company_graph_service
-    from services.company_graph_store import get_company_graph_store
-    _company_graph_available = True
-except ImportError as e:
-    log.warning(f"Company Graph not available: {e}")
-    _company_graph_available = False
- for v3 dashboard.
+"""direct_chat.py — Direct chat endpoints for v3 dashboard.
 
 Handles chat sessions and message sending for the Direct Chat feature.
 Protected by JWT authentication (v3 auth system).
 Delegates to LLM providers via the proxy's routing system.
 """
 
-
 import asyncio
 import json
 import logging
+import re
+
+# Company Graph integration
+try:
+    from models.company_graph import CompanyGraph
+    from services.company_graph import get_company_graph_service
+    from services.company_graph_store import get_company_graph_store
+    _company_graph_available = True
+except ImportError:
+    _company_graph_available = False
 import os
 import uuid
 from pathlib import Path

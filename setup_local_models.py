@@ -184,7 +184,7 @@ class LocalLLMSetup:
                 timeout=2
             )
             ollama_running = result.returncode == 0
-        except:
+        except Exception:
             ollama_running = False
 
         # Check proxy
@@ -195,7 +195,7 @@ class LocalLLMSetup:
                 timeout=2
             )
             proxy_running = result.returncode == 0
-        except:
+        except Exception:
             proxy_running = False
 
         print(f"  Ollama:  {'✅ Running' if ollama_running else '⚠️  Not running'}")
@@ -236,7 +236,7 @@ class LocalLLMSetup:
                     )
                     print("✅ Proxy is ready!")
                     return True
-                except:
+                except Exception:
                     time.sleep(0.5)
 
             print("⚠️  Proxy took too long to start. Check logs with: tail -f /tmp/proxy.log")

@@ -5537,7 +5537,7 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     from agent.doctor import DirectChatDoctor
     import datetime
 
-    github_token = user.get("github_token") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    github_token = (user or {}).get("github_token") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     doctor = DirectChatDoctor(github_token=github_token)
 
     checks: list[_DoctorCheck] = []
