@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import asyncio
 import logging
 import secrets
 import httpx
@@ -204,8 +205,10 @@ class WebsiteScanner:
 
             soup = BeautifulSoup(html, 'html.parser') if html else BeautifulSoup("", 'html.parser')
             
-            # Use dynamic BuiltWith-style identification logic
-            html_systems = self._detect_systems_generic(html, headers, cookies)
+            # Use dynamic BuiltWith-style identification logic. The ~1,270-signature
+            # regex pass is CPU-bound; run it in a worker thread so a large/minified
+            # page can't block the event loop and stall concurrent requests.
+            html_systems = await asyncio.to_thread(self._detect_systems_generic, html, headers, cookies)
             
             # Merge DNS systems and HTML systems, keeping highest confidence
             all_systems_map = {sys.name: sys for sys in html_systems}
