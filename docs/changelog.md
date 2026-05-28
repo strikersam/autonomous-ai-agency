@@ -1,6 +1,14 @@
 ## [Unreleased]
 
 ### Security
+- **Scanner DNS rebinding protection (`services/scanner.py`, PR #279).** `_resolve_and_validate()` now resolves the hostname once, validates the IP is not private/loopback/link-local, and pins that IP for the actual HTTP connection (with a `Host` header). This closes the DNS rebinding window where an attacker-controlled domain could swap from a public IP to a private IP between the SSRF check and the fetch.
+- **Scanner redirect SSRF validation (`services/scanner.py`, PR #279).** Redirects are now followed manually with per-hop SSRF validation via `_is_safe_url()`. Common safe redirects (apex-to-www, HTTP-to-HTTPS) work correctly; any hop that resolves to a private/internal address is blocked.
+
+### Fixed
+- **`ecommerce` category mis-bucketed as `CMS` (`services/scanner.py`, PR #279).** `_BUILTWITH_CATEGORY_MAP` now maps `"ecommerce"` → `"ecommerce"` instead of `"CMS"`, aligning BuiltWith detections with the rest of the scanner.
+- **`robots.txt` fetched from page path instead of origin (`services/scanner.py`, PR #279).** `_discover_sitemap` now builds the robots URL from `scheme://netloc/robots.txt` so non-root scan URLs (e.g. `https://example.com/blog/post`) correctly probe the site root.
+
+### Security
 - **Scanner SSRF guard restored (`services/scanner.py`).** `WebsiteScanner.scan_website` now calls `_is_safe_url()` before any DNS/HTTP work and disables redirects on both the `curl_cffi` and `httpx` clients. An authenticated user can no longer point the scanner at loopback (`127.0.0.1`), the link-local cloud-metadata endpoint (`169.254.169.254`), or private/reserved ranges — directly or via a public URL that redirects inward. `_discover_sitemap` validates the derived `robots.txt` URL the same way.
 
 ### Fixed
