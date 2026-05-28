@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import asyncio
 import logging
 import secrets
 import httpx
@@ -92,6 +93,24 @@ def _content_contains_domain(content: str, *domains: str) -> bool:
     return any(domain.lower() in content_lower for domain in domains)
 
 
+# Maps BuiltWith/Wappalyzer category slugs to this codebase's SystemType literal.
+# Anything not listed falls back to "custom" (a valid SystemType).
+_BUILTWITH_CATEGORY_MAP: Dict[str, str] = {
+    "cms": "CMS",
+    "ecommerce": "CMS",
+    "blogs": "CMS",
+    "wikis": "CMS",
+    "message-boards": "CMS",
+    "analytics": "analytics",
+    "payment-processors": "payment_gateway",
+    "databases": "database",
+    "cache-tools": "cache",
+    "search-engines": "search",
+    "marketing-automation": "marketing_automation",
+    "video-players": "video",
+}
+
+
 class WebsiteScanner:
     """
     Advanced Scanner for detecting technology stack and systems from websites.
@@ -132,6 +151,17 @@ class WebsiteScanner:
                 )
             
             _safe_url = parsed._replace(fragment="").geturl()
+
+            # SSRF guard: block loopback/link-local/private/reserved targets (and any
+            # host that resolves to one) before performing any DNS or HTTP work.
+            if not _is_safe_url(_safe_url):
+                return WebsiteScanResult(
+                    scan_id=scan_id, website_url=website_url, company_id=self.company_id,
+                    status="failed",
+                    errors=["Blocked: URL resolves to a private, loopback, or disallowed address"],
+                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                )
+
             domain = parsed.hostname.replace('www.', '') if parsed.hostname else ""
 
             # 1. DNS Analysis (BuiltWith-level off-site detection)
@@ -142,11 +172,14 @@ class WebsiteScanner:
             headers = {}
             cookies = {}
             status_code = 0
-            
+            fetch_error: Optional[str] = None
+
+            # Redirects are disabled so a public URL cannot bounce the request to an
+            # internal/link-local address that bypasses the SSRF check above.
             try:
                 import curl_cffi.requests
                 async with curl_cffi.requests.AsyncSession(impersonate="chrome120", timeout=self.timeout) as client:
-                    response = await client.get(_safe_url, allow_redirects=True)
+                    response = await client.get(_safe_url, allow_redirects=False)
                     html = response.text
                     headers = response.headers
                     cookies = response.cookies
@@ -155,7 +188,7 @@ class WebsiteScanner:
                 log.warning(f"curl_cffi failed, falling back to httpx: {curl_e}")
                 async with httpx.AsyncClient(
                     timeout=self.timeout,
-                    follow_redirects=True,
+                    follow_redirects=False,
                     max_redirects=self.max_redirects,
                     headers={
                         "User-Agent": self.user_agent,
@@ -170,22 +203,36 @@ class WebsiteScanner:
                         cookies = response.cookies
                         status_code = response.status_code
                     except Exception as e:
+                        fetch_error = str(e)
                         log.error(f"HTTPX failed: {e}")
+
+            # If both the primary (curl_cffi) and fallback (httpx) clients failed to
+            # reach the host, surface the failure instead of returning a spurious
+            # "success" with empty evidence — callers only reject non-success scans.
+            if fetch_error is not None and not html:
+                return WebsiteScanResult(
+                    scan_id=scan_id, website_url=website_url, company_id=self.company_id,
+                    status="failed",
+                    errors=[f"Failed to fetch website: {fetch_error}"],
+                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                )
 
             # Even if we get a 403, we still analyze headers and DNS!
             soup = BeautifulSoup(html, 'html.parser') if html else BeautifulSoup("", 'html.parser')
             
-            # Combine detected systems
+            # Combine detected systems from HTML/header heuristics, DNS records, and
+            # the bundled BuiltWith/Wappalyzer signature database. For a given system
+            # name the highest-confidence detection wins; ties keep the earlier source
+            # (HTML > DNS > BuiltWith).
             html_systems = await self._detect_systems(soup, html, headers, cookies, website_url)
-            
-            all_systems_map = {sys.name: sys for sys in html_systems}
-            for dns_sys in dns_systems:
-                if dns_sys.name in all_systems_map:
-                    if dns_sys.confidence > all_systems_map[dns_sys.name].confidence:
-                        all_systems_map[dns_sys.name] = dns_sys
-                else:
-                    all_systems_map[dns_sys.name] = dns_sys
-                    
+            builtwith_systems = await self._detect_with_builtwith(html, headers, _safe_url)
+
+            all_systems_map: Dict[str, DetectedSystem] = {}
+            for sys in [*html_systems, *dns_systems, *builtwith_systems]:
+                existing = all_systems_map.get(sys.name)
+                if existing is None or sys.confidence > existing.confidence:
+                    all_systems_map[sys.name] = sys
+
             detected_systems = list(all_systems_map.values())
             
             stack_inference = await self._infer_stack(soup, html, headers, website_url)
@@ -360,8 +407,52 @@ class WebsiteScanner:
         # SEARCH & VIDEO & CONSENT
         if 'algolia' in html_lower or 'algoliasearch' in html_lower: add_system('algolia', 'search', 'Algolia', 0.98, 'html', 'algolia js', 'HTML')
         if 'onetrust.com' in html_lower or 'optanon.com' in html_lower: add_system('onetrust', 'custom', 'OneTrust', 0.98, 'html', 'onetrust js', 'HTML')
-            
+
         return list(systems_map.values())
+
+    async def _detect_with_builtwith(self, html: str, headers: Any, url: str) -> List[DetectedSystem]:
+        """Run the bundled BuiltWith/Wappalyzer signature database over already-fetched
+        content.
+
+        Both ``html`` and ``headers`` are passed so the library never issues its own
+        (unvalidated, redirect-following) network request, which would otherwise bypass
+        the SSRF protections applied to the primary fetch path. The match is pure CPU
+        work over a large dataset, so it runs in a worker thread.
+        """
+        if not html:
+            return []
+        try:
+            import builtwith as builtwith_lib
+        except Exception as e:  # pragma: no cover - import guard
+            log.warning(f"builtwith library unavailable: {e}")
+            return []
+
+        headers_dict = {str(k): str(v) for k, v in dict(headers).items()} if headers else {}
+
+        def _run() -> Dict[str, List[str]]:
+            # Passing both html and headers prevents builtwith from fetching the URL.
+            return builtwith_lib.parse(url, headers=headers_dict, html=html) or {}
+
+        try:
+            results = await asyncio.to_thread(_run)
+        except Exception as e:
+            log.warning(f"builtwith analysis failed: {e}")
+            return []
+
+        systems: List[DetectedSystem] = []
+        for category, app_names in results.items():
+            sys_type = _BUILTWITH_CATEGORY_MAP.get(category, "custom")
+            for app_name in app_names:
+                if not app_name:
+                    continue
+                systems.append(DetectedSystem(
+                    system_type=sys_type, name=str(app_name), confidence=0.8,
+                    evidence=[Evidence(
+                        type="builtwith", value=f"{category}: {app_name}",
+                        location="BuiltWith signature DB", confidence=0.8,
+                    )],
+                ))
+        return systems
 
     async def _infer_stack(self, soup: BeautifulSoup, html: str, headers: Any, url: str) -> StackInference:
         html_lower = html.lower() if html else ""
@@ -423,8 +514,10 @@ class WebsiteScanner:
         # Using a fast httpx fallback just for quick sitemaps
         sitemap_urls = []
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                robots_url = f"{base_url.rstrip('/')}/robots.txt"
+            robots_url = f"{base_url.rstrip('/')}/robots.txt"
+            if not _is_safe_url(robots_url):
+                return []
+            async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
                 response = await client.get(robots_url)
                 if response.status_code == 200:
                     for line in response.text.split('\n'):

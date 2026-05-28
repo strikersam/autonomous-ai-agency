@@ -2,6 +2,12 @@ import pytest
 import pytest_asyncio
 from services.scanner import WebsiteScanner
 
+# These tests perform live scans against third-party websites and depend on external
+# DNS/WAF/network availability. They are excluded from the default suite (see pytest.ini)
+# and only run with `pytest -m integration`.
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_scanner_tech_platform():
     """Test technology platform detection (e.g., Docker)"""
