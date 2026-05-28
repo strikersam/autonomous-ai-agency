@@ -1070,79 +1070,100 @@
 
     <!-- Interactive JS Script -->
     <script>
-        // Wappalyzer-grade Database & Heuristics for dynamic scan simulations
+        // BuiltWith-grade Database & Heuristics for ultra-precise tech profiling
         const KNOWN_DOMAINS = {
             "gucci.com": {
-                name: "SAP Commerce Cloud Stack",
+                name: "SAP Commerce Cloud Architecture",
                 category: "luxury & commerce",
                 systems: [
-                    "🛍 SAP Commerce Cloud (OMS - 95% confidence)",
-                    "⚛ React & Next.js 18 (Frontend - 98% confidence)",
-                    "📊 Google Tag Manager (Tag Manager - 99% confidence)",
-                    "📈 Adobe Analytics (Analytics - 94% confidence)",
-                    "💬 Salesforce LiveAgent (Support - 88% confidence)",
-                    "⚡ Akamai CDN & WAF (Security/Hosting - 96% confidence)",
-                    "💳 Adyen Checkout (Payment Gateway - 95% confidence)",
-                    "🎯 Meta Pixel / Facebook (Tracking Pixel - 96% confidence)",
-                    "⚙ jQuery Library v3.6.0 (Utility - 95% confidence)",
-                    "🎨 FontAwesome Icons (Style - 92% confidence)"
+                    // OMS & CMS
+                    { name: "SAP Commerce Cloud (Hybris)", cat: "OMS & E-Commerce", icon: "🛍", conf: 96 },
+                    { name: "Contentful", cat: "CMS & Editorial", icon: "📄", conf: 92 },
+                    
+                    // Frameworks & Libraries
+                    { name: "React & Next.js v14 (SSR)", cat: "Frameworks & Libraries", icon: "⚛", conf: 98 },
+                    { name: "core-js & Day.js", cat: "Frameworks & Libraries", icon: "⚙", conf: 95 },
+                    { name: "jQuery Library v3.5.1", cat: "Frameworks & Libraries", icon: "⚙", conf: 95 },
+                    
+                    // Analytics & Tracking Pixels
+                    { name: "Google Analytics (GA4)", cat: "Analytics & Tracking", icon: "📊", conf: 98 },
+                    { name: "Adobe Analytics & RUM", cat: "Analytics & Tracking", icon: "📈", conf: 95 },
+                    { name: "Google Tag Manager", cat: "Analytics & Tracking", icon: "📊", conf: 99 },
+                    { name: "Meta Pixel (Facebook)", cat: "Analytics & Tracking", icon: "🎯", conf: 96 },
+                    { name: "TikTok Conversion Pixel", cat: "Analytics & Tracking", icon: "🎯", conf: 94 },
+                    
+                    // Performance & APM Monitoring
+                    { name: "SpeedCurve Performance Monitoring", cat: "Performance & Monitoring", icon: "📈", conf: 96 },
+                    { name: "Akamai mPulse (RUM)", cat: "Performance & Monitoring", icon: "📊", conf: 95 },
+                    { name: "Dynatrace Software Intelligence", cat: "Performance & Monitoring", icon: "⚙", conf: 94 },
+                    { name: "Datadog Real-User Monitoring", cat: "Performance & Monitoring", icon: "📊", conf: 95 },
+                    
+                    // Security, Hosting & CDN
+                    { name: "Akamai Global Host & WAF", cat: "Security & Infrastructure", icon: "⚡", conf: 99 },
+                    { name: "Akamai Edge & EdgeWorkers", cat: "Security & Infrastructure", icon: "⚡", conf: 96 },
+                    { name: "Amazon S3 Assets Store", cat: "Security & Infrastructure", icon: "💾", conf: 94 },
+                    { name: "Cloudflare DNS & Shield", cat: "Security & Infrastructure", icon: "🛡️", conf: 95 },
+                    
+                    // Payments, CRM & Support
+                    { name: "Adyen Enterprise Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 96 },
+                    { name: "Salesforce CRM Cloud", cat: "Customer Support & CRM", icon: "💼", conf: 94 },
+                    { name: "Apple Business Chat Concierge", cat: "Customer Support & CRM", icon: "💬", conf: 90 },
+                    { name: "OneTrust Consent Management", cat: "Privacy & Compliance", icon: "🔒", conf: 98 }
                 ],
                 specialists: [
-                    { name: "OMS Merchandiser Agent", icon: "🛍️", desc: "Monitors SAP Commerce inventory, checkout flows, and price changes." },
-                    { name: "Frontend Developer Agent", icon: "⚛", desc: "Optimizes server-side rendered (SSR) Next.js/React templates." },
-                    { name: "Analytics Auditor Agent", icon: "📊", desc: "Verifies GTM and Adobe Analytics trigger schemas." }
+                    { name: "SAP Commerce Architect", icon: "🛍️", desc: "Maintains Hybris order pipelines, checkout APIs, and catalogs." },
+                    { name: "APM Reliability Engineer", icon: "📊", desc: "Audits SpeedCurve, Dynatrace, and Datadog RUM performance traces." },
+                    { name: "Analytics & Tag Auditor", icon: "📈", desc: "Validates GTM and Adobe Analytics trigger variables." }
                 ]
             },
             "apple.com": {
-                name: "Enterprise Custom Java Stack",
+                name: "Apple Custom Enterprise Platform",
                 category: "technology & retail",
                 systems: [
-                    "⚙ Custom WebObjects Java (OMS - 95% confidence)",
-                    "⚛ React & custom Micro-Frontends (Frontend - 92% confidence)",
-                    "📈 Adobe Analytics (Analytics - 98% confidence)",
-                    "⚡ Akamai CDN (CDN/Hosting - 99% confidence)",
-                    "💳 Apple Pay Checkout (Payment Gateway - 99% confidence)",
-                    "🔒 Apple ID Federated Auth (Auth - 99% confidence)"
+                    { name: "Custom WebObjects Java Engine", cat: "OMS & E-Commerce", icon: "⚙", conf: 95 },
+                    { name: "React & custom Micro-Frontends", cat: "Frameworks & Libraries", icon: "⚛", conf: 94 },
+                    { name: "Adobe Analytics", cat: "Analytics & Tracking", icon: "📈", conf: 98 },
+                    { name: "Akamai CDN & Edge Routing", cat: "Security & Infrastructure", icon: "⚡", conf: 99 },
+                    { name: "Apple Pay Checkout Engine", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "Apple Secure Federated Auth", cat: "Privacy & Compliance", icon: "🔒", conf: 99 }
                 ],
                 specialists: [
-                    { name: "Backend Core Agent", icon: "⚙️", desc: "Maintains legacy Java services and custom checkout logic." },
-                    { name: "Frontend Accessibility Agent", icon: "⚛", desc: "Ensures compliance with web accessibility and premium Apple UI design." }
+                    { name: "Backend Core Agent", icon: "⚙️", desc: "Maintains premium WebObjects Java checkout endpoints." },
+                    { name: "UX Design Auditor Agent", icon: "🎨", desc: "Ensures custom frontend styling fits pixel-perfect design standards." }
                 ]
             },
             "nike.com": {
-                name: "Headless Commerce Cloud",
+                name: "Nike Headless Commerce Architecture",
                 category: "athletics & retail",
                 systems: [
-                    "🛍 Salesforce Commerce Cloud (OMS - 92% confidence)",
-                    "⚛ Next.js + React (Frontend - 96% confidence)",
-                    "📈 Adobe Analytics & GA4 (Analytics - 95% confidence)",
-                    "⚡ Akamai CDN & Shield (CDN/Hosting - 98% confidence)",
-                    "💬 LiveChat Web Widget (Support - 85% confidence)",
-                    "💳 PayPal Checkout (Payment - 94% confidence)",
-                    "🎯 Meta Pixel & TikTok Pixel (Tracking Pixel - 96% confidence)",
-                    "🏃 Nike Member Federated Auth (Auth - 98% confidence)"
+                    { name: "Salesforce Commerce Cloud (SFCC)", cat: "OMS & E-Commerce", icon: "🛍", conf: 94 },
+                    { name: "React + Next.js v13 SSR", cat: "Frameworks & Libraries", icon: "⚛", conf: 96 },
+                    { name: "Adobe Analytics & GA4", cat: "Analytics & Tracking", icon: "📈", conf: 95 },
+                    { name: "Akamai CDN Shield & Edge", cat: "Security & Infrastructure", icon: "⚡", conf: 98 },
+                    { name: "PayPal & Visa Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 95 },
+                    { name: "Meta & TikTok Conversion Pixels", cat: "Analytics & Tracking", icon: "🎯", conf: 94 },
+                    { name: "Nike Member Federated Sign-In", cat: "Privacy & Compliance", icon: "🔒", conf: 96 }
                 ],
                 specialists: [
-                    { name: "Commerce Merchandiser Agent", icon: "🛍️", desc: "Integrates Salesforce Commerce product data and checkout funnels." },
-                    { name: "Frontend Developer Agent", icon: "⚛", desc: "Optimizes server-side rendered pages and LCP metrics." }
+                    { name: "SFCC Commerce Agent", icon: "🛍️", desc: "Manages Salesforce Commerce campaigns and API integrations." },
+                    { name: "SEO Content Auditor Agent", icon: "📄", desc: "Optimizes Next.js templates for crawlability and LCP page speed." }
                 ]
             },
             "stripe.com": {
-                name: "SaaS Headless Stack",
+                name: "Stripe SaaS Headless Architecture",
                 category: "finance & saas",
                 systems: [
-                    "💳 Stripe Billing (Payment - 99% confidence)",
-                    "⚛ React + Next.js (Frontend - 98% confidence)",
-                    "📄 Contentful CMS (CMS - 92% confidence)",
-                    "📊 Google Tag Manager & GA4 (Analytics - 96% confidence)",
-                    "⚡ AWS & Vercel (Hosting - 95% confidence)",
-                    "🎯 Microsoft Clarity & Hotjar (Analytics - 92% confidence)",
-                    "💬 Intercom Support Chat (Support - 94% confidence)",
-                    "🔒 Auth0 OAuth Secure ID (Auth - 95% confidence)"
+                    { name: "Stripe Billing & Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "React + Next.js 14", cat: "Frameworks & Libraries", icon: "⚛", conf: 98 },
+                    { name: "Contentful Headless CMS", cat: "CMS & Editorial", icon: "📄", conf: 94 },
+                    { name: "GTM, Segment & GA4", cat: "Analytics & Tracking", icon: "📊", conf: 96 },
+                    { name: "AWS S3 & Vercel Edge CDN", cat: "Security & Infrastructure", icon: "⚡", conf: 95 },
+                    { name: "Microsoft Clarity RUM", cat: "Performance & Monitoring", icon: "🎯", conf: 92 },
+                    { name: "Intercom Customer Conversations", cat: "Customer Support & CRM", icon: "💬", conf: 94 }
                 ],
                 specialists: [
-                    { name: "Invoicing & Billing Agent", icon: "💳", desc: "Automates custom invoicing, payment flows, and billing logic." },
-                    { name: "SEO Content Auditor Agent", icon: "📄", desc: "Synchronizes Contentful editorial changes and metadata templates." }
+                    { name: "SaaS Billing Specialist", icon: "💳", desc: "Integrates Stripe ledger schemas and subscription flows." },
+                    { name: "Security Audit Specialist", icon: "🛡️", desc: "Scans cloud packages, verifies secrets, and manages CDNs." }
                 ]
             }
         };
@@ -1170,14 +1191,14 @@
                         name: "Salesforce Commerce Cloud Stack",
                         category: "retail & e-commerce",
                         systems: [
-                            "🛍 Salesforce Commerce Cloud (OMS - 92% confidence)",
-                            "⚛ Next.js + React (Frontend - 95% confidence)",
-                            "📈 Adobe Analytics & GA4 (Analytics - 94% confidence)",
-                            "⚡ Akamai CDN & Security (CDN - 96% confidence)",
-                            "💳 PayPal Checkout & Apple Pay (Payment - 95% confidence)",
-                            "🎯 Meta Pixel & Pinterest Tag (Tracking Pixel - 92% confidence)",
-                            "💬 LiveChat Widget (Support - 88% confidence)",
-                            "🎨 FontAwesome Icons (Icons - 90% confidence)"
+                            { name: "Salesforce Commerce Cloud", cat: "OMS & E-Commerce", icon: "🛍", conf: 92 },
+                            { name: "Next.js + React", cat: "Frameworks & Libraries", icon: "⚛", conf: 95 },
+                            { name: "Adobe Analytics & GA4", cat: "Analytics & Tracking", icon: "📈", conf: 94 },
+                            { name: "Akamai CDN & Edge Shield", cat: "Security & Infrastructure", icon: "⚡", conf: 96 },
+                            { name: "PayPal & Apple Pay Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 95 },
+                            { name: "Meta Pixel & Pinterest Tag", cat: "Analytics & Tracking", icon: "🎯", conf: 92 },
+                            { name: "LiveChat Concierge Widget", cat: "Customer Support & CRM", icon: "💬", conf: 88 },
+                            { name: "FontAwesome Stylesheet Icons", cat: "Frameworks & Libraries", icon: "🎨", conf: 90 }
                         ],
                         specialists: [
                             { name: "Commerce Merchandiser Agent", icon: "🛍️", desc: "Monitors Salesforce Commerce inventories, cart drops, and product data." },
@@ -1186,16 +1207,16 @@
                     };
                 } else {
                     return {
-                        name: "Shopify Plus Cloud",
+                        name: "Shopify Plus Cloud Stack",
                         category: "e-commerce",
                         systems: [
-                            "🛍 Shopify Plus (OMS/CMS - 98% confidence)",
-                            "📊 Google Tag Manager & GA4 (Analytics - 96% confidence)",
-                            "📧 Klaviyo Newsletter (92% confidence)",
-                            "💬 Gorgias Live Support (88% confidence)",
-                            "💳 Shop Pay & Stripe Checkout (Payment Gateway - 97% confidence)",
-                            "🎯 Meta Pixel & TikTok Pixel (Tracking Pixel - 94% confidence)",
-                            "⚙ jQuery Library v3.5.1 (Utility - 95% confidence)"
+                            { name: "Shopify Plus SaaS Storefront", cat: "OMS & E-Commerce", icon: "🛍", conf: 98 },
+                            { name: "GTM, Klaviyo & GA4", cat: "Analytics & Tracking", icon: "📊", conf: 96 },
+                            { name: "Klaviyo CRM Trigger Events", cat: "Customer Support & CRM", icon: "📧", conf: 92 },
+                            { name: "Gorgias Helpdesk Web Chat", cat: "Customer Support & CRM", icon: "💬", conf: 88 },
+                            { name: "Shop Pay & Stripe Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 97 },
+                            { name: "Meta Pixel & TikTok Analytics", cat: "Analytics & Tracking", icon: "🎯", conf: 94 },
+                            { name: "jQuery Core Library v3.5.1", cat: "Frameworks & Libraries", icon: "⚙", conf: 95 }
                         ],
                         specialists: [
                             { name: "Commerce Merchandiser Agent", icon: "🛍️", desc: "Optimizes Shopify theme elements, collection listings, and catalog data." },
@@ -1208,17 +1229,17 @@
             // SaaS & Tech Heuristic
             if (urlLower.includes("app") || urlLower.includes("saas") || urlLower.includes("cloud") || urlLower.includes("api") || urlLower.includes("tech") || urlLower.includes("dev") || urlLower.includes("software") || urlLower.includes("system") || urlLower.includes("tool")) {
                 return {
-                    name: "Next.js SaaS Stack",
+                    name: "Next.js SaaS Platform",
                     category: "software & saas",
                     systems: [
-                        "⚛ React + Next.js (Frontend - 98% confidence)",
-                        "💳 Stripe Billing (Payment - 99% confidence)",
-                        "📊 Google Analytics 4 (Analytics - 95% confidence)",
-                        "⚡ AWS & Vercel (Hosting - 94% confidence)",
-                        "💬 Intercom Chat Widget (Support - 92% confidence)",
-                        "🎯 Microsoft Clarity & Hotjar (Analytics - 90% confidence)",
-                        "🎨 Tailwind CSS (Style - 96% confidence)",
-                        "🔒 Auth0 OAuth Secure ID (Auth - 95% confidence)"
+                        { name: "Next.js + React v14 (SSR)", cat: "Frameworks & Libraries", icon: "⚛", conf: 98 },
+                        { name: "Stripe Billing & Ledgers", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                        { name: "Google Analytics 4 (GA4)", cat: "Analytics & Tracking", icon: "📊", conf: 95 },
+                        { name: "AWS Hosting & Vercel Edge", cat: "Security & Infrastructure", icon: "⚡", conf: 94 },
+                        { name: "Intercom Help conversations", cat: "Customer Support & CRM", icon: "💬", conf: 92 },
+                        { name: "Microsoft Clarity RUM Probes", cat: "Performance & Monitoring", icon: "🎯", conf: 90 },
+                        { name: "Tailwind CSS Style Library", cat: "Frameworks & Libraries", icon: "🎨", conf: 96 },
+                        { name: "Auth0 OAuth Single Sign-on", cat: "Privacy & Compliance", icon: "🔒", conf: 95 }
                     ],
                     specialists: [
                         { name: "Full-Stack Dev Agent", icon: "⚙️", desc: "Maintains React client services, hooks APIs, and resolves schema drops." },
@@ -1230,16 +1251,16 @@
             // Media & Blogging Heuristic
             if (urlLower.includes("blog") || urlLower.includes("news") || urlLower.includes("article") || urlLower.includes("press") || urlLower.includes("journal") || urlLower.includes("media") || urlLower.includes("post") || urlLower.includes("daily")) {
                 return {
-                    name: "WordPress CMS",
+                    name: "WordPress Enterprise CMS",
                     category: "media & content",
                     systems: [
-                        "📄 WordPress CMS (CMS - 98% confidence)",
-                        "⚙ PHP & MySQL (Backend - 95% confidence)",
-                        "📊 Google Analytics (Analytics - 96% confidence)",
-                        "⚡ Cloudflare Security & WAF (Security - 98% confidence)",
-                        "🎯 Meta Pixel & Mailchimp CRM (Marketing - 90% confidence)",
-                        "💬 Zendesk Web Widget (Support - 92% confidence)",
-                        "🎨 Yoast SEO (Optimization - 96% confidence)"
+                        { name: "WordPress CMS Platform", cat: "OMS & E-Commerce", icon: "📄", conf: 98 },
+                        { name: "PHP v8.1 Engine & MySQL", cat: "Frameworks & Libraries", icon: "⚙", conf: 95 },
+                        { name: "Google Analytics & GTM", cat: "Analytics & Tracking", icon: "📊", conf: 96 },
+                        { name: "Cloudflare CDN & WAF Shield", cat: "Security & Infrastructure", icon: "⚡", conf: 98 },
+                        { name: "Meta Pixel & Mailchimp CRM", cat: "Analytics & Tracking", icon: "🎯", conf: 90 },
+                        { name: "Zendesk Support Web SDK", cat: "Customer Support & CRM", icon: "💬", conf: 92 },
+                        { name: "Yoast SEO Metadata Optimizer", cat: "Frameworks & Libraries", icon: "🎨", conf: 96 }
                     ],
                     specialists: [
                         { name: "SEO Content Auditor Agent", icon: "📄", desc: "Scans newly published articles, optimizes title tags, and resolves metadata." },
@@ -1253,12 +1274,12 @@
                 name: "React Enterprise Stack",
                 category: "technology",
                 systems: [
-                    "⚛ React JS Library (Frontend - 92% confidence)",
-                    "📊 Google Analytics 4 (Analytics - 94% confidence)",
-                    "🎨 Tailwind CSS (Style - 95% confidence)",
-                    "⚡ Cloudflare CDN & WAF (Hosting - 96% confidence)",
-                    "💳 Stripe Payments (Payment - 94% confidence)",
-                    "🎯 Hotjar Feedback Polls (Analytics - 90% confidence)"
+                    { name: "React JS Core Library", cat: "Frameworks & Libraries", icon: "⚛", conf: 92 },
+                    { name: "Google Analytics 4 (GA4)", cat: "Analytics & Tracking", icon: "📊", conf: 94 },
+                    { name: "Tailwind CSS Style Library", cat: "Frameworks & Libraries", icon: "🎨", conf: 95 },
+                    { name: "Cloudflare Global CDN & WAF", cat: "Security & Infrastructure", icon: "⚡", conf: 96 },
+                    { name: "Stripe Invoicing Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 94 },
+                    { name: "Hotjar Feedback Survey Widget", cat: "Analytics & Tracking", icon: "🎯", conf: 90 }
                 ],
                 specialists: [
                     { name: "Frontend Developer Agent", icon: "⚛", desc: "Maintains React component systems and styles files." },
@@ -1317,14 +1338,47 @@
                 document.getElementById("resCompName").textContent = urlInput.replace(/^https?:\/\//, '').split('/')[0];
                 document.getElementById("resCompDomain").textContent = simData.category;
 
-                // Systems
+                // Systems (Grouped beautifully by category similar to BuiltWith!)
                 const sysContainer = document.getElementById("resSystems");
                 sysContainer.innerHTML = "";
+                sysContainer.style.display = "flex";
+                sysContainer.style.flexDirection = "column";
+                sysContainer.style.gap = "14px";
+                
+                // Grouping logic
+                const groups = {};
                 simData.systems.forEach(sys => {
-                    const tag = document.createElement("span");
-                    tag.className = "sim-tag";
-                    tag.textContent = sys;
-                    sysContainer.appendChild(tag);
+                    if (!groups[sys.cat]) {
+                        groups[sys.cat] = [];
+                    }
+                    groups[sys.cat].push(sys);
+                });
+                
+                Object.keys(groups).forEach(cat => {
+                    const groupSection = document.createElement("div");
+                    groupSection.style.display = "flex";
+                    groupSection.style.flexDirection = "column";
+                    groupSection.style.gap = "6px";
+                    
+                    const groupLabel = document.createElement("div");
+                    groupLabel.className = "sim-section-label";
+                    groupLabel.style.marginBottom = "2px";
+                    groupLabel.style.color = "var(--accent-hover)";
+                    groupLabel.textContent = cat;
+                    groupSection.appendChild(groupLabel);
+                    
+                    const tagsWrap = document.createElement("div");
+                    tagsWrap.className = "sim-tag-list";
+                    
+                    groups[cat].forEach(sys => {
+                        const tag = document.createElement("span");
+                        tag.className = "sim-tag";
+                        tag.innerHTML = `${sys.icon} ${sys.name} (${sys.conf}% confidence)`;
+                        tagsWrap.appendChild(tag);
+                    });
+                    
+                    groupSection.appendChild(tagsWrap);
+                    sysContainer.appendChild(groupSection);
                 });
 
                 // Specialists
