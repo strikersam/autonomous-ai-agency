@@ -2,6 +2,7 @@
 
 ### Added
 - **Website scanner signature database expanded from 27 to ~1,270 technologies.** `services/technologies.json` is now generated from the Wappalyzer fingerprint dataset (see `scripts/build_tech_db.py`) instead of a hand-rolled 27-app stub, so the scanner identifies far more of a site's real stack — jQuery, HubSpot, Hotjar, WooCommerce, Fastly, CloudFront, webpack, modern analytics, and hundreds more. The matching engine is unchanged; this is a data fix for poor detection coverage.
+- **Opt-in headless-render scan path (`SCANNER_RENDER` env var, default off).** When enabled, `WebsiteScanner` renders the page with Playwright/Chromium and evaluates Wappalyzer `js` rules, detecting single-page-app runtime tech (`window.Shopify`, `__NEXT_DATA__`, `Vue.version`, `Stripe.version`, …) that never appears in static HTML. Every browser request is SSRF-filtered through `_is_safe_url`, and the pass degrades gracefully to the static scan if Chromium isn't installed. Enable with `pip install playwright && playwright install chromium`. (Browser path validated by unit-tested logic + mocks; live e2e must be run in an environment with a browser.)
 
 ### Changed
 - **`_detect_systems_generic` tag stripping + crash-safety (`services/scanner.py`).** Pattern metadata is now stripped on Wappalyzer's `\;` delimiter (previously `.split(';')`, which mangled tagged patterns), and header/cookie/meta regexes are exception-guarded so a single malformed signature can't fail an entire scan.

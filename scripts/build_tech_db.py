@@ -154,6 +154,11 @@ def convert(source: Dict[str, Any]) -> Dict[str, Any]:
             if meta:
                 out["meta"] = meta
 
+        # `js` rules map a JS global path (e.g. "Shopify.shop") to a regex; they can
+        # only be evaluated against a rendered page (see services/scanner_render.py).
+        if spec.get("js"):
+            out["js"] = {k: _clean(v) for k, v in spec["js"].items()}
+
         if spec.get("implies"):
             out["implies"] = [_clean(p) for p in _as_list(spec["implies"])]
 

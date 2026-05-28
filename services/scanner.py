@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
+import os
 import secrets
 import httpx
 from bs4 import BeautifulSoup
@@ -216,8 +217,32 @@ class WebsiteScanner:
                 else:
                     all_systems_map[dns_sys.name] = dns_sys
                     
+            # Optional headless render pass (opt-in via SCANNER_RENDER): picks up
+            # JS-runtime signals (window.Shopify, __NEXT_DATA__, Vue.version, …) that
+            # single-page apps never expose in static HTML. Falls back silently.
+            if os.getenv("SCANNER_RENDER", "").strip().lower() in ("1", "true", "yes", "on"):
+                rendered = None
+                try:
+                    from services.scanner_render import collect_js_paths, render as _render
+                    rendered = await _render(
+                        _safe_url, is_safe_url=_is_safe_url,
+                        js_paths=collect_js_paths(self.tech_data),
+                        timeout_ms=int(self.timeout * 1000), user_agent=self.user_agent,
+                    )
+                except Exception as e:
+                    log.warning(f"render pass error: {e}")
+                if rendered:
+                    extra = self._detect_systems_generic(
+                        rendered.get("html", ""), rendered.get("headers", {}), cookies
+                    )
+                    extra += self._detect_from_js(rendered.get("js_values", {}))
+                    for sys in extra:
+                        existing = all_systems_map.get(sys.name)
+                        if existing is None or sys.confidence > existing.confidence:
+                            all_systems_map[sys.name] = sys
+
             detected_systems = list(all_systems_map.values())
-            
+
             stack_inference = await self._infer_stack(soup, html, headers, website_url)
             
             # 3. Sitemap discovery
@@ -433,6 +458,43 @@ class WebsiteScanner:
         
         systems_map.update(new_additions)
         return list(systems_map.values())
+
+    def _detect_from_js(self, js_values: Dict[str, str]) -> List[DetectedSystem]:
+        """Match Wappalyzer `js` rules against JS globals read from a rendered page.
+
+        `js_values` maps a global path (e.g. ``Vue.version``) to its stringified value
+        for every path that was actually defined in the page.
+        """
+        import re
+
+        systems: List[DetectedSystem] = []
+        if not js_values:
+            return systems
+        apps = self.tech_data.get("apps", {})
+        categories = self.tech_data.get("categories", {})
+        for app_name, app_spec in apps.items():
+            js_rules = app_spec.get("js")
+            if not isinstance(js_rules, dict):
+                continue
+            for path, regex in js_rules.items():
+                if path not in js_values:
+                    continue  # global not present in the rendered page
+                bare = str(regex).split("\\;")[0]
+                ok = True
+                if bare:
+                    try:
+                        ok = re.search(bare, js_values.get(path) or "", re.IGNORECASE) is not None
+                    except re.error:
+                        ok = False
+                if ok:
+                    cat_id = str(app_spec.get("cats", [1])[0])
+                    sys_type = categories.get(cat_id, "custom") or "custom"
+                    systems.append(DetectedSystem(
+                        system_type=sys_type, name=app_name, confidence=0.95,
+                        evidence=[Evidence(type="js", value=f"window.{path}", location="Rendered JS", confidence=0.95)],
+                    ))
+                    break
+        return systems
 
     async def _infer_stack(self, soup: BeautifulSoup, html: str, headers: Any, url: str) -> StackInference:
         html_lower = html.lower() if html else ""
