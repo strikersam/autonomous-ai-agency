@@ -44,6 +44,52 @@ from typing import Any, Dict, List
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT = os.path.join(REPO_ROOT, "services", "technologies.json")
 
+# Map Wappalyzer category names (lowercased) to this repo's SystemType literal
+# (see models.company_graph.SystemType). Anything unmapped becomes "custom".
+SYSTEMTYPE_MAP = {
+    "cms": "CMS",
+    "blogs": "CMS",
+    "wikis": "CMS",
+    "documentation": "CMS",
+    "editors": "CMS",
+    "rich text editors": "CMS",
+    "page builders": "CMS",
+    "static site generator": "CMS",
+    "ecommerce": "OMS",
+    "payment processors": "payment_gateway",
+    "buy now pay later": "payment_gateway",
+    "accounting": "billing",
+    "analytics": "analytics",
+    "a/b testing": "analytics",
+    "tag managers": "analytics",
+    "marketing automation": "marketing_automation",
+    "advertising": "marketing_automation",
+    "retargeting": "marketing_automation",
+    "email": "email_service",
+    "webmail": "email_service",
+    "databases": "database",
+    "database managers": "database",
+    "caching": "cache",
+    "search engines": "search",
+    "site search": "search",
+    "crm": "CRM",
+    "customer data platform": "CRM",
+    "lms": "LMS",
+    "issue trackers": "support",
+    "helpdesk": "support",
+    "message boards": "support",
+    "live chat": "chat",
+    "video players": "video",
+    "media servers": "video",
+    "authentication": "auth",
+    "iot": "iot",
+    "shipping carriers": "shipping",
+}
+
+
+def _system_type(category_name: str) -> str:
+    return SYSTEMTYPE_MAP.get(str(category_name).strip().lower(), "custom")
+
 
 def _default_source() -> str | None:
     try:
@@ -68,8 +114,10 @@ def _clean(pattern: Any) -> str:
 
 def convert(source: Dict[str, Any]) -> Dict[str, Any]:
     raw_categories = source.get("categories", {})
+    # Store each category id as the repo SystemType it maps to, so the scanner can
+    # emit a meaningful system_type (analytics, payment_gateway, …) rather than "custom".
     categories = {
-        str(cid): (cat.get("name") if isinstance(cat, dict) else str(cat))
+        str(cid): _system_type(cat.get("name") if isinstance(cat, dict) else cat)
         for cid, cat in raw_categories.items()
     }
 
@@ -83,12 +131,19 @@ def convert(source: Dict[str, Any]) -> Dict[str, Any]:
         if spec.get("cookies"):
             out["cookies"] = {k: _clean(v) for k, v in spec["cookies"].items()}
 
+        # `html` and `scripts` (inline script content) match against the page body.
         html_patterns: List[str] = []
-        for key in ("html", "scriptSrc", "scripts"):
+        for key in ("html", "scripts"):
             html_patterns.extend(_clean(p) for p in _as_list(spec.get(key)))
         html_patterns = [p for p in html_patterns if p]
         if html_patterns:
             out["html"] = html_patterns
+
+        # `scriptSrc` patterns are URL-anchored (e.g. ^https?://…) and must be matched
+        # against extracted <script src> URLs, not the whole document.
+        script_src = [p for p in (_clean(p) for p in _as_list(spec.get("scriptSrc"))) if p]
+        if script_src:
+            out["scriptSrc"] = script_src
 
         if spec.get("meta"):
             meta = {}

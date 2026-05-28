@@ -344,9 +344,12 @@ class WebsiteScanner:
         
         # Extract meta tags once
         metas = {}
+        script_srcs: List[str] = []
         if html_safe:
             meta_pattern = re.compile(r'<meta[^>]*?name=[\'\"]([^>]*?)[\'\"][^>]*?content=[\'\"]([^>]*?)[\'\"][^>]*?>', re.IGNORECASE)
             metas = dict(meta_pattern.findall(html_safe))
+            # Extract <script src> URLs for Wappalyzer scriptSrc (URL-anchored) signatures.
+            script_srcs = re.findall(r'<script[^>]+\bsrc=[\'\"]([^\'\"]+)[\'\"]', html_safe)
 
         def add_sys(app_name, app_spec, conf, ev_type, ev_val):
             # Resolve category type
@@ -393,7 +396,19 @@ class WebsiteScanner:
                         add_sys(app_name, app_spec, 0.90, 'html', pattern)
                         matched = True
                         break
-                        
+
+            # 3b. Check <script src> URLs (Wappalyzer scriptSrc — often URL-anchored)
+            if not matched and 'scriptSrc' in app_spec and script_srcs:
+                patterns = app_spec['scriptSrc']
+                if not isinstance(patterns, list):
+                    patterns = [patterns]
+                for pattern in patterns:
+                    hit = next((src for src in script_srcs if _match(pattern, src)), None)
+                    if hit:
+                        add_sys(app_name, app_spec, 0.90, 'script', hit)
+                        matched = True
+                        break
+
             # 4. Check Meta tags
             if not matched and 'meta' in app_spec and metas:
                 for m_name, m_regex in app_spec['meta'].items():

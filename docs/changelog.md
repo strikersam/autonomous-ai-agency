@@ -6,9 +6,6 @@
 ### Changed
 - **`_detect_systems_generic` tag stripping + crash-safety (`services/scanner.py`).** Pattern metadata is now stripped on Wappalyzer's `\;` delimiter (previously `.split(';')`, which mangled tagged patterns), and header/cookie/meta regexes are exception-guarded so a single malformed signature can't fail an entire scan.
 
-### Removed
-- **Unused `builtwith` dependency.** The scanner uses the bundled `technologies.json` directly; the `builtwith` pip package is no longer imported.
-
 ### Security
 - **Scanner SSRF guard restored (`services/scanner.py`).** `WebsiteScanner.scan_website` now calls `_is_safe_url()` before any DNS/HTTP work and disables redirects on both the `curl_cffi` and `httpx` clients. An authenticated user can no longer point the scanner at loopback (`127.0.0.1`), the link-local cloud-metadata endpoint (`169.254.169.254`), or private/reserved ranges — directly or via a public URL that redirects inward. `_discover_sitemap` validates the derived `robots.txt` URL the same way.
 
@@ -17,7 +14,7 @@
 - **Live scanner E2E tests excluded from the default suite.** `tests/test_scanner_e2e.py` is marked `integration` and `pytest.ini` excludes `-m "not integration"` by default, so CI no longer depends on third-party DNS/WAF/site availability. Run them explicitly with `pytest -m integration`.
 
 ### Added
-- **BuiltWith/Wappalyzer signature detection in the website scanner.** Added the `builtwith` dependency as an extra detection source. It is fed the already-fetched HTML and headers so it never performs its own (unvalidated, redirect-following) network request, and the CPU-bound match runs in a worker thread. Results merge with the existing HTML/header and DNS heuristics. Covered by `tests/test_scanner_security.py`.
+- **Website tech-stack signature detection in the scanner.** `WebsiteScanner` fingerprints fetched HTML, script URLs, headers, cookies, and meta tags against a bundled Wappalyzer-style database, merged with the existing DNS heuristics. Covered by `tests/test_scanner_security.py`.
 
 ### Fixed
 - **PR #271 CodeRabbit review — CI/CD YAML fixes.** `ci.yml` pytest command was at wrong indentation (column 0 instead of 10) making the workflow invalid. `e2e.yml` had `STORAGE_BACKEND: sqlite` outside the `env:` mapping, breaking the job entirely.

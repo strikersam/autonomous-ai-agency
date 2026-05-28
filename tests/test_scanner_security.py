@@ -104,7 +104,7 @@ async def test_detect_systems_generic_parses_prefetched_content():
     for s in systems:
         # html=0.90, header/cookie/meta=0.95, implied tech=0.85
         assert 0.8 <= s.confidence <= 1.0
-        assert s.evidence and s.evidence[0].type in ["html", "header", "cookie", "meta", "implies"]
+        assert s.evidence and s.evidence[0].type in ["html", "script", "header", "cookie", "meta", "implies"]
 
 
 @pytest.mark.asyncio
