@@ -20,9 +20,10 @@ definitions). We convert it into the compact schema that
       }
     }
 
-We intentionally drop `js` and `dom` signals: they require a live JS runtime /
-rendered DOM, which the server-side scanner does not have. `scriptSrc`/`scripts`
-patterns are folded into `html` because they match against the raw page text.
+`scriptSrc`/`scripts` URL patterns go to a separate `scriptSrc` field (matched
+against extracted <script src> URLs, not the whole document). `js`/`dom` signals
+require a live JS runtime / rendered DOM and are only used by the optional render
+pass (services/scanner_render.py); the static converter omits them.
 
 Wappalyzer appends metadata tags to patterns using a backslash-semicolon
 delimiter (e.g. `jquery.*\.js\;confidence:50\;version:\1`). We strip everything
@@ -91,6 +92,32 @@ def _system_type(category_name: str) -> str:
     return SYSTEMTYPE_MAP.get(str(category_name).strip().lower(), "custom")
 
 
+# Curated signatures preserved from the previous hand-tuned scanner DB. The Wappalyzer
+# snapshot is missing some of these (Datadog/Klarna/Klaviyo) or carries them without any
+# matchable pattern (Adyen). Each entry declares an explicit SystemType via "type".
+# Merged in only where the upstream dataset lacks a usable signature, so it never weakens
+# richer upstream entries.
+CURATED_OVERLAY: Dict[str, Dict[str, Any]] = {
+    "Adyen": {"type": "payment_gateway", "html": "checkoutshopper-[a-z]+\\.adyen\\.com"},
+    "Akamai": {"type": "custom", "headers": {"X-Akamai-Transformed": ".*", "X-Cache": ".*Akamai.*"}},
+    "Algolia": {"type": "search", "html": "algoliasearch"},
+    "Contentful": {"type": "CMS", "html": "images\\.ctfassets\\.net"},
+    "Datadog": {"type": "analytics", "html": "datadog-rum-[a-z0-9]+\\.js"},
+    "Intercom": {"type": "support", "html": "widget\\.intercom\\.io"},
+    "Klarna": {"type": "payment_gateway", "html": "js\\.klarna\\.com"},
+    "Klaviyo": {"type": "marketing_automation", "html": "static\\.klaviyo\\.com"},
+    "Mixpanel": {"type": "analytics", "html": "cdn\\.mxpnl\\.com"},
+    "Segment": {"type": "analytics", "html": "cdn\\.segment\\.com"},
+    "Zendesk": {"type": "support", "html": "static\\.zdassets\\.com"},
+}
+
+_PATTERN_KEYS = ("html", "headers", "cookies", "meta", "scriptSrc")
+
+
+def _has_pattern(spec: Dict[str, Any]) -> bool:
+    return any(spec.get(k) for k in _PATTERN_KEYS)
+
+
 def _default_source() -> str | None:
     try:
         import Wappalyzer  # type: ignore
@@ -131,17 +158,16 @@ def convert(source: Dict[str, Any]) -> Dict[str, Any]:
         if spec.get("cookies"):
             out["cookies"] = {k: _clean(v) for k, v in spec["cookies"].items()}
 
-        # `html` and `scripts` (inline script content) match against the page body.
-        html_patterns: List[str] = []
-        for key in ("html", "scripts"):
-            html_patterns.extend(_clean(p) for p in _as_list(spec.get(key)))
-        html_patterns = [p for p in html_patterns if p]
+        # `html` patterns match against the page body / inline markup.
+        html_patterns = [p for p in (_clean(p) for p in _as_list(spec.get("html"))) if p]
         if html_patterns:
             out["html"] = html_patterns
 
-        # `scriptSrc` patterns are URL-anchored (e.g. ^https?://…) and must be matched
-        # against extracted <script src> URLs, not the whole document.
-        script_src = [p for p in (_clean(p) for p in _as_list(spec.get("scriptSrc"))) if p]
+        # `scriptSrc` and `scripts` are URL patterns (often anchored, e.g. ^https?://…)
+        # and must be matched against extracted <script src> URLs, not the whole document.
+        script_src = [
+            p for p in (_clean(p) for p in (_as_list(spec.get("scriptSrc")) + _as_list(spec.get("scripts")))) if p
+        ]
         if script_src:
             out["scriptSrc"] = script_src
 
@@ -158,6 +184,11 @@ def convert(source: Dict[str, Any]) -> Dict[str, Any]:
             out["implies"] = [_clean(p) for p in _as_list(spec["implies"])]
 
         apps[name] = out
+
+    # Fill gaps with curated signatures where upstream is missing or pattern-less.
+    for name, entry in CURATED_OVERLAY.items():
+        if name not in apps or not _has_pattern(apps[name]):
+            apps[name] = dict(entry)
 
     return {"categories": categories, "apps": apps}
 

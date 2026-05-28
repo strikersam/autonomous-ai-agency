@@ -355,14 +355,18 @@ class WebsiteScanner:
             script_srcs = re.findall(r'<script[^>]+\bsrc=[\'\"]([^\'\"]+)[\'\"]', html_safe)
 
         def add_sys(app_name, app_spec, conf, ev_type, ev_val):
-            # Resolve category type
-            cat_id = str(app_spec.get("cats", [1])[0])
-            cat_name = self.tech_data.get("categories", {}).get(cat_id, "custom")
-            
             # Map common category names to SystemType literals
             valid_types = ['CMS', 'CRM', 'OMS', 'PIM', 'DAM', 'ERP', 'HRM', 'LMS', 'analytics', 'payment_gateway', 'shipping', 'tax', 'inventory', 'marketing_automation', 'email_service', 'search', 'database', 'cache', 'cdc', 'message_queue', 'api_gateway', 'auth', 'billing', 'support', 'chat', 'video', 'voice', 'iot', 'ai_ml', 'custom']
-            sys_type = cat_name if cat_name in valid_types else "custom"
-            
+            # Curated overlay entries may declare an explicit SystemType; otherwise
+            # derive it from the technology's category.
+            explicit = app_spec.get("type")
+            if explicit in valid_types:
+                sys_type = explicit
+            else:
+                cat_id = str(app_spec.get("cats", [1])[0])
+                cat_name = self.tech_data.get("categories", {}).get(cat_id, "custom")
+                sys_type = cat_name if cat_name in valid_types else "custom"
+
             if app_name not in systems_map or systems_map[app_name].confidence < conf:
                 systems_map[app_name] = DetectedSystem(
                     system_type=sys_type, name=app_name, confidence=conf,

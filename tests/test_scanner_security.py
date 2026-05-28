@@ -121,6 +121,23 @@ def test_signature_db_is_comprehensive():
 
 
 @pytest.mark.asyncio
+async def test_curated_overlay_signatures_detected():
+    """Curated signatures missing/pattern-less upstream must still be detected."""
+    scanner = WebsiteScanner()
+    html = (
+        '<html><head>'
+        '<script src="https://js.klarna.com/web-sdk/v1/klarna.js"></script>'
+        '<script src="https://cdn.example.com/datadog-rum-v4.js"></script>'
+        '<script src="https://static.klaviyo.com/onsite/js/klaviyo.js"></script>'
+        '<script src="https://checkoutshopper-live.adyen.com/checkoutshopper/sdk.js"></script>'
+        '</head><body></body></html>'
+    )
+    names = {s.name.lower() for s in scanner._detect_systems_generic(html, {}, {})}
+    for expected in ["klarna", "datadog", "klaviyo", "adyen"]:
+        assert expected in names, f"expected {expected} in {sorted(names)}"
+
+
+@pytest.mark.asyncio
 async def test_detect_systems_generic_covers_modern_stack():
     """A realistic Cloudflare-fronted page should yield a broad, correct stack."""
     scanner = WebsiteScanner()
