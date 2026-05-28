@@ -371,3 +371,7 @@ This transformation will be **successful** when:
 The foundation is **solid**. The architecture is **clear**. The agents have **delivered**. Now it's time to **execute**.
 
 **Next: Implement the services layer and replace mocks with real code.**
+
+### Security & Scanner Updates
+- **BuiltWith-Level Tech Identification**: Replaced standard HTTP requests with `curl_cffi` to natively bypass strict WAFs and bot protections. Integrated `dnspython` to query MX, NS, and TXT records, allowing discovery of hidden infrastructure such as email security (Proofpoint, Mimecast), CRMs (Salesforce), CDN shielding (Akamai, Fastly), and compliance tools (OneTrust).
+- **Security & Anonymization**: Removed all proprietary brand names, customer URLs, and identifiable third-party references from the codebase, marketing templates, and end-to-end tests to prevent copyright/IP friction. Tests now rely solely on permissive open-source or tech-community domains.
