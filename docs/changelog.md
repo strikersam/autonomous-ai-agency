@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Security
+- **Scanner SSRF guard restored (`services/scanner.py`).** `WebsiteScanner.scan_website` now calls `_is_safe_url()` before any DNS/HTTP work and disables redirects on both the `curl_cffi` and `httpx` clients. An authenticated user can no longer point the scanner at loopback (`127.0.0.1`), the link-local cloud-metadata endpoint (`169.254.169.254`), or private/reserved ranges — directly or via a public URL that redirects inward. `_discover_sitemap` validates the derived `robots.txt` URL the same way.
+
+### Fixed
+- **Scanner no longer reports spurious success on unreachable hosts (`services/scanner.py`).** When both `curl_cffi` and the `httpx` fallback raise (DNS error, timeout, TLS failure), `scan_website` now returns `status="failed"` with the error instead of falling through to a `success` result with empty evidence (callers only reject non-success scans).
+- **Live scanner E2E tests excluded from the default suite.** `tests/test_scanner_e2e.py` is marked `integration` and `pytest.ini` excludes `-m "not integration"` by default, so CI no longer depends on third-party DNS/WAF/site availability. Run them explicitly with `pytest -m integration`.
+
+### Added
+- **BuiltWith/Wappalyzer signature detection in the website scanner.** Added the `builtwith` dependency as an extra detection source. It is fed the already-fetched HTML and headers so it never performs its own (unvalidated, redirect-following) network request, and the CPU-bound match runs in a worker thread. Results merge with the existing HTML/header and DNS heuristics. Covered by `tests/test_scanner_security.py`.
+
 ### Fixed
 - **PR #271 CodeRabbit review — CI/CD YAML fixes.** `ci.yml` pytest command was at wrong indentation (column 0 instead of 10) making the workflow invalid. `e2e.yml` had `STORAGE_BACKEND: sqlite` outside the `env:` mapping, breaking the job entirely.
 - **PR #271 CodeRabbit review — shell injection in `apply_review.py`.** Replaced `subprocess.run(cmd, shell=True)` + `# nosec B602` suppression with `shlex.split(cmd)` + `shell=False` to properly eliminate the command-injection risk.
