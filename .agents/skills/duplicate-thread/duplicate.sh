@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # duplicate.sh — duplicate-thread skill
-# Usage: bash .claude/skills/duplicate-thread/duplicate.sh <source-thread-id> <reason>
+# Usage: bash .agents/skills/duplicate-thread/duplicate.sh <source-thread-id> <reason>
 # Creates a fork of the source thread under .claude/threads/
 
 set -euo pipefail
