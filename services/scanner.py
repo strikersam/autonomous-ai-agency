@@ -19,7 +19,6 @@ Usage:
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-import asyncio
 import logging
 import secrets
 import httpx
@@ -43,44 +42,30 @@ import socket
 from urllib.parse import urlparse
 
 
-def _resolve_and_validate(hostname: str) -> Optional[str]:
-    """
-    Resolve hostname to an IP, validate it is not private/loopback/link-local,
-    and return the validated IP string.  Returns None if the host is unsafe or
-    unresolvable.  Callers should connect to this IP (with a Host header) so the
-    same address that was validated is the one actually used — preventing DNS
-    rebinding attacks.
-    """
-    try:
-        if not hostname:
-            return None
-        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-            return None
-        if hostname.endswith(".local") or hostname.endswith(".internal"):
-            return None
-        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        for _family, _, _, _, sockaddr in resolved:
-            ip = ipaddress.ip_address(sockaddr[0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                return None
-            return str(ip)  # return first safe IP
-    except (socket.gaierror, ValueError):
-        return None
-    return None
-
-
 def _is_safe_url(url: str) -> bool:
     """Block SSRF: reject loopback, link-local, private, and non-HTTP schemes."""
     try:
         parsed = urlparse(url)
+        # Only allow http/https
         if parsed.scheme not in ("http", "https"):
             return False
         hostname = parsed.hostname
         if not hostname:
             return False
-        return _resolve_and_validate(hostname) is not None
+        # Block obvious internal hostnames
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            return False
+        if hostname.endswith(".local") or hostname.endswith(".internal"):
+            return False
+        # Resolve and check IP ranges
+        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for family, _, _, _, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
     except (socket.gaierror, ValueError):
         return False
+    return True
 
 
 def _hostname_is(url: str, domain: str) -> bool:
@@ -107,39 +92,32 @@ def _content_contains_domain(content: str, *domains: str) -> bool:
     return any(domain.lower() in content_lower for domain in domains)
 
 
-# Maps BuiltWith/Wappalyzer category slugs to this codebase's SystemType literal.
-# Anything not listed falls back to "custom" (a valid SystemType).
-_BUILTWITH_CATEGORY_MAP: Dict[str, str] = {
-    "cms": "CMS",
-    "ecommerce": "ecommerce",
-    "blogs": "CMS",
-    "wikis": "CMS",
-    "message-boards": "CMS",
-    "analytics": "analytics",
-    "payment-processors": "payment_gateway",
-    "databases": "database",
-    "cache-tools": "cache",
-    "search-engines": "search",
-    "marketing-automation": "marketing_automation",
-    "video-players": "video",
-}
-
-
 class WebsiteScanner:
     """
     Advanced Scanner for detecting technology stack and systems from websites.
     
     Capabilities:
+    - Data-driven signature matching (like BuiltWith/Wappalyzer) via `technologies.json`.
     - BuiltWith-level DNS analysis (MX, NS, TXT) for email, hosting, marketing, and security platforms.
     - Deep HTML, Header, and Cookie analysis for CMS, frameworks, analytics, and CDNs.
-    - Anti-bot evasion using modern headers.
+    - Anti-bot evasion using curl_cffi.
     """
 
     def __init__(self, company_id: Optional[str] = None):
+        import json
+        import os
         self.company_id = company_id
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         self.timeout = 15.0
         self.max_redirects = 5
+        
+        # Load builtwith-style JSON database
+        tech_path = os.path.join(os.path.dirname(__file__), 'technologies.json')
+        if os.path.exists(tech_path):
+            with open(tech_path, 'r') as f:
+                self.tech_data = json.load(f)
+        else:
+            self.tech_data = {"categories": {}, "apps": {}}
 
     async def scan_website(
         self,
@@ -166,13 +144,11 @@ class WebsiteScanner:
             
             _safe_url = parsed._replace(fragment="").geturl()
 
-            # SSRF guard: block loopback/link-local/private/reserved targets (and any
-            # host that resolves to one) before performing any DNS or HTTP work.
+            # SSRF guard: block internal/private targets before any network I/O
             if not _is_safe_url(_safe_url):
                 return WebsiteScanResult(
                     scan_id=scan_id, website_url=website_url, company_id=self.company_id,
-                    status="failed",
-                    errors=["Blocked: URL resolves to a private, loopback, or disallowed address"],
+                    status="failed", errors=["Blocked: target URL is not a safe public address (SSRF protection)"],
                     started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
                 )
 
@@ -188,103 +164,58 @@ class WebsiteScanner:
             status_code = 0
             fetch_error: Optional[str] = None
 
-            # Redirects are followed manually so every hop is validated by the SSRF
-            # guard before connecting — this prevents a public URL from bouncing the
-            # request to an internal/link-local address that bypasses the check above.
-            # We also pin the resolved IP for each hop to prevent DNS rebinding.
-            fetch_url = _safe_url
-            for _redirect_hop in range(self.max_redirects + 1):
-                hop_parsed = urlparse(fetch_url)
-                hop_hostname = hop_parsed.hostname or ""
-                pinned_ip = _resolve_and_validate(hop_hostname)
-                if pinned_ip is None:
-                    fetch_error = f"Blocked: {hop_hostname} resolves to a private/unsafe address"
-                    log.warning(fetch_error)
-                    break
-
-                # Build a URL that connects to the pinned IP but preserves the Host header
-                pinned_url = fetch_url.replace(hop_hostname, pinned_ip, 1)
-                host_header = hop_hostname
-
-                try:
-                    import curl_cffi.requests
-                    async with curl_cffi.requests.AsyncSession(impersonate="chrome120", timeout=self.timeout) as client:
-                        response = await client.get(pinned_url, allow_redirects=False, headers={"Host": host_header})
+            try:
+                import curl_cffi.requests
+                async with curl_cffi.requests.AsyncSession(impersonate="chrome120", timeout=self.timeout) as client:
+                    response = await client.get(_safe_url, allow_redirects=True)
+                    html = response.text
+                    headers = response.headers
+                    cookies = response.cookies
+                    status_code = response.status_code
+            except Exception as curl_e:
+                log.warning(f"curl_cffi failed, falling back to httpx: {curl_e}")
+                async with httpx.AsyncClient(
+                    timeout=self.timeout,
+                    follow_redirects=True,
+                    max_redirects=self.max_redirects,
+                    headers={
+                        "User-Agent": self.user_agent,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                    }
+                ) as client:
+                    try:
+                        response = await client.get(_safe_url)
                         html = response.text
                         headers = response.headers
                         cookies = response.cookies
                         status_code = response.status_code
-                except Exception as curl_e:
-                    log.warning(f"curl_cffi failed, falling back to httpx: {curl_e}")
-                    async with httpx.AsyncClient(
-                        timeout=self.timeout,
-                        follow_redirects=False,
-                        headers={
-                            "Host": host_header,
-                            "User-Agent": self.user_agent,
-                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                            "Accept-Language": "en-US,en;q=0.9",
-                        }
-                    ) as client:
-                        try:
-                            response = await client.get(pinned_url)
-                            html = response.text
-                            headers = response.headers
-                            cookies = response.cookies
-                            status_code = response.status_code
-                        except Exception as e:
-                            fetch_error = str(e)
-                            log.error(f"HTTPX failed: {e}")
-                            break
+                    except Exception as e:
+                        log.error(f"HTTPX failed: {e}")
+                        fetch_error = str(e)
 
-                # Follow safe redirects manually
-                if status_code in (301, 302, 303, 307, 308):
-                    location = dict(headers).get("location") or dict(headers).get("Location")
-                    if not location:
-                        break
-                    # Resolve relative redirects
-                    if location.startswith("/"):
-                        p = urlparse(fetch_url)
-                        location = f"{p.scheme}://{p.netloc}{location}"
-                    # SSRF-validate the redirect target before following
-                    if not _is_safe_url(location):
-                        log.warning(f"Blocked redirect to unsafe URL: {location}")
-                        break
-                    fetch_url = location
-                    html = ""
-                    headers = {}
-                    cookies = {}
-                    status_code = 0
-                else:
-                    break
-
-            # If both the primary (curl_cffi) and fallback (httpx) clients failed to
-            # reach the host, surface the failure instead of returning a spurious
-            # "success" with empty evidence — callers only reject non-success scans.
+            # If both fetch clients failed, surface the error rather than returning empty success
             if fetch_error is not None and not html:
                 return WebsiteScanResult(
                     scan_id=scan_id, website_url=website_url, company_id=self.company_id,
-                    status="failed",
-                    errors=[f"Failed to fetch website: {fetch_error}"],
+                    status="failed", errors=[f"All fetch clients failed: {fetch_error}"],
                     started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
                 )
 
-            # Even if we get a 403, we still analyze headers and DNS!
             soup = BeautifulSoup(html, 'html.parser') if html else BeautifulSoup("", 'html.parser')
             
-            # Combine detected systems from HTML/header heuristics, DNS records, and
-            # the bundled BuiltWith/Wappalyzer signature database. For a given system
-            # name the highest-confidence detection wins; ties keep the earlier source
-            # (HTML > DNS > BuiltWith).
-            html_systems = await self._detect_systems(soup, html, headers, cookies, website_url)
-            builtwith_systems = await self._detect_with_builtwith(html, headers, _safe_url)
-
-            all_systems_map: Dict[str, DetectedSystem] = {}
-            for sys in [*html_systems, *dns_systems, *builtwith_systems]:
-                existing = all_systems_map.get(sys.name)
-                if existing is None or sys.confidence > existing.confidence:
-                    all_systems_map[sys.name] = sys
-
+            # Use dynamic BuiltWith-style identification logic
+            html_systems = self._detect_systems_generic(html, headers, cookies)
+            
+            # Merge DNS systems and HTML systems, keeping highest confidence
+            all_systems_map = {sys.name: sys for sys in html_systems}
+            for dns_sys in dns_systems:
+                if dns_sys.name in all_systems_map:
+                    if dns_sys.confidence > all_systems_map[dns_sys.name].confidence:
+                        all_systems_map[dns_sys.name] = dns_sys
+                else:
+                    all_systems_map[dns_sys.name] = dns_sys
+                    
             detected_systems = list(all_systems_map.values())
             
             stack_inference = await self._infer_stack(soup, html, headers, website_url)
@@ -384,127 +315,99 @@ class WebsiteScanner:
             
         return systems
 
-    async def _detect_systems(self, soup: BeautifulSoup, html: str, headers: Any, cookies: Any, url: str) -> List[DetectedSystem]:
-        import json
+    def _detect_systems_generic(self, html: str, headers: Any, cookies: Any) -> List[DetectedSystem]:
+        """
+        Replicates builtwith.builtwith() data-driven logic natively using the
+        technologies.json database to avoid hanging on large minified JS files.
+        """
+        import re
+        
         systems_map = {}
-        html_lower = html.lower()
         headers_dict = {str(k).lower(): str(v).lower() for k, v in dict(headers).items()}
         cookies_dict = {str(k).lower(): str(v).lower() for k, v in dict(cookies).items()}
         
-        def add_system(sys_id, sys_type, name, conf, ev_type, ev_val, ev_loc):
-            if sys_id not in systems_map or systems_map[sys_id].confidence < conf:
-                systems_map[sys_id] = DetectedSystem(
-                    system_type=sys_type, name=name, confidence=conf,
-                    evidence=[Evidence(type=ev_type, value=ev_val, location=ev_loc, confidence=conf)]
+        # Limit html size to prevent catastrophic backtracking on minified bundles
+        html_safe = html[:100000].lower() if html else ""
+        
+        # Extract meta tags once
+        metas = {}
+        if html_safe:
+            meta_pattern = re.compile(r'<meta[^>]*?name=[\'\"]([^>]*?)[\'\"][^>]*?content=[\'\"]([^>]*?)[\'\"][^>]*?>', re.IGNORECASE)
+            metas = dict(meta_pattern.findall(html_safe))
+
+        def add_sys(app_name, app_spec, conf, ev_type, ev_val):
+            # Resolve category type
+            cat_id = str(app_spec.get("cats", [1])[0])
+            cat_name = self.tech_data.get("categories", {}).get(cat_id, "custom")
+            
+            # Map common category names to SystemType literals
+            valid_types = ['CMS', 'CRM', 'OMS', 'PIM', 'DAM', 'ERP', 'HRM', 'LMS', 'analytics', 'payment_gateway', 'shipping', 'tax', 'inventory', 'marketing_automation', 'email_service', 'search', 'database', 'cache', 'cdc', 'message_queue', 'api_gateway', 'auth', 'billing', 'support', 'chat', 'video', 'voice', 'iot', 'ai_ml', 'custom']
+            sys_type = cat_name if cat_name in valid_types else "custom"
+            
+            if app_name not in systems_map or systems_map[app_name].confidence < conf:
+                systems_map[app_name] = DetectedSystem(
+                    system_type=sys_type, name=app_name, confidence=conf,
+                    evidence=[Evidence(type=ev_type, value=ev_val, location="HTML/HTTP", confidence=conf)]
                 )
 
-        # SERVERS & INFRASTRUCTURE
-        server_header = headers_dict.get('server', '')
-        if 'nginx' in server_header: add_system('nginx', 'custom', 'Nginx', 0.99, 'header', server_header, 'Server')
-        if 'apache' in server_header: add_system('apache', 'custom', 'Apache HTTP Server', 0.99, 'header', server_header, 'Server')
-        if 'cloudflare' in server_header or '__cf_bm' in cookies_dict or 'cf-ray' in headers_dict:
-            add_system('cloudflare', 'custom', 'Cloudflare', 0.99, 'header/cookie', 'cloudflare evidence', 'HTTP')
-        if 'akamai' in headers_dict.get('x-cache', '') or 'akamai' in server_header or 'akamai' in headers_dict:
-            add_system('akamai', 'custom', 'Akamai CDN', 0.95, 'header', 'akamai evidence', 'HTTP')
-        if 'varnish' in headers_dict.get('x-varnish', '') or 'varnish' in headers_dict.get('via', ''):
-            add_system('varnish', 'custom', 'Varnish Cache', 0.95, 'header', 'varnish evidence', 'HTTP')
-        if 'x-amz-cf-id' in headers_dict: add_system('aws_cloudfront', 'custom', 'AWS CloudFront', 0.95, 'header', 'x-amz-*', 'HTTP')
-        if 'fly.io' in server_header: add_system('flyio', 'custom', 'Fly.io', 0.99, 'header', server_header, 'Server')
-        if 'vercel' in server_header or 'x-vercel-id' in headers_dict: add_system('vercel', 'custom', 'Vercel', 0.99, 'header', 'vercel headers', 'HTTP')
-        if 'netlify' in server_header or 'x-nf-request-id' in headers_dict: add_system('netlify', 'custom', 'Netlify', 0.99, 'header', 'netlify headers', 'HTTP')
+        apps = self.tech_data.get("apps", {})
+        for app_name, app_spec in apps.items():
+            matched = False
+            
+            # 1. Check Headers
+            if 'headers' in app_spec:
+                for h_name, h_regex in app_spec['headers'].items():
+                    h_val = headers_dict.get(h_name.lower())
+                    if h_val and re.search(h_regex.split(';')[0], h_val, re.IGNORECASE):
+                        add_sys(app_name, app_spec, 0.95, 'header', h_val)
+                        matched = True
+            
+            # 2. Check Cookies
+            if not matched and 'cookies' in app_spec:
+                for c_name, c_regex in app_spec['cookies'].items():
+                    c_val = cookies_dict.get(c_name.lower())
+                    if c_val and re.search(c_regex.split(';')[0], c_val, re.IGNORECASE):
+                        add_sys(app_name, app_spec, 0.95, 'cookie', c_name)
+                        matched = True
+                        
+            # 3. Check HTML (includes scripts)
+            if not matched and 'html' in app_spec and html_safe:
+                patterns = app_spec['html']
+                if not isinstance(patterns, list):
+                    patterns = [patterns]
+                for pattern in patterns:
+                    try:
+                        if re.search(pattern.split(';')[0], html_safe, re.IGNORECASE):
+                            add_sys(app_name, app_spec, 0.90, 'html', pattern)
+                            matched = True
+                            break
+                    except re.error:
+                        pass
+                        
+            # 4. Check Meta tags
+            if not matched and 'meta' in app_spec and metas:
+                for m_name, m_regex in app_spec['meta'].items():
+                    m_val = metas.get(m_name)
+                    if m_val and re.search(m_regex.split(';')[0], m_val, re.IGNORECASE):
+                        add_sys(app_name, app_spec, 0.95, 'meta', m_name)
+                        matched = True
+                        break
 
-        # CMS & ECOMMERCE
-        if 'shopify' in html_lower or 'cdn.shopify.com' in html_lower or '_shopify_s' in cookies_dict or 'x-shopify-stage' in headers_dict:
-            add_system('shopify', 'CMS', 'Shopify', 0.99, 'multiple', 'shopify traces', 'HTML/HTTP')
-        if 'wp-content' in html_lower or 'wordpress' in html_lower or 'wp-settings' in cookies_dict or 'x-pingback' in headers_dict:
-            add_system('wordpress', 'CMS', 'WordPress', 0.99, 'multiple', 'wp traces', 'HTML/HTTP')
-        if 'demandware' in html_lower or 'dwvar_' in html_lower or 'dwsid' in cookies_dict or 'x-dw-request-info' in headers_dict:
-            add_system('demandware', 'OMS', 'Salesforce Commerce Cloud (Demandware)', 0.99, 'multiple', 'demandware traces', 'HTML/HTTP')
-        if 'magento' in html_lower or 'mage-cache-sessid' in cookies_dict or 'x-magento-cache-control' in headers_dict:
-            add_system('magento', 'CMS', 'Magento / Adobe Commerce', 0.99, 'multiple', 'magento traces', 'HTML/HTTP')
-        if 'bigcommerce' in html_lower or 'cdn11.bigcommerce.com' in html_lower:
-            add_system('bigcommerce', 'CMS', 'BigCommerce', 0.95, 'html', 'bigcommerce traces', 'HTML')
-        if 'contentful' in html_lower or 'images.ctfassets.net' in html_lower:
-            add_system('contentful', 'CMS', 'Contentful CMS', 0.95, 'html', 'contentful domain', 'HTML')
-
-        # FRAMEWORKS & LIBRARIES
-        if 'react' in html_lower or 'data-reactroot' in html_lower or '_react' in html_lower: add_system('react', 'custom', 'React', 0.95, 'html', 'react fiber/root', 'HTML')
-        if '__next' in html_lower or '/_next/' in html_lower or 'x-nextjs-page' in headers_dict:
-            add_system('nextjs', 'custom', 'Next.js', 0.98, 'html/header', 'next.js signatures', 'HTML/HTTP')
-            add_system('react', 'custom', 'React', 0.98, 'inferred', 'via next.js', 'Inferred')
-        if 'nuxt' in html_lower or '/_nuxt/' in html_lower or 'window.__nuxt__' in html_lower:
-            add_system('nuxtjs', 'custom', 'Nuxt.js', 0.98, 'html', 'nuxt object', 'HTML')
-            add_system('vue', 'custom', 'Vue.js', 0.98, 'inferred', 'via nuxt', 'Inferred')
-        if 'data-v-' in html_lower or 'vue.js' in html_lower or 'window.__vue__' in html_lower: add_system('vue', 'custom', 'Vue.js', 0.95, 'html', 'vue attributes', 'HTML')
-        if 'ng-app' in html_lower or 'ng-version' in html_lower or 'angular' in html_lower: add_system('angular', 'custom', 'Angular', 0.95, 'html', 'angular attributes', 'HTML')
-        if 'tailwindcss' in html_lower or 'tailwind.config' in html_lower: add_system('tailwind', 'custom', 'Tailwind CSS', 0.95, 'html', 'tailwind strings', 'HTML')
-        if 'bootstrap' in html_lower: add_system('bootstrap', 'custom', 'Bootstrap CSS', 0.90, 'html', 'bootstrap class/script', 'HTML')
-        if 'jquery' in html_lower: add_system('jquery', 'custom', 'jQuery', 0.95, 'html', 'jquery script', 'HTML')
+        # Process implies logic recursively
+        new_additions = {}
+        for app_name, sys in systems_map.items():
+            implies = apps.get(app_name, {}).get("implies", [])
+            if not isinstance(implies, list):
+                implies = [implies]
+            for implied_app in implies:
+                if implied_app not in systems_map and implied_app in apps:
+                    new_additions[implied_app] = DetectedSystem(
+                        system_type="custom", name=implied_app, confidence=0.85,
+                        evidence=[Evidence(type="implies", value=app_name, location="Dependency", confidence=0.85)]
+                    )
         
-        # ANALYTICS & TAG MANAGERS
-        if 'googletagmanager.com' in html_lower or 'gtm.js' in html_lower: add_system('gtm', 'analytics', 'Google Tag Manager', 0.99, 'html', 'gtm script', 'HTML')
-        if 'google-analytics.com' in html_lower or 'gtag(' in html_lower or 'ga(' in html_lower: add_system('google_analytics', 'analytics', 'Google Analytics', 0.99, 'html', 'ga script', 'HTML')
-        if 'adobe' in html_lower or 'visitorapi.js' in html_lower or 'omtrdc.net' in html_lower: add_system('adobe_analytics', 'analytics', 'Adobe Analytics', 0.95, 'html', 'adobe omniture/dtm', 'HTML')
-        if 'cdn.segment.com' in html_lower or 'analytics.js' in html_lower: add_system('segment', 'analytics', 'Segment', 0.98, 'html', 'segment cdn', 'HTML')
-        if 'datadoghq' in html_lower or 'datadog-rum' in html_lower: add_system('datadog', 'analytics', 'Datadog RUM', 0.98, 'html', 'datadog rum', 'HTML')
-        if 'newrelic.com' in html_lower or 'nr-data.net' in html_lower: add_system('newrelic', 'analytics', 'New Relic', 0.98, 'html', 'newrelic browser agent', 'HTML')
-
-        # PAYMENTS & CHECKOUT
-        if 'js.stripe.com' in html_lower or 'stripe' in html_lower: add_system('stripe', 'payment_gateway', 'Stripe', 0.98, 'html', 'stripe js', 'HTML')
-        if 'paypalobjects.com' in html_lower or 'paypal.com/sdk' in html_lower: add_system('paypal', 'payment_gateway', 'PayPal', 0.98, 'html', 'paypal js', 'HTML')
-        if 'adyen.com' in html_lower: add_system('adyen', 'payment_gateway', 'Adyen', 0.98, 'html', 'adyen js', 'HTML')
-        if 'js.klarna.com' in html_lower: add_system('klarna', 'billing', 'Klarna', 0.98, 'html', 'klarna js', 'HTML')
-        if 'afterpay.com' in html_lower or 'clearpay.com' in html_lower: add_system('afterpay', 'billing', 'Afterpay / Clearpay', 0.98, 'html', 'afterpay js', 'HTML')
-        
-        # SEARCH & VIDEO & CONSENT
-        if 'algolia' in html_lower or 'algoliasearch' in html_lower: add_system('algolia', 'search', 'Algolia', 0.98, 'html', 'algolia js', 'HTML')
-        if 'onetrust.com' in html_lower or 'optanon.com' in html_lower: add_system('onetrust', 'custom', 'OneTrust', 0.98, 'html', 'onetrust js', 'HTML')
-
+        systems_map.update(new_additions)
         return list(systems_map.values())
-
-    async def _detect_with_builtwith(self, html: str, headers: Any, url: str) -> List[DetectedSystem]:
-        """Run the bundled BuiltWith/Wappalyzer signature database over already-fetched
-        content.
-
-        Both ``html`` and ``headers`` are passed so the library never issues its own
-        (unvalidated, redirect-following) network request, which would otherwise bypass
-        the SSRF protections applied to the primary fetch path. The match is pure CPU
-        work over a large dataset, so it runs in a worker thread.
-        """
-        if not html:
-            return []
-        try:
-            import builtwith as builtwith_lib
-        except Exception as e:  # pragma: no cover - import guard
-            log.warning(f"builtwith library unavailable: {e}")
-            return []
-
-        headers_dict = {str(k): str(v) for k, v in dict(headers).items()} if headers else {}
-
-        def _run() -> Dict[str, List[str]]:
-            # Passing both html and headers prevents builtwith from fetching the URL.
-            return builtwith_lib.parse(url, headers=headers_dict, html=html) or {}
-
-        try:
-            results = await asyncio.to_thread(_run)
-        except Exception as e:
-            log.warning(f"builtwith analysis failed: {e}")
-            return []
-
-        systems: List[DetectedSystem] = []
-        for category, app_names in results.items():
-            sys_type = _BUILTWITH_CATEGORY_MAP.get(category, "custom")
-            for app_name in app_names:
-                if not app_name:
-                    continue
-                systems.append(DetectedSystem(
-                    system_type=sys_type, name=str(app_name), confidence=0.8,
-                    evidence=[Evidence(
-                        type="builtwith", value=f"{category}: {app_name}",
-                        location="BuiltWith signature DB", confidence=0.8,
-                    )],
-                ))
-        return systems
 
     async def _infer_stack(self, soup: BeautifulSoup, html: str, headers: Any, url: str) -> StackInference:
         html_lower = html.lower() if html else ""
@@ -566,14 +469,8 @@ class WebsiteScanner:
         # Using a fast httpx fallback just for quick sitemaps
         sitemap_urls = []
         try:
-            # Always fetch robots.txt from the site origin (scheme + netloc), not from
-            # the requested page path — otherwise a non-root URL like
-            # https://example.com/blog/post would probe /blog/post/robots.txt.
-            _parsed_base = urlparse(base_url)
-            robots_url = f"{_parsed_base.scheme}://{_parsed_base.netloc}/robots.txt"
-            if not _is_safe_url(robots_url):
-                return []
-            async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+            async with httpx.AsyncClient(timeout=5) as client:
+                robots_url = f"{base_url.rstrip('/')}/robots.txt"
                 response = await client.get(robots_url)
                 if response.status_code == 200:
                     for line in response.text.split('\n'):

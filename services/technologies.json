@@ -1,0 +1,137 @@
+{
+  "categories": {
+    "1": "CMS",
+    "2": "analytics",
+    "3": "payment_gateway",
+    "4": "infrastructure",
+    "5": "framework",
+    "6": "marketing_automation",
+    "7": "ecommerce",
+    "8": "support",
+    "9": "email_service",
+    "10": "search",
+    "11": "privacy_compliance"
+  },
+  "apps": {
+    "Shopify": {
+      "cats": [1, 7],
+      "headers": { "X-ShopId": ".*", "X-Shopify-Stage": ".*" },
+      "cookies": { "_shopify_s": ".*" },
+      "html": "cdn\\.shopify\\.com",
+      "implies": ["Ruby"]
+    },
+    "WordPress": {
+      "cats": [1],
+      "headers": { "X-Pingback": "xmlrpc\\.php" },
+      "html": "wp-content/themes",
+      "meta": { "generator": "WordPress" },
+      "implies": ["PHP", "MySQL"]
+    },
+    "Salesforce Commerce Cloud": {
+      "cats": [7],
+      "headers": { "x-dw-request-info": ".*" },
+      "cookies": { "dwsid": ".*", "dwsecuretoken": ".*" },
+      "html": "dwvar_"
+    },
+    "Contentful": {
+      "cats": [1],
+      "html": "images\\.ctfassets\\.net"
+    },
+    "React": {
+      "cats": [5],
+      "html": "(data-reactroot|_reactRoot|react[\\.-]production\\.min\\.js)"
+    },
+    "Next.js": {
+      "cats": [5],
+      "headers": { "X-Nextjs-Page": ".*" },
+      "html": "/_next/static",
+      "implies": ["React", "Node.js"]
+    },
+    "Nuxt.js": {
+      "cats": [5],
+      "html": "/_nuxt/",
+      "implies": ["Vue.js", "Node.js"]
+    },
+    "Vue.js": {
+      "cats": [5],
+      "html": "data-v-[a-z0-9]+"
+    },
+    "Angular": {
+      "cats": [5],
+      "html": "ng-version=\"[^\"]+\""
+    },
+    "Google Analytics": {
+      "cats": [2],
+      "html": "(google-analytics\\.com/analytics\\.js|gtag/js)"
+    },
+    "Google Tag Manager": {
+      "cats": [2],
+      "html": "googletagmanager\\.com/gtm\\.js"
+    },
+    "Datadog": {
+      "cats": [2],
+      "html": "datadog-rum-[a-z0-9]+\\.js"
+    },
+    "Stripe": {
+      "cats": [3],
+      "html": "js\\.stripe\\.com"
+    },
+    "PayPal": {
+      "cats": [3],
+      "html": "paypalobjects\\.com"
+    },
+    "Klarna": {
+      "cats": [3],
+      "html": "js\\.klarna\\.com"
+    },
+    "Adyen": {
+      "cats": [3],
+      "html": "checkoutshopper-[a-z]+\\.adyen\\.com"
+    },
+    "Cloudflare": {
+      "cats": [4],
+      "headers": { "Server": "cloudflare", "CF-RAY": ".*" },
+      "cookies": { "__cf_bm": ".*", "__cfduid": ".*" }
+    },
+    "Akamai": {
+      "cats": [4],
+      "headers": { "X-Akamai-Transformed": ".*", "X-Cache": ".*Akamai.*" }
+    },
+    "Vercel": {
+      "cats": [4],
+      "headers": { "x-vercel-id": ".*" }
+    },
+    "Netlify": {
+      "cats": [4],
+      "headers": { "x-nf-request-id": ".*" }
+    },
+    "OneTrust": {
+      "cats": [11],
+      "html": "cdn\\.cookielaw\\.org|onetrust\\.com"
+    },
+    "Algolia": {
+      "cats": [10],
+      "html": "algoliasearch"
+    },
+    "Intercom": {
+      "cats": [8],
+      "html": "widget\\.intercom\\.io"
+    },
+    "Zendesk": {
+      "cats": [8],
+      "html": "static\\.zdassets\\.com"
+    },
+    "Klaviyo": {
+      "cats": [6],
+      "html": "static\\.klaviyo\\.com"
+    },
+    "Mixpanel": {
+      "cats": [2],
+      "html": "cdn\\.mxpnl\\.com"
+    },
+    "Segment": {
+      "cats": [2],
+      "html": "cdn\\.segment\\.com"
+    }
+  }
+}
