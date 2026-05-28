@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Added
+- **Website scanner signature database expanded from 27 to ~1,270 technologies.** `services/technologies.json` is now generated from the Wappalyzer fingerprint dataset (see `scripts/build_tech_db.py`) instead of a hand-rolled 27-app stub, so the scanner identifies far more of a site's real stack — jQuery, HubSpot, Hotjar, WooCommerce, Fastly, CloudFront, webpack, modern analytics, and hundreds more. The matching engine is unchanged; this is a data fix for poor detection coverage.
+
+### Changed
+- **`_detect_systems_generic` tag stripping + crash-safety (`services/scanner.py`).** Pattern metadata is now stripped on Wappalyzer's `\;` delimiter (previously `.split(';')`, which mangled tagged patterns), and header/cookie/meta regexes are exception-guarded so a single malformed signature can't fail an entire scan. The ~1,270-signature pass now runs in a worker thread (`asyncio.to_thread`) so it can't block the event loop on large pages.
+- **Curated-signature overlay preserved (`scripts/build_tech_db.py`).** The Wappalyzer snapshot is missing Datadog/Klarna/Klaviyo and ships Adyen without a usable pattern; a small curated overlay re-adds these (with explicit `SystemType`) wherever upstream lacks a signature, so the swap doesn't regress detections the scanner already supported. `scriptSrc`/`scripts` URL patterns are matched against extracted `<script src>` URLs instead of the whole document.
+
 ### Security
 - **Scanner SSRF guard restored (`services/scanner.py`).** `WebsiteScanner.scan_website` now calls `_is_safe_url()` before any DNS/HTTP work and disables redirects on both the `curl_cffi` and `httpx` clients. An authenticated user can no longer point the scanner at loopback (`127.0.0.1`), the link-local cloud-metadata endpoint (`169.254.169.254`), or private/reserved ranges — directly or via a public URL that redirects inward. `_discover_sitemap` validates the derived `robots.txt` URL the same way.
 
@@ -8,7 +15,7 @@
 - **Live scanner E2E tests excluded from the default suite.** `tests/test_scanner_e2e.py` is marked `integration` and `pytest.ini` excludes `-m "not integration"` by default, so CI no longer depends on third-party DNS/WAF/site availability. Run them explicitly with `pytest -m integration`.
 
 ### Added
-- **BuiltWith/Wappalyzer signature detection in the website scanner.** Added the `builtwith` dependency as an extra detection source. It is fed the already-fetched HTML and headers so it never performs its own (unvalidated, redirect-following) network request, and the CPU-bound match runs in a worker thread. Results merge with the existing HTML/header and DNS heuristics. Covered by `tests/test_scanner_security.py`.
+- **Website tech-stack signature detection in the scanner.** `WebsiteScanner` fingerprints fetched HTML, script URLs, headers, cookies, and meta tags against a bundled Wappalyzer-style database, merged with the existing DNS heuristics. Covered by `tests/test_scanner_security.py`.
 
 ### Fixed
 - **PR #271 CodeRabbit review — CI/CD YAML fixes.** `ci.yml` pytest command was at wrong indentation (column 0 instead of 10) making the workflow invalid. `e2e.yml` had `STORAGE_BACKEND: sqlite` outside the `env:` mapping, breaking the job entirely.

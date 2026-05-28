@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import asyncio
 import logging
 import secrets
 import httpx
@@ -204,8 +205,10 @@ class WebsiteScanner:
 
             soup = BeautifulSoup(html, 'html.parser') if html else BeautifulSoup("", 'html.parser')
             
-            # Use dynamic BuiltWith-style identification logic
-            html_systems = self._detect_systems_generic(html, headers, cookies)
+            # Use dynamic BuiltWith-style identification logic. The ~1,270-signature
+            # regex pass is CPU-bound; run it in a worker thread so a large/minified
+            # page can't block the event loop and stall concurrent requests.
+            html_systems = await asyncio.to_thread(self._detect_systems_generic, html, headers, cookies)
             
             # Merge DNS systems and HTML systems, keeping highest confidence
             all_systems_map = {sys.name: sys for sys in html_systems}
@@ -321,7 +324,20 @@ class WebsiteScanner:
         technologies.json database to avoid hanging on large minified JS files.
         """
         import re
-        
+
+        def _match(pattern: Any, value: str) -> bool:
+            # Wappalyzer appends "\;tag:..." metadata to patterns; strip it, and
+            # tolerate invalid regexes in the dataset rather than failing the scan.
+            if not value:
+                return False
+            bare = str(pattern).split("\\;")[0]
+            if not bare:
+                return True  # presence-only signal (e.g. header simply exists)
+            try:
+                return re.search(bare, value, re.IGNORECASE) is not None
+            except re.error:
+                return False
+
         systems_map = {}
         headers_dict = {str(k).lower(): str(v).lower() for k, v in dict(headers).items()}
         cookies_dict = {str(k).lower(): str(v).lower() for k, v in dict(cookies).items()}
@@ -331,19 +347,26 @@ class WebsiteScanner:
         
         # Extract meta tags once
         metas = {}
+        script_srcs: List[str] = []
         if html_safe:
             meta_pattern = re.compile(r'<meta[^>]*?name=[\'\"]([^>]*?)[\'\"][^>]*?content=[\'\"]([^>]*?)[\'\"][^>]*?>', re.IGNORECASE)
             metas = dict(meta_pattern.findall(html_safe))
+            # Extract <script src> URLs for Wappalyzer scriptSrc (URL-anchored) signatures.
+            script_srcs = re.findall(r'<script[^>]+\bsrc=[\'\"]([^\'\"]+)[\'\"]', html_safe)
 
         def add_sys(app_name, app_spec, conf, ev_type, ev_val):
-            # Resolve category type
-            cat_id = str(app_spec.get("cats", [1])[0])
-            cat_name = self.tech_data.get("categories", {}).get(cat_id, "custom")
-            
             # Map common category names to SystemType literals
             valid_types = ['CMS', 'CRM', 'OMS', 'PIM', 'DAM', 'ERP', 'HRM', 'LMS', 'analytics', 'payment_gateway', 'shipping', 'tax', 'inventory', 'marketing_automation', 'email_service', 'search', 'database', 'cache', 'cdc', 'message_queue', 'api_gateway', 'auth', 'billing', 'support', 'chat', 'video', 'voice', 'iot', 'ai_ml', 'custom']
-            sys_type = cat_name if cat_name in valid_types else "custom"
-            
+            # Curated overlay entries may declare an explicit SystemType; otherwise
+            # derive it from the technology's category.
+            explicit = app_spec.get("type")
+            if explicit in valid_types:
+                sys_type = explicit
+            else:
+                cat_id = str(app_spec.get("cats", [1])[0])
+                cat_name = self.tech_data.get("categories", {}).get(cat_id, "custom")
+                sys_type = cat_name if cat_name in valid_types else "custom"
+
             if app_name not in systems_map or systems_map[app_name].confidence < conf:
                 systems_map[app_name] = DetectedSystem(
                     system_type=sys_type, name=app_name, confidence=conf,
@@ -358,15 +381,15 @@ class WebsiteScanner:
             if 'headers' in app_spec:
                 for h_name, h_regex in app_spec['headers'].items():
                     h_val = headers_dict.get(h_name.lower())
-                    if h_val and re.search(h_regex.split(';')[0], h_val, re.IGNORECASE):
-                        add_sys(app_name, app_spec, 0.95, 'header', h_val)
+                    if _match(h_regex, h_val):
+                        add_sys(app_name, app_spec, 0.95, 'header', h_val or h_name)
                         matched = True
             
             # 2. Check Cookies
             if not matched and 'cookies' in app_spec:
                 for c_name, c_regex in app_spec['cookies'].items():
                     c_val = cookies_dict.get(c_name.lower())
-                    if c_val and re.search(c_regex.split(';')[0], c_val, re.IGNORECASE):
+                    if c_name.lower() in cookies_dict and _match(c_regex or ".*", c_val or c_name):
                         add_sys(app_name, app_spec, 0.95, 'cookie', c_name)
                         matched = True
                         
@@ -376,19 +399,28 @@ class WebsiteScanner:
                 if not isinstance(patterns, list):
                     patterns = [patterns]
                 for pattern in patterns:
-                    try:
-                        if re.search(pattern.split(';')[0], html_safe, re.IGNORECASE):
-                            add_sys(app_name, app_spec, 0.90, 'html', pattern)
-                            matched = True
-                            break
-                    except re.error:
-                        pass
-                        
+                    if _match(pattern, html_safe):
+                        add_sys(app_name, app_spec, 0.90, 'html', pattern)
+                        matched = True
+                        break
+
+            # 3b. Check <script src> URLs (Wappalyzer scriptSrc — often URL-anchored)
+            if not matched and 'scriptSrc' in app_spec and script_srcs:
+                patterns = app_spec['scriptSrc']
+                if not isinstance(patterns, list):
+                    patterns = [patterns]
+                for pattern in patterns:
+                    hit = next((src for src in script_srcs if _match(pattern, src)), None)
+                    if hit:
+                        add_sys(app_name, app_spec, 0.90, 'script', hit)
+                        matched = True
+                        break
+
             # 4. Check Meta tags
             if not matched and 'meta' in app_spec and metas:
                 for m_name, m_regex in app_spec['meta'].items():
                     m_val = metas.get(m_name)
-                    if m_val and re.search(m_regex.split(';')[0], m_val, re.IGNORECASE):
+                    if _match(m_regex, m_val):
                         add_sys(app_name, app_spec, 0.95, 'meta', m_name)
                         matched = True
                         break
