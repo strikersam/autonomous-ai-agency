@@ -1523,7 +1523,7 @@ class RepoScanRequest(BaseModel):
 
 class OnboardingProgress(BaseModel):
     """Tracks the onboarding progress for a company."""
-    model_config = {"frozen": True, "extra": "forbid"}
+    model_config = {"frozen": False, "extra": "forbid"}
     
     company_id: str = Field(
         ...,

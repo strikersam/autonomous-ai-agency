@@ -373,7 +373,6 @@ class CompanyGraphService:
         
         website = Website(
             url=url,
-            company_id=company_id,
             is_primary=is_primary,
             **kwargs
         )
@@ -390,6 +389,50 @@ class CompanyGraphService:
         
         log.info(f"Added website: {created.id} ({created.url}) to company {company_id}")
         return created
+
+    async def add_workflow(
+        self,
+        company_id: str,
+        name: str,
+        phases: List[str],
+        description: str = "",
+        triggers: List[str] = [],
+        **kwargs
+    ) -> Workflow:
+        """
+        Add a workflow to a company's graph.
+        
+        Args:
+            company_id: Company ID
+            name: Name of the workflow
+            phases: List of workflow phases
+            description: Description of the workflow
+            triggers: List of workflow triggers
+            **kwargs: Additional fields
+            
+        Returns:
+            Created Workflow instance
+        """
+        workflow = Workflow(
+            company_id=company_id,
+            name=name,
+            description=description,
+            phases=phases,
+            triggers=triggers,
+            **kwargs
+        )
+        
+        # If MongoDB is active, persist within the company_graphs collection
+        if self.store.backend_type == "mongodb":
+            graph = await self.store.get_company_graph(company_id)
+            if graph:
+                workflows = list(graph.workflows)
+                workflows.append(workflow)
+                graph = graph.model_copy(update={"workflows": workflows})
+                await self.store.update_company_graph(graph)
+                
+        log.info(f"Added workflow: {workflow.name} to company {company_id}")
+        return workflow
 
     async def get_website(self, website_id: str) -> Website | None:
         """Get a website by ID."""
