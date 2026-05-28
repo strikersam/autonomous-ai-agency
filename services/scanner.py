@@ -630,6 +630,78 @@ class WebsiteScanner:
                 evidence=[Evidence(type="link", value="tailwindcss stylesheet", location="html", confidence=0.95)]
             )
 
+        # SpeedCurve Frontend Monitoring
+        if 'speedcurve' in soup_str or 'lux.js' in soup_str:
+            systems_map["speedcurve"] = DetectedSystem(
+                system_type="analytics",
+                name="SpeedCurve Performance",
+                confidence=0.96,
+                evidence=[Evidence(type="script", value="lux.js / speedcurve monitoring", location="html", confidence=0.96)]
+            )
+
+        # Dynatrace Application Performance Monitoring (APM)
+        if 'dynatrace' in soup_str or 'ruxitagent' in soup_str:
+            systems_map["dynatrace"] = DetectedSystem(
+                system_type="custom",
+                name="Dynatrace Software Intelligence",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="ruxitagent js injection", location="html", confidence=0.95)]
+            )
+
+        # Datadog Real User Monitoring (RUM)
+        if 'datadoghq' in soup_str or 'datadog-rum' in soup_str:
+            systems_map["datadog"] = DetectedSystem(
+                system_type="analytics",
+                name="Datadog RUM",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="datadog-rum sdk", location="html", confidence=0.95)]
+            )
+
+        # OneTrust Consent / Privacy Management
+        if 'onetrust.com' in soup_str or 'optanon.com' in soup_str or 'otsdkhotlink' in soup_str:
+            systems_map["onetrust"] = DetectedSystem(
+                system_type="custom",
+                name="OneTrust Privacy Management",
+                confidence=0.98,
+                evidence=[Evidence(type="script", value="otSDKHotlink consent banner", location="html", confidence=0.98)]
+            )
+
+        # Algolia Search Engine
+        if 'algolia' in soup_str or 'algoliasearch' in soup_str:
+            systems_map["algolia"] = DetectedSystem(
+                system_type="search",
+                name="Algolia Enterprise Search",
+                confidence=0.96,
+                evidence=[Evidence(type="script", value="algoliasearch client SDK", location="html", confidence=0.96)]
+            )
+
+        # Wunderkind Identity & Remarketing
+        if 'wunderkind' in soup_str or 'bounceexchange' in soup_str:
+            systems_map["wunderkind"] = DetectedSystem(
+                system_type="marketing_automation",
+                name="Wunderkind Behavioral Marketing",
+                confidence=0.94,
+                evidence=[Evidence(type="script", value="bounceexchange.com tags", location="html", confidence=0.94)]
+            )
+
+        # Akamai mPulse RUM
+        if 'mpulse' in soup_str or 'go-mpulse' in soup_str:
+            systems_map["akamai_mpulse"] = DetectedSystem(
+                system_type="analytics",
+                name="Akamai mPulse",
+                confidence=0.95,
+                evidence=[Evidence(type="script", value="go-mpulse.net analytics", location="html", confidence=0.95)]
+            )
+
+        # Brightcove Video Hosting
+        if 'brightcove' in soup_str or 'players.brightcove.net' in soup_str:
+            systems_map["brightcove"] = DetectedSystem(
+                system_type="video",
+                name="Brightcove Video Player",
+                confidence=0.98,
+                evidence=[Evidence(type="script", value="players.brightcove.net SDK", location="html", confidence=0.98)]
+            )
+
         # ── 2. Dynamic LLM-Assisted Technology Stack Analysis ─────────────────
         try:
             from backend.server import call_llm
