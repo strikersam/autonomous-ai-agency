@@ -30,6 +30,6 @@ setuptools>=82.0.1
 oauthlib>=3.3.1
 zipp>=4.1.0
 wheel>=0.47.0
-boto3>=1.43.9
+boto3>=1.43.15
 anthropic>=0.40.0
 aiosqlite>=0.19.0  # SQLite async adapter for STORAGE_BACKEND=sqlite
