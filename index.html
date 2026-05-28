@@ -790,7 +790,7 @@
                         <p>Provide your production URL to run an active technological scan. Agency Core v5 automatically extracts infrastructure, framework signatures, third-party widgets, and dependencies.</p>
                         
                         <div class="sim-input-field">
-                            <input type="text" id="scanUrl" value="https://gucci.com" placeholder="https://your-company.com">
+                            <input type="text" id="scanUrl" value="https://luxury-brand-example.com" placeholder="https://your-company.com">
                             <button id="scanBtn" onclick="runDiscoveryScan()">Scan Website</button>
                         </div>
 
@@ -1072,8 +1072,58 @@
     <script>
         // BuiltWith-grade Database & Heuristics for ultra-precise tech profiling
         const KNOWN_DOMAINS = {
-            "gucci.com": {
-                name: "SAP Commerce Cloud Architecture",
+
+            "fintech-startup-example.com": {
+                name: "Fintech SaaS Architecture",
+                category: "fintech",
+                systems: [
+                    { name: "Contentful CMS", cat: "CMS & Editorial", icon: "📄", conf: 98 },
+                    { name: "React & Angular", cat: "Frameworks & Libraries", icon: "⚛", conf: 96 },
+                    { name: "Stripe & Apple Pay", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "Google Analytics & Mixpanel", cat: "Analytics & Tracking", icon: "📊", conf: 98 },
+                    { name: "Google Search Console", cat: "Analytics & Tracking", icon: "🎯", conf: 95 },
+                    { name: "Facebook Business", cat: "Analytics & Tracking", icon: "🎯", conf: 95 },
+                    { name: "Amazon SES & SendGrid", cat: "Email & Comms", icon: "✉️", conf: 99 },
+                    { name: "Twilio", cat: "Email & Comms", icon: "💬", conf: 95 },
+                    { name: "Anthropic & OpenAI", cat: "AI & ML", icon: "🧠", conf: 99 },
+                    { name: "ElevenLabs & Cursor", cat: "AI & ML", icon: "🧠", conf: 98 },
+                    { name: "AWS CloudFront & Akamai", cat: "Security & Infrastructure", icon: "⚡", conf: 99 },
+                    { name: "UltraDNS", cat: "Security & Infrastructure", icon: "🌐", conf: 96 },
+                    { name: "Palo Alto Networks & Jamf", cat: "Security & Infrastructure", icon: "🛡️", conf: 99 },
+                    { name: "OneTrust", cat: "Privacy & Compliance", icon: "🔒", conf: 98 },
+                    { name: "Notion & Miro & Atlassian", cat: "Operations", icon: "⚙", conf: 98 }
+                ],
+                specialists: [
+                    { name: "Security Audit Specialist", icon: "🛡️", desc: "Monitors Palo Alto and UltraDNS infrastructure logs." },
+                    { name: "AI/ML Integration Agent", icon: "🧠", desc: "Maintains Anthropic, OpenAI, and ElevenLabs API pipelines." },
+                    { name: "Analytics Auditor", icon: "📈", desc: "Validates Mixpanel tracking and Mixpanel/GA4 routing." }
+                ]
+            },
+            "luxury-commerce-example.com": {
+                name: "Premium Commerce Architecture",
+                category: "luxury & commerce",
+                systems: [
+                    { name: "Salesforce Commerce Cloud (Demandware)", cat: "OMS & E-Commerce", icon: "🛍", conf: 96 },
+                    { name: "Dynatrace", cat: "Performance & Monitoring", icon: "⚙", conf: 95 },
+                    { name: "Google Search Console", cat: "Analytics & Tracking", icon: "🎯", conf: 95 },
+                    { name: "Facebook Business", cat: "Analytics & Tracking", icon: "🎯", conf: 95 },
+                    { name: "Apple Pay Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "Salesforce CRM", cat: "Customer Support & CRM", icon: "💼", conf: 99 },
+                    { name: "Microsoft 365 & Twilio", cat: "Email & Comms", icon: "💬", conf: 98 },
+                    { name: "Mailjet", cat: "Email & Comms", icon: "✉️", conf: 95 },
+                    { name: "Akamai CDN & Edge Shield", cat: "Security & Infrastructure", icon: "⚡", conf: 99 },
+                    { name: "Proofpoint Email Security", cat: "Security & Infrastructure", icon: "🛡️", conf: 99 },
+                    { name: "OneTrust", cat: "Privacy & Compliance", icon: "🔒", conf: 98 },
+                    { name: "Atlassian & DocuSign", cat: "Operations", icon: "⚙", conf: 95 }
+                ],
+                specialists: [
+                    { name: "Salesforce Commerce Architect", icon: "🛍️", desc: "Maintains Salesforce order pipelines and catalog APIs." },
+                    { name: "APM Reliability Engineer", icon: "📊", desc: "Audits Dynatrace traces behind Akamai WAF edge layers." },
+                    { name: "Security Operations Agent", icon: "🛡️", desc: "Monitors Proofpoint and Akamai security events." }
+                ]
+            },
+            "luxury-brand-example.com": {
+                name: "Enterprise Commerce Cloud Architecture",
                 category: "luxury & commerce",
                 systems: [
                     // OMS & CMS
@@ -1116,24 +1166,24 @@
                     { name: "Analytics & Tag Auditor", icon: "📈", desc: "Validates GTM and Adobe Analytics trigger variables." }
                 ]
             },
-            "apple.com": {
-                name: "Apple Custom Enterprise Platform",
+            "tech-giant-example.com": {
+                name: "Custom Enterprise Platform",
                 category: "technology & retail",
                 systems: [
                     { name: "Custom WebObjects Java Engine", cat: "OMS & E-Commerce", icon: "⚙", conf: 95 },
                     { name: "React & custom Micro-Frontends", cat: "Frameworks & Libraries", icon: "⚛", conf: 94 },
                     { name: "Adobe Analytics", cat: "Analytics & Tracking", icon: "📈", conf: 98 },
                     { name: "Akamai CDN & Edge Routing", cat: "Security & Infrastructure", icon: "⚡", conf: 99 },
-                    { name: "Apple Pay Checkout Engine", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
-                    { name: "Apple Secure Federated Auth", cat: "Privacy & Compliance", icon: "🔒", conf: 99 }
+                    { name: "Native Mobile Checkout Engine", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "Enterprise Federated Auth", cat: "Privacy & Compliance", icon: "🔒", conf: 99 }
                 ],
                 specialists: [
                     { name: "Backend Core Agent", icon: "⚙️", desc: "Maintains premium WebObjects Java checkout endpoints." },
                     { name: "UX Design Auditor Agent", icon: "🎨", desc: "Ensures custom frontend styling fits pixel-perfect design standards." }
                 ]
             },
-            "nike.com": {
-                name: "Nike Headless Commerce Architecture",
+            "sports-apparel-example.com": {
+                name: "Headless Commerce Architecture",
                 category: "athletics & retail",
                 systems: [
                     { name: "Salesforce Commerce Cloud (SFCC)", cat: "OMS & E-Commerce", icon: "🛍", conf: 94 },
@@ -1142,18 +1192,18 @@
                     { name: "Akamai CDN Shield & Edge", cat: "Security & Infrastructure", icon: "⚡", conf: 98 },
                     { name: "PayPal & Visa Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 95 },
                     { name: "Meta & TikTok Conversion Pixels", cat: "Analytics & Tracking", icon: "🎯", conf: 94 },
-                    { name: "Nike Member Federated Sign-In", cat: "Privacy & Compliance", icon: "🔒", conf: 96 }
+                    { name: "Member Federated Sign-In", cat: "Privacy & Compliance", icon: "🔒", conf: 96 }
                 ],
                 specialists: [
                     { name: "SFCC Commerce Agent", icon: "🛍️", desc: "Manages Salesforce Commerce campaigns and API integrations." },
                     { name: "SEO Content Auditor Agent", icon: "📄", desc: "Optimizes Next.js templates for crawlability and LCP page speed." }
                 ]
             },
-            "stripe.com": {
-                name: "Stripe SaaS Headless Architecture",
+            "payment-gateway-example.com": {
+                name: "SaaS Headless Architecture",
                 category: "finance & saas",
                 systems: [
-                    { name: "Stripe Billing & Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "API Billing & Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
                     { name: "React + Next.js 14", cat: "Frameworks & Libraries", icon: "⚛", conf: 98 },
                     { name: "Contentful Headless CMS", cat: "CMS & Editorial", icon: "📄", conf: 94 },
                     { name: "GTM, Segment & GA4", cat: "Analytics & Tracking", icon: "📊", conf: 96 },
