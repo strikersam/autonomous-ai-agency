@@ -143,6 +143,15 @@ class WebsiteScanner:
                 )
             
             _safe_url = parsed._replace(fragment="").geturl()
+
+            # SSRF guard: block internal/private targets before any network I/O
+            if not _is_safe_url(_safe_url):
+                return WebsiteScanResult(
+                    scan_id=scan_id, website_url=website_url, company_id=self.company_id,
+                    status="failed", errors=["Blocked: target URL is not a safe public address (SSRF protection)"],
+                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                )
+
             domain = parsed.hostname.replace('www.', '') if parsed.hostname else ""
 
             # 1. DNS Analysis (BuiltWith-level off-site detection)
@@ -153,7 +162,8 @@ class WebsiteScanner:
             headers = {}
             cookies = {}
             status_code = 0
-            
+            fetch_error: Optional[str] = None
+
             try:
                 import curl_cffi.requests
                 async with curl_cffi.requests.AsyncSession(impersonate="chrome120", timeout=self.timeout) as client:
@@ -182,6 +192,15 @@ class WebsiteScanner:
                         status_code = response.status_code
                     except Exception as e:
                         log.error(f"HTTPX failed: {e}")
+                        fetch_error = str(e)
+
+            # If both fetch clients failed, surface the error rather than returning empty success
+            if fetch_error is not None and not html:
+                return WebsiteScanResult(
+                    scan_id=scan_id, website_url=website_url, company_id=self.company_id,
+                    status="failed", errors=[f"All fetch clients failed: {fetch_error}"],
+                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                )
 
             soup = BeautifulSoup(html, 'html.parser') if html else BeautifulSoup("", 'html.parser')
             

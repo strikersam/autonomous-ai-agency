@@ -67,11 +67,17 @@ async def test_scan_returns_failed_when_all_fetch_clients_fail(monkeypatch):
         async def get(self, *args, **kwargs):
             raise RuntimeError("network unreachable")
 
-    import curl_cffi.requests
+    # Patch httpx unconditionally (always available)
     import httpx
-
-    monkeypatch.setattr(curl_cffi.requests, "AsyncSession", _FailingClient)
     monkeypatch.setattr(httpx, "AsyncClient", _FailingClient)
+
+    # Patch curl_cffi only if it is installed; otherwise the scanner's
+    # ImportError path already falls through to httpx, which we've patched.
+    try:
+        import curl_cffi.requests as _curl_mod
+        monkeypatch.setattr(_curl_mod, "AsyncSession", _FailingClient)
+    except ImportError:
+        pass  # curl_cffi not installed — httpx fallback is the only path
 
     res = await scanner.scan_website("https://example.com")
     assert res.status == "failed"
