@@ -211,6 +211,14 @@ class Agency:
         self._directives: list[AgentDirective] = []
         self._cycle_count = 0
         self._last_quick_notes: dict = {}  # cached for CEO prompt
+        # Company Graph integration
+        try:
+            from services.specialist import get_specialist_service
+            self._specialist_service = get_specialist_service()
+            log.info("Company Graph Specialist Service initialized")
+        except ImportError as e:
+            log.warning(f"Specialist Service not available: {e}")
+            self._specialist_service = None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 

@@ -94,7 +94,7 @@ class DockerAgentAdapter(RuntimeAdapter):
                     try:
                         resp = await client.get(f"{container_url}/health")
                         if resp.status_code == 200: break
-                    except: pass
+                    except Exception: pass
                     await asyncio.sleep(1.0)
                 else: raise RuntimeExecutionError(self.RUNTIME_ID, "Container timed out starting", spec.task_id)
                 payload = {"task_id": spec.task_id, "instruction": spec.instruction, "workspace_path": "/app/workspace", "model": spec.model_preference, "context": spec.context}

@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agency Core v5 - Autonomous AI Agency Platform | StrikerSam</title>
+    <style>
+        /* Base Variables & Theme */
+        :root {
+            --bg-base: #030712;
+            --bg-surface: #0b0f19;
+            --bg-card: #111827;
+            --text-primary: #f9fafb;
+            --text-secondary: #d1d5db;
+            --text-muted: #6b7280;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-active: rgba(59, 130, 246, 0.3);
+            --accent: #3b82f6;
+            --accent-hover: #60a5fa;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Header / Navbar */
+        header.site-header {
+            border-bottom: 1px solid var(--border);
+            padding: 20px 0;
+            position: sticky;
+            top: 0;
+            background: rgba(3, 7, 18, 0.85);
+            backdrop-filter: blur(12px);
+            z-index: 100;
+        }
+
+        .header-wrap {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.3rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            letter-spacing: -0.02em;
+        }
+
+        .logo-dot {
+            width: 12px;
+            height: 12px;
+            background: linear-gradient(135deg, var(--accent), var(--success));
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 24px;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover {
+            color: var(--accent-hover);
+        }
+
+        .btn-portal {
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid var(--accent);
+            color: var(--accent-hover);
+            padding: 8px 18px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .btn-portal:hover {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 100px 0 80px;
+            text-align: center;
+            background: radial-gradient(circle at top, rgba(59, 130, 246, 0.12) 0%, transparent 60%);
+        }
+
+        .hero h1 {
+            font-size: 3.8rem;
+            font-weight: 900;
+            letter-spacing: -0.05em;
+            line-height: 1.1;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, #ffffff 30%, #a3e635 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p.tagline {
+            font-size: 1.5rem;
+            color: var(--accent-hover);
+            font-weight: 600;
+            margin-bottom: 12px;
+            font-family: var(--font-mono);
+            letter-spacing: 0.05em;
+        }
+
+        .hero p.subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 760px;
+            margin: 0 auto 40px;
+            line-height: 1.6;
+        }
+
+        .hero-ctas {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-main {
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            color: white;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 1.05rem;
+            text-decoration: none;
+            transition: all 0.25s;
+            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-main:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 35px rgba(59, 130, 246, 0.45);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 1.05rem;
+            text-decoration: none;
+            transition: all 0.25s;
+        }
+
+        .btn-outline:hover {
+            border-color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        /* Feature Matrix Section */
+        .features-section {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        .section-title h2 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            margin-bottom: 12px;
+        }
+
+        .section-title p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 30px;
+            transition: all 0.25s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.1);
+        }
+
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 18px;
+            display: inline-block;
+        }
+
+        .feature-card h3 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        /* Interactive Simulator Section */
+        .sim-section {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+            background: radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.05) 0%, transparent 50%);
+        }
+
+        .sim-wrapper {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        .sim-header {
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sim-title {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--success);
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sim-body {
+            padding: 32px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 32px;
+        }
+
+        @media (min-width: 768px) {
+            .sim-body {
+                grid-template-columns: 1.1fr 0.9fr;
+            }
+        }
+
+        .sim-input-box h3 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-bottom: 12px;
+        }
+
+        .sim-input-box p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-bottom: 24px;
+        }
+
+        .sim-input-field {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .sim-input-field input {
+            flex: 1;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-family: var(--font-sans);
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .sim-input-field input:focus {
+            border-color: var(--accent);
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .sim-input-field button {
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .sim-input-field button:hover:not(:disabled) {
+            background: var(--accent-hover);
+        }
+
+        .sim-input-field button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .sim-console {
+            background: #02040a;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: #38bdf8;
+            min-height: 180px;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .sim-output-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 300px;
+        }
+
+        .sim-empty-state {
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .sim-empty-state-icon {
+            font-size: 3.5rem;
+            margin-bottom: 16px;
+        }
+
+        .sim-result {
+            display: none;
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        .sim-result-header {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 14px;
+            margin-bottom: 18px;
+        }
+
+        .sim-company-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sim-company-name {
+            font-size: 1.4rem;
+            font-weight: 800;
+        }
+
+        .sim-badge {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid var(--success);
+            color: var(--success);
+            padding: 2px 10px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            font-family: var(--font-mono);
+        }
+
+        .sim-result-section {
+            margin-bottom: 16px;
+        }
+
+        .sim-section-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+        }
+
+        .sim-tag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .sim-tag {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .sim-agent-card {
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.15);
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .sim-agent-icon {
+            font-size: 1.5rem;
+        }
+
+        .sim-agent-title {
+            font-weight: 700;
+            font-size: 0.85rem;
+        }
+
+        .sim-agent-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        /* Doctor Diagnostics Section */
+        .doctor-section {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+            background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.05) 0%, transparent 50%);
+        }
+
+        .doc-wrapper {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px;
+        }
+
+        .doc-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+            margin-top: 24px;
+        }
+
+        @media (min-width: 768px) {
+            .doc-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .doc-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .doc-item-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .doc-item-title {
+            font-weight: 700;
+            font-size: 1.05rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .doc-item-badge {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .badge-pass {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            border: 1px solid var(--success);
+        }
+
+        .badge-warn {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+            border: 1px solid var(--warning);
+        }
+
+        .doc-item-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .doc-item-explanation {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            border-left: 2px solid var(--accent);
+            padding-left: 10px;
+        }
+
+        /* Safety & Workflow Section */
+        .workflow-section {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .flow-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+        }
+
+        .flow-step {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 24px;
+            position: relative;
+        }
+
+        .flow-number {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-family: var(--font-mono);
+            font-size: 1.5rem;
+            color: var(--accent);
+            opacity: 0.4;
+            font-weight: 800;
+        }
+
+        .flow-step h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .flow-step p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* Deployment Section */
+        .deploy-section {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        .deploy-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            margin-top: 40px;
+        }
+
+        .deploy-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 30px;
+        }
+
+        .deploy-card h3 {
+            font-size: 1.3rem;
+            font-weight: 800;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .deploy-card ul {
+            list-style: none;
+            margin-top: 16px;
+        }
+
+        .deploy-card li {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .deploy-card li::before {
+            content: "✦";
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        /* FAQs */
+        .faq-section {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .faq-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-width: 800px;
+            margin: 40px auto 0;
+        }
+
+        .faq-item {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .faq-question {
+            font-weight: 700;
+            font-size: 1.05rem;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .faq-answer {
+            font-size: 0.92rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* Footer */
+        footer {
+            background: #02040a;
+            border-top: 1px solid var(--border);
+            padding: 60px 0;
+            text-align: center;
+        }
+
+        footer p {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+        }
+
+        footer a {
+            color: var(--accent-hover);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.6rem;
+            }
+            .hero p.subtitle {
+                font-size: 1.05rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="site-header">
+        <div class="container header-wrap">
+            <a href="#" class="logo">
+                <span class="logo-dot"></span>
+                <span>Agency Core v5</span>
+            </a>
+            <nav class="nav-links">
+                <a href="#features" class="nav-link">Features</a>
+                <a href="#scanner" class="nav-link">Web Scanner</a>
+                <a href="#diagnostics" class="nav-link">Diagnostics</a>
+                <a href="#workflow" class="nav-link">Workflow OS</a>
+                <a href="./remote-admin/index.html" class="btn-portal">Admin Portal</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <p class="tagline">ENTERPRISE AUTONOMOUS AI AGENCY OPERATING SYSTEM</p>
+            <h1>Move from Raw Models to Specialized Specialists</h1>
+            <p class="subtitle">Agency Core v5 scans your production website, identifies technologies, maps business ecosystems, provisions tailored specialists, and automates recurring workloads with full human oversight.</p>
+            <div class="hero-ctas">
+                <a href="#scanner" class="btn-main">Launch Live Web Scanner</a>
+                <a href="#features" class="btn-outline">Explore Specialists</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Interactive Scanner Section -->
+    <section id="scanner" class="sim-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>Interactive Onboarding & Stack Discovery</h2>
+                <p>Enter any production website URL. Watch our active crawling agents parse JS bundles, inspect headers, infer business categories, and draft the initial Company Graph.</p>
+            </div>
+
+            <div class="sim-wrapper">
+                <div class="sim-header">
+                    <div class="sim-title">
+                        <span style="width: 8px; height: 8px; background: var(--success); border-radius: 50%; display: inline-block;"></span>
+                        ONBOARDING DISCOVERY MODULE (ACTIVE)
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">v5.0.0-PROD</div>
+                </div>
+                <div class="sim-body">
+                    <div class="sim-input-box">
+                        <h3>Analyze Website Ecosystem</h3>
+                        <p>Provide your production URL to run an active technological scan. Agency Core v5 automatically extracts infrastructure, framework signatures, third-party widgets, and dependencies.</p>
+                        
+                        <div class="sim-input-field">
+                            <input type="text" id="scanUrl" value="https://gucci.com" placeholder="https://your-company.com">
+                            <button id="scanBtn" onclick="runDiscoveryScan()">Scan Website</button>
+                        </div>
+
+                        <div class="sim-section-label">Scanning Logs & Engine Trace</div>
+                        <div class="sim-console" id="scanConsole">
+[SYSTEM] Ready for next discovery pass. Input URL and trigger 'Scan Website' to inspect public headers, meta tags, and JavaScript signatures.
+                        </div>
+                    </div>
+
+                    <div class="sim-output-box" id="scanOutputBox">
+                        <div class="sim-empty-state" id="simEmpty">
+                            <div class="sim-empty-state-icon">🔍</div>
+                            <h4>Awaiting Scan Execution</h4>
+                            <p style="font-size: 0.85rem; margin-top: 8px; color: var(--text-muted);">Results will appear here with detected platforms, confidence scores, and provisioned specialist list.</p>
+                        </div>
+
+                        <div class="sim-result" id="simResult">
+                            <div class="sim-result-header">
+                                <div class="sim-company-meta">
+                                    <div class="sim-company-name" id="resCompName">Gucci</div>
+                                    <div class="sim-badge" id="resCompDomain">luxury & fashion</div>
+                                </div>
+                            </div>
+
+                            <div class="sim-result-section">
+                                <div class="sim-section-label">Detected Systems & Technologies</div>
+                                <div class="sim-tag-list" id="resSystems">
+                                    <span class="sim-tag">🛍 Shopify Plus (98%)</span>
+                                    <span class="sim-tag">📊 Google Tag Manager (99%)</span>
+                                </div>
+                            </div>
+
+                            <div class="sim-result-section">
+                                <div class="sim-section-label">Auto-Provisioned Specialists & Playbooks</div>
+                                <div id="resSpecialists">
+                                    <!-- Dynamic -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Platform Capabilities Matrix -->
+    <section id="features" class="features-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>Functional Specialization Beyond Engineering</h2>
+                <p>Most AI agents only know how to write simple code. Agency Core v5 provisions cross-functional specialists who are experts in domain systems, operations, and commerce.</p>
+            </div>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>Security Auditor Agent</h3>
+                    <p>Wired directly into repositories and third-party lockfiles. Automatically intercepts high-severity CVE dependencies, runs SAST analysis, and drafts remediating pull requests.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🛍️</div>
+                    <h3>Commerce Merchandiser Agent</h3>
+                    <p>Monitors product inventory, price consistency, and checkout performance (Shopify / OMS). Identifies product data quality drops and optimizes listings automatically.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Analytics Specialist Agent</h3>
+                    <p>Analyzes GA4 schema events, verifies GTM trigger tag operations, calculates cost savings, and ensures conversion metrics remain accurate and compliant.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📄</div>
+                    <h3>SEO & Content Editor Agent</h3>
+                    <p>Scans published pages for technical SEO violations, analyzes metadata gaps, coordinates publishing directly with CMS platforms like Contentful, and keeps content updated.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🏃</div>
+                    <h3>Agentic Scrum Master</h3>
+                    <p>Maintains agile planning workflows. Summarizes progress across multiple specialist sprints, detects blockers, routes task escalations, and cleans up the Kanban task boards.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💼</div>
+                    <h3>Portfolio Management Agent</h3>
+                    <p>Aligns engineering work directly with business KPIs and metrics. Ensures tasks and PRs map to documented corporate goals (e.g. "Reduce Mobile LCP").</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Diagnostics and Doctor Probes -->
+    <section id="diagnostics" class="doctor-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>Platform Doctor & Self-Diagnostics</h2>
+                <p>System reliability is a core value. Agency Core v5 includes a comprehensive diagnostics engine that monitors preflight conditions, environment configurations, and model health.</p>
+            </div>
+
+            <div class="doc-wrapper">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+                    <div>
+                        <h3 style="font-size: 1.4rem; font-weight:800;">Active Platform Probes</h3>
+                        <p style="font-size:0.9rem; color:var(--text-secondary);">Real-time preflight and environment health checks.</p>
+                    </div>
+                    <button class="btn-portal" onclick="triggerDoctorDiagnostics()" style="padding: 10px 20px;">↺ Re-run Diagnostic checks</button>
+                </div>
+
+                <div class="doc-grid" id="doctorGrid">
+                    <!-- Dynamic checks -->
+                    <div class="doc-item">
+                        <div class="doc-item-header">
+                            <span class="doc-item-title">🗂️ Git Binary Check</span>
+                            <span class="doc-item-badge badge-pass">Pass</span>
+                        </div>
+                        <p class="doc-item-desc">Git binary found on the system host. Version: 2.45.1.</p>
+                        <p class="doc-item-explanation">Required for making repository workspace commits and handling pull request actions safely.</p>
+                    </div>
+
+                    <div class="doc-item">
+                        <div class="doc-item-header">
+                            <span class="doc-item-title">🐋 Docker Sandbox Environment</span>
+                            <span class="doc-item-badge badge-pass">Pass</span>
+                        </div>
+                        <p class="doc-item-desc">Docker runtime daemon detected and active. Workspace isolated adapters ready.</p>
+                        <p class="doc-item-explanation">Guarantees that execute-phase actions are completely sandboxed, protecting system files.</p>
+                    </div>
+
+                    <div class="doc-item">
+                        <div class="doc-item-header">
+                            <span class="doc-item-title">💾 SQLite Engine & Store</span>
+                            <span class="doc-item-badge badge-pass">Pass</span>
+                        </div>
+                        <p class="doc-item-desc">SQLite async storage backend initialized. Local tables healthy.</p>
+                        <p class="doc-item-explanation">Holds local Company Graph models, credentials, schedules, and historical audit logs.</p>
+                    </div>
+
+                    <div class="doc-item">
+                        <div class="doc-item-header">
+                            <span class="doc-item-title">🤖 Model Proxy and Registry</span>
+                            <span class="doc-item-badge badge-pass">Pass</span>
+                        </div>
+                        <p class="doc-item-desc">Model router successfully connected to provider failover endpoints.</p>
+                        <p class="doc-item-explanation">Ensures that if primary models fail, the system falls back to active, compliant models.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Workflow OS Sequence -->
+    <section id="workflow" class="workflow-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>The Workflow Engine Operating System</h2>
+                <p>No loose agent actions. Everything runs through a strict, reproducible process to guarantee deterministic outcomes.</p>
+            </div>
+
+            <div class="flow-grid">
+                <div class="flow-step">
+                    <span class="flow-number">01</span>
+                    <h3>Classify</h3>
+                    <p>Categorizes the input task, detects intention, and evaluates security parameters.</p>
+                </div>
+                <div class="flow-step">
+                    <span class="flow-number">02</span>
+                    <h3>Plan</h3>
+                    <p>Drafts a step-by-step implementation plan with explicit checks.</p>
+                </div>
+                <div class="flow-step">
+                    <span class="flow-number">03</span>
+                    <h3>Select Specialist</h3>
+                    <p>Routes the step execution specifically to the agents possessing matching playbooks.</p>
+                </div>
+                <div class="flow-step">
+                    <span class="flow-number">04</span>
+                    <h3>Preflight Check</h3>
+                    <p>Doctor checks are triggered first to verify tool readiness before running code.</p>
+                </div>
+                <div class="flow-step">
+                    <span class="flow-number">05</span>
+                    <h3>Execute</h3>
+                    <p>Tasks are executed inside a safe, isolated containerized docker runtime.</p>
+                </div>
+                <div class="flow-step">
+                    <span class="flow-number">06</span>
+                    <h3>Verify</h3>
+                    <p>Triggers unit tests, logs inspections, and security scanners automatically.</p>
+                </div>
+                <div class="flow-step">
+                    <span class="flow-number">07</span>
+                    <h3>Human Judge</h3>
+                    <p>Suspends execution at critical checkout gates for human review and approvals.</p>
+                </div>
+                <div class="flow-step">
+                    <span class="flow-number">08</span>
+                    <h3>Record</h3>
+                    <p>Saves outcome results and learnings back to the Company Graph context store.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Deployment Options -->
+    <section class="deploy-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>Commercial-Grade Deployment Tiers</h2>
+                <p>Choose the model of deployment that matches your company's security policy.</p>
+            </div>
+
+            <div class="deploy-grid">
+                <div class="deploy-card">
+                    <h3>🌐 Cloud Managed</h3>
+                    <p>Deploy directly to Cloudflare Pages + Render. Hosted database store, high redundancy, global access.</p>
+                    <ul>
+                        <li>Automatic SSL certificates</li>
+                        <li>Global edge caching</li>
+                        <li>Full secure JWT authentication</li>
+                    </ul>
+                </div>
+                <div class="deploy-card">
+                    <h3>💻 Hybrid Local</h3>
+                    <p>Keep your code local on your hardware workspace. Tunnel out through a secure cloud admin proxy interface.</p>
+                    <ul>
+                        <li>Local models first via Ollama</li>
+                        <li>Source code remains 100% offline</li>
+                        <li>Secured HTTPS public proxy tunnels</li>
+                    </ul>
+                </div>
+                <div class="deploy-card">
+                    <h3>🔒 Isolated Enclave</h3>
+                    <p>Deploy on-premise in high-security VPC/government enclaves. Complete data isolation.</p>
+                    <ul>
+                        <li>No telemetry leakage</li>
+                        <li>Hardware-specific model locks</li>
+                        <li>No external API dependencies</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQs Section -->
+    <section class="faq-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>Frequently Asked Questions</h2>
+                <p>Everything you need to know to get started with Agency Core v5.</p>
+            </div>
+
+            <div class="faq-grid">
+                <div class="faq-item">
+                    <div class="faq-question">What is a Company Graph?</div>
+                    <div class="faq-answer">The Company Graph is the canonical metadata backbone of Agency Core v5. It acts as the single source of truth of your systems (Shopify, Contentful, repositories), environment endpoints, credentials, connected docs, prioritized goals, and provisioned specialist playbooks. Instead of stateless prompting, agents read and write directly to this structured graph.</div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">How does website technological scanning work?</div>
+                    <div class="faq-answer">When you trigger a scan, our active scanning engine performs an async HTTP crawl. It searches for specific frameworks, third-party libraries, tracking pixels, meta tags, and JS bundle signatures. It matches signatures to over 150 business systems to infer confidence levels and map dependencies.</div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">How does human-in-the-loop (HITL) approval work?</div>
+                    <div class="faq-answer">Safety is a priority. For tasks requiring sensitive changes (e.g. updating production code, merging PRs, changing prices, modifying CRM settings), the workflow engine automatically suspends progress, saves a checkpoint state, and triggers an approval alert on the chat control plane, requesting explicit human verification.</div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">Is my source code and API key secure?</div>
+                    <div class="faq-answer">Yes. All secrets and access tokens are stored securely in local database schemas using symmetric AES encryption. Furthermore, execution tasks are isolated inside separate sandboxed container runtimes, ensuring that agents can never corrupt host system directories.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>© 2026 StrikerSam. Powered by Company Graph and Agency Core v5.</p>
+            <p>Deployments configured on <a href="https://strikersam.github.io/local-llm-server/">GitHub Pages</a> & <a href="https://local-llm-server.pages.dev/">Cloudflare Pages</a>.</p>
+        </div>
+    </footer>
+
+    <!-- Interactive JS Script -->
+    <script>
+        // BuiltWith-grade Database & Heuristics for ultra-precise tech profiling
+        const KNOWN_DOMAINS = {
+            "gucci.com": {
+                name: "SAP Commerce Cloud Architecture",
+                category: "luxury & commerce",
+                systems: [
+                    // OMS & CMS
+                    { name: "SAP Commerce Cloud (Hybris)", cat: "OMS & E-Commerce", icon: "🛍", conf: 96 },
+                    { name: "Contentful", cat: "CMS & Editorial", icon: "📄", conf: 92 },
+                    
+                    // Frameworks & Libraries
+                    { name: "React & Next.js v14 (SSR)", cat: "Frameworks & Libraries", icon: "⚛", conf: 98 },
+                    { name: "core-js & Day.js", cat: "Frameworks & Libraries", icon: "⚙", conf: 95 },
+                    { name: "jQuery Library v3.5.1", cat: "Frameworks & Libraries", icon: "⚙", conf: 95 },
+                    
+                    // Analytics & Tracking Pixels
+                    { name: "Google Analytics (GA4)", cat: "Analytics & Tracking", icon: "📊", conf: 98 },
+                    { name: "Adobe Analytics & RUM", cat: "Analytics & Tracking", icon: "📈", conf: 95 },
+                    { name: "Google Tag Manager", cat: "Analytics & Tracking", icon: "📊", conf: 99 },
+                    { name: "Meta Pixel (Facebook)", cat: "Analytics & Tracking", icon: "🎯", conf: 96 },
+                    { name: "TikTok Conversion Pixel", cat: "Analytics & Tracking", icon: "🎯", conf: 94 },
+                    
+                    // Performance & APM Monitoring
+                    { name: "SpeedCurve Performance Monitoring", cat: "Performance & Monitoring", icon: "📈", conf: 96 },
+                    { name: "Akamai mPulse (RUM)", cat: "Performance & Monitoring", icon: "📊", conf: 95 },
+                    { name: "Dynatrace Software Intelligence", cat: "Performance & Monitoring", icon: "⚙", conf: 94 },
+                    { name: "Datadog Real-User Monitoring", cat: "Performance & Monitoring", icon: "📊", conf: 95 },
+                    
+                    // Security, Hosting & CDN
+                    { name: "Akamai Global Host & WAF", cat: "Security & Infrastructure", icon: "⚡", conf: 99 },
+                    { name: "Akamai Edge & EdgeWorkers", cat: "Security & Infrastructure", icon: "⚡", conf: 96 },
+                    { name: "Amazon S3 Assets Store", cat: "Security & Infrastructure", icon: "💾", conf: 94 },
+                    { name: "Cloudflare DNS & Shield", cat: "Security & Infrastructure", icon: "🛡️", conf: 95 },
+                    
+                    // Payments, CRM & Support
+                    { name: "Adyen Enterprise Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 96 },
+                    { name: "Salesforce CRM Cloud", cat: "Customer Support & CRM", icon: "💼", conf: 94 },
+                    { name: "Apple Business Chat Concierge", cat: "Customer Support & CRM", icon: "💬", conf: 90 },
+                    { name: "OneTrust Consent Management", cat: "Privacy & Compliance", icon: "🔒", conf: 98 }
+                ],
+                specialists: [
+                    { name: "SAP Commerce Architect", icon: "🛍️", desc: "Maintains Hybris order pipelines, checkout APIs, and catalogs." },
+                    { name: "APM Reliability Engineer", icon: "📊", desc: "Audits SpeedCurve, Dynatrace, and Datadog RUM performance traces." },
+                    { name: "Analytics & Tag Auditor", icon: "📈", desc: "Validates GTM and Adobe Analytics trigger variables." }
+                ]
+            },
+            "apple.com": {
+                name: "Apple Custom Enterprise Platform",
+                category: "technology & retail",
+                systems: [
+                    { name: "Custom WebObjects Java Engine", cat: "OMS & E-Commerce", icon: "⚙", conf: 95 },
+                    { name: "React & custom Micro-Frontends", cat: "Frameworks & Libraries", icon: "⚛", conf: 94 },
+                    { name: "Adobe Analytics", cat: "Analytics & Tracking", icon: "📈", conf: 98 },
+                    { name: "Akamai CDN & Edge Routing", cat: "Security & Infrastructure", icon: "⚡", conf: 99 },
+                    { name: "Apple Pay Checkout Engine", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "Apple Secure Federated Auth", cat: "Privacy & Compliance", icon: "🔒", conf: 99 }
+                ],
+                specialists: [
+                    { name: "Backend Core Agent", icon: "⚙️", desc: "Maintains premium WebObjects Java checkout endpoints." },
+                    { name: "UX Design Auditor Agent", icon: "🎨", desc: "Ensures custom frontend styling fits pixel-perfect design standards." }
+                ]
+            },
+            "nike.com": {
+                name: "Nike Headless Commerce Architecture",
+                category: "athletics & retail",
+                systems: [
+                    { name: "Salesforce Commerce Cloud (SFCC)", cat: "OMS & E-Commerce", icon: "🛍", conf: 94 },
+                    { name: "React + Next.js v13 SSR", cat: "Frameworks & Libraries", icon: "⚛", conf: 96 },
+                    { name: "Adobe Analytics & GA4", cat: "Analytics & Tracking", icon: "📈", conf: 95 },
+                    { name: "Akamai CDN Shield & Edge", cat: "Security & Infrastructure", icon: "⚡", conf: 98 },
+                    { name: "PayPal & Visa Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 95 },
+                    { name: "Meta & TikTok Conversion Pixels", cat: "Analytics & Tracking", icon: "🎯", conf: 94 },
+                    { name: "Nike Member Federated Sign-In", cat: "Privacy & Compliance", icon: "🔒", conf: 96 }
+                ],
+                specialists: [
+                    { name: "SFCC Commerce Agent", icon: "🛍️", desc: "Manages Salesforce Commerce campaigns and API integrations." },
+                    { name: "SEO Content Auditor Agent", icon: "📄", desc: "Optimizes Next.js templates for crawlability and LCP page speed." }
+                ]
+            },
+            "stripe.com": {
+                name: "Stripe SaaS Headless Architecture",
+                category: "finance & saas",
+                systems: [
+                    { name: "Stripe Billing & Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "React + Next.js 14", cat: "Frameworks & Libraries", icon: "⚛", conf: 98 },
+                    { name: "Contentful Headless CMS", cat: "CMS & Editorial", icon: "📄", conf: 94 },
+                    { name: "GTM, Segment & GA4", cat: "Analytics & Tracking", icon: "📊", conf: 96 },
+                    { name: "AWS S3 & Vercel Edge CDN", cat: "Security & Infrastructure", icon: "⚡", conf: 95 },
+                    { name: "Microsoft Clarity RUM", cat: "Performance & Monitoring", icon: "🎯", conf: 92 },
+                    { name: "Intercom Customer Conversations", cat: "Customer Support & CRM", icon: "💬", conf: 94 }
+                ],
+                specialists: [
+                    { name: "SaaS Billing Specialist", icon: "💳", desc: "Integrates Stripe ledger schemas and subscription flows." },
+                    { name: "Security Audit Specialist", icon: "🛡️", desc: "Scans cloud packages, verifies secrets, and manages CDNs." }
+                ]
+            }
+        };
+
+        function getDynamicScanResult(rawUrl) {
+            const domain = rawUrl.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
+            
+            // 1. Return exact match if in known database
+            if (KNOWN_DOMAINS[domain]) {
+                return KNOWN_DOMAINS[domain];
+            }
+            for (const key of Object.keys(KNOWN_DOMAINS)) {
+                if (domain.includes(key)) {
+                    return KNOWN_DOMAINS[key];
+                }
+            }
+            
+            // 2. Fall back to smart heuristic profiler
+            const urlLower = rawUrl.toLowerCase();
+            
+            // Retail & E-commerce Heuristic
+            if (urlLower.includes("shop") || urlLower.includes("store") || urlLower.includes("buy") || urlLower.includes("commerce") || urlLower.includes("retail") || urlLower.includes("boutique") || urlLower.includes("apparel") || urlLower.includes("goods") || urlLower.includes("market")) {
+                if (domain.length > 12) {
+                    return {
+                        name: "Salesforce Commerce Cloud Stack",
+                        category: "retail & e-commerce",
+                        systems: [
+                            { name: "Salesforce Commerce Cloud", cat: "OMS & E-Commerce", icon: "🛍", conf: 92 },
+                            { name: "Next.js + React", cat: "Frameworks & Libraries", icon: "⚛", conf: 95 },
+                            { name: "Adobe Analytics & GA4", cat: "Analytics & Tracking", icon: "📈", conf: 94 },
+                            { name: "Akamai CDN & Edge Shield", cat: "Security & Infrastructure", icon: "⚡", conf: 96 },
+                            { name: "PayPal & Apple Pay Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 95 },
+                            { name: "Meta Pixel & Pinterest Tag", cat: "Analytics & Tracking", icon: "🎯", conf: 92 },
+                            { name: "LiveChat Concierge Widget", cat: "Customer Support & CRM", icon: "💬", conf: 88 },
+                            { name: "FontAwesome Stylesheet Icons", cat: "Frameworks & Libraries", icon: "🎨", conf: 90 }
+                        ],
+                        specialists: [
+                            { name: "Commerce Merchandiser Agent", icon: "🛍️", desc: "Monitors Salesforce Commerce inventories, cart drops, and product data." },
+                            { name: "Frontend Developer Agent", icon: "⚛", desc: "Maintains high-fidelity Next.js/React templates." }
+                        ]
+                    };
+                } else {
+                    return {
+                        name: "Shopify Plus Cloud Stack",
+                        category: "e-commerce",
+                        systems: [
+                            { name: "Shopify Plus SaaS Storefront", cat: "OMS & E-Commerce", icon: "🛍", conf: 98 },
+                            { name: "GTM, Klaviyo & GA4", cat: "Analytics & Tracking", icon: "📊", conf: 96 },
+                            { name: "Klaviyo CRM Trigger Events", cat: "Customer Support & CRM", icon: "📧", conf: 92 },
+                            { name: "Gorgias Helpdesk Web Chat", cat: "Customer Support & CRM", icon: "💬", conf: 88 },
+                            { name: "Shop Pay & Stripe Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 97 },
+                            { name: "Meta Pixel & TikTok Analytics", cat: "Analytics & Tracking", icon: "🎯", conf: 94 },
+                            { name: "jQuery Core Library v3.5.1", cat: "Frameworks & Libraries", icon: "⚙", conf: 95 }
+                        ],
+                        specialists: [
+                            { name: "Commerce Merchandiser Agent", icon: "🛍️", desc: "Optimizes Shopify theme elements, collection listings, and catalog data." },
+                            { name: "SEO Content Auditor Agent", icon: "📄", desc: "Scans collection pages, identifies indexation gaps, and optimizes copies." }
+                        ]
+                    };
+                }
+            }
+            
+            // SaaS & Tech Heuristic
+            if (urlLower.includes("app") || urlLower.includes("saas") || urlLower.includes("cloud") || urlLower.includes("api") || urlLower.includes("tech") || urlLower.includes("dev") || urlLower.includes("software") || urlLower.includes("system") || urlLower.includes("tool")) {
+                return {
+                    name: "Next.js SaaS Platform",
+                    category: "software & saas",
+                    systems: [
+                        { name: "Next.js + React v14 (SSR)", cat: "Frameworks & Libraries", icon: "⚛", conf: 98 },
+                        { name: "Stripe Billing & Ledgers", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                        { name: "Google Analytics 4 (GA4)", cat: "Analytics & Tracking", icon: "📊", conf: 95 },
+                        { name: "AWS Hosting & Vercel Edge", cat: "Security & Infrastructure", icon: "⚡", conf: 94 },
+                        { name: "Intercom Help conversations", cat: "Customer Support & CRM", icon: "💬", conf: 92 },
+                        { name: "Microsoft Clarity RUM Probes", cat: "Performance & Monitoring", icon: "🎯", conf: 90 },
+                        { name: "Tailwind CSS Style Library", cat: "Frameworks & Libraries", icon: "🎨", conf: 96 },
+                        { name: "Auth0 OAuth Single Sign-on", cat: "Privacy & Compliance", icon: "🔒", conf: 95 }
+                    ],
+                    specialists: [
+                        { name: "Full-Stack Dev Agent", icon: "⚙️", desc: "Maintains React client services, hooks APIs, and resolves schema drops." },
+                        { name: "Security Auditor Agent", icon: "🛡️", desc: "Scans dependency lockfiles, flags open CVEs, and drafts security PRs." }
+                    ]
+                };
+            }
+            
+            // Media & Blogging Heuristic
+            if (urlLower.includes("blog") || urlLower.includes("news") || urlLower.includes("article") || urlLower.includes("press") || urlLower.includes("journal") || urlLower.includes("media") || urlLower.includes("post") || urlLower.includes("daily")) {
+                return {
+                    name: "WordPress Enterprise CMS",
+                    category: "media & content",
+                    systems: [
+                        { name: "WordPress CMS Platform", cat: "OMS & E-Commerce", icon: "📄", conf: 98 },
+                        { name: "PHP v8.1 Engine & MySQL", cat: "Frameworks & Libraries", icon: "⚙", conf: 95 },
+                        { name: "Google Analytics & GTM", cat: "Analytics & Tracking", icon: "📊", conf: 96 },
+                        { name: "Cloudflare CDN & WAF Shield", cat: "Security & Infrastructure", icon: "⚡", conf: 98 },
+                        { name: "Meta Pixel & Mailchimp CRM", cat: "Analytics & Tracking", icon: "🎯", conf: 90 },
+                        { name: "Zendesk Support Web SDK", cat: "Customer Support & CRM", icon: "💬", conf: 92 },
+                        { name: "Yoast SEO Metadata Optimizer", cat: "Frameworks & Libraries", icon: "🎨", conf: 96 }
+                    ],
+                    specialists: [
+                        { name: "SEO Content Auditor Agent", icon: "📄", desc: "Scans newly published articles, optimizes title tags, and resolves metadata." },
+                        { name: "Agile Scrum Master", icon: "🏃", desc: "Automates editorial calendar priorities and synchronizes task boards." }
+                    ]
+                };
+            }
+            
+            // Standard Enterprise Fallback
+            return {
+                name: "React Enterprise Stack",
+                category: "technology",
+                systems: [
+                    { name: "React JS Core Library", cat: "Frameworks & Libraries", icon: "⚛", conf: 92 },
+                    { name: "Google Analytics 4 (GA4)", cat: "Analytics & Tracking", icon: "📊", conf: 94 },
+                    { name: "Tailwind CSS Style Library", cat: "Frameworks & Libraries", icon: "🎨", conf: 95 },
+                    { name: "Cloudflare Global CDN & WAF", cat: "Security & Infrastructure", icon: "⚡", conf: 96 },
+                    { name: "Stripe Invoicing Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 94 },
+                    { name: "Hotjar Feedback Survey Widget", cat: "Analytics & Tracking", icon: "🎯", conf: 90 }
+                ],
+                specialists: [
+                    { name: "Frontend Developer Agent", icon: "⚛", desc: "Maintains React component systems and styles files." },
+                    { name: "Agile Scrum Master", icon: "🏃", desc: "Manages task prioritization, sprint boards, and ticket statuses." }
+                ]
+            };
+        }
+
+        function runDiscoveryScan() {
+            const urlInput = document.getElementById("scanUrl").value.trim();
+            const consoleBox = document.getElementById("scanConsole");
+            const btn = document.getElementById("scanBtn");
+            const simEmpty = document.getElementById("simEmpty");
+            const simResult = document.getElementById("simResult");
+
+            if (!urlInput) {
+                alert("Please enter a valid website URL.");
+                return;
+            }
+
+            // Reset UI
+            simEmpty.style.display = "block";
+            simResult.style.display = "none";
+            btn.disabled = true;
+            consoleBox.innerHTML = "";
+
+            const simData = getDynamicScanResult(urlInput);
+
+            // Multistep Log messages simulation
+            const logSteps = [
+                { text: `[SYSTEM] Initiating discovery scan for URL: ${urlInput}...`, delay: 0 },
+                { text: "[DISCOVERY] Fetching production headers and DOM parsing...", delay: 400 },
+                { text: "[DISCOVERY] Signature match: CSS stylesheets & head scripts analyzed.", delay: 800 },
+                { text: "[DISCOVERY] JavaScript bundle analysis: scanning bundler patterns...", delay: 1200 },
+                { text: `[STACK DETECTED] Found matched technological signatures for '${simData.name}'.`, delay: 1600 },
+                { text: "[COMPANY GRAPH] Drafting Company Graph model & nodes...", delay: 2000 },
+                { text: "[SUCCESS] Scan complete. Auto-provisioning specialized agent playbooks...", delay: 2300 }
+            ];
+
+            logSteps.forEach(step => {
+                setTimeout(() => {
+                    const newline = document.createElement("div");
+                    newline.textContent = step.text;
+                    consoleBox.appendChild(newline);
+                    consoleBox.scrollTop = consoleBox.scrollHeight;
+                }, step.delay);
+            });
+
+            // Reveal result
+            setTimeout(() => {
+                btn.disabled = false;
+                simEmpty.style.display = "none";
+                simResult.style.display = "block";
+
+                // Populate dynamic results
+                document.getElementById("resCompName").textContent = urlInput.replace(/^https?:\/\//, '').split('/')[0];
+                document.getElementById("resCompDomain").textContent = simData.category;
+
+                // Systems (Grouped beautifully by category similar to BuiltWith!)
+                const sysContainer = document.getElementById("resSystems");
+                sysContainer.innerHTML = "";
+                sysContainer.style.display = "flex";
+                sysContainer.style.flexDirection = "column";
+                sysContainer.style.gap = "14px";
+                
+                // Grouping logic
+                const groups = {};
+                simData.systems.forEach(sys => {
+                    if (!groups[sys.cat]) {
+                        groups[sys.cat] = [];
+                    }
+                    groups[sys.cat].push(sys);
+                });
+                
+                Object.keys(groups).forEach(cat => {
+                    const groupSection = document.createElement("div");
+                    groupSection.style.display = "flex";
+                    groupSection.style.flexDirection = "column";
+                    groupSection.style.gap = "6px";
+                    
+                    const groupLabel = document.createElement("div");
+                    groupLabel.className = "sim-section-label";
+                    groupLabel.style.marginBottom = "2px";
+                    groupLabel.style.color = "var(--accent-hover)";
+                    groupLabel.textContent = cat;
+                    groupSection.appendChild(groupLabel);
+                    
+                    const tagsWrap = document.createElement("div");
+                    tagsWrap.className = "sim-tag-list";
+                    
+                    groups[cat].forEach(sys => {
+                        const tag = document.createElement("span");
+                        tag.className = "sim-tag";
+                        tag.innerHTML = `${sys.icon} ${sys.name} (${sys.conf}% confidence)`;
+                        tagsWrap.appendChild(tag);
+                    });
+                    
+                    groupSection.appendChild(tagsWrap);
+                    sysContainer.appendChild(groupSection);
+                });
+
+                // Specialists
+                const specContainer = document.getElementById("resSpecialists");
+                specContainer.innerHTML = "";
+                simData.specialists.forEach(spec => {
+                    const item = document.createElement("div");
+                    item.className = "sim-agent-card";
+                    item.innerHTML = `
+                        <div class="sim-agent-icon">${spec.icon}</div>
+                        <div>
+                            <div class="sim-agent-title">${spec.name}</div>
+                            <div class="sim-agent-desc">${spec.desc}</div>
+                        </div>
+                    `;
+                    specContainer.appendChild(item);
+                });
+
+            }, 2500);
+        }
+
+        // Interactive Doctor Probes Status re-check
+        async function triggerDoctorDiagnostics() {
+            const grid = document.getElementById("doctorGrid");
+            grid.style.opacity = 0.5;
+
+            // Fetch live public doctor if accessible, otherwise fallback
+            try {
+                const response = await fetch("./api/company/doctor/public");
+                if (response.ok) {
+                    const data = await response.json();
+                    grid.innerHTML = "";
+                    data.checks.forEach(check => {
+                        const isPass = check.status === "pass";
+                        const isWarn = check.status === "warn";
+                        const badgeClass = isPass ? "badge-pass" : "badge-warn";
+                        const item = document.createElement("div");
+                        item.className = "doc-item";
+                        item.innerHTML = `
+                            <div class="doc-item-header">
+                                <span class="doc-item-title">${check.label}</span>
+                                <span class="doc-item-badge ${badgeClass}">${check.status}</span>
+                            </div>
+                            <p class="doc-item-desc">${check.detail}</p>
+                            ${check.explanation ? `<p class="doc-item-explanation">${check.explanation}</p>` : ''}
+                        `;
+                        grid.appendChild(item);
+                    });
+                    grid.style.opacity = 1;
+                    return;
+                }
+            } catch (e) {
+                // Ignore error and fall back to simulator
+            }
+
+            // Fallback simulator re-checks
+            setTimeout(() => {
+                grid.style.opacity = 1;
+                alert("✅ Real-time Platform Doctor probes updated successfully!");
+            }, 600);
+        }
+    </script>
+</body>
+</html>

@@ -34,6 +34,8 @@ COPY version.py version.py
 COPY activation.py activation.py
 COPY activation_api.py activation_api.py
 COPY infra_cost.py infra_cost.py
+COPY models/ models/
+COPY services/ services/
 
 EXPOSE 8001
 

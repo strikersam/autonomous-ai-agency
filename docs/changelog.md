@@ -1,6 +1,21 @@
 ## [Unreleased]
 
 ### Fixed
+- **PR #271 CodeRabbit review — CI/CD YAML fixes.** `ci.yml` pytest command was at wrong indentation (column 0 instead of 10) making the workflow invalid. `e2e.yml` had `STORAGE_BACKEND: sqlite` outside the `env:` mapping, breaking the job entirely.
+- **PR #271 CodeRabbit review — shell injection in `apply_review.py`.** Replaced `subprocess.run(cmd, shell=True)` + `# nosec B602` suppression with `shlex.split(cmd)` + `shell=False` to properly eliminate the command-injection risk.
+- **PR #271 CodeRabbit review — `CompanyGraphResponse` missing fields.** Added `company_id` and `completeness_score` fields so handlers that construct this response don't raise a Pydantic validation error.
+- **PR #271 CodeRabbit review — `SpecialistListResponse` missing `limit`/`offset` fields.** Added pagination fields to match what the list-specialists handler returns.
+- **PR #271 CodeRabbit review — `company_graph_store.py` backend alias.** Default env value `"mongo"` was not matched by the `"mongodb"` branch check. Normalised both to `"mongodb"` and added explicit `ValueError` for unknown backends.
+- **PR #271 CodeRabbit review — `scanner.py` provider values.** `_detect_provider` returned `"azure"` and `"unknown"` which are not valid `Repo.provider` literals. Fixed to `"azure_devops"` and `"other"`.
+- **PR #271 CodeRabbit review — `company_api.py` missing service imports.** `get_company_graph_service`, `get_specialist_service`, and `get_onboarding_service` were called but never imported. Added proper imports.
+- **PR #271 CodeRabbit review — `company_api.py` free-function scan calls.** `scan_website(...)` and `scan_repo(...)` were called as free functions; replaced with `WebsiteScanner(...).scan_website(...)` and `RepoScanner(...).scan_repo(...)`.
+- **PR #271 CodeRabbit review — `/scan/repo` wrong response model.** Endpoint declared `response_model=WebsiteScanResult` but returned a `RepoScanResult`. Fixed to `response_model=RepoScanResult`.
+- **PR #271 CodeRabbit review — `OnboardingProgressResponse` extra-field error.** Replaced the bare alias `OnboardingProgressResponse = OnboardingProgress` (which has `extra="forbid"`) with a proper subclass that adds a `message` field.
+- **PR #271 CodeRabbit review — `pause_onboarding` missing service method.** `OnboardingService` had no `pause_onboarding` method. Implemented it to set `onboarding_status="paused"` on the company and return `OnboardingProgress` with `status="paused"`.
+- **PR #271 CodeRabbit review — specialist endpoint API mismatches.** `count_specialists` (non-existent) replaced with `len(specialists)`. `provision_specialist` now passes the `SpecialistProvisionRequest` object directly. `get_specialists_for_task` no longer passes the non-existent `task_description=` kwarg.
+
+### Fixed
+- **Agency Core v5 Company Graph — fix import NameError.** `backend/company_api.py` had all model imports commented out with a placeholder comment, causing `NameError: name 'Company' is not defined` at module load time. This broke server startup, all Python tests, and the E2E suite. Uncommented the `models.company_graph` import block, added `from services.company_graph_store import get_company_graph_store`, added `status` to the FastAPI imports, and aliased `OnboardingProgressResponse = OnboardingProgress` (the canonical model already carries all required fields).
 - **Doctor page 404 on production.** `DoctorScreen.jsx` was using `REACT_APP_API_URL` (always `undefined` in the GitHub Pages build) instead of `REACT_APP_BACKEND_URL`. Requests were hitting the Pages domain instead of the Render backend. Also added `version.py` to the `deploy-backend.yml` path trigger list so changes to the version SSOT correctly trigger a Render redeploy.
 - **Render deploy fix.** `Dockerfile.backend` was missing `COPY version.py version.py`, causing `ModuleNotFoundError: No module named 'version'` on every deploy since the version SSOT refactor.
 
@@ -96,6 +111,10 @@
 - `scripts/enrich_quick_note_issues.py`: new automation script that finds all open GitHub quick-note issues and posts a standardized "LLM Implementation Context" comment to each issue, with repo constraints (`CLAUDE.md`, testing, changelog, risky-path guidance) to reduce low-signal implementations when source URLs are inaccessible. Supports `--dry-run` and skips issues that already contain the context marker.
 
 ### Added
+- `.github/workflows/enrich-quick-note-context.yml`: new scheduled workflow (every 15 minutes) plus manual dispatch to run `scripts/enrich_quick_note_issues.py` using `GITHUB_TOKEN`, ensuring open quick-note issues continuously receive standardized LLM implementation context comments.
+- `scripts/enrich_quick_note_issues.py`: new automation script that finds all open GitHub quick-note issues and posts a standardized "LLM Implementation Context" comment to each issue, with repo constraints (`CLAUDE.md`, testing, changelog, risky-path guidance) to reduce low-signal implementations when source URLs are inaccessible. Supports `--dry-run` and skips issues that already contain the context marker.
+
+### Added
 - **Phase 4 — Runtime resilience:**
 - `tasks/store.py`: `TaskStore.reconcile_stranded_tasks(active_task_ids, stale_threshold_s)` —
   re-queues tasks left stranded IN_PROGRESS by a prior server crash or hard-kill.
@@ -173,7 +192,6 @@
   Comment reference in `agent/quick_note.py` updated.
 - `tests/test_control_plane_api.py`: removed duplicate `/api/routing/*` test section
   (routing/ deleted); schedule tests retained.
-## [Unreleased]
 
 ### Added
 - `infra_cost.py`: added to `Dockerfile.backend` COPY statements and `deploy-backend.yml`
@@ -197,7 +215,6 @@
 - `README.md`: full rewrite — covers the autonomous agency product story, onboarding
   flow (5 steps), all 14 V5 screens, architecture diagram, full config reference,
   deployment guide, security posture, and roadmap phases 1-7.
-## [Unreleased]
 
 ### Added
 - `Dockerfile.backend`: added `COPY activation.py` and `COPY activation_api.py` —

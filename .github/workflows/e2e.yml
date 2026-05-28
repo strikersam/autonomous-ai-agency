@@ -20,25 +20,11 @@ jobs:
   e2e:
     name: End-to-end live server
     runs-on: ubuntu-latest
-
-    services:
-      mongodb:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 15
-
     env:
-      # Server configuration — these are CI-only, not production secrets
-      MONGO_URL: mongodb://localhost:27017
-      DB_NAME: llm_relay_e2e
+      STORAGE_BACKEND: sqlite
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
-      ADMIN_PASSWORD: E2EAdmin2026!
+      ADMIN_PASSWORD: WikiAdmin2026!
       SECRET_KEY: e2e-ci-secret-do-not-use-in-production
       OLLAMA_BASE: http://localhost:11434
       LANGFUSE_SECRET_KEY: ""
@@ -62,14 +48,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt httpx
-
-      - name: Wait for MongoDB
-        run: |
-          for i in {1..30}; do
-            nc -z localhost 27017 && echo "✓ MongoDB ready" && exit 0
-            echo "Waiting for MongoDB... ($i/30)"; sleep 2
-          done
-          echo "::error::MongoDB did not become reachable"; exit 1
 
       - name: Start local-llm-server (background)
         run: |
