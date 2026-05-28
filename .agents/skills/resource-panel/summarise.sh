@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # summarise.sh — resource-panel skill
 # Generates a resource panel from current git working tree state
-# Usage: bash .claude/skills/resource-panel/summarise.sh [base_ref]
+# Usage: bash .agents/skills/resource-panel/summarise.sh [base_ref]
 
 BASE_REF="${1:-HEAD}"
 
