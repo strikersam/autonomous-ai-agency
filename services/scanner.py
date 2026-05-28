@@ -43,30 +43,44 @@ import socket
 from urllib.parse import urlparse
 
 
+def _resolve_and_validate(hostname: str) -> Optional[str]:
+    """
+    Resolve hostname to an IP, validate it is not private/loopback/link-local,
+    and return the validated IP string.  Returns None if the host is unsafe or
+    unresolvable.  Callers should connect to this IP (with a Host header) so the
+    same address that was validated is the one actually used — preventing DNS
+    rebinding attacks.
+    """
+    try:
+        if not hostname:
+            return None
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            return None
+        if hostname.endswith(".local") or hostname.endswith(".internal"):
+            return None
+        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _family, _, _, _, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return None
+            return str(ip)  # return first safe IP
+    except (socket.gaierror, ValueError):
+        return None
+    return None
+
+
 def _is_safe_url(url: str) -> bool:
     """Block SSRF: reject loopback, link-local, private, and non-HTTP schemes."""
     try:
         parsed = urlparse(url)
-        # Only allow http/https
         if parsed.scheme not in ("http", "https"):
             return False
         hostname = parsed.hostname
         if not hostname:
             return False
-        # Block obvious internal hostnames
-        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-            return False
-        if hostname.endswith(".local") or hostname.endswith(".internal"):
-            return False
-        # Resolve and check IP ranges
-        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        for family, _, _, _, sockaddr in resolved:
-            ip = ipaddress.ip_address(sockaddr[0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                return False
+        return _resolve_and_validate(hostname) is not None
     except (socket.gaierror, ValueError):
         return False
-    return True
 
 
 def _hostname_is(url: str, domain: str) -> bool:
@@ -97,7 +111,7 @@ def _content_contains_domain(content: str, *domains: str) -> bool:
 # Anything not listed falls back to "custom" (a valid SystemType).
 _BUILTWITH_CATEGORY_MAP: Dict[str, str] = {
     "cms": "CMS",
-    "ecommerce": "CMS",
+    "ecommerce": "ecommerce",
     "blogs": "CMS",
     "wikis": "CMS",
     "message-boards": "CMS",
@@ -174,37 +188,75 @@ class WebsiteScanner:
             status_code = 0
             fetch_error: Optional[str] = None
 
-            # Redirects are disabled so a public URL cannot bounce the request to an
-            # internal/link-local address that bypasses the SSRF check above.
-            try:
-                import curl_cffi.requests
-                async with curl_cffi.requests.AsyncSession(impersonate="chrome120", timeout=self.timeout) as client:
-                    response = await client.get(_safe_url, allow_redirects=False)
-                    html = response.text
-                    headers = response.headers
-                    cookies = response.cookies
-                    status_code = response.status_code
-            except Exception as curl_e:
-                log.warning(f"curl_cffi failed, falling back to httpx: {curl_e}")
-                async with httpx.AsyncClient(
-                    timeout=self.timeout,
-                    follow_redirects=False,
-                    max_redirects=self.max_redirects,
-                    headers={
-                        "User-Agent": self.user_agent,
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                        "Accept-Language": "en-US,en;q=0.9",
-                    }
-                ) as client:
-                    try:
-                        response = await client.get(_safe_url)
+            # Redirects are followed manually so every hop is validated by the SSRF
+            # guard before connecting — this prevents a public URL from bouncing the
+            # request to an internal/link-local address that bypasses the check above.
+            # We also pin the resolved IP for each hop to prevent DNS rebinding.
+            fetch_url = _safe_url
+            for _redirect_hop in range(self.max_redirects + 1):
+                hop_parsed = urlparse(fetch_url)
+                hop_hostname = hop_parsed.hostname or ""
+                pinned_ip = _resolve_and_validate(hop_hostname)
+                if pinned_ip is None:
+                    fetch_error = f"Blocked: {hop_hostname} resolves to a private/unsafe address"
+                    log.warning(fetch_error)
+                    break
+
+                # Build a URL that connects to the pinned IP but preserves the Host header
+                pinned_url = fetch_url.replace(hop_hostname, pinned_ip, 1)
+                host_header = hop_hostname
+
+                try:
+                    import curl_cffi.requests
+                    async with curl_cffi.requests.AsyncSession(impersonate="chrome120", timeout=self.timeout) as client:
+                        response = await client.get(pinned_url, allow_redirects=False, headers={"Host": host_header})
                         html = response.text
                         headers = response.headers
                         cookies = response.cookies
                         status_code = response.status_code
-                    except Exception as e:
-                        fetch_error = str(e)
-                        log.error(f"HTTPX failed: {e}")
+                except Exception as curl_e:
+                    log.warning(f"curl_cffi failed, falling back to httpx: {curl_e}")
+                    async with httpx.AsyncClient(
+                        timeout=self.timeout,
+                        follow_redirects=False,
+                        headers={
+                            "Host": host_header,
+                            "User-Agent": self.user_agent,
+                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                            "Accept-Language": "en-US,en;q=0.9",
+                        }
+                    ) as client:
+                        try:
+                            response = await client.get(pinned_url)
+                            html = response.text
+                            headers = response.headers
+                            cookies = response.cookies
+                            status_code = response.status_code
+                        except Exception as e:
+                            fetch_error = str(e)
+                            log.error(f"HTTPX failed: {e}")
+                            break
+
+                # Follow safe redirects manually
+                if status_code in (301, 302, 303, 307, 308):
+                    location = dict(headers).get("location") or dict(headers).get("Location")
+                    if not location:
+                        break
+                    # Resolve relative redirects
+                    if location.startswith("/"):
+                        p = urlparse(fetch_url)
+                        location = f"{p.scheme}://{p.netloc}{location}"
+                    # SSRF-validate the redirect target before following
+                    if not _is_safe_url(location):
+                        log.warning(f"Blocked redirect to unsafe URL: {location}")
+                        break
+                    fetch_url = location
+                    html = ""
+                    headers = {}
+                    cookies = {}
+                    status_code = 0
+                else:
+                    break
 
             # If both the primary (curl_cffi) and fallback (httpx) clients failed to
             # reach the host, surface the failure instead of returning a spurious
@@ -514,7 +566,11 @@ class WebsiteScanner:
         # Using a fast httpx fallback just for quick sitemaps
         sitemap_urls = []
         try:
-            robots_url = f"{base_url.rstrip('/')}/robots.txt"
+            # Always fetch robots.txt from the site origin (scheme + netloc), not from
+            # the requested page path — otherwise a non-root URL like
+            # https://example.com/blog/post would probe /blog/post/robots.txt.
+            _parsed_base = urlparse(base_url)
+            robots_url = f"{_parsed_base.scheme}://{_parsed_base.netloc}/robots.txt"
             if not _is_safe_url(robots_url):
                 return []
             async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
