@@ -94,26 +94,18 @@ def _content_contains_domain(content: str, *domains: str) -> bool:
 
 class WebsiteScanner:
     """
-    Scanner for detecting technology stack and systems from websites.
+    Advanced Scanner for detecting technology stack and systems from websites.
     
     Capabilities:
-    - Detect CMS (Shopify, WordPress, etc.)
-    - Detect frameworks (React, Vue, Angular, etc.)
-    - Detect analytics (Google Analytics, etc.)
-    - Detect payment gateways
-    - Detect other business systems
+    - BuiltWith-level DNS analysis (MX, NS, TXT) for email, hosting, marketing, and security platforms.
+    - Deep HTML, Header, and Cookie analysis for CMS, frameworks, analytics, and CDNs.
+    - Anti-bot evasion using modern headers.
     """
 
     def __init__(self, company_id: Optional[str] = None):
-        """
-        Initialize the website scanner.
-        
-        Args:
-            company_id: Optional company ID for context
-        """
         self.company_id = company_id
-        self.user_agent = "AgencyCore/1.0 (Company Graph Scanner)"
-        self.timeout = 30.0
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        self.timeout = 15.0
         self.max_redirects = 5
 
     async def scan_website(
@@ -123,27 +115,14 @@ class WebsiteScanner:
         include_sitemap: bool = True,
         max_pages: int = 20
     ) -> WebsiteScanResult:
-        """
-        Scan a website and detect its technology stack.
-        
-        Args:
-            website_url: URL of the website to scan
-            scan_depth: Depth of scan ("shallow", "standard", "deep")
-            include_sitemap: Whether to include sitemap discovery
-            max_pages: Maximum number of pages to scan
-            
-        Returns:
-            WebsiteScanResult with detected systems and stack inference
-        """
+        import dns.resolver
         scan_id = f"scan_{secrets.token_hex(8)}"
         started_at = datetime.utcnow()
         
         try:
-            # Normalize URL
             if not website_url.startswith(("http://", "https://")):
                 website_url = f"https://{website_url}"
             
-            # SSRF protection: validate URL and rebuild from parsed components
             parsed = urlparse(website_url)
             if parsed.scheme not in ("http", "https"):
                 return WebsiteScanResult(
@@ -151,753 +130,310 @@ class WebsiteScanner:
                     status="failed", errors=["Blocked: only http/https schemes allowed"],
                     started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
                 )
-            # Rebuild URL from parsed components to strip any injected credentials
+            
             _safe_url = parsed._replace(fragment="").geturl()
+            domain = parsed.hostname.replace('www.', '') if parsed.hostname else ""
 
-            if not _is_safe_url(_safe_url):
-                return WebsiteScanResult(
-                    scan_id=scan_id, website_url=website_url, company_id=self.company_id,
-                    status="failed", errors=["Blocked: target resolves to private/internal network"],
-                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
-                )
+            # 1. DNS Analysis (BuiltWith-level off-site detection)
+            dns_systems = self._analyze_dns(domain)
 
-            # Fetch the homepage
-            async with httpx.AsyncClient(
-                timeout=self.timeout,
-                follow_redirects=False,
-                max_redirects=self.max_redirects,
-                headers={"User-Agent": self.user_agent}
-            ) as client:
-                try:
-                    response = await client.get(_safe_url)
-                    response.raise_for_status()
+            # 2. On-Site Analysis
+            html = ""
+            headers = {}
+            cookies = {}
+            status_code = 0
+            
+            try:
+                import curl_cffi.requests
+                async with curl_cffi.requests.AsyncSession(impersonate="chrome120", timeout=self.timeout) as client:
+                    response = await client.get(_safe_url, allow_redirects=True)
                     html = response.text
+                    headers = response.headers
+                    cookies = response.cookies
                     status_code = response.status_code
-                except httpx.HTTPStatusError as e:
-                    return WebsiteScanResult(
-                        scan_id=scan_id,
-                        website_url=website_url,
-                        company_id=self.company_id,
-                        status="failed",
-                        errors=[f"HTTP error: {e.response.status_code}"],
-                        started_at=started_at.isoformat(),
-                        completed_at=datetime.utcnow().isoformat()
-                    )
-                except httpx.RequestError as e:
-                    return WebsiteScanResult(
-                        scan_id=scan_id,
-                        website_url=website_url,
-                        company_id=self.company_id,
-                        status="failed",
-                        errors=[f"Request error: {str(e)}"],
-                        started_at=started_at.isoformat(),
-                        completed_at=datetime.utcnow().isoformat()
-                    )
-                
-                # Parse HTML
-                soup = BeautifulSoup(html, 'html.parser')
-                
-                # Detect systems
-                detected_systems = await self._detect_systems(soup, website_url)
-                
-                # Infer stack
-                stack_inference = await self._infer_stack(soup, html, website_url)
-                
-                # Discover sitemap if requested
-                sitemap_urls = []
-                if include_sitemap:
-                    sitemap_urls = await self._discover_sitemap(soup, website_url, client)
-                
-                # Count pages scanned
-                pages_scanned = 1 + len(sitemap_urls) if sitemap_urls else 1
-                
-                completed_at = datetime.utcnow()
-                
-                return WebsiteScanResult(
-                    scan_id=scan_id,
-                    website_url=website_url,
-                    company_id=self.company_id,
-                    status="success",
-                    inferred_stack=stack_inference,
-                    detected_systems=detected_systems,
-                    pages_scanned=pages_scanned,
-                    sitemap_urls=sitemap_urls,
-                    started_at=started_at.isoformat(),
-                    completed_at=completed_at.isoformat()
-                )
+            except Exception as curl_e:
+                log.warning(f"curl_cffi failed, falling back to httpx: {curl_e}")
+                async with httpx.AsyncClient(
+                    timeout=self.timeout,
+                    follow_redirects=True,
+                    max_redirects=self.max_redirects,
+                    headers={
+                        "User-Agent": self.user_agent,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                    }
+                ) as client:
+                    try:
+                        response = await client.get(_safe_url)
+                        html = response.text
+                        headers = response.headers
+                        cookies = response.cookies
+                        status_code = response.status_code
+                    except Exception as e:
+                        log.error(f"HTTPX failed: {e}")
+
+            # Even if we get a 403, we still analyze headers and DNS!
+            soup = BeautifulSoup(html, 'html.parser') if html else BeautifulSoup("", 'html.parser')
+            
+            # Combine detected systems
+            html_systems = await self._detect_systems(soup, html, headers, cookies, website_url)
+            
+            all_systems_map = {sys.name: sys for sys in html_systems}
+            for dns_sys in dns_systems:
+                if dns_sys.name in all_systems_map:
+                    if dns_sys.confidence > all_systems_map[dns_sys.name].confidence:
+                        all_systems_map[dns_sys.name] = dns_sys
+                else:
+                    all_systems_map[dns_sys.name] = dns_sys
+                    
+            detected_systems = list(all_systems_map.values())
+            
+            stack_inference = await self._infer_stack(soup, html, headers, website_url)
+            
+            # 3. Sitemap discovery
+            sitemap_urls = []
+            if include_sitemap and html and status_code < 400:
+                sitemap_urls = await self._discover_sitemap(soup, website_url)
+            
+            pages_scanned = 1 + len(sitemap_urls) if sitemap_urls else 1
+            completed_at = datetime.utcnow()
+            
+            return WebsiteScanResult(
+                scan_id=scan_id, website_url=website_url, company_id=self.company_id, status="success",
+                inferred_stack=stack_inference, detected_systems=detected_systems, pages_scanned=pages_scanned,
+                sitemap_urls=sitemap_urls, started_at=started_at.isoformat(), completed_at=completed_at.isoformat()
+            )
                 
         except Exception as e:
             log.error(f"Error scanning website {website_url}: {e}")
             return WebsiteScanResult(
-                scan_id=scan_id,
-                website_url=website_url,
-                company_id=self.company_id,
-                status="failed",
-                errors=[str(e)],
-                started_at=started_at.isoformat(),
-                completed_at=datetime.utcnow().isoformat()
+                scan_id=scan_id, website_url=website_url, company_id=self.company_id, status="failed",
+                errors=[str(e)], started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
             )
 
-    async def _detect_systems(
-        self,
-        soup: BeautifulSoup,
-        url: str
-    ) -> List[DetectedSystem]:
-        """
-        Detect business systems from HTML content with Wappalyzer-grade signature parsing
-        and dynamic LLM-assisted verification.
-        """
-        systems_map = {}
-        soup_str = str(soup).lower()
+    def _analyze_dns(self, domain: str) -> List[DetectedSystem]:
+        import dns.resolver
+        systems = []
         
-        # ── 1. High-Fidelity Rule-Based Signature Matching ────────────────────
-        
-        # Shopify
-        if 'shopify' in soup_str or _hostname_contains(url, 'myshopify.com') or 'cdn.shopify.com' in soup_str:
-            systems_map["shopify"] = DetectedSystem(
-                system_type="CMS",
-                name="Shopify",
-                confidence=0.98,
-                evidence=[Evidence(type="script", value="cdn.shopify.com", location="html", confidence=0.98)]
-            )
+        if not domain:
+            return systems
             
-        # WooCommerce
-        if 'woocommerce' in soup_str or 'wp-content/plugins/woocommerce' in soup_str:
-            systems_map["woocommerce"] = DetectedSystem(
-                system_type="CMS",
-                name="WooCommerce",
-                confidence=0.95,
-                evidence=[Evidence(type="path", value="woocommerce plugins path", location="html", confidence=0.95)]
-            )
-            
-        # WordPress
-        if 'wp-content' in soup_str or 'wordpress' in soup_str:
-            systems_map["wordpress"] = DetectedSystem(
-                system_type="CMS",
-                name="WordPress",
-                confidence=0.95,
-                evidence=[Evidence(type="path", value="/wp-content/", location="html", confidence=0.95)]
-            )
-            
-        # Wix
-        if 'wix.com' in soup_str or 'wix-code' in soup_str:
-            systems_map["wix"] = DetectedSystem(
-                system_type="CMS",
-                name="Wix",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="wix-code", location="html", confidence=0.95)]
-            )
+        def add_sys(sys_id, sys_type, name, conf, ev_type, ev_val):
+            systems.append(DetectedSystem(
+                system_type=sys_type, name=name, confidence=conf,
+                evidence=[Evidence(type=ev_type, value=ev_val, location="DNS", confidence=conf)]
+            ))
 
-        # Webflow
-        if 'webflow' in soup_str or 'data-wf-page' in soup_str:
-            systems_map["webflow"] = DetectedSystem(
-                system_type="CMS",
-                name="Webflow",
-                confidence=0.95,
-                evidence=[Evidence(type="attribute", value="data-wf-page", location="html", confidence=0.95)]
-            )
-
-        # Contentful headless CMS
-        if 'contentful' in soup_str or 'images.ctfassets.net' in soup_str:
-            systems_map["contentful"] = DetectedSystem(
-                system_type="CMS",
-                name="Contentful CMS",
-                confidence=0.92,
-                evidence=[Evidence(type="header", value="images.ctfassets.net", location="html", confidence=0.92)]
-            )
-
-        # SAP Commerce Cloud / Hybris
-        if 'hybris' in soup_str or 'v-bind:hybris' in soup_str:
-            systems_map["hybris"] = DetectedSystem(
-                system_type="OMS",
-                name="SAP Commerce Cloud",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="hybris attributes", location="html", confidence=0.95)]
-            )
-
-        # Salesforce Commerce Cloud (Demandware)
-        if 'dwvar_' in soup_str or 'demandware' in soup_str:
-            systems_map["demandware"] = DetectedSystem(
-                system_type="OMS",
-                name="Salesforce Commerce Cloud",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="dwvar_ variables", location="html", confidence=0.95)]
-            )
-
-        # React Framework
-        if 'react' in soup_str or '__next' in soup_str or '___gatsby' in soup_str:
-            systems_map["react"] = DetectedSystem(
-                system_type="custom",
-                name="Next.js + React",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="React DOM fiber", location="html", confidence=0.95)]
-            )
-
-        # Stripe Payments
-        if 'js.stripe.com' in soup_str or 'stripe' in soup_str:
-            systems_map["stripe"] = DetectedSystem(
-                system_type="payment_gateway",
-                name="Stripe Payments",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="js.stripe.com", location="html", confidence=0.95)]
-            )
-
-        # Google Analytics (GA4) / GTM
-        if 'googletagmanager.com' in soup_str or 'google-analytics.com' in soup_str:
-            systems_map["gtm_analytics"] = DetectedSystem(
-                system_type="analytics",
-                name="GTM + GA4",
-                confidence=0.98,
-                evidence=[Evidence(type="script", value="googletagmanager.com", location="html", confidence=0.98)]
-            )
-
-        # Adobe Analytics
-        if 'adobe' in soup_str or 'visitorapi.js' in soup_str:
-            systems_map["adobe_analytics"] = DetectedSystem(
-                system_type="analytics",
-                name="Adobe Analytics",
-                confidence=0.90,
-                evidence=[Evidence(type="script", value="visitorapi.js", location="html", confidence=0.90)]
-            )
-
-        # Klaviyo Marketing
-        if 'klaviyo' in soup_str or 'fast.klaviyo.com' in soup_str:
-            systems_map["klaviyo"] = DetectedSystem(
-                system_type="email_service",
-                name="Klaviyo CRM",
-                confidence=0.92,
-                evidence=[Evidence(type="script", value="fast.klaviyo.com", location="html", confidence=0.92)]
-            )
-
-        # Gorgias Customer Support
-        if 'gorgias' in soup_str or 'gorgias-chat' in soup_str:
-            systems_map["gorgias"] = DetectedSystem(
-                system_type="support",
-                name="Gorgias Helpdesk",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="gorgias-chat loader", location="html", confidence=0.95)]
-            )
-
-        # Salesforce Concierge
-        if 'liveagent' in soup_str or 'salesforce-chat' in soup_str:
-            systems_map["salesforce_service"] = DetectedSystem(
-                system_type="support",
-                name="Salesforce Service Cloud",
-                confidence=0.90,
-                evidence=[Evidence(type="script", value="liveagent.js loader", location="html", confidence=0.90)]
-            )
-
-        # PayPal Checkout
-        if 'paypalobjects.com' in soup_str or 'paypal.com/sdk/js' in soup_str:
-            systems_map["paypal"] = DetectedSystem(
-                system_type="payment_gateway",
-                name="PayPal Checkout",
-                confidence=0.96,
-                evidence=[Evidence(type="script", value="paypalobjects.com / sdk/js", location="html", confidence=0.96)]
-            )
-
-        # Klarna Financing
-        if 'js.klarna.com' in soup_str or 'klarna.com' in soup_str:
-            systems_map["klarna"] = DetectedSystem(
-                system_type="billing",
-                name="Klarna Financing",
-                confidence=0.94,
-                evidence=[Evidence(type="script", value="js.klarna.com SDK", location="html", confidence=0.94)]
-            )
-
-        # Afterpay / Clearpay
-        if 'js.afterpay.com' in soup_str or 'afterpay.com' in soup_str:
-            systems_map["afterpay"] = DetectedSystem(
-                system_type="billing",
-                name="Afterpay / Clearpay",
-                confidence=0.94,
-                evidence=[Evidence(type="script", value="js.afterpay.com", location="html", confidence=0.94)]
-            )
-
-        # Affirm Buy-Now-Pay-Later
-        if 'cdn1.affirm.com' in soup_str or 'affirm.com' in soup_str:
-            systems_map["affirm"] = DetectedSystem(
-                system_type="billing",
-                name="Affirm BNPL",
-                confidence=0.94,
-                evidence=[Evidence(type="script", value="cdn1.affirm.com", location="html", confidence=0.94)]
-            )
-
-        # Adyen Payment Terminal
-        if 'checkoutshopper-live.adyen.com' in soup_str or 'adyen.com' in soup_str:
-            systems_map["adyen"] = DetectedSystem(
-                system_type="payment_gateway",
-                name="Adyen Checkout",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="checkoutshopper-live.adyen.com", location="html", confidence=0.95)]
-            )
-
-        # Shop Pay
-        if 'shop.app/pay' in soup_str or 'shopify-pay' in soup_str:
-            systems_map["shop_pay"] = DetectedSystem(
-                system_type="payment_gateway",
-                name="Shop Pay Checkout",
-                confidence=0.98,
-                evidence=[Evidence(type="script", value="shopify-pay/shop.app", location="html", confidence=0.98)]
-            )
-
-        # Facebook Pixel (Meta Pixel)
-        if 'connect.facebook.net' in soup_str or 'fbevents.js' in soup_str or 'fbq(' in soup_str:
-            systems_map["facebook_pixel"] = DetectedSystem(
-                system_type="analytics",
-                name="Meta Pixel (Facebook)",
-                confidence=0.96,
-                evidence=[Evidence(type="script", value="connect.facebook.net/fbevents.js", location="html", confidence=0.96)]
-            )
-
-        # TikTok Pixel
-        if 'analytics.tiktok.com' in soup_str or 'tiktok.com/i18n/pixel/sdk.js' in soup_str:
-            systems_map["tiktok_pixel"] = DetectedSystem(
-                system_type="analytics",
-                name="TikTok Pixel",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="analytics.tiktok.com SDK", location="html", confidence=0.95)]
-            )
-
-        # Pinterest Tag
-        if 'ct.pinterest.com' in soup_str or 'pinterest.com/js/pinit.js' in soup_str:
-            systems_map["pinterest_tag"] = DetectedSystem(
-                system_type="analytics",
-                name="Pinterest Tag",
-                confidence=0.92,
-                evidence=[Evidence(type="script", value="pinterest.com SDK", location="html", confidence=0.92)]
-            )
-
-        # Hotjar Heatmaps
-        if 'static.hotjar.com' in soup_str or 'hotjar-' in soup_str:
-            systems_map["hotjar"] = DetectedSystem(
-                system_type="analytics",
-                name="Hotjar Heatmaps",
-                confidence=0.94,
-                evidence=[Evidence(type="script", value="static.hotjar.com loader", location="html", confidence=0.94)]
-            )
-
-        # Microsoft Clarity
-        if 'www.clarity.ms' in soup_str or 'clarity.js' in soup_str:
-            systems_map["clarity"] = DetectedSystem(
-                system_type="analytics",
-                name="Microsoft Clarity",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="www.clarity.ms loader", location="html", confidence=0.95)]
-            )
-
-        # HubSpot Analytics & Tracking
-        if 'js.hs-scripts.com' in soup_str or 'hs-analytics' in soup_str:
-            systems_map["hubspot"] = DetectedSystem(
-                system_type="analytics",
-                name="HubSpot Analytics",
-                confidence=0.94,
-                evidence=[Evidence(type="script", value="js.hs-scripts.com Tracking", location="html", confidence=0.94)]
-            )
-
-        # Crazy Egg Heatmaps
-        if 'script.crazyegg.com' in soup_str or 'crazyegg.js' in soup_str:
-            systems_map["crazyegg"] = DetectedSystem(
-                system_type="analytics",
-                name="Crazy Egg Heatmaps",
-                confidence=0.92,
-                evidence=[Evidence(type="script", value="script.crazyegg.com", location="html", confidence=0.92)]
-            )
-
-        # Segment Tag Manager
-        if 'cdn.segment.com' in soup_str or 'analytics.js' in soup_str:
-            systems_map["segment"] = DetectedSystem(
-                system_type="analytics",
-                name="Segment Segment Tag Manager",
-                confidence=0.94,
-                evidence=[Evidence(type="script", value="cdn.segment.com / analytics.js", location="html", confidence=0.94)]
-            )
-
-        # Amplitude Analytics
-        if 'cdn.amplitude.com' in soup_str or 'amplitude.js' in soup_str:
-            systems_map["amplitude"] = DetectedSystem(
-                system_type="analytics",
-                name="Amplitude Analytics",
-                confidence=0.92,
-                evidence=[Evidence(type="script", value="cdn.amplitude.com", location="html", confidence=0.92)]
-            )
-
-        # Mailchimp Marketing
-        if 'chimpstatic.com' in soup_str or 'mailchimp.com' in soup_str:
-            systems_map["mailchimp"] = DetectedSystem(
-                system_type="email_service",
-                name="Mailchimp CRM",
-                confidence=0.92,
-                evidence=[Evidence(type="script", value="chimpstatic.com", location="html", confidence=0.92)]
-            )
-
-        # Zendesk Help Widget
-        if 'static.zdassets.com' in soup_str or 'zendesk.com' in soup_str:
-            systems_map["zendesk"] = DetectedSystem(
-                system_type="support",
-                name="Zendesk Web Widget",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="static.zdassets.com Web SDK", location="html", confidence=0.95)]
-            )
-
-        # Intercom Conversations
-        if 'widget.intercom.io' in soup_str or 'intercomcdn.com' in soup_str:
-            systems_map["intercom"] = DetectedSystem(
-                system_type="support",
-                name="Intercom Chat",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="widget.intercom.io SDK", location="html", confidence=0.95)]
-            )
-
-        # LiveChat Widget
-        if 'accounts.livechatinc.com' in soup_str or 'livechat.js' in soup_str:
-            systems_map["livechat"] = DetectedSystem(
-                system_type="support",
-                name="LiveChat Widget",
-                confidence=0.94,
-                evidence=[Evidence(type="script", value="livechat.js loader", location="html", confidence=0.94)]
-            )
-
-        # Tawk.to Support
-        if 'embed.tawk.to' in soup_str or 'tawk.to' in soup_str:
-            systems_map["tawk_to"] = DetectedSystem(
-                system_type="support",
-                name="Tawk.to Chat",
-                confidence=0.94,
-                evidence=[Evidence(type="script", value="embed.tawk.to loader", location="html", confidence=0.94)]
-            )
-
-        # Yoast SEO
-        if 'yoast-schema-graph' in soup_str or 'yoast seo' in soup_str:
-            systems_map["yoast_seo"] = DetectedSystem(
-                system_type="custom",
-                name="Yoast SEO (WordPress)",
-                confidence=0.96,
-                evidence=[Evidence(type="meta_tag", value="yoast-schema-graph", location="html", confidence=0.96)]
-            )
-
-        # Cloudflare Rocket Loader
-        if 'rocket-loader' in soup_str or 'ajax.cloudflare.com/cdn-cgi/scripts/' in soup_str:
-            systems_map["cloudflare_rocket"] = DetectedSystem(
-                system_type="custom",
-                name="Cloudflare Rocket Loader",
-                confidence=0.98,
-                evidence=[Evidence(type="script", value="rocket-loader scripts", location="html", confidence=0.98)]
-            )
-
-        # Google Maps Widget
-        if 'maps.googleapis.com' in soup_str or 'maps.google.com' in soup_str:
-            systems_map["google_maps"] = DetectedSystem(
-                system_type="custom",
-                name="Google Maps Widget",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="maps.googleapis.com API", location="html", confidence=0.95)]
-            )
-
-        # FontAwesome Fonts
-        if 'fontawesome.com' in soup_str or 'font-awesome' in soup_str:
-            systems_map["fontawesome"] = DetectedSystem(
-                system_type="custom",
-                name="FontAwesome Icons",
-                confidence=0.95,
-                evidence=[Evidence(type="link", value="fontawesome.com stylesheet", location="html", confidence=0.95)]
-            )
-
-        # jQuery Library
-        if 'jquery.min.js' in soup_str or 'jquery-' in soup_str or 'jquery.' in soup_str:
-            systems_map["jquery"] = DetectedSystem(
-                system_type="custom",
-                name="jQuery Library",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="jquery.min.js loader", location="html", confidence=0.95)]
-            )
-
-        # Bootstrap CSS Framework
-        if 'bootstrap.min.css' in soup_str or 'bootstrap.min.js' in soup_str:
-            systems_map["bootstrap"] = DetectedSystem(
-                system_type="custom",
-                name="Bootstrap CSS",
-                confidence=0.95,
-                evidence=[Evidence(type="link", value="bootstrap.min.css", location="html", confidence=0.95)]
-            )
-
-        # Tailwind CSS
-        if 'tailwindcss' in soup_str or 'tailwind.config' in soup_str:
-            systems_map["tailwind"] = DetectedSystem(
-                system_type="custom",
-                name="Tailwind CSS",
-                confidence=0.95,
-                evidence=[Evidence(type="link", value="tailwindcss stylesheet", location="html", confidence=0.95)]
-            )
-
-        # SpeedCurve Frontend Monitoring
-        if 'speedcurve' in soup_str or 'lux.js' in soup_str:
-            systems_map["speedcurve"] = DetectedSystem(
-                system_type="analytics",
-                name="SpeedCurve Performance",
-                confidence=0.96,
-                evidence=[Evidence(type="script", value="lux.js / speedcurve monitoring", location="html", confidence=0.96)]
-            )
-
-        # Dynatrace Application Performance Monitoring (APM)
-        if 'dynatrace' in soup_str or 'ruxitagent' in soup_str:
-            systems_map["dynatrace"] = DetectedSystem(
-                system_type="custom",
-                name="Dynatrace Software Intelligence",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="ruxitagent js injection", location="html", confidence=0.95)]
-            )
-
-        # Datadog Real User Monitoring (RUM)
-        if 'datadoghq' in soup_str or 'datadog-rum' in soup_str:
-            systems_map["datadog"] = DetectedSystem(
-                system_type="analytics",
-                name="Datadog RUM",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="datadog-rum sdk", location="html", confidence=0.95)]
-            )
-
-        # OneTrust Consent / Privacy Management
-        if 'onetrust.com' in soup_str or 'optanon.com' in soup_str or 'otsdkhotlink' in soup_str:
-            systems_map["onetrust"] = DetectedSystem(
-                system_type="custom",
-                name="OneTrust Privacy Management",
-                confidence=0.98,
-                evidence=[Evidence(type="script", value="otSDKHotlink consent banner", location="html", confidence=0.98)]
-            )
-
-        # Algolia Search Engine
-        if 'algolia' in soup_str or 'algoliasearch' in soup_str:
-            systems_map["algolia"] = DetectedSystem(
-                system_type="search",
-                name="Algolia Enterprise Search",
-                confidence=0.96,
-                evidence=[Evidence(type="script", value="algoliasearch client SDK", location="html", confidence=0.96)]
-            )
-
-        # Wunderkind Identity & Remarketing
-        if 'wunderkind' in soup_str or 'bounceexchange' in soup_str:
-            systems_map["wunderkind"] = DetectedSystem(
-                system_type="marketing_automation",
-                name="Wunderkind Behavioral Marketing",
-                confidence=0.94,
-                evidence=[Evidence(type="script", value="bounceexchange.com tags", location="html", confidence=0.94)]
-            )
-
-        # Akamai mPulse RUM
-        if 'mpulse' in soup_str or 'go-mpulse' in soup_str:
-            systems_map["akamai_mpulse"] = DetectedSystem(
-                system_type="analytics",
-                name="Akamai mPulse",
-                confidence=0.95,
-                evidence=[Evidence(type="script", value="go-mpulse.net analytics", location="html", confidence=0.95)]
-            )
-
-        # Brightcove Video Hosting
-        if 'brightcove' in soup_str or 'players.brightcove.net' in soup_str:
-            systems_map["brightcove"] = DetectedSystem(
-                system_type="video",
-                name="Brightcove Video Player",
-                confidence=0.98,
-                evidence=[Evidence(type="script", value="players.brightcove.net SDK", location="html", confidence=0.98)]
-            )
-
-        # ── 2. Dynamic LLM-Assisted Technology Stack Analysis ─────────────────
         try:
-            from backend.server import call_llm
-            meta_tags = [str(tag) for tag in soup.find_all('meta')][:10]
-            scripts_list = [tag.get('src') for tag in soup.find_all('script') if tag.get('src')][:15]
+            # 1. MX Records
+            try:
+                for rdata in dns.resolver.resolve(domain, 'MX'):
+                    mx = str(rdata.exchange).lower()
+                    if 'google.com' in mx or 'googlemail.com' in mx: add_sys('gsuite', 'custom', 'Google Workspace', 0.99, 'MX', mx)
+                    if 'outlook.com' in mx or 'protection.outlook.com' in mx: add_sys('office365', 'custom', 'Microsoft 365', 0.99, 'MX', mx)
+                    if 'pphosted.com' in mx: add_sys('proofpoint', 'custom', 'Proofpoint Email Security', 0.99, 'MX', mx)
+                    if 'mimecast.com' in mx: add_sys('mimecast', 'custom', 'Mimecast', 0.99, 'MX', mx)
+                    if 'zendesk.com' in mx: add_sys('zendesk', 'support', 'Zendesk', 0.99, 'MX', mx)
+            except Exception: pass
             
-            prompt = [
-                {"role": "system", "content": "You are a professional technology profiling system. "
-                 "Analyze the URL, meta tags, and script URLs to identify CMS, databases, analytics, payments, and support systems. "
-                 "You MUST output your findings strictly as a valid JSON object matching this structure: "
-                 '{"detected": [{"id": "stripe", "system_type": "payment_gateway", "name": "Stripe Payments", "confidence": 0.95, "evidence_summary": "js.stripe.com found"}]}'},
-                {"role": "user", "content": f"URL: {url}\nMeta tags: {meta_tags}\nScripts: {scripts_list}"}
-            ]
+            # 2. NS Records
+            try:
+                for rdata in dns.resolver.resolve(domain, 'NS'):
+                    ns = str(rdata.target).lower()
+                    if 'cloudflare.com' in ns: add_sys('cloudflare', 'custom', 'Cloudflare DNS', 0.99, 'NS', ns)
+                    if 'awsdns' in ns: add_sys('route53', 'custom', 'AWS Route 53', 0.99, 'NS', ns)
+                    if 'akam.net' in ns or 'akamai' in ns: add_sys('akamai', 'custom', 'Akamai', 0.99, 'NS', ns)
+                    if 'ultradns' in ns: add_sys('ultradns', 'custom', 'UltraDNS', 0.99, 'NS', ns)
+                    if 'fastly' in ns: add_sys('fastly', 'custom', 'Fastly', 0.99, 'NS', ns)
+            except Exception: pass
+
+            # 3. TXT Records
+            try:
+                for rdata in dns.resolver.resolve(domain, 'TXT'):
+                    txt = str(rdata).lower()
+                    if 'spf.protection.outlook.com' in txt: add_sys('office365', 'custom', 'Microsoft 365', 0.99, 'TXT SPF', txt)
+                    if '_spf.google.com' in txt: add_sys('gsuite', 'custom', 'Google Workspace', 0.99, 'TXT SPF', txt)
+                    if 'spf.mailjet.com' in txt: add_sys('mailjet', 'email_service', 'Mailjet', 0.99, 'TXT SPF', txt)
+                    if 'sendgrid.net' in txt: add_sys('sendgrid', 'email_service', 'SendGrid', 0.99, 'TXT SPF', txt)
+                    if '_spf.salesforce.com' in txt: add_sys('salesforce', 'CRM', 'Salesforce', 0.99, 'TXT SPF', txt)
+                    if 'mailgun.org' in txt: add_sys('mailgun', 'email_service', 'Mailgun', 0.99, 'TXT SPF', txt)
+                    if 'amazonses' in txt: add_sys('aws_ses', 'email_service', 'Amazon SES', 0.99, 'TXT', txt)
+                    
+                    if 'google-site-verification' in txt: add_sys('google_search_console', 'analytics', 'Google Search Console', 0.99, 'TXT', txt)
+                    if 'facebook-domain-verification' in txt: add_sys('facebook_business', 'marketing_automation', 'Facebook Business', 0.99, 'TXT', txt)
+                    if 'apple-domain-verification' in txt: add_sys('apple_pay', 'payment_gateway', 'Apple Pay / Merchant', 0.95, 'TXT', txt)
+                    if 'stripe-verification' in txt: add_sys('stripe', 'payment_gateway', 'Stripe', 0.99, 'TXT', txt)
+                    if 'docusign' in txt: add_sys('docusign', 'custom', 'DocuSign', 0.99, 'TXT', txt)
+                    if 'atlassian' in txt: add_sys('atlassian', 'custom', 'Atlassian', 0.99, 'TXT', txt)
+                    if 'mixpanel' in txt: add_sys('mixpanel', 'analytics', 'Mixpanel', 0.99, 'TXT', txt)
+                    if 'onetrust' in txt: add_sys('onetrust', 'custom', 'OneTrust', 0.99, 'TXT', txt)
+                    if 'dynatrace' in txt: add_sys('dynatrace', 'analytics', 'Dynatrace', 0.99, 'TXT', txt)
+                    if 'twilio' in txt: add_sys('twilio', 'custom', 'Twilio', 0.99, 'TXT', txt)
+                    if 'notion_verify' in txt: add_sys('notion', 'custom', 'Notion', 0.99, 'TXT', txt)
+                    if 'jamf-site' in txt: add_sys('jamf', 'custom', 'Jamf', 0.99, 'TXT', txt)
+                    if 'paloaltonetworks' in txt: add_sys('paloalto', 'custom', 'Palo Alto Networks', 0.99, 'TXT', txt)
+                    if 'elevenlabs' in txt: add_sys('elevenlabs', 'ai_ml', 'ElevenLabs', 0.99, 'TXT', txt)
+                    if 'anthropic' in txt: add_sys('anthropic', 'ai_ml', 'Anthropic', 0.99, 'TXT', txt)
+                    if 'openai' in txt: add_sys('openai', 'ai_ml', 'OpenAI', 0.99, 'TXT', txt)
+                    if 'miro-verification' in txt: add_sys('miro', 'custom', 'Miro', 0.99, 'TXT', txt)
+                    if 'loom-verification' in txt: add_sys('loom', 'custom', 'Loom', 0.99, 'TXT', txt)
+                    if 'cursor-domain' in txt: add_sys('cursor', 'ai_ml', 'Cursor', 0.99, 'TXT', txt)
+            except Exception: pass
             
-            response_text = await call_llm(prompt, temperature=0.1)
-            # Strip any markdown codeblock formats
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-                
-            parsed_data = json.loads(response_text)
-            for item in parsed_data.get("detected", []):
-                sys_id = str(item.get("id")).lower()
-                system_type = str(item.get("system_type"))
-                name = str(item.get("name"))
-                confidence = float(item.get("confidence", 0.9))
-                evidence_summary = str(item.get("evidence_summary", "Detected via LLM analysis"))
-                
-                # Merge or insert
-                if sys_id not in systems_map:
-                    systems_map[sys_id] = DetectedSystem(
-                        system_type=system_type,
-                        name=name,
-                        confidence=confidence,
-                        evidence=[Evidence(type="llm_inference", value=evidence_summary, location="AI Parser", confidence=confidence)]
-                    )
         except Exception as e:
-            # Silence and fall back gracefully to the rule-based dictionary
-            pass
+            log.warning(f"DNS analysis failed for {domain}: {e}")
+            
+        return systems
+
+    async def _detect_systems(self, soup: BeautifulSoup, html: str, headers: Any, cookies: Any, url: str) -> List[DetectedSystem]:
+        import json
+        systems_map = {}
+        html_lower = html.lower()
+        headers_dict = {str(k).lower(): str(v).lower() for k, v in dict(headers).items()}
+        cookies_dict = {str(k).lower(): str(v).lower() for k, v in dict(cookies).items()}
+        
+        def add_system(sys_id, sys_type, name, conf, ev_type, ev_val, ev_loc):
+            if sys_id not in systems_map or systems_map[sys_id].confidence < conf:
+                systems_map[sys_id] = DetectedSystem(
+                    system_type=sys_type, name=name, confidence=conf,
+                    evidence=[Evidence(type=ev_type, value=ev_val, location=ev_loc, confidence=conf)]
+                )
+
+        # SERVERS & INFRASTRUCTURE
+        server_header = headers_dict.get('server', '')
+        if 'nginx' in server_header: add_system('nginx', 'custom', 'Nginx', 0.99, 'header', server_header, 'Server')
+        if 'apache' in server_header: add_system('apache', 'custom', 'Apache HTTP Server', 0.99, 'header', server_header, 'Server')
+        if 'cloudflare' in server_header or '__cf_bm' in cookies_dict or 'cf-ray' in headers_dict:
+            add_system('cloudflare', 'custom', 'Cloudflare', 0.99, 'header/cookie', 'cloudflare evidence', 'HTTP')
+        if 'akamai' in headers_dict.get('x-cache', '') or 'akamai' in server_header or 'akamai' in headers_dict:
+            add_system('akamai', 'custom', 'Akamai CDN', 0.95, 'header', 'akamai evidence', 'HTTP')
+        if 'varnish' in headers_dict.get('x-varnish', '') or 'varnish' in headers_dict.get('via', ''):
+            add_system('varnish', 'custom', 'Varnish Cache', 0.95, 'header', 'varnish evidence', 'HTTP')
+        if 'x-amz-cf-id' in headers_dict: add_system('aws_cloudfront', 'custom', 'AWS CloudFront', 0.95, 'header', 'x-amz-*', 'HTTP')
+        if 'fly.io' in server_header: add_system('flyio', 'custom', 'Fly.io', 0.99, 'header', server_header, 'Server')
+        if 'vercel' in server_header or 'x-vercel-id' in headers_dict: add_system('vercel', 'custom', 'Vercel', 0.99, 'header', 'vercel headers', 'HTTP')
+        if 'netlify' in server_header or 'x-nf-request-id' in headers_dict: add_system('netlify', 'custom', 'Netlify', 0.99, 'header', 'netlify headers', 'HTTP')
+
+        # CMS & ECOMMERCE
+        if 'shopify' in html_lower or 'cdn.shopify.com' in html_lower or '_shopify_s' in cookies_dict or 'x-shopify-stage' in headers_dict:
+            add_system('shopify', 'CMS', 'Shopify', 0.99, 'multiple', 'shopify traces', 'HTML/HTTP')
+        if 'wp-content' in html_lower or 'wordpress' in html_lower or 'wp-settings' in cookies_dict or 'x-pingback' in headers_dict:
+            add_system('wordpress', 'CMS', 'WordPress', 0.99, 'multiple', 'wp traces', 'HTML/HTTP')
+        if 'demandware' in html_lower or 'dwvar_' in html_lower or 'dwsid' in cookies_dict or 'x-dw-request-info' in headers_dict:
+            add_system('demandware', 'OMS', 'Salesforce Commerce Cloud (Demandware)', 0.99, 'multiple', 'demandware traces', 'HTML/HTTP')
+        if 'magento' in html_lower or 'mage-cache-sessid' in cookies_dict or 'x-magento-cache-control' in headers_dict:
+            add_system('magento', 'CMS', 'Magento / Adobe Commerce', 0.99, 'multiple', 'magento traces', 'HTML/HTTP')
+        if 'bigcommerce' in html_lower or 'cdn11.bigcommerce.com' in html_lower:
+            add_system('bigcommerce', 'CMS', 'BigCommerce', 0.95, 'html', 'bigcommerce traces', 'HTML')
+        if 'contentful' in html_lower or 'images.ctfassets.net' in html_lower:
+            add_system('contentful', 'CMS', 'Contentful CMS', 0.95, 'html', 'contentful domain', 'HTML')
+
+        # FRAMEWORKS & LIBRARIES
+        if 'react' in html_lower or 'data-reactroot' in html_lower or '_react' in html_lower: add_system('react', 'custom', 'React', 0.95, 'html', 'react fiber/root', 'HTML')
+        if '__next' in html_lower or '/_next/' in html_lower or 'x-nextjs-page' in headers_dict:
+            add_system('nextjs', 'custom', 'Next.js', 0.98, 'html/header', 'next.js signatures', 'HTML/HTTP')
+            add_system('react', 'custom', 'React', 0.98, 'inferred', 'via next.js', 'Inferred')
+        if 'nuxt' in html_lower or '/_nuxt/' in html_lower or 'window.__nuxt__' in html_lower:
+            add_system('nuxtjs', 'custom', 'Nuxt.js', 0.98, 'html', 'nuxt object', 'HTML')
+            add_system('vue', 'custom', 'Vue.js', 0.98, 'inferred', 'via nuxt', 'Inferred')
+        if 'data-v-' in html_lower or 'vue.js' in html_lower or 'window.__vue__' in html_lower: add_system('vue', 'custom', 'Vue.js', 0.95, 'html', 'vue attributes', 'HTML')
+        if 'ng-app' in html_lower or 'ng-version' in html_lower or 'angular' in html_lower: add_system('angular', 'custom', 'Angular', 0.95, 'html', 'angular attributes', 'HTML')
+        if 'tailwindcss' in html_lower or 'tailwind.config' in html_lower: add_system('tailwind', 'custom', 'Tailwind CSS', 0.95, 'html', 'tailwind strings', 'HTML')
+        if 'bootstrap' in html_lower: add_system('bootstrap', 'custom', 'Bootstrap CSS', 0.90, 'html', 'bootstrap class/script', 'HTML')
+        if 'jquery' in html_lower: add_system('jquery', 'custom', 'jQuery', 0.95, 'html', 'jquery script', 'HTML')
+        
+        # ANALYTICS & TAG MANAGERS
+        if 'googletagmanager.com' in html_lower or 'gtm.js' in html_lower: add_system('gtm', 'analytics', 'Google Tag Manager', 0.99, 'html', 'gtm script', 'HTML')
+        if 'google-analytics.com' in html_lower or 'gtag(' in html_lower or 'ga(' in html_lower: add_system('google_analytics', 'analytics', 'Google Analytics', 0.99, 'html', 'ga script', 'HTML')
+        if 'adobe' in html_lower or 'visitorapi.js' in html_lower or 'omtrdc.net' in html_lower: add_system('adobe_analytics', 'analytics', 'Adobe Analytics', 0.95, 'html', 'adobe omniture/dtm', 'HTML')
+        if 'cdn.segment.com' in html_lower or 'analytics.js' in html_lower: add_system('segment', 'analytics', 'Segment', 0.98, 'html', 'segment cdn', 'HTML')
+        if 'datadoghq' in html_lower or 'datadog-rum' in html_lower: add_system('datadog', 'analytics', 'Datadog RUM', 0.98, 'html', 'datadog rum', 'HTML')
+        if 'newrelic.com' in html_lower or 'nr-data.net' in html_lower: add_system('newrelic', 'analytics', 'New Relic', 0.98, 'html', 'newrelic browser agent', 'HTML')
+
+        # PAYMENTS & CHECKOUT
+        if 'js.stripe.com' in html_lower or 'stripe' in html_lower: add_system('stripe', 'payment_gateway', 'Stripe', 0.98, 'html', 'stripe js', 'HTML')
+        if 'paypalobjects.com' in html_lower or 'paypal.com/sdk' in html_lower: add_system('paypal', 'payment_gateway', 'PayPal', 0.98, 'html', 'paypal js', 'HTML')
+        if 'adyen.com' in html_lower: add_system('adyen', 'payment_gateway', 'Adyen', 0.98, 'html', 'adyen js', 'HTML')
+        if 'js.klarna.com' in html_lower: add_system('klarna', 'billing', 'Klarna', 0.98, 'html', 'klarna js', 'HTML')
+        if 'afterpay.com' in html_lower or 'clearpay.com' in html_lower: add_system('afterpay', 'billing', 'Afterpay / Clearpay', 0.98, 'html', 'afterpay js', 'HTML')
+        
+        # SEARCH & VIDEO & CONSENT
+        if 'algolia' in html_lower or 'algoliasearch' in html_lower: add_system('algolia', 'search', 'Algolia', 0.98, 'html', 'algolia js', 'HTML')
+        if 'onetrust.com' in html_lower or 'optanon.com' in html_lower: add_system('onetrust', 'custom', 'OneTrust', 0.98, 'html', 'onetrust js', 'HTML')
             
         return list(systems_map.values())
 
-    async def _infer_stack(
-        self,
-        soup: BeautifulSoup,
-        html: str,
-        url: str
-    ) -> StackInference:
-        """
-        Infer technology stack with high-fidelity Wappalyzer matching and LLM support.
-        """
-        soup_str = str(soup).lower()
+    async def _infer_stack(self, soup: BeautifulSoup, html: str, headers: Any, url: str) -> StackInference:
+        html_lower = html.lower() if html else ""
+        headers_dict = {str(k).lower(): str(v).lower() for k, v in dict(headers).items()}
         
-        # Deterministic base defaults
-        frameworks = []
-        languages = ["JavaScript"]
-        libraries = []
-        cms = []
-        databases = []
-        analytics = []
-        payment_processors = []
-        hosting = []
-        confidence_scores = {}
+        frameworks, languages, libraries, cms, databases, analytics, payment, hosting, ci_cd, infrastructure = [], [], [], [], [], [], [], [], [], []
+        conf = {}
         
-        # 1. Signature-based inferring
-        if "next.js" in soup_str or "__next" in soup_str:
-            frameworks.extend(["React", "Next.js"])
-            confidence_scores["react"] = 0.98
-            confidence_scores["next.js"] = 0.96
-        elif "react" in soup_str:
-            frameworks.append("React")
-            confidence_scores["react"] = 0.95
+        def add_stack(category, item, score=0.9):
+            if item not in category:
+                category.append(item)
+                conf[item.lower()] = max(conf.get(item.lower(), 0), score)
+
+        if 'react' in html_lower or '__next' in html_lower:
+            add_stack(frameworks, 'React')
+            add_stack(languages, 'JavaScript')
+            if '__next' in html_lower or 'x-nextjs-page' in headers_dict:
+                add_stack(frameworks, 'Next.js')
+        if 'vue' in html_lower or '__nuxt' in html_lower:
+            add_stack(frameworks, 'Vue.js')
+            add_stack(languages, 'JavaScript')
+            if '__nuxt' in html_lower:
+                add_stack(frameworks, 'Nuxt.js')
+        if 'angular' in html_lower or 'ng-version' in html_lower:
+            add_stack(frameworks, 'Angular')
+            add_stack(languages, 'TypeScript')
+        
+        if 'wordpress' in html_lower or 'wp-content' in html_lower:
+            add_stack(cms, 'WordPress')
+            add_stack(languages, 'PHP')
+            add_stack(databases, 'MySQL')
+        if 'shopify' in html_lower:
+            add_stack(cms, 'Shopify')
+            add_stack(languages, 'Ruby')
+        if 'demandware' in html_lower:
+            add_stack(cms, 'Salesforce Commerce Cloud')
             
-        if "gatsby" in soup_str or "___gatsby" in soup_str:
-            frameworks.extend(["React", "Gatsby"])
-            confidence_scores["react"] = 0.98
-            confidence_scores["gatsby"] = 0.95
-            
-        if "shopify" in soup_str:
-            cms.append("Shopify")
-            confidence_scores["shopify"] = 0.98
-            
-        if "wordpress" in soup_str:
-            cms.append("WordPress")
-            languages.append("PHP")
-            confidence_scores["wordpress"] = 0.95
-            
-        if "googletagmanager.com" in soup_str:
-            analytics.extend(["Google Tag Manager", "Google Analytics"])
-            confidence_scores["gtm"] = 0.99
-            
-        # 2. Dynamic LLM Verification
-        try:
-            from backend.server import call_llm
-            meta_tags = [str(tag) for tag in soup.find_all('meta')][:10]
-            
-            prompt = [
-                {"role": "system", "content": "You are a professional technology profiler. Analyze the meta tags, URL, and page context to infer core frameworks, languages, CMS platforms, and databases. "
-                 "Output strictly as a valid JSON object: "
-                 '{"frameworks": ["React"], "languages": ["JavaScript"], "cms": ["Shopify"], "databases": []}'},
-                {"role": "user", "content": f"URL: {url}\nMeta tags: {meta_tags}"}
-            ]
-            response_text = await call_llm(prompt, temperature=0.1)
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-                
-            parsed = json.loads(response_text)
-            frameworks = list(set(frameworks + parsed.get("frameworks", [])))
-            languages = list(set(languages + parsed.get("languages", [])))
-            cms = list(set(cms + parsed.get("cms", [])))
-            databases = list(set(databases + parsed.get("databases", [])))
-        except Exception:
-            pass
+        if 'x-powered-by' in headers_dict:
+            pb = headers_dict['x-powered-by']
+            if 'php' in pb: add_stack(languages, 'PHP')
+            if 'express' in pb: add_stack(frameworks, 'Express'); add_stack(languages, 'JavaScript')
+            if 'next.js' in pb: add_stack(frameworks, 'Next.js'); add_stack(frameworks, 'React')
+            if 'asp.net' in pb: add_stack(languages, 'C#')
+        
+        if 'vercel' in headers_dict.get('server', '') or 'x-vercel-id' in headers_dict: add_stack(hosting, 'Vercel')
+        if 'netlify' in headers_dict.get('server', '') or 'x-nf-request-id' in headers_dict: add_stack(hosting, 'Netlify')
+        if 'fly.io' in headers_dict.get('server', ''): add_stack(hosting, 'Fly.io')
+        if 'x-amz-cf-id' in headers_dict: add_stack(hosting, 'AWS'); add_stack(infrastructure, 'AWS CloudFront')
+        if 'cloudflare' in headers_dict.get('server', ''): add_stack(infrastructure, 'Cloudflare')
+        if 'akamai' in headers_dict.get('server', '') or 'x-cache' in headers_dict: add_stack(infrastructure, 'Akamai')
             
         return StackInference(
-            frameworks=frameworks,
-            languages=languages,
-            libraries=libraries,
-            cms=cms,
-            databases=databases,
-            analytics=analytics,
-            payment_processors=payment_processors,
-            hosting=hosting,
-            confidence_scores=confidence_scores
+            frameworks=frameworks, languages=languages, libraries=libraries,
+            cms=cms, databases=databases, analytics=analytics, payment_processors=payment,
+            hosting=hosting, ci_cd=ci_cd, infrastructure=infrastructure, confidence_scores=conf
         )
 
-    async def _discover_sitemap(
-        self,
-        soup: BeautifulSoup,
-        base_url: str,
-        client: httpx.AsyncClient
-    ) -> List[str]:
-        """
-        Discover sitemap URLs from the website.
-        
-        Args:
-            soup: BeautifulSoup parsed HTML
-            base_url: Base URL of the website
-            client: HTTP client for making requests
-            
-        Returns:
-            List of URLs found in sitemaps
-        """
+    async def _discover_sitemap(self, soup: BeautifulSoup, base_url: str) -> List[str]:
+        # Using a fast httpx fallback just for quick sitemaps
         sitemap_urls = []
-        
-        # Check for sitemap in robots.txt
         try:
-            robots_url = f"{base_url.rstrip('/')}/robots.txt"
-            response = await client.get(robots_url, timeout=10)
-            if response.status_code == 200:
-                robots_text = response.text
-                for line in robots_text.split('\n'):
-                    if 'sitemap:' in line.lower():
-                        sitemap_url = line.split(':', 1)[1].strip()
-                        if sitemap_url:
-                            sitemap_urls.append(sitemap_url)
+            async with httpx.AsyncClient(timeout=5) as client:
+                robots_url = f"{base_url.rstrip('/')}/robots.txt"
+                response = await client.get(robots_url)
+                if response.status_code == 200:
+                    for line in response.text.split('\n'):
+                        if 'sitemap:' in line.lower():
+                            u = line.split(':', 1)[1].strip()
+                            if u: sitemap_urls.append(u)
         except Exception:
             pass
-        
-        # Check for common sitemap locations
-        common_sitemap_paths = [
-            '/sitemap.xml',
-            '/sitemap_index.xml',
-            '/sitemap.xml.gz',
-            '/sitemap/'
-        ]
-        
-        for path in common_sitemap_paths:
-            try:
-                sitemap_url = f"{base_url.rstrip('/')}{path}"
-                response = await client.get(sitemap_url, timeout=10)
-                if response.status_code == 200:
-                    sitemap_urls.append(sitemap_url)
-            except Exception:
-                pass
-        
-        # Parse sitemap.xml if found
-        for sitemap_url in sitemap_urls[:]:  # Copy to avoid modification during iteration
-            try:
-                response = await client.get(sitemap_url, timeout=10)
-                if response.status_code == 200:
-                    sitemap_soup = BeautifulSoup(response.text, 'xml')
-                    urls = sitemap_soup.find_all('url')
-                    for url in urls:
-                        loc = url.find('loc')
-                        if loc and loc.text:
-                            sitemap_urls.append(loc.text)
-            except Exception:
-                pass
-        
         return list(set(sitemap_urls))
-
-
 class RepoScanner:
     """
     Scanner for detecting technology stack from Git repositories.
