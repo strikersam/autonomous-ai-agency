@@ -1072,6 +1072,56 @@
     <script>
         // BuiltWith-grade Database & Heuristics for ultra-precise tech profiling
         const KNOWN_DOMAINS = {
+
+            "klarna.com": {
+                name: "Klarna SaaS Architecture",
+                category: "fintech",
+                systems: [
+                    { name: "Contentful CMS", cat: "CMS & Editorial", icon: "📄", conf: 98 },
+                    { name: "React & Angular", cat: "Frameworks & Libraries", icon: "⚛", conf: 96 },
+                    { name: "Stripe & Apple Pay", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "Google Analytics & Mixpanel", cat: "Analytics & Tracking", icon: "📊", conf: 98 },
+                    { name: "Google Search Console", cat: "Analytics & Tracking", icon: "🎯", conf: 95 },
+                    { name: "Facebook Business", cat: "Analytics & Tracking", icon: "🎯", conf: 95 },
+                    { name: "Amazon SES & SendGrid", cat: "Email & Comms", icon: "✉️", conf: 99 },
+                    { name: "Twilio", cat: "Email & Comms", icon: "💬", conf: 95 },
+                    { name: "Anthropic & OpenAI", cat: "AI & ML", icon: "🧠", conf: 99 },
+                    { name: "ElevenLabs & Cursor", cat: "AI & ML", icon: "🧠", conf: 98 },
+                    { name: "AWS CloudFront & Akamai", cat: "Security & Infrastructure", icon: "⚡", conf: 99 },
+                    { name: "UltraDNS", cat: "Security & Infrastructure", icon: "🌐", conf: 96 },
+                    { name: "Palo Alto Networks & Jamf", cat: "Security & Infrastructure", icon: "🛡️", conf: 99 },
+                    { name: "OneTrust", cat: "Privacy & Compliance", icon: "🔒", conf: 98 },
+                    { name: "Notion & Miro & Atlassian", cat: "Operations", icon: "⚙", conf: 98 }
+                ],
+                specialists: [
+                    { name: "Security Audit Specialist", icon: "🛡️", desc: "Monitors Palo Alto and UltraDNS infrastructure logs." },
+                    { name: "AI/ML Integration Agent", icon: "🧠", desc: "Maintains Anthropic, OpenAI, and ElevenLabs API pipelines." },
+                    { name: "Analytics Auditor", icon: "📈", desc: "Validates Mixpanel tracking and Mixpanel/GA4 routing." }
+                ]
+            },
+            "louisvuitton.com": {
+                name: "Louis Vuitton Commerce Architecture",
+                category: "luxury & commerce",
+                systems: [
+                    { name: "Salesforce Commerce Cloud (Demandware)", cat: "OMS & E-Commerce", icon: "🛍", conf: 96 },
+                    { name: "Dynatrace", cat: "Performance & Monitoring", icon: "⚙", conf: 95 },
+                    { name: "Google Search Console", cat: "Analytics & Tracking", icon: "🎯", conf: 95 },
+                    { name: "Facebook Business", cat: "Analytics & Tracking", icon: "🎯", conf: 95 },
+                    { name: "Apple Pay Checkout", cat: "Payments & Invoicing", icon: "💳", conf: 99 },
+                    { name: "Salesforce CRM", cat: "Customer Support & CRM", icon: "💼", conf: 99 },
+                    { name: "Microsoft 365 & Twilio", cat: "Email & Comms", icon: "💬", conf: 98 },
+                    { name: "Mailjet", cat: "Email & Comms", icon: "✉️", conf: 95 },
+                    { name: "Akamai CDN & Edge Shield", cat: "Security & Infrastructure", icon: "⚡", conf: 99 },
+                    { name: "Proofpoint Email Security", cat: "Security & Infrastructure", icon: "🛡️", conf: 99 },
+                    { name: "OneTrust", cat: "Privacy & Compliance", icon: "🔒", conf: 98 },
+                    { name: "Atlassian & DocuSign", cat: "Operations", icon: "⚙", conf: 95 }
+                ],
+                specialists: [
+                    { name: "Salesforce Commerce Architect", icon: "🛍️", desc: "Maintains Salesforce order pipelines and catalog APIs." },
+                    { name: "APM Reliability Engineer", icon: "📊", desc: "Audits Dynatrace traces behind Akamai WAF edge layers." },
+                    { name: "Security Operations Agent", icon: "🛡️", desc: "Monitors Proofpoint and Akamai security events." }
+                ]
+            },
             "gucci.com": {
                 name: "SAP Commerce Cloud Architecture",
                 category: "luxury & commerce",
