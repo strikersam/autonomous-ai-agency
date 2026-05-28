@@ -312,4 +312,21 @@ export const pullFolder = (folder) => API.post(`/api/sync/pull/${folder}`);
 export const listSyncConflicts = () => API.get('/api/sync/conflicts');
 export const resolveConflict = (id) => API.post(`/api/sync/conflicts/${id}/resolve`);
 
+// ── Company Graph & Onboarding (v5.0) ─────────────────────────────────────────
+export const createCompany = (data) => API.post('/api/company', data);
+export const getCompany = (id) => API.get(`/api/company/${id}`);
+export const getCompanyGraph = (id) => API.get(`/api/company/${id}/graph`);
+export const syncCompanyGraph = (id) => API.post(`/api/company/${id}/graph/sync`);
+export const scanWebsite = (id, url) => API.post(`/api/company/${id}/scan/website`, { website_url: url });
+export const scanRepo = (id, url) => API.post(`/api/company/${id}/scan/repo`, { repo_url: url });
+export const listSpecialists = (id) => API.get(`/api/company/${id}/specialists`);
+export const provisionSpecialist = (id, data) => API.post(`/api/company/${id}/specialists`, data);
+export const matchSpecialists = (id, systems) => API.post(`/api/company/${id}/specialists/match`, systems);
+export const getOnboardingProgress = (id) => API.get(`/api/company/${id}/onboarding`);
+export const startOnboarding = (id, data) => API.post(`/api/company/${id}/onboarding/start`, data);
+export const pauseOnboarding = (id) => API.post(`/api/company/${id}/onboarding/pause`);
+export const resumeOnboarding = (id) => API.post(`/api/company/${id}/onboarding/resume`);
+export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/cancel`);
+export const getPublicDoctorReport = () => API.get('/api/company/doctor/public');
+
 export default API;

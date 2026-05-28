@@ -3,26 +3,28 @@
  *
  * A single failing API endpoint never blanks the whole screen.
  * Each fetch slot gets its own loading / error / data state.
- *
- * Usage:
- *   const [data, states, reload] = useSafeData(API, {
- *     doctor:   '/api/doctor',
- *     runtimes: '/runtimes/list',
- *   });
- *   // data.doctor   → response JSON (or null on error)
- *   // states.doctor → { loading, error }
- *   // reload()      → re-runs all fetches
- *
- * Options (third arg):
- *   refreshMs  — auto-refresh interval ms (0 = off, default 0)
- *   transform  — per-key transform fn map: { key: rawJson => transformed }
- *   auth       — if true (default), sends Authorization: Bearer <token>
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-const _TOKEN_KEY = 'auth_token';
+function _getBackendUrl() {
+  try {
+    const stored = localStorage.getItem('backend_url');
+    if (stored) return stored.replace(/\/$/, '');
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return window.location.origin;
+    }
+  } catch {
+    // Fallback if localStorage or window is not accessible
+  }
+  return '';
+}
+
 function _getToken() {
-  try { return localStorage.getItem(_TOKEN_KEY) || ''; } catch { return ''; }
+  try {
+    return localStorage.getItem('access_token') || '';
+  } catch {
+    return '';
+  }
 }
 
 export function useSafeData(baseUrl, endpoints = {}, options = {}) {
@@ -36,7 +38,10 @@ export function useSafeData(baseUrl, endpoints = {}, options = {}) {
   const timerRef   = useRef(null);
   const mountedRef = useRef(true);
 
-  // Stable key so fetchAll is only recreated when baseUrl or endpoint set changes.
+  // Fallback to reading the latest stored backend URL if no baseUrl was provided.
+  const activeBaseUrl = baseUrl || _getBackendUrl();
+
+  // Stable key so fetchAll is only recreated when activeBaseUrl or endpoint set changes.
   const endpointKey = keys.map(k => `${k}:${endpoints[k]}`).join(',');
 
   const fetchAll = useCallback(async () => {
@@ -44,12 +49,18 @@ export function useSafeData(baseUrl, endpoints = {}, options = {}) {
     setStates(prev => Object.fromEntries(keys.map(k => [k, { loading: true, error: prev[k]?.error || null }])));
 
     const token = auth ? _getToken() : '';
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
     const results = await Promise.allSettled(
       keys.map(k =>
-        fetch(`${baseUrl}${endpoints[k]}`, { headers })
-          .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
+        fetch(`${activeBaseUrl}${endpoints[k]}`, { headers })
+          .then(r => { 
+            if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); 
+            return r.json(); 
+          })
       )
     );
 
@@ -70,7 +81,7 @@ export function useSafeData(baseUrl, endpoints = {}, options = {}) {
     setData(nextData);
     setStates(nextStates);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseUrl, endpointKey, auth]);
+  }, [activeBaseUrl, endpointKey, auth]);
 
   useEffect(() => {
     mountedRef.current = true;
