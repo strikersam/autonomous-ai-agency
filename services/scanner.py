@@ -321,7 +321,20 @@ class WebsiteScanner:
         technologies.json database to avoid hanging on large minified JS files.
         """
         import re
-        
+
+        def _match(pattern: Any, value: str) -> bool:
+            # Wappalyzer appends "\;tag:..." metadata to patterns; strip it, and
+            # tolerate invalid regexes in the dataset rather than failing the scan.
+            if not value:
+                return False
+            bare = str(pattern).split("\\;")[0]
+            if not bare:
+                return True  # presence-only signal (e.g. header simply exists)
+            try:
+                return re.search(bare, value, re.IGNORECASE) is not None
+            except re.error:
+                return False
+
         systems_map = {}
         headers_dict = {str(k).lower(): str(v).lower() for k, v in dict(headers).items()}
         cookies_dict = {str(k).lower(): str(v).lower() for k, v in dict(cookies).items()}
@@ -358,15 +371,15 @@ class WebsiteScanner:
             if 'headers' in app_spec:
                 for h_name, h_regex in app_spec['headers'].items():
                     h_val = headers_dict.get(h_name.lower())
-                    if h_val and re.search(h_regex.split(';')[0], h_val, re.IGNORECASE):
-                        add_sys(app_name, app_spec, 0.95, 'header', h_val)
+                    if _match(h_regex, h_val):
+                        add_sys(app_name, app_spec, 0.95, 'header', h_val or h_name)
                         matched = True
             
             # 2. Check Cookies
             if not matched and 'cookies' in app_spec:
                 for c_name, c_regex in app_spec['cookies'].items():
                     c_val = cookies_dict.get(c_name.lower())
-                    if c_val and re.search(c_regex.split(';')[0], c_val, re.IGNORECASE):
+                    if c_name.lower() in cookies_dict and _match(c_regex or ".*", c_val or c_name):
                         add_sys(app_name, app_spec, 0.95, 'cookie', c_name)
                         matched = True
                         
@@ -376,19 +389,16 @@ class WebsiteScanner:
                 if not isinstance(patterns, list):
                     patterns = [patterns]
                 for pattern in patterns:
-                    try:
-                        if re.search(pattern.split(';')[0], html_safe, re.IGNORECASE):
-                            add_sys(app_name, app_spec, 0.90, 'html', pattern)
-                            matched = True
-                            break
-                    except re.error:
-                        pass
+                    if _match(pattern, html_safe):
+                        add_sys(app_name, app_spec, 0.90, 'html', pattern)
+                        matched = True
+                        break
                         
             # 4. Check Meta tags
             if not matched and 'meta' in app_spec and metas:
                 for m_name, m_regex in app_spec['meta'].items():
                     m_val = metas.get(m_name)
-                    if m_val and re.search(m_regex.split(';')[0], m_val, re.IGNORECASE):
+                    if _match(m_regex, m_val):
                         add_sys(app_name, app_spec, 0.95, 'meta', m_name)
                         matched = True
                         break

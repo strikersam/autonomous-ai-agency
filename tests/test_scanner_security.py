@@ -102,7 +102,8 @@ async def test_detect_systems_generic_parses_prefetched_content():
     assert "stripe" in names
     # Every emitted system carries a valid SystemType and builtwith evidence.
     for s in systems:
-        assert s.confidence in [0.8, 0.9]
+        # html=0.90, header/cookie/meta=0.95, implied tech=0.85
+        assert 0.8 <= s.confidence <= 1.0
         assert s.evidence and s.evidence[0].type in ["html", "header", "cookie", "meta", "implies"]
 
 
@@ -110,3 +111,29 @@ async def test_detect_systems_generic_parses_prefetched_content():
 async def test_detect_systems_generic_handles_empty_html():
     scanner = WebsiteScanner()
     assert scanner._detect_systems_generic("", {}, {}) == []
+
+
+def test_signature_db_is_comprehensive():
+    """Guard against the signature DB regressing to a tiny hand-rolled stub."""
+    scanner = WebsiteScanner()
+    apps = scanner.tech_data.get("apps", {})
+    assert len(apps) > 500, f"technology DB looks like a stub ({len(apps)} entries)"
+
+
+@pytest.mark.asyncio
+async def test_detect_systems_generic_covers_modern_stack():
+    """A realistic Cloudflare-fronted page should yield a broad, correct stack."""
+    scanner = WebsiteScanner()
+    html = (
+        '<html><head>'
+        '<meta name="generator" content="WordPress 6.4">'
+        '<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>'
+        '<script src="/_next/static/chunk.js"></script>'
+        '<script src="https://js.stripe.com/v3/"></script>'
+        '<script src="https://static.hotjar.com/c/hotjar-1.js"></script>'
+        '</head><body>hi</body></html>'
+    )
+    headers = {"Server": "cloudflare", "CF-RAY": "abc", "x-powered-by": "Next.js"}
+    names = {s.name.lower() for s in scanner._detect_systems_generic(html, headers, {})}
+    for expected in ["cloudflare", "jquery", "wordpress", "stripe", "next.js"]:
+        assert expected in names, f"expected {expected} in {sorted(names)}"

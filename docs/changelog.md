@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added
+- **Website scanner signature database expanded from 27 to ~1,270 technologies.** `services/technologies.json` is now generated from the Wappalyzer fingerprint dataset (see `scripts/build_tech_db.py`) instead of a hand-rolled 27-app stub, so the scanner identifies far more of a site's real stack — jQuery, HubSpot, Hotjar, WooCommerce, Fastly, CloudFront, webpack, modern analytics, and hundreds more. The matching engine is unchanged; this is a data fix for poor detection coverage.
+
+### Changed
+- **`_detect_systems_generic` tag stripping + crash-safety (`services/scanner.py`).** Pattern metadata is now stripped on Wappalyzer's `\;` delimiter (previously `.split(';')`, which mangled tagged patterns), and header/cookie/meta regexes are exception-guarded so a single malformed signature can't fail an entire scan.
+
+### Removed
+- **Unused `builtwith` dependency.** The scanner uses the bundled `technologies.json` directly; the `builtwith` pip package is no longer imported.
+
 ### Security
 - **Scanner SSRF guard restored (`services/scanner.py`).** `WebsiteScanner.scan_website` now calls `_is_safe_url()` before any DNS/HTTP work and disables redirects on both the `curl_cffi` and `httpx` clients. An authenticated user can no longer point the scanner at loopback (`127.0.0.1`), the link-local cloud-metadata endpoint (`169.254.169.254`), or private/reserved ranges — directly or via a public URL that redirects inward. `_discover_sitemap` validates the derived `robots.txt` URL the same way.
 
