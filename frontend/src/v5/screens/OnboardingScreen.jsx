@@ -154,6 +154,42 @@ function NonAdminGate() {
 }
 
 // ── Step 1: URL discovery ──────────────────────────────────────────────────────
+
+// Maps the backend scanner's SystemType to a human label + icon for display.
+// The scanner returns { system_type, name, confidence, evidence }, not category/icon.
+const SYSTEM_TYPE_META = {
+  CMS: { category: 'CMS & Content', icon: '📄' },
+  CRM: { category: 'CRM & Sales', icon: '💼' },
+  OMS: { category: 'Commerce & Orders', icon: '🛍' },
+  PIM: { category: 'Product Info', icon: '🏷' },
+  DAM: { category: 'Digital Assets', icon: '🖼' },
+  ERP: { category: 'ERP', icon: '🏢' },
+  HRM: { category: 'People & HR', icon: '👥' },
+  LMS: { category: 'Learning', icon: '🎓' },
+  analytics: { category: 'Analytics & Tracking', icon: '📊' },
+  payment_gateway: { category: 'Payments & Invoicing', icon: '💳' },
+  shipping: { category: 'Shipping & Logistics', icon: '📦' },
+  tax: { category: 'Tax', icon: '🧾' },
+  inventory: { category: 'Inventory', icon: '📋' },
+  marketing_automation: { category: 'Marketing', icon: '🎯' },
+  email_service: { category: 'Email & Comms', icon: '✉️' },
+  search: { category: 'Search', icon: '🔍' },
+  database: { category: 'Data & Storage', icon: '🗄' },
+  cache: { category: 'Performance & Caching', icon: '⚡' },
+  cdc: { category: 'Data Pipelines', icon: '🔁' },
+  message_queue: { category: 'Messaging', icon: '📨' },
+  api_gateway: { category: 'API Gateway', icon: '🔀' },
+  auth: { category: 'Identity & Auth', icon: '🔒' },
+  billing: { category: 'Billing', icon: '💰' },
+  support: { category: 'Support & Helpdesk', icon: '💬' },
+  chat: { category: 'Live Chat', icon: '💬' },
+  video: { category: 'Media & Video', icon: '🎬' },
+  voice: { category: 'Voice', icon: '📞' },
+  iot: { category: 'IoT', icon: '📡' },
+  ai_ml: { category: 'AI & ML', icon: '🧠' },
+  custom: { category: 'Infrastructure & Other', icon: '⚙' },
+};
+
 function DiscoveryStep({ onNext, onCompanyCreated }) {
   const [url, setUrl]           = React.useState('https://acme-store.com');
   const [scanning, setScanning] = React.useState(false);
@@ -205,14 +241,18 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
               // Real website scan endpoint
               const scanRes = await api.scanWebsite(companyId, url);
               if (scanRes?.data?.detected_systems) {
-                detectedList = scanRes.data.detected_systems.map(s => ({
-                  id: s.id || s.name?.toLowerCase(),
-                  label: s.name,
-                  category: s.category || 'System',
-                  confidence: s.confidence || 0.9,
-                  icon: s.icon || '⚙',
-                  desc: s.description || 'System detected via scanner signatures'
-                }));
+                detectedList = scanRes.data.detected_systems.map(s => {
+                  const meta = SYSTEM_TYPE_META[s.system_type] || SYSTEM_TYPE_META.custom;
+                  const ev = Array.isArray(s.evidence) && s.evidence.length ? s.evidence[0] : null;
+                  return {
+                    id: s.id || s.name?.toLowerCase(),
+                    label: s.name,
+                    category: meta.category,
+                    confidence: s.confidence || 0.9,
+                    icon: meta.icon,
+                    desc: ev ? `Detected via ${ev.type}: ${ev.value}` : 'Detected via scanner signatures',
+                  };
+                });
               }
             } catch (e) {
               console.warn("Website scan API fail, falling back to simulated stacks", e);
