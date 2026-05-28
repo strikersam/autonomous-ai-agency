@@ -1,8 +1,8 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import * as api from '../../api';
 
-
-// onboarding.jsx — V5.0 with structured discovery, smart questions, non-admin gate
+// onboarding.jsx — V5.0 with structured discovery, smart questions, live API integration
 
 const STEPS = [
   { id:'url',       label:'Discovery', desc:'Enter your URL' },
@@ -48,10 +48,10 @@ const QUESTION_SETS = {
 
 // Detect site type from discovered systems
 function detectSiteType(systems) {
-  const ids = systems.map(s=>s.id);
-  if (ids.some(id=>['shopify','woocommerce','bigcommerce','magento'].includes(id))) return 'ecommerce';
-  if (ids.some(id=>['stripe','chargebee','paddle'].includes(id))) return 'saas';
-  if (ids.some(id=>['wordpress','ghost','contentful','strapi','sanity'].includes(id))) return 'media';
+  const ids = (systems || []).map(s => s.id || s.name?.toLowerCase());
+  if (ids.some(id => ['shopify','woocommerce','bigcommerce','magento'].includes(id))) return 'ecommerce';
+  if (ids.some(id => ['stripe','chargebee','paddle'].includes(id))) return 'saas';
+  if (ids.some(id => ['wordpress','ghost','contentful','strapi','sanity'].includes(id))) return 'media';
   return 'generic';
 }
 
@@ -128,7 +128,7 @@ function NonAdminGate() {
         </div>
       </div>
       <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>Request company setup</h2>
-      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:20, maxWidth:440 }}>Describe what you need. The admin will set up your company, connect your systems, and let you know when it's ready.</p>
+      <p style={{ fontSize:14, color: 'var(--text-tertiary)', lineHeight:1.6, marginBottom:20, maxWidth:440 }}>Describe what you need. The admin will set up your company, connect your systems, and let you know when it's ready.</p>
       <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
           {[{v:name,s:setName,ph:'Your name',t:'text'},{v:email,s:setEmail,ph:'Your email',t:'email'}].map((f,i)=>(
@@ -154,21 +154,83 @@ function NonAdminGate() {
 }
 
 // ── Step 1: URL discovery ──────────────────────────────────────────────────────
-function DiscoveryStep({ onNext }) {
+function DiscoveryStep({ onNext, onCompanyCreated }) {
   const [url, setUrl]           = React.useState('https://acme-store.com');
   const [scanning, setScanning] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
-  const msgs = ['Fetching page source…','Parsing JS bundles…','Detecting platforms…','Identifying data tools…','Almost done…'];
+  const [errorText, setErrorText] = React.useState('');
+  const msgs = ['Registering company context…','Fetching page source…','Parsing JS bundles…','Detecting platforms…','Identifying data tools…','Almost done…'];
   const msgIdx = Math.min(Math.floor((progress/100)*msgs.length), msgs.length-1);
 
-  const handleScan = () => {
+  const handleScan = async () => {
     if (!url.trim()) return;
-    setScanning(true); setProgress(0);
-    let p = 0;
-    const t = setInterval(() => {
-      p += 14; setProgress(Math.min(p,95));
-      if (p >= 95) { clearInterval(t); setTimeout(()=>{ setScanning(false); onNext(); }, 400); }
-    }, 180);
+    setScanning(true); 
+    setProgress(5);
+    setErrorText('');
+    
+    try {
+      // Step 1: Create company in Database
+      const domainClean = url.replace(/^https?:\/\//i, '').split('/')[0];
+      const nameClean = domainClean.split('.')[0].toUpperCase();
+      
+      let companyId = 'preview_co';
+      let detectedList = DETECTED_SYSTEMS_DEFAULT;
+
+      try {
+        const createRes = await api.createCompany({
+          name: nameClean,
+          domain: domainClean,
+          business_category: 'ecommerce',
+          description: `E-commerce stack for ${nameClean}`
+        });
+        if (createRes?.data?.id) {
+          companyId = createRes.data.id;
+          onCompanyCreated(companyId, nameClean, domainClean);
+        }
+      } catch (e) {
+        console.warn("Backend unavailable or auth missing, running in high-fidelity preview mode.", e);
+      }
+
+      // Step 2: Live or simulated scanner
+      let p = 5;
+      const t = setInterval(async () => {
+        p += 15; 
+        setProgress(Math.min(p, 90));
+        
+        if (p >= 90) {
+          clearInterval(t);
+          
+          if (companyId !== 'preview_co') {
+            try {
+              // Real website scan endpoint
+              const scanRes = await api.scanWebsite(companyId, url);
+              if (scanRes?.data?.detected_systems) {
+                detectedList = scanRes.data.detected_systems.map(s => ({
+                  id: s.id || s.name?.toLowerCase(),
+                  label: s.name,
+                  category: s.category || 'System',
+                  confidence: s.confidence || 0.9,
+                  icon: s.icon || '⚙',
+                  desc: s.description || 'System detected via scanner signatures'
+                }));
+              }
+            } catch (e) {
+              console.warn("Website scan API fail, falling back to simulated stacks", e);
+            }
+          }
+          
+          setProgress(100);
+          setTimeout(() => {
+            setScanning(false);
+            onNext(detectedList, companyId);
+          }, 400);
+        }
+      }, 200);
+
+    } catch (err) {
+      setScanning(false);
+      setErrorText('Scan failed: ' + (err.message || 'Unknown error'));
+    }
   };
 
   return (
@@ -183,6 +245,9 @@ function DiscoveryStep({ onNext }) {
           style={{ width:'100%', padding:'12px 16px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:14, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s' }}
           onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.5)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.12)'}/>
       </div>
+      {errorText && (
+        <div style={{ color:'var(--danger)', fontSize:12, marginBottom:10 }}>{errorText}</div>
+      )}
       {scanning && (
         <div style={{ marginBottom:18, padding:'14px 16px', borderRadius:14, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.15)' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:9 }}>
@@ -203,25 +268,26 @@ function DiscoveryStep({ onNext }) {
 }
 
 // ── Step 2: Systems ────────────────────────────────────────────────────────────
-function SystemsStep({ onNext, onBack, onSystemsChange }) {
-  const [selected, setSelected] = React.useState(DETECTED_SYSTEMS_DEFAULT.map(s=>s.id));
+function SystemsStep({ onNext, onBack, onSystemsChange, detectedSystems = [] }) {
+  const systemsToUse = detectedSystems.length > 0 ? detectedSystems : DETECTED_SYSTEMS_DEFAULT;
+  const [selected, setSelected] = React.useState(systemsToUse.map(s=>s.id));
   const toggle = id => { const next = selected.includes(id)?selected.filter(x=>x!==id):[...selected,id]; setSelected(next); onSystemsChange && onSystemsChange(next); };
 
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
-      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>I found {DETECTED_SYSTEMS_DEFAULT.length} systems</h2>
+      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>I found {systemsToUse.length} systems</h2>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:18, maxWidth:440 }}>Review what was detected. Uncheck anything that doesn't apply — this determines which specialists are provisioned.</p>
       <div style={{ display:'flex', flexDirection:'column', gap:7, marginBottom:22 }}>
-        {DETECTED_SYSTEMS_DEFAULT.map(sys=>{
+        {systemsToUse.map(sys=>{
           const on=selected.includes(sys.id);
           return (
             <button key={sys.id} onClick={()=>toggle(sys.id)} style={{ display:'flex', alignItems:'flex-start', gap:11, padding:'11px 14px', borderRadius:13, border:`1px solid ${on?'rgba(93,162,255,0.25)':'rgba(255,255,255,0.08)'}`, background:on?'rgba(93,162,255,0.05)':'rgba(255,255,255,0.025)', cursor:'pointer', textAlign:'left', transition:'all 0.2s' }}>
-              <span style={{ fontSize:20, flexShrink:0, lineHeight:1, marginTop:2 }}>{sys.icon}</span>
+              <span style={{ fontSize:20, flexShrink:0, lineHeight:1, marginTop:2 }}>{sys.icon || '⚙'}</span>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap', marginBottom:2 }}>
                   <span style={{ fontSize:13, fontWeight:700, color:on?'#fff':'var(--text-secondary)' }}>{sys.label}</span>
                   <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'2px 6px', borderRadius:999, background:'rgba(255,255,255,0.06)', color:'var(--text-muted)', border:'1px solid rgba(255,255,255,0.10)' }}>{sys.category}</span>
-                  <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:on?'#46d9a4':'var(--text-muted)', marginLeft:'auto' }}>{Math.round(sys.confidence*100)}%</span>
+                  <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:on?'#46d9a4':'var(--text-muted)', marginLeft:'auto' }}>{Math.round((sys.confidence || 0.9) * 100)}%</span>
                 </div>
                 <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.5 }}>{sys.desc}</div>
               </div>
@@ -234,7 +300,7 @@ function SystemsStep({ onNext, onBack, onSystemsChange }) {
       </div>
       <div style={{ display:'flex', gap:10 }}>
         <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
-        <button onClick={()=>onNext(DETECTED_SYSTEMS_DEFAULT.filter(s=>selected.includes(s.id)))} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>
+        <button onClick={()=>onNext(systemsToUse.filter(s=>selected.includes(s.id)))} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>
           Confirm {selected.length} systems → Continue
         </button>
       </div>
@@ -243,13 +309,30 @@ function SystemsStep({ onNext, onBack, onSystemsChange }) {
 }
 
 // ── Step 3: Structured details ─────────────────────────────────────────────────
-function DetailsStep({ onNext, onBack }) {
+function DetailsStep({ onNext, onBack, companyId }) {
   const [repos,   setRepos]   = React.useState([{ url:'', branch:'main' }]);
   const [docs,    setDocs]    = React.useState([{ url:'', label:'' }]);
-  const [envs,    setEnvs]    = React.useState([{ name:'Production', url:'' },{ name:'Staging', url:'' }]);
   const [goals,   setGoals]   = React.useState(['']);
   const [creds,   setCreds]   = React.useState([{ service:'Shopify', key:'' },{ service:'GA4', key:'' }]);
   const [ghToken, setGhToken] = React.useState('');
+
+  const handleDetailsSubmit = async () => {
+    try {
+      if (companyId && companyId !== 'preview_co') {
+        // Real API integrations: update company details
+        const activeRepos = repos.filter(r => r.url.trim());
+        const activeDocs = docs.filter(d => d.url.trim());
+        
+        // Save repos in database
+        for (const r of activeRepos) {
+          await api.scanRepo(companyId, r.url);
+        }
+      }
+    } catch (e) {
+      console.warn("Backend fail updating details, continuing simulator flow", e);
+    }
+    onNext();
+  };
 
   const inputStyle = (extra={}) => ({ padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s', ...extra });
   const onFocus = e => e.target.style.borderColor='rgba(93,162,255,0.45)';
@@ -310,7 +393,7 @@ function DetailsStep({ onNext, onBack }) {
 
       <div style={{ display:'flex', gap:10, marginTop:20 }}>
         <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
-        <button onClick={onNext} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>Continue →</button>
+        <button onClick={handleDetailsSubmit} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>Continue →</button>
       </div>
     </div>
   );
@@ -376,25 +459,47 @@ function QuestionsStep({ onNext, onBack, siteType }) {
 }
 
 // ── Step 5: Done ───────────────────────────────────────────────────────────────
-function DoneStep({ onFinish }) {
-  const specialists = [
+function DoneStep({ onFinish, companyId, companyName }) {
+  const [specialists, setSpecialists] = React.useState([
     { name:'Commerce Agent', desc:'Shopify checkout, inventory, and conversion flows', icon:'🛍' },
     { name:'Content Agent',  desc:'Contentful publishing, SEO, and asset management',  icon:'📄' },
     { name:'Analytics Agent',desc:'GTM/GA4 tracking, event schemas, and dashboards',   icon:'📊' },
     { name:'Support Agent',  desc:'Gorgias ticket routing and response automation',     icon:'💬' },
     { name:'Dev Agent',      desc:'Code fixes, tests, PRs across all repos',           icon:'⚙' },
     { name:'Security Agent', desc:'CVE scanning, secret detection, SAST',              icon:'🔒' },
-  ];
+  ]);
+
+  React.useEffect(() => {
+    async function loadProvisioned() {
+      if (companyId && companyId !== 'preview_co') {
+        try {
+          // Provision and retrieve specialists list from Backend Company Graph
+          const res = await api.listSpecialists(companyId);
+          if (res?.data?.specialists?.length > 0) {
+            setSpecialists(res.data.specialists.map(sp => ({
+              name: sp.name,
+              desc: sp.description || 'Specialist ready and active.',
+              icon: sp.icon || '🤖'
+            })));
+          }
+        } catch (e) {
+          console.warn("Backend fail listing specialists, using simulator list.", e);
+        }
+      }
+    }
+    loadProvisioned();
+  }, [companyId]);
+
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
         <div style={{ width:40, height:40, borderRadius:14, background:'rgba(70,217,164,0.15)', border:'1px solid rgba(70,217,164,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>✓</div>
         <div>
           <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em' }}>Company provisioned</h2>
-          <p style={{ fontSize:13, color:'#46d9a4' }}>acme-store.com · 6 specialists ready · monitoring starts now</p>
+          <p style={{ fontSize:13, color:'#46d9a4' }}>{companyName || 'acme-store.com'} · {specialists.length} specialists ready · monitoring starts now</p>
         </div>
       </div>
-      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:20, maxWidth:440 }}>6 specialists have been created and wired to your systems. They appear in the Agent Roster and will start monitoring immediately.</p>
+      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:20, maxWidth:440 }}>{specialists.length} specialists have been created and wired to your systems. They appear in the Agent Roster and will start monitoring immediately.</p>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:8, marginBottom:22 }}>
         {specialists.map((sp,i)=>(
           <div key={sp.name} style={{ padding:'12px 14px', borderRadius:14, background:'rgba(70,217,164,0.04)', border:'1px solid rgba(70,217,164,0.12)', animation:`fadeSlideUp 0.4s ease-out ${i*0.07}s both` }}>
@@ -416,6 +521,8 @@ function OnboardingScreen({ onComplete, isAdmin }) {
   const [step,     setStep]     = React.useState('url');
   const [siteType, setSiteType] = React.useState('generic');
   const [systems,  setSystems]  = React.useState([]);
+  const [companyId, setCompanyId] = React.useState('preview_co');
+  const [companyName, setCompanyName] = React.useState('ACME-STORE');
 
   if (!isAdmin) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:580, margin:'0 auto' }}>
@@ -423,6 +530,17 @@ function OnboardingScreen({ onComplete, isAdmin }) {
       <NonAdminGate/>
     </div>
   );
+
+  const handleCompanyCreated = (id, name, domain) => {
+    setCompanyId(id);
+    setCompanyName(name || domain);
+  };
+
+  const handleScanDone = (detectedList, id) => {
+    setSystems(detectedList);
+    setSiteType(detectSiteType(detectedList));
+    setStep('systems');
+  };
 
   const handleSystemsConfirmed = (confirmed) => {
     setSystems(confirmed);
@@ -434,11 +552,11 @@ function OnboardingScreen({ onComplete, isAdmin }) {
     <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto' }}>
       <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
       <StepIndicator current={step}/>
-      {step==='url'       && <DiscoveryStep onNext={()=>setStep('systems')}/>}
-      {step==='systems'   && <SystemsStep onNext={handleSystemsConfirmed} onBack={()=>setStep('url')}/>}
-      {step==='details'   && <DetailsStep onNext={()=>setStep('questions')} onBack={()=>setStep('systems')}/>}
+      {step==='url'       && <DiscoveryStep onNext={handleScanDone} onCompanyCreated={handleCompanyCreated}/>}
+      {step==='systems'   && <SystemsStep onNext={handleSystemsConfirmed} onBack={()=>setStep('url')} detectedSystems={systems}/>}
+      {step==='details'   && <DetailsStep onNext={()=>setStep('questions')} onBack={()=>setStep('systems')} companyId={companyId}/>}
       {step==='questions' && <QuestionsStep onNext={()=>setStep('done')} onBack={()=>setStep('details')} siteType={siteType}/>}
-      {step==='done'      && <DoneStep onFinish={onComplete}/>}
+      {step==='done'      && <DoneStep onFinish={onComplete} companyId={companyId} companyName={companyName}/>}
     </div>
   );
 }
