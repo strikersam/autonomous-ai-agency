@@ -1,22 +1,22 @@
-# NEXT ACTION — Agency Cycle Fresh Start
+# NEXT ACTION — Friday Maintenance Complete
 
-**Session:** `agency-cycle-fresh-2026-05-18`
+**Session:** `agency-cycle-fresh-2026-05-29`
 **Status:** Ready for next cycle
-**Last updated:** 2026-05-18T11:10:20Z
+**Last updated:** 2026-05-29T00:00:00Z
 
-## Completed this session
-- Fixed `auto-merge.yml` + `pull-request.yml`: removed non-existent `actions/setup-cli@v1`
-- Rewrote binary-corrupted `openclaw-security-automation.yml` as clean YAML
-- Fixed `agency-cycle.yml`: bumped `@v6` → `@v4`/`@v5` action versions
-- Merged PRs: #170 #171 #172 #173 #174 #180 #182 #183 #184 #186
-- Closed conflicted PR #185 (superseded by #186)
-- PR #175 (react-router-dom 7.15.1) left open — frontend test failure needs investigation
+## Completed this session (Friday maintenance sweep)
+- Audited all open PRs — none open at start of run
+- Scanned all `.github/workflows/` files for bad action versions / broken YAML / bad npm installs
+- Fixed `deploy-pages.yml`: bumped `configure-pages@v3`→`@v6`, `upload-pages-artifact@v2`→`@v5`, `deploy-pages@v2`→`@v5` (PR #287, merged)
+- All other workflow files confirmed on current action versions
+- Agent state confirmed healthy (status: ready, no blocked/failed checkpoints)
+- Changelog updated with maintenance entry
+- Agent state reset for fresh cycle
 
 ## Next cycle tasks
 1. Trigger `agency-cycle.yml` via `workflow_dispatch` or wait for 6-hour schedule
-2. Investigate PR #175 frontend test failure (`react-router-dom` 6→7 breaking changes)
-3. Monitor `openclaw-security-automation.yml` first hourly run post-fix
-4. Run `pytest -x` locally to confirm full test suite green
+2. Monitor `openclaw-security-automation.yml` hourly runs
+3. Run `pytest -x` locally to confirm full test suite green
 
 ## Resume command
 ```

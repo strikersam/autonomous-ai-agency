@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+- **GitHub Pages workflow action versions updated (deploy-pages.yml).** Bumped `actions/configure-pages` v3→v6, `actions/upload-pages-artifact` v2→v5, `actions/deploy-pages` v2→v5 to latest supported versions. (PR #287, Friday maintenance 2026-05-29.)
+
+
+
 ### Added
 - **Website scanner signature database expanded from 27 to ~1,270 technologies.** `services/technologies.json` is now generated from the Wappalyzer fingerprint dataset (see `scripts/build_tech_db.py`) instead of a hand-rolled 27-app stub, so the scanner identifies far more of a site's real stack — jQuery, HubSpot, Hotjar, WooCommerce, Fastly, CloudFront, webpack, modern analytics, and hundreds more. The matching engine is unchanged; this is a data fix for poor detection coverage.
 
