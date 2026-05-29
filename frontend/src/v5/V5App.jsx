@@ -58,7 +58,7 @@ export default function V5App() {
   const agentRunning = true;
   const go = (s) => setScreen(s);
   const screens = {
-    chat:         <ChatScreen chatState="idle" />,
+    chat:         <ChatScreen />,
     dashboard:    <DashboardScreen dashboardState="healthy" />,
     tasks:        <TaskBoardScreen />,
     agents:       <AgentsScreen onNavigateToChat={() => go('chat')} />,
