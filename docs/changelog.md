@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **v5 Onboarding wired to the real backend — silent mock fallback removed (`frontend/src/v5/screens/OnboardingScreen.jsx`).** `handleScan` defaulted `companyId` to `'preview_co'` and silently swallowed `createCompany()` failures, so the scan step was always skipped and `DETECTED_SYSTEMS_DEFAULT` (hardcoded Shopify/Gatsby/GTM stack) was always shown. The flow now surfaces auth errors ("log in to continue"), propagates real API failures, and gates the scan on the real `POST /api/company` + `POST /api/company/{id}/scan/website` responses. `SystemsStep` no longer falls back to mock data when zero systems are detected (honest empty state instead). `DoneStep` always loads specialists from `GET /api/company/{id}/specialists` — the hardcoded six-specialist mock list is removed and loading/error states are rendered.
 - **GitHub Pages workflow action versions updated (deploy-pages.yml).** Bumped `actions/configure-pages` v3→v6, `actions/upload-pages-artifact` v2→v5, `actions/deploy-pages` v2→v5 to latest supported versions. (PR #287, Friday maintenance 2026-05-29.)
 
 
