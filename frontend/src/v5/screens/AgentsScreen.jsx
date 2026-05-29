@@ -1,27 +1,16 @@
-/* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
+/* eslint-disable jsx-a11y/anchor-is-valid -- ported design prototype; hardened when wired to live data */
 import React from 'react';
-
+import { useSafeData } from '../hooks/useSafeData';
 
 // agents.jsx — Agent Roster V5.0
-// Onboarding-provisioned agents clearly labelled. Create new agents. Runtime selector.
 
-// ── Resolve top-priority model from providers config ──────────────────────────
-function resolveAgentModel(hint) {
-  try {
-    const cfg = window.__getProviderConfig ? window.__getProviderConfig() : {};
-    const all = window.__getAllProviders   ? window.__getAllProviders()   : [];
-    const sorted = [...all].sort((a,b) => (cfg[a.id]?.priority ?? a.defaultPriority) - (cfg[b.id]?.priority ?? b.defaultPriority));
-    const top = sorted.find(p => cfg[p.id]?.enabled !== false);
-    return top ? (cfg[top.id]?.model || top.defaultModel) : hint;
-  } catch { return hint; }
-}
-function resolveAgentProvider() {
-  try {
-    const cfg = window.__getProviderConfig ? window.__getProviderConfig() : {};
-    const all = window.__getAllProviders   ? window.__getAllProviders()   : [];
-    const sorted = [...all].sort((a,b) => (cfg[a.id]?.priority ?? a.defaultPriority) - (cfg[b.id]?.priority ?? b.defaultPriority));
-    return sorted.find(p => cfg[p.id]?.enabled !== false) || sorted[0];
-  } catch { return null; }
+function relTime(iso) {
+  if (!iso) return '—';
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
 }
 
 // ── Runtime catalogue (from README) ──────────────────────────────────────────
@@ -35,27 +24,13 @@ const RUNTIMES = [
 ];
 const RUNTIME_TIER_COLOR = { recommended:'#46d9a4', code:'#5da2ff', reasoning:'#c4b5fd', execution:'#ffbd66', external:'var(--text-muted)' };
 
-// ── CEO cycle data ────────────────────────────────────────────────────────────
-const CEO_CYCLE = {
-  lastRun:'14 min ago', nextRun:'1 min', status:'idle',
-  lastDirectives:[
-    { to:'Dev Agent',      action:'Fix 3 failing pytest tests',     status:'completed', ago:'14m' },
-    { to:'Security Agent', action:'Run bandit scan on auth/',        status:'running',   ago:'8m' },
-    { to:'Release Agent',  action:'Audit changelog for v5.0',        status:'queued',    ago:'14m' },
-  ],
-};
-
-// ── Default roster (mix of built-in + onboarding-provisioned) ────────────────
-const DEFAULT_AGENTS = [
-  { id:'ceo',       name:'CEO Agent',       role:'Orchestrator',   icon:'◎', color:'#c4b5fd', status:'idle',    runtime:'hermes',    model:'nemotron-3-super-120b', specializations:['orchestration','assessment','directives'],    origin:'builtin',  currentTask:null,           tasksWeek:28, avgMs:3200,  lastRun:'14m ago', costPolicy:'local_first', desc:'Runs every 15 min. Reads improvement state, issues directives.' },
-  { id:'dev',       name:'Dev Agent',       role:'Engineer',       icon:'⚙', color:'#5da2ff', status:'active',  runtime:'opencode',  model:'qwen3-coder:30b',       specializations:['code_generation','repo_editing','test_fixing'], origin:'builtin',  currentTask:'Migrate DB schema to v3', tasksWeek:41, avgMs:18400, lastRun:'14m ago', costPolicy:'local_first', desc:'Fixes tests, applies code patches, opens PRs.' },
-  { id:'security',  name:'Security Agent',  role:'Security',       icon:'🔒',color:'#ffbd66', status:'running', runtime:'hermes',    model:'qwen3-coder:7b',        specializations:['sast','cve_audit','secret_detection'],           origin:'builtin',  currentTask:'Bandit scan — auth module', tasksWeek:7, avgMs:9100, lastRun:'8m ago',  costPolicy:'local_only', desc:'Remediates bandit/CVE/secret findings. Runs weekly + on directive.' },
-  { id:'reviewer',  name:'Reviewer Agent',  role:'Code Review',    icon:'◈', color:'#46d9a4', status:'idle',    runtime:'goose',     model:'deepseek-r1:32b',       specializations:['code_review','reasoning','council_review'],       origin:'builtin',  currentTask:null,           tasksWeek:4,  avgMs:24000, lastRun:'3h ago',  costPolicy:'local_first', desc:'Council review every 4th CEO cycle.' },
-  { id:'release',   name:'Release Agent',   role:'Release Mgmt',   icon:'◉', color:'#7c9dff', status:'active',  runtime:'hermes',    model:'qwen3-coder:7b',        specializations:['changelog','version_bump','readiness_check'],     origin:'builtin',  currentTask:'Changelog audit — v5.0', tasksWeek:3, avgMs:11200, lastRun:'45m ago', costPolicy:'local_only', desc:'Weekly readiness check, changelog, and version bumping.' },
-  // Onboarding-provisioned specialists
-  { id:'commerce',  name:'Commerce Agent',  role:'Shopify Specialist',icon:'🛍',color:'#46d9a4',status:'active', runtime:'opencode', model:'qwen3-coder:30b',        specializations:['shopify','checkout','inventory','conversion'],    origin:'onboarding',currentTask:'Audit checkout conversion rate', tasksWeek:12, avgMs:14200, lastRun:'20m ago', costPolicy:'local_first', desc:'Shopify checkout, inventory, and conversion optimisation.' },
-  { id:'content',   name:'Content Agent',   role:'CMS Specialist',  icon:'📄',color:'#c4b5fd', status:'idle',   runtime:'hermes',   model:'gemini-2.0-flash',       specializations:['contentful','seo','publishing','assets'],         origin:'onboarding',currentTask:null,           tasksWeek:6,  avgMs:8100,  lastRun:'2h ago',  costPolicy:'local_first', desc:'Contentful publishing, SEO, and asset management.' },
-  { id:'analytics', name:'Analytics Agent', role:'GA4 Specialist',  icon:'📊',color:'#5da2ff', status:'idle',   runtime:'hermes',   model:'nemotron-3-super-120b',  specializations:['gtm','ga4','tracking','dashboards'],              origin:'onboarding',currentTask:null,           tasksWeek:3,  avgMs:5400,  lastRun:'4h ago',  costPolicy:'local_first', desc:'GTM/GA4 tracking, event schemas, and dashboard setup.' },
+// ── Built-in agent definitions (static catalog — these are real system agents) ─
+const BUILTIN_AGENT_DEFS = [
+  { id:'ceo',      name:'CEO Agent',      role:'Orchestrator',  icon:'◎', color:'#c4b5fd', runtime:'hermes',   model:'—', specializations:['orchestration','assessment','directives'],    costPolicy:'local_first', desc:'Orchestrates the agency cycle — reads improvement state and issues directives to specialist agents.' },
+  { id:'dev',      name:'Dev Agent',      role:'Engineer',      icon:'⚙', color:'#5da2ff', runtime:'opencode', model:'—', specializations:['code_generation','repo_editing','test_fixing'], costPolicy:'local_first', desc:'Fixes tests, applies code patches, opens PRs.' },
+  { id:'security', name:'Security Agent', role:'Security',      icon:'🔒',color:'#ffbd66', runtime:'hermes',   model:'—', specializations:['sast','cve_audit','secret_detection'],           costPolicy:'local_only',  desc:'Remediates bandit/CVE/secret findings. Runs on directive.' },
+  { id:'reviewer', name:'Reviewer Agent', role:'Code Review',   icon:'◈', color:'#46d9a4', runtime:'hermes',   model:'—', specializations:['code_review','reasoning','council_review'],       costPolicy:'local_first', desc:'Performs council review on significant changes.' },
+  { id:'release',  name:'Release Agent',  role:'Release Mgmt',  icon:'◉', color:'#7c9dff', runtime:'hermes',   model:'—', specializations:['changelog','version_bump','readiness_check'],     costPolicy:'local_only',  desc:'Weekly readiness check, changelog, and version bumping.' },
 ];
 
 // ── Pipeline modes ────────────────────────────────────────────────────────────
@@ -74,9 +49,7 @@ function statusCfg(s) {
 }
 
 // ── CEO cycle panel ───────────────────────────────────────────────────────────
-function CEOCyclePanel({ cycle }) {
-  const [running, setRunning] = React.useState(false);
-  const run = () => { setRunning(true); setTimeout(()=>setRunning(false), 2500); };
+function CEOCyclePanel({ directives, loading }) {
   return (
     <div style={{ borderRadius:20, padding:'16px 18px', background:'linear-gradient(135deg,rgba(196,181,253,0.08),rgba(10,12,15,0.95) 60%)', border:'1px solid rgba(196,181,253,0.18)', marginBottom:18 }}>
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', marginBottom:12 }}>
@@ -84,22 +57,23 @@ function CEOCyclePanel({ cycle }) {
           <div style={{ width:30, height:30, borderRadius:9, background:'rgba(196,181,253,0.15)', border:'1px solid rgba(196,181,253,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>◎</div>
           <div>
             <div style={{ fontSize:14, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>CEO Agent</div>
-            <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'#c4b5fd' }}>Orchestrator · every 15 min · Last: {cycle.lastRun} · Next: {cycle.nextRun}</div>
+            <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'#c4b5fd' }}>Orchestrator · recent activity from backend</div>
           </div>
         </div>
-        <button onClick={run} disabled={running} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:999, fontSize:11, fontWeight:700, cursor:'pointer', background:'rgba(196,181,253,0.12)', border:'1px solid rgba(196,181,253,0.28)', color:running?'var(--text-muted)':'#c4b5fd', transition:'all 0.2s ease', whiteSpace:'nowrap' }}>
-          {running ? <><div style={{ width:10,height:10,border:'2px solid rgba(196,181,253,0.2)',borderTopColor:'#c4b5fd',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>Running…</> : '↺ Run cycle now'}
-        </button>
       </div>
+      {loading && <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>Loading activity…</div>}
+      {!loading && directives.length === 0 && (
+        <div style={{ fontSize:12, color:'var(--text-muted)', padding:'8px 0' }}>No recent agent activity logged. Activity will appear here once agents run tasks.</div>
+      )}
       <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-        {cycle.lastDirectives.map((d,i) => {
-          const sc = statusCfg(d.status==='completed'?'active':d.status);
+        {directives.map((d,i) => {
+          const sc = statusCfg('active');
           return (
             <div key={i} style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 10px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
-              <span style={{ width:5, height:5, borderRadius:'50%', background:sc.color, flexShrink:0, animation:sc.pulse?'pulse 2s infinite':'none' }}/>
+              <span style={{ width:5, height:5, borderRadius:'50%', background:sc.color, flexShrink:0 }}/>
               <span style={{ fontSize:12, color:'var(--text-secondary)', flex:1 }}>{d.action}</span>
               <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'rgba(196,181,253,0.7)', flexShrink:0 }}>→ {d.to}</span>
-              <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', color:sc.color, padding:'1px 6px', borderRadius:5, background:sc.bg, flexShrink:0 }}>{d.status==='completed'?'done':d.status}</span>
+              <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', color:'var(--text-muted)', padding:'1px 6px', borderRadius:5, background:'rgba(255,255,255,0.05)', flexShrink:0 }}>{d.ago}</span>
             </div>
           );
         })}
@@ -161,7 +135,7 @@ function NewAgentForm({ onAdd, onClose }) {
   const [name, setName]           = React.useState('');
   const [role, setRole]           = React.useState('');
   const [runtime, setRuntime]     = React.useState('hermes');
-  const [costPolicy, setCostPolicy] = React.useState('local_first');
+  const [costPolicy]                = React.useState('local_first');
   const [specs, setSpecs]         = React.useState([]);
   const [prompt, setPrompt]       = React.useState('');
   const ALL_SPECS = ['code_generation','repo_editing','code_review','sast','reasoning','scheduled','shopify','contentful','seo','ga4','support'];
@@ -170,7 +144,7 @@ function NewAgentForm({ onAdd, onClose }) {
     if (!name.trim()) return;
     onAdd({
       id:`agent-${Date.now()}`, name:name.trim(), role:role||'General', icon:'◎', color:'#5da2ff',
-      status:'idle', runtime, model:resolveAgentModel('qwen3-coder:30b'),
+      status:'idle', runtime, model:'—',
       specializations:specs, origin:'custom', currentTask:null,
       tasksWeek:0, avgMs:0, lastRun:'never', costPolicy, desc:prompt||`Custom agent: ${name}`,
     });
@@ -238,9 +212,6 @@ function NewAgentForm({ onAdd, onClose }) {
 // ── Agent card ────────────────────────────────────────────────────────────────
 function AgentCard({ agent, onChat }) {
   const sc = statusCfg(agent.status);
-  const resolvedModel   = resolveAgentModel(agent.model);
-  const topProvider     = resolveAgentProvider();
-  const modelChanged    = resolvedModel !== agent.model;
   const originConfig    = {
     builtin:    { color:'#5da2ff',  label:'Built-in',    desc:'Core agency agent' },
     onboarding: { color:'#46d9a4',  label:'Provisioned', desc:'Created from onboarding discovery' },
@@ -312,8 +283,9 @@ function AgentCard({ agent, onChat }) {
       {/* Runtime + model */}
       <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:10 }}>
         <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:rt?RUNTIME_TIER_COLOR[rt.tier]:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)', textTransform:'uppercase', letterSpacing:'0.09em' }}>⚙ {agent.runtime}</span>
-        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:modelChanged?'#46d9a4':'var(--text-muted)', background:modelChanged?'rgba(70,217,164,0.08)':'rgba(255,255,255,0.05)', border:`1px solid ${modelChanged?'rgba(70,217,164,0.20)':'rgba(255,255,255,0.09)'}`, maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textTransform:'uppercase', letterSpacing:'0.09em' }}>◈ {resolvedModel}{modelChanged?' ↑':''}</span>
-        {topProvider && modelChanged && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:topProvider.color||'var(--accent)', background:`${topProvider.color||'#fff'}10`, border:`1px solid ${topProvider.color||'#fff'}22`, textTransform:'uppercase', letterSpacing:'0.09em' }}>via {topProvider.name}</span>}
+        {agent.model && agent.model !== '—' && (
+          <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)', maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textTransform:'uppercase', letterSpacing:'0.09em' }}>◈ {agent.model}</span>
+        )}
       </div>
 
       <button onClick={() => onChat && onChat(agent)} style={{ width:'100%', padding:'8px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:`${agent.color}10`, border:`1px solid ${agent.color}22`, color:agent.color, transition:'all 0.15s ease' }}
@@ -349,18 +321,64 @@ function RuntimesBar() {
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 function AgentsScreen({ onNavigateToChat }) {
-  const [agents, setAgents]     = React.useState(DEFAULT_AGENTS);
-  const [showForm, setShowForm] = React.useState(false);
-  const [filter, setFilter]     = React.useState('all');
+  const [customAgents, setCustomAgents] = React.useState([]);
+  const [showForm, setShowForm]         = React.useState(false);
+  const [filter, setFilter]             = React.useState('all');
 
-  const builtIn     = agents.filter(a => a.origin==='builtin' && a.id!=='ceo');
-  const provisioned = agents.filter(a => a.origin==='onboarding');
-  const custom      = agents.filter(a => a.origin==='custom');
-  const activeCount = agents.filter(a => a.status!=='idle').length;
+  const [data, states] = useSafeData(null, {
+    activity:  '/api/activity?limit=30',
+    providers: '/api/providers',
+  }, { refreshMs: 30000 });
 
-  const filtered = filter==='all' ? agents.filter(a=>a.id!=='ceo')
-                 : filter==='provisioned' ? provisioned
-                 : filter==='builtin' ? builtIn
+  // Derive last-run hints from activity feed per built-in agent name keyword
+  const agentLastRun = React.useMemo(() => {
+    const logs = data.activity?.logs || data.activity?.events || data.activity?.activity || [];
+    const map = {};
+    logs.forEach(log => {
+      const text = ((log.message || '') + ' ' + (log.event_type || '')).toLowerCase();
+      BUILTIN_AGENT_DEFS.forEach(a => {
+        if (!map[a.id] && (text.includes(a.id) || text.includes(a.name.split(' ')[0].toLowerCase()))) {
+          map[a.id] = relTime(log.created_at || log.timestamp);
+        }
+      });
+    });
+    return map;
+  }, [data.activity]);
+
+  // Derive CEO directive list from recent activity
+  const ceoCycleData = React.useMemo(() => {
+    const logs = data.activity?.logs || data.activity?.events || data.activity?.activity || [];
+    return logs
+      .filter(l => {
+        const t = ((l.event_type || '') + ' ' + (l.message || '')).toLowerCase();
+        return t.includes('agent') || t.includes('task') || t.includes('job');
+      })
+      .slice(0, 5)
+      .map(l => ({
+        to: (l.event_type || 'System').replace(/_/g, ' '),
+        action: l.message || l.event_type || 'Activity',
+        ago: relTime(l.created_at || l.timestamp),
+      }));
+  }, [data.activity]);
+
+  const agents = React.useMemo(() => [
+    ...BUILTIN_AGENT_DEFS.map(a => ({
+      ...a,
+      status: 'idle',
+      currentTask: null,
+      tasksWeek: 0,
+      avgMs: 0,
+      lastRun: agentLastRun[a.id] || '—',
+      origin: 'builtin',
+    })),
+    ...customAgents,
+  ], [agentLastRun, customAgents]);
+
+  const builtIn  = agents.filter(a => a.origin === 'builtin' && a.id !== 'ceo');
+  const custom   = agents.filter(a => a.origin === 'custom');
+
+  const filtered = filter === 'all'     ? agents.filter(a => a.id !== 'ceo')
+                 : filter === 'builtin' ? builtIn
                  : custom;
 
   return (
@@ -369,39 +387,32 @@ function AgentsScreen({ onNavigateToChat }) {
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:18 }}>
         <div>
           <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Agent Roster</h1>
-          <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:480 }}>CEO + built-in specialists + agents provisioned from your onboarding discovery. All use your configured model priority.</p>
+          <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:480 }}>Built-in specialist agents + any custom agents you create. Complete onboarding to provision company-specific specialists.</p>
         </div>
-        <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
-          <div style={{ padding:'8px 14px', borderRadius:12, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.09)', textAlign:'center' }}>
-            <div style={{ fontSize:20, fontWeight:800, color:'#46d9a4', letterSpacing:'-0.03em' }}>{activeCount}</div>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em' }}>Active now</div>
-          </div>
-          <button onClick={() => setShowForm(true)} style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 20px', borderRadius:999, fontSize:13, fontWeight:800, cursor:'pointer', background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', border:'none', boxShadow:'0 6px 20px rgba(93,162,255,0.22)' }}>+ New agent</button>
-        </div>
+        <button onClick={() => setShowForm(true)} style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 20px', borderRadius:999, fontSize:13, fontWeight:800, cursor:'pointer', background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', border:'none', boxShadow:'0 6px 20px rgba(93,162,255,0.22)' }}>+ New agent</button>
       </div>
 
-      <CEOCyclePanel cycle={CEO_CYCLE}/>
+      <CEOCyclePanel directives={ceoCycleData} loading={states.activity?.loading}/>
       <PipelinePanel/>
       <RuntimesBar/>
 
-      {showForm && <NewAgentForm onAdd={a => { setAgents(p=>[...p,a]); setShowForm(false); }} onClose={() => setShowForm(false)}/>}
+      {showForm && <NewAgentForm onAdd={a => { setCustomAgents(p=>[...p,a]); setShowForm(false); }} onClose={() => setShowForm(false)}/>}
 
       {/* Filter tabs */}
       <div style={{ display:'flex', gap:6, marginBottom:14, flexWrap:'wrap' }}>
         {[
-          { id:'all',         label:`All (${agents.filter(a=>a.id!=='ceo').length})` },
-          { id:'builtin',     label:`Built-in (${builtIn.length})` },
-          { id:'provisioned', label:`From onboarding (${provisioned.length})` },
-          { id:'custom',      label:`Custom (${custom.length})` },
+          { id:'all',     label:`All (${agents.filter(a=>a.id!=='ceo').length})` },
+          { id:'builtin', label:`Built-in (${builtIn.length})` },
+          { id:'custom',  label:`Custom (${custom.length})` },
         ].map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)} style={{ padding:'5px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer', background:filter===f.id?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${filter===f.id?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:filter===f.id?'#fff':'var(--text-muted)', transition:'all 0.15s' }}>{f.label}</button>
         ))}
       </div>
 
-      {/* Onboarding callout for provisioned agents */}
-      {(filter==='all'||filter==='provisioned') && provisioned.length > 0 && (
-        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(70,217,164,0.05)', border:'1px solid rgba(70,217,164,0.15)', marginBottom:12, fontSize:12, color:'#46d9a4', lineHeight:1.5 }}>
-          ✦ {provisioned.length} specialists were auto-provisioned during company onboarding (acme-store.com). They know your Shopify, Contentful, and GA4 stack.
+      {/* Honest callout: provisioned specialists need onboarding */}
+      {(filter === 'all' || filter === 'builtin') && (
+        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.05)', border:'1px solid rgba(93,162,255,0.12)', marginBottom:12, fontSize:12, color:'var(--text-muted)', lineHeight:1.5 }}>
+          Company-specific specialists (Commerce, Content, Analytics…) appear here after you complete the Onboarding flow for your site.
         </div>
       )}
 
@@ -409,6 +420,11 @@ function AgentsScreen({ onNavigateToChat }) {
         {filtered.map(agent => (
           <AgentCard key={agent.id} agent={agent} onChat={() => onNavigateToChat && onNavigateToChat(agent)}/>
         ))}
+        {filtered.length === 0 && (
+          <div style={{ gridColumn:'1/-1', padding:'32px 0', textAlign:'center', fontSize:13, color:'var(--text-muted)' }}>
+            No agents yet. Create one using the button above.
+          </div>
+        )}
       </div>
     </div>
   );
