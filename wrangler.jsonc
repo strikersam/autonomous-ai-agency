@@ -1,14 +1,23 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "local-llm-server",
+  "main": "worker/index.js",
   "compatibility_date": "2026-05-27",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "observability": {
     "enabled": true
   },
-  "assets": {
-    "directory": "."
+  // Build the React app, then serve it. The app is served at the origin root and
+  // talks to /api on the same origin (proxied to Render by worker/index.js), so no
+  // REACT_APP_BACKEND_URL is set — frontend/src/api.js falls back to window.location.origin.
+  "build": {
+    "command": "cd frontend && npm install --legacy-peer-deps && PUBLIC_URL=/ npm run build"
   },
-  "compatibility_flags": [
-    "nodejs_compat"
-  ]
+  "assets": {
+    "directory": "frontend/build",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  }
 }
