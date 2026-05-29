@@ -1,22 +1,9 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
-
+import * as api from '../../api';
 
 // intelligence.jsx — Commerce Intelligence
-// Competitor monitoring + web trend scanning with live AI analysis via window.claude
-
-const DEFAULT_COMPETITORS = [
-  { id:'c-1', name:'Pretty Little Thing', url:'https://prettylittlething.com', industry:'Fashion / D2C', tracked:['pricing','campaigns','new-arrivals'], lastScan:'2h ago', status:'active' },
-  { id:'c-2', name:'ASOS',                url:'https://asos.com',              industry:'Fashion / Marketplace', tracked:['pricing','features'],          lastScan:'6h ago', status:'active' },
-];
-
-const DEFAULT_KEYWORDS = [
-  { id:'k-1', keyword:'headless commerce 2025',   category:'Tech Trends',     tracked:true },
-  { id:'k-2', keyword:'AI personalisation ecommerce', category:'AI & Commerce', tracked:true },
-  { id:'k-3', keyword:'cart abandonment best practices', category:'Conversion',  tracked:true },
-  { id:'k-4', keyword:'Shopify vs competitors 2025',    category:'Market Intel', tracked:true },
-  { id:'k-5', keyword:'ecommerce loyalty programs',     category:'Retention',   tracked:true },
-];
+// Competitor monitoring + trend scanning with live AI analysis via /api/chat/send
 
 const TRACK_OPTIONS = ['pricing','campaigns','new-arrivals','features','tech-stack','seo','social'];
 const trackColors   = { pricing:'#ffbd66', campaigns:'#ff6b7d', 'new-arrivals':'#46d9a4', features:'#5da2ff', 'tech-stack':'#c4b5fd', seo:'#7c9dff', social:'#f97316' };
@@ -65,7 +52,9 @@ Provide a concise, actionable intelligence briefing covering:
 
 Keep it sharp, practical, and under 300 words. No fluff. Write in plain English for a non-technical founder.`;
 
-      const result = await window.claude.complete(prompt);
+      const { data } = await api.chatSend(prompt, null, null, null, null, false);
+      const result = data?.response || '';
+      if (!result) throw new Error('No response from AI.');
       setAnalysis(result);
       setGenerated(true);
     } catch (e) {
@@ -236,8 +225,8 @@ function KeywordRow({ kw, onToggle, onRemove }) {
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 function IntelligenceScreen() {
-  const [competitors, setCompetitors] = React.useState(DEFAULT_COMPETITORS);
-  const [keywords,    setKeywords]    = React.useState(DEFAULT_KEYWORDS);
+  const [competitors, setCompetitors] = React.useState([]);
+  const [keywords,    setKeywords]    = React.useState([]);
   const [showAddComp, setShowAddComp] = React.useState(false);
   const [newKw,       setNewKw]       = React.useState('');
   const [newKwCat,    setNewKwCat]    = React.useState('Tech Trends');
