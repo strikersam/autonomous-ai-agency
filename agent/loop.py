@@ -22,6 +22,7 @@ from agent.prompts import (
     build_tool_prompt,
     build_verification_prompt,
 )
+from agent.quality_filters import StopSlopFilter
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
@@ -78,6 +79,8 @@ class AgentRunner:
         self.email = email
         self.department = department
         self.key_id = key_id
+        # Quality filter for removing AI tells
+        self._quality_filter = StopSlopFilter(strict=False)
 
     async def plan(
         self,
@@ -989,6 +992,33 @@ class AgentRunner:
                 issues.append("Auth/JWT code hardcodes SECRET_KEY instead of reading configuration from the environment.")
             if "fake_users_db" in lowered:
                 issues.append("Auth/JWT code introduces fake in-memory users, which is not a safe default for real authentication work.")
+        return issues
+
+    def _quality_check(self, path: str, content: str) -> list[str]:
+        """Check for AI tells and common quality issues using stop-slop filter."""
+        issues: list[str] = []
+        
+        # Only check Python files and documentation for quality
+        if not path.endswith((".py", ".md")):
+            return issues
+        
+        # For code files, check docstrings and comments
+        if path.endswith(".py"):
+            # Extract docstrings and comments
+            lines = content.split('\n')
+            for line in lines:
+                if '"""' in line or "'''" in line or line.strip().startswith('#'):
+                    quality_issues = self._quality_filter.check_text(line)
+                    for issue in quality_issues:
+                        if issue.severity == "error":
+                            issues.append(f"Quality: {issue.text} in {path}")
+        
+        # For markdown files, check the full content
+        if path.endswith(".md"):
+            quality_score = self._quality_filter.score_text(content)
+            if quality_score["total"] < 30:
+                issues.append(f"Quality: Documentation quality score is low ({quality_score['total']}/50). Consider improving clarity and removing AI jargon.")
+        
         return issues
 
     def _review_step_result(self, *, step: dict[str, Any], changed_files: list[str]) -> list[str]:
