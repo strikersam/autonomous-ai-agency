@@ -25,13 +25,12 @@ Browser ──► local-llm-server.strikersam.workers.dev
 **Workers Builds** project doesn't pick that up, set in the dashboard
 (Workers & Pages → local-llm-server → Settings → Build):
 
-- **Build command:** `cd frontend && npm install --legacy-peer-deps && CI=false PUBLIC_URL=/ npm run build && rm -f build/_redirects`
-  (the `rm -f build/_redirects` is required — CRA's `/* /index.html 200` rule is rejected by Workers Assets; SPA fallback is handled by `not_found_handling` instead.)
+- **Build command:** `cd frontend && npm install --legacy-peer-deps && CI=false PUBLIC_URL=/ REACT_APP_BACKEND_URL= npm run build && rm -f build/_redirects`
+  - `rm -f build/_redirects` — CRA's `/* /index.html 200` rule is rejected by Workers Assets; SPA fallback is handled by `not_found_handling` instead.
+  - `REACT_APP_BACKEND_URL=` (empty) is **required** — it overrides any dashboard build env var so the app uses `window.location.origin` and routes API calls through the same-origin proxy. If a non-empty `REACT_APP_BACKEND_URL` gets baked in, the app calls the backend cross-origin, triggering CORS preflights that fail (`OPTIONS /api/auth/login → 400`) and breaking login.
 - **Deploy command:** `npx wrangler deploy`
 - **Root directory:** repository root
-- **Build env vars:** do **not** set `REACT_APP_BACKEND_URL` (same-origin proxy is used). If you
-  ever want the app to hit the backend directly instead, set it to the Render URL and add the
-  workers.dev origin to the backend `CORS_ORIGINS`.
+- **Build env vars:** leave `REACT_APP_BACKEND_URL` **unset/empty** in the dashboard (the build command forces it empty regardless, but don't rely on a stale value).
 
 ## Backend (Render)
 
