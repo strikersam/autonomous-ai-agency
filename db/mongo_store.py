@@ -42,3 +42,9 @@ class MongoStore:
 
     def __getattr__(self, name: str):
         return getattr(self._get_db(), name)
+
+    def __getitem__(self, name: str):
+        # Motor databases support both ``db.collection`` and ``db["collection"]``.
+        # Mirror subscript access so callers that use it (e.g. tasks/store.py) work
+        # instead of hitting "'MongoStore' object is not subscriptable".
+        return self._get_db()[name]

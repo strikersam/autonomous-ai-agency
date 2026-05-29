@@ -16,7 +16,7 @@
     // Strip CRA's `_redirects` (/* /index.html 200): Cloudflare Workers Assets rejects
     // it as an infinite loop, and `not_found_handling: single-page-application` below
     // already provides SPA fallback.
-    "command": "cd frontend && npm install --legacy-peer-deps && CI=false PUBLIC_URL=/ npm run build && rm -f build/_redirects"
+    "command": "cd frontend && npm install --legacy-peer-deps && CI=false PUBLIC_URL=/ REACT_APP_BACKEND_URL= npm run build && rm -f build/_redirects"
   },
   "assets": {
     "directory": "frontend/build",
