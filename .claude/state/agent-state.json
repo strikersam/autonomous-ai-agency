@@ -1,13 +1,9 @@
 {
   "schema_version": "1",
-  "session_id": "agency-cycle-fresh-2026-05-18",
+  "session_id": "agency-cycle-fresh-2026-05-29",
   "status": "ready",
-  "last_updated": "2026-05-18T21:38:25Z",
-  "next_step": "Wait for next high-priority task.",
-  "completed_steps": [
-    "fix-openclaw-security-2026-05-07",
-    "ci-workflow-fixes-2026-05-18",
-    "security-crash-correctness-fixes-2026-05-18"
-  ],
-  "notes": "Fresh start. All PRs merged (#170-#174, #180-#184, #186). Workflows fixed: auto-merge, pull-request, openclaw-security-automation, agency-cycle. Next: let agency-cycle.yml run on schedule (every 6h) or trigger via workflow_dispatch."
+  "last_updated": "2026-05-29T00:00:00Z",
+  "next_step": "Run agency-cycle.yml workflow — CEO assessment, pytest baseline, bandit scan.",
+  "completed_steps": ["weekly-maintenance-2026-05-29"],
+  "notes": "Fresh start after Friday maintenance sweep. Fixed deploy-pages.yml action versions (PR #287). No open PRs. Agent state was already healthy."
 }
