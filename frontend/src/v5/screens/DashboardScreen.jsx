@@ -217,15 +217,16 @@ function TasksWidget({ tasks, loading, error, title = 'Open Tasks' }) {
 }
 
 function CostWidget({ data, loading, error }) {
-  const barW = `${Math.round(data.localRatio * 100)}%`;
+  const hasRatio = data.localRatio != null;
+  const barW = `${Math.round((data.localRatio || 0) * 100)}%`;
   return (
     <Widget title="Cost & Usage" loading={loading} error={error}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: hasRatio ? 12 : 0 }}>
         {[
-          { label: 'This month', value: data.month, color: 'var(--text-primary)' },
-          { label: 'Cost saved', value: data.saved, color: '#46d9a4' },
+          { label: 'Cost saved (24h)', value: data.saved, color: '#46d9a4' },
           { label: 'Requests (24h)', value: (data.requests || 0).toLocaleString(), color: 'var(--accent)' },
-          { label: 'Tokens', value: data.tokens, color: '#c4b5fd' },
+          { label: 'Tokens (24h)', value: data.tokens, color: '#c4b5fd' },
+          { label: 'Avg tokens/req', value: data.avgTokens, color: 'var(--text-primary)' },
         ].map(m => (
           <div key={m.label} style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
             <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 4 }}>{m.label}</div>
@@ -233,16 +234,18 @@ function CostWidget({ data, loading, error }) {
           </div>
         ))}
       </div>
-      {/* Local ratio bar */}
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-          <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Local / free ratio</span>
-          <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: '#46d9a4', fontWeight: 700 }}>{barW}</span>
+      {/* Local ratio bar — only when the backend supplies the split */}
+      {hasRatio && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Local / free ratio</span>
+            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: '#46d9a4', fontWeight: 700 }}>{barW}</span>
+          </div>
+          <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.08)' }}>
+            <div style={{ height: '100%', borderRadius: 999, width: barW, background: 'linear-gradient(90deg, #46d9a4, #5da2ff)', transition: 'width 0.8s ease' }}/>
+          </div>
         </div>
-        <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.08)' }}>
-          <div style={{ height: '100%', borderRadius: 999, width: barW, background: 'linear-gradient(90deg, #46d9a4, #5da2ff)', transition: 'width 0.8s ease' }}/>
-        </div>
-      </div>
+      )}
     </Widget>
   );
 }
@@ -352,16 +355,20 @@ function DashboardScreen() {
     }));
   }, [data.activity]);
 
-  // Map /api/observability/metrics to CostWidget shape
+  // Map /api/observability/metrics to CostWidget shape.
+  // Backend exposes a 24h window only (total_requests/tokens/savings); there is
+  // no monthly spend figure and no cloud/local split, so we don't fabricate them.
   const costData = React.useMemo(() => {
     const s = data.metrics?.summary_24h || {};
     const saved = s.total_savings_usd || 0;
+    const requests = s.total_requests || 0;
+    const tokens = s.total_tokens || 0;
     return {
-      month: `$${saved.toFixed(2)}`,
       saved: `$${saved.toFixed(2)}`,
-      requests: s.total_requests || 0,
-      tokens: fmtTokens(s.total_tokens || 0),
-      localRatio: 0,
+      requests,
+      tokens: fmtTokens(tokens),
+      avgTokens: requests ? fmtTokens(Math.round(tokens / requests)) : '—',
+      localRatio: null, // no cloud/local split in metrics yet — bar hidden
     };
   }, [data.metrics]);
 
