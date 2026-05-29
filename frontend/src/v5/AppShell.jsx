@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { id:'knowledge',  label:'Knowledge',  icon:'BookOpen',       desc:'Docs, sources, activity', section:'AGENCY' },
   { id:'providers',  label:'Providers',  icon:'Layers',         desc:'Models, Ollama, MCP',     section:'INFRASTRUCTURE' },
   { id:'logs',       label:'Logs',       icon:'Activity',       desc:'Traces & observability',  section:'INFRASTRUCTURE' },
+  { id:'github',     label:'GitHub',     icon:'GitBranch',      desc:'Token, repos & PRs',      section:'INFRASTRUCTURE' },
   { id:'company',    label:'Company',    icon:'Building2',      desc:'Operating context',       section:'CONTEXT' },
   { id:'onboarding', label:'Onboarding', icon:'Sparkles',       desc:'Company setup wizard',    section:'CONTEXT' },
   { id:'doctor',     label:'Doctor',     icon:'Stethoscope',    desc:'Diagnostics',             section:'SYSTEM' },
@@ -22,7 +23,7 @@ const NAV_ITEMS = [
 ];
 
 const MOBILE_PRIMARY = ['dashboard', 'agents', 'tasks', 'doctor'];
-const MOBILE_MORE    = ['company', 'schedules', 'skills', 'intelligence', 'knowledge', 'providers', 'logs', 'onboarding', 'admin'];
+const MOBILE_MORE    = ['company', 'schedules', 'skills', 'intelligence', 'knowledge', 'providers', 'github', 'logs', 'onboarding', 'admin'];
 
 function Icon({ name, size=18, style={} }) {
   const s = size;
@@ -41,6 +42,7 @@ function Icon({ name, size=18, style={} }) {
     Sparkles:        <><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M19 17v4"/><path d="M17 19h4"/></>,
     Stethoscope:     <><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></>,
     Shield:          <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></>,
+    GitBranch:       <><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></>,
     Cpu:             <><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M9 2v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/></>,
     LogOut:          <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></>,
     Menu:            <><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></>,
