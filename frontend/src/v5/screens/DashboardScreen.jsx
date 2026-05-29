@@ -189,7 +189,7 @@ function RecentJobsWidget({ jobs, loading, error }) {
 
 function TasksWidget({ tasks, loading, error, title = 'Open Tasks' }) {
   const priorityColor = { urgent: '#ff6b7d', high: '#ffbd66', medium: 'var(--text-muted)' };
-  const statusColor = { in_progress: '#5da2ff', todo: 'var(--text-muted)', blocked: '#ff6b7d' };
+  const statusColor = { in_progress: '#5da2ff', todo: 'var(--text-muted)', in_review: '#ffbd66', blocked: '#ff6b7d' };
   return (
     <Widget title={title} loading={loading} error={error}>
       {(!tasks || tasks.length === 0) && !loading && !error && (
@@ -206,7 +206,7 @@ function TasksWidget({ tasks, loading, error, title = 'Open Tasks' }) {
           }}
           onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.045)'}
           onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.025)'}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor[t.status], flexShrink: 0 }}/>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor[t.status] || 'var(--text-muted)', flexShrink: 0 }}/>
             <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
             <Pill label={t.priority} color={priorityColor[t.priority]}/>
           </div>
