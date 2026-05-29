@@ -34,6 +34,17 @@ const AVAILABLE_AGENTS = [
   { id:'analytics', name:'Analytics Agent',icon:'📊', color:'#5da2ff', desc:'GA4, GTM, dashboards' },
 ];
 
+// Persona prefixes sent as part of the instruction so the planner LLM adopts the
+// right specialist framing. Agents not listed here use the instruction verbatim.
+const AGENT_PERSONAS = {
+  security: '[Security Agent — focus on CVE scans, secrets detection, and SAST analysis]',
+  release:  '[Release Agent — focus on changelog, versioning, and release readiness]',
+  ceo:      '[CEO Agent — focus on orchestration, strategic planning, and assessment]',
+  commerce: '[Commerce Agent — focus on Shopify, checkout flows, and inventory]',
+  content:  '[Content Agent — focus on Contentful, SEO, and publishing workflows]',
+  analytics:'[Analytics Agent — focus on GA4, GTM, and dashboard instrumentation]',
+};
+
 const SUGGESTIONS = [
   'Explain how the agent pipeline modes work',
   'What does the model router decide between?',
@@ -358,13 +369,15 @@ function ChatScreen() {
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     const selectedAg = agent === 'auto' ? 'dev' : agent;
+    const persona = AGENT_PERSONAS[selectedAg];
+    const instruction = persona ? `${persona}\n\n${text}` : text;
     setMessages((prev) => [...prev, { role:'user', content:text }]);
     setSending(true);
     setProgressEvents([]);
     setElapsed(0);
     setPhase(agentMode ? 'planning' : null);
     try {
-      const { data } = await api.chatSend(text, sessionId, null, null, null, agentMode);
+      const { data } = await api.chatSend(instruction, sessionId, null, null, null, agentMode);
       if (!mountedRef.current) return;
       if (data?.session_id) setSessionId(data.session_id);
       if (data?.job_id) {
