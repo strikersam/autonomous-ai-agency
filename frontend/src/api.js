@@ -41,7 +41,7 @@ export function setBackendUrl(url) {
   API.defaults.baseURL = cleaned;
 }
 
-const API = axios.create({
+export const API = axios.create({
   baseURL: getBackendUrl(),
   headers: { 'Content-Type': 'application/json' },
 });

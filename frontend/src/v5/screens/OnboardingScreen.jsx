@@ -254,6 +254,8 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
         const ev = Array.isArray(s.evidence) && s.evidence.length ? s.evidence[0] : null;
         return {
           id: s.id || (s.name || '').toLowerCase().replace(/\s+/g, '-') || String(Math.random()),
+          system_type: s.system_type,
+          name: s.name,
           label: s.name,
           category: meta.category,
           confidence: s.confidence || 0.9,
