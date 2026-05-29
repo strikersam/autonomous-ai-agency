@@ -19,6 +19,9 @@ on:
       - 'sync/**'
       - 'setup/**'
       - 'hardware/**'
+      - 'services/**'
+      - 'models/**'
+      - 'db/**'
       # root-level modules copied by Dockerfile.backend
       - 'provider_router.py'
       - 'commercial_equivalent.py'
@@ -30,6 +33,7 @@ on:
       - 'infra_cost.py'
       - 'rbac.py'
       - 'secrets_store.py'
+      - 'version.py'
       # also deploy if the Dockerfile or this workflow changes
       - 'Dockerfile.backend'
       - '.github/workflows/deploy-backend.yml'
