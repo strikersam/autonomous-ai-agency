@@ -55,14 +55,18 @@ function detectSiteType(systems) {
   return 'generic';
 }
 
-const DETECTED_SYSTEMS_DEFAULT = [
-  { id:'shopify',    label:'Shopify',       category:'Commerce',   confidence:0.97, icon:'🛍', desc:'Storefront + checkout detected via meta tags and JS bundles' },
-  { id:'gatsby',     label:'Gatsby + React',category:'Frontend',   confidence:0.92, icon:'⚛', desc:'gatsby-browser.js and React 18 detected in JS bundles' },
-  { id:'contentful', label:'Contentful',    category:'CMS',        confidence:0.88, icon:'📄', desc:'Contentful CDN URLs found in page source and API calls' },
-  { id:'gtm',        label:'GTM + GA4',     category:'Analytics',  confidence:0.99, icon:'📊', desc:'Google Tag Manager and GA4 measurement IDs found in <head>' },
-  { id:'klaviyo',    label:'Klaviyo',        category:'CRM',       confidence:0.83, icon:'📧', desc:'Klaviyo tracking script and form events detected' },
-  { id:'gorgias',    label:'Gorgias',        category:'Support',   confidence:0.79, icon:'💬', desc:'Gorgias chat widget script found in page footer' },
-];
+function extractErr(err) {
+  const d = err?.response?.data?.detail;
+  if (d == null) return err?.message || 'Something went wrong.';
+  if (typeof d === 'string') return d;
+  if (d.message) return d.message;
+  if (Array.isArray(d)) return d.map((e) => e?.msg || '').filter(Boolean).join(' ') || 'Request failed.';
+  return 'Request failed.';
+}
+
+function isUnauth(err) {
+  return err?.response?.status === 401 || err?.response?.status === 403;
+}
 
 function StepIndicator({ current }) {
   const idx = STEPS.findIndex(s=>s.id===current);
@@ -200,76 +204,74 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
 
   const handleScan = async () => {
     if (!url.trim()) return;
-    setScanning(true); 
+    setScanning(true);
     setProgress(5);
     setErrorText('');
-    
+
+    const domainClean = url.replace(/^https?:\/\//i, '').split('/')[0];
+    const nameClean = domainClean.split('.')[0].toUpperCase();
+
+    // Step 1: Create company record. Surface auth errors immediately — don't silently fake it.
+    let companyId;
     try {
-      // Step 1: Create company in Database
-      const domainClean = url.replace(/^https?:\/\//i, '').split('/')[0];
-      const nameClean = domainClean.split('.')[0].toUpperCase();
-      
-      let companyId = 'preview_co';
-      let detectedList = DETECTED_SYSTEMS_DEFAULT;
-
-      try {
-        const createRes = await api.createCompany({
-          name: nameClean,
-          domain: domainClean,
-          business_category: 'ecommerce',
-          description: `E-commerce stack for ${nameClean}`
-        });
-        if (createRes?.data?.id) {
-          companyId = createRes.data.id;
-          onCompanyCreated(companyId, nameClean, domainClean);
-        }
-      } catch (e) {
-        console.warn("Backend unavailable or auth missing, running in high-fidelity preview mode.", e);
-      }
-
-      // Step 2: Live or simulated scanner
-      let p = 5;
-      const t = setInterval(async () => {
-        p += 15; 
-        setProgress(Math.min(p, 90));
-        
-        if (p >= 90) {
-          clearInterval(t);
-          
-          if (companyId !== 'preview_co') {
-            try {
-              // Real website scan endpoint
-              const scanRes = await api.scanWebsite(companyId, url);
-              if (scanRes?.data?.detected_systems) {
-                detectedList = scanRes.data.detected_systems.map(s => {
-                  const meta = SYSTEM_TYPE_META[s.system_type] || SYSTEM_TYPE_META.custom;
-                  const ev = Array.isArray(s.evidence) && s.evidence.length ? s.evidence[0] : null;
-                  return {
-                    id: s.id || s.name?.toLowerCase(),
-                    label: s.name,
-                    category: meta.category,
-                    confidence: s.confidence || 0.9,
-                    icon: meta.icon,
-                    desc: ev ? `Detected via ${ev.type}: ${ev.value}` : 'Detected via scanner signatures',
-                  };
-                });
-              }
-            } catch (e) {
-              console.warn("Website scan API fail, falling back to simulated stacks", e);
-            }
-          }
-          
-          setProgress(100);
-          setTimeout(() => {
-            setScanning(false);
-            onNext(detectedList, companyId);
-          }, 400);
-        }
-      }, 200);
-
-    } catch (err) {
+      const createRes = await api.createCompany({
+        name: nameClean,
+        domain: domainClean,
+        business_category: 'ecommerce',
+        description: `E-commerce stack for ${nameClean}`,
+      });
+      companyId = createRes?.data?.id;
+      if (!companyId) throw new Error('Company created but no ID returned.');
+      onCompanyCreated(companyId, nameClean, domainClean);
+    } catch (e) {
       setScanning(false);
-      setErrorText('Scan failed: ' + (err.message || 'Unknown error'));
+      setProgress(0);
+      if (isUnauth(e)) {
+        setErrorText('You must be logged in to set up a company. Please log in and try again.');
+      } else {
+        setErrorText('Could not create company: ' + extractErr(e));
+      }
+      return;
+    }
+
+    // Step 2: Animate progress while the real scan runs.
+    let p = 5;
+    const progressTimer = setInterval(() => {
+      p = Math.min(p + 12, 88);
+      setProgress(p);
+    }, 300);
+
+    try {
+      const scanRes = await api.scanWebsite(companyId, url);
+      clearInterval(progressTimer);
+
+      const rawSystems = Array.isArray(scanRes?.data?.detected_systems)
+        ? scanRes.data.detected_systems
+        : [];
+
+      const detectedList = rawSystems.map(s => {
+        const meta = SYSTEM_TYPE_META[s.system_type] || SYSTEM_TYPE_META.custom;
+        const ev = Array.isArray(s.evidence) && s.evidence.length ? s.evidence[0] : null;
+        return {
+          id: s.id || (s.name || '').toLowerCase().replace(/\s+/g, '-') || String(Math.random()),
+          label: s.name,
+          category: meta.category,
+          confidence: s.confidence || 0.9,
+          icon: meta.icon,
+          desc: ev ? `Detected via ${ev.type}: ${ev.value}` : 'Detected via scanner signatures',
+        };
+      });
+
+      setProgress(100);
+      setTimeout(() => {
+        setScanning(false);
+        onNext(detectedList, companyId);
+      }, 350);
+    } catch (e) {
+      clearInterval(progressTimer);
+      setScanning(false);
+      setProgress(0);
+      setErrorText('Website scan failed: ' + extractErr(e));
     }
   };
 
@@ -309,14 +311,20 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
 
 // ── Step 2: Systems ────────────────────────────────────────────────────────────
 function SystemsStep({ onNext, onBack, onSystemsChange, detectedSystems = [] }) {
-  const systemsToUse = detectedSystems.length > 0 ? detectedSystems : DETECTED_SYSTEMS_DEFAULT;
+  const systemsToUse = detectedSystems;
   const [selected, setSelected] = React.useState(systemsToUse.map(s=>s.id));
   const toggle = id => { const next = selected.includes(id)?selected.filter(x=>x!==id):[...selected,id]; setSelected(next); onSystemsChange && onSystemsChange(next); };
 
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
-      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>I found {systemsToUse.length} systems</h2>
-      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:18, maxWidth:440 }}>Review what was detected. Uncheck anything that doesn't apply — this determines which specialists are provisioned.</p>
+      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>
+        {systemsToUse.length > 0 ? `I found ${systemsToUse.length} system${systemsToUse.length === 1 ? '' : 's'}` : 'No systems detected'}
+      </h2>
+      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:18, maxWidth:440 }}>
+        {systemsToUse.length > 0
+          ? 'Review what was detected. Uncheck anything that doesn\'t apply — this determines which specialists are provisioned.'
+          : 'The scanner couldn\'t identify any recognisable systems on this URL. You can continue anyway — specialists will be set up based on your goals.'}
+      </p>
       <div style={{ display:'flex', flexDirection:'column', gap:7, marginBottom:22 }}>
         {systemsToUse.map(sys=>{
           const on=selected.includes(sys.id);
@@ -500,34 +508,24 @@ function QuestionsStep({ onNext, onBack, siteType }) {
 
 // ── Step 5: Done ───────────────────────────────────────────────────────────────
 function DoneStep({ onFinish, companyId, companyName }) {
-  const [specialists, setSpecialists] = React.useState([
-    { name:'Commerce Agent', desc:'Shopify checkout, inventory, and conversion flows', icon:'🛍' },
-    { name:'Content Agent',  desc:'Contentful publishing, SEO, and asset management',  icon:'📄' },
-    { name:'Analytics Agent',desc:'GTM/GA4 tracking, event schemas, and dashboards',   icon:'📊' },
-    { name:'Support Agent',  desc:'Gorgias ticket routing and response automation',     icon:'💬' },
-    { name:'Dev Agent',      desc:'Code fixes, tests, PRs across all repos',           icon:'⚙' },
-    { name:'Security Agent', desc:'CVE scanning, secret detection, SAST',              icon:'🔒' },
-  ]);
+  const [specialists, setSpecialists] = React.useState(null); // null = loading
+  const [specsError, setSpecsError]   = React.useState('');
 
   React.useEffect(() => {
-    async function loadProvisioned() {
-      if (companyId && companyId !== 'preview_co') {
-        try {
-          // Provision and retrieve specialists list from Backend Company Graph
-          const res = await api.listSpecialists(companyId);
-          if (res?.data?.specialists?.length > 0) {
-            setSpecialists(res.data.specialists.map(sp => ({
-              name: sp.name,
-              desc: sp.description || 'Specialist ready and active.',
-              icon: sp.icon || '🤖'
-            })));
-          }
-        } catch (e) {
-          console.warn("Backend fail listing specialists, using simulator list.", e);
-        }
-      }
-    }
-    loadProvisioned();
+    if (!companyId) { setSpecialists([]); return; }
+    api.listSpecialists(companyId)
+      .then(res => {
+        const list = Array.isArray(res?.data?.specialists) ? res.data.specialists : [];
+        setSpecialists(list.map(sp => ({
+          name: sp.name,
+          desc: sp.description || 'Specialist ready and active.',
+          icon: sp.icon || '🤖',
+        })));
+      })
+      .catch(e => {
+        setSpecialists([]);
+        setSpecsError(extractErr(e));
+      });
   }, [companyId]);
 
   return (
@@ -536,12 +534,26 @@ function DoneStep({ onFinish, companyId, companyName }) {
         <div style={{ width:40, height:40, borderRadius:14, background:'rgba(70,217,164,0.15)', border:'1px solid rgba(70,217,164,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>✓</div>
         <div>
           <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em' }}>Company provisioned</h2>
-          <p style={{ fontSize:13, color:'#46d9a4' }}>{companyName || 'acme-store.com'} · {specialists.length} specialists ready · monitoring starts now</p>
+          <p style={{ fontSize:13, color:'#46d9a4' }}>
+            {companyName || 'Your company'} · {specialists === null ? 'Loading specialists…' : `${specialists.length} specialist${specialists.length === 1 ? '' : 's'} ready`} · monitoring starts now
+          </p>
         </div>
       </div>
-      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:20, maxWidth:440 }}>{specialists.length} specialists have been created and wired to your systems. They appear in the Agent Roster and will start monitoring immediately.</p>
+      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:20, maxWidth:440 }}>
+        {specialists !== null && specialists.length > 0
+          ? `${specialists.length} specialists have been created and wired to your systems. They appear in the Agent Roster and will start monitoring immediately.`
+          : 'Your company is set up. Specialists will appear in the Agent Roster once provisioned.'}
+      </p>
+      {specsError && (
+        <div style={{ marginBottom:14, padding:'10px 14px', borderRadius:12, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.22)', fontSize:12, color:'#ff9aa6' }}>
+          Could not load specialists: {specsError}
+        </div>
+      )}
+      {specialists === null && (
+        <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--text-muted)', marginBottom:18 }}>Loading specialists…</div>
+      )}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:8, marginBottom:22 }}>
-        {specialists.map((sp,i)=>(
+        {(specialists || []).map((sp,i)=>(
           <div key={sp.name} style={{ padding:'12px 14px', borderRadius:14, background:'rgba(70,217,164,0.04)', border:'1px solid rgba(70,217,164,0.12)', animation:`fadeSlideUp 0.4s ease-out ${i*0.07}s both` }}>
             <div style={{ fontSize:18, marginBottom:5 }}>{sp.icon}</div>
             <div style={{ fontSize:12, fontWeight:700, color:'#fff', marginBottom:2 }}>{sp.name}</div>
@@ -561,8 +573,8 @@ function OnboardingScreen({ onComplete, isAdmin }) {
   const [step,     setStep]     = React.useState('url');
   const [siteType, setSiteType] = React.useState('generic');
   const [systems,  setSystems]  = React.useState([]);
-  const [companyId, setCompanyId] = React.useState('preview_co');
-  const [companyName, setCompanyName] = React.useState('ACME-STORE');
+  const [companyId, setCompanyId] = React.useState(null);
+  const [companyName, setCompanyName] = React.useState('');
 
   if (!isAdmin) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:580, margin:'0 auto' }}>
