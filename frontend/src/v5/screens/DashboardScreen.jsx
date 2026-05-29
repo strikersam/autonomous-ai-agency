@@ -189,7 +189,7 @@ function RecentJobsWidget({ jobs, loading, error }) {
 
 function TasksWidget({ tasks, loading, error, title = 'Open Tasks' }) {
   const priorityColor = { urgent: '#ff6b7d', high: '#ffbd66', medium: 'var(--text-muted)' };
-  const statusColor = { in_progress: '#5da2ff', todo: 'var(--text-muted)', blocked: '#ff6b7d' };
+  const statusColor = { in_progress: '#5da2ff', todo: 'var(--text-muted)', in_review: '#ffbd66', blocked: '#ff6b7d' };
   return (
     <Widget title={title} loading={loading} error={error}>
       {(!tasks || tasks.length === 0) && !loading && !error && (
@@ -206,7 +206,7 @@ function TasksWidget({ tasks, loading, error, title = 'Open Tasks' }) {
           }}
           onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.045)'}
           onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.025)'}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor[t.status], flexShrink: 0 }}/>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor[t.status] || 'var(--text-muted)', flexShrink: 0 }}/>
             <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
             <Pill label={t.priority} color={priorityColor[t.priority]}/>
           </div>
@@ -311,7 +311,17 @@ function DashboardScreen() {
     activity:  '/api/activity?limit=8',
     metrics:   '/api/observability/metrics',
     providers: '/api/providers',
+    tasks:     '/api/tasks/',
   }, { refreshMs: 30000 });
+
+  // Map /api/tasks/ to the Open Tasks widget (exclude finished/failed)
+  const openTasks = React.useMemo(() => {
+    const all = data.tasks?.tasks || [];
+    return all
+      .filter(t => t.status !== 'done' && t.status !== 'failed')
+      .slice(0, 6)
+      .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status, priority: t.priority }));
+  }, [data.tasks]);
 
   // Map /api/health + /api/providers into ProviderHealthWidget shape
   const providerData = React.useMemo(() => {
@@ -431,9 +441,9 @@ function DashboardScreen() {
           error={states.activity?.error}
         />
         <TasksWidget
-          tasks={[]}
-          loading={false}
-          error={null}
+          tasks={openTasks}
+          loading={states.tasks?.loading}
+          error={states.tasks?.error}
         />
         <CostWidget
           data={costData}
