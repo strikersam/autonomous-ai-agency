@@ -46,12 +46,12 @@ const QUESTION_SETS = {
   ],
 };
 
-// Detect site type from discovered systems
+// Detect site type from discovered systems (use system_type/name, not id which may be a MongoDB ObjectId)
 function detectSiteType(systems) {
-  const ids = (systems || []).map(s => s.id || s.name?.toLowerCase());
-  if (ids.some(id => ['shopify','woocommerce','bigcommerce','magento'].includes(id))) return 'ecommerce';
-  if (ids.some(id => ['stripe','chargebee','paddle'].includes(id))) return 'saas';
-  if (ids.some(id => ['wordpress','ghost','contentful','strapi','sanity'].includes(id))) return 'media';
+  const names = (systems || []).map(s => (s.system_type || s.name || '').toLowerCase());
+  if (names.some(n => ['shopify','woocommerce','bigcommerce','magento','ecommerce'].includes(n))) return 'ecommerce';
+  if (names.some(n => ['stripe','chargebee','paddle','saas'].includes(n))) return 'saas';
+  if (names.some(n => ['wordpress','ghost','contentful','strapi','sanity','cms','media'].includes(n))) return 'media';
   return 'generic';
 }
 

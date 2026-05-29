@@ -10,6 +10,8 @@ function _getBackendUrl() {
   try {
     const stored = localStorage.getItem('backend_url');
     if (stored) return stored.replace(/\/$/, '');
+    const envUrl = process.env.REACT_APP_BACKEND_URL;
+    if (envUrl) return envUrl.replace(/\/$/, '');
     if (typeof window !== 'undefined' && window.location?.origin) {
       return window.location.origin;
     }
