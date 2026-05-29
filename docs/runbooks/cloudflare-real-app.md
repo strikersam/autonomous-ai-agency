@@ -5,14 +5,14 @@ The Cloudflare Workers deployment (`local-llm-server.strikersam.workers.dev`) se
 
 ## How it works
 
-```
+```text
 Browser ──► local-llm-server.strikersam.workers.dev
-              ├── /            → React SPA  (frontend/build, served as static assets)
-              └── /api/*       → reverse-proxied to https://local-llm-server.onrender.com
+              ├── /                  → React SPA (frontend/build, served as static assets)
+              └── /api/*, /runtimes/* → reverse-proxied to https://local-llm-server.onrender.com
 ```
 
-- `worker/index.js` is the Worker entry: it proxies `/api/*` to the Render backend and serves
-  static assets for everything else.
+- `worker/index.js` is the Worker entry: it proxies the backend prefixes (`/api`, `/runtimes`)
+  to the Render backend and serves static assets for everything else.
 - Because the app and the API share one origin, there is **no CORS** to configure and the
   `Authorization: Bearer` token (in `localStorage`, sent by `frontend/src/api.js`) passes through.
 - `frontend/src/api.js` uses `window.location.origin` as the backend base when

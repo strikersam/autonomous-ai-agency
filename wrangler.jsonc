@@ -22,9 +22,8 @@
     "directory": "frontend/build",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Force /api/* through the Worker first. Without this, SPA not_found_handling
-    // serves index.html for navigation requests to /api/* (e.g. /api/health, OAuth
-    // login links) instead of proxying them to the backend.
-    "run_worker_first": ["/api/*"]
+    // Force backend paths through the Worker first. Without this, SPA not_found_handling
+    // serves index.html for navigation requests to these paths instead of proxying them.
+    "run_worker_first": ["/api/*", "/runtimes/*"]
   }
 }
