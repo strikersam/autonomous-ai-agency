@@ -314,7 +314,8 @@ function DashboardScreen() {
   const providerData = React.useMemo(() => {
     const h = data.health || {};
     const stats = data.stats || {};
-    const provList = Array.isArray(data.providers) ? data.providers : [];
+    const raw = data.providers;
+    const provList = Array.isArray(raw?.providers) ? raw.providers : (Array.isArray(raw) ? raw : []);
     const active = provList.find(p => p.is_default) || provList[0] || null;
     return {
       provider: {
