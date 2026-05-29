@@ -20,7 +20,9 @@ export default {
       // Preserve method, headers (incl. Authorization), and body.
       const proxied = new Request(target, request);
       proxied.headers.set("X-Forwarded-Host", url.host);
-      return fetch(proxied);
+      // redirect: "manual" so backend 3xx responses (e.g. OAuth login) are handed
+      // back to the browser instead of being followed server-side.
+      return fetch(proxied, { redirect: "manual" });
     }
 
     return env.ASSETS.fetch(request);

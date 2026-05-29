@@ -25,7 +25,7 @@ Browser ──► local-llm-server.strikersam.workers.dev
 **Workers Builds** project doesn't pick that up, set in the dashboard
 (Workers & Pages → local-llm-server → Settings → Build):
 
-- **Build command:** `cd frontend && npm install --legacy-peer-deps && PUBLIC_URL=/ npm run build`
+- **Build command:** `cd frontend && npm install --legacy-peer-deps && CI=false PUBLIC_URL=/ npm run build`
 - **Deploy command:** `npx wrangler deploy`
 - **Root directory:** repository root
 - **Build env vars:** do **not** set `REACT_APP_BACKEND_URL` (same-origin proxy is used). If you

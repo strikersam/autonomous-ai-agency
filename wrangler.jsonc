@@ -13,11 +13,15 @@
   // talks to /api on the same origin (proxied to Render by worker/index.js), so no
   // REACT_APP_BACKEND_URL is set — frontend/src/api.js falls back to window.location.origin.
   "build": {
-    "command": "cd frontend && npm install --legacy-peer-deps && PUBLIC_URL=/ npm run build"
+    "command": "cd frontend && npm install --legacy-peer-deps && CI=false PUBLIC_URL=/ npm run build"
   },
   "assets": {
     "directory": "frontend/build",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    // Force /api/* through the Worker first. Without this, SPA not_found_handling
+    // serves index.html for navigation requests to /api/* (e.g. /api/health, OAuth
+    // login links) instead of proxying them to the backend.
+    "run_worker_first": ["/api/*"]
   }
 }
