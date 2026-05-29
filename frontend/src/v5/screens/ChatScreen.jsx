@@ -275,6 +275,7 @@ function ChatScreen() {
   const [elapsed,     setElapsed]      = React.useState(0);
   const [progressEvents, setProgressEvents] = React.useState([]);
   const [agent,       setAgent]        = React.useState('auto');
+  const [agentMode,   setAgentMode]    = React.useState(false);
   const [chips,       setChips]        = React.useState([]);
   const [showHistory, setShowHistory]  = React.useState(false);
   const [sessions,    setSessions]     = React.useState([]);
@@ -285,7 +286,9 @@ function ChatScreen() {
   const mountedRef     = React.useRef(true);
 
   const currentAgent = AVAILABLE_AGENTS.find(a=>a.id===agent)||AVAILABLE_AGENTS[1];
-  const agentMode = agent !== 'auto';
+  // Picking a specific (non-auto) agent implies agent mode; "Auto-select" leaves
+  // the explicit toggle in charge so the backend can auto-route the task.
+  const selectAgent = (id) => { setAgent(id); if (id !== 'auto') setAgentMode(true); };
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -442,7 +445,22 @@ function ChatScreen() {
           <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
           {/* Agent picker */}
-          <AgentPicker selected={agent} onSelect={setAgent}/>
+          <AgentPicker selected={agent} onSelect={selectAgent}/>
+
+          <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
+
+          {/* Agent Mode toggle — explicit ON/OFF for running real tasks */}
+          <button onClick={()=>setAgentMode(o=>!o)} title={agentMode ? 'Agent Mode is ON — messages run as real tasks' : 'Agent Mode is OFF — direct chat'} style={{
+            display:'flex', alignItems:'center', gap:7, padding:'5px 11px', borderRadius:999, flexShrink:0, cursor:'pointer', transition:'all 0.15s',
+            background:agentMode?'rgba(70,217,164,0.12)':'rgba(255,255,255,0.04)',
+            border:`1px solid ${agentMode?'rgba(70,217,164,0.35)':'rgba(255,255,255,0.10)'}`,
+            color:agentMode?'var(--success)':'var(--text-muted)', fontSize:11, fontFamily:'var(--font-mono)', letterSpacing:'0.08em',
+          }}>
+            <span style={{ width:26, height:15, borderRadius:999, padding:2, background:agentMode?'var(--success)':'rgba(255,255,255,0.12)', display:'flex', alignItems:'center', justifyContent:agentMode?'flex-end':'flex-start', transition:'all 0.2s' }}>
+              <span style={{ width:11, height:11, borderRadius:'50%', background:'#fff' }}/>
+            </span>
+            <span>Agent Mode {agentMode ? 'ON' : 'OFF'}</span>
+          </button>
 
           <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
@@ -455,10 +473,10 @@ function ChatScreen() {
         </div>
 
         {/* Agent context tip */}
-        {agent !== 'auto' && (
+        {agentMode && (
           <div style={{ margin:'8px 14px 0', padding:'7px 12px', borderRadius:10, background:`${currentAgent.color}08`, border:`1px solid ${currentAgent.color}20`, fontSize:12, color:'var(--text-tertiary)', display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ fontSize:14 }}>{currentAgent.icon}</span>
-            <span>Agent Mode — <strong style={{ color:'#fff' }}>{currentAgent.name}</strong> will plan and run a real task. <button style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent)', fontSize:12 }} onClick={()=>setAgent('auto')}>Switch to direct chat →</button></span>
+            <span style={{ fontSize:14 }}>{agent === 'auto' ? '◎' : currentAgent.icon}</span>
+            <span>Agent Mode <strong style={{ color:'var(--success)' }}>ON</strong> — <strong style={{ color:'#fff' }}>{agent === 'auto' ? 'the best agent' : currentAgent.name}</strong> will plan and run a real task. <button style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent)', fontSize:12 }} onClick={()=>setAgentMode(false)}>Switch to direct chat →</button></span>
           </div>
         )}
 
@@ -494,7 +512,7 @@ function ChatScreen() {
             <textarea ref={textareaRef} value={input}
               onChange={e=>{setInput(e.target.value);adjustTextarea();}}
               onKeyDown={handleKey}
-              placeholder={agent==='auto' ? 'Ask anything…' : `Tell ${currentAgent.name} what to do…`}
+              placeholder={!agentMode ? 'Ask anything…' : (agent==='auto' ? 'Describe a task to run…' : `Tell ${currentAgent.name} what to do…`)}
               rows={1}
               style={{ flex:1, background:'transparent', border:'none', outline:'none', resize:'none', fontSize:14, color:'var(--text-primary)', fontFamily:'var(--font-main)', lineHeight:1.6, minHeight:24, padding:0, overflow:'hidden' }}/>
             <button onClick={handleSend} disabled={!input.trim()||sending} style={{ width:34, height:34, borderRadius:10, flexShrink:0, background:input.trim()&&!sending?'var(--accent)':'rgba(255,255,255,0.08)', border:'none', cursor:input.trim()&&!sending?'pointer':'not-allowed', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.2s', boxShadow:input.trim()&&!sending?'0 4px 12px rgba(93,162,255,0.25)':'none' }}>
@@ -506,7 +524,7 @@ function ChatScreen() {
           </div>
           <div style={{ display:'flex', justifyContent:'space-between', marginTop:6 }}>
             <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>
-              {agent === 'auto' ? 'Direct chat · pick an agent above to run a task' : `Agent Mode · ${currentAgent.name}`}
+              {!agentMode ? 'Direct chat · toggle Agent Mode to run a real task' : `Agent Mode · ${agent === 'auto' ? 'auto-select' : currentAgent.name}`}
             </span>
             <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>⌘↵</span>
           </div>
