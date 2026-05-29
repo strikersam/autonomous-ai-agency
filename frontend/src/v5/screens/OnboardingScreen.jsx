@@ -220,7 +220,7 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
         business_category: 'ecommerce',
         description: `E-commerce stack for ${nameClean}`,
       });
-      companyId = createRes?.data?.company?.id || createRes?.data?.id;
+      companyId = createRes?.data?.id;
       if (!companyId) throw new Error('Company created but no ID returned.');
       onCompanyCreated(companyId, nameClean, domainClean);
     } catch (e) {
@@ -513,27 +513,18 @@ function DoneStep({ onFinish, companyId, companyName }) {
 
   React.useEffect(() => {
     if (!companyId) { setSpecialists([]); return; }
-    // Trigger specialist provisioning from scans already saved, then list results.
-    api.startOnboarding(companyId, {
-      skip_website_scan: true,
-      skip_repo_scan: true,
-      auto_provision_specialists: true,
-    })
-      .catch(() => {}) // provisioning failure is non-fatal; list whatever exists
-      .finally(() => {
-        api.listSpecialists(companyId)
-          .then(res => {
-            const list = Array.isArray(res?.data?.specialists) ? res.data.specialists : [];
-            setSpecialists(list.map(sp => ({
-              name: sp.name,
-              desc: sp.description || 'Specialist ready and active.',
-              icon: sp.icon || '🤖',
-            })));
-          })
-          .catch(e => {
-            setSpecialists([]);
-            setSpecsError(extractErr(e));
-          });
+    api.listSpecialists(companyId)
+      .then(res => {
+        const list = Array.isArray(res?.data?.specialists) ? res.data.specialists : [];
+        setSpecialists(list.map(sp => ({
+          name: sp.name,
+          desc: sp.description || 'Specialist ready and active.',
+          icon: sp.icon || '🤖',
+        })));
+      })
+      .catch(e => {
+        setSpecialists([]);
+        setSpecsError(extractErr(e));
       });
   }, [companyId]);
 
