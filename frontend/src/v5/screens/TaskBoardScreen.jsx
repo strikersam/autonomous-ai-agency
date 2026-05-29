@@ -1,74 +1,38 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
-
+import * as api from '../../api';
+import { useSafeData } from '../hooks/useSafeData';
 
 // taskboard.jsx — Task / Job Lifecycle Board
 
+// Real TaskStatus values from the backend mapped to visual columns
 const LIFECYCLE_STAGES = [
-  { id: 'classify',  label: 'Classify',  color: '#6e7786', desc: 'Type detected' },
-  { id: 'clarify',   label: 'Clarify',   color: '#7c9dff', desc: 'Scope confirmed' },
-  { id: 'plan',      label: 'Plan',      color: '#c4b5fd', desc: 'Steps outlined' },
-  { id: 'execute',   label: 'Execute',   color: '#5da2ff', desc: 'Agent running' },
-  { id: 'verify',    label: 'Verify',    color: '#ffbd66', desc: 'Tests pass' },
-  { id: 'judge',     label: 'Review',    color: '#ff9d66', desc: 'Release gate' },
-  { id: 'monitor',   label: 'Monitor',   color: '#46d9a4', desc: 'Live / closed' },
+  { id: 'todo',        label: 'To Do',     color: '#6e7786', desc: 'Not started' },
+  { id: 'in_progress', label: 'Running',   color: '#5da2ff', desc: 'Agent executing' },
+  { id: 'in_review',   label: 'Review',    color: '#ff9d66', desc: 'Needs approval' },
+  { id: 'blocked',     label: 'Blocked',   color: '#ffbd66', desc: 'Waiting on input' },
+  { id: 'done',        label: 'Done',      color: '#46d9a4', desc: 'Completed' },
+  { id: 'failed',      label: 'Failed',    color: '#ff6b7d', desc: 'Error / retry' },
 ];
 
-const BOARD_TASKS = [
-  {
-    id: 't-001', title: 'Fix null-check in checkout service', stage: 'monitor',
-    priority: 'high', type: 'bug', agent: 'Dev Agent',
-    evidence: { pr: '#1842', tests: '47 passed', issue: '#312' },
-    updated: '2m ago', trusted: true,
-  },
-  {
-    id: 't-002', title: 'Security scan — auth module CVE', stage: 'verify',
-    priority: 'urgent', type: 'security', agent: 'Security Agent',
-    evidence: { tests: 'Bandit clean', issue: '#315' },
-    updated: '8m ago', trusted: false,
-  },
-  {
-    id: 't-003', title: 'Migrate cart DB schema to v3', stage: 'execute',
-    priority: 'high', type: 'task', agent: 'Dev Agent',
-    evidence: {},
-    updated: '14m ago', trusted: false,
-  },
-  {
-    id: 't-004', title: 'Weekly dep audit — 4 upgrades', stage: 'plan',
-    priority: 'medium', type: 'task', agent: 'Release Agent',
-    evidence: {},
-    updated: '1h ago', trusted: false,
-  },
-  {
-    id: 't-005', title: 'Add rate limiting to /api/chat', stage: 'clarify',
-    priority: 'medium', type: 'task', agent: null,
-    evidence: {},
-    updated: '2h ago', trusted: false,
-  },
-  {
-    id: 't-006', title: 'Fix mobile layout regression', stage: 'classify',
-    priority: 'high', type: 'bug', agent: null,
-    evidence: { issue: '#318' },
-    updated: '3h ago', trusted: false,
-  },
-  {
-    id: 't-007', title: 'Changelog audit — v5.0 release', stage: 'judge',
-    priority: 'medium', type: 'task', agent: 'Release Agent',
-    evidence: { pr: '#1845', tests: '100% pass' },
-    updated: '45m ago', trusted: false,
-  },
-];
+function relTime(epoch) {
+  if (!epoch) return '—';
+  const diff = Math.floor((Date.now() / 1000) - epoch);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
+}
 
 const priorityColors = { urgent: '#ff6b7d', high: '#ffbd66', medium: '#7c9dff', low: 'var(--text-muted)' };
-const typeColors = { bug: '#ff6b7d', security: '#ffbd66', task: 'var(--accent)' };
+const typeColors     = { bug: '#ff6b7d', security: '#ffbd66', task: 'var(--accent)', general: 'var(--accent)' };
 
-function StageColumn({ stage, tasks, onApprove }) {
+function StageColumn({ stage, tasks, onApprove, onRetry }) {
   return (
     <div style={{
       minWidth: 220, maxWidth: 260, flexShrink: 0,
       display: 'flex', flexDirection: 'column', gap: 8,
     }}>
-      {/* Column header */}
       <div style={{
         padding: '8px 12px', borderRadius: 10,
         background: `${stage.color}0f`,
@@ -84,70 +48,71 @@ function StageColumn({ stage, tasks, onApprove }) {
         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}>{stage.desc}</div>
       </div>
 
-      {/* Cards */}
       {tasks.map(task => (
-        <TaskCard key={task.id} task={task} stageColor={stage.color} onApprove={onApprove}/>
+        <TaskCard key={task.task_id} task={task} stageColor={stage.color} onApprove={onApprove} onRetry={onRetry}/>
       ))}
+
+      {tasks.length === 0 && (
+        <div style={{ padding: '16px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.015)', border: '1px dashed rgba(255,255,255,0.07)', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
+          Empty
+        </div>
+      )}
     </div>
   );
 }
 
-function TaskCard({ task, stageColor, onApprove }) {
-  const hasEvidence = Object.keys(task.evidence).length > 0;
+function TaskCard({ task, stageColor, onApprove, onRetry }) {
+  const isApproved   = task.status === 'done';
+  const typeColor    = typeColors[task.task_type] || typeColors.general;
+  const priorityColor = priorityColors[task.priority] || 'var(--text-muted)';
 
   return (
     <div style={{
-      borderRadius: 14, border: `1px solid ${task.trusted ? 'rgba(70,217,164,0.20)' : 'rgba(255,255,255,0.09)'}`,
-      background: task.trusted ? 'rgba(70,217,164,0.04)' : 'rgba(255,255,255,0.03)',
+      borderRadius: 14, border: `1px solid ${isApproved ? 'rgba(70,217,164,0.20)' : 'rgba(255,255,255,0.09)'}`,
+      background: isApproved ? 'rgba(70,217,164,0.04)' : 'rgba(255,255,255,0.03)',
       padding: '12px 14px', cursor: 'pointer',
       transition: 'all 0.18s ease',
       animation: 'fadeSlideUp 0.3s ease-out',
     }}
-    onMouseEnter={e => { e.currentTarget.style.background = task.trusted ? 'rgba(70,217,164,0.07)' : 'rgba(255,255,255,0.055)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-    onMouseLeave={e => { e.currentTarget.style.background = task.trusted ? 'rgba(70,217,164,0.04)' : 'rgba(255,255,255,0.03)'; e.currentTarget.style.transform = 'none'; }}>
-      {/* Top row */}
+    onMouseEnter={e => { e.currentTarget.style.background = isApproved ? 'rgba(70,217,164,0.07)' : 'rgba(255,255,255,0.055)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+    onMouseLeave={e => { e.currentTarget.style.background = isApproved ? 'rgba(70,217,164,0.04)' : 'rgba(255,255,255,0.03)'; e.currentTarget.style.transform = 'none'; }}>
+
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 6 }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: priorityColors[task.priority] || 'var(--text-muted)', flexShrink: 0, marginTop: 4 }}/>
-        <span style={{ fontSize: 12, fontWeight: 600, color: task.trusted ? '#a7f3d0' : 'var(--text-primary)', lineHeight: 1.5, flex: 1 }}>{task.title}</span>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: priorityColor, flexShrink: 0, marginTop: 4 }}/>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.5, flex: 1 }}>{task.title}</span>
       </div>
 
-      {/* Type + priority badges */}
       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{
-          fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase',
-          padding: '2px 7px', borderRadius: 999, color: typeColors[task.type],
-          background: `${typeColors[task.type]}15`, border: `1px solid ${typeColors[task.type]}30`,
-        }}>{task.type}</span>
-        <span style={{
-          fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase',
-          padding: '2px 7px', borderRadius: 999, color: priorityColors[task.priority],
-          background: `${priorityColors[task.priority]}12`, border: `1px solid ${priorityColors[task.priority]}28`,
-        }}>{task.priority}</span>
-        {task.trusted && (
-          <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.10em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, color: '#46d9a4', background: 'rgba(70,217,164,0.12)', border: '1px solid rgba(70,217,164,0.25)' }}>verified ✓</span>
+        <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, color: typeColor, background: `${typeColor}15`, border: `1px solid ${typeColor}30` }}>{task.task_type}</span>
+        <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, color: priorityColor, background: `${priorityColor}12`, border: `1px solid ${priorityColor}28` }}>{task.priority}</span>
+        {isApproved && (
+          <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.10em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, color: '#46d9a4', background: 'rgba(70,217,164,0.12)', border: '1px solid rgba(70,217,164,0.25)' }}>done ✓</span>
         )}
       </div>
 
-      {/* Evidence chips */}
-      {hasEvidence && (
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
-          {task.evidence.pr && <a href="#" onClick={e => e.stopPropagation()} style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--accent)', textDecoration: 'none', padding: '2px 7px', borderRadius: 5, background: 'rgba(93,162,255,0.10)', border: '1px solid rgba(93,162,255,0.20)' }}>PR {task.evidence.pr}</a>}
-          {task.evidence.issue && <a href="#" onClick={e => e.stopPropagation()} style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textDecoration: 'none', padding: '2px 7px', borderRadius: 5, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)' }}>Issue {task.evidence.issue}</a>}
-          {task.evidence.tests && <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: '#46d9a4', padding: '2px 7px', borderRadius: 5, background: 'rgba(70,217,164,0.08)', border: '1px solid rgba(70,217,164,0.18)' }}>✓ {task.evidence.tests}</span>}
+      {task.tags && task.tags.length > 0 && (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+          {task.tags.slice(0,3).map(t => (
+            <span key={t} style={{ fontSize: 9, fontFamily: 'var(--font-mono)', padding: '1px 6px', borderRadius: 5, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}>{t}</span>
+          ))}
         </div>
       )}
 
-      {/* Footer */}
+      {task.blocked_reason && (
+        <div style={{ marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(255,189,102,0.06)', border: '1px solid rgba(255,189,102,0.18)', fontSize: 11, color: '#ffbd66', lineHeight: 1.4 }}>
+          ⚠ {task.blocked_reason}
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
         <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-          {task.agent ? `@${task.agent}` : 'Unassigned'}
+          {task.agent_id ? `@${task.agent_id}` : 'Unassigned'}
         </span>
-        <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{task.updated}</span>
+        <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{relTime(task.updated_at)}</span>
       </div>
 
-      {/* Approve button for judge stage */}
-      {task.stage === 'judge' && (
-        <button onClick={e => { e.stopPropagation(); onApprove(task.id); }} style={{
+      {task.status === 'in_review' && (
+        <button onClick={e => { e.stopPropagation(); onApprove(task.task_id); }} style={{
           marginTop: 10, width: '100%', padding: '7px', borderRadius: 8,
           background: 'rgba(70,217,164,0.12)', border: '1px solid rgba(70,217,164,0.28)',
           color: '#46d9a4', fontSize: 11, fontWeight: 700, cursor: 'pointer',
@@ -158,19 +123,58 @@ function TaskCard({ task, stageColor, onApprove }) {
           → Approve & release
         </button>
       )}
+      {task.status === 'failed' && (
+        <button onClick={e => { e.stopPropagation(); onRetry(task.task_id); }} style={{
+          marginTop: 10, width: '100%', padding: '7px', borderRadius: 8,
+          background: 'rgba(255,107,125,0.10)', border: '1px solid rgba(255,107,125,0.25)',
+          color: '#ff6b7d', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+          transition: 'all 0.15s ease',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,107,125,0.18)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,107,125,0.10)'; }}>
+          ↺ Retry
+        </button>
+      )}
     </div>
   );
 }
 
 function TaskBoardScreen() {
-  const [tasks, setTasks] = React.useState(BOARD_TASKS);
   const [filter, setFilter] = React.useState('all');
+  const [pendingApprove, setPendingApprove] = React.useState(null);
+  const [pendingRetry, setPendingRetry]     = React.useState(null);
 
-  const handleApprove = (id) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, stage: 'monitor', trusted: true, updated: 'just now' } : t));
+  const [data, states, fetchAll] = useSafeData(null, {
+    tasks: '/api/tasks/',
+  }, { refreshMs: 15000 });
+
+  const rawTasks = data.tasks?.tasks || [];
+
+  const handleApprove = async (taskId) => {
+    setPendingApprove(taskId);
+    try {
+      await api.approveTaskCheckpoint(taskId, { approved: true, reason: 'Approved via UI' });
+    } catch (_) {
+      // optimistic — backend may not have a pending checkpoint
+    }
+    setPendingApprove(null);
+    fetchAll();
   };
 
-  const filtered = filter === 'all' ? tasks : tasks.filter(t => t.priority === filter || t.type === filter);
+  const handleRetry = async (taskId) => {
+    setPendingRetry(taskId);
+    try {
+      await api.retryTask(taskId);
+    } catch (_) {}
+    setPendingRetry(null);
+    fetchAll();
+  };
+
+  const filtered = filter === 'all' ? rawTasks
+    : rawTasks.filter(t => t.priority === filter || t.task_type === filter);
+
+  const loading = states.tasks?.loading;
+  const error   = states.tasks?.error;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -194,26 +198,38 @@ function TaskBoardScreen() {
           </div>
         </div>
 
-        {/* Stage legend */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', paddingBottom: 6, flexWrap: 'nowrap' }} className="scrollbar-hide">
-          {LIFECYCLE_STAGES.map((s, i) => (
-            <React.Fragment key={s.id}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.color, display: 'inline-block' }}/>
-                <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{s.label}</span>
-              </div>
-              {i < LIFECYCLE_STAGES.length - 1 && <span style={{ color: 'rgba(255,255,255,0.15)', fontSize: 10, flexShrink: 0 }}>›</span>}
-            </React.Fragment>
-          ))}
-        </div>
+        {error && (
+          <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,107,125,0.07)', border: '1px solid rgba(255,107,125,0.18)', fontSize: 12, color: '#ff6b7d' }}>
+            Could not load tasks: {error}
+          </div>
+        )}
+        {loading && (
+          <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Loading tasks…</div>
+        )}
       </div>
 
       {/* Board */}
       <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', padding: '14px 20px 32px', display: 'flex', gap: 14 }} className="scrollbar-hide">
-        {LIFECYCLE_STAGES.map(stage => {
-          const stageTasks = filtered.filter(t => t.stage === stage.id);
-          return <StageColumn key={stage.id} stage={stage} tasks={stageTasks} onApprove={handleApprove}/>;
-        })}
+        {!loading && !error && rawTasks.length === 0 ? (
+          <div style={{ margin: 'auto', padding: '48px 32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.8 }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+            <div style={{ fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>No tasks yet</div>
+            <div>Create tasks via the backend API or the Chat screen by asking an agent to create a task for you.</div>
+          </div>
+        ) : (
+          LIFECYCLE_STAGES.map(stage => {
+            const stageTasks = filtered.filter(t => t.status === stage.id);
+            return (
+              <StageColumn
+                key={stage.id}
+                stage={stage}
+                tasks={stageTasks}
+                onApprove={handleApprove}
+                onRetry={handleRetry}
+              />
+            );
+          })
+        )}
       </div>
     </div>
   );
