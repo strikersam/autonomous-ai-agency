@@ -311,7 +311,17 @@ function DashboardScreen() {
     activity:  '/api/activity?limit=8',
     metrics:   '/api/observability/metrics',
     providers: '/api/providers',
+    tasks:     '/api/tasks/',
   }, { refreshMs: 30000 });
+
+  // Map /api/tasks/ to the Open Tasks widget (exclude finished/failed)
+  const openTasks = React.useMemo(() => {
+    const all = data.tasks?.tasks || [];
+    return all
+      .filter(t => t.status !== 'done' && t.status !== 'failed')
+      .slice(0, 6)
+      .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status, priority: t.priority }));
+  }, [data.tasks]);
 
   // Map /api/health + /api/providers into ProviderHealthWidget shape
   const providerData = React.useMemo(() => {
@@ -431,9 +441,9 @@ function DashboardScreen() {
           error={states.activity?.error}
         />
         <TasksWidget
-          tasks={[]}
-          loading={false}
-          error={null}
+          tasks={openTasks}
+          loading={states.tasks?.loading}
+          error={states.tasks?.error}
         />
         <CostWidget
           data={costData}
