@@ -35,8 +35,14 @@ Browser ──► local-llm-server.strikersam.workers.dev
 
 ## Backend (Render)
 
-No change required — the Worker proxies to `https://local-llm-server.onrender.com`. If the
-backend URL changes, update `BACKEND_ORIGIN` in `worker/index.js`.
+Data APIs work through the proxy with no backend change. **OAuth/social login is the
+exception:** after a successful GitHub/Google callback the backend redirects to
+`FRONTEND_URL`, which is currently `https://strikersam.github.io` (the Pages demo). For
+social login and repo OAuth to complete in the Cloudflare app, set the Render env
+**`FRONTEND_URL=https://local-llm-server.strikersam.workers.dev`** (and add that URL to the
+OAuth apps' allowed callback origins). Email/password login is unaffected.
+
+If the backend URL changes, update `BACKEND_ORIGIN` in `worker/index.js`.
 
 ## Verify after deploy
 
