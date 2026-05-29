@@ -288,7 +288,66 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["lightweight", "fast", "installed"],
     ),
+    # ── Qwen3 base models (local Ollama) ─────────────────────────────────────
+    "qwen3:8b": ModelCapability(
+        name="qwen3:8b",
+        strengths=["code_generation", "code_debugging", "tool_use", "fast_response", "conversation"],
+        context_window=32768,
+        type="coder",
+        cost_tier=1,
+        tags=["qwen3", "lightweight", "fast"],
+    ),
+    "qwen3:14b": ModelCapability(
+        name="qwen3:14b",
+        strengths=["code_generation", "code_debugging", "tool_use", "reasoning", "conversation"],
+        context_window=32768,
+        type="coder",
+        cost_tier=1,
+        tags=["qwen3"],
+    ),
+    # ── Claude 4.8 — direct Anthropic API (released 2026-05-28) ─────────────
+    "claude-opus-4-8": ModelCapability(
+        name="claude-opus-4-8",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=1048576,
+        type="reasoning",
+        cost_tier=3,
+        tags=["anthropic", "claude", "flagship", "claude4"],
+    ),
     # ── AWS Bedrock — Claude 4 family ─────────────────────────────────────────
+    # Opus 4.8: current flagship (released 2026-05-28)
+    "anthropic.claude-opus-4-8": ModelCapability(
+        name="anthropic.claude-opus-4-8",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=1048576,
+        type="reasoning",
+        cost_tier=3,
+        tags=["bedrock", "claude", "flagship", "claude4"],
+    ),
     # Opus 4.7: requires AWS Sales approval; listed for when access is granted
     "us.anthropic.claude-opus-4-7": ModelCapability(
         name="us.anthropic.claude-opus-4-7",

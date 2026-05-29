@@ -16,6 +16,14 @@
 
 ---
 
+## What's New — 2026-05-29
+
+- **Claude Opus 4.8 support.** The `claude-opus-4-8` model alias and its 1M-token variant `claude-opus-4-8[1m]` are now wired into the model router. Set `ANTHROPIC_API_KEY` or AWS Bedrock credentials and the proxy automatically selects Opus 4.8 as the flagship Opus model, with the `anthropic.claude-opus-4-8` Bedrock passthrough registered for cloud deployments.
+- **`claude-haiku-4-5` convenience alias.** The dateless short-form alias now works alongside the full dated ID, matching the Anthropic convention.
+- **Qwen3 base models registered.** `qwen3:8b` and `qwen3:14b` are now in the model registry as lightweight local inference options for users pulling Qwen3 base models from Ollama.
+
+---
+
 ## What is Agency Core?
 
 Agency Core is a **self-hosted autonomous AI platform** that turns any server — your laptop, a $10 VPS, or a GPU box — into a private AI team. It ships a CEO orchestrator agent and a fleet of domain specialists that work together on real engineering and business tasks: writing code, opening pull requests, running tests, updating docs, and managing recurring operations — all without sending your data to the cloud.

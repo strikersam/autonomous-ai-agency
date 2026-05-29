@@ -154,6 +154,8 @@ def test_unknown_model_falls_to_heuristic():
         "deepseek-r1:671b",
         "qwen3-coder:235b",
         "deepseek-v3:685b",
+        "claude-opus-4-8",
+        "anthropic.claude-opus-4-8",
     )
     assert decision.selection_source in ("heuristic", "default")
 
@@ -321,6 +323,7 @@ _BEDROCK_MODEL_IDS = [
     "us.anthropic.claude-opus-4-6-v1",
     "us.anthropic.claude-sonnet-4-6",
     "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "anthropic.claude-opus-4-8",
 ]
 
 
@@ -601,3 +604,77 @@ def test_qwen3_coder_235b_in_registry():
     cap = reg["qwen3-coder:235b"]
     assert cap.cost_tier == 3
     assert "data_analysis" in cap.strengths
+
+
+# ── Claude 4.8 (2026-05-28) ───────────────────────────────────────────────────
+
+def test_claude_opus_48_maps_to_flagship_reasoning():
+    decision = _router().route(requested_model="claude-opus-4-8")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_opus_48_1m_variant_maps_to_flagship():
+    decision = _router().route(requested_model="claude-opus-4-8[1m]")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_haiku_45_dateless_alias_maps_to_fast():
+    decision = _router().route(requested_model="claude-haiku-4-5")
+    assert decision.resolved_model == "qwen3-coder:7b"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_opus_48_in_registry():
+    reg = get_registry()
+    assert "claude-opus-4-8" in reg
+    cap = reg["claude-opus-4-8"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert cap.context_window == 1048576
+    assert "flagship" in cap.tags
+    assert "claude4" in cap.tags
+
+
+def test_anthropic_bedrock_opus_48_in_registry():
+    reg = get_registry()
+    assert "anthropic.claude-opus-4-8" in reg
+    cap = reg["anthropic.claude-opus-4-8"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert cap.context_window == 1048576
+    assert "bedrock" in cap.tags
+    assert "flagship" in cap.tags
+
+
+def test_qwen3_8b_in_registry():
+    reg = get_registry()
+    assert "qwen3:8b" in reg
+    cap = reg["qwen3:8b"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 1
+    assert "fast_response" in cap.strengths
+
+
+def test_qwen3_14b_in_registry():
+    reg = get_registry()
+    assert "qwen3:14b" in reg
+    cap = reg["qwen3:14b"]
+    assert cap.type == "coder"
+    assert "reasoning" in cap.strengths
+
+
+def test_opus_model_returns_48_with_anthropic_key(monkeypatch):
+    from router.model_router import _opus_model
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("BEDROCK_ACCESS_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+    assert _opus_model() == "claude-opus-4-8"
+
+
+def test_opus_model_returns_bedrock_48_with_aws_keys(monkeypatch):
+    from router.model_router import _opus_model
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secrettest")
+    assert _opus_model() == "anthropic.claude-opus-4-8"

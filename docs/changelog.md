@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Added
+- **Claude Opus 4.8 model support** (`router/model_router.py`, `router/registry.py`). Claude Opus 4.8 (released 2026-05-28) is now fully wired in: `claude-opus-4-8` and `claude-opus-4-8[1m]` (1M-token context variant) aliases route to the heaviest local model (deepseek-r1:671b or NIM equivalent). The `anthropic.claude-opus-4-8` Bedrock model ID is registered as a passthrough for Bedrock-configured deployments. Both entries reflect the 1M-token context window and cost_tier=3.
+- **`_opus_model()` updated to Opus 4.8** (`router/model_router.py`). When `ANTHROPIC_API_KEY` or AWS Bedrock credentials are present, the proxy now selects `claude-opus-4-8` / `anthropic.claude-opus-4-8` as the flagship Opus model instead of the previous Opus 4.6.
+- **`claude-haiku-4-5` dateless alias** (`router/model_router.py`). The dated `claude-haiku-4-5-20251001` alias now has a short dateless companion `claude-haiku-4-5`, matching the Anthropic-recommended convenience alias.
+- **Qwen3 base models in registry** (`router/registry.py`). `qwen3:8b` and `qwen3:14b` are now registered as lightweight local coder models, covering the most popular Ollama Qwen3 pull targets alongside the existing `qwen3-coder` variants.
+
+### Added
 - **Website scanner signature database expanded from 27 to ~1,270 technologies.** `services/technologies.json` is now generated from the Wappalyzer fingerprint dataset (see `scripts/build_tech_db.py`) instead of a hand-rolled 27-app stub, so the scanner identifies far more of a site's real stack — jQuery, HubSpot, Hotjar, WooCommerce, Fastly, CloudFront, webpack, modern analytics, and hundreds more. The matching engine is unchanged; this is a data fix for poor detection coverage.
 
 ### Changed
