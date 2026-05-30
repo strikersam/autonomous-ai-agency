@@ -1043,12 +1043,12 @@ class SQLiteStore:
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_detected_systems_company ON detected_systems(company_id)")
 
         # Migration: add the websites.data JSON-blob column to pre-existing DBs
-        # created before scan results were persisted. SQLite has no
-        # "ADD COLUMN IF NOT EXISTS", so guard on the failure.
-        try:
+        # created before scan results were persisted. Check the schema first so a
+        # locked / read-only / corrupt DB surfaces instead of being swallowed.
+        cursor = await conn.execute("PRAGMA table_info(websites)")
+        columns = {row[1] for row in await cursor.fetchall()}  # row[1] == column name
+        if "data" not in columns:
             await conn.execute("ALTER TABLE websites ADD COLUMN data TEXT")
-        except Exception:
-            pass  # column already exists
 
         await conn.commit()
         log.info(f"SQLite schema initialized at {self._db_path}")
@@ -1180,7 +1180,11 @@ class SQLiteStore:
     def _website_from_row(row) -> Website | None:
         """Reconstruct a Website from a SQLite row, preferring the full JSON
         blob (which preserves inferred_stack / detected_systems) and falling
-        back to the scalar columns for rows written before the blob existed."""
+        back to the scalar columns only for rows written before the blob
+        existed. A *present but corrupt* blob is treated as corruption (logged
+        and surfaced as None) — never silently downgraded to the scalar columns,
+        which would drop detected_systems and reintroduce the zero-specialist
+        regression."""
         if not row:
             return None
         d = dict(row)
@@ -1188,8 +1192,9 @@ class SQLiteStore:
         if blob:
             try:
                 return Website.model_validate_json(blob)
-            except Exception as exc:  # corrupt/legacy blob — fall back to columns
-                log.warning(f"Website blob decode failed for {d.get('id')}: {exc}")
+            except Exception as exc:
+                log.error(f"Website blob decode failed for {d.get('id')}: {exc}")
+                return None
         return Website(
             id=d["id"], url=d["url"], is_primary=bool(d.get("is_primary")),
             scan_status=d.get("scan_status"), scan_error=d.get("scan_error"),
