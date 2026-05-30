@@ -1118,6 +1118,7 @@ class SQLiteStore:
         await conn.execute("DELETE FROM company_graphs WHERE company_id = ?", (company_id,))
         await conn.execute("DELETE FROM websites WHERE company_id = ?", (company_id,))
         await conn.execute("DELETE FROM repos WHERE company_id = ?", (company_id,))
+        await conn.execute("DELETE FROM detected_systems WHERE company_id = ?", (company_id,))
         await conn.execute("DELETE FROM specialists WHERE company_id = ?", (company_id,))
         await conn.execute("DELETE FROM knowledge_items WHERE company_id = ?", (company_id,))
         # Delete the company
@@ -1525,7 +1526,8 @@ class SQLiteStore:
         repos = await self.list_repos(company_id)
         specialists = await self.list_specialists(company_id)
         knowledge = await self.search_knowledge(company_id=company_id)
-        
+        detected_systems = await self.list_detected_systems(company_id)
+
         return CompanyGraph(
             id=f"graph_{company_id}",
             company_id=company_id,
@@ -1538,7 +1540,7 @@ class SQLiteStore:
             knowledge=knowledge,
             connectors=[],
             approval_policies=[],
-            detected_systems=[],
+            detected_systems=detected_systems,
             version="1.0",
             is_complete=False,
             completeness_score=0.0

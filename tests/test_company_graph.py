@@ -288,3 +288,29 @@ class TestDetectedSystemPersistence:
         assert await store.list_detected_systems("co_1", system_type="CRM") == []
         # scoped to the company
         assert await store.list_detected_systems("other_co") == []
+
+    @pytest.mark.asyncio
+    async def test_sqlite_graph_includes_and_cleans_detected_systems(self, tmp_path):
+        """get_company_graph must surface persisted detections, and
+        delete_company must remove them (no orphan rows)."""
+        try:
+            from services.company_graph_store import SQLiteStore
+            from models.company_graph import Company, DetectedSystem
+        except (ImportError, ModuleNotFoundError):
+            pytest.skip("company graph store not importable")
+
+        store = SQLiteStore()
+        store._db_path = str(tmp_path / "cg.db")
+
+        company = await store.create_company(Company(name="Acme", domain="acme.com"))
+        await store.create_detected_system(
+            DetectedSystem(name="Shopify", system_type="CMS"), company.id
+        )
+
+        graph = await store.get_company_graph(company.id)
+        assert graph is not None
+        assert [d.name for d in graph.detected_systems] == ["Shopify"]
+
+        # delete_company also removes the company's detected systems
+        await store.delete_company(company.id)
+        assert await store.list_detected_systems(company.id) == []
