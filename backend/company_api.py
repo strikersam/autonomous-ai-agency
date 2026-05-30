@@ -5,7 +5,7 @@ Provides all endpoints for managing companies, their graphs, and related entitie
 This is the canonical API for the Agency Core v5 Company Graph.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, Request, status
 from typing import List, Optional, Any
 from datetime import datetime
 import logging
@@ -54,14 +54,19 @@ from services.company_graph_store import get_company_graph_store
 from services.company_graph import get_company_graph_service
 from services.specialist import get_specialist_service
 from services.onboarding import OnboardingService
-# Thunk functions to avoid circular import with backend.server
-def _get_current_user_thunk(request):
+# Thunk functions to avoid circular import with backend.server.
+# NOTE: `request` MUST be annotated as `Request`. Without the annotation FastAPI
+# treats it as a required request-body field named "request", which makes every
+# endpoint using this dependency reject valid payloads with
+# `{"loc": ["body", "request"], "msg": "Field required"}` (e.g. POST /api/company
+# failing with "Field required"). The wrapped helpers are async, so await them.
+async def _get_current_user_thunk(request: Request):
     from backend.server import get_current_user
-    return get_current_user(request)
+    return await get_current_user(request)
 
-def _get_optional_user_thunk(request):
+async def _get_optional_user_thunk(request: Request):
     from backend.server import get_optional_user
-    return get_optional_user(request)
+    return await get_optional_user(request)
 
 
 log = logging.getLogger("company_api")
