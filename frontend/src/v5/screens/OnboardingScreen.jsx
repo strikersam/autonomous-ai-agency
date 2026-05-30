@@ -61,7 +61,11 @@ function extractErr(err) {
   if (d == null) return err?.message || 'Something went wrong.';
   if (typeof d === 'string') return d;
   if (d.message) return d.message;
-  if (Array.isArray(d)) return d.map((e) => e?.msg || '').filter(Boolean).join(' ') || 'Request failed.';
+  if (Array.isArray(d)) return d.map((e) => {
+    const field = Array.isArray(e?.loc) ? e.loc[e.loc.length - 1] : null;
+    const msg = e?.msg || '';
+    return field && field !== 'body' ? `${field}: ${msg}`.trim() : msg;
+  }).filter(Boolean).join('; ') || 'Request failed.';
   return 'Request failed.';
 }
 

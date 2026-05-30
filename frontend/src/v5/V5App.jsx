@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAuth } from '../AuthContext';
 import { AppShell } from './AppShell';
 import ChatScreen from './screens/ChatScreen';
 import DashboardScreen from './screens/DashboardScreen';
@@ -55,7 +56,8 @@ function AdminLocked() {
 
 export default function V5App() {
   const [screen, setScreen] = React.useState('chat');
-  const isAdmin = true;
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const agentRunning = true;
   const go = (s) => setScreen(s);
   const screens = {

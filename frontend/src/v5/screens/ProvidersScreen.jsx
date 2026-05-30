@@ -135,7 +135,8 @@ function AddProviderForm({ onCreate, onClose }) {
   const [error, setError] = React.useState(null);
 
   const applyTemplate = (p) => {
-    setProviderId(p.id); setName(p.name); setBaseUrl(b => b);
+    // Catalogue templates don't carry a base_url; clear it for the user to fill in.
+    setProviderId(p.id); setName(p.name); setBaseUrl('');
     setModel(p.defaultModel || ''); setType(p.id === 'ollama' ? 'ollama' : 'openai-compatible');
   };
 

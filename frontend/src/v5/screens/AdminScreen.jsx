@@ -194,7 +194,7 @@ function AdminScreen() {
         </div>
         <div style={{ display:'flex', gap:4 }}>
           {['activation','users','api-keys'].map(t=>(
-            <button key={t} onClick={()=>setTab(t)} style={{ padding:'7px 16px', borderRadius:'10px 10px 0 0', fontSize:12, fontWeight:600, cursor:'pointer', textTransform:'capitalize', transition:'all 0.15s', background:tab===t?'rgba(10,12,15,0.90)':'rgba(255,255,255,0.03)', border:`1px solid ${tab===t?'rgba(255,255,255,0.10)':'rgba(255,255,255,0.06)'}`, borderBottom:tab===t?'1px solid rgba(10,12,15,0.90)':'1px solid rgba(255,255,255,0.06)', color:tab===t?'#fff':'var(--text-muted)' }}>
+            <button key={t} onClick={()=>{ setTab(t); setActionErr(null); setRoleNote(null); }} style={{ padding:'7px 16px', borderRadius:'10px 10px 0 0', fontSize:12, fontWeight:600, cursor:'pointer', textTransform:'capitalize', transition:'all 0.15s', background:tab===t?'rgba(10,12,15,0.90)':'rgba(255,255,255,0.03)', border:`1px solid ${tab===t?'rgba(255,255,255,0.10)':'rgba(255,255,255,0.06)'}`, borderBottom:tab===t?'1px solid rgba(10,12,15,0.90)':'1px solid rgba(255,255,255,0.06)', color:tab===t?'#fff':'var(--text-muted)' }}>
               {t==='api-keys'?'API Keys':t==='activation'?'🔐 Activation':'Users'}
             </button>
           ))}

@@ -162,10 +162,10 @@ function AddSourceForm({ onIngest, onClose }) {
 }
 
 // Map a raw activity log entry into the ActivityRow shape (no fabricated fields).
-function mapActivity(log) {
+function mapActivity(log, index) {
   const et = (log.event_type || log.type || '').toString();
   return {
-    id: log._id || log.id || `${et}-${log.created_at || log.timestamp || Math.random()}`,
+    id: log._id || log.id || `${et}-${log.created_at || log.timestamp || index}`,
     type: 'agent',
     actor: et ? et.replace(/_/g, ' ') : 'System',
     tag: (et.split('_')[0] || 'note'),
@@ -191,7 +191,7 @@ function KnowledgeScreen() {
   const pages   = data.pages?.pages || [];
   const sources = data.sources?.sources || [];
   const activityRaw = data.activity?.logs || data.activity?.events || data.activity?.activity || (Array.isArray(data.activity) ? data.activity : []);
-  const activity = activityRaw.map(mapActivity);
+  const activity = activityRaw.map((log, i) => mapActivity(log, i));
 
   const docs = pages.map(p => ({
     id: p._id || p.slug,

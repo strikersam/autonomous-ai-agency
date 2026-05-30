@@ -43,29 +43,32 @@ function errText(e, fallback) {
   return detail ? api.fmtErr(detail) : (e?.message || fallback);
 }
 
+// `cron` is the human-readable cadence shown in the UI; `cronExpr` is the real
+// cron expression sent to the backend. Event-driven templates (webhook/commit/
+// CI triggers) have cronExpr:null and can't be added as cron schedules yet.
 const SMART_TEMPLATES = [
   // Security
-  { id:'tmpl-cve',      cat:'security', icon:'🔒', name:'CVE Dependency Audit',         cron:'Weekly Mon 02:00', desc:'pip/npm audit for known vulnerabilities. Auto-creates fix tasks.', gate:false },
-  { id:'tmpl-sast',     cat:'security', icon:'🔒', name:'SAST Code Scan (Bandit)',       cron:'On push + daily',  desc:'Static analysis across all Python. Raises P2 alerts on findings.', gate:false },
-  { id:'tmpl-secrets',  cat:'security', icon:'🔒', name:'Secret Detection Scan',         cron:'On every commit',  desc:'Grep for leaked API keys, tokens, and passwords in git history.', gate:false },
+  { id:'tmpl-cve',      cat:'security', icon:'🔒', name:'CVE Dependency Audit',         cron:'Weekly Mon 02:00', cronExpr:'0 2 * * 1',   desc:'pip/npm audit for known vulnerabilities. Auto-creates fix tasks.', gate:false },
+  { id:'tmpl-sast',     cat:'security', icon:'🔒', name:'SAST Code Scan (Bandit)',       cron:'On push + daily',  cronExpr:null,          desc:'Static analysis across all Python. Raises P2 alerts on findings.', gate:false },
+  { id:'tmpl-secrets',  cat:'security', icon:'🔒', name:'Secret Detection Scan',         cron:'On every commit',  cronExpr:null,          desc:'Grep for leaked API keys, tokens, and passwords in git history.', gate:false },
   // Quality
-  { id:'tmpl-tests',    cat:'quality',  icon:'⚙', name:'Daily Test Run + Auto-Fix',    cron:'Daily 03:00 UTC',  desc:'Full pytest suite. Failing tests become P1 fix tasks automatically.', gate:false },
-  { id:'tmpl-coverage', cat:'quality',  icon:'⚙', name:'Test Coverage Report',          cron:'Weekly Wed',       desc:'Find modules with <80% coverage. Generate missing test stubs.', gate:false },
-  { id:'tmpl-lint',     cat:'quality',  icon:'⚙', name:'Code Quality & Lint Check',    cron:'On PR + daily',    desc:'Ruff/ESLint/Prettier across all changed files. Auto-fix safe issues.', gate:false },
-  { id:'tmpl-todo',     cat:'quality',  icon:'⚙', name:'FIXME / TODO Cleanup',          cron:'Weekly Wed 06:00', desc:'Resolve FIXME, TODO:FIX, and HACK:URGENT markers automatically.', gate:true },
+  { id:'tmpl-tests',    cat:'quality',  icon:'⚙', name:'Daily Test Run + Auto-Fix',    cron:'Daily 03:00 UTC',  cronExpr:'0 3 * * *',   desc:'Full pytest suite. Failing tests become P1 fix tasks automatically.', gate:false },
+  { id:'tmpl-coverage', cat:'quality',  icon:'⚙', name:'Test Coverage Report',          cron:'Weekly Wed 06:00', cronExpr:'0 6 * * 3',   desc:'Find modules with <80% coverage. Generate missing test stubs.', gate:false },
+  { id:'tmpl-lint',     cat:'quality',  icon:'⚙', name:'Code Quality & Lint Check',    cron:'On PR + daily',    cronExpr:null,          desc:'Ruff/ESLint/Prettier across all changed files. Auto-fix safe issues.', gate:false },
+  { id:'tmpl-todo',     cat:'quality',  icon:'⚙', name:'FIXME / TODO Cleanup',          cron:'Weekly Wed 06:00', cronExpr:'0 6 * * 3',   desc:'Resolve FIXME, TODO:FIX, and HACK:URGENT markers automatically.', gate:true },
   // SEO & Performance
-  { id:'tmpl-seo',      cat:'seo',      icon:'🔍', name:'SEO Health Audit',             cron:'Weekly Mon',       desc:'Check meta tags, Open Graph, sitemap freshness, and broken links.', gate:false },
-  { id:'tmpl-perf',     cat:'perf',     icon:'⚡', name:'Lighthouse Performance Scan',  cron:'Daily 06:00 UTC',  desc:'Core Web Vitals, LCP, CLS, FID on key pages. Alert on regressions.', gate:false },
-  { id:'tmpl-bundle',   cat:'perf',     icon:'⚡', name:'Bundle Size Check',            cron:'On every PR',      desc:'Warn if JS bundle grows >5%. Block merge if >20% regression.', gate:false },
+  { id:'tmpl-seo',      cat:'seo',      icon:'🔍', name:'SEO Health Audit',             cron:'Weekly Mon 06:00', cronExpr:'0 6 * * 1',   desc:'Check meta tags, Open Graph, sitemap freshness, and broken links.', gate:false },
+  { id:'tmpl-perf',     cat:'perf',     icon:'⚡', name:'Lighthouse Performance Scan',  cron:'Daily 06:00 UTC',  cronExpr:'0 6 * * *',   desc:'Core Web Vitals, LCP, CLS, FID on key pages. Alert on regressions.', gate:false },
+  { id:'tmpl-bundle',   cat:'perf',     icon:'⚡', name:'Bundle Size Check',            cron:'On every PR',      cronExpr:null,          desc:'Warn if JS bundle grows >5%. Block merge if >20% regression.', gate:false },
   // Release
-  { id:'tmpl-dep',      cat:'release',  icon:'◉', name:'Dependency Upgrade (safe)',    cron:'Weekly Mon 04:00', desc:'Safe minor/patch upgrades only. Opens PR with full test run.', gate:true },
-  { id:'tmpl-changelog',cat:'release',  icon:'◉', name:'Daily Changelog Check',        cron:'Daily 05:00 UTC',  desc:'Verify CHANGELOG.md is up to date with merged PRs.', gate:false },
+  { id:'tmpl-dep',      cat:'release',  icon:'◉', name:'Dependency Upgrade (safe)',    cron:'Weekly Mon 04:00', cronExpr:'0 4 * * 1',   desc:'Safe minor/patch upgrades only. Opens PR with full test run.', gate:true },
+  { id:'tmpl-changelog',cat:'release',  icon:'◉', name:'Daily Changelog Check',        cron:'Daily 05:00 UTC',  cronExpr:'0 5 * * *',   desc:'Verify CHANGELOG.md is up to date with merged PRs.', gate:false },
   // Monitoring
-  { id:'tmpl-errors',   cat:'ops',      icon:'◎', name:'Error Log Monitor',            cron:'Every 15 min',     desc:'Tail server logs for ERROR/CRITICAL. Auto-creates self-healing tasks.', gate:false },
-  { id:'tmpl-uptime',   cat:'ops',      icon:'◎', name:'Uptime & API Health Check',    cron:'Every 5 min',      desc:'Ping all registered environments. Alert on 3 consecutive failures.', gate:false },
-  { id:'tmpl-regression',cat:'ops',     icon:'◎', name:'Regression Test on Merge',     cron:'On merge to main', desc:'Full integration test suite on every merge to main.', gate:false },
+  { id:'tmpl-errors',   cat:'ops',      icon:'◎', name:'Error Log Monitor',            cron:'Every 15 min',     cronExpr:'*/15 * * * *',desc:'Tail server logs for ERROR/CRITICAL. Auto-creates self-healing tasks.', gate:false },
+  { id:'tmpl-uptime',   cat:'ops',      icon:'◎', name:'Uptime & API Health Check',    cron:'Every 5 min',      cronExpr:'*/5 * * * *', desc:'Ping all registered environments. Alert on 3 consecutive failures.', gate:false },
+  { id:'tmpl-regression',cat:'ops',     icon:'◎', name:'Regression Test on Merge',     cron:'On merge to main', cronExpr:null,          desc:'Full integration test suite on every merge to main.', gate:false },
   // Incident
-  { id:'tmpl-ci-fail',  cat:'ops',      icon:'◎', name:'CI Failure Auto-Fix',          cron:'On CI failure',    desc:'GitHub Actions webhook → Dev Agent investigates and fixes.', gate:true },
+  { id:'tmpl-ci-fail',  cat:'ops',      icon:'◎', name:'CI Failure Auto-Fix',          cron:'On CI failure',    cronExpr:null,          desc:'GitHub Actions webhook → Dev Agent investigates and fixes.', gate:true },
 ];
 
 const CAT_CONFIG = {
@@ -230,12 +233,16 @@ function SchedulesScreen() {
   };
   const addTmpl = async (tmpl) => {
     setActionErr(null);
+    // Event-driven templates (no cron expression) can't be added as cron schedules yet.
+    if (!tmpl.cronExpr) {
+      setActionErr(`"${tmpl.name}" runs on an event trigger (${tmpl.cron}) — webhook/event schedules aren't supported yet.`);
+      return;
+    }
     try {
-      // Templates carry human-readable cadences; the backend needs a real cron.
-      await createSchedule({ name: tmpl.name, cron: tmpl.cron, instruction: tmpl.desc, approval_gate: tmpl.gate, tags: [tmpl.cat] });
+      await createSchedule({ name: tmpl.name, cron: tmpl.cronExpr, instruction: tmpl.desc, approval_gate: tmpl.gate, tags: [tmpl.cat] });
       setAddedTmpls(p => new Set([...p, tmpl.id]));
     } catch (e) {
-      setActionErr(errText(e, `Could not add "${tmpl.name}" (template cadence may need a cron expression).`));
+      setActionErr(errText(e, `Could not add "${tmpl.name}".`));
     }
   };
 
@@ -286,7 +293,7 @@ function SchedulesScreen() {
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:8 }}>
             {SMART_TEMPLATES.filter(t=>tmplCat==='all'||t.cat===tmplCat).map(tmpl => (
-              <TemplateCard key={tmpl.id} tmpl={tmpl} onAdd={addTmpl} added={addedTmpls.has(tmpl.id)||jobs.some(j=>j.id===tmpl.id)}/>
+              <TemplateCard key={tmpl.id} tmpl={tmpl} onAdd={addTmpl} added={addedTmpls.has(tmpl.id)||jobs.some(j=>j.name===tmpl.name)}/>
             ))}
           </div>
         </div>

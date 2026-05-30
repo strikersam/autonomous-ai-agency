@@ -399,7 +399,7 @@ function RunTaskModal({ agent, onClose }) {
           <div style={{ fontSize:15, fontWeight:800, color:'#fff' }}>Run a task · {agent.name}</div>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', fontSize:20, cursor:'pointer' }}>×</button>
         </div>
-        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Dispatches your task to the autonomous agent pipeline and streams progress below. Routing picks the right specialist runtime.</div>
+        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Dispatches your task to the autonomous agent pipeline and streams progress below. <strong style={{ color:'var(--text-tertiary)' }}>{agent.name}</strong> is a suggestion — the pipeline auto-routes to the best specialist runtime for the task.</div>
         <textarea value={task} onChange={e=>setTask(e.target.value)} disabled={busy} placeholder="Describe the task…  e.g. ‘Audit the checkout flow for SEO regressions and open a PR’" rows={4}
           style={{ width:'100%', padding:'10px 12px', borderRadius:10, resize:'vertical', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', marginBottom:12 }}/>
         {busy && (

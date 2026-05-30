@@ -94,7 +94,11 @@ API.interceptors.response.use(
 export function fmtErr(detail) {
   if (detail == null) return 'Something went wrong.';
   if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) return detail.map(e => e?.msg || JSON.stringify(e)).join(' ');
+  if (Array.isArray(detail)) return detail.map(e => {
+    const field = Array.isArray(e?.loc) ? e.loc[e.loc.length - 1] : null;
+    const msg = e?.msg || JSON.stringify(e);
+    return field && field !== 'body' ? `${field}: ${msg}` : msg;
+  }).join('; ');
   return detail?.msg || String(detail);
 }
 
