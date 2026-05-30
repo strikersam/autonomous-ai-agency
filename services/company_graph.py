@@ -224,17 +224,39 @@ class CompanyGraphService:
         log.info(f"Created company graph: {created.id} for company {company_id}")
         return created
 
-    async def get_company_graph(self, company_id: str) -> CompanyGraph | None:
+    async def get_company_graph(
+        self,
+        company_id: str,
+        include_detected_systems: bool = True,
+        include_specialists: bool = True,
+        include_workflows: bool = True,
+    ) -> CompanyGraph | None:
         """
         Get the company graph for a company.
-        
+
         Args:
             company_id: Company ID
-            
+            include_detected_systems: Include detected systems (the store always
+                assembles the full graph; the flag is accepted for API parity).
+            include_specialists: Include specialists (see above).
+            include_workflows: Include workflows (see above).
+
         Returns:
             CompanyGraph instance or None if not found
         """
         return await self.store.get_company_graph(company_id)
+
+    async def calculate_graph_completeness(self, company_id: str) -> float:
+        """Compute the completeness score (0.0–1.0) for a company's graph.
+
+        Loads the graph and delegates to the in-memory scorer. Returns 0.0 when
+        the company has no graph yet (rather than raising), so the graph
+        endpoint never 500s on a freshly-created company.
+        """
+        graph = await self.store.get_company_graph(company_id)
+        if not graph:
+            return 0.0
+        return self._calculate_completeness_score(graph)
 
     async def update_company_graph(self, graph: CompanyGraph) -> CompanyGraph:
         """

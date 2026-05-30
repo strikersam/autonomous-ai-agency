@@ -314,3 +314,44 @@ class TestDetectedSystemPersistence:
         # delete_company also removes the company's detected systems
         await store.delete_company(company.id)
         assert await store.list_detected_systems(company.id) == []
+
+
+class TestGraphEndpointServiceContract:
+    """Regression for the `GET /api/company/{id}/graph` 500 (found by the new
+    e2e company-lifecycle coverage).
+
+    The endpoint calls
+    ``service.get_company_graph(company_id, include_detected_systems=...,
+    include_specialists=..., include_workflows=...)`` and
+    ``service.calculate_graph_completeness(company_id)``, but the service's
+    `get_company_graph` accepted only `company_id` (→ TypeError) and
+    `calculate_graph_completeness` didn't exist at all (→ AttributeError) — both
+    surfaced as HTTP 500. This guards the exact call signatures the endpoint uses.
+    """
+
+    @pytest.mark.asyncio
+    async def test_service_graph_signatures_match_endpoint(self, tmp_path):
+        try:
+            from services.company_graph import CompanyGraphService
+            from services.company_graph_store import SQLiteStore
+        except (ImportError, ModuleNotFoundError):
+            pytest.skip("company graph service not importable")
+
+        store = SQLiteStore()
+        store._db_path = str(tmp_path / "cg.db")
+        svc = CompanyGraphService(store=store)
+
+        company = await svc.create_company(name="Acme", domain="acme.com", owner_id="u1")
+
+        # Exactly the call the endpoint makes (keyword include_* flags).
+        graph = await svc.get_company_graph(
+            company_id=company.id,
+            include_detected_systems=True,
+            include_specialists=True,
+            include_workflows=True,
+        )
+        assert graph is not None
+
+        score = await svc.calculate_graph_completeness(company.id)
+        assert isinstance(score, float)
+        assert 0.0 <= score <= 1.0

@@ -425,7 +425,7 @@ def test_company_lifecycle(c: httpx.Client, h: dict) -> None:
 
     # Read back — exercises the Mongo extra-field read path (create-500 guard).
     r = req("GET", c, f"/api/company/{cid}", headers=h)
-    check(r.status_code == 200, f"GET /api/company/{{id}} → 200", r)
+    check(r.status_code == 200, "GET /api/company/{id} → 200", r)
     ok("GET /api/company/{id} → 200")
 
     # Graph — builds the full CompanyGraph (websites/detected_systems/etc.).
