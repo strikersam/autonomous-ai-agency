@@ -1,4 +1,6 @@
 """Tests for Company Graph API endpoints."""
+from __future__ import annotations
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -57,14 +59,14 @@ class TestCreateCompanyValidation:
     "Could not create company: request: Field required").
     """
 
-    def test_thunk_request_param_is_annotated_as_Request(self):
+    def test_thunk_request_param_is_annotated_as_Request(self) -> None:
         """The auth thunks must annotate `request` as `Request`, otherwise
         FastAPI demands a body field named "request"."""
         import inspect
         try:
             from fastapi import Request
             from backend import company_api
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pytest.skip("backend.company_api not importable")
 
         for name in ("_get_current_user_thunk", "_get_optional_user_thunk"):
@@ -78,13 +80,13 @@ class TestCreateCompanyValidation:
                 f"'request: Field required'."
             )
 
-    def test_create_company_does_not_demand_a_body_field_named_request(self, client):
+    def test_create_company_does_not_demand_a_body_field_named_request(self, client) -> None:
         """A POST with a valid {name, domain} body must never fail validation
         because of a phantom required body field named `request`."""
         try:
             resp = client.post("/api/company", json={"name": "Acme", "domain": "acme.com"})
-        except Exception:
-            pytest.skip("Backend app failed to start")
+        except (ImportError, ModuleNotFoundError, RuntimeError, ConnectionError):
+            pytest.skip("Backend app/dependencies not available")
 
         # With the bug, the unannotated dependency param surfaces as a required
         # `request` field (in body OR query depending on FastAPI's inference) and
