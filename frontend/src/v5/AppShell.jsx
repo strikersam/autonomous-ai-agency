@@ -91,20 +91,20 @@ function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin }
           if (!items.length) return null;
           return (
             <div key={section} style={{ marginBottom:2 }}>
-              <div style={{ padding:'7px 18px 3px', fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.18em', textTransform:'uppercase', color:'var(--text-muted)', fontWeight:700 }}>{section}</div>
+              <div style={{ padding:'10px 18px 4px', fontSize:11, fontFamily:'var(--font-mono)', letterSpacing:'0.14em', textTransform:'uppercase', color:'var(--text-muted)', fontWeight:700 }}>{section}</div>
               {items.map(item => {
                 const active = activeScreen === item.id;
                 return (
-                  <button key={item.id} onClick={() => { onNavigate(item.id); onClose&&onClose(); }} style={{ display:'flex', alignItems:'center', gap:10, width:'calc(100% - 16px)', margin:'1px 8px', padding:'8px 12px', borderRadius:10, border:'none', cursor:'pointer', background:active?'rgba(93,162,255,0.10)':'transparent', color:active?'#fff':'var(--text-tertiary)', fontFamily:'var(--font-main)', fontSize:13, fontWeight:active?600:500, textAlign:'left', transition:'all 0.15s ease', position:'relative' }}
+                  <button key={item.id} onClick={() => { onNavigate(item.id); onClose&&onClose(); }} style={{ display:'flex', alignItems:'center', gap:12, width:'calc(100% - 16px)', margin:'2px 8px', padding:'10px 14px', borderRadius:12, border:'none', cursor:'pointer', background:active?'rgba(93,162,255,0.10)':'transparent', color:active?'#fff':'var(--text-tertiary)', fontFamily:'var(--font-main)', fontSize:15, fontWeight:active?600:500, textAlign:'left', transition:'all 0.15s ease', position:'relative' }}
                   onMouseEnter={e=>{ if(!active){e.currentTarget.style.background='rgba(255,255,255,0.04)'; e.currentTarget.style.color='var(--text-secondary)'; }}}
                   onMouseLeave={e=>{ if(!active){e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--text-tertiary)'; }}}>
-                    {active && <div style={{ position:'absolute', left:0, top:'50%', transform:'translateY(-50%)', width:2, height:16, background:'var(--accent)', borderRadius:999 }}/>}
-                    <Icon name={item.icon} size={14} style={{ color:active?'var(--accent)':'var(--text-icon-inactive)', flexShrink:0 }}/>
+                    {active && <div style={{ position:'absolute', left:0, top:'50%', transform:'translateY(-50%)', width:3, height:20, background:'var(--accent)', borderRadius:999 }}/>}
+                    <Icon name={item.icon} size={18} style={{ color:active?'var(--accent)':'var(--text-icon-inactive)', flexShrink:0 }}/>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13 }}>{item.label}</div>
-                      <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:active?'rgba(93,162,255,0.7)':'var(--text-muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.desc}</div>
+                      <div style={{ fontSize:15 }}>{item.label}</div>
+                      <div style={{ fontSize:11, color:active?'rgba(93,162,255,0.7)':'var(--text-muted)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.desc}</div>
                     </div>
-                    {item.adminOnly && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', color:'#ff6b7d', padding:'1px 5px', borderRadius:4, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.20)', flexShrink:0 }}>admin</span>}
+                    {item.adminOnly && <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'#ff6b7d', padding:'2px 6px', borderRadius:4, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.20)', flexShrink:0 }}>admin</span>}
                   </button>
                 );
               })}
@@ -144,18 +144,18 @@ function MobileMoreSheet({ activeScreen, onNavigate, onClose, isAdmin }) {
         <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
           <div style={{ width:36, height:4, borderRadius:999, background:'rgba(255,255,255,0.15)' }}/>
         </div>
-        <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.15em', textTransform:'uppercase', marginBottom:10 }}>More screens</div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:12 }}>More screens</div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
           {moreItems.map(item => {
             const active = activeScreen === item.id;
             return (
-              <button key={item.id} onClick={() => { onNavigate(item.id); onClose(); }} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:12, background:active?'rgba(93,162,255,0.10)':'rgba(255,255,255,0.03)', border:`1px solid ${active?'rgba(93,162,255,0.22)':'rgba(255,255,255,0.07)'}`, cursor:'pointer', textAlign:'left', transition:'all 0.15s ease' }}>
-                <div style={{ width:30, height:30, borderRadius:9, background:active?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <Icon name={item.icon} size={15} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
+              <button key={item.id} onClick={() => { onNavigate(item.id); onClose(); }} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', borderRadius:14, background:active?'rgba(93,162,255,0.10)':'rgba(255,255,255,0.04)', border:`1px solid ${active?'rgba(93,162,255,0.22)':'rgba(255,255,255,0.08)'}`, cursor:'pointer', textAlign:'left', transition:'all 0.15s ease' }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:active?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.06)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <Icon name={item.icon} size={18} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
                 </div>
                 <div style={{ minWidth:0 }}>
-                  <div style={{ fontSize:12, fontWeight:600, color:active?'#fff':'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.label}</div>
-                  <div style={{ fontSize:10, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.desc}</div>
+                  <div style={{ fontSize:14, fontWeight:600, color:active?'#fff':'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.label}</div>
+                  <div style={{ fontSize:11, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2 }}>{item.desc}</div>
                 </div>
               </button>
             );
@@ -172,37 +172,37 @@ function MobileBottomNav({ activeScreen, onNavigate, isAdmin }) {
   return (
     <>
       {moreOpen && <MobileMoreSheet activeScreen={activeScreen} onNavigate={id=>{ onNavigate(id); setMoreOpen(false); }} onClose={()=>setMoreOpen(false)} isAdmin={isAdmin}/>}
-      <nav style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:50, background:'rgba(8,10,14,0.92)', backdropFilter:'blur(20px)', borderTop:'1px solid var(--border)', paddingBottom:'max(env(safe-area-inset-bottom,0px), 8px)', paddingTop:8 }}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:1, padding:'0 2px' }}>
+      <nav style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:50, background:'rgba(8,10,14,0.96)', backdropFilter:'blur(20px)', borderTop:'1px solid var(--border)', paddingBottom:'max(env(safe-area-inset-bottom,0px), 10px)', paddingTop:6 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:0, padding:'0 4px' }}>
           {primaryItems.slice(0,2).map(item => {
             const active = activeScreen === item.id;
             return (
-              <button key={item.id} onClick={()=>onNavigate(item.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3, padding:'6px 2px 4px', minHeight:52, border:'none', background:active?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
-                <Icon name={item.icon} size={18} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
-                <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', color:active?'#fff':'var(--text-muted)' }}>{item.label}</span>
+              <button key={item.id} onClick={()=>onNavigate(item.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'8px 2px 6px', minHeight:60, border:'none', background:active?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
+                <Icon name={item.icon} size={22} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
+                <span style={{ fontSize:11, fontWeight:600, color:active?'var(--accent)':'var(--text-muted)' }}>{item.label}</span>
               </button>
             );
           })}
           {/* Chat FAB */}
-          <button onClick={()=>onNavigate('chat')} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3, padding:'0 2px 4px', minHeight:52, border:'none', background:'transparent', cursor:'pointer', marginTop:-10 }}>
-            <div style={{ width:46, height:46, borderRadius:'50%', background:activeScreen==='chat'?'var(--accent-hover)':'var(--accent)', boxShadow:'0 4px 16px rgba(93,162,255,0.35)', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.15s' }}>
-              <Icon name="MessageSquare" size={20} style={{ color:'#06111f' }}/>
+          <button onClick={()=>onNavigate('chat')} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'0 2px 6px', minHeight:60, border:'none', background:'transparent', cursor:'pointer', marginTop:-12 }}>
+            <div style={{ width:50, height:50, borderRadius:'50%', background:activeScreen==='chat'?'var(--accent-hover)':'var(--accent)', boxShadow:'0 4px 20px rgba(93,162,255,0.40)', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.15s' }}>
+              <Icon name="MessageSquare" size={22} style={{ color:'#06111f' }}/>
             </div>
-            <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', color:'var(--text-muted)' }}>Chat</span>
+            <span style={{ fontSize:11, fontWeight:600, color:activeScreen==='chat'?'var(--accent)':'var(--text-muted)' }}>Chat</span>
           </button>
           {primaryItems.slice(2).map(item => {
             const active = activeScreen === item.id;
             return (
-              <button key={item.id} onClick={()=>onNavigate(item.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3, padding:'6px 2px 4px', minHeight:52, border:'none', background:active?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
-                <Icon name={item.icon} size={18} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
-                <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', color:active?'#fff':'var(--text-muted)' }}>{item.label}</span>
+              <button key={item.id} onClick={()=>onNavigate(item.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'8px 2px 6px', minHeight:60, border:'none', background:active?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
+                <Icon name={item.icon} size={22} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
+                <span style={{ fontSize:11, fontWeight:600, color:active?'var(--accent)':'var(--text-muted)' }}>{item.label}</span>
               </button>
             );
           })}
           {/* More */}
-          <button onClick={()=>setMoreOpen(true)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3, padding:'6px 2px 4px', minHeight:52, border:'none', background:MOBILE_MORE.includes(activeScreen)?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
-            <Icon name="MoreHorizontal" size={18} style={{ color:MOBILE_MORE.includes(activeScreen)?'var(--accent)':'var(--text-muted)' }}/>
-            <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', color:MOBILE_MORE.includes(activeScreen)?'#fff':'var(--text-muted)' }}>More</span>
+          <button onClick={()=>setMoreOpen(true)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'8px 2px 6px', minHeight:60, border:'none', background:MOBILE_MORE.includes(activeScreen)?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
+            <Icon name="MoreHorizontal" size={22} style={{ color:MOBILE_MORE.includes(activeScreen)?'var(--accent)':'var(--text-muted)' }}/>
+            <span style={{ fontSize:11, fontWeight:600, color:MOBILE_MORE.includes(activeScreen)?'var(--accent)':'var(--text-muted)' }}>More</span>
           </button>
         </div>
       </nav>
@@ -212,16 +212,16 @@ function MobileBottomNav({ activeScreen, onNavigate, isAdmin }) {
 
 function MobileTopBar({ title, subtitle, onMenuOpen }) {
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px', paddingTop:'calc(env(safe-area-inset-top,0px) + 12px)', background:'rgba(8,10,14,0.92)', backdropFilter:'blur(20px)', borderBottom:'1px solid var(--border)', position:'sticky', top:0, zIndex:40 }}>
-      <button onClick={onMenuOpen} style={{ width:40, height:40, borderRadius:12, border:'1px solid var(--border-soft)', background:'rgba(255,255,255,0.03)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
-        <Icon name="Menu" size={15}/>
+    <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', paddingTop:'calc(env(safe-area-inset-top,0px) + 12px)', background:'rgba(8,10,14,0.92)', backdropFilter:'blur(20px)', borderBottom:'1px solid var(--border)', position:'sticky', top:0, zIndex:40 }}>
+      <button onClick={onMenuOpen} style={{ width:44, height:44, borderRadius:12, border:'1px solid var(--border-soft)', background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
+        <Icon name="Menu" size={18}/>
       </button>
-      <div style={{ width:30, height:30, borderRadius:8, flexShrink:0, background:'linear-gradient(135deg,#6CB0FF 0%,#3A7FE8 100%)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <Icon name="Cpu" size={13} style={{ color:'#fff' }}/>
+      <div style={{ width:32, height:32, borderRadius:9, flexShrink:0, background:'linear-gradient(135deg,#6CB0FF 0%,#3A7FE8 100%)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <Icon name="Cpu" size={15} style={{ color:'#fff' }}/>
       </div>
       <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:15, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>{APP_LABEL}</div>
-        {subtitle && <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.14em', textTransform:'uppercase', marginTop:1 }}>{subtitle}</div>}
+        <div style={{ fontSize:17, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>{APP_LABEL}</div>
+        {subtitle && <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.10em', textTransform:'uppercase', marginTop:2 }}>{subtitle}</div>}
       </div>
     </div>
   );
@@ -232,7 +232,7 @@ function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin })
   const navItem = NAV_ITEMS.find(n => n.id === activeScreen) || NAV_ITEMS[0];
   return (
     <div style={{ display:'flex', height:'100dvh', overflow:'hidden', background:'var(--bg-base)' }}>
-      <div className="desktop-sidebar" style={{ width:252, flexShrink:0, height:'100%', display:'flex', flexDirection:'column' }}>
+      <div className="desktop-sidebar" style={{ width:252, flexShrink:0, height:'100%', flexDirection:'column' }}>
         <SidebarNav activeScreen={activeScreen} onNavigate={onNavigate} agentRunning={agentRunning} isAdmin={isAdmin}/>
       </div>
       {sidebarOpen && (
@@ -246,7 +246,7 @@ function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin })
         <div className="mobile-topbar">
           <MobileTopBar title={APP_LABEL} subtitle={navItem.label} onMenuOpen={()=>setSidebarOpen(true)}/>
         </div>
-        <div style={{ flex:1, overflowY:'auto', overflowX:'hidden' }}>
+        <div className="main-scroll" style={{ flex:1, overflowY:'auto', overflowX:'hidden' }}>
           {children}
         </div>
         <div className="mobile-bottomnav">
@@ -254,13 +254,15 @@ function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin })
         </div>
       </div>
       <style>{`
-        .desktop-sidebar  { display:none; }
+        .desktop-sidebar  { display:none; flex-direction:column; }
         .mobile-topbar    { display:block; }
         .mobile-bottomnav { display:block; }
+        .main-scroll      { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 72px); }
         @media (min-width:1024px) {
           .desktop-sidebar  { display:flex; }
           .mobile-topbar    { display:none; }
           .mobile-bottomnav { display:none; }
+          .main-scroll      { padding-bottom: 0; }
         }
         @keyframes pulse       { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
         @keyframes spin        { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
