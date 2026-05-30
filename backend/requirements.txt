@@ -19,4 +19,4 @@ beautifulsoup4>=4.12.0
 # Headless-browser rendering for the website scanner (JS-rendered / bot-protected
 # sites). The Chromium binary is installed in the Docker image (see Dockerfile.backend);
 # where it is absent the scanner gracefully falls back to static-HTML detection.
-playwright>=1.40.0
+playwright>=1.49.0

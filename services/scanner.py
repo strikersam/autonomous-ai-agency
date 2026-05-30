@@ -80,11 +80,17 @@ def _is_blocked_host(url: str) -> bool:
     per-request path without adding a DNS lookup to every asset fetch.
     """
     try:
-        host = (urlparse(url).hostname or "").lower()
+        parsed = urlparse(url)
     except Exception:
-        return True
-    if not host:
+        return True  # unparseable → fail closed (block)
+    scheme = (parsed.scheme or "").lower()
+    # Inline, non-network schemes are safe to allow (and have no host); blocking
+    # them would needlessly break rendering of data:/blob: resources.
+    if scheme in ("data", "blob", "about"):
         return False
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return True  # e.g. file:// or malformed → fail closed (block)
     if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith((".local", ".internal")):
         return True
     try:
@@ -297,7 +303,7 @@ class WebsiteScanner:
                 errors=[str(e)], started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
             )
 
-    async def _render_html(self, url: str):
+    async def _render_html(self, url: str) -> Optional[tuple[str, dict, dict]]:
         """Render a page with a real headless browser (Playwright/Chromium) and
         return ``(html, headers, cookies)`` from the fully-executed DOM.
 
@@ -344,11 +350,12 @@ class WebsiteScanner:
                                 await route.abort()
                             else:
                                 await route.continue_()
-                        except Exception:
+                        except Exception as guard_e:
+                            log.debug(f"Subrequest guard error for {route.request.url}: {guard_e}")
                             try:
                                 await route.continue_()
-                            except Exception:
-                                pass
+                            except Exception as cont_e:
+                                log.debug(f"Subrequest continue failed: {cont_e}")
                     await context.route("**/*", _guard)
 
                     page = await context.new_page()
@@ -446,10 +453,73 @@ class WebsiteScanner:
                     if 'loom-verification' in txt: add_sys('loom', 'custom', 'Loom', 0.99, 'TXT', txt)
                     if 'cursor-domain' in txt: add_sys('cursor', 'ai_ml', 'Cursor', 0.99, 'TXT', txt)
             except Exception: pass
-            
+
+            # 4. CNAME chains → CDN / hosting / SaaS platform (BuiltWith-style).
+            #    DNS isn't behind the site's bot wall, so this still identifies
+            #    the platform even when the HTML fetch is blocked (e.g. Akamai).
+            #    Map of CNAME-target substring → (id, system_type, display name).
+            cname_map = [
+                ('cloudfront.net',      ('cloudfront', 'custom', 'AWS CloudFront (CDN)')),
+                ('elb.amazonaws.com',   ('aws_elb',    'custom', 'AWS Elastic Load Balancing')),
+                ('edgekey.net',         ('akamai',     'custom', 'Akamai (CDN)')),
+                ('edgesuite.net',       ('akamai',     'custom', 'Akamai (CDN)')),
+                ('akamaiedge.net',      ('akamai',     'custom', 'Akamai (CDN)')),
+                ('akamaized.net',       ('akamai',     'custom', 'Akamai (CDN)')),
+                ('fastly.net',          ('fastly',     'custom', 'Fastly (CDN)')),
+                ('fastlylb.net',        ('fastly',     'custom', 'Fastly (CDN)')),
+                ('cloudflare.net',      ('cloudflare', 'custom', 'Cloudflare (CDN)')),
+                ('cdn.cloudflare.net',  ('cloudflare', 'custom', 'Cloudflare (CDN)')),
+                ('azureedge.net',       ('azure_cdn',  'custom', 'Azure CDN')),
+                ('azurefd.net',         ('azure_fd',   'custom', 'Azure Front Door')),
+                ('trafficmanager.net',  ('azure_tm',   'custom', 'Azure Traffic Manager')),
+                ('cloudapp.azure.com',  ('azure',      'custom', 'Microsoft Azure')),
+                ('googlehosted.com',    ('gcp',        'custom', 'Google Cloud')),
+                ('ghs.googlehosted.com',('gcp',        'custom', 'Google Cloud')),
+                ('herokudns.com',       ('heroku',     'custom', 'Heroku')),
+                ('herokuapp.com',       ('heroku',     'custom', 'Heroku')),
+                ('netlify.app',         ('netlify',    'custom', 'Netlify')),
+                ('netlifyglobalcdn.com',('netlify',    'custom', 'Netlify')),
+                ('vercel-dns.com',      ('vercel',     'custom', 'Vercel')),
+                ('vercel.app',          ('vercel',     'custom', 'Vercel')),
+                ('github.io',           ('github_pages','custom', 'GitHub Pages')),
+                ('pages.dev',           ('cf_pages',   'custom', 'Cloudflare Pages')),
+                ('myshopify.com',       ('shopify',    'CMS',    'Shopify')),
+                ('shopifycdn.com',      ('shopify',    'CMS',    'Shopify')),
+                ('myshopify.io',        ('shopify',    'CMS',    'Shopify')),
+                ('wpengine.com',        ('wpengine',   'custom', 'WP Engine')),
+                ('wpenginepowered.com', ('wpengine',   'custom', 'WP Engine')),
+                ('wixdns.net',          ('wix',        'CMS',    'Wix')),
+                ('squarespace.com',     ('squarespace','CMS',    'Squarespace')),
+                ('hubspot.net',         ('hubspot',    'marketing_automation', 'HubSpot')),
+                ('hubspotusercontent.net',('hubspot',  'marketing_automation', 'HubSpot')),
+                ('zendesk.com',         ('zendesk',    'support', 'Zendesk')),
+                ('incapdns.net',        ('imperva',    'custom', 'Imperva (Incapsula)')),
+                ('edgecastcdn.net',     ('edgecast',   'custom', 'Edgecast (CDN)')),
+                ('b-cdn.net',           ('bunny',      'custom', 'Bunny CDN')),
+                ('stackpathdns.com',    ('stackpath',  'custom', 'StackPath (CDN)')),
+            ]
+
+            def _match_cname(target: str, source: str):
+                target = target.lower().rstrip('.')
+                for needle, (sid, stype, name) in cname_map:
+                    if needle in target:
+                        add_sys(sid, stype, name, 0.95, f'CNAME ({source})', target)
+                        return
+
+            try:
+                # Apex is often CNAME-flattened, so also check the common www host.
+                for host, label in ((domain, 'apex'), (f'www.{domain}', 'www')):
+                    try:
+                        for rdata in dns.resolver.resolve(host, 'CNAME'):
+                            _match_cname(str(rdata.target), label)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         except Exception as e:
             log.warning(f"DNS analysis failed for {domain}: {e}")
-            
+
         return systems
 
     def _detect_systems_generic(self, html: str, headers: Any, cookies: Any) -> List[DetectedSystem]:
