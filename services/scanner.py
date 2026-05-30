@@ -69,6 +69,31 @@ def _is_safe_url(url: str) -> bool:
     return True
 
 
+def _is_blocked_host(url: str) -> bool:
+    """Cheap (no-DNS) SSRF check for headless-browser subrequests.
+
+    A rendered page's JavaScript can issue arbitrary requests; this blocks the
+    obvious internal targets (loopback, link-local cloud-metadata, private
+    literal IPs, *.local/*.internal) so a malicious page can't use the browser
+    to reach `169.254.169.254` etc. The initial navigation URL is already
+    validated with the DNS-resolving `_is_safe_url`; this complements it on the
+    per-request path without adding a DNS lookup to every asset fetch.
+    """
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return True
+    if not host:
+        return False
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith((".local", ".internal")):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)  # only classifies literal-IP hosts
+    except ValueError:
+        return False  # a normal hostname (CDN, etc.) — allowed
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+
+
 def _hostname_is(url: str, domain: str) -> bool:
     """Check if URL hostname exactly matches or is a subdomain of the given domain."""
     try:
@@ -220,7 +245,35 @@ class WebsiteScanner:
                     all_systems_map[dns_sys.name] = dns_sys
                     
             detected_systems = list(all_systems_map.values())
-            
+
+            # Headless fallback. JS-rendered and bot-protected sites (e.g. luxury
+            # commerce behind Akamai) expose little or nothing in the static HTML
+            # a plain fetch returns. When static detection found nothing — or the
+            # fetch looks blocked/empty — render the page with a real browser
+            # (Playwright/Chromium) and re-run the same signature detection on the
+            # fully-rendered DOM. No-ops gracefully when the browser isn't present.
+            if not detected_systems or status_code == 0 or status_code >= 400:
+                rendered = await self._render_html(_safe_url)
+                if rendered:
+                    r_html, r_headers, r_cookies = rendered
+                    merged_headers = {**(dict(headers) if headers else {}), **(r_headers or {})}
+                    merged_cookies = {**(dict(cookies) if cookies else {}), **(r_cookies or {})}
+                    rendered_systems = await asyncio.to_thread(
+                        self._detect_systems_generic, r_html, merged_headers, merged_cookies
+                    )
+                    for s in rendered_systems:
+                        existing = all_systems_map.get(s.name)
+                        if existing is None or s.confidence > existing.confidence:
+                            all_systems_map[s.name] = s
+                    detected_systems = list(all_systems_map.values())
+                    # Prefer the rendered DOM for downstream stack inference and
+                    # sitemap discovery when the static body was thin/blocked.
+                    if r_html and (not html or len(html) < len(r_html)):
+                        html = r_html
+                        soup = BeautifulSoup(r_html, 'html.parser')
+                        if status_code == 0 or status_code >= 400:
+                            status_code = 200
+
             stack_inference = await self._infer_stack(soup, html, headers, website_url)
             
             # 3. Sitemap discovery
@@ -243,6 +296,87 @@ class WebsiteScanner:
                 scan_id=scan_id, website_url=website_url, company_id=self.company_id, status="failed",
                 errors=[str(e)], started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
             )
+
+    async def _render_html(self, url: str):
+        """Render a page with a real headless browser (Playwright/Chromium) and
+        return ``(html, headers, cookies)`` from the fully-executed DOM.
+
+        This is the strongest self-hosted detection path: a real browser runs
+        the site's JavaScript (exposing tech markers injected at runtime) and
+        presents a genuine browser fingerprint (defeating most bot protection
+        that a plain HTTP client trips). Returns ``None`` — gracefully — when:
+          * rendering is disabled via ``SCANNER_HEADLESS_RENDER=off``;
+          * Playwright isn't installed (e.g. local/CI without the browser); or
+          * the browser fails to launch or the navigation errors out.
+        Production (the Render image) installs Chromium so this is active there;
+        environments without it simply fall back to the static-HTML result.
+        """
+        import os as _os
+        mode = _os.environ.get("SCANNER_HEADLESS_RENDER", "auto").lower()
+        if mode in ("0", "off", "false", "no", "disabled"):
+            return None
+        try:
+            from playwright.async_api import async_playwright
+        except Exception:
+            log.info("Headless render unavailable: playwright not installed — using static HTML only")
+            return None
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-blink-features=AutomationControlled",
+                    ],
+                )
+                try:
+                    context = await browser.new_context(
+                        user_agent=self.user_agent,
+                        locale="en-US",
+                        viewport={"width": 1366, "height": 900},
+                    )
+                    # SSRF guard for JS-initiated subrequests: abort anything
+                    # pointed at an internal/metadata address.
+                    async def _guard(route):
+                        try:
+                            if _is_blocked_host(route.request.url):
+                                await route.abort()
+                            else:
+                                await route.continue_()
+                        except Exception:
+                            try:
+                                await route.continue_()
+                            except Exception:
+                                pass
+                    await context.route("**/*", _guard)
+
+                    page = await context.new_page()
+                    timeout_ms = int(self.timeout * 1000)
+                    resp = await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    # Give late/async JS a chance to inject markup, but never hang:
+                    # wait for network idle with a short cap, then a small settle.
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=5000)
+                    except Exception:
+                        pass
+                    try:
+                        await page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+                    html = await page.content()
+                    headers = dict(resp.headers) if resp is not None else {}
+                    try:
+                        cookies = {c.get("name"): c.get("value") for c in await context.cookies()}
+                    except Exception:
+                        cookies = {}
+                    log.info(f"Headless render succeeded for {url} ({len(html)} bytes)")
+                    return html, headers, cookies
+                finally:
+                    await browser.close()
+        except Exception as e:
+            log.warning(f"Headless render failed for {url}: {e}")
+            return None
 
     def _analyze_dns(self, domain: str) -> List[DetectedSystem]:
         import dns.resolver

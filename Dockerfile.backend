@@ -8,6 +8,12 @@ WORKDIR /app
 COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
+# Install the Chromium browser (+ OS deps) that Playwright drives for the
+# scanner's headless render pass, so JS-rendered / bot-protected sites are
+# detectable in production. If this layer is removed the scanner still works
+# (static-HTML fallback) — it just can't execute JS.
+RUN python -m playwright install --with-deps chromium
+
 COPY backend/ backend/
 COPY db/ db/
 COPY agent/ agent/
