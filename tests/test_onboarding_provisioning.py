@@ -196,17 +196,29 @@ async def test_specialist_context_matches_detected_systems(wired):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("state", ["paused", "cancelled"])
 async def test_pause_cancel_progress_reported_faithfully(state, wired):
-    """get_onboarding_progress must report paused/cancelled as-is, not 'failed'."""
+    """pause/cancel of a mid-flight onboarding must persist the state and be
+    reported faithfully by get_onboarding_progress (not relabelled 'failed',
+    and not rejected by the OnboardingProgress.status Literal)."""
     graph_service, _, onboarding = wired
     host = "erp.example-corp.com"
     company = await graph_service.create_company(name="erp", domain=host, owner_id="u1")
-    await onboarding.start_onboarding(company_id=company.id, website_urls=[f"https://{host}"])
+    # Put the company mid-flight (pause no-ops on a completed onboarding, which
+    # is correct — so simulate an in-progress run rather than a finished one).
+    await graph_service.store.update_company(
+        company.model_copy(update={"onboarding_status": "in_progress",
+                                   "onboarding_progress": 0.3})
+    )
 
     if state == "paused":
-        await onboarding.pause_onboarding(company.id)
+        result = await onboarding.pause_onboarding(company.id)
     else:
-        await onboarding.cancel_onboarding(company.id)
+        result = await onboarding.cancel_onboarding(company.id)
+    # The mutator itself must construct a valid OnboardingProgress (regression:
+    # cancel_onboarding raised ValidationError because the Literal lacked
+    # "cancelled").
+    assert result.status == state
 
+    # And the reader must report the persisted state, not fall through to failed.
     progress = await onboarding.get_onboarding_progress(company.id)
     assert progress.status == state, progress.status
 

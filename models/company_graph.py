@@ -1554,7 +1554,7 @@ class OnboardingProgress(BaseModel):
         default=0.0,
         description="Progress percentage"
     )
-    status: Literal["not_started", "in_progress", "paused", "completed", "failed"] = Field(
+    status: Literal["not_started", "in_progress", "paused", "completed", "failed", "cancelled"] = Field(
         default="not_started",
         description="Overall onboarding status"
     )
