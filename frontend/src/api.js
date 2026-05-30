@@ -264,6 +264,13 @@ export const deleteSecret = (id) => API.delete(`/api/secrets/${id}`);
 export const listUsers = () => API.get('/api/activation/users');
 export const changeUserRole = (userId, role) =>
   API.post(`/api/activation/users/${userId}/role`, { role });
+export const setUserOnboarding = (userId, allowed) =>
+  API.put(`/api/activation/users/${userId}/onboarding`, { allowed });
+
+// ── API keys (admin) ──────────────────────────────────────────────────────────
+export const listApiKeys = () => API.get('/api/keys');
+export const createApiKey = (data) => API.post('/api/keys', data);
+export const deleteApiKey = (keyId) => API.delete(`/api/keys/${keyId}`);
 
 // ── Setup wizard (v3.1) ───────────────────────────────────────────────────────
 export const getSetupState = () => API.get('/api/setup/state');

@@ -1,11 +1,14 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import { useSafeData } from '../hooks/useSafeData';
+import * as api from '../../api';
 
 
 // providers.jsx — V5.0: All providers + Ollama model management + MCP servers tab
 
-const LS_KEY = 'llmrelay_provider_config_v5';
-
+// Reference catalogue of popular integrations. These are typically configured via
+// environment variables on the server; the live, editable providers come from the
+// backend (GET /api/providers). The catalogue doubles as quick-fill templates.
 const ALL_PROVIDERS = [
   { id:'nvidia-nim',   name:'NVIDIA NIM',      tier:'free',       icon:'⬡', color:'#76b900', defaultPriority:0, defaultModel:'nvidia/nemotron-3-super-120b-a12b', models:['nvidia/nemotron-3-super-120b-a12b','nvidia/llama-3.1-nemotron-70b-instruct','nvidia/mistral-nemo-12b-instruct'], keyEnv:'NVIDIA_API_KEY', keyHint:'nvapi-…', free:true, desc:'Free hosted inference. No GPU needed. Priority 0 — tried first.', capabilities:['chat','code','reasoning'] },
   { id:'ollama',       name:'Local Ollama',     tier:'local',      icon:'◎', color:'#5da2ff', defaultPriority:1, defaultModel:'qwen3-coder:30b', models:['qwen3-coder:7b','qwen3-coder:30b','qwen3-coder:235b','qwen3.6:35b','deepseek-r1:32b','deepseek-r1:671b','deepseek-v3:685b','gemma4:9b','gemma4:27b','llama4-scout:17b','llama4-maverick:17b'], keyEnv:null, free:true, desc:'Fully local, private, on-device. Manage models from the Ollama tab.', capabilities:['chat','code','reasoning','vision'] },
@@ -54,83 +57,157 @@ const MCP_SERVERS_DEFAULT = [
   { id:'mcp-4', name:'brave-search',    cmd:'npx @modelcontextprotocol/server-brave-search',         status:'idle',      tools:2,  desc:'Web search via Brave. Good for research agents.' },
 ];
 
-function loadConfig() { try { return JSON.parse(localStorage.getItem(LS_KEY)||'{}'); } catch { return {}; } }
-function saveConfig(cfg) { try { localStorage.setItem(LS_KEY, JSON.stringify(cfg)); } catch {} }
-
-window.__getProviderConfig = () => loadConfig();
-window.__getAllProviders   = () => ALL_PROVIDERS;
+function errText(e, fallback) {
+  const detail = e?.response?.data?.detail;
+  return detail ? api.fmtErr(detail) : (e?.message || fallback);
+}
 
 function CapBadge({ cap }) {
   const colors = { chat:'#5da2ff', code:'#46d9a4', reasoning:'#c4b5fd', vision:'#ffbd66' };
   return <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.08em', textTransform:'uppercase', padding:'2px 7px', borderRadius:999, color:colors[cap]||'var(--text-muted)', background:`${colors[cap]||'#fff'}12`, border:`1px solid ${colors[cap]||'#fff'}22` }}>{cap}</span>;
 }
 
-function ProviderCard({ provider, cfg, onToggle, onKeyChange, onModelChange, onPriorityChange, isTop }) {
-  const enabled  = cfg.enabled !== false;
-  const key      = cfg.key || '';
-  const model    = cfg.model || provider.defaultModel;
-  const priority = cfg.priority ?? provider.defaultPriority;
-  const tier     = TIER_CONFIG[provider.tier] || TIER_CONFIG.commercial;
-  const [showKey, setShowKey] = React.useState(false);
+// A real, persisted provider record from GET /api/providers.
+function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, busy }) {
+  const [testState, setTestState] = React.useState(null); // null | 'testing' | 'ok' | 'error'
+  const [testMsg, setTestMsg]     = React.useState('');
+  const isDefault = !!provider.is_default;
+  const status    = provider.status || 'configured';
+  const statusColor = status === 'online' ? '#46d9a4' : status === 'error' ? '#ff6b7d' : 'var(--text-muted)';
+
+  const test = async () => {
+    setTestState('testing'); setTestMsg('');
+    try {
+      const { data } = await onTest(provider.provider_id);
+      const n = Array.isArray(data?.models) ? data.models.length : null;
+      setTestState('ok'); setTestMsg(n != null ? `${n} model${n===1?'':'s'} reachable` : 'Reachable');
+    } catch (e) {
+      setTestState('error'); setTestMsg(errText(e, 'Test failed'));
+    }
+  };
 
   return (
-    <div style={{ borderRadius:18, border:`1px solid ${enabled?(isTop?`${provider.color}35`:'rgba(255,255,255,0.10)'):'rgba(255,255,255,0.06)'}`, background:enabled?(isTop?`${provider.color}07`:'rgba(255,255,255,0.03)'):'rgba(255,255,255,0.015)', padding:'14px', transition:'all 0.2s ease', opacity:enabled?1:0.55 }}>
+    <div style={{ borderRadius:18, border:`1px solid ${isDefault?'rgba(70,217,164,0.30)':'rgba(255,255,255,0.10)'}`, background:isDefault?'rgba(70,217,164,0.05)':'rgba(255,255,255,0.03)', padding:'14px' }}>
       <div style={{ display:'flex', alignItems:'flex-start', gap:9, marginBottom:9 }}>
-        <div style={{ width:36, height:36, borderRadius:11, flexShrink:0, background:`${provider.color}15`, border:`1px solid ${provider.color}28`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>{provider.icon}</div>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:2 }}>
-            <span style={{ fontSize:13, fontWeight:800, color:enabled?'#fff':'var(--text-muted)', letterSpacing:'-0.02em' }}>{provider.name}</span>
-            <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'2px 6px', borderRadius:999, color:tier.color, background:tier.bg, border:`1px solid ${tier.color}28` }}>{tier.label}</span>
-            {isTop && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#46d9a4', background:'rgba(70,217,164,0.10)', border:'1px solid rgba(70,217,164,0.22)' }}>★ P{priority}</span>}
-            {provider.free && !isTop && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#46d9a4', background:'rgba(70,217,164,0.07)', border:'1px solid rgba(70,217,164,0.15)' }}>free</span>}
+            <span style={{ fontSize:14, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>{provider.name || provider.provider_id}</span>
+            {isDefault && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#46d9a4', background:'rgba(70,217,164,0.10)', border:'1px solid rgba(70,217,164,0.22)' }}>★ default</span>}
+            <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', textTransform:'uppercase', letterSpacing:'0.08em' }}>{provider.type || 'openai-compatible'}</span>
           </div>
-          <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.4 }}>{provider.desc}</div>
+          <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{provider.base_url || '—'}</div>
         </div>
-        <button onClick={()=>onToggle(!enabled)} style={{ width:38, height:22, borderRadius:999, padding:3, cursor:'pointer', background:enabled?provider.color:'rgba(255,255,255,0.10)', border:`1px solid ${enabled?provider.color+'80':'rgba(255,255,255,0.15)'}`, transition:'all 0.2s', display:'flex', alignItems:'center', justifyContent:enabled?'flex-end':'flex-start', flexShrink:0 }}>
-          <div style={{ width:16, height:16, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 4px rgba(0,0,0,0.3)' }}/>
-        </button>
+        <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
+          <span style={{ width:7, height:7, borderRadius:'50%', background:statusColor }}/>
+          <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:statusColor, textTransform:'uppercase', letterSpacing:'0.08em' }}>{status}</span>
+        </div>
       </div>
-      <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginBottom:9 }}>
-        {provider.capabilities.map(c => <CapBadge key={c} cap={c}/>)}
+
+      <div style={{ display:'flex', gap:10, fontSize:11, color:'var(--text-muted)', marginBottom:10 }}>
+        <span>Model: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.default_model || '—'}</span></span>
+        {provider.api_key_masked ? <span>Key: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.api_key_masked}</span></span> : <span style={{ color:'#46d9a4' }}>no key</span>}
       </div>
-      {enabled && (
-        <>
-          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:8 }}>
-            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0, letterSpacing:'0.10em', textTransform:'uppercase' }}>Priority</span>
-            <div style={{ display:'flex', gap:4 }}>
-              {[0,1,2,3,4,5].map(p => (
-                <button key={p} onClick={()=>onPriorityChange(p)} style={{ width:24, height:24, borderRadius:7, fontSize:11, fontFamily:'var(--font-mono)', fontWeight:700, cursor:'pointer', background:priority===p?provider.color:'rgba(255,255,255,0.06)', border:`1px solid ${priority===p?provider.color+'60':'rgba(255,255,255,0.10)'}`, color:priority===p?'#06111f':'var(--text-muted)', transition:'all 0.15s' }}>{p}</button>
-              ))}
-            </div>
-            <span style={{ fontSize:10, color:'var(--text-muted)', fontFamily:'var(--font-mono)' }}>lower = tried first</span>
-          </div>
-          {provider.models.length > 1 && (
-            <div style={{ marginBottom:8 }}>
-              <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.10em', textTransform:'uppercase', marginBottom:5 }}>Default model</div>
-              <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                {provider.models.map(m => (
-                  <button key={m} onClick={()=>onModelChange(m)} style={{ padding:'3px 9px', borderRadius:8, fontSize:11, fontFamily:'var(--font-mono)', cursor:'pointer', background:model===m?`${provider.color}18`:'rgba(255,255,255,0.04)', border:`1px solid ${model===m?provider.color+'40':'rgba(255,255,255,0.09)'}`, color:model===m?'#fff':'var(--text-muted)', transition:'all 0.15s', maxWidth:220, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m}</button>
-                ))}
-              </div>
-            </div>
-          )}
-          {provider.keyEnv && (
-            <div>
-              <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.10em', textTransform:'uppercase', marginBottom:5 }}>{provider.keyEnv}</div>
-              <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                <div style={{ flex:1, position:'relative' }}>
-                  <input type={showKey?'text':'password'} value={key} onChange={e=>onKeyChange(e.target.value)} placeholder={key?'••••••••':provider.keyHint}
-                    style={{ width:'100%', padding:'8px 32px 8px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:`1px solid ${key?`${provider.color}35`:'rgba(255,255,255,0.10)'}`, color:'#fff', fontSize:12, fontFamily:'var(--font-mono)', outline:'none', transition:'border-color 0.2s' }}
-                    onFocus={e=>e.target.style.borderColor=`${provider.color}60`} onBlur={e=>e.target.style.borderColor=key?`${provider.color}35`:'rgba(255,255,255,0.10)'}/>
-                  <button onClick={()=>setShowKey(s=>!s)} style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:11, color:'var(--text-muted)' }}>{showKey?'🙈':'👁'}</button>
-                </div>
-                {key && <span style={{ fontSize:11, color:'#46d9a4', flexShrink:0, fontFamily:'var(--font-mono)' }}>✓</span>}
-              </div>
-            </div>
-          )}
-          {!provider.keyEnv && <div style={{ fontSize:11, color:'#46d9a4', fontFamily:'var(--font-mono)', marginTop:4 }}>✓ No API key needed</div>}
-        </>
+
+      {testState && (
+        <div style={{ fontSize:11, marginBottom:9, color: testState==='ok'?'#46d9a4':testState==='error'?'#ff6b7d':'var(--text-muted)', fontFamily:'var(--font-mono)' }}>
+          {testState==='testing' ? 'Testing…' : testMsg}
+        </div>
       )}
+
+      <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+        <button onClick={test} disabled={testState==='testing'} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)' }}>Test</button>
+        {!isDefault && <button onClick={()=>onSetDefault(provider.provider_id)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.22)', color:'#46d9a4' }}>Set default</button>}
+        <button onClick={()=>onDelete(provider)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d', marginLeft:'auto' }}>Delete</button>
+      </div>
+    </div>
+  );
+}
+
+// Add / configure a real provider (POST /api/providers).
+function AddProviderForm({ onCreate, onClose }) {
+  const [providerId, setProviderId] = React.useState('');
+  const [name, setName]   = React.useState('');
+  const [type, setType]   = React.useState('openai-compatible');
+  const [baseUrl, setBaseUrl] = React.useState('');
+  const [apiKey, setApiKey]   = React.useState('');
+  const [model, setModel] = React.useState('');
+  const [busy, setBusy]   = React.useState(false);
+  const [error, setError] = React.useState(null);
+
+  const applyTemplate = (p) => {
+    // Catalogue templates don't carry a base_url; clear it for the user to fill in.
+    setProviderId(p.id); setName(p.name); setBaseUrl('');
+    setModel(p.defaultModel || ''); setType(p.id === 'ollama' ? 'ollama' : 'openai-compatible');
+  };
+
+  const submit = async () => {
+    if (!providerId.trim() || !name.trim() || busy) return;
+    if (type !== 'ollama' && !baseUrl.trim()) { setError('Base URL is required for OpenAI-compatible providers.'); return; }
+    setBusy(true); setError(null);
+    try {
+      await onCreate({
+        provider_id: providerId.trim(),
+        name: name.trim(),
+        type,
+        base_url: baseUrl.trim(),
+        api_key: apiKey.trim(),
+        default_model: model.trim(),
+        is_default: false,
+      });
+      onClose();
+    } catch (e) {
+      setError(errText(e, 'Failed to create provider.'));
+      setBusy(false);
+    }
+  };
+
+  const fld = { width:'100%', padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' };
+  return (
+    <div style={{ borderRadius:18, border:'1px solid rgba(93,162,255,0.20)', background:'rgba(93,162,255,0.04)', padding:'16px', marginBottom:14 }}>
+      <div style={{ fontSize:13, fontWeight:800, color:'#fff', marginBottom:12 }}>Add provider</div>
+      <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:6 }}>Quick-fill from catalogue</div>
+      <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:12 }}>
+        {ALL_PROVIDERS.slice(0,8).map(p => (
+          <button key={p.id} onClick={()=>applyTemplate(p)} style={{ padding:'4px 10px', borderRadius:999, fontSize:11, cursor:'pointer', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)' }}>{p.icon} {p.name}</button>
+        ))}
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+        <input value={providerId} onChange={e=>setProviderId(e.target.value)} placeholder="provider id (e.g. groq)" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Display name" style={fld}/>
+      </div>
+      <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+        {['openai-compatible','ollama'].map(t => (
+          <button key={t} onClick={()=>setType(t)} style={{ padding:'7px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer', background:type===t?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${type===t?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:type===t?'#fff':'var(--text-muted)' }}>{t}</button>
+        ))}
+      </div>
+      <input value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder={type==='ollama'?'Ollama base URL (optional)':'Base URL (https://api.example.com/v1)'} style={{ ...fld, fontFamily:'var(--font-mono)', marginBottom:10 }}/>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+        <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="API key (optional)" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
+        <input value={model} onChange={e=>setModel(e.target.value)} placeholder="Default model" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
+      </div>
+      {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
+      <div style={{ display:'flex', gap:8 }}>
+        <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Saving…' : '+ Add provider'}</button>
+        <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// Read-only reference card for the popular-integrations catalogue.
+function CatalogCard({ provider }) {
+  const tier = TIER_CONFIG[provider.tier] || TIER_CONFIG.commercial;
+  return (
+    <div style={{ borderRadius:16, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.025)', padding:'12px' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+        <div style={{ width:30, height:30, borderRadius:9, flexShrink:0, background:`${provider.color}15`, border:`1px solid ${provider.color}28`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>{provider.icon}</div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>{provider.name}</div>
+          <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:tier.color, textTransform:'uppercase', letterSpacing:'0.10em' }}>{tier.label}</div>
+        </div>
+      </div>
+      <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.4, marginBottom:6 }}>{provider.desc}</div>
+      {provider.keyEnv && <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-tertiary)' }}>env: {provider.keyEnv}</div>}
     </div>
   );
 }
@@ -277,30 +354,33 @@ function MCPTab() {
 }
 
 function ProvidersScreen() {
-  const [config, setConfig] = React.useState(loadConfig);
-  const [filter, setFilter] = React.useState('all');
-  const [search, setSearch] = React.useState('');
-  const [tab, setTab]       = React.useState('providers');
+  const [tab, setTab]         = React.useState('providers');
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [busy, setBusy]       = React.useState(false);
+  const [actionErr, setActionErr] = React.useState(null);
+  const [showCatalog, setShowCatalog] = React.useState(false);
 
-  const update = (id, patch) => {
-    setConfig(prev => { const next = {...prev, [id]:{...(prev[id]||{}), ...patch}}; saveConfig(next); return next; });
+  const [data, states, refetch] = useSafeData(null, { providers: '/api/providers' }, { refreshMs: 0 });
+  const providers = data.providers?.providers || [];
+  const defaultProvider = providers.find(p => p.is_default) || providers[0];
+
+  const handleCreate = async (payload) => {
+    await api.createProvider(payload);
+    refetch();
   };
-
-  const sorted = [...ALL_PROVIDERS].sort((a,b) => {
-    const pa = config[a.id]?.priority ?? a.defaultPriority;
-    const pb = config[b.id]?.priority ?? b.defaultPriority;
-    return pa-pb || a.name.localeCompare(b.name);
-  });
-
-  const topProvider = sorted.find(p => config[p.id]?.enabled !== false);
-  const enabledCount = ALL_PROVIDERS.filter(p => config[p.id]?.enabled !== false).length;
-
-  const tiers = ['all','local','free','free-cloud','commercial'];
-  const filtered = sorted.filter(p => {
-    const matchesTier   = filter==='all' || p.tier===filter;
-    const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.models.some(m => m.toLowerCase().includes(search.toLowerCase()));
-    return matchesTier && matchesSearch;
-  });
+  const handleSetDefault = async (id) => {
+    setBusy(true); setActionErr(null);
+    try { await api.updateProvider(id, { is_default: true }); refetch(); }
+    catch (e) { setActionErr(errText(e, 'Could not set default.')); }
+    finally { setBusy(false); }
+  };
+  const handleDelete = async (provider) => {
+    if (!window.confirm(`Delete provider "${provider.name || provider.provider_id}"?`)) return;
+    setBusy(true); setActionErr(null);
+    try { await api.deleteProvider(provider.provider_id); refetch(); }
+    catch (e) { setActionErr(errText(e, 'Could not delete provider.')); }
+    finally { setBusy(false); }
+  };
 
   return (
     <div style={{ padding:'20px 16px 48px', maxWidth:1000, margin:'0 auto' }}>
@@ -308,13 +388,13 @@ function ProvidersScreen() {
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:14 }}>
         <div>
           <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Providers & Models</h1>
-          <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:480 }}>All {ALL_PROVIDERS.length} providers · Ollama local model management · MCP server integrations. Priority order is used by all agents.</p>
+          <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:480 }}>Configured inference providers · Ollama local model management · MCP server integrations.</p>
         </div>
-        {topProvider && (
-          <div style={{ padding:'8px 14px', borderRadius:12, background:`${topProvider.color}08`, border:`1px solid ${topProvider.color}22` }}>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:2 }}>Highest priority</div>
-            <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{topProvider.name}</div>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:topProvider.color }}>{config[topProvider.id]?.model || topProvider.defaultModel}</div>
+        {defaultProvider && (
+          <div style={{ padding:'8px 14px', borderRadius:12, background:'rgba(70,217,164,0.06)', border:'1px solid rgba(70,217,164,0.22)' }}>
+            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:2 }}>Default provider</div>
+            <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{defaultProvider.name || defaultProvider.provider_id}</div>
+            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'#46d9a4' }}>{defaultProvider.default_model || '—'}</div>
           </div>
         )}
       </div>
@@ -330,45 +410,45 @@ function ProvidersScreen() {
 
       {tab === 'providers' && (
         <>
-          {/* Priority chain */}
-          <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', marginBottom:14 }}>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:7 }}>Routing chain</div>
-            <div style={{ display:'flex', gap:5, flexWrap:'wrap', alignItems:'center' }}>
-              {sorted.filter(p=>config[p.id]?.enabled!==false).slice(0,6).map((p,i,arr) => {
-                const pr = config[p.id]?.priority ?? p.defaultPriority;
-                return (
-                  <React.Fragment key={p.id}>
-                    <div style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:7, background:`${p.color}12`, border:`1px solid ${p.color}28` }}>
-                      <span style={{ fontSize:11 }}>{p.icon}</span>
-                      <span style={{ fontSize:11, fontWeight:600, color:'#fff' }}>{p.name}</span>
-                      <span style={{ fontSize:9, fontFamily:'var(--font-mono)', color:p.color }}>P{pr}</span>
-                    </div>
-                    {i < arr.length-1 && <span style={{ color:'rgba(255,255,255,0.20)', fontSize:11 }}>→</span>}
-                  </React.Fragment>
-                );
-              })}
-            </div>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, marginBottom:12, flexWrap:'wrap' }}>
+            <div style={{ fontSize:12, color:'var(--text-muted)' }}>{providers.length} configured provider{providers.length===1?'':'s'}</div>
+            <button onClick={()=>setShowAdd(o=>!o)} style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.30)', color:'var(--accent)' }}>+ Add provider</button>
           </div>
 
-          {/* Filters */}
-          <div style={{ display:'flex', gap:7, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
-            <div style={{ display:'flex', gap:4 }}>
-              {tiers.map(t => {
-                const tc = TIER_CONFIG[t];
-                return <button key={t} onClick={()=>setFilter(t)} style={{ padding:'4px 12px', borderRadius:999, fontSize:11, fontWeight:600, cursor:'pointer', background:filter===t?'rgba(93,162,255,0.12)':'rgba(255,255,255,0.04)', border:`1px solid ${filter===t?'rgba(93,162,255,0.32)':'rgba(255,255,255,0.09)'}`, color:filter===t?'#fff':'var(--text-muted)', textTransform:'capitalize', transition:'all 0.15s' }}>{t==='all'?'All':tc?.label||t}</button>;
-              })}
-            </div>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
-              style={{ flex:1, minWidth:120, padding:'6px 11px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' }}
-              onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
-          </div>
+          {showAdd && <AddProviderForm onCreate={handleCreate} onClose={()=>setShowAdd(false)}/>}
+          {actionErr && <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{actionErr}</div>}
 
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))', gap:10 }}>
-            {filtered.map(provider => (
-              <ProviderCard key={provider.id} provider={provider} cfg={config[provider.id]||{}} isTop={topProvider?.id===provider.id}
-                onToggle={v=>update(provider.id,{enabled:v})} onKeyChange={v=>update(provider.id,{key:v})}
-                onModelChange={v=>update(provider.id,{model:v})} onPriorityChange={v=>update(provider.id,{priority:v})}/>
-            ))}
+          {states.providers?.loading ? (
+            <div style={{ fontSize:13, color:'var(--text-muted)', padding:'24px 0' }}>Loading providers…</div>
+          ) : states.providers?.error ? (
+            <div style={{ fontSize:13, color:'#ff6b7d', padding:'16px 0' }}>Couldn't load providers: {states.providers.error}</div>
+          ) : providers.length === 0 ? (
+            <div style={{ padding:'24px', textAlign:'center', borderRadius:16, border:'1px dashed rgba(255,255,255,0.12)', color:'var(--text-muted)', fontSize:13 }}>
+              No providers configured yet. Add one above, or configure built-in providers via environment variables on the server.
+            </div>
+          ) : (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))', gap:10 }}>
+              {providers.map(p => (
+                <BackendProviderCard key={p.provider_id} provider={p} busy={busy}
+                  onTest={api.testProvider} onSetDefault={handleSetDefault} onDelete={handleDelete}/>
+              ))}
+            </div>
+          )}
+
+          {/* Reference catalogue (env-configured popular integrations) */}
+          <div style={{ marginTop:22 }}>
+            <button onClick={()=>setShowCatalog(o=>!o)} style={{ display:'flex', alignItems:'center', gap:8, background:'none', border:'none', cursor:'pointer', color:'var(--text-secondary)', fontSize:13, fontWeight:700, marginBottom:10 }}>
+              <span style={{ transform:showCatalog?'rotate(90deg)':'none', transition:'transform 0.15s' }}>▸</span>
+              Popular integrations ({ALL_PROVIDERS.length})
+            </button>
+            {showCatalog && (
+              <>
+                <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>These are commonly configured via environment variables on the server (e.g. <code style={{ fontFamily:'var(--font-mono)' }}>GROQ_API_KEY</code>). To use one as an editable provider here, add it above as an OpenAI-compatible provider.</div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))', gap:10 }}>
+                  {ALL_PROVIDERS.map(p => <CatalogCard key={p.id} provider={p}/>)}
+                </div>
+              </>
+            )}
           </div>
         </>
       )}

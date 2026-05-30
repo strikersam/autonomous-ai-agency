@@ -1,6 +1,7 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
 import * as api from '../../api';
+import { COMPANY_ID_KEY } from './CompanyScreen';
 
 // onboarding.jsx — V5.0 with structured discovery, smart questions, live API integration
 
@@ -369,22 +370,35 @@ function DetailsStep({ onNext, onBack, companyId }) {
   const [goals,   setGoals]   = React.useState(['']);
   const [creds,   setCreds]   = React.useState([{ service:'Shopify', key:'' },{ service:'GA4', key:'' }]);
   const [ghToken, setGhToken] = React.useState('');
+  const [saving,  setSaving]  = React.useState(false);
+  const [saveError, setSaveError] = React.useState(null);
 
   const handleDetailsSubmit = async () => {
+    if (saving) return;
+    setSaving(true); setSaveError(null);
+    // 1) GitHub token — persist via PUT /api/github/token. A bad/invalid token
+    //    is a hard error: surface it and don't advance (it was being dropped).
+    if (ghToken.trim()) {
+      try {
+        await api.setGithubToken(ghToken.trim());
+      } catch (e) {
+        const detail = e?.response?.data?.detail;
+        setSaveError(detail ? api.fmtErr(detail) : (e?.message || 'GitHub token could not be saved — check the token scope and try again.'));
+        setSaving(false);
+        return;
+      }
+    }
+    // 2) Repo scans — best-effort/optional; never block onboarding.
     try {
       if (companyId && companyId !== 'preview_co') {
-        // Real API integrations: update company details
-        const activeRepos = repos.filter(r => r.url.trim());
-        const activeDocs = docs.filter(d => d.url.trim());
-        
-        // Save repos in database
-        for (const r of activeRepos) {
+        for (const r of repos.filter(r => r.url.trim())) {
           await api.scanRepo(companyId, r.url);
         }
       }
     } catch (e) {
-      console.warn("Backend fail updating details, continuing simulator flow", e);
+      console.warn('Repo scan failed during onboarding (non-blocking)', e);
     }
+    setSaving(false);
     onNext();
   };
 
@@ -445,9 +459,10 @@ function DetailsStep({ onNext, onBack, companyId }) {
       ))}
       <button onClick={()=>setCreds(p=>[...p,{service:'',key:''}])} style={{ fontSize:12, color:'var(--accent)', background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.20)', borderRadius:9, padding:'6px 14px', cursor:'pointer', fontFamily:'var(--font-mono)', marginBottom:4 }}>+ Add credential</button>
 
+      {saveError && <div style={{ marginTop:16, padding:'10px 14px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{saveError}</div>}
       <div style={{ display:'flex', gap:10, marginTop:20 }}>
-        <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
-        <button onClick={handleDetailsSubmit} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>Continue →</button>
+        <button onClick={onBack} disabled={saving} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
+        <button onClick={handleDetailsSubmit} disabled={saving} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:saving?'wait':'pointer', opacity:saving?0.7:1, boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>{saving ? 'Saving…' : 'Continue →'}</button>
       </div>
     </div>
   );
@@ -601,6 +616,8 @@ function OnboardingScreen({ onComplete, isAdmin }) {
   const handleCompanyCreated = (id, name, domain) => {
     setCompanyId(id);
     setCompanyName(name || domain);
+    // Persist so the Company screen can load this company's graph after onboarding.
+    try { if (id) localStorage.setItem(COMPANY_ID_KEY, id); } catch { /* storage unavailable */ }
   };
 
   const handleScanDone = (detectedList, id) => {

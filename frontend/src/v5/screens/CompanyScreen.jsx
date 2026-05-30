@@ -4,49 +4,9 @@ import * as api from '../../api';
 
 // company.jsx — Company Graph / Operating Context screen
 
-const PREVIEW_COMPANY_DATA = {
-  name: 'Acme Store',
-  domain: 'acme-store.com',
-  industry: 'E-commerce · Retail',
-  since: 'May 2026',
-  systems: [
-    { name: 'Shopify',     category: 'Commerce',   status: 'connected', icon: '🛍' },
-    { name: 'Contentful',  category: 'CMS',        status: 'connected', icon: '📄' },
-    { name: 'GA4 + GTM',   category: 'Analytics',  status: 'connected', icon: '📊' },
-    { name: 'Klaviyo',     category: 'CRM',        status: 'connected', icon: '📧' },
-    { name: 'Gorgias',     category: 'Support',    status: 'connected', icon: '💬' },
-    { name: 'Gatsby',      category: 'Frontend',   status: 'connected', icon: '⚛' },
-  ],
-  repos: [
-    { name: 'acme-store',        branch: 'main', updated: '2h ago',  prs: 2 },
-    { name: 'acme-content-utils',branch: 'main', updated: '3d ago',  prs: 0 },
-  ],
-  environments: [
-    { name: 'Production',  url: 'acme-store.com',         status: 'healthy' },
-    { name: 'Staging',     url: 'staging.acme-store.com', status: 'healthy' },
-    { name: 'Preview',     url: 'preview.acme-store.com', status: 'warn' },
-  ],
-  specialists: [
-    { name: 'Commerce Agent',  status: 'active',  lastRun: '8m ago',  icon: '🛍' },
-    { name: 'Content Agent',   status: 'idle',    lastRun: '1h ago',  icon: '📄' },
-    { name: 'Analytics Agent', status: 'idle',    lastRun: '3h ago',  icon: '📊' },
-    { name: 'Support Agent',   status: 'idle',    lastRun: '6h ago',  icon: '💬' },
-    { name: 'Dev Agent',       status: 'active',  lastRun: '14m ago', icon: '⚙' },
-    { name: 'Security Agent',  status: 'running', lastRun: '2m ago',  icon: '🔒' },
-  ],
-  priorities: [
-    'Improve checkout conversion (currently 2.3% — industry avg 3.1%)',
-    'Speed up product page load (LCP 4.1s on mobile)',
-    'Reduce cart abandonment rate',
-    'Automate Contentful publishing workflow',
-  ],
-  quickActions: [
-    { label: 'Audit checkout flow', icon: '◎', desc: 'Run a full conversion analysis' },
-    { label: 'Scan for slow pages', icon: '⚡', desc: 'Identify LCP regressions' },
-    { label: 'Pull support tickets', icon: '📥', desc: 'Sync latest Gorgias tickets' },
-    { label: 'Check CI status',      icon: '✓',  desc: 'View latest test run results' },
-  ],
-};
+// localStorage key where Onboarding persists the created company id so this
+// screen can load the real graph. (Shared literal — see OnboardingScreen.jsx.)
+export const COMPANY_ID_KEY = 'v5_company_id';
 
 function SectionHeader({ label, icon, style = {} }) {
   return (
@@ -103,7 +63,7 @@ function CompanyHeader({ data, isPreview }) {
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 10 }}>
             <a href="#" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{data.domain}</a>
-            {' · '}{data.industry}{' · since '}{data.since}
+            {data.industry ? ` · ${data.industry}` : ''}{data.since ? ` · since ${data.since}` : ''}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {[
@@ -124,75 +84,107 @@ function CompanyHeader({ data, isPreview }) {
 }
 
 function CompanyScreen() {
-  const [company, setCompany] = React.useState(PREVIEW_COMPANY_DATA);
-  const [isPreview, setIsPreview] = React.useState(true);
-  const [loading, setLoading] = React.useState(false);
+  const companyId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
+  const [company, setCompany] = React.useState(null);
+  const [graph, setGraph] = React.useState(null);
+  const [specialists, setSpecialists] = React.useState([]);
+  const [loading, setLoading] = React.useState(!!companyId);
+  const [error, setError] = React.useState(null);
   const [activeTab, setActiveTab] = React.useState('overview');
   const tabs = ['overview', 'systems', 'specialists', 'priorities'];
+  const mounted = React.useRef(true);
+  React.useEffect(() => () => { mounted.current = false; }, []);
 
   React.useEffect(() => {
-    async function fetchLiveCompanyGraph() {
-      setLoading(true);
+    if (!companyId) { setLoading(false); return; }
+    (async () => {
+      setLoading(true); setError(null);
       try {
-        // Attempt to fetch first company or any active session info
-        const sessionsRes = await api.listSessions();
-        if (sessionsRes?.data?.length > 0) {
-          // Let's retrieve matching company details
-          const firstId = sessionsRes.data[0].id || 'co_1';
-          const graphRes = await api.getCompanyGraph(firstId);
-          if (graphRes?.data) {
-            const liveData = graphRes.data;
-            setCompany({
-              name: liveData.company?.name || 'Live Enterprise',
-              domain: liveData.company?.domain || 'enterprise.com',
-              industry: liveData.company?.business_category || 'Technology',
-              since: 'May 2026',
-              systems: (liveData.systems || []).map(sys => ({
-                name: sys.name,
-                category: sys.category || 'Platform',
-                status: 'connected',
-                icon: sys.icon || '⚙'
-              })),
-              repos: (liveData.repos || []).map(r => ({
-                name: r.name,
-                branch: r.default_branch || 'main',
-                updated: 'Just now',
-                prs: 0
-              })),
-              environments: [
-                { name: 'Production',  url: liveData.company?.domain || 'enterprise.com', status: 'healthy' }
-              ],
-              specialists: (liveData.specialists || []).map(s => ({
-                name: s.name,
-                status: s.status || 'idle',
-                lastRun: '1m ago',
-                icon: s.icon || '🤖'
-              })),
-              priorities: liveData.company?.goals || [
-                'Analyze and optimize technological stack dependencies',
-                'Establish isolated execution playbooks for specialists'
-              ],
-              quickActions: PREVIEW_COMPANY_DATA.quickActions
-            });
-            setIsPreview(false);
-          }
-        }
-      } catch (err) {
-        console.warn("Could not fetch live Company Graph from backend, operating in Offline-first Preview mode.", err);
+        // getCompany returns the real Company object + its CompanyGraph.
+        const { data } = await api.getCompany(companyId);
+        if (!mounted.current) return;
+        setCompany(data.company || data);
+        setGraph(data.graph || null);
+        try {
+          const sp = await api.listSpecialists(companyId);
+          if (mounted.current) setSpecialists(sp.data?.specialists || (Array.isArray(sp.data) ? sp.data : []));
+        } catch { /* specialists are optional */ }
+      } catch (e) {
+        if (!mounted.current) return;
+        const detail = e?.response?.data?.detail;
+        setError(detail ? api.fmtErr(detail) : (e?.message || 'Could not load the company graph.'));
       } finally {
-        setLoading(false);
+        if (mounted.current) setLoading(false);
       }
-    }
-    fetchLiveCompanyGraph();
-  }, []);
+    })();
+  }, [companyId]);
 
-  const d = company;
+  // Build the view-model from real backend data only (no preview fallback).
+  const d = company ? {
+    name: company.name || 'Company',
+    domain: company.domain || '',
+    industry: company.business_category || company.industry || '',
+    since: '',
+    systems: (graph?.systems || []).map(sys => ({
+      name: sys.name || sys.system_type || 'System',
+      category: sys.category || sys.system_type || 'Platform',
+      status: sys.status || 'connected',
+      icon: sys.icon || '⚙',
+    })),
+    repos: (graph?.repos || company.repos || []).map(r => ({
+      name: r.name || r.full_name || r.url || 'repo',
+      branch: r.default_branch || r.branch || 'main',
+      updated: r.updated || '—',
+      prs: r.prs || 0,
+    })),
+    environments: company.domain ? [{ name: 'Production', url: company.domain, status: 'healthy' }] : [],
+    specialists: specialists.map(s => ({
+      name: s.name || s.role || 'Specialist',
+      status: s.status || 'idle',
+      lastRun: s.last_used_at || s.lastRun || '—',
+      icon: s.icon || '🤖',
+    })),
+    priorities: company.goals || company.priorities || [],
+  } : null;
+
+  // ── Loading / empty / error states (honest — never the old Acme preview) ──────
+  if (loading) {
+    return (
+      <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
+        <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
+        <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading company graph…</div>
+      </div>
+    );
+  }
+  if (!companyId) {
+    return (
+      <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
+        <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
+        <div style={{ padding: '32px', textAlign: 'center', borderRadius: 18, border: '1px dashed rgba(255,255,255,0.14)', color: 'var(--text-tertiary)' }}>
+          <div style={{ fontSize: 30, marginBottom: 10 }}>🏢</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>No company graph yet</div>
+          <div style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 420, margin: '0 auto' }}>Complete the <strong>Onboarding</strong> flow to scan your site and build your company graph. It’ll show up here once created.</div>
+        </div>
+      </div>
+    );
+  }
+  if (error || !d) {
+    return (
+      <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
+        <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
+        <div style={{ padding: '28px', textAlign: 'center', borderRadius: 18, border: '1px solid rgba(255,107,125,0.20)', background: 'rgba(255,107,125,0.05)', color: '#ff6b7d' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Couldn’t load the company graph</div>
+          <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>{error || 'The company could not be found.'}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
       <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
 
-      <CompanyHeader data={d} isPreview={isPreview}/>
+      <CompanyHeader data={d} isPreview={false}/>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 18, overflowX: 'auto', paddingBottom: 4 }} className="scrollbar-hide">
@@ -255,30 +247,6 @@ function CompanyScreen() {
                   <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', flex: 1 }}>{env.name}</span>
                   <a href="#" style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textDecoration: 'none' }}>{env.url}</a>
                 </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* Quick actions */}
-          <Card>
-            <SectionHeader label="Quick Actions" icon="⚡"/>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {(d.quickActions || []).map(qa => (
-                <button key={qa.label} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '9px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
-                  background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)',
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(93,162,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(93,162,255,0.20)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.025)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}>
-                  <span style={{ fontSize: 16, flexShrink: 0 }}>{qa.icon}</span>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{qa.label}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{qa.desc}</div>
-                  </div>
-                  <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 12 }}>›</span>
-                </button>
               ))}
             </div>
           </Card>

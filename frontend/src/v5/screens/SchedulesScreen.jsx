@@ -1,32 +1,74 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import * as api from '../../api';
+import { useSafeData } from '../hooks/useSafeData';
 
 
 // schedules.jsx — Schedules V5.0 with smart pre-built git action templates
 
+// Relative-time helper for ISO timestamps (last_run). Returns '—' for null/invalid.
+function relTime(iso) {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '—';
+  const diff = Math.floor((Date.now() - t) / 1000);
+  if (diff < 0) return 'just now';
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+// Normalise a raw backend schedule into the shape the rows/stats render against.
+// Derives fields the backend does not provide (category from tags, builtIn from a tag).
+function normalizeJob(s) {
+  const tags = Array.isArray(s.tags) ? s.tags : [];
+  const category = (tags[0] || 'general');
+  return {
+    id: s.id ?? s.job_id,
+    name: s.name || s.job_id || 'Untitled schedule',
+    cron: s.cron || s.schedule || '—',
+    category: CAT_CONFIG[category] ? category : 'general',
+    status: s.status || (s.enabled === false ? 'paused' : 'active'),
+    runs: s.run_count ?? 0,
+    fails: s.failures ?? s.fail_count ?? 0,
+    lastRun: relTime(s.last_run),
+    approvalGate: s.approval_gate ?? s.requires_approval ?? false,
+    builtIn: tags.includes('built-in') || tags.includes('builtin'),
+  };
+}
+
+function errText(e, fallback) {
+  const detail = e?.response?.data?.detail;
+  return detail ? api.fmtErr(detail) : (e?.message || fallback);
+}
+
+// `cron` is the human-readable cadence shown in the UI; `cronExpr` is the real
+// cron expression sent to the backend. Event-driven templates (webhook/commit/
+// CI triggers) have cronExpr:null and can't be added as cron schedules yet.
 const SMART_TEMPLATES = [
   // Security
-  { id:'tmpl-cve',      cat:'security', icon:'🔒', name:'CVE Dependency Audit',         cron:'Weekly Mon 02:00', desc:'pip/npm audit for known vulnerabilities. Auto-creates fix tasks.', gate:false },
-  { id:'tmpl-sast',     cat:'security', icon:'🔒', name:'SAST Code Scan (Bandit)',       cron:'On push + daily',  desc:'Static analysis across all Python. Raises P2 alerts on findings.', gate:false },
-  { id:'tmpl-secrets',  cat:'security', icon:'🔒', name:'Secret Detection Scan',         cron:'On every commit',  desc:'Grep for leaked API keys, tokens, and passwords in git history.', gate:false },
+  { id:'tmpl-cve',      cat:'security', icon:'🔒', name:'CVE Dependency Audit',         cron:'Weekly Mon 02:00', cronExpr:'0 2 * * 1',   desc:'pip/npm audit for known vulnerabilities. Auto-creates fix tasks.', gate:false },
+  { id:'tmpl-sast',     cat:'security', icon:'🔒', name:'SAST Code Scan (Bandit)',       cron:'On push + daily',  cronExpr:null,          desc:'Static analysis across all Python. Raises P2 alerts on findings.', gate:false },
+  { id:'tmpl-secrets',  cat:'security', icon:'🔒', name:'Secret Detection Scan',         cron:'On every commit',  cronExpr:null,          desc:'Grep for leaked API keys, tokens, and passwords in git history.', gate:false },
   // Quality
-  { id:'tmpl-tests',    cat:'quality',  icon:'⚙', name:'Daily Test Run + Auto-Fix',    cron:'Daily 03:00 UTC',  desc:'Full pytest suite. Failing tests become P1 fix tasks automatically.', gate:false },
-  { id:'tmpl-coverage', cat:'quality',  icon:'⚙', name:'Test Coverage Report',          cron:'Weekly Wed',       desc:'Find modules with <80% coverage. Generate missing test stubs.', gate:false },
-  { id:'tmpl-lint',     cat:'quality',  icon:'⚙', name:'Code Quality & Lint Check',    cron:'On PR + daily',    desc:'Ruff/ESLint/Prettier across all changed files. Auto-fix safe issues.', gate:false },
-  { id:'tmpl-todo',     cat:'quality',  icon:'⚙', name:'FIXME / TODO Cleanup',          cron:'Weekly Wed 06:00', desc:'Resolve FIXME, TODO:FIX, and HACK:URGENT markers automatically.', gate:true },
+  { id:'tmpl-tests',    cat:'quality',  icon:'⚙', name:'Daily Test Run + Auto-Fix',    cron:'Daily 03:00 UTC',  cronExpr:'0 3 * * *',   desc:'Full pytest suite. Failing tests become P1 fix tasks automatically.', gate:false },
+  { id:'tmpl-coverage', cat:'quality',  icon:'⚙', name:'Test Coverage Report',          cron:'Weekly Wed 06:00', cronExpr:'0 6 * * 3',   desc:'Find modules with <80% coverage. Generate missing test stubs.', gate:false },
+  { id:'tmpl-lint',     cat:'quality',  icon:'⚙', name:'Code Quality & Lint Check',    cron:'On PR + daily',    cronExpr:null,          desc:'Ruff/ESLint/Prettier across all changed files. Auto-fix safe issues.', gate:false },
+  { id:'tmpl-todo',     cat:'quality',  icon:'⚙', name:'FIXME / TODO Cleanup',          cron:'Weekly Wed 06:00', cronExpr:'0 6 * * 3',   desc:'Resolve FIXME, TODO:FIX, and HACK:URGENT markers automatically.', gate:true },
   // SEO & Performance
-  { id:'tmpl-seo',      cat:'seo',      icon:'🔍', name:'SEO Health Audit',             cron:'Weekly Mon',       desc:'Check meta tags, Open Graph, sitemap freshness, and broken links.', gate:false },
-  { id:'tmpl-perf',     cat:'perf',     icon:'⚡', name:'Lighthouse Performance Scan',  cron:'Daily 06:00 UTC',  desc:'Core Web Vitals, LCP, CLS, FID on key pages. Alert on regressions.', gate:false },
-  { id:'tmpl-bundle',   cat:'perf',     icon:'⚡', name:'Bundle Size Check',            cron:'On every PR',      desc:'Warn if JS bundle grows >5%. Block merge if >20% regression.', gate:false },
+  { id:'tmpl-seo',      cat:'seo',      icon:'🔍', name:'SEO Health Audit',             cron:'Weekly Mon 06:00', cronExpr:'0 6 * * 1',   desc:'Check meta tags, Open Graph, sitemap freshness, and broken links.', gate:false },
+  { id:'tmpl-perf',     cat:'perf',     icon:'⚡', name:'Lighthouse Performance Scan',  cron:'Daily 06:00 UTC',  cronExpr:'0 6 * * *',   desc:'Core Web Vitals, LCP, CLS, FID on key pages. Alert on regressions.', gate:false },
+  { id:'tmpl-bundle',   cat:'perf',     icon:'⚡', name:'Bundle Size Check',            cron:'On every PR',      cronExpr:null,          desc:'Warn if JS bundle grows >5%. Block merge if >20% regression.', gate:false },
   // Release
-  { id:'tmpl-dep',      cat:'release',  icon:'◉', name:'Dependency Upgrade (safe)',    cron:'Weekly Mon 04:00', desc:'Safe minor/patch upgrades only. Opens PR with full test run.', gate:true },
-  { id:'tmpl-changelog',cat:'release',  icon:'◉', name:'Daily Changelog Check',        cron:'Daily 05:00 UTC',  desc:'Verify CHANGELOG.md is up to date with merged PRs.', gate:false },
+  { id:'tmpl-dep',      cat:'release',  icon:'◉', name:'Dependency Upgrade (safe)',    cron:'Weekly Mon 04:00', cronExpr:'0 4 * * 1',   desc:'Safe minor/patch upgrades only. Opens PR with full test run.', gate:true },
+  { id:'tmpl-changelog',cat:'release',  icon:'◉', name:'Daily Changelog Check',        cron:'Daily 05:00 UTC',  cronExpr:'0 5 * * *',   desc:'Verify CHANGELOG.md is up to date with merged PRs.', gate:false },
   // Monitoring
-  { id:'tmpl-errors',   cat:'ops',      icon:'◎', name:'Error Log Monitor',            cron:'Every 15 min',     desc:'Tail server logs for ERROR/CRITICAL. Auto-creates self-healing tasks.', gate:false },
-  { id:'tmpl-uptime',   cat:'ops',      icon:'◎', name:'Uptime & API Health Check',    cron:'Every 5 min',      desc:'Ping all registered environments. Alert on 3 consecutive failures.', gate:false },
-  { id:'tmpl-regression',cat:'ops',     icon:'◎', name:'Regression Test on Merge',     cron:'On merge to main', desc:'Full integration test suite on every merge to main.', gate:false },
+  { id:'tmpl-errors',   cat:'ops',      icon:'◎', name:'Error Log Monitor',            cron:'Every 15 min',     cronExpr:'*/15 * * * *',desc:'Tail server logs for ERROR/CRITICAL. Auto-creates self-healing tasks.', gate:false },
+  { id:'tmpl-uptime',   cat:'ops',      icon:'◎', name:'Uptime & API Health Check',    cron:'Every 5 min',      cronExpr:'*/5 * * * *', desc:'Ping all registered environments. Alert on 3 consecutive failures.', gate:false },
+  { id:'tmpl-regression',cat:'ops',     icon:'◎', name:'Regression Test on Merge',     cron:'On merge to main', cronExpr:null,          desc:'Full integration test suite on every merge to main.', gate:false },
   // Incident
-  { id:'tmpl-ci-fail',  cat:'ops',      icon:'◎', name:'CI Failure Auto-Fix',          cron:'On CI failure',    desc:'GitHub Actions webhook → Dev Agent investigates and fixes.', gate:true },
+  { id:'tmpl-ci-fail',  cat:'ops',      icon:'◎', name:'CI Failure Auto-Fix',          cron:'On CI failure',    cronExpr:null,          desc:'GitHub Actions webhook → Dev Agent investigates and fixes.', gate:true },
 ];
 
 const CAT_CONFIG = {
@@ -40,21 +82,11 @@ const CAT_CONFIG = {
   dev:      { color:'#5da2ff', label:'Dev',         icon:'⚙', bg:'rgba(93,162,255,0.07)' },
 };
 
-const ACTIVE_JOBS = [
-  { id:'agency-cycle',     name:'CEO Assessment Cycle',        cron:'Every 15 min',    category:'agency', status:'active', runs:1344, fails:2, nextRun:'1 min',   lastRun:'14m ago', approvalGate:false, builtIn:true },
-  { id:'improvement-scan', name:'Continuous Improvement Scan', cron:'Every 6h',        category:'agency', status:'active', runs:214,  fails:0, nextRun:'5h 46m',  lastRun:'14m ago', approvalGate:false, builtIn:true },
-  { id:'daily-test-scan',  name:'Daily Test Scan + Auto-Fix',  cron:'Daily 03:00 UTC', category:'dev',    status:'active', runs:62,   fails:3, nextRun:'7h 14m',  lastRun:'17h ago', approvalGate:false, builtIn:true },
-  { id:'weekly-dep-audit', name:'Weekly Dep Audit',            cron:'Mon 04:00 UTC',   category:'release',status:'active', runs:12,   fails:0, nextRun:'2d 4h',   lastRun:'5d ago',  approvalGate:true,  builtIn:true },
-  { id:'changelog-check',  name:'Daily Changelog Check',       cron:'Daily 05:00 UTC', category:'release',status:'active', runs:62,   fails:1, nextRun:'8h 14m',  lastRun:'19h ago', approvalGate:false, builtIn:true },
-  { id:'sast-scan',        name:'SAST Code Scan',              cron:'Daily',           category:'security',status:'active',runs:28,   fails:0, nextRun:'2h',      lastRun:'22h ago', approvalGate:false, builtIn:false },
-  { id:'lighthouse',       name:'Lighthouse Performance Scan', cron:'Daily 06:00 UTC', category:'perf',   status:'active', runs:18,   fails:2, nextRun:'4h 30m',  lastRun:'20h ago', approvalGate:false, builtIn:false },
-];
-
-function ScheduleRow({ job, onToggle, onRunNow }) {
-  const [running, setRunning] = React.useState(false);
+function ScheduleRow({ job, onToggle, onRunNow, busy, justRan }) {
   const cat = CAT_CONFIG[job.category] || CAT_CONFIG.ops;
   const isActive = job.status === 'active';
-  const handleRun = () => { setRunning(true); onRunNow&&onRunNow(job.id); setTimeout(()=>setRunning(false),2500); };
+  const running = !!justRan;
+  const handleRun = () => { onRunNow && onRunNow(job.id); };
 
   return (
     <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 16px', borderBottom:'1px solid rgba(255,255,255,0.05)', transition:'background 0.15s' }}
@@ -69,15 +101,15 @@ function ScheduleRow({ job, onToggle, onRunNow }) {
         </div>
         <div style={{ display:'flex', gap:7, fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexWrap:'wrap' }}>
           <span>{job.cron}</span><span>·</span>
-          <span>Next: <span style={{ color:isActive?'#46d9a4':'var(--text-muted)' }}>{job.nextRun}</span></span><span>·</span>
+          <span>Last: <span style={{ color:'var(--text-muted)' }}>{job.lastRun}</span></span><span>·</span>
           <span>{job.runs} runs · <span style={{ color:job.fails>0?'#ff6b7d':'var(--text-muted)' }}>{job.fails} fails</span></span>
         </div>
       </div>
-      <button onClick={()=>onToggle&&onToggle(job.id)} style={{ width:34, height:20, borderRadius:999, padding:3, cursor:'pointer', background:isActive?'var(--accent)':'rgba(255,255,255,0.10)', border:`1px solid ${isActive?'rgba(93,162,255,0.5)':'rgba(255,255,255,0.15)'}`, transition:'all 0.2s', display:'flex', alignItems:'center', justifyContent:isActive?'flex-end':'flex-start', flexShrink:0 }}>
+      <button onClick={()=>onToggle&&onToggle(job)} disabled={busy} style={{ width:34, height:20, borderRadius:999, padding:3, cursor:busy?'wait':'pointer', opacity:busy?0.6:1, background:isActive?'var(--accent)':'rgba(255,255,255,0.10)', border:`1px solid ${isActive?'rgba(93,162,255,0.5)':'rgba(255,255,255,0.15)'}`, transition:'all 0.2s', display:'flex', alignItems:'center', justifyContent:isActive?'flex-end':'flex-start', flexShrink:0 }}>
         <div style={{ width:14, height:14, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px rgba(0,0,0,0.3)' }}/>
       </button>
-      <button onClick={handleRun} disabled={running} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, fontWeight:600, cursor:'pointer', background:running?'rgba(93,162,255,0.06)':'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)', color:running?'var(--text-muted)':'var(--accent)', transition:'all 0.15s', whiteSpace:'nowrap', flexShrink:0 }}>
-        {running ? <span style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:9,height:9,border:'2px solid rgba(93,162,255,0.2)',borderTopColor:'var(--accent)',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>…</span> : '↺ Run'}
+      <button onClick={handleRun} disabled={running} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, fontWeight:600, cursor:running?'wait':'pointer', background:running?'rgba(93,162,255,0.06)':'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)', color:running?'var(--text-muted)':'var(--accent)', transition:'all 0.15s', whiteSpace:'nowrap', flexShrink:0 }}>
+        {running ? <span style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:9,height:9,border:'2px solid rgba(93,162,255,0.2)',borderTopColor:'var(--accent)',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>triggered</span> : '↺ Run'}
       </button>
     </div>
   );
@@ -111,16 +143,31 @@ function TemplateCard({ tmpl, onAdd, added }) {
   );
 }
 
-function NewJobForm({ onClose, onAdd }) {
+function NewJobForm({ onClose, onCreate }) {
   const [name, setName] = React.useState('');
-  const [cron, setCron] = React.useState('Daily 09:00');
+  const [cron, setCron] = React.useState('0 9 * * *');
   const [inst, setInst] = React.useState('');
   const [gate, setGate] = React.useState(false);
-  const presets = ['Every 5 min','Every 15 min','Hourly','Daily 09:00','Weekly Mon','On every PR','On every merge'];
-  const submit = () => {
-    if (!name.trim()) return;
-    onAdd({ id:`custom-${Date.now()}`, name:name.trim(), cron, category:'dev', status:'active', runs:0, fails:0, nextRun:'soon', lastRun:'never', approvalGate:gate, builtIn:false });
-    onClose();
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState(null);
+  // Backend expects a real cron expression (ScheduleCreateRequest.cron, min len 9).
+  const presets = [
+    { label:'Every 15 min', cron:'*/15 * * * *' },
+    { label:'Hourly',       cron:'0 * * * *' },
+    { label:'Daily 09:00',  cron:'0 9 * * *' },
+    { label:'Weekdays 09:00', cron:'0 9 * * 1-5' },
+    { label:'Weekly Mon',   cron:'0 9 * * 1' },
+  ];
+  const submit = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true); setError(null);
+    try {
+      await onCreate({ name:name.trim(), cron, instruction:inst.trim(), approval_gate:gate });
+      onClose();
+    } catch (e) {
+      setError(errText(e, 'Could not create schedule (check the cron expression).'));
+      setBusy(false);
+    }
   };
   return (
     <div style={{ padding:'14px', borderRadius:14, background:'rgba(93,162,255,0.05)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:14, animation:'fadeSlideUp 0.25s ease-out' }}>
@@ -133,15 +180,18 @@ function NewJobForm({ onClose, onAdd }) {
           style={{ padding:'9px 12px', borderRadius:10, resize:'none', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' }}
           onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
         <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-          {presets.map(p => <button key={p} onClick={()=>setCron(p)} style={{ padding:'4px 10px', borderRadius:999, fontSize:11, cursor:'pointer', background:cron===p?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${cron===p?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:cron===p?'#fff':'var(--text-muted)', transition:'all 0.15s' }}>{p}</button>)}
+          {presets.map(p => <button key={p.cron} onClick={()=>setCron(p.cron)} style={{ padding:'4px 10px', borderRadius:999, fontSize:11, cursor:'pointer', background:cron===p.cron?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${cron===p.cron?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:cron===p.cron?'#fff':'var(--text-muted)', transition:'all 0.15s' }}>{p.label}</button>)}
         </div>
+        <input value={cron} onChange={e=>setCron(e.target.value)} placeholder="cron expression (e.g. 0 9 * * *)"
+          style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:12, fontFamily:'var(--font-mono)', outline:'none' }}/>
         <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:12, color:'var(--text-tertiary)', cursor:'pointer' }}>
           <input type="checkbox" checked={gate} onChange={e=>setGate(e.target.checked)} style={{ accentColor:'var(--accent)' }}/>
           Require approval before execution
         </label>
+        {error && <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
         <div style={{ display:'flex', gap:8 }}>
-          <button onClick={submit} style={{ flex:1, padding:'9px', borderRadius:10, background:'var(--accent)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:'pointer' }}>Create</button>
-          <button onClick={onClose} style={{ padding:'9px 16px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={busy} style={{ flex:1, padding:'9px', borderRadius:10, background:'var(--accent)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Creating…' : 'Create'}</button>
+          <button onClick={onClose} disabled={busy} style={{ padding:'9px 16px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
         </div>
       </div>
     </div>
@@ -149,20 +199,54 @@ function NewJobForm({ onClose, onAdd }) {
 }
 
 function SchedulesScreen() {
-  const [jobs, setJobs]               = React.useState(ACTIVE_JOBS);
   const [showForm, setShowForm]       = React.useState(false);
   const [showTemplates, setShowTmpl]  = React.useState(false);
   const [addedTmpls, setAddedTmpls]   = React.useState(new Set());
   const [tmplCat, setTmplCat]         = React.useState('all');
+  const [busyId, setBusyId]           = React.useState(null);
+  const [justRan, setJustRan]         = React.useState(null);
+  const [actionErr, setActionErr]     = React.useState(null);
 
-  const toggle  = id => setJobs(p=>p.map(j=>j.id===id?{...j,status:j.status==='active'?'paused':'active'}:j));
-  const addJob  = job => setJobs(p=>[...p,job]);
-  const addTmpl = tmpl => {
-    addJob({ id:tmpl.id, name:tmpl.name, cron:tmpl.cron, category:tmpl.cat, status:'active', runs:0, fails:0, nextRun:'soon', lastRun:'never', approvalGate:tmpl.gate, builtIn:false });
-    setAddedTmpls(p=>new Set([...p,tmpl.id]));
+  const [data, states, refetch] = useSafeData(null, { schedules: '/api/schedules/' }, { refreshMs: 30000 });
+  const jobs = (data.schedules?.schedules || []).map(normalizeJob);
+
+  const toggle = async (job) => {
+    setBusyId(job.id); setActionErr(null);
+    try {
+      if (job.status === 'active') await api.pauseSchedule(job.id);
+      else await api.resumeSchedule(job.id);
+      await refetch();
+    } catch (e) { setActionErr(errText(e, 'Could not update the schedule.')); }
+    finally { setBusyId(null); }
   };
 
-  const filtered = tmplCat==='all' ? SMART_TEMPLATES : SMART_TEMPLATES.filter(t=>t.cat===tmplCat);
+  const runNow = async (id) => {
+    setJustRan(id); setActionErr(null);
+    try { await api.triggerSchedule(id); await refetch(); }
+    catch (e) { setActionErr(errText(e, 'Could not trigger the schedule.')); }
+    finally { setTimeout(() => setJustRan(null), 1500); }
+  };
+
+  const createSchedule = async (payload) => {
+    await api.createSchedule(payload);
+    await refetch();
+  };
+  const addTmpl = async (tmpl) => {
+    setActionErr(null);
+    // Event-driven templates (no cron expression) can't be added as cron schedules yet.
+    if (!tmpl.cronExpr) {
+      setActionErr(`"${tmpl.name}" runs on an event trigger (${tmpl.cron}) — webhook/event schedules aren't supported yet.`);
+      return;
+    }
+    try {
+      await createSchedule({ name: tmpl.name, cron: tmpl.cronExpr, instruction: tmpl.desc, approval_gate: tmpl.gate, tags: [tmpl.cat] });
+      setAddedTmpls(p => new Set([...p, tmpl.id]));
+    } catch (e) {
+      setActionErr(errText(e, `Could not add "${tmpl.name}".`));
+    }
+  };
+
+  const totalFails = jobs.reduce((s,j)=>s+j.fails,0);
 
   return (
     <div style={{ padding:'20px 16px 48px', maxWidth:900, margin:'0 auto' }}>
@@ -187,7 +271,7 @@ function SchedulesScreen() {
         {[
           { label:'Active', value:jobs.filter(j=>j.status==='active').length, color:'#46d9a4' },
           { label:'Total runs', value:jobs.reduce((s,j)=>s+j.runs,0).toLocaleString(), color:'var(--accent)' },
-          { label:'Failures', value:jobs.reduce((s,j)=>s+j.fails,0), color:jobs.reduce((s,j)=>s+j.fails,0)>0?'#ff6b7d':'var(--text-muted)' },
+          { label:'Failures', value:totalFails, color:totalFails>0?'#ff6b7d':'var(--text-muted)' },
         ].map(s => (
           <div key={s.label} style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
             <div style={{ fontSize:20, fontWeight:800, color:s.color, letterSpacing:'-0.03em' }}>{s.value}</div>
@@ -209,18 +293,28 @@ function SchedulesScreen() {
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:8 }}>
             {SMART_TEMPLATES.filter(t=>tmplCat==='all'||t.cat===tmplCat).map(tmpl => (
-              <TemplateCard key={tmpl.id} tmpl={tmpl} onAdd={addTmpl} added={addedTmpls.has(tmpl.id)||jobs.some(j=>j.id===tmpl.id)}/>
+              <TemplateCard key={tmpl.id} tmpl={tmpl} onAdd={addTmpl} added={addedTmpls.has(tmpl.id)||jobs.some(j=>j.name===tmpl.name)}/>
             ))}
           </div>
         </div>
       )}
 
-      {showForm && <NewJobForm onClose={()=>setShowForm(false)} onAdd={addJob}/>}
+      {showForm && <NewJobForm onClose={()=>setShowForm(false)} onCreate={createSchedule}/>}
+
+      {actionErr && <div style={{ marginBottom:12, padding:'9px 13px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{actionErr}</div>}
 
       {/* Active jobs */}
       <div style={{ borderRadius:16, border:'1px solid rgba(255,255,255,0.09)', background:'rgba(255,255,255,0.025)', overflow:'hidden' }}>
-        <div style={{ padding:'10px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase' }}>Active jobs ({jobs.length})</div>
-        {jobs.map(job => <ScheduleRow key={job.id} job={job} onToggle={toggle} onRunNow={()=>{}}/>)}
+        <div style={{ padding:'10px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase' }}>Scheduled jobs ({jobs.length})</div>
+        {states.schedules?.loading && jobs.length === 0 ? (
+          <div style={{ padding:'24px 16px', fontSize:13, color:'var(--text-muted)' }}>Loading schedules…</div>
+        ) : states.schedules?.error ? (
+          <div style={{ padding:'18px 16px', fontSize:13, color:'#ff6b7d' }}>Couldn't load schedules: {states.schedules.error}</div>
+        ) : jobs.length === 0 ? (
+          <div style={{ padding:'24px 16px', fontSize:13, color:'var(--text-muted)' }}>No schedules configured yet. Add one from the template library or create a custom job.</div>
+        ) : (
+          jobs.map(job => <ScheduleRow key={job.id} job={job} onToggle={toggle} onRunNow={runNow} busy={busyId===job.id} justRan={justRan===job.id}/>)
+        )}
       </div>
     </div>
   );

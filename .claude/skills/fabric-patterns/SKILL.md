@@ -8,7 +8,8 @@ triggers:
   - "apply pattern"
   - "stitch patterns"
 references:
-  - .claude/skills/prompt-library/SKILL.md
+  - .claude/skills/fabric-patterns/patterns/
+  - CLAUDE.md
 ---
 
 # Skill: fabric-patterns
@@ -118,9 +119,9 @@ Patterns can be used by any agent through the provided tools. For example:
 - The Reviewer agent might use patterns for consistent review criteria
 
 ## Related Skills
-- `prompt-library`: Snapshots of agent and skill prompts for transparency
-- `prompt-transparency`: Generates plain-language explanations of agent behaviors
-- `system-prompt-audit`: Audits prompts for consistency and safety
+- `implementation-planner`: Structures multi-step work (patterns can shape its prompts)
+- `council-review`: Multi-perspective review (patterns can standardise review criteria)
+- _(planned, not yet in this repo)_ `prompt-library`, `prompt-transparency`, `system-prompt-audit`
 
 ## Acceptance Checks
 - [ ] Pattern directory exists at `.claude/skills/fabric-patterns/patterns/`

@@ -10,6 +10,7 @@ import SkillsScreen from './screens/SkillsScreen';
 import IntelligenceScreen from './screens/IntelligenceScreen';
 import KnowledgeScreen from './screens/KnowledgeScreen';
 import ProvidersScreen from './screens/ProvidersScreen';
+import GitHubScreen from './screens/GitHubScreen';
 import LogsScreen from './screens/LogsScreen';
 import CompanyScreen from './screens/CompanyScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
@@ -69,6 +70,7 @@ export default function V5App() {
     intelligence: <IntelligenceScreen />,
     knowledge:    <KnowledgeScreen />,
     providers:    <ProvidersScreen />,
+    github:       <GitHubScreen />,
     logs:         <LogsScreen />,
     company:      <CompanyScreen />,
     onboarding:   <OnboardingScreen onComplete={() => go('company')} isAdmin={isAdmin} />,

@@ -264,6 +264,9 @@ function SkillsScreen() {
   const [filter, setFilter]   = React.useState('all');
   const [search, setSearch]   = React.useState('');
 
+  // NOTE: there is no backend persistence endpoint for these commerce-skill
+  // templates yet, so toggles are session-local only (clearly labelled as a
+  // preview below). When a skills API exists, wire this to it + persist.
   const toggle = (id) => setSkills(p => p.map(s => s.id===id ? {...s, enabled:!s.enabled} : s));
 
   const categories = ['all', ...new Set(COMMERCE_SKILLS.map(s => s.category))];
@@ -278,7 +281,7 @@ function SkillsScreen() {
   return (
     <div style={{ padding:'20px 16px 48px', maxWidth:960, margin:'0 auto' }}>
       {/* Header with plain-language intro */}
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Agentic Commerce</div>
+      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Agentic Commerce · Preview</div>
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:14 }}>
         <div>
           <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:6 }}>
@@ -290,8 +293,13 @@ function SkillsScreen() {
         </div>
         <div style={{ padding:'10px 16px', borderRadius:14, background:'rgba(70,217,164,0.06)', border:'1px solid rgba(70,217,164,0.15)', textAlign:'center' }}>
           <div style={{ fontSize:22, fontWeight:800, color:'#46d9a4', letterSpacing:'-0.03em' }}>{enabledCount}</div>
-          <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em' }}>Active skills</div>
+          <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em' }}>Toggled on</div>
         </div>
+      </div>
+
+      {/* Honest preview notice — these templates are illustrative and not yet persisted/activated */}
+      <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,189,102,0.07)', border:'1px solid rgba(255,189,102,0.20)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 }}>
+        <strong style={{ color:'#ffbd66' }}>Preview.</strong> This is a catalogue of planned agentic-commerce skills. There’s no skills backend yet, so toggling a skill on/off here only changes it for this session — it does <strong>not</strong> activate the automation or persist after reload.
       </div>
 
       {/* How it works visual */}
