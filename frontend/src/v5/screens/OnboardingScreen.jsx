@@ -1,6 +1,7 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
 import * as api from '../../api';
+import { COMPANY_ID_KEY } from './CompanyScreen';
 
 // onboarding.jsx — V5.0 with structured discovery, smart questions, live API integration
 
@@ -611,6 +612,8 @@ function OnboardingScreen({ onComplete, isAdmin }) {
   const handleCompanyCreated = (id, name, domain) => {
     setCompanyId(id);
     setCompanyName(name || domain);
+    // Persist so the Company screen can load this company's graph after onboarding.
+    try { if (id) localStorage.setItem(COMPANY_ID_KEY, id); } catch { /* storage unavailable */ }
   };
 
   const handleScanDone = (detectedList, id) => {
