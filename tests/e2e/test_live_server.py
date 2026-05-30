@@ -397,6 +397,61 @@ def test_platform_info(c: httpx.Client, h: dict) -> None:
     ok(f"GET /api/models/catalog → {count} model(s)")
 
 
+def test_company_lifecycle(c: httpx.Client, h: dict) -> None:
+    """Company-graph lifecycle against the live server (no mocks).
+
+    Regression coverage for the onboarding bugs that previously slipped through
+    because nothing exercised this surface:
+      * BUG-1  — POST /api/company rejected valid bodies with "request: Field required"
+      * create-company 500 — extra `graph_id` on the Mongo read path
+      * website-scan 500 — missing detected-system store methods
+
+    Runs against whatever STORAGE_BACKEND the server is using (CI runs this on
+    both sqlite and mongodb), so backend-specific bugs surface here too.
+    """
+    Suite.section("11 · Company graph lifecycle")
+
+    domain = f"e2e-{uuid.uuid4().hex[:8]}.example.com"
+
+    # Create — a valid {name, domain} body must be accepted (BUG-1 guard).
+    r = req("POST", c, "/api/company", headers=h,
+            json={"name": "E2E Co", "domain": domain})
+    check(r.status_code == 201, "POST /api/company (valid body) → 201", r)
+    body = r.json()
+    company = body.get("company", body) if isinstance(body, dict) else body
+    cid = company.get("id")
+    check(bool(cid), "create response must include company id", r)
+    ok(f"POST /api/company → 201 (id={cid})")
+
+    # Read back — exercises the Mongo extra-field read path (create-500 guard).
+    r = req("GET", c, f"/api/company/{cid}", headers=h)
+    check(r.status_code == 200, f"GET /api/company/{{id}} → 200", r)
+    ok("GET /api/company/{id} → 200")
+
+    # Graph — builds the full CompanyGraph (websites/detected_systems/etc.).
+    r = req("GET", c, f"/api/company/{cid}/graph", headers=h)
+    check(r.status_code == 200, "GET /api/company/{id}/graph → 200", r)
+    ok("GET /api/company/{id}/graph → 200")
+
+    # Scan — the persistence branch must never 500 (website-scan-500 guard).
+    # Whether the target is reachable or not, the endpoint returns 200 with a
+    # status of success/failed/partial; only a server bug yields 5xx.
+    r = req("POST", c, f"/api/company/{cid}/scan/website", headers=h,
+            json={"website_url": "https://example.com"})
+    check(r.status_code == 200, "POST /api/company/{id}/scan/website → 200 (never 5xx)", r)
+    scan = r.json()
+    check(scan.get("status") in ("success", "failed", "partial"),
+          "scan result must have a valid status", r)
+    ok(f"POST /api/company/{{id}}/scan/website → 200 (status={scan.get('status')})")
+
+    # Cleanup (best-effort — don't fail the suite if delete isn't available).
+    r = req("DELETE", c, f"/api/company/{cid}", headers=h, retries=1)
+    if r.status_code in (200, 204):
+        ok("DELETE /api/company/{id} → cleaned up")
+    else:
+        skip("DELETE /api/company/{id}", f"status {r.status_code}")
+
+
 # ─── main ─────────────────────────────────────────────────────────────────────
 
 def wait_for_server(base: str, timeout: int = 60) -> None:
@@ -442,6 +497,7 @@ def main() -> int:
         test_activity_and_stats(c, h)
         test_activation_api(c, h)
         test_platform_info(c, h)
+        test_company_lifecycle(c, h)
 
     print(f"\n{'═' * 60}")
     total = Suite.passed + Suite.failed + Suite.skipped
