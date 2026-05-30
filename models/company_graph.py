@@ -1086,7 +1086,13 @@ class Company(BaseModel):
         default=True,
         description="Whether this company is active"
     )
-    onboarding_status: Literal["not_started", "scanning", "detected", "configured", "complete"] = Field(
+    onboarding_status: Literal[
+        # Granular scan states
+        "not_started", "scanning", "detected", "configured",
+        # Lifecycle states written by OnboardingService.start_onboarding
+        "in_progress", "paused", "failed", "cancelled",
+        "complete",
+    ] = Field(
         default="not_started",
         description="Current onboarding status"
     )
@@ -1598,6 +1604,10 @@ class SpecialistProvisionRequest(BaseModel):
         default_factory=list,
         description="Specific capabilities to configure"
     )
+    tools: List[str] = Field(
+        default_factory=list,
+        description="Specific tools to configure (auto-derived from family if empty)"
+    )
     system_types: List[SystemType] = Field(
         default_factory=list,
         description="System types this specialist should handle"
@@ -1609,6 +1619,10 @@ class SpecialistProvisionRequest(BaseModel):
     runtime: Literal["internal_agent", "claude_code", "goose", "aider", "hermes", "opencode", "custom"] | None = Field(
         default=None,
         description="Preferred runtime for this specialist"
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Specialist-specific configuration"
     )
     auto_provision: bool = Field(
         default=True,

@@ -673,8 +673,8 @@ class OnboardingService:
             "last_scanned": datetime.utcnow()
         })
         
-        await self.store.update_website(created)
-        
+        await self.store.update_website(created, company_id)
+
         return created
 
     async def _scan_repo(

@@ -174,12 +174,14 @@ class CompanyGraphStore:
     # WEBSITE OPERATIONS
     # =========================================================================
 
-    async def create_website(self, website: Website) -> Website:
-        """Create a new website."""
+    async def create_website(self, website: Website, company_id: str) -> Website:
+        """Create a new website. ``company_id`` is stored alongside the record
+        (the ``Website`` model itself does not carry it), so the website can be
+        retrieved via ``list_websites(company_id)``."""
         if self.backend == "mongodb":
-            return await self._mongodb_store.create_website(website)
+            return await self._mongodb_store.create_website(website, company_id)
         else:
-            return await self._sqlite_store.create_website(website)
+            return await self._sqlite_store.create_website(website, company_id)
 
     async def get_website(self, website_id: str) -> Website | None:
         """Get a website by ID."""
@@ -188,12 +190,13 @@ class CompanyGraphStore:
         else:
             return await self._sqlite_store.get_website(website_id)
 
-    async def update_website(self, website: Website) -> Website:
-        """Update a website."""
+    async def update_website(self, website: Website, company_id: str | None = None) -> Website:
+        """Update a website. When ``company_id`` is omitted the existing
+        company association is preserved."""
         if self.backend == "mongodb":
-            return await self._mongodb_store.update_website(website)
+            return await self._mongodb_store.update_website(website, company_id)
         else:
-            return await self._sqlite_store.update_website(website)
+            return await self._sqlite_store.update_website(website, company_id)
 
     async def delete_website(self, website_id: str) -> bool:
         """Delete a website."""
@@ -619,10 +622,13 @@ class MongoDBStore:
         return snapshots
 
     # Website Operations
-    async def create_website(self, website: Website) -> Website:
-        """Create a new website in MongoDB."""
+    async def create_website(self, website: Website, company_id: str) -> Website:
+        """Create a new website in MongoDB. ``company_id`` is written onto the
+        document (the model doesn't carry it) so ``list_websites`` can filter on
+        it; ``_prepare_result`` strips it back off on read."""
         db = self._get_db()
         doc = self._prepare_doc(website)
+        doc["company_id"] = company_id
         if "_id" not in doc:
             doc["_id"] = ObjectId()
         website = website.model_copy(update={"id": self._to_str(doc["_id"])})
@@ -636,11 +642,14 @@ class MongoDBStore:
         doc = await db.websites.find_one({"_id": self._to_object_id(website_id)})
         return self._prepare_result(doc, Website)
 
-    async def update_website(self, website: Website) -> Website:
-        """Update a website in MongoDB."""
+    async def update_website(self, website: Website, company_id: str | None = None) -> Website:
+        """Update a website in MongoDB. The company association is only rewritten
+        when ``company_id`` is supplied (otherwise it is left untouched)."""
         db = self._get_db()
         doc = self._prepare_doc(website)
         doc["updated_at"] = datetime.utcnow().isoformat()
+        if company_id is not None:
+            doc["company_id"] = company_id
         await db.websites.update_one(
             {"_id": self._to_object_id(website.id)},
             {"$set": doc}
@@ -934,7 +943,10 @@ class SQLiteStore:
             )
         """)
 
-        # Create websites table
+        # Create websites table. Like detected_systems, the full Website model
+        # (including nested inferred_stack / detected_systems) is stored as a JSON
+        # blob in ``data`` so scan results round-trip; id/company_id/url are also
+        # columned for querying.
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS websites (
                 id TEXT PRIMARY KEY,
@@ -944,6 +956,7 @@ class SQLiteStore:
                 scan_status TEXT,
                 scan_error TEXT,
                 last_scanned TEXT,
+                data TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (company_id) REFERENCES companies(id)
@@ -1028,7 +1041,15 @@ class SQLiteStore:
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_specialists_company ON specialists(company_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_company ON knowledge_items(company_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_detected_systems_company ON detected_systems(company_id)")
-        
+
+        # Migration: add the websites.data JSON-blob column to pre-existing DBs
+        # created before scan results were persisted. SQLite has no
+        # "ADD COLUMN IF NOT EXISTS", so guard on the failure.
+        try:
+            await conn.execute("ALTER TABLE websites ADD COLUMN data TEXT")
+        except Exception:
+            pass  # column already exists
+
         await conn.commit()
         log.info(f"SQLite schema initialized at {self._db_path}")
 
@@ -1039,9 +1060,10 @@ class SQLiteStore:
             if isinstance(value, datetime):
                 doc[key] = value.isoformat()
             elif isinstance(value, list):
-                doc[key] = json.dumps(value)
+                # default=str so nested datetimes (e.g. in detected_systems) serialize
+                doc[key] = json.dumps(value, default=str)
             elif isinstance(value, dict):
-                doc[key] = json.dumps(value)
+                doc[key] = json.dumps(value, default=str)
         return doc
 
     def _prepare_result(self, row, model_class) -> Any | None:
@@ -1154,19 +1176,43 @@ class SQLiteStore:
         return companies
 
     # Website Operations
-    async def create_website(self, website: Website) -> Website:
-        """Create a new website in SQLite."""
+    @staticmethod
+    def _website_from_row(row) -> Website | None:
+        """Reconstruct a Website from a SQLite row, preferring the full JSON
+        blob (which preserves inferred_stack / detected_systems) and falling
+        back to the scalar columns for rows written before the blob existed."""
+        if not row:
+            return None
+        d = dict(row)
+        blob = d.get("data")
+        if blob:
+            try:
+                return Website.model_validate_json(blob)
+            except Exception as exc:  # corrupt/legacy blob — fall back to columns
+                log.warning(f"Website blob decode failed for {d.get('id')}: {exc}")
+        return Website(
+            id=d["id"], url=d["url"], is_primary=bool(d.get("is_primary")),
+            scan_status=d.get("scan_status"), scan_error=d.get("scan_error"),
+            last_scanned=d.get("last_scanned"),
+            created_at=d["created_at"], updated_at=d["updated_at"],
+        )
+
+    async def create_website(self, website: Website, company_id: str) -> Website:
+        """Create a new website in SQLite. The full model is stored in ``data``
+        so scan results survive the round-trip; ``company_id`` is columned for
+        filtering (the Website model itself doesn't carry it)."""
         conn = await self._get_connection()
         doc = self._prepare_doc(website)
         await conn.execute("""
-            INSERT INTO websites (id, company_id, url, is_primary, scan_status, 
-                                  scan_error, last_scanned, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO websites (id, company_id, url, is_primary, scan_status,
+                                  scan_error, last_scanned, data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            doc["id"], doc["company_id"], doc["url"],
+            doc["id"], company_id, doc["url"],
             1 if doc.get("is_primary", False) else 0,
             doc.get("scan_status"), doc.get("scan_error"),
-            doc.get("last_scanned"), doc["created_at"], doc["updated_at"]
+            doc.get("last_scanned"), website.model_dump_json(),
+            doc["created_at"], doc["updated_at"]
         ))
         await conn.commit()
         log.debug(f"Created website: {website.id}")
@@ -1179,22 +1225,24 @@ class SQLiteStore:
             "SELECT * FROM websites WHERE id = ?", (website_id,)
         )
         row = await cursor.fetchone()
-        return self._prepare_result(row, Website)
+        return self._website_from_row(row)
 
-    async def update_website(self, website: Website) -> Website:
-        """Update a website in SQLite."""
+    async def update_website(self, website: Website, company_id: str | None = None) -> Website:
+        """Update a website in SQLite. When ``company_id`` is omitted the existing
+        company association is preserved (via COALESCE)."""
         conn = await self._get_connection()
         doc = self._prepare_doc(website)
         await conn.execute("""
-            UPDATE websites 
-            SET company_id = ?, url = ?, is_primary = ?, scan_status = ?,
-                scan_error = ?, last_scanned = ?, updated_at = ?
+            UPDATE websites
+            SET company_id = COALESCE(?, company_id), url = ?, is_primary = ?, scan_status = ?,
+                scan_error = ?, last_scanned = ?, data = ?, updated_at = ?
             WHERE id = ?
         """, (
-            doc["company_id"], doc["url"],
+            company_id, doc["url"],
             1 if doc.get("is_primary", False) else 0,
             doc.get("scan_status"), doc.get("scan_error"),
-            doc.get("last_scanned"), doc["updated_at"], doc["id"]
+            doc.get("last_scanned"), website.model_dump_json(),
+            doc["updated_at"], doc["id"]
         ))
         await conn.commit()
         log.debug(f"Updated website: {website.id}")
@@ -1222,7 +1270,9 @@ class SQLiteStore:
         cursor = await conn.execute(query, tuple(params))
         websites = []
         async for row in cursor:
-            websites.append(self._prepare_result(row, Website))
+            website = self._website_from_row(row)
+            if website is not None:
+                websites.append(website)
         return websites
 
     # Detected System Operations
