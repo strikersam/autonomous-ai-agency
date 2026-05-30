@@ -165,8 +165,77 @@ class TestOnboardingService:
         """Test that onboarding service can be initialized."""
         try:
             from services.onboarding import get_onboarding_service
-            
+
             service = get_onboarding_service()
             assert service is not None
         except ImportError:
             pytest.skip("Onboarding service not available")
+
+
+class TestMongoStoreExtraFieldTolerance:
+    """Regression for the create-company 500.
+
+    ``MongoDBStore.create_company_graph`` writes a ``graph_id`` reference onto
+    the *company* document. Because ``Company`` is declared ``extra="forbid"``,
+    reading that document back (``get_company`` → ``model_validate``) raised
+    ``ValidationError`` — surfaced to users as
+    ``Could not create company: Request failed with status code 500`` right after
+    BUG-1 unblocked the endpoint. The store must drop persisted bookkeeping
+    fields it doesn't model.
+    """
+
+    def test_prepare_result_tolerates_persisted_graph_id(self):
+        bson = pytest.importorskip("bson")
+        try:
+            from services.company_graph_store import MongoDBStore
+            from models.company_graph import Company
+        except (ImportError, ModuleNotFoundError):
+            pytest.skip("company graph store not importable")
+
+        store = MongoDBStore()  # no connection; __init__ only nulls handles
+        oid = bson.ObjectId()
+        doc = {
+            "_id": oid,
+            "name": "Acme",
+            "domain": "acme.com",
+            "business_category": "other",
+            # bookkeeping field written onto the company doc — not a Company field
+            "graph_id": "graph_abc123",
+            "updated_at": "2026-05-30T00:00:00",
+        }
+        company = store._prepare_result(doc, Company)
+        assert company is not None
+        assert company.id == str(oid)
+        assert company.name == "Acme"
+        # the extra persisted field must have been dropped, not crash validation
+        assert not hasattr(company, "graph_id")
+
+    @pytest.mark.asyncio
+    @pytest.mark.requires_db
+    async def test_mongo_create_company_then_graph_roundtrip(self):
+        """End-to-end against the real Mongo (CI service): the exact handler
+        sequence create_company → get_or_create_company_graph must not 500."""
+        try:
+            from services.company_graph import CompanyGraphService
+            from services.company_graph_store import CompanyGraphStore
+        except (ImportError, ModuleNotFoundError):
+            pytest.skip("company graph service not importable")
+
+        try:
+            svc = CompanyGraphService(store=CompanyGraphStore(backend="mongodb"))
+            company = await svc.create_company(
+                name="RegressionCo", domain="regression.test",
+                business_category="other", owner_id="u_regression",
+            )
+            # This is where the 500 occurred before the fix.
+            graph = await svc.get_or_create_company_graph(company.id)
+            assert graph is not None
+            assert graph.company_id == company.id
+            # reading the company back must also validate cleanly
+            back = await svc.get_company(company.id)
+            assert back is not None and back.id == company.id
+        finally:
+            try:
+                await svc.delete_company(company.id)
+            except Exception:
+                pass
