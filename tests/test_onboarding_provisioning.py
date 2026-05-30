@@ -191,3 +191,89 @@ async def test_specialist_context_matches_detected_systems(wired):
     assert "CMS" in all_context
     assert "payment_gateway" in all_context
     assert "analytics" in all_context
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["paused", "cancelled"])
+async def test_pause_cancel_progress_reported_faithfully(state, wired):
+    """get_onboarding_progress must report paused/cancelled as-is, not 'failed'."""
+    graph_service, _, onboarding = wired
+    host = "erp.example-corp.com"
+    company = await graph_service.create_company(name="erp", domain=host, owner_id="u1")
+    await onboarding.start_onboarding(company_id=company.id, website_urls=[f"https://{host}"])
+
+    if state == "paused":
+        await onboarding.pause_onboarding(company.id)
+    else:
+        await onboarding.cancel_onboarding(company.id)
+
+    progress = await onboarding.get_onboarding_progress(company.id)
+    assert progress.status == state, progress.status
+
+
+def test_sqlite_migration_adds_data_column_to_legacy_websites_table(tmp_path):
+    """A websites table created without the `data` column must be migrated, and a
+    legacy row (no blob) must still read back via the scalar columns."""
+    import asyncio
+    import aiosqlite
+    try:
+        from services.company_graph_store import SQLiteStore
+    except (ImportError, ModuleNotFoundError):
+        pytest.skip("company graph store not importable")
+
+    db_path = str(tmp_path / "legacy.db")
+
+    async def run():
+        # Build a pre-migration websites table (no `data` column) + a legacy row.
+        async with aiosqlite.connect(db_path) as conn:
+            await conn.execute("""
+                CREATE TABLE websites (
+                    id TEXT PRIMARY KEY, company_id TEXT NOT NULL, url TEXT NOT NULL,
+                    is_primary INTEGER NOT NULL DEFAULT 0, scan_status TEXT,
+                    scan_error TEXT, last_scanned TEXT,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                )
+            """)
+            await conn.execute(
+                "INSERT INTO websites (id, company_id, url, is_primary, scan_status, created_at, updated_at) "
+                "VALUES ('w_legacy', 'co_1', 'https://legacy.example', 1, 'success', '2026-01-01T00:00:00', '2026-01-01T00:00:00')"
+            )
+            await conn.commit()
+
+        store = SQLiteStore()
+        store._db_path = db_path
+        # _initialize_schema runs the guarded PRAGMA-checked migration.
+        legacy = await store.list_websites("co_1")
+        assert len(legacy) == 1
+        assert legacy[0].url == "https://legacy.example"
+        assert legacy[0].scan_status == "success"
+
+        # New writes now use the data blob and round-trip detected_systems.
+        from models.company_graph import Website, DetectedSystem
+        ws = Website(url="https://new.example", scan_status="success",
+                     detected_systems=[DetectedSystem(name="Shopify", system_type="CMS")])
+        await store.create_website(ws, "co_1")
+        back = [w for w in await store.list_websites("co_1") if w.url == "https://new.example"][0]
+        assert [d.name for d in back.detected_systems] == ["Shopify"]
+
+    asyncio.run(run())
+
+
+def test_corrupt_website_blob_returns_none_not_scalar_fallback():
+    """A present-but-corrupt blob is corruption: surface None rather than
+    silently dropping detected_systems via the scalar fallback."""
+    try:
+        from services.company_graph_store import SQLiteStore
+    except (ImportError, ModuleNotFoundError):
+        pytest.skip("company graph store not importable")
+    row = {
+        "id": "w1", "company_id": "co_1", "url": "https://x.example",
+        "is_primary": 1, "scan_status": "success", "scan_error": None,
+        "last_scanned": None, "data": "{not valid json",
+        "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00",
+    }
+    assert SQLiteStore._website_from_row(row) is None
+    # Absent blob -> legacy scalar reconstruction still works.
+    row_legacy = dict(row); row_legacy["data"] = None
+    ws = SQLiteStore._website_from_row(row_legacy)
+    assert ws is not None and ws.url == "https://x.example"
