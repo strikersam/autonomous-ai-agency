@@ -212,6 +212,28 @@ class CompanyGraphStore:
             return await self._sqlite_store.list_websites(company_id, limit, offset)
 
     # =========================================================================
+    # DETECTED SYSTEM OPERATIONS
+    # =========================================================================
+
+    async def create_detected_system(
+        self, system: "DetectedSystem", company_id: str
+    ) -> "DetectedSystem":
+        """Persist a detected system for a company."""
+        if self.backend == "mongodb":
+            return await self._mongodb_store.create_detected_system(system, company_id)
+        else:
+            return await self._sqlite_store.create_detected_system(system, company_id)
+
+    async def list_detected_systems(
+        self, company_id: str, system_type: str | None = None
+    ) -> List["DetectedSystem"]:
+        """List detected systems for a company, optionally filtered by type."""
+        if self.backend == "mongodb":
+            return await self._mongodb_store.list_detected_systems(company_id, system_type)
+        else:
+            return await self._sqlite_store.list_detected_systems(company_id, system_type)
+
+    # =========================================================================
     # REPOSITORY OPERATIONS
     # =========================================================================
 
@@ -646,6 +668,34 @@ class MongoDBStore:
             websites.append(self._prepare_result(doc, Website))
         return websites
 
+    # Detected System Operations
+    async def create_detected_system(self, system: DetectedSystem, company_id: str) -> DetectedSystem:
+        """Persist a detected system in MongoDB (company_id is stored on the doc,
+        since DetectedSystem itself doesn't carry it)."""
+        db = self._get_db()
+        doc = self._prepare_doc(system)
+        doc["company_id"] = company_id
+        if "_id" not in doc:
+            doc["_id"] = ObjectId()
+        system = system.model_copy(update={"id": self._to_str(doc["_id"])})
+        await db.detected_systems.insert_one(doc)
+        log.debug(f"Created detected system: {system.name} ({system.system_type})")
+        return system
+
+    async def list_detected_systems(
+        self, company_id: str, system_type: str | None = None
+    ) -> List[DetectedSystem]:
+        """List detected systems for a company from MongoDB."""
+        db = self._get_db()
+        query = {"company_id": company_id}
+        if system_type:
+            query["system_type"] = system_type
+        systems = []
+        async for doc in db.detected_systems.find(query):
+            # _prepare_result strips the persisted company_id (DetectedSystem is extra="forbid")
+            systems.append(self._prepare_result(doc, DetectedSystem))
+        return systems
+
     # Repo Operations
     async def create_repo(self, repo: Repo) -> Repo:
         """Create a new repository in MongoDB."""
@@ -955,6 +1005,21 @@ class SQLiteStore:
             )
         """)
 
+        # Create detected_systems table. DetectedSystem has rich nested fields
+        # (evidence, configuration, …) so the full model is stored as a JSON blob;
+        # id/company_id/system_type are also columned for querying.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS detected_systems (
+                id TEXT PRIMARY KEY,
+                company_id TEXT NOT NULL,
+                system_type TEXT,
+                name TEXT,
+                data TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (company_id) REFERENCES companies(id)
+            )
+        """)
+
         # Create indexes
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_companies_owner ON companies(owner_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_companies_domain ON companies(domain)")
@@ -962,6 +1027,7 @@ class SQLiteStore:
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_repos_company ON repos(company_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_specialists_company ON specialists(company_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_company ON knowledge_items(company_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_detected_systems_company ON detected_systems(company_id)")
         
         await conn.commit()
         log.info(f"SQLite schema initialized at {self._db_path}")
@@ -1157,6 +1223,41 @@ class SQLiteStore:
         async for row in cursor:
             websites.append(self._prepare_result(row, Website))
         return websites
+
+    # Detected System Operations
+    async def create_detected_system(self, system: DetectedSystem, company_id: str) -> DetectedSystem:
+        """Persist a detected system in SQLite (full model stored as a JSON blob)."""
+        conn = await self._get_connection()
+        await conn.execute(
+            """
+            INSERT OR REPLACE INTO detected_systems (id, company_id, system_type, name, data, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                system.id, company_id, system.system_type, system.name,
+                system.model_dump_json(), datetime.utcnow().isoformat(),
+            ),
+        )
+        await conn.commit()
+        log.debug(f"Created detected system: {system.name} ({system.system_type})")
+        return system
+
+    async def list_detected_systems(
+        self, company_id: str, system_type: str | None = None
+    ) -> List[DetectedSystem]:
+        """List detected systems for a company from SQLite."""
+        conn = await self._get_connection()
+        query = "SELECT data FROM detected_systems WHERE company_id = ?"
+        params: list = [company_id]
+        if system_type:
+            query += " AND system_type = ?"
+            params.append(system_type)
+        cursor = await conn.execute(query, tuple(params))
+        systems = []
+        async for row in cursor:
+            data = row["data"] if not isinstance(row, (tuple, list)) else row[0]
+            systems.append(DetectedSystem.model_validate_json(data))
+        return systems
 
     # Repo Operations
     async def create_repo(self, repo: Repo) -> Repo:

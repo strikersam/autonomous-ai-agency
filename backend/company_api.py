@@ -360,53 +360,59 @@ async def scan_website_endpoint(
         max_pages=request.max_pages
     )
     
-    # If scan was successful, add website to company
+    # If the scan was successful, persist its findings to the company graph.
+    # Persistence is best-effort and split into independent blocks: a failure
+    # here must never turn a successful scan into an HTTP 500 (the scan result —
+    # including detected systems — is always returned to the caller).
     if result.status == "success":
-        service = get_company_graph_service()
-        
-        # Check if website already exists
         store = get_company_graph_store()
-        existing_websites = await store.list_websites(company.id)
-        website_exists = any(w.url == request.website_url for w in existing_websites)
-        
-        if not website_exists:
-            website = Website(
-                url=request.website_url,
-                company_id=company.id,
-                is_primary=len(existing_websites) == 0,  # First website is primary
-                inferred_stack=result.inferred_stack,
-                detected_systems=result.detected_systems,
-                last_scanned=result.completed_at or datetime.utcnow(),
-                scan_status="success",
-                confidence_scores=result.inferred_stack.confidence_scores if result.inferred_stack else {}
-            )
-            await store.create_website(website)
-            log.info(f"Created website {request.website_url} for company {company_id}")
-        else:
-            # Update existing website
-            for existing in existing_websites:
-                if existing.url == request.website_url:
-                    updated_website = existing.model_copy(update={
-                        "inferred_stack": result.inferred_stack,
-                        "detected_systems": result.detected_systems,
-                        "last_scanned": result.completed_at or datetime.utcnow(),
-                        "scan_status": "success",
-                        "confidence_scores": result.inferred_stack.confidence_scores if result.inferred_stack else {}
-                    })
-                    await store.update_website(updated_website)
-                    log.info(f"Updated website {request.website_url} for company {company_id}")
-                    break
-        
-        # Add detected systems to company graph
-        for system in result.detected_systems:
-            existing_systems = await store.list_detected_systems(
-                company_id=company.id,
-                system_type=system.system_type
-            )
-            if not any(ds.name == system.name for ds in existing_systems):
-                await store.create_detected_system(system)
-                log.debug(f"Added detected system {system.name} ({system.system_type}) to company {company_id}")
-    
+
+        # Persist detected systems.
+        try:
+            for system in result.detected_systems:
+                existing_systems = await store.list_detected_systems(
+                    company_id=company.id,
+                    system_type=system.system_type,
+                )
+                if not any(ds.name == system.name for ds in existing_systems):
+                    await store.create_detected_system(system, company.id)
+                    log.debug(f"Added detected system {system.name} ({system.system_type}) to company {company_id}")
+        except Exception as exc:  # noqa: BLE001 - best-effort persistence
+            log.warning(f"Could not persist detected systems for company {company_id}: {exc}")
+
+        # Persist the website record.
+        try:
+            existing_websites = await store.list_websites(company.id)
+            website_exists = any(w.url == request.website_url for w in existing_websites)
+            confidence = result.inferred_stack.confidence_scores if result.inferred_stack else {}
+            if not website_exists:
+                website = Website(
+                    url=request.website_url,
+                    is_primary=len(existing_websites) == 0,  # First website is primary
+                    inferred_stack=result.inferred_stack,
+                    detected_systems=result.detected_systems,
+                    last_scanned=result.completed_at or datetime.utcnow(),
+                    scan_status="success",
+                    confidence_scores=confidence,
+                )
+                await store.create_website(website)
+                log.info(f"Created website {request.website_url} for company {company_id}")
+            else:
+                for existing in existing_websites:
+                    if existing.url == request.website_url:
+                        updated_website = existing.model_copy(update={
+                            "inferred_stack": result.inferred_stack,
+                            "detected_systems": result.detected_systems,
+                            "last_scanned": result.completed_at or datetime.utcnow(),
+                            "scan_status": "success",
+                            "confidence_scores": confidence,
+                        })
+                        await store.update_website(updated_website)
+                        log.info(f"Updated website {request.website_url} for company {company_id}")
+                        break
+        except Exception as exc:  # noqa: BLE001 - best-effort persistence
+            log.warning(f"Could not persist website record for company {company_id}: {exc}")
+
     return result
 
 

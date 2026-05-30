@@ -239,3 +239,52 @@ class TestMongoStoreExtraFieldTolerance:
                 await svc.delete_company(company.id)
             except Exception:
                 pass
+
+
+class TestDetectedSystemPersistence:
+    """Regression for the website-scan 500.
+
+    ``POST /api/company/{id}/scan/website`` called ``store.list_detected_systems``
+    / ``store.create_detected_system``, but neither method existed on any store —
+    so a successful scan that detected systems raised ``AttributeError`` → HTTP
+    500 (``Website scan failed: Request failed with status code 500``). These
+    methods are now implemented on the dispatcher and both backends.
+    """
+
+    def test_store_exposes_detected_system_methods(self):
+        try:
+            from services.company_graph_store import (
+                CompanyGraphStore, MongoDBStore, SQLiteStore,
+            )
+        except (ImportError, ModuleNotFoundError):
+            pytest.skip("company graph store not importable")
+        for cls in (CompanyGraphStore, MongoDBStore, SQLiteStore):
+            assert hasattr(cls, "create_detected_system"), \
+                f"{cls.__name__} is missing create_detected_system"
+            assert hasattr(cls, "list_detected_systems"), \
+                f"{cls.__name__} is missing list_detected_systems"
+
+    @pytest.mark.asyncio
+    async def test_sqlite_detected_system_roundtrip(self, tmp_path):
+        try:
+            from services.company_graph_store import SQLiteStore
+            from models.company_graph import DetectedSystem
+        except (ImportError, ModuleNotFoundError):
+            pytest.skip("company graph store not importable")
+
+        store = SQLiteStore()
+        store._db_path = str(tmp_path / "cg.db")  # isolated temp DB
+
+        ds = DetectedSystem(name="Shopify", system_type="CMS", confidence=0.9)
+        await store.create_detected_system(ds, "co_1")
+
+        got = await store.list_detected_systems("co_1")
+        assert len(got) == 1
+        assert got[0].name == "Shopify"
+        assert got[0].confidence == 0.9          # full model preserved via JSON blob
+        assert not hasattr(got[0], "company_id")  # company_id is stored on the row, not the model
+        # system_type filtering
+        assert len(await store.list_detected_systems("co_1", system_type="CMS")) == 1
+        assert await store.list_detected_systems("co_1", system_type="CRM") == []
+        # scoped to the company
+        assert await store.list_detected_systems("other_co") == []
