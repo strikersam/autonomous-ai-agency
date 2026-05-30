@@ -389,14 +389,28 @@ class MongoDBStore:
             doc["_id"] = self._to_object_id(model.id)
         return doc
 
+    @staticmethod
+    def _strip_unknown(doc: dict, model_class: type) -> dict:
+        """Drop persisted bookkeeping keys a strict (``extra="forbid"``) model
+        does not declare — e.g. the ``graph_id`` reference written onto the
+        company document by :meth:`create_company_graph`, or a leftover ``_id`` —
+        so a round-tripped MongoDB document still validates instead of raising
+        ``ValidationError`` (which surfaced as a 500 on ``POST /api/company``)."""
+        cfg = getattr(model_class, "model_config", {}) or {}
+        if cfg.get("extra") == "forbid":
+            allowed = set(getattr(model_class, "model_fields", {}) or {})
+            if allowed:
+                return {k: v for k, v in doc.items() if k in allowed}
+        return doc
+
     def _prepare_result(self, doc: dict, model_class: type) -> Any | None:
         """Prepare a MongoDB document for Pydantic model."""
         if not doc:
             return None
+        doc = dict(doc)
         doc["id"] = self._to_str(doc["_id"])
-        if "_id" in doc:
-            del doc["_id"]
-        return model_class.model_validate(doc)
+        doc.pop("_id", None)
+        return model_class.model_validate(self._strip_unknown(doc, model_class))
 
     # Company Operations
     async def create_company(self, company: Company) -> Company:
@@ -538,8 +552,9 @@ class MongoDBStore:
         graph_doc["detected_systems"] = detected_systems
         # Get the company
         company = await self.get_company(company_id)
+        graph_doc.pop("_id", None)
         graph_doc["company"] = company
-        return CompanyGraph.model_validate(graph_doc)
+        return CompanyGraph.model_validate(self._strip_unknown(graph_doc, CompanyGraph))
 
     async def update_company_graph(self, graph: CompanyGraph) -> CompanyGraph:
         """Update a company graph in MongoDB."""

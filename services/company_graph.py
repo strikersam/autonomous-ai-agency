@@ -423,7 +423,7 @@ class CompanyGraphService:
         )
         
         # If MongoDB is active, persist within the company_graphs collection
-        if self.store.backend_type == "mongodb":
+        if self.store.backend == "mongodb":
             graph = await self.store.get_company_graph(company_id)
             if graph:
                 workflows = list(graph.workflows)
