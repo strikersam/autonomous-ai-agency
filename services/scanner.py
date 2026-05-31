@@ -100,6 +100,54 @@ def _is_blocked_host(url: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
 
 
+# Markers that identify an anti-bot interstitial (Cloudflare "Just a moment",
+# hCaptcha/reCAPTCHA walls, Akamai/Datadome/PerimeterX blocks) rather than real
+# page content. If a fetched page matches, it is NOT results — parsing it would
+# both yield garbage and falsely "detect" the challenge vendor (e.g. Cloudflare)
+# as a technology of the target.
+_BOT_CHALLENGE_MARKERS = (
+    "just a moment",                     # Cloudflare interstitial title
+    "cf-browser-verification",
+    "cf_chl_opt",                        # Cloudflare challenge JS var
+    "challenge-platform",                # /cdn-cgi/challenge-platform/
+    "checking your browser",
+    "enable javascript and cookies to continue",
+    "attention required",                # Cloudflare block page
+    "h-captcha",
+    "g-recaptcha",
+    "recaptcha/api.js",
+    "px-captcha",                        # PerimeterX
+    "_imperva_",                         # Imperva/Incapsula
+    "datadome",
+    "access denied",
+    "are you a robot",
+    "verify you are human",
+)
+
+
+def _looks_like_bot_challenge(html: str) -> bool:
+    """True if the HTML is an anti-bot/CAPTCHA interstitial rather than content.
+
+    Used to gate the BuiltWith fallback: builtwith.com is itself Cloudflare-
+    fronted, so a plain fetch can return a "Just a moment" challenge. We must
+    detect that and refuse to parse it as results (and escalate to a real
+    browser, which can clear Cloudflare's *automatic* JS challenge). A hard
+    interactive CAPTCHA still cannot be solved without a paid solver — in that
+    case we honestly return nothing rather than fabricate detections.
+    """
+    if not html:
+        return True  # empty body is not usable content
+    head = html[:6000].lower()
+    # Short bodies that mention a challenge marker are almost certainly the
+    # interstitial itself (a real results page is large and content-rich).
+    hit = any(m in head for m in _BOT_CHALLENGE_MARKERS)
+    if not hit:
+        return False
+    # A long, content-rich page that merely *mentions* "access denied" in copy
+    # is not a challenge; require the marker AND a short/sparse body.
+    return len(html) < 30000
+
+
 def _hostname_is(url: str, domain: str) -> bool:
     """Check if URL hostname exactly matches or is a subdomain of the given domain."""
     try:
@@ -280,6 +328,18 @@ class WebsiteScanner:
                         if status_code == 0 or status_code >= 400:
                             status_code = 200
 
+            # Final fallback: if we *still* found nothing (live detection fully
+            # blocked — e.g. Akamai-fronted JS storefronts with no Chromium
+            # available), ask builtwith.com what it already knows about the
+            # domain from its own crawl. Free, no API key, off-page — so it works
+            # even when the target site refuses us. Merged at lower confidence.
+            if not detected_systems:
+                bw_systems = await self._query_builtwith(domain)
+                for s in bw_systems:
+                    if s.name not in all_systems_map:
+                        all_systems_map[s.name] = s
+                detected_systems = list(all_systems_map.values())
+
             stack_inference = await self._infer_stack(soup, html, headers, website_url)
             
             # 3. Sitemap discovery
@@ -384,6 +444,180 @@ class WebsiteScanner:
         except Exception as e:
             log.warning(f"Headless render failed for {url}: {e}")
             return None
+
+    def _classify_system_type(self, name: str) -> str:
+        """Map a technology name to a SystemType literal using the catalog's
+        category metadata, falling back to keyword heuristics. Shared by the
+        signature engine and the BuiltWith fallback parser."""
+        valid_types = {
+            'CMS', 'CRM', 'OMS', 'PIM', 'DAM', 'ERP', 'HRM', 'LMS', 'analytics',
+            'payment_gateway', 'shipping', 'tax', 'inventory', 'marketing_automation',
+            'email_service', 'search', 'database', 'cache', 'cdc', 'message_queue',
+            'api_gateway', 'auth', 'billing', 'support', 'chat', 'video', 'voice',
+            'iot', 'ai_ml', 'custom',
+        }
+        apps = self.tech_data.get("apps", {})
+        spec = apps.get(name)
+        if spec:
+            explicit = spec.get("type")
+            if explicit in valid_types:
+                return explicit
+            cat_id = str(spec.get("cats", [1])[0])
+            cat_name = self.tech_data.get("categories", {}).get(cat_id, "custom")
+            if cat_name in valid_types:
+                return cat_name
+        # Keyword fallback for names BuiltWith returns that aren't in the catalog.
+        low = name.lower()
+        keyword_map = [
+            (("shopify", "magento", "woocommerce", "wordpress", "drupal", "wix",
+              "squarespace", "bigcommerce", "demandware", "commerce cloud"), "CMS"),
+            (("salesforce", "hubspot crm", "dynamics", "zoho"), "CRM"),
+            (("stripe", "paypal", "braintree", "adyen", "klarna", "afterpay",
+              "apple pay", "google pay", "checkout"), "payment_gateway"),
+            (("google analytics", "mixpanel", "amplitude", "segment", "hotjar",
+              "matomo", "plausible", "heap"), "analytics"),
+            (("mailchimp", "marketo", "hubspot", "pardot", "klaviyo"), "marketing_automation"),
+            (("sendgrid", "mailgun", "mandrill", "postmark", "sparkpost"), "email_service"),
+            (("zendesk", "intercom", "freshdesk", "drift", "livechat"), "support"),
+            (("algolia", "elasticsearch", "solr", "coveo"), "search"),
+        ]
+        for needles, stype in keyword_map:
+            if any(n in low for n in needles):
+                return stype
+        return "custom"
+
+    async def _fetch_builtwith_page(self, bw_url: str) -> str:
+        """Fetch a builtwith.com page, defeating its bot protection as far as is
+        possible *for free*. Two tiers, escalating only when needed:
+
+          1. ``curl_cffi`` with a real Chrome TLS/JA3 fingerprint. This is what
+             the old `ecrmnn`/`noname01` scrapers lacked — a plain
+             ``urllib``/``requests`` GET is fingerprint-blocked by Cloudflare
+             instantly. Impersonation clears Cloudflare's *fingerprint-only* mode.
+          2. If tier 1 returns a Cloudflare/CAPTCHA interstitial, escalate to the
+             **headless browser** (``_render_html``), which executes the
+             challenge JS and can clear Cloudflare's *automatic* "Just a moment"
+             page that no HTTP client can.
+
+        Returns the HTML of a *real* page, or ``""`` if every tier still hits a
+        challenge (e.g. a hard interactive CAPTCHA — unsolvable without a paid
+        solver, so we honestly give up rather than fabricate detections).
+        """
+        # Tier 1: curl_cffi Chrome impersonation.
+        html = ""
+        try:
+            import curl_cffi.requests
+            async with curl_cffi.requests.AsyncSession(
+                impersonate="chrome120", timeout=self.timeout
+            ) as client:
+                resp = await client.get(bw_url, allow_redirects=True)
+                if resp.status_code == 200:
+                    html = resp.text or ""
+        except Exception as e:
+            log.info(f"BuiltWith tier-1 (curl_cffi) fetch failed: {e}")
+            html = ""
+
+        if html and not _looks_like_bot_challenge(html):
+            return html
+
+        # Tier 2: real browser to clear an automatic JS challenge. _render_html
+        # already honours SCANNER_HEADLESS_RENDER and no-ops without Chromium.
+        log.info("BuiltWith tier-1 hit a bot challenge — escalating to headless browser")
+        rendered = await self._render_html(bw_url)
+        if rendered:
+            r_html, _r_headers, _r_cookies = rendered
+            if r_html and not _looks_like_bot_challenge(r_html):
+                return r_html
+
+        log.info("BuiltWith fetch blocked by an unsolvable challenge — returning no data")
+        return ""
+
+    async def _query_builtwith(self, domain: str) -> List[DetectedSystem]:
+        """Last-resort fallback for sites we can't fingerprint live (JS-rendered
+        + aggressive bot protection, e.g. Akamai-fronted luxury commerce).
+
+        Rather than fight the target's bot wall, we ask **builtwith.com** what it
+        already knows about the domain from its own historical crawl and parse
+        that page. This is the technique behind the `ecrmnn/builtwith`,
+        `ecrmnn/builtwith-cli`, and `noname01/builtwith-api` projects — but
+        hardened in two ways those (now-stale, ~2015-era) scrapers are not:
+
+          * **Bot protection:** they use a plain ``got()``/``urllib`` GET, which
+            today's Cloudflare-fronted builtwith.com answers with a "Just a
+            moment" CAPTCHA. We fetch via ``curl_cffi`` Chrome impersonation and
+            escalate to a headless browser, and — critically — *refuse to parse a
+            challenge page* (see ``_fetch_builtwith_page`` /
+            ``_looks_like_bot_challenge``) so a CAPTCHA is never mistaken for
+            results (which would also falsely "detect" Cloudflare as the target's
+            tech).
+          * **Markup drift:** they scrape fixed CSS classes
+            (``.techItem``/``.titleBox``) BuiltWith has long since redesigned, so
+            they silently return nothing. We instead cross-reference the page
+            against our own ~1,270-app catalog, with the legacy selectors as a
+            secondary pass.
+
+        Free (no API key — scrapes the public page). Gated by
+        ``SCANNER_BUILTWITH_FALLBACK`` (default ``auto``; set ``off`` to disable).
+        Always degrades to ``[]`` — never raises into the scan.
+        """
+        import os as _os
+        if _os.environ.get("SCANNER_BUILTWITH_FALLBACK", "auto").lower() in (
+            "0", "off", "false", "no", "disabled",
+        ):
+            return []
+        if not domain:
+            return []
+
+        bw_url = f"https://builtwith.com/{domain}"
+        html = await self._fetch_builtwith_page(bw_url)
+        # Empty or still-a-challenge → no usable data. Never parse a CAPTCHA page.
+        if not html or _looks_like_bot_challenge(html):
+            return []
+
+        systems_map: Dict[str, DetectedSystem] = {}
+
+        def add(name: str, evidence_val: str) -> None:
+            name = (name or "").strip()
+            # Guard against scraping noise (nav labels, blank cells, huge blobs).
+            if not name or len(name) > 60:
+                return
+            if name in systems_map:
+                return
+            systems_map[name] = DetectedSystem(
+                system_type=self._classify_system_type(name),
+                name=name,
+                confidence=0.80,  # historical/3rd-party signal — below live detection
+                evidence=[Evidence(
+                    type="builtwith", value=evidence_val[:200],
+                    location="builtwith.com", confidence=0.80,
+                )],
+            )
+
+        # Pass 1 (markup-independent): match our known app catalog against the
+        # page. Whole-word match so "Wix" doesn't fire inside "Wixardry".
+        import re as _re
+        haystack = html.lower()
+        for app_name in self.tech_data.get("apps", {}):
+            if len(app_name) < 3:
+                continue  # skip ultra-short names that false-positive
+            if _re.search(r"(?<![a-z0-9])" + _re.escape(app_name.lower()) + r"(?![a-z0-9])", haystack):
+                add(app_name, f"listed on {bw_url}")
+
+        # Pass 2 (legacy selectors, best-effort): the classic BuiltWith result
+        # markup. Kept as a secondary source in case the catalog misses a name
+        # BuiltWith labels differently.
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            for item in soup.select(".techItem h3, .techItem h3 a, li.card__tech-name, .tech-name"):
+                txt = item.get_text(strip=True)
+                if txt:
+                    add(txt, "builtwith techItem")
+        except Exception as e:
+            log.debug(f"BuiltWith legacy-selector parse skipped for {domain}: {e}")
+
+        if systems_map:
+            log.info(f"BuiltWith fallback recovered {len(systems_map)} systems for {domain}")
+        return list(systems_map.values())
 
     def _analyze_dns(self, domain: str) -> List[DetectedSystem]:
         import dns.resolver
