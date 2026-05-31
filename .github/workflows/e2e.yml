@@ -97,6 +97,48 @@ jobs:
         if: always()
         run: kill "$SERVER_PID" 2>/dev/null || true
 
+  # LIVE scanner verification against the real internet (gucci.com et al.),
+  # WITH a real Chromium binary so the headless / BuiltWith-fallback tiers
+  # actually run. This is the only place the scanner is tested end-to-end on
+  # bot-protected sites; the unit tests stub the network. It is intentionally
+  # NON-BLOCKING (continue-on-error) because it depends on third-party site
+  # availability and live bot-protection state — a flaky external site must
+  # never block a merge. The job still surfaces the real outcome in its log,
+  # and the tests assert the honest invariants (no crash, no fabricated
+  # challenge-vendor-only detection) rather than a specific platform.
+  e2e-scanner-live:
+    name: Live scanner verification (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      SCANNER_HEADLESS_RENDER: auto
+      SCANNER_BUILTWITH_FALLBACK: auto
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install playwright pytest pytest-asyncio
+          python -m playwright install --with-deps chromium
+
+      - name: Run live scanner integration tests
+        run: pytest -m integration tests/test_scanner_live.py -v -s
+
+      - name: Post-deploy-style verification report
+        if: always()
+        run: python scripts/verify_scanner_live.py || true
+
   # Same live suite, but against a real MongoDB — so backend-specific bugs
   # (e.g. the Mongo-only create-company 500) surface in e2e, not just in
   # production. Kept as a separate job so the original "End-to-end live server"
