@@ -423,6 +423,18 @@ class OnboardingService:
                 started_at=datetime.utcnow()
             )
         
+        # Paused / cancelled are explicit states — report them faithfully
+        # rather than mislabelling them as "failed".
+        if company.onboarding_status in ("paused", "cancelled"):
+            return OnboardingProgress(
+                company_id=company_id,
+                current_step=company.onboarding_status,
+                total_steps=len(self.ONBOARDING_STEPS),
+                completed_steps=0,
+                progress_percent=(company.onboarding_progress or 0.0) * 100,
+                status=company.onboarding_status,
+            )
+
         # Failed status
         return OnboardingProgress(
             company_id=company_id,
@@ -673,8 +685,8 @@ class OnboardingService:
             "last_scanned": datetime.utcnow()
         })
         
-        await self.store.update_website(created)
-        
+        await self.store.update_website(created, company_id)
+
         return created
 
     async def _scan_repo(
