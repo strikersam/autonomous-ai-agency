@@ -25,7 +25,7 @@ Usage:
 """
 
 from __future__ import annotations
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, get_args
 from datetime import datetime
 import logging
 import secrets
@@ -136,11 +136,12 @@ class SpecialistService:
         Returns:
             List of SpecialistProvisionResult for each provisioned specialist
         """
-        # Map system types to specialist families
-        system_to_family: Dict[SystemType, List[SpecialistFamily]] = {
+        # Map detected types to specialist families. Keys are either real
+        # SystemType values OR the framework-derived pseudo-types the onboarding
+        # detector emits ("frontend"/"backend", from inferred-stack frameworks).
+        system_to_family: Dict[str, List[SpecialistFamily]] = {
             "CMS": ["frontend", "docs", "backend"],
             "CRM": ["operations", "analytics", "backend"],
-            "ecommerce": ["ecommerce", "frontend", "backend", "operations"],
             "analytics": ["analytics", "data", "backend"],
             "payment_gateway": ["backend", "security", "operations"],
             "ERP": ["operations", "backend", "data"],
@@ -148,27 +149,36 @@ class SpecialistService:
             "LMS": ["docs", "operations", "frontend"],
             "marketing_automation": ["operations", "analytics", "backend"],
             "chat": ["operations", "frontend", "backend"],
-            "hosting": ["devops", "infra", "backend"],
+            "support": ["operations", "docs", "backend"],
             "database": ["backend", "data", "infra"],
-            "ci_cd": ["devops", "backend", "infra"],
-            "infrastructure": ["devops", "infra", "backend"]
+            # Framework-derived pseudo-types (not SystemType literals) — map to the
+            # matching specialist directly so e.g. a React site gets a frontend
+            # specialist and an Express API gets a backend specialist.
+            "frontend": ["frontend"],
+            "backend": ["backend"],
         }
-        
+
+        # Only valid SystemType values may be stored as a specialist's context
+        # (system_types is a strict Literal). Pseudo-types still drive family
+        # selection above, but are not written as system-type context.
+        valid_system_types = set(get_args(SystemType))
+
         results = []
         unique_families = set()
-        
+
         # Get already provisioned specialists for this company
         existing = await self.store.list_specialists(company_id)
         existing_families = {s.family for s in existing}
-        
+
         for system_type in system_types:
             families = system_to_family.get(system_type, ["engineering"])
+            context_types = [system_type] if system_type in valid_system_types else []
             for family in families:
                 if family not in unique_families and family not in existing_families:
                     request = SpecialistProvisionRequest(
                         company_id=company_id,
                         specialist_family=family,
-                        system_types=[system_type],
+                        system_types=context_types,
                         auto_provision=True
                     )
                     result = await self.provision_specialist(request)

@@ -297,7 +297,7 @@ async def sync_company_graph(
                         "last_scanned": datetime.utcnow(),
                         "scan_status": "success",
                     })
-                    await store.update_website(updated)
+                    await store.update_website(updated, company.id)
 
         for repo in repos:
             if force_rescan or not repo.last_scanned:
@@ -395,7 +395,7 @@ async def scan_website_endpoint(
                     scan_status="success",
                     confidence_scores=confidence,
                 )
-                await store.create_website(website)
+                await store.create_website(website, company.id)
                 log.info(f"Created website {request.website_url} for company {company_id}")
             else:
                 for existing in existing_websites:
@@ -407,7 +407,7 @@ async def scan_website_endpoint(
                             "scan_status": "success",
                             "confidence_scores": confidence,
                         })
-                        await store.update_website(updated_website)
+                        await store.update_website(updated_website, company.id)
                         log.info(f"Updated website {request.website_url} for company {company_id}")
                         break
         except Exception as exc:  # noqa: BLE001 - best-effort persistence

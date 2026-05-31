@@ -398,8 +398,8 @@ class CompanyGraphService:
             is_primary=is_primary,
             **kwargs
         )
-        created = await self.store.create_website(website)
-        
+        created = await self.store.create_website(website, company_id)
+
         # Update company
         company = await self.store.get_company(company_id)
         if company:
