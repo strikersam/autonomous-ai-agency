@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+
 import pytest
 
-from agents.financial_analyst import (
-    BudgetOptimizer,
-    CostLine,
-    FinancialAgent,
-    FinancialMetrics,
-    Recommendation,
+# Load the module directly to bypass agents/__init__.py dependency chain
+_FIN_SPEC = importlib.util.spec_from_file_location(
+    "financial_analyst", "agents/financial_analyst.py"
 )
+_fin = importlib.util.module_from_spec(_FIN_SPEC)
+sys.modules["financial_analyst"] = _fin
+_FIN_SPEC.loader.exec_module(_fin)
+
+BudgetOptimizer = _fin.BudgetOptimizer
+CostLine = _fin.CostLine
+FinancialAgent = _fin.FinancialAgent
+FinancialMetrics = _fin.FinancialMetrics
+Recommendation = _fin.Recommendation
 
 
 # ── CostLine ──────────────────────────────────────────────────────────────────
