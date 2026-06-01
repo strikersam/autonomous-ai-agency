@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+
 import pytest
 
-from agents.memory_consolidation import (
-    ConsolidationPhase,
-    DreamMemory,
-    MemoryKind,
-    PatternConsolidation,
+# Load the module directly to bypass agents/__init__.py dependency chain
+_MEM_SPEC = importlib.util.spec_from_file_location(
+    "memory_consolidation", "agents/memory_consolidation.py"
 )
+_mem = importlib.util.module_from_spec(_MEM_SPEC)
+sys.modules["memory_consolidation"] = _mem
+_MEM_SPEC.loader.exec_module(_mem)
+
+ConsolidationPhase = _mem.ConsolidationPhase
+DreamMemory = _mem.DreamMemory
+MemoryKind = _mem.MemoryKind
+PatternConsolidation = _mem.PatternConsolidation
 
 
 def _make_memory(
