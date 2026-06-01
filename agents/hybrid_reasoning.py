@@ -10,6 +10,7 @@ Quick-Note Issue: #237
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -83,7 +84,6 @@ class DeterministicEngine:
 
     def evaluate(self, inputs: dict[str, Any]) -> Optional[ReasoningResult]:
         """Run rules against inputs. Returns first match, or None."""
-        import time
         t0 = time.time()
         for rule in self.rules:
             try:
@@ -117,7 +117,6 @@ class LLMReasoner:
 
     def reason(self, inputs: dict[str, Any]) -> ReasoningResult:
         """Attempt to reason via the fallback_handler."""
-        import time
         t0 = time.time()
         if self.fallback_handler:
             result = self.fallback_handler(inputs)
