@@ -1,0 +1,56 @@
+#!/usr/bin/env sh
+# graphify-refresh — repo-local wrapper used by Claude hooks and git hooks.
+# Keep this wrapper tiny and dependency-light: hooks should never fail an agent turn
+# just because graphify is absent or rebuilding the graph fails.
+
+set -u
+
+MODE="${1:---background}"
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+LOCK="/tmp/graphify-update.lock"
+REPORT="graphify-out/GRAPH_REPORT.md"
+
+cd "$ROOT" || exit 0
+
+if ! command -v graphify >/dev/null 2>&1; then
+  if [ "$MODE" = "--session" ]; then
+    echo "[graphify] not installed — run: python -m pip install graphifyy && graphify install && graphify update ."
+  fi
+  exit 0
+fi
+
+run_update() {
+  # graphify 0.8.x does not support --quiet. Redirect output here instead of
+  # passing unsupported flags; otherwise hooks silently exit with code 2.
+  graphify update . >/dev/null 2>&1
+}
+
+if [ "$MODE" = "--background" ]; then
+  if command -v flock >/dev/null 2>&1; then
+    flock -n "$LOCK" sh -c 'graphify update . >/dev/null 2>&1' >/dev/null 2>&1 &
+  else
+    run_update &
+  fi
+  exit 0
+fi
+
+if command -v flock >/dev/null 2>&1; then
+  flock -n "$LOCK" sh -c 'graphify update . >/dev/null 2>&1' >/dev/null 2>&1 || true
+else
+  run_update || true
+fi
+
+if [ "$MODE" = "--session" ]; then
+  if [ -f "$REPORT" ]; then
+    echo "=== GRAPHIFY KNOWLEDGE GRAPH (auto-loaded) ==="
+    awk '
+      /^## God Nodes/,/^## Surprising/ { print }
+      /^## Corpus Check/,/^## Community/ { print }
+      /^## Suggested Questions/,0 { print }
+    ' "$REPORT"
+    echo "=== END GRAPH REPORT ==="
+    echo '[graphify] Use: graphify query "<question>" | graphify explain "<concept>" | graphify path "A" "B" — prefer this before raw file reads.'
+  else
+    echo "[graphify] graph update ran but $REPORT is missing — run: graphify update ."
+  fi
+fi
