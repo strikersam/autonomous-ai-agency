@@ -20,6 +20,13 @@ running Ollama models.
 | OpenClaw | `N/A` | `N/A` | Maintenance: vulnerability fixes, code scan fixes, daily quality scans, regular smoke regression tests with bug reporting, issue raising and fixing |
 
 
+
+## Graphify Knowledge Graph
+
+Graphify is the first-pass codebase map for every agent prompt in this repo. Before opening raw source files for exploration, run `graphify query "<question>"`, `graphify explain "<concept>"`, or inspect `graphify-out/GRAPH_REPORT.md`; only open files after the graph narrows the target. If `graphify` is unavailable, install the repo requirements (`python -m pip install -r requirements.txt`) or run `python -m pip install graphifyy && graphify install && graphify update .`.
+
+The repo hooks call `.claude/hooks/graphify-refresh` on Claude `SessionStart`, Claude `Stop`, and git `post-commit`. The wrapper intentionally redirects `graphify update .` output instead of passing unsupported quiet flags, so graph refreshes do not silently fail.
+
 ## Repowise Intelligence
 
 The workspace supports repowise-inspired intelligence tools for deeper codebase understanding:

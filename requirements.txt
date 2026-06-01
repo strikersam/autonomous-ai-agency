@@ -35,3 +35,4 @@ anthropic>=0.40.0
 aiosqlite>=0.19.0  # SQLite async adapter for STORAGE_BACKEND=sqlite
 curl_cffi>=0.15.0
 dnspython>=2.6.1
+graphifyy>=0.8.27  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh

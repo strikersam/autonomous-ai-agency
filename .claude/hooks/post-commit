@@ -1,14 +1,8 @@
 #!/usr/bin/env sh
-# post-commit — keep graphify knowledge graph in sync after every commit
-#
-# Runs graphify update . in the background (non-blocking) so the graph
-# reflects the latest committed state. No API key needed — AST-only.
-#
+# post-commit — keep graphify knowledge graph in sync after every commit.
 # Activate with: git config core.hooksPath .claude/hooks
 
-command -v graphify >/dev/null 2>&1 || exit 0
-if command -v flock >/dev/null 2>&1; then
-  flock -n /tmp/graphify-update.lock graphify update . --quiet >/dev/null 2>&1 &
-else
-  graphify update . --quiet >/dev/null 2>&1 &
-fi
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+HOOK="$ROOT/.claude/hooks/graphify-refresh"
+[ -x "$HOOK" ] || exit 0
+"$HOOK" --background
