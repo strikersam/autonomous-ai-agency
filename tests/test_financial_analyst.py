@@ -79,6 +79,18 @@ def test_metrics_gross_margin():
     assert m.gross_margin() == 0.6
 
 
+def test_metrics_gross_margin_normalizes_category_case():
+    m = FinancialMetrics(
+        monthly_revenue=100_000,
+        monthly_costs=80_000,
+        cost_lines=[
+            CostLine("gpu", 70_000, category="COGS"),
+        ],
+    )
+
+    assert m.gross_margin() == 0.3
+
+
 def test_metrics_gross_margin_zero_when_no_revenue():
     m = FinancialMetrics(monthly_revenue=0, monthly_costs=10_000)
     assert m.gross_margin() == 0.0
@@ -178,6 +190,22 @@ def test_agent_recommends_investigate_low_margin():
     agent = FinancialAgent()
     recs = agent.assess(metrics)
     # Margin = (100k - 70k)/100k = 0.30 < 0.40 threshold
+    assert recs["gpu"] == Recommendation.INVESTIGATE
+
+
+def test_agent_investigates_uppercase_cogs_categories():
+    metrics = FinancialMetrics(
+        monthly_revenue=100_000,
+        monthly_costs=80_000,
+        cash_on_hand=500_000,
+        cost_lines=[
+            CostLine("gpu", 70_000, revenue_attributed=50_000, category="COGS"),
+        ],
+    )
+
+    agent = FinancialAgent()
+    recs = agent.assess(metrics)
+
     assert recs["gpu"] == Recommendation.INVESTIGATE
 
 

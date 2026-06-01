@@ -83,8 +83,11 @@ class FinancialMetrics:
         """
         if self.monthly_revenue <= 0:
             return 0.0
-        cogs = sum(c.monthly_cost for c in self.cost_lines
-                   if c.category in {"operations", "cogs"})
+        cogs = sum(
+            c.monthly_cost
+            for c in self.cost_lines
+            if c.category.lower() in {"operations", "cogs"}
+        )
         return (self.monthly_revenue - cogs) / self.monthly_revenue
 
     def total_costs(self) -> float:
@@ -134,7 +137,7 @@ class BudgetOptimizer:
         total_roi = sum(rois)
 
         out: list[CostLine] = []
-        for c, roi in zip(self.cost_lines, rois):
+        for c, roi in zip(self.cost_lines, rois, strict=True):
             if total_roi > 0:
                 share = (roi / total_roi) * 0.95 + floor_share
             else:
@@ -193,7 +196,7 @@ class FinancialAgent:
         # Margin investigation: flag COGS lines
         if margin < self.margin_threshold and metrics.monthly_revenue > 0:
             for c in metrics.cost_lines:
-                if c.category in {"operations", "cogs"}:
+                if c.category.lower() in {"operations", "cogs"}:
                     recs.setdefault(c.name, Recommendation.INVESTIGATE)
 
         # Per-line ROI rules

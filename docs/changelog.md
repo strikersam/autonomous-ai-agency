@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- **Agentic CFO margin checks now normalize cost categories before COGS calculations (`agents/financial_analyst.py`, `tests/test_financial_analyst.py`, `.claude/skills/financial-analyst/SKILL.md`).** Uppercase categories such as `COGS` now contribute to gross-margin and investigate recommendations correctly, ROI reallocation now uses `zip(..., strict=True)` for defensive validation, and the skill doc reflects the current 22-test suite.
+
 ### Added
 - **12 new quick-note agent modules (`agents/`, `services/`).** All modules have comprehensive tests (231 total, all passing) and `.claude/skills/` documentation: financial_analyst (#236), ai_insights (#264), research_coordinator (#238), cowork_session (#261), hybrid_reasoning (#237), memory_consolidation (#259), commands (#265), managed_agents (#260), knowledge_graph (#232), workflow_engine (#235), team_coordinator (#234), agile_sprints (#233).
 - **State docs (`.claude/state/`).** twitter-228-insights.md, twitter-231-insights.md, issue-230-duplicate.md.

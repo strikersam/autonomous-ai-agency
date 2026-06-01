@@ -77,7 +77,7 @@ for line_name, rec in recs.items():
 pytest tests/test_financial_analyst.py -v
 ```
 
-18 tests covering CostLine, FinancialMetrics, BudgetOptimizer, and FinancialAgent.
+22 tests covering CostLine, FinancialMetrics, BudgetOptimizer, and FinancialAgent.
 
 ## Branch
 
