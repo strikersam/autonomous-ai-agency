@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+
 import pytest
 
-from agents.research_coordinator import (
-    AgentRole,
-    ResearchAgent,
-    ResearchOrchestrator,
-    ResearchTask,
-    TaskStatus,
+# Load the module directly to bypass agents/__init__.py dependency chain
+_RC_SPEC = importlib.util.spec_from_file_location(
+    "research_coordinator", "agents/research_coordinator.py"
 )
+_rc = importlib.util.module_from_spec(_RC_SPEC)
+sys.modules["research_coordinator"] = _rc
+_RC_SPEC.loader.exec_module(_rc)
+
+AgentRole = _rc.AgentRole
+ResearchAgent = _rc.ResearchAgent
+ResearchOrchestrator = _rc.ResearchOrchestrator
+ResearchTask = _rc.ResearchTask
+TaskStatus = _rc.TaskStatus
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
