@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 from datetime import datetime, timedelta
 
 import pytest
 
-from agents.ai_insights import (
-    AIToolMetrics,
-    EngagementMetrics,
-    PerformanceAnalytics,
-    ToolKind,
-    UsageEvent,
-    build_report,
+# Load the module directly to bypass agents/__init__.py dependency chain
+_AI_SPEC = importlib.util.spec_from_file_location(
+    "ai_insights", "agents/ai_insights.py"
 )
+_ai = importlib.util.module_from_spec(_AI_SPEC)
+sys.modules["ai_insights"] = _ai
+_AI_SPEC.loader.exec_module(_ai)
+
+AIToolMetrics = _ai.AIToolMetrics
+EngagementMetrics = _ai.EngagementMetrics
+PerformanceAnalytics = _ai.PerformanceAnalytics
+ToolKind = _ai.ToolKind
+UsageEvent = _ai.UsageEvent
+build_report = _ai.build_report
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
