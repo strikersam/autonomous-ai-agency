@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 
 class SessionRole(str, Enum):
@@ -93,7 +93,7 @@ class CollaborationContext:
     def message_count(self) -> int:
         return len(self.recent_messages)
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, Any]:
         return {
             "active_files": list(self.active_files),
             "current_task": self.current_task,
@@ -230,7 +230,7 @@ class CoworkSession:
 
     # ── Context sync ──────────────────────────────────────────────────────
 
-    def sync_context(self, user_id: str, updates: dict) -> None:
+    def sync_context(self, user_id: str, updates: dict[str, Any]) -> None:
         """
         Apply context updates from a contributor.
 
@@ -259,7 +259,7 @@ class CoworkSession:
 
     # ── Summary ───────────────────────────────────────────────────────────
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
             "host": self.host_user_id,
@@ -294,7 +294,7 @@ class SyncAgent:
     def active_sessions(self) -> list[CoworkSession]:
         return list(self.sessions.values())
 
-    def tick(self) -> dict:
+    def tick(self) -> dict[str, Any]:
         """
         Run one sync tick across all sessions.
 
@@ -312,7 +312,7 @@ class SyncAgent:
             "editors_kicked": kicked,
         }
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, Any]:
         return {
             "total_sessions": len(self.sessions),
             "active_sessions": len(self.active_sessions),
