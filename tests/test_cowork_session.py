@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+
 import pytest
 
-from agents.cowork_session import (
-    CollaborationContext,
-    ContributorState,
-    CoworkSession,
-    SessionPhase,
-    SessionRole,
-    SyncAgent,
+# Load the module directly to bypass agents/__init__.py dependency chain
+_COWORK_SPEC = importlib.util.spec_from_file_location(
+    "cowork_session", "agents/cowork_session.py"
 )
+_cowork = importlib.util.module_from_spec(_COWORK_SPEC)
+sys.modules["cowork_session"] = _cowork
+_COWORK_SPEC.loader.exec_module(_cowork)
+
+CollaborationContext = _cowork.CollaborationContext
+ContributorState = _cowork.ContributorState
+CoworkSession = _cowork.CoworkSession
+SessionPhase = _cowork.SessionPhase
+SessionRole = _cowork.SessionRole
+SyncAgent = _cowork.SyncAgent
 
 
 # ── CollaborationContext ──────────────────────────────────────────────────────
