@@ -699,4 +699,7 @@
 ### Fixed (CI round 2)
 - `pytest.ini`: added `collect_ignore_glob = ["tests/e2e/*"]` so the E2E standalone script is not collected as pytest tests (was causing "fixture 'c' not found" error)
 - `frontend/src/pages/RoutingPolicyPage.js`: removed unused `loadError`/`setLoadError` state that caused `CI=true` build failure
-- `tests/e2e/test_live_server.py`: fixed API response shapes — `GET /api/providers` returns `{"providers":[]}`, `GET /api/keys` returns `{"keys":[]}`, `GET /api/wiki/pages` returns `{"pages":[]}`, `GET /api/activity` returns `{"logs":[]}`, `GET /api/models/catalog` returns `{"catalog":[]}` — all unwrapped correctly; `POST /api/providers` now includes required `provider_id` field
+- `tests/e2e/test_live_server.py`: fixed API response shapes — `GET /api/providers` returns `{"providers":[]}`, `GET /api/keys` returns `{"keys":[]}`, `GET /api/wiki/pages` returns `{"pages":[]}`, `GET /api/activity` returns `{"logs":[]}`, `GET /api/models/catalog` returns `{"catalog":[]}` — all unwrapped correctly; `POST /api/providers` now includes required `provider_id` field- Hybrid AI Reasoning (agents/hybrid_reasoning.py, #237).
+- ECC Harness Patterns (agents/harness_adapter.py, #237).
+- Quality Checker (agents/quality_checker.py, #237).
+- Temporal Context (services/temporal_context.py, #237).

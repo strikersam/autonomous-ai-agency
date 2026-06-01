@@ -73,6 +73,9 @@ class DeterministicEngine:
 
     rules: list[Rule] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        self.rules.sort(key=lambda r: -r.priority)
+
     def add_rule(self, rule: Rule) -> None:
         self.rules.append(rule)
         self.rules.sort(key=lambda r: -r.priority)

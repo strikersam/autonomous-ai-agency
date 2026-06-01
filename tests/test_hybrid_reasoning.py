@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+
 import pytest
 
-from agents.hybrid_reasoning import (
-    ConfidenceLevel,
-    DeterministicEngine,
-    HybridSystem,
-    LLMReasoner,
-    ReasoningMode,
-    ReasoningResult,
-    Rule,
+# Load the module directly to bypass agents/__init__.py dependency chain
+_HYBRID_SPEC = importlib.util.spec_from_file_location(
+    "hybrid_reasoning", "agents/hybrid_reasoning.py"
 )
+_hybrid = importlib.util.module_from_spec(_HYBRID_SPEC)
+sys.modules["hybrid_reasoning"] = _hybrid
+_HYBRID_SPEC.loader.exec_module(_hybrid)
+
+ConfidenceLevel = _hybrid.ConfidenceLevel
+DeterministicEngine = _hybrid.DeterministicEngine
+HybridSystem = _hybrid.HybridSystem
+LLMReasoner = _hybrid.LLMReasoner
+ReasoningMode = _hybrid.ReasoningMode
+ReasoningResult = _hybrid.ReasoningResult
+Rule = _hybrid.Rule
 
 
 def _make_rule(name: str = "test", priority: int = 0) -> Rule:
