@@ -1,6 +1,7 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
 import * as api from '../../api';
+import { COMPANY_ID_KEY } from './CompanyScreen';
 
 // intelligence.jsx — Commerce Intelligence
 // Competitor monitoring + trend scanning with live AI analysis via /api/chat/send
@@ -227,16 +228,57 @@ function KeywordRow({ kw, onToggle, onRemove }) {
 function IntelligenceScreen() {
   const [competitors, setCompetitors] = React.useState([]);
   const [keywords,    setKeywords]    = React.useState([]);
+  const [companyName, setCompanyName] = React.useState('Your Store');
   const [showAddComp, setShowAddComp] = React.useState(false);
   const [newKw,       setNewKw]       = React.useState('');
   const [newKwCat,    setNewKwCat]    = React.useState('Tech Trends');
   const [tab,         setTab]         = React.useState('briefing');
+  const companyId = React.useMemo(() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } }, []);
 
-  const removeComp   = id => setCompetitors(p => p.filter(c => c.id !== id));
-  const toggleTrack  = (cid, opt) => setCompetitors(p => p.map(c => c.id===cid ? {...c, tracked: c.tracked.includes(opt) ? c.tracked.filter(x=>x!==opt) : [...c.tracked,opt]} : c));
-  const toggleKw     = id => setKeywords(p => p.map(k => k.id===id ? {...k,tracked:!k.tracked} : k));
-  const removeKw     = id => setKeywords(p => p.filter(k => k.id !== id));
-  const addKw        = () => { if(newKw.trim()){ setKeywords(p=>[...p,{id:`k-${Date.now()}`,keyword:newKw.trim(),category:newKwCat,tracked:true}]); setNewKw(''); }};
+  // Storage helpers — backend when company exists, localStorage fallback
+  const save = React.useCallback(async (comps, kws) => {
+    try {
+      localStorage.setItem('intel_competitors', JSON.stringify(comps));
+      localStorage.setItem('intel_keywords',    JSON.stringify(kws));
+      if (companyId) {
+        await api.updateCompany ? api.updateCompany(companyId, { intelligence_competitors: comps, intelligence_keywords: kws })
+                                : Promise.resolve();
+      }
+    } catch { /* non-critical */ }
+  }, [companyId]);
+
+  // Load on mount
+  React.useEffect(() => {
+    const loadData = async () => {
+      // Try backend first
+      if (companyId) {
+        try {
+          const { data } = await api.getCompany(companyId);
+          const co = data.company || data;
+          if (co.name) setCompanyName(co.name);
+          if (Array.isArray(co.intelligence_competitors) && co.intelligence_competitors.length > 0) {
+            setCompetitors(co.intelligence_competitors);
+            setKeywords(co.intelligence_keywords || []);
+            return;
+          }
+        } catch { /* fall through to localStorage */ }
+      }
+      // localStorage fallback
+      try {
+        const comps = JSON.parse(localStorage.getItem('intel_competitors') || '[]');
+        const kws   = JSON.parse(localStorage.getItem('intel_keywords')    || '[]');
+        if (comps.length) setCompetitors(comps);
+        if (kws.length)   setKeywords(kws);
+      } catch { /* ignore */ }
+    };
+    loadData();
+  }, [companyId]);
+
+  const removeComp   = id => { const next = competitors.filter(c => c.id !== id); setCompetitors(next); save(next, keywords); };
+  const toggleTrack  = (cid, opt) => { const next = competitors.map(c => c.id===cid ? {...c, tracked: c.tracked.includes(opt) ? c.tracked.filter(x=>x!==opt) : [...c.tracked,opt]} : c); setCompetitors(next); save(next, keywords); };
+  const toggleKw     = id => { const next = keywords.map(k => k.id===id ? {...k,tracked:!k.tracked} : k); setKeywords(next); save(competitors, next); };
+  const removeKw     = id => { const next = keywords.filter(k => k.id !== id); setKeywords(next); save(competitors, next); };
+  const addKw        = () => { if(newKw.trim()){ const next = [...keywords, {id:`k-${Date.now()}`,keyword:newKw.trim(),category:newKwCat,tracked:true}]; setKeywords(next); save(competitors, next); setNewKw(''); }};
 
   return (
     <div style={{ padding:'20px 16px 48px', maxWidth:960, margin:'0 auto' }}>
@@ -259,7 +301,7 @@ function IntelligenceScreen() {
 
       {tab === 'briefing' && (
         <div style={{ animation:'fadeSlideUp 0.3s ease-out' }}>
-          <AIInsightsPanel company="Acme Store" competitors={competitors} keywords={keywords}/>
+          <AIInsightsPanel company={companyName} competitors={competitors} keywords={keywords}/>
 
           {/* What to do with insights */}
           <div style={{ padding:'14px 16px', borderRadius:16, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>

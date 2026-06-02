@@ -326,6 +326,7 @@ export const resolveConflict = (id) => API.post(`/api/sync/conflicts/${id}/resol
 // ── Company Graph & Onboarding (v5.0) ─────────────────────────────────────────
 export const createCompany = (data) => API.post('/api/company', data);
 export const getCompany = (id) => API.get(`/api/company/${id}`);
+export const updateCompany = (id, data) => API.patch(`/api/company/${id}`, data);
 export const getCompanyGraph = (id) => API.get(`/api/company/${id}/graph`);
 export const syncCompanyGraph = (id) => API.post(`/api/company/${id}/graph/sync`);
 export const scanWebsite = (id, url) => API.post(`/api/company/${id}/scan/website`, { website_url: url });
@@ -341,3 +342,17 @@ export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/
 export const getPublicDoctorReport = () => API.get('/api/company/doctor/public');
 
 export default API;
+
+// MCP Servers
+export const listMcpServers   = ()         => API.get('/api/mcp/servers');
+export const createMcpServer  = (data)     => API.post('/api/mcp/servers', data);
+export const updateMcpServer  = (id, data) => API.patch(`/api/mcp/servers/${id}`, data);
+export const deleteMcpServer  = (id)       => API.delete(`/api/mcp/servers/${id}`);
+
+// Skills Registry
+export const listSkills           = (params = {})  => API.get('/api/skills', { params });
+export const refreshSkills        = ()              => API.post('/api/skills/refresh');
+export const recommendSkills      = (data)          => API.post('/api/skills/recommend', data);
+export const autoRecommendSkills  = (params = {})   => API.get('/api/skills/recommend/auto', { params });
+export const getSkill             = (skillId)       => API.get(`/api/skills/${encodeURIComponent(skillId)}`);
+
