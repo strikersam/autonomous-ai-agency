@@ -4826,6 +4826,38 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
     return {"summary_24h": summary, "recent_traces": recent}
 
 
+
+
+@app.get("/api/observability/traces")
+async def observability_traces(
+    limit: int = 50,
+    offset: int = 0,
+    user: dict = Depends(get_current_user),
+):
+    """Return paginated LLM traces from the local_metrics collection.
+
+    Each trace includes model, provider, token counts, latency, and timestamp.
+    Falls back to an empty list when Langfuse is not configured (local-only mode).
+    """
+    traces: list[dict] = []
+    try:
+        cursor = (
+            get_db()
+            .local_metrics.find({})
+            .sort("timestamp", -1)
+            .skip(offset)
+            .limit(max(1, min(limit, 200)))
+        )
+        async for m in cursor:
+            m["_id"] = str(m["_id"])
+            if hasattr(m.get("timestamp"), "isoformat"):
+                m["timestamp"] = m["timestamp"].isoformat()
+            traces.append(m)
+    except Exception as exc:
+        log.warning("observability_traces: DB query failed: %s", exc)
+
+    return {"traces": traces, "offset": offset, "limit": limit, "total": len(traces)}
+
 # ─── System / Platform Info ─────────────────────────────────────────────────────
 
 

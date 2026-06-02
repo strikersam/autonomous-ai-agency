@@ -112,6 +112,165 @@ class SecurityScanner:
         log.info("SecurityScanner: %d findings total", len(findings))
         return findings
 
+    def run_harness_audit(self) -> dict[str, Any]:
+        """Run a cross-harness security audit.
+
+        Checks that the agent harness configuration follows security best
+        practices for Claude Code, Cursor, Codex, OpenCode, and other
+        supported harnesses. Returns a structured audit report.
+        """
+        report: dict[str, Any] = {
+            "audit_id": "harness_" + _sec.token_hex(4),
+            "timestamp": _now(),
+            "harnesses": {},
+            "overall_score": 0,
+            "findings": [],
+        }
+
+        harnesses = {
+            "claude_code": self._root / ".claude",
+            "cursor": self._root / ".cursor",
+            "codex": self._root,
+            "opencode": self._root / ".opencode",
+        }
+
+        checks_passed = 0
+        checks_total = 0
+
+        for harness_name, harness_dir in harnesses.items():
+            harness_result: dict[str, Any] = {
+                "configured": harness_dir.exists(),
+                "checks": [],
+                "score": 0,
+            }
+            h_checks = 0
+            h_passed = 0
+
+            # Check: Skills directory
+            skills_dir = self._root / ".claude" / "skills"
+            if harness_name == "claude_code":
+                h_checks += 1
+                if skills_dir.exists() and list(skills_dir.rglob("SKILL.md")):
+                    h_passed += 1
+                    harness_result["checks"].append({
+                        "check": "skills_directory",
+                        "passed": True,
+                        "message": f"Found {len(list(skills_dir.rglob('SKILL.md')))} skills",
+                    })
+                else:
+                    harness_result["checks"].append({
+                        "check": "skills_directory",
+                        "passed": False,
+                        "message": "No skills directory or SKILL.md files",
+                    })
+
+            # Check: State directory
+            state_dir = self._root / ".claude" / "state"
+            if harness_name == "claude_code":
+                h_checks += 1
+                if state_dir.exists():
+                    h_passed += 1
+                    harness_result["checks"].append({
+                        "check": "state_directory",
+                        "passed": True,
+                        "message": "State directory present",
+                    })
+                else:
+                    harness_result["checks"].append({
+                        "check": "state_directory",
+                        "passed": False,
+                        "message": "State directory missing",
+                    })
+
+            # Check: No hardcoded secrets
+            h_checks += 1
+            if harness_dir.exists():
+                secret_count = 0
+                for env_file in harness_dir.rglob("*.env"):
+                    try:
+                        content = env_file.read_text(errors="replace")
+                        if any(p in content for p in ("API_KEY=", "SECRET=", "TOKEN=")):
+                            secret_count += 1
+                    except OSError:
+                        pass
+                if secret_count == 0:
+                    h_passed += 1
+                    harness_result["checks"].append({
+                        "check": "no_hardcoded_secrets",
+                        "passed": True,
+                        "message": "No hardcoded secrets in config",
+                    })
+                else:
+                    harness_result["checks"].append({
+                        "check": "no_hardcoded_secrets",
+                        "passed": False,
+                        "message": f"Found {secret_count} files with potential secrets",
+                    })
+            else:
+                h_passed += 1
+                harness_result["checks"].append({
+                    "check": "no_hardcoded_secrets",
+                    "passed": True,
+                    "message": "Harness not configured",
+                })
+
+            # Check: AGENTS.md exists
+            if harness_name == "claude_code":
+                agents_md = self._root / "AGENTS.md"
+                h_checks += 1
+                if agents_md.exists():
+                    try:
+                        content = agents_md.read_text(errors="replace")
+                        if len(content) > 500:
+                            h_passed += 1
+                            harness_result["checks"].append({
+                                "check": "agents_md",
+                                "passed": True,
+                                "message": f"AGENTS.md present ({len(content)} chars)",
+                            })
+                        else:
+                            harness_result["checks"].append({
+                                "check": "agents_md",
+                                "passed": False,
+                                "message": "AGENTS.md too short",
+                            })
+                    except OSError:
+                        harness_result["checks"].append({
+                            "check": "agents_md",
+                            "passed": False,
+                            "message": "AGENTS.md unreadable",
+                        })
+                else:
+                    harness_result["checks"].append({
+                        "check": "agents_md",
+                        "passed": False,
+                        "message": "AGENTS.md missing",
+                    })
+            else:
+                h_passed += 1
+                h_checks += 1
+                harness_result["checks"].append({
+                    "check": "agents_md",
+                    "passed": True,
+                    "message": "N/A for non-Claude harness",
+                })
+
+            harness_result["score"] = round(h_passed / max(1, h_checks) * 100, 1)
+            report["harnesses"][harness_name] = harness_result
+            checks_passed += h_passed
+            checks_total += h_checks
+
+        report["overall_score"] = round(checks_passed / max(1, checks_total) * 100, 1)
+        security_findings = self.run_all()
+        report["findings"] = [f.as_dict() for f in security_findings]
+        report["security_findings_count"] = len(security_findings)
+
+        log.info(
+            "SecurityScanner/harness_audit: overall=%.1f%% findings=%d",
+            report["overall_score"], len(security_findings),
+        )
+        return report
+
     # ── Bandit (SAST) ─────────────────────────────────────────────────────────
 
     def _run_bandit(self) -> list[SecurityFinding]:
@@ -258,3 +417,9 @@ def _tool_available(name: str) -> bool:
     """Return True if *name* is on PATH."""
     import shutil
     return shutil.which(name) is not None
+
+
+def _now() -> str:
+    """Return current UTC timestamp as ISO string."""
+    import time as _time
+    return _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())

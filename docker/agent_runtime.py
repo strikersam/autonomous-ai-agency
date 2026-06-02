@@ -382,9 +382,9 @@ async def run_task(req: RuntimeTaskRequest):
         TASK_RESULTS[req.task_id] = result
         return result
     except httpx.HTTPError as e:
-        raise HTTPException(status_code=503, detail=f"Backend error: {e}")
+        raise HTTPException(status_code=503, detail="Backend unavailable")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/tasks/{task_id}")
@@ -419,9 +419,9 @@ async def run_instruction(req: RuntimeRunRequest):
         }
         return result
     except httpx.HTTPError as e:
-        raise HTTPException(status_code=503, detail=f"Backend error: {e}")
+        raise HTTPException(status_code=503, detail="Backend unavailable")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/v1/chat/completions")
@@ -457,9 +457,9 @@ async def chat_completions(req: ChatRequest):
             },
         }
     except httpx.HTTPError as e:
-        raise HTTPException(status_code=503, detail=f"Backend error: {e}")
+        raise HTTPException(status_code=503, detail="Backend unavailable")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 if __name__ == "__main__":

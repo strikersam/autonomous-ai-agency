@@ -1,5 +1,6 @@
 import React from 'react';
 import { APP_NAME, APP_LABEL } from '../version';
+import { useAuth } from '../AuthContext';
 
 
 // nav.jsx — Agency Core navigation (clean, all screens)
@@ -65,7 +66,7 @@ function AgentStatus({ running }) {
   );
 }
 
-function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin }) {
+function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin, user, onLogout }) {
   const sections = [...new Set(NAV_ITEMS.map(n => n.section))];
   const visible  = NAV_ITEMS.filter(n => !n.adminOnly || isAdmin);
   return (
@@ -116,15 +117,20 @@ function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin }
       {/* User footer */}
       <div style={{ padding:'10px 8px', borderTop:'1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:10, background:'rgba(255,255,255,0.03)' }}>
-          <div style={{ width:28, height:28, borderRadius:'50%', background:'linear-gradient(135deg,var(--accent),#3a7fe8)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:'#06111f', flexShrink:0 }}>S</div>
+          <div style={{ width:28, height:28, borderRadius:'50%', background:'linear-gradient(135deg,var(--accent),#3a7fe8)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:'#06111f', flexShrink:0 }}>
+            {(user?.name || user?.email || '?')[0].toUpperCase()}
+          </div>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-              <span style={{ fontSize:12, fontWeight:600, color:'var(--text-primary)' }}>Sam Striker</span>
+              <span style={{ fontSize:12, fontWeight:600, color:'var(--text-primary)' }}>{user?.name || user?.email || 'User'}</span>
               {isAdmin && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:4, color:'#ff6b7d', background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.20)' }}>admin</span>}
             </div>
-            <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>admin@llmrelay.local</div>
+            <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.email || ''}</div>
           </div>
-          <button style={{ display:'flex', alignItems:'center', justifyContent:'center', width:26, height:26, borderRadius:8, background:'transparent', border:'none', cursor:'pointer', color:'var(--text-muted)', flexShrink:0 }}
+          <button
+            title="Log out"
+            onClick={onLogout}
+            style={{ display:'flex', alignItems:'center', justifyContent:'center', width:26, height:26, borderRadius:8, background:'transparent', border:'none', cursor:'pointer', color:'var(--text-muted)', flexShrink:0 }}
             onMouseEnter={e=>{ e.currentTarget.style.color='var(--danger)'; e.currentTarget.style.background='rgba(255,107,125,0.10)'; }}
             onMouseLeave={e=>{ e.currentTarget.style.color='var(--text-muted)'; e.currentTarget.style.background='transparent'; }}>
             <Icon name="LogOut" size={12}/>
@@ -228,17 +234,18 @@ function MobileTopBar({ title, subtitle, onMenuOpen }) {
 }
 
 function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin }) {
+  const { user: authUser, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const navItem = NAV_ITEMS.find(n => n.id === activeScreen) || NAV_ITEMS[0];
   return (
     <div style={{ display:'flex', height:'100dvh', overflow:'hidden', background:'var(--bg-base)' }}>
       <div className="desktop-sidebar" style={{ width:252, flexShrink:0, height:'100%', flexDirection:'column' }}>
-        <SidebarNav activeScreen={activeScreen} onNavigate={onNavigate} agentRunning={agentRunning} isAdmin={isAdmin}/>
+        <SidebarNav activeScreen={activeScreen} onNavigate={onNavigate} agentRunning={agentRunning} isAdmin={isAdmin} user={authUser} onLogout={logout}/>
       </div>
       {sidebarOpen && (
         <div style={{ position:'fixed', inset:0, zIndex:60, background:'rgba(0,0,0,0.65)', backdropFilter:'blur(4px)' }} onClick={()=>setSidebarOpen(false)}>
           <div style={{ position:'absolute', left:0, top:0, bottom:0, width:'min(84vw,280px)' }} onClick={e=>e.stopPropagation()}>
-            <SidebarNav activeScreen={activeScreen} onNavigate={onNavigate} onClose={()=>setSidebarOpen(false)} agentRunning={agentRunning} isAdmin={isAdmin}/>
+            <SidebarNav activeScreen={activeScreen} onNavigate={onNavigate} onClose={()=>setSidebarOpen(false)} agentRunning={agentRunning} isAdmin={isAdmin} user={authUser} onLogout={logout}/>
           </div>
         </div>
       )}
