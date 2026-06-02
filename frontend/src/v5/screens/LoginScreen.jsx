@@ -1,20 +1,27 @@
-/* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
+/* eslint-disable jsx-a11y/anchor-is-valid */
 import React from 'react';
+import { useAuth } from '../../AuthContext';
 
-
-// login.jsx — LLM Relay V5.0 Sign In
-
-function LoginScreen({ onLogin }) {
-  const [email, setEmail]       = React.useState('admin@llmrelay.local');
+// LoginScreen — wired to real /api/auth/login via AuthContext
+function LoginScreen() {
+  const { login } = useAuth();
+  const [email, setEmail]       = React.useState('');
   const [password, setPassword] = React.useState('');
   const [loading, setLoading]   = React.useState(false);
   const [error, setError]       = React.useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e && e.preventDefault();
     if (!email.trim() || !password.trim()) { setError('Enter your email and password.'); return; }
     setLoading(true); setError('');
-    setTimeout(() => { setLoading(false); onLogin && onLogin({ email, role: 'admin', name: 'Sam Striker' }); }, 900);
+    try {
+      await login(email.trim(), password);
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || 'Login failed. Check your credentials.';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -35,7 +42,6 @@ function LoginScreen({ onLogin }) {
         borderRadius: 24, padding: '36px 32px',
         boxShadow: '0 32px 80px rgba(0,0,0,0.5)',
         backdropFilter: 'blur(20px)',
-        animation: 'fadeSlideUp 0.4s ease-out',
       }}>
         {/* Logo */}
         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', marginBottom:28 }}>
@@ -50,83 +56,53 @@ function LoginScreen({ onLogin }) {
               <path d="M15 2v2M15 20v2M9 2v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/>
             </svg>
           </div>
-          <div style={{ fontSize:22, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1 }}>LLM Relay</div>
-          <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.18em', textTransform:'uppercase', marginTop:4 }}>V5.0 · Agency Core</div>
+          <div style={{ fontSize:20, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>LLM Relay</div>
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)', marginTop:3, fontFamily:'var(--font-mono)' }}>Agency Core v5</div>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            <label style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.5)', letterSpacing:'0.06em', textTransform:'uppercase' }}>Email</label>
+            <input
+              type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="you@yourcompany.com" autoComplete="email" autoFocus
+              style={{ width:'100%', padding:'11px 14px', borderRadius:12, fontSize:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', outline:'none' }}
+              onFocus={e => e.target.style.borderColor='rgba(93,162,255,0.5)'}
+              onBlur={e => e.target.style.borderColor='rgba(255,255,255,0.10)'}
+            />
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            <label style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.5)', letterSpacing:'0.06em', textTransform:'uppercase' }}>Password</label>
+            <input
+              type="password" value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••" autoComplete="current-password"
+              style={{ width:'100%', padding:'11px 14px', borderRadius:12, fontSize:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', outline:'none' }}
+              onFocus={e => e.target.style.borderColor='rgba(93,162,255,0.5)'}
+              onBlur={e => e.target.style.borderColor='rgba(255,255,255,0.10)'}
+            />
+          </div>
+
           {error && (
-            <div style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.22)', fontSize:12, color:'#ff6b7d', animation:'fadeSlideUp 0.2s ease-out' }}>
+            <div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:13 }}>
               {error}
             </div>
           )}
 
-          <div>
-            <label style={{ display:'block', fontSize:11, fontWeight:600, color:'var(--text-tertiary)', marginBottom:6, letterSpacing:'0.05em' }}>Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@llmrelay.local"
-              style={{ width:'100%', padding:'11px 14px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:14, outline:'none', fontFamily:'var(--font-main)', transition:'border-color 0.2s' }}
-              onFocus={e => e.target.style.borderColor='rgba(93,162,255,0.55)'}
-              onBlur={e => e.target.style.borderColor='rgba(255,255,255,0.12)'}/>
-          </div>
-
-          <div>
-            <label style={{ display:'block', fontSize:11, fontWeight:600, color:'var(--text-tertiary)', marginBottom:6, letterSpacing:'0.05em' }}>Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
-              style={{ width:'100%', padding:'11px 14px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:14, outline:'none', fontFamily:'var(--font-main)', transition:'border-color 0.2s' }}
-              onFocus={e => e.target.style.borderColor='rgba(93,162,255,0.55)'}
-              onBlur={e => e.target.style.borderColor='rgba(255,255,255,0.12)'}/>
-          </div>
-
-          <button type="submit" disabled={loading} style={{
-            marginTop:4, padding:'13px', borderRadius:14, fontSize:14, fontWeight:800, cursor:'pointer',
-            background:'linear-gradient(135deg,#6CB0FF 0%,#4F93FF 100%)',
-            color:'#06111f', border:'none', boxShadow:'0 8px 24px rgba(93,162,255,0.28)',
-            opacity: loading ? 0.7 : 1, transition:'all 0.2s ease',
-            display:'flex', alignItems:'center', justifyContent:'center', gap:8,
-          }}>
-            {loading ? <><div style={{ width:14,height:14,border:'2px solid rgba(0,0,0,0.2)',borderTopColor:'#06111f',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>Signing in…</> : 'Sign in →'}
+          <button
+            type="submit" disabled={loading}
+            style={{
+              width:'100%', padding:'13px', borderRadius:14, fontSize:14, fontWeight:700,
+              background: loading ? 'rgba(93,162,255,0.3)' : 'linear-gradient(135deg,#6CB0FF 0%,#3A7FE8 100%)',
+              border:'none', color:'#fff', cursor: loading ? 'not-allowed' : 'pointer',
+              boxShadow: loading ? 'none' : '0 4px 18px rgba(93,162,255,0.35)',
+              transition:'all 0.2s ease', marginTop:4,
+            }}>
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
-        {/* Divider */}
-        <div style={{ display:'flex', alignItems:'center', gap:10, margin:'20px 0 16px' }}>
-          <div style={{ flex:1, height:1, background:'rgba(255,255,255,0.08)' }}/>
-          <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>or continue with</span>
-          <div style={{ flex:1, height:1, background:'rgba(255,255,255,0.08)' }}/>
-        </div>
-
-        {/* Social */}
-        <div style={{ display:'flex', gap:8 }}>
-          {[
-            { label:'GitHub', icon:'⎇' },
-            { label:'Google', icon:'◎' },
-            { label:'SSO',    icon:'◈' },
-          ].map(s => (
-            <button key={s.label} style={{
-              flex:1, padding:'10px 8px', borderRadius:12, fontSize:12, fontWeight:600, cursor:'pointer',
-              background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)',
-              color:'var(--text-secondary)', display:'flex', alignItems:'center', justifyContent:'center', gap:5,
-              transition:'all 0.15s ease',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background='rgba(255,255,255,0.08)'; e.currentTarget.style.color='#fff'; }}
-            onMouseLeave={e => { e.currentTarget.style.background='rgba(255,255,255,0.04)'; e.currentTarget.style.color='var(--text-secondary)'; }}>
-              <span style={{ fontSize:13 }}>{s.icon}</span>{s.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div style={{ marginTop:20, fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textAlign:'center', lineHeight:1.8 }}>
-        <span style={{ color:'rgba(93,162,255,0.7)' }}>LLM Relay V5.0</span> · Self-hosted · Your data stays yours<br/>
-        <a href="#" style={{ color:'var(--text-muted)', textDecoration:'none' }}>Docs</a>
-        {' · '}
-        <a href="#" style={{ color:'var(--text-muted)', textDecoration:'none' }}>GitHub</a>
       </div>
     </div>
   );
 }
 
-export { LoginScreen };
 export default LoginScreen;

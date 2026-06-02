@@ -1,16 +1,8 @@
-/* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
+/* eslint-disable jsx-a11y/anchor-is-valid */
 import React from 'react';
+import * as api from '../../api';
 
-
-// alerts.jsx — Notification bell + priority alerts panel (overlay, not a full screen)
-
-const INITIAL_ALERTS = [
-  { id:'al-1', priority:'P1', title:'3 tests failing on master',       body:'pytest cart/checkout.test.ts — 3 failures. Dev Agent is already working on it.',   type:'ci',       ts:'2m ago',  read:false, action:{ label:'View task', screen:'tasks' } },
-  { id:'al-2', priority:'P2', title:'Security: CVE in requests==2.28', body:'High severity CVE detected in dependency tree. Security Agent queued for remediation.', type:'security', ts:'14m ago', read:false, action:{ label:'View scan', screen:'doctor' } },
-  { id:'al-3', priority:'P2', title:'Approval needed: PR #1845',        body:'Release Agent is waiting for your sign-off on the v5.0 changelog before merging.',   type:'approval', ts:'45m ago', read:false, action:{ label:'Review PR', screen:'tasks' } },
-  { id:'al-4', priority:'P3', title:'Langfuse disconnected',           body:'Traces and observability data unavailable. Cost estimates may be inaccurate.',        type:'infra',    ts:'1h ago',  read:true,  action:{ label:'Fix now', screen:'doctor' } },
-  { id:'al-5', priority:'P3', title:'Quick note implemented',          body:'"Add skeleton loading to dashboard widgets" was shipped in commit a3f82c1.',         type:'note',     ts:'2h ago',  read:true,  action:null },
-];
+const POLL_MS = 30_000; // refresh every 30 seconds
 
 const priorityConfig = {
   P1: { color:'#ff6b7d', bg:'rgba(255,107,125,0.10)', border:'rgba(255,107,125,0.25)', icon:'🔴', label:'Critical' },
@@ -18,7 +10,40 @@ const priorityConfig = {
   P3: { color:'#5da2ff', bg:'rgba(93,162,255,0.08)',  border:'rgba(93,162,255,0.18)',  icon:'🔵', label:'Info' },
 };
 
-const typeIcon = { ci:'⚙', security:'🔒', approval:'◈', infra:'◎', note:'📝' };
+const typeIcon = { ci:'⚙', security:'🔒', approval:'◈', infra:'◎', note:'📝', task:'✓', agent:'🤖', error:'⚠' };
+
+/** Map a raw activity record from /api/activity to our alert shape */
+function activityToAlert(item) {
+  const id = item.id || item._id || String(Math.random());
+  const ts  = item.created_at || item.timestamp || '';
+  const age = ts ? _relativeTime(ts) : '';
+
+  // Determine priority from severity / type
+  let priority = 'P3';
+  const kind = (item.type || item.category || '').toLowerCase();
+  if (item.severity === 'error' || kind === 'error' || kind === 'ci' || kind === 'security') priority = 'P1';
+  else if (item.severity === 'warning' || kind === 'approval') priority = 'P2';
+
+  return {
+    id,
+    priority,
+    title: item.title || item.action || item.type || 'Activity',
+    body:  item.description || item.detail || item.message || '',
+    type:  kind || 'note',
+    ts:    age,
+    read:  false,
+    action: item.screen ? { label: 'View', screen: item.screen } : null,
+    _raw:  item,
+  };
+}
+
+function _relativeTime(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000)  return `${Math.round(diff / 1000)}s ago`;
+  if (diff < 3600_000) return `${Math.round(diff / 60_000)}m ago`;
+  if (diff < 86400_000) return `${Math.round(diff / 3600_000)}h ago`;
+  return `${Math.round(diff / 86400_000)}d ago`;
+}
 
 function AlertItem({ alert, onRead, onDismiss, onAction }) {
   const pc = priorityConfig[alert.priority] || priorityConfig.P3;
@@ -28,7 +53,6 @@ function AlertItem({ alert, onRead, onDismiss, onAction }) {
       background: alert.read ? 'rgba(255,255,255,0.02)' : pc.bg,
       border:`1px solid ${alert.read ? 'rgba(255,255,255,0.07)' : pc.border}`,
       transition:'all 0.2s ease', cursor:'pointer',
-      animation:'fadeSlideUp 0.25s ease-out',
     }}
     onClick={() => onRead(alert.id)}>
       <div style={{ display:'flex', alignItems:'flex-start', gap:9, marginBottom:6 }}>
@@ -59,7 +83,6 @@ function AlertItem({ alert, onRead, onDismiss, onAction }) {
         <button onClick={e => { e.stopPropagation(); onAction(alert); }} style={{
           marginTop:4, padding:'5px 12px', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer',
           background:`${pc.color}15`, border:`1px solid ${pc.color}25`, color:pc.color,
-          transition:'all 0.15s ease',
         }}
         onMouseEnter={e => e.currentTarget.style.background=`${pc.color}25`}
         onMouseLeave={e => e.currentTarget.style.background=`${pc.color}15`}>
@@ -70,16 +93,62 @@ function AlertItem({ alert, onRead, onDismiss, onAction }) {
   );
 }
 
-// Bell button — rendered in nav/topbar area
 function AlertsBell({ onNavigate }) {
-  const [open, setOpen]       = React.useState(false);
-  const [alerts, setAlerts]   = React.useState(INITIAL_ALERTS);
+  const [open, setOpen]         = React.useState(false);
+  const [alerts, setAlerts]     = React.useState([]);
+  const [dismissed, setDismissed] = React.useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('dismissed_alerts') || '[]')); }
+    catch { return new Set(); }
+  });
+  const [readIds, setReadIds]   = React.useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('read_alerts') || '[]')); }
+    catch { return new Set(); }
+  });
+
+  const fetchAlerts = React.useCallback(async () => {
+    try {
+      const { data } = await api.getActivity(30);
+      const raw = Array.isArray(data) ? data : (data?.items || data?.activities || []);
+      const mapped = raw
+        .map(activityToAlert)
+        .filter(a => !dismissed.has(a.id))
+        .map(a => ({ ...a, read: readIds.has(a.id) }));
+      setAlerts(mapped);
+    } catch {
+      // Silently fail — don't break the UI if activity is unavailable
+    }
+  }, [dismissed, readIds]);
+
+  React.useEffect(() => {
+    fetchAlerts();
+    const timer = setInterval(fetchAlerts, POLL_MS);
+    return () => clearInterval(timer);
+  }, [fetchAlerts]);
+
   const unreadCount = alerts.filter(a => !a.read).length;
   const p1Count     = alerts.filter(a => a.priority === 'P1' && !a.read).length;
 
-  const markRead    = id => setAlerts(p => p.map(a => a.id===id?{...a,read:true}:a));
-  const dismiss     = id => setAlerts(p => p.filter(a => a.id!==id));
-  const markAllRead = () => setAlerts(p => p.map(a => ({...a,read:true})));
+  const markRead = (id) => {
+    const next = new Set([...readIds, id]);
+    setReadIds(next);
+    localStorage.setItem('read_alerts', JSON.stringify([...next]));
+    setAlerts(p => p.map(a => a.id === id ? { ...a, read: true } : a));
+  };
+
+  const dismiss = (id) => {
+    const next = new Set([...dismissed, id]);
+    setDismissed(next);
+    localStorage.setItem('dismissed_alerts', JSON.stringify([...next]));
+    setAlerts(p => p.filter(a => a.id !== id));
+  };
+
+  const markAllRead = () => {
+    const ids = alerts.map(a => a.id);
+    const next = new Set([...readIds, ...ids]);
+    setReadIds(next);
+    localStorage.setItem('read_alerts', JSON.stringify([...next]));
+    setAlerts(p => p.map(a => ({ ...a, read: true })));
+  };
 
   const handleAction = (alert) => {
     markRead(alert.id);
@@ -89,9 +158,7 @@ function AlertsBell({ onNavigate }) {
 
   return (
     <>
-      {/* Overlay to close */}
       {open && <div style={{ position:'fixed', inset:0, zIndex:149 }} onClick={() => setOpen(false)}/>}
-
       <button onClick={() => setOpen(o => !o)} style={{
         position:'fixed', top:14, right:16, zIndex:150,
         width:38, height:38, borderRadius:12,
@@ -100,9 +167,7 @@ function AlertsBell({ onNavigate }) {
         boxShadow:'0 4px 16px rgba(0,0,0,0.35)', backdropFilter:'blur(12px)',
         display:'flex', alignItems:'center', justifyContent:'center',
         cursor:'pointer', transition:'all 0.2s ease',
-        animation: p1Count>0 ? 'pulse 2s infinite' : 'none',
-      }}
-      title="Alerts">
+      }} title="Alerts">
         <span style={{ fontSize:15 }}>🔔</span>
         {unreadCount > 0 && (
           <span style={{
@@ -112,7 +177,7 @@ function AlertsBell({ onNavigate }) {
             fontSize:9, fontFamily:'var(--font-mono)', fontWeight:800, color:'#fff',
             display:'flex', alignItems:'center', justifyContent:'center',
             boxShadow:'0 2px 6px rgba(0,0,0,0.4)',
-          }}>{unreadCount}</span>
+          }}>{unreadCount > 9 ? '9+' : unreadCount}</span>
         )}
       </button>
 
@@ -125,10 +190,8 @@ function AlertsBell({ onNavigate }) {
           borderRadius:20, overflow:'hidden',
           boxShadow:'0 24px 60px rgba(0,0,0,0.55)',
           backdropFilter:'blur(20px)',
-          animation:'fadeSlideUp 0.22s ease-out',
           maxHeight:'80vh', display:'flex', flexDirection:'column',
         }}>
-          {/* Header */}
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px 12px', borderBottom:'1px solid rgba(255,255,255,0.08)', flexShrink:0 }}>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
               <span style={{ fontSize:14 }}>🔔</span>
@@ -148,8 +211,6 @@ function AlertsBell({ onNavigate }) {
               <button onClick={() => setOpen(false)} style={{ width:24, height:24, borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(255,255,255,0.06)', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:12 }}>✕</button>
             </div>
           </div>
-
-          {/* Alerts list */}
           <div style={{ flex:1, overflowY:'auto', padding:'10px 12px', display:'flex', flexDirection:'column', gap:8 }} className="scrollbar-hide">
             {alerts.length === 0 ? (
               <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>All clear — no active alerts.</div>
