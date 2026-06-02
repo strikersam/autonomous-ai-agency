@@ -157,6 +157,9 @@ class CoworkSession:
         if contributor is None:
             return False
         contributor.role = role
+        # Revoke edit control if the demoted user is currently active editor
+        if role == SessionRole.OBSERVER and self.active_editor == user_id:
+            self.active_editor = None
         return True
 
     @property
