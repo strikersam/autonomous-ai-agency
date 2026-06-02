@@ -180,6 +180,7 @@ class HarnessAdapter:
             **request,
             "harness": self.harness.value,
             "context_type": "current_file",
+            "stream": False,  # Codex doesn't support streaming
             "streaming": False,  # Codex doesn't support streaming
         }
 
