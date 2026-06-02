@@ -1,0 +1,43 @@
+# =============================================================================
+# CodeQL Configuration for local-llm-server
+# =============================================================================
+# Workspace-level configuration to reduce noise while maintaining coverage.
+# Only paths-ignore is guaranteed to work - query exclusions may not apply.
+# =============================================================================
+
+queries:
+  # Use security-extended for comprehensive coverage
+  - uses: security-extended
+
+# Paths to exclude from analysis
+paths-ignore:
+  # Dependencies
+  - node_modules/
+  - frontend/node_modules/
+  - .venv/
+  - venv/
+  - .eggs/
+  - "*.egg-info/"
+  
+  # Build artifacts
+  - build/
+  - dist/
+  - .tox/
+  - htmlcov/
+  
+  # Test files have different security posture
+  - "**/test_*.py"
+  - "**/*_test.py"
+  - tests/
+  - frontend/tests/
+  - "**/fixtures/**"
+  
+  # CI scripts intentionally use shell=True for controlled agent execution
+  # with # nosec B602 annotations - known acceptable pattern
+  - .github/scripts/
+  
+  # Generated files
+  - "__pycache__/"
+  - "*.pyc"
+  - .git/
+  - "*.py.bak"
