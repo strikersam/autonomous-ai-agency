@@ -48,6 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER_OVERRIDE: ${{ github.event.inputs.issue_number }}
+          REPO: $REPO
         run: |
           if [ -n "$ISSUE_NUMBER_OVERRIDE" ]; then
             NUM="$ISSUE_NUMBER_OVERRIDE"
@@ -55,7 +56,7 @@ jobs:
           else
             # Oldest open quick-note that has not exhausted retries
             NUM=$(gh issue list \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --state open \
               --search "quick-note: in:title -label:quick-note:exhausted" \
               --json number \
@@ -76,10 +77,11 @@ jobs:
         if: steps.pick.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: $REPO
         run: |
           NUM="${{ steps.pick.outputs.number }}"
           BODY=$(gh issue view "$NUM" \
-            --repo "${{ github.repository }}" --json body -q .body)
+            --repo "$REPO" --json body -q .body)
 
           # Extract first https:// URL from body
           URL=$(echo "$BODY" | grep -oE 'https?://[^[:space:]>)]+' | head -1)
@@ -92,7 +94,7 @@ jobs:
 
           # Read retry count from labels (label format: retry:N)
           RETRY=$(gh issue view "$NUM" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --json labels \
             -q '.labels[].name' \
             | grep -oE 'retry:[0-9]+' \
@@ -111,6 +113,7 @@ jobs:
         if: steps.pick.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: $REPO
         run: |
           RETRY="${{ steps.issue.outputs.retry }}"
           if [ "$RETRY" -gt 0 ]; then
@@ -119,7 +122,7 @@ jobs:
             MSG="⏳ Processing started — fetching \`${{ steps.issue.outputs.url }}\`"
           fi
           gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" --body "$MSG"
+            --repo "$REPO" --body "$MSG"
 
       # ── 5. Python + Node setup ─────────────────────────────────────────────
       - uses: actions/setup-python@v5
@@ -146,7 +149,7 @@ jobs:
           URL="${{ steps.issue.outputs.url }}"
           if [ -z "$URL" ]; then
             gh issue comment "${{ steps.issue.outputs.number }}" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --body "$(cat <<'MSG'
           ❌ No URL found in the issue body.
 
@@ -166,7 +169,7 @@ jobs:
             printf 'Source URL: %s\n\n[URL content unavailable — fetch exited %s.]\nImplement features based on the task description and your knowledge of the topic at %s.\n' \
               "${URL}" "${FETCH_EXIT}" "${URL}" > /tmp/note_content.txt
             gh issue comment "${{ steps.issue.outputs.number }}" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --body "⚠️ Could not fetch \`${URL}\` (fetch exit ${FETCH_EXIT}). Proceeding with task description only." \
               2>/dev/null || true
           fi
@@ -270,7 +273,7 @@ jobs:
           " 2>/dev/null || echo "")
 
           gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --body "$(cat <<MSG
           ✅ Done — no code changes needed.
 
@@ -280,7 +283,7 @@ jobs:
           MSG
           )"
           gh issue close "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --reason completed
 
       # ── 11. Create pull request ────────────────────────────────────────────
@@ -316,7 +319,7 @@ jobs:
           )"
 
           PR_URL=$(gh pr create \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --title "feat: implement quick-note issue #${{ steps.issue.outputs.number }}" \
             --body "$PR_BODY" \
             --base master \
@@ -324,7 +327,7 @@ jobs:
             # gh pr create may fail if a PR already exists for this branch; recover it
             echo "WARN: gh pr create failed ($PR_URL) — checking for existing PR on branch"
             PR_URL=$(gh pr list \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --head "${{ steps.branch.outputs.branch }}" \
               --state open \
               --json url \
@@ -354,7 +357,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY: $REPO
         run: |
           python3 .github/scripts/apply_review.py \
             "${{ steps.pr.outputs.pr_number }}" \
@@ -407,7 +410,7 @@ jobs:
 
           REVIEW_BODY=$(tail -60 /tmp/review_output.txt)
           gh pr comment "${{ steps.pr.outputs.pr_number }}" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --body "## Council Review
 
           \`\`\`
@@ -428,7 +431,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr merge "${{ steps.pr.outputs.pr_number }}" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --squash \
             --delete-branch \
             --admin \
@@ -459,7 +462,7 @@ jobs:
           fi
 
           gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --body "$(cat <<MSG
           ✅ Done — PR #${{ steps.pr.outputs.pr_number }} merged into master (branch deleted).
 
@@ -470,7 +473,7 @@ jobs:
           MSG
           )"
           gh issue close "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --reason completed
 
       # ── 15. Leave PR open when council returns FAIL ────────────────────────
@@ -482,7 +485,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --body "$(cat <<MSG
           ⚠️ Council review returned **FAIL** — PR #${{ steps.pr.outputs.pr_number }} needs human review before merging.
 
@@ -501,7 +504,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --body "$(cat <<MSG
           ⚠️ PR #${{ steps.pr.outputs.pr_number }} created (council: **${{ steps.review.outputs.verdict }}**) but auto-merge failed.
 
@@ -548,19 +551,19 @@ jobs:
 
           # Remove old retry label (best-effort)
           gh issue edit "$ISSUE" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --remove-label "retry:${RETRY}" 2>/dev/null || true
 
           if [ "$NEW_RETRY" -ge "$MAX_RETRIES" ]; then
             # Exhausted — label and leave open for human
             gh label create "quick-note:exhausted" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --color "b60205" --description "Retries exhausted" 2>/dev/null || true
             gh issue edit "$ISSUE" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --add-label "quick-note:exhausted" 2>/dev/null || true
             gh issue comment "$ISSUE" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --body "$(cat <<MSG
           ❌ Failed after ${MAX_RETRIES} attempts — manual intervention required.
 
@@ -573,16 +576,16 @@ jobs:
           else
             # Create retry label if it doesn't exist
             gh label create "retry:${NEW_RETRY}" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --color "e4e669" \
               --description "Auto-retry attempt ${NEW_RETRY}" 2>/dev/null || true
             gh issue edit "$ISSUE" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --add-label "retry:${NEW_RETRY}" 2>/dev/null || true
             gh issue reopen "$ISSUE" \
-              --repo "${{ github.repository }}" 2>/dev/null || true
+              --repo "$REPO" 2>/dev/null || true
             gh issue comment "$ISSUE" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --body "$(cat <<MSG
           ⚠️ Attempt ${RETRY} failed — reopening for automatic retry (${NEW_RETRY}/${MAX_RETRIES}).
 
