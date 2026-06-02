@@ -54,7 +54,8 @@ class SprintMetrics:
     total_points: int = 0
     completed_points: int = 0
     average_velocity: float = 0.0
-    days_remaining: int = 0
+    days_remaining: float = 0.0
+    sprint_duration_days: int = 14
 
     @property
     def completion_percentage(self) -> float:
@@ -76,7 +77,8 @@ class SprintMetrics:
         """Whether the sprint is on track to complete."""
         if self.days_remaining <= 0:
             return self.completed_points >= self.total_points
-        return self.burndown_rate <= self.average_velocity
+        daily_velocity = self.average_velocity / max(self.sprint_duration_days, 1)
+        return self.burndown_rate <= daily_velocity
 
 
 @dataclass
@@ -147,12 +149,13 @@ class AgileSprint:
         days_remaining = 0
         if self.end_date is not None:
             delta = self.end_date - datetime.now(timezone.utc)
-            days_remaining = max(0, delta.days)
+            days_remaining = max(0.0, delta.total_seconds() / 86400)
         return SprintMetrics(
             total_points=total,
             completed_points=completed,
             average_velocity=avg_vel,
             days_remaining=days_remaining,
+            sprint_duration_days=(self.end_date - self.start_date).days if self.end_date and self.start_date else 14,
         )
 
     @property
