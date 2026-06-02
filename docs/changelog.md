@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Added
+- **CodeQL required check enforcement (`.github/workflows/codeql.yml`).** New CodeQL analysis workflow runs `security-extended` and `security-and-quality` query suites on every PR to master (Python + JavaScript/TypeScript). Added `Analyze (python)` and `Analyze (javascript-typescript)` as required status checks on master branch protection — PRs are now blocked when CodeQL finds security issues, preventing silent alert accumulation.
+
 ### Fixed
 - **`deploy-frontend.yml` action version bumps**: `upload-pages-artifact@v3`→`@v5`, `deploy-pages@v4`→`@v5` to match `deploy-pages.yml` (fixed last cycle in PR #287).
 
