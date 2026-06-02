@@ -177,6 +177,10 @@ function mapActivity(log, index) {
 function KnowledgeScreen() {
   const [tab, setTab]           = React.useState('activity');
   const [showAdd, setShowAdd]   = React.useState(false);
+  const [showNewDoc, setShowNewDoc] = React.useState(false);
+  const [newDocTitle, setNewDocTitle] = React.useState('');
+  const [newDocBody,  setNewDocBody]  = React.useState('');
+  const [newDocSaving, setNewDocSaving] = React.useState(false);
   const [search, setSearch]     = React.useState('');
   const [actFilter, setActFilter] = React.useState('all');
   const [removingId, setRemovingId] = React.useState(null);
@@ -276,7 +280,7 @@ function KnowledgeScreen() {
       {tab === 'docs' && (
         <div style={{ animation:'fadeSlideUp 0.3s ease-out' }}>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
-            <button style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)' }}>+ New doc</button>
+            <button onClick={() => setShowNewDoc(true)} style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)' }}>+ New doc</button>
           </div>
           {states.pages?.loading && docs.length === 0 ? (
             <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>Loading docs…</div>
@@ -298,6 +302,28 @@ function KnowledgeScreen() {
             <button onClick={() => setShowAdd(true)} style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)' }}>+ Add source</button>
           </div>
           {showAdd && <AddSourceForm onIngest={handleIngest} onClose={() => setShowAdd(false)}/>}
+
+      {showNewDoc && (
+        <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <form onSubmit={handleCreateDoc} style={{ background:'rgba(10,13,18,0.98)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:20, padding:'28px 24px', width:'100%', maxWidth:480, display:'flex', flexDirection:'column', gap:14 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:'#fff', marginBottom:4 }}>New document</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              <label style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.5)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Title</label>
+              <input autoFocus value={newDocTitle} onChange={e => setNewDocTitle(e.target.value)} placeholder="e.g. API Reference" style={{ padding:'10px 14px', borderRadius:10, fontSize:13, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', outline:'none' }} />
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              <label style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.5)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Content (optional)</label>
+              <textarea rows={5} value={newDocBody} onChange={e => setNewDocBody(e.target.value)} placeholder="Start writing in Markdown…" style={{ padding:'10px 14px', borderRadius:10, fontSize:13, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', outline:'none', resize:'vertical', fontFamily:'var(--font-mono)' }} />
+            </div>
+            <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:4 }}>
+              <button type="button" onClick={() => { setShowNewDoc(false); setNewDocTitle(''); setNewDocBody(''); }} style={{ padding:'9px 18px', borderRadius:10, fontSize:13, fontWeight:700, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-secondary)', cursor:'pointer' }}>Cancel</button>
+              <button type="submit" disabled={!newDocTitle.trim() || newDocSaving} style={{ padding:'9px 18px', borderRadius:10, fontSize:13, fontWeight:700, background:newDocTitle.trim() && !newDocSaving ? 'linear-gradient(135deg,#6CB0FF,#3A7FE8)' : 'rgba(93,162,255,0.2)', border:'none', color:'#fff', cursor: newDocTitle.trim() && !newDocSaving ? 'pointer' : 'not-allowed' }}>
+                {newDocSaving ? 'Saving…' : 'Create doc'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
           {actionErr && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{actionErr}</div>}
           {states.sources?.loading && sources.length === 0 ? (
             <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>Loading sources…</div>
