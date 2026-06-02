@@ -229,4 +229,71 @@ def register_admin_gui(
             request.session["flash"] = "Public URL cleared — will auto-detect from tunnel log."
         return _redirect(request)
 
+    @router.get("/health", response_class=HTMLResponse)
+    async def system_health(request: Request):
+        """System health dashboard with provider status, token usage, and service metrics."""
+        gr = _guest_redirect(request)
+        if gr:
+            return gr
+
+        import platform
+        import time as _time
+
+        health_data: dict[str, Any] = {
+            "request": request,
+            "admin_user": request.session.get("admin_user", "admin"),
+            "system": {
+                "platform": platform.platform(),
+                "python_version": platform.python_version(),
+                "hostname": platform.node(),
+            },
+            "services": service_manager.get_status() if service_manager else {},
+            "providers": {},
+            "token_usage": {},
+            "output_filter": {},
+        }
+
+        # Gather provider status
+        try:
+            from provider_router import get_cooldown_state
+            cooldowns = get_cooldown_state()
+            health_data["providers"] = {
+                "cooldowns": cooldowns,
+            }
+        except Exception:
+            pass
+
+        # Gather token budget stats
+        try:
+            from agent.token_budget import TokenBudget
+            health_data["token_usage"] = {"total_tokens_used": 0, "sessions": 0}
+        except Exception:
+            pass
+
+        # Gather output filter savings
+        try:
+            from agent.output_filter import get_output_filter
+            filt = get_output_filter()
+            health_data["output_filter"] = {
+                "savings_summary": filt.tracker.gain_summary(),
+                "stats": filt.tracker.as_dict(),
+            }
+        except Exception:
+            pass
+
+        # Key store stats
+        if key_store.is_configured():
+            records = key_store.list_records()
+            health_data["key_store"] = {
+                "total_keys": len(records),
+                "active_keys": sum(1 for r in records if not r.revoked),
+                "revoked_keys": sum(1 for r in records if r.revoked),
+            }
+
+        return templates.TemplateResponse(
+            request,
+            "admin/health.html",
+            health_data,
+        )
+
     app.include_router(router)

@@ -1,0 +1,106 @@
+{% extends "admin/base.html" %}
+{% block title %}System Health{% endblock %}
+{% block content %}
+<section class="card hero" style="margin-bottom:1rem;">
+  <h1>System Health</h1>
+  <p class="muted">Real-time diagnostics for providers, token usage, and output optimization.</p>
+</section>
+
+<div class="grid-wide">
+  <div class="stack">
+    <!-- System Info -->
+    <section class="card">
+      <h2>System</h2>
+      <div class="kv-grid">
+        <div class="kv-row"><span class="kv-key">Platform</span><span class="kv-val">{{ system.platform }}</span></div>
+        <div class="kv-row"><span class="kv-key">Python</span><span class="kv-val">{{ system.python_version }}</span></div>
+        <div class="kv-row"><span class="kv-key">Hostname</span><span class="kv-val">{{ system.hostname }}</span></div>
+      </div>
+    </section>
+
+    <!-- Output Filter Savings -->
+    {% if output_filter and output_filter.stats %}
+    <section class="card">
+      <h2>Token Savings</h2>
+      <div class="kv-grid">
+        <div class="kv-row"><span class="kv-key">Total Saved</span><span class="kv-val ok">{{ output_filter.stats.total_saved }} tokens</span></div>
+        <div class="kv-row"><span class="kv-key">Savings Rate</span><span class="kv-val">{{ output_filter.stats.overall_savings_pct }}%</span></div>
+        <div class="kv-row"><span class="kv-key">Operations</span><span class="kv-val">{{ output_filter.stats.operations }}</span></div>
+      </div>
+      {% if output_filter.stats.by_strategy %}
+      <p class="muted" style="margin-top:0.75rem;">By strategy:</p>
+      <div class="chips">
+        {% for strategy, saved in output_filter.stats.by_strategy.items() %}
+        <span class="chip">{{ strategy }} · {{ saved }} saved</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <!-- Key Store Stats -->
+    {% if key_store %}
+    <section class="card">
+      <h2>API Keys</h2>
+      <div class="kv-grid">
+        <div class="kv-row"><span class="kv-key">Total Keys</span><span class="kv-val">{{ key_store.total_keys }}</span></div>
+        <div class="kv-row"><span class="kv-key">Active</span><span class="kv-val ok">{{ key_store.active_keys }}</span></div>
+        <div class="kv-row"><span class="kv-key">Revoked</span><span class="kv-val">{{ key_store.revoked_keys }}</span></div>
+      </div>
+    </section>
+    {% endif %}
+  </div>
+
+  <div class="stack">
+    <!-- Provider Status -->
+    <section class="card">
+      <h2>Provider Health</h2>
+      {% if providers and providers.cooldowns %}
+      <p class="muted">Providers on cooldown:</p>
+      <div class="kv-grid">
+        {% for pid, until in providers.cooldowns.items() %}
+        <div class="kv-row"><span class="kv-key">{{ pid }}</span><span class="kv-val error">Until {{ until }}</span></div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="ok">All providers healthy — no cooldowns active.</p>
+      {% endif %}
+    </section>
+
+    <!-- Token Usage -->
+    {% if token_usage %}
+    <section class="card">
+      <h2>Token Budget</h2>
+      <div class="kv-grid">
+        <div class="kv-row"><span class="kv-key">Total Tokens</span><span class="kv-val">{{ token_usage.total_tokens_used }}</span></div>
+        <div class="kv-row"><span class="kv-key">Active Sessions</span><span class="kv-val">{{ token_usage.sessions }}</span></div>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Services -->
+    {% if services %}
+    <section class="card">
+      <h2>Services</h2>
+      {% for service_name, state in services.services.items() %}
+      <div class="service-row">
+        <h3 style="text-transform:capitalize;">{{ service_name }}</h3>
+        <span class="badge {{ 'up' if state.running else 'down' }}">{{ 'Running' if state.running else 'Stopped' }}</span>
+        {% if state.pid %}<span class="muted">PID {{ state.pid }}</span>{% endif %}
+        {% if state.detail %}<span class="muted">{{ state.detail }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+  .kv-grid { display:flex; flex-direction:column; gap:0.5rem; }
+  .kv-row { display:flex; justify-content:space-between; align-items:center; padding:0.3rem 0; border-bottom:1px solid #ddd; }
+  .kv-key { color:#666; font-size:0.9rem; }
+  .kv-val { font-weight:600; font-family:monospace; }
+  .chips { display:flex; flex-wrap:wrap; gap:0.4rem; }
+  .chip { padding:0.2rem 0.6rem; background:#e8e8e8; border-radius:12px; font-size:0.8rem; }
+</style>
+{% endblock %}

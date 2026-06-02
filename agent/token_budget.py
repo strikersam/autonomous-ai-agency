@@ -15,6 +15,10 @@ log = logging.getLogger("qwen-budget")
 # Rough heuristic used when the model does not return usage metadata
 _CHARS_PER_TOKEN = 4
 
+# Estimated pricing for cost savings calculation
+_LOCAL_COST_PER_1M_TOKENS = 2.0   # ~$2 per 1M tokens (electricity + hardware)
+_CLOUD_COST_PER_1M_TOKENS = 15.0  # ~$15 per 1M tokens (API pricing)
+
 
 class BudgetExceededError(Exception):
     """Raised when a token spend cap is hit."""
@@ -132,3 +136,61 @@ class TokenBudget:
 
     def list_all(self) -> list[BudgetUsage]:
         return list(self._usage.values())
+
+    def get_savings_report(self) -> dict[str, Any]:
+        """Generate a token savings analytics report.
+
+        Returns per-session statistics and aggregate savings metrics
+        useful for tracking cost optimization over time.
+        """
+        sessions = self.list_all()
+        if not sessions:
+            return {
+                "total_sessions": 0,
+                "total_tokens_used": 0,
+                "total_cap_allocated": 0,
+                "avg_utilization_pct": 0.0,
+                "sessions_over_budget": 0,
+                "sessions_under_budget": 0,
+            }
+
+        total_used = sum(s.total_tokens for s in sessions)
+        total_cap = sum(s.cap for s in sessions if s.cap > 0)
+        over = sum(1 for s in sessions if s.exceeded)
+        under = len(sessions) - over
+
+        if total_cap > 0:
+            avg_util = round(total_used / total_cap * 100, 1)
+        else:
+            avg_util = 0.0
+
+        session_details = []
+        for s in sorted(sessions, key=lambda x: x.total_tokens, reverse=True)[:10]:
+            util = round(s.total_tokens / s.cap * 100, 1) if s.cap > 0 else 100.0
+            session_details.append({
+                "session_id": s.session_id,
+                "prompt_tokens": s.prompt_tokens,
+                "completion_tokens": s.completion_tokens,
+                "total_tokens": s.total_tokens,
+                "cap": s.cap,
+                "remaining": s.remaining,
+                "utilization_pct": util,
+                "exceeded": s.exceeded,
+            })
+
+        estimated_local_cost = round(total_used / 1_000_000 * _LOCAL_COST_PER_1M_TOKENS, 4)
+        estimated_cloud_cost = round(total_used / 1_000_000 * _CLOUD_COST_PER_1M_TOKENS, 4)
+        estimated_savings = round(estimated_cloud_cost - estimated_local_cost, 4)
+
+        return {
+            "total_sessions": len(sessions),
+            "total_tokens_used": total_used,
+            "total_cap_allocated": total_cap,
+            "avg_utilization_pct": avg_util,
+            "sessions_over_budget": over,
+            "sessions_under_budget": under,
+            "top_sessions": session_details,
+            "estimated_local_cost_usd": estimated_local_cost,
+            "estimated_cloud_cost_usd": estimated_cloud_cost,
+            "estimated_savings_usd": estimated_savings,
+        }
