@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- **Comprehensive CodeQL alert resolution (PR #358).** Fixed all 60 remaining CodeQL security alerts across 20 files: URL substring sanitization in scanner.py and tests, stack trace exposure in proxy.py, server.py, ide_bridge.py, and agent_runtime.py, path injection in service_daemon.py, code injection in process-quick-note.yml, clear-text logging in build_workflow.py, XSS in _oauth_popup_html, SSRF in source upload, and URL redirection sanitization.
 - **CodeQL required check enforcement (`.github/workflows/codeql.yml`).** New CodeQL analysis workflow runs `security-extended` and `security-and-quality` query suites on every PR to master (Python + JavaScript/TypeScript). Added `Analyze (python)` and `Analyze (javascript-typescript)` as required status checks on master branch protection — PRs are now blocked when CodeQL finds security issues, preventing silent alert accumulation.
 
 ### Fixed

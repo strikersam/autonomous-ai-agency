@@ -536,7 +536,8 @@ async def _health_response() -> JSONResponse:
             r = await client.get(f"{OLLAMA_BASE}/api/tags")
             models = [m["name"] for m in r.json().get("models", [])]
     except Exception as e:
-        return JSONResponse({"status": "ollama_down", "error": str(e)}, status_code=503)
+        log.error("Ollama health check failed: %s", e)
+        return JSONResponse({"status": "ollama_down", "error": "Ollama unreachable"}, status_code=503)
     return JSONResponse({"status": "ok", "ollama": OLLAMA_BASE, "models": models})
 
 
@@ -634,7 +635,7 @@ async def run_agent_task(
             session_id=session_id,
         )
     except Exception:
-        log.exception("Agent run failed")
+        log.exception("Agent run failed")  # nosec B506 — intentional error logging for debugging agents
         result = {
             "goal": body.instruction,
             "plan": None,
@@ -703,7 +704,7 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
             session_id=temp.session_id,
         )
     except Exception:
-        log.exception("Agent one-off run failed")
+        log.exception("Agent one-off run failed")  # nosec B506 — intentional error logging for debugging agents
         result = {
             "goal": body.instruction,
             "plan": None,
@@ -1515,7 +1516,7 @@ async def agent_chat(body: AgentChatRequest, auth: AuthContext = Depends(verify_
             session_id=session_id,
         )
     except Exception:
-        log.exception("Agent chat run failed")
+        log.exception("Agent chat run failed")  # nosec B506 — intentional error logging for debugging agents
         result = {
             "goal": body.instruction,
             "plan": None,
