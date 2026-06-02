@@ -213,3 +213,4 @@ def detect_harness() -> HarnessType:
     # Default to Claude Code
     log.info("Could not detect harness, defaulting to claude_code")
     return HarnessType.CLAUDE_CODE
+# refresh diff for review resolution

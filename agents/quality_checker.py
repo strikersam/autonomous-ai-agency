@@ -283,3 +283,4 @@ class StopSlopChecker:
                 lines.append(f"    → {issue.suggestion}")
 
         return "\n".join(lines)
+# refresh diff
