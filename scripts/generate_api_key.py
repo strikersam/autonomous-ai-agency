@@ -45,7 +45,11 @@ def main() -> int:
     plain, rec = issue_new_api_key(ks, args.email.strip(), args.department.strip())
 
     print("Key created. Distribute this secret once (it cannot be shown again):")
-    print(plain)  # nosec B311 — CLI tool: key generation intentionally prints plaintext once to stdout
+    # CodeQL: py/clear-text-logging-of-sensitive-data — intentional: this is a
+    # CLI tool that generates and prints the key exactly once to stdout. The
+    # design requires showing the key at creation time since only the hash is
+    # persisted. Equivalent to `passwords` CLI behaviour.
+    print(plain)  # nosec B106 — CLI key generation prints plaintext once
     print()
     print(f"key_id:      {rec.key_id}")
     print(f"email:       {rec.email}")

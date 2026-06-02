@@ -214,16 +214,60 @@ function CatalogCard({ provider }) {
 
 // Ollama model management tab
 function OllamaTab() {
-  const [models, setModels] = React.useState(OLLAMA_MODELS);
-  const [pulling, setPulling] = React.useState(null);
+  const [liveModels, setLiveModels]   = React.useState(null);   // null = loading
+  const [loadErr,    setLoadErr]      = React.useState(null);
+  const [pulling,    setPulling]      = React.useState(null);
+  const [pullErr,    setPullErr]      = React.useState(null);
   const [customModel, setCustomModel] = React.useState('');
 
-  const pull = (name) => {
-    setPulling(name);
-    setTimeout(() => {
-      setModels(p => p.map(m => m.name===name ? {...m, status:'pulled'} : m));
-      setPulling(null);
-    }, 2800);
+  // Load real Ollama model list from backend
+  const loadModels = React.useCallback(async () => {
+    setLoadErr(null);
+    try {
+      const { data } = await api.listModels();
+      const ollamaModels = (data.models || [])
+        .filter(m => m.source === 'ollama-local')
+        .map(m => ({
+          name:   m.name,
+          size:   m.size ? `${(m.size / 1e9).toFixed(1)} GB` : '?',
+          status: 'pulled',
+          type:   m.details?.family || (m.name.includes('coder') ? 'coder' : m.name.includes('r1') || m.name.includes('reason') ? 'reasoning' : 'general'),
+          ctx:    m.details?.parameter_size || '?',
+        }));
+      // Merge with catalogue: show catalogue items not yet pulled as 'available'
+      const pulledNames = new Set(ollamaModels.map(m => m.name));
+      const catalogAvail = OLLAMA_MODELS
+        .filter(m => !pulledNames.has(m.name))
+        .map(m => ({ ...m, status: 'available' }));
+      setLiveModels([...ollamaModels, ...catalogAvail]);
+    } catch (e) {
+      setLoadErr('Could not reach Ollama — is it running?');
+      // Fall back to catalogue
+      setLiveModels(OLLAMA_MODELS);
+    }
+  }, []);
+
+  React.useEffect(() => { loadModels(); }, [loadModels]);
+
+  const models = liveModels || OLLAMA_MODELS;
+
+  const pull = async (name) => {
+    setPulling(name); setPullErr(null);
+    try {
+      await api.pullModel(name);
+      await loadModels();
+    } catch (e) {
+      setPullErr(`Pull failed: ${e?.response?.data?.detail || e.message}`);
+    } finally { setPulling(null); }
+  };
+
+  const removeModel = async (name) => {
+    try {
+      await api.deleteModel(name);
+      await loadModels();
+    } catch {
+      setLiveModels(p => (p||[]).map(m => m.name === name ? { ...m, status: 'available' } : m));
+    }
   };
 
   const typeColor = { coder:'#5da2ff', reasoning:'#c4b5fd', general:'#46d9a4' };
@@ -242,6 +286,16 @@ function OllamaTab() {
         <button onClick={()=>{ if(customModel.trim()){ pull(customModel.trim()); setCustomModel(''); }}} style={{ padding:'9px 16px', borderRadius:10, background:'rgba(93,162,255,0.15)', border:'1px solid rgba(93,162,255,0.30)', color:'var(--accent)', fontSize:12, fontWeight:700, cursor:'pointer' }}>Pull model</button>
         <a href="https://ollama.com/library" target="_blank" rel="noreferrer" style={{ padding:'9px 12px', borderRadius:10, background:'transparent', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:12, textDecoration:'none', display:'inline-flex', alignItems:'center', whiteSpace:'nowrap' }}>Browse library →</a>
       </div>
+
+      {(loadErr || pullErr) && (
+        <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d', fontSize:12, marginBottom:10 }}>
+          {loadErr || pullErr}
+        </div>
+      )}
+
+      {liveModels === null && !loadErr && (
+        <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)', textAlign:'center' }}>Loading models from Ollama…</div>
+      )}
 
       <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
         {models.map(m => {
@@ -263,7 +317,7 @@ function OllamaTab() {
                   <div style={{ width:12, height:12, border:'2px solid rgba(93,162,255,0.2)', borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>Pulling…
                 </div>
               ) : isPulled ? (
-                <button onClick={()=>setModels(p=>p.map(mod=>mod.name===m.name?{...mod,status:'available'}:mod))} style={{ padding:'5px 12px', borderRadius:8, fontSize:11, cursor:'pointer', background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d' }}>Remove</button>
+                <button onClick={()=>removeModel(m.name)} style={{ padding:'5px 12px', borderRadius:8, fontSize:11, cursor:'pointer', background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d' }}>Remove</button>
               ) : (
                 <button onClick={()=>pull(m.name)} style={{ padding:'5px 12px', borderRadius:8, fontSize:11, fontWeight:600, cursor:'pointer', background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)', color:'var(--accent)' }}>↓ Pull</button>
               )}
@@ -277,18 +331,66 @@ function OllamaTab() {
 
 // MCP servers tab
 function MCPTab() {
-  const [servers, setServers] = React.useState(MCP_SERVERS_DEFAULT);
-  const [showAdd, setShowAdd] = React.useState(false);
-  const [newName, setNewName] = React.useState('');
-  const [newCmd,  setNewCmd]  = React.useState('');
-  const [newDesc, setNewDesc] = React.useState('');
+  const [servers,  setServers]  = React.useState(null);  // null = loading
+  const [loadErr,  setLoadErr]  = React.useState(null);
+  const [showAdd,  setShowAdd]  = React.useState(false);
+  const [saving,   setSaving]   = React.useState(false);
+  const [newName,  setNewName]  = React.useState('');
+  const [newCmd,   setNewCmd]   = React.useState('');
+  const [newDesc,  setNewDesc]  = React.useState('');
 
   const statusColor = { connected:'#46d9a4', error:'#ff6b7d', idle:'var(--text-muted)' };
 
-  const addServer = () => {
+  const loadServers = React.useCallback(async () => {
+    setLoadErr(null);
+    try {
+      const { data } = await api.listMcpServers();
+      const list = data.servers || [];
+      if (list.length === 0) {
+        // Seed with defaults on first load (one-time migration)
+        setServers(MCP_SERVERS_DEFAULT.map(s => ({ ...s, _seeded: true })));
+      } else {
+        setServers(list);
+      }
+    } catch {
+      setLoadErr('Could not load MCP servers.');
+      setServers(MCP_SERVERS_DEFAULT);
+    }
+  }, []);
+
+  React.useEffect(() => { loadServers(); }, [loadServers]);
+
+  const addServer = async () => {
     if (!newName.trim() || !newCmd.trim()) return;
-    setServers(p => [...p, { id:`mcp-${Date.now()}`, name:newName.trim(), cmd:newCmd.trim(), status:'idle', tools:0, desc:newDesc }]);
-    setNewName(''); setNewCmd(''); setNewDesc(''); setShowAdd(false);
+    setSaving(true);
+    try {
+      await api.createMcpServer({ name: newName.trim(), cmd: newCmd.trim(), desc: newDesc, status: 'idle', tools: 0 });
+      setNewName(''); setNewCmd(''); setNewDesc(''); setShowAdd(false);
+      await loadServers();
+    } catch (e) {
+      alert('Could not add server: ' + (e?.response?.data?.detail || e.message));
+    } finally { setSaving(false); }
+  };
+
+  const toggleConnect = async (srv) => {
+    const newStatus = srv.status === 'connected' ? 'idle' : 'connected';
+    // Optimistic update
+    setServers(p => (p||[]).map(s => s.id === srv.id ? { ...s, status: newStatus } : s));
+    try {
+      if (srv.id && !srv._seeded) {
+        await api.updateMcpServer(srv.id, { status: newStatus });
+      }
+    } catch {
+      // Revert
+      setServers(p => (p||[]).map(s => s.id === srv.id ? { ...s, status: srv.status } : s));
+    }
+  };
+
+  const removeServer = async (srv) => {
+    setServers(p => (p||[]).filter(s => s.id !== srv.id));
+    try {
+      if (srv.id && !srv._seeded) await api.deleteMcpServer(srv.id);
+    } catch { await loadServers(); }
   };
 
   return (
@@ -314,15 +416,18 @@ function MCPTab() {
               style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)', transition:'border-color 0.2s' }}
               onFocus={e=>e.target.style.borderColor='rgba(196,181,253,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
             <div style={{ display:'flex', gap:8 }}>
-              <button onClick={addServer} style={{ flex:1, padding:'9px', borderRadius:10, background:'rgba(196,181,253,0.15)', border:'1px solid rgba(196,181,253,0.30)', color:'#c4b5fd', fontSize:13, fontWeight:800, cursor:'pointer' }}>Add server</button>
+              <button onClick={addServer} disabled={saving} style={{ flex:1, padding:'9px', borderRadius:10, background:saving?'rgba(196,181,253,0.07)':'rgba(196,181,253,0.15)', border:'1px solid rgba(196,181,253,0.30)', color:'#c4b5fd', fontSize:13, fontWeight:800, cursor:saving?'not-allowed':'pointer' }}>{saving ? 'Adding…' : 'Add server'}</button>
               <button onClick={()=>setShowAdd(false)} style={{ padding:'9px 14px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
             </div>
           </div>
         </div>
       )}
 
+      {loadErr && <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d', fontSize:12, marginBottom:10 }}>{loadErr}</div>}
+      {servers === null && !loadErr && <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)', textAlign:'center' }}>Loading MCP servers…</div>}
+
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-        {servers.map(srv => {
+        {(servers || []).map(srv => {
           const sc = statusColor[srv.status] || 'var(--text-muted)';
           return (
             <div key={srv.id} style={{ padding:'12px 14px', borderRadius:14, border:`1px solid ${srv.status==='connected'?'rgba(70,217,164,0.18)':srv.status==='error'?'rgba(255,107,125,0.18)':'rgba(255,255,255,0.08)'}`, background:srv.status==='connected'?'rgba(70,217,164,0.04)':srv.status==='error'?'rgba(255,107,125,0.04)':'rgba(255,255,255,0.025)' }}>
@@ -340,7 +445,8 @@ function MCPTab() {
                   <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'rgba(255,255,255,0.35)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{srv.cmd}</div>
                 </div>
                 <div style={{ display:'flex', gap:5, flexShrink:0 }}>
-                  <button onClick={()=>setServers(p=>p.map(s=>s.id===srv.id?{...s,status:s.status==='connected'?'idle':'connected'}:s))} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, cursor:'pointer', background:srv.status==='connected'?'rgba(255,107,125,0.08)':'rgba(70,217,164,0.10)', border:`1px solid ${srv.status==='connected'?'rgba(255,107,125,0.20)':'rgba(70,217,164,0.22)'}`, color:srv.status==='connected'?'#ff6b7d':'#46d9a4' }}>
+                  <button onClick={()=>removeServer(srv)} style={{ padding:'4px 8px', borderRadius:8, fontSize:10, cursor:'pointer', background:'rgba(255,107,125,0.06)', border:'1px solid rgba(255,107,125,0.15)', color:'rgba(255,107,125,0.6)' }} title="Remove">✕</button>
+                  <button onClick={()=>toggleConnect(srv)} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, cursor:'pointer', background:srv.status==='connected'?'rgba(255,107,125,0.08)':'rgba(70,217,164,0.10)', border:`1px solid ${srv.status==='connected'?'rgba(255,107,125,0.20)':'rgba(70,217,164,0.22)'}`, color:srv.status==='connected'?'#ff6b7d':'#46d9a4' }}>
                     {srv.status==='connected'?'Disconnect':'Connect'}
                   </button>
                 </div>

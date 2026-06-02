@@ -1,5 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import * as api from '../../api';
 
 
 // quicknotes.jsx — Floating Quick Notes capture (accessible from any screen)
@@ -33,34 +34,61 @@ function NoteStatusPill({ status }) {
 
 function QuickNotes({ onClose }) {
   const [input, setInput] = React.useState('');
-  const [notes, setNotes] = React.useState(QUEUED_NOTES);
+  const [notes, setNotes] = React.useState([]);
   const [sending, setSending] = React.useState(false);
   const [sent, setSent] = React.useState(false);
+  const [submitErr, setSubmitErr] = React.useState(null);
   const textareaRef = React.useRef(null);
 
-  React.useEffect(() => {
-    setTimeout(() => textareaRef.current?.focus(), 100);
+  // Load recent quick-note tasks from the backend
+  const loadNotes = React.useCallback(async () => {
+    try {
+      const { data } = await api.listTasks({ source: 'quick_note', limit: 10 });
+      const raw = data.tasks || data.items || (Array.isArray(data) ? data : []);
+      setNotes(raw.map(t => ({
+        id:     t.id || t._id,
+        text:   t.instruction || t.title || t.description || '(no text)',
+        type:   /^https?:\/\//.test(t.instruction || '') ? 'url' : 'text',
+        status: t.status === 'completed' ? 'done' : t.status === 'running' ? 'processing' : 'queued',
+        ago:    t.created_at ? _relTime(t.created_at) : 'recently',
+      })));
+    } catch {
+      // Silently fall back — don't break the UI
+      setNotes(QUEUED_NOTES);
+    }
   }, []);
+
+  React.useEffect(() => {
+    loadNotes();
+    setTimeout(() => textareaRef.current?.focus(), 100);
+  }, [loadNotes]);
+
+  const _relTime = (iso) => {
+    const d = Date.now() - new Date(iso).getTime();
+    if (d < 60000)  return `${Math.round(d/1000)}s ago`;
+    if (d < 3600000) return `${Math.round(d/60000)}m ago`;
+    if (d < 86400000) return `${Math.round(d/3600000)}h ago`;
+    return `${Math.round(d/86400000)}d ago`;
+  };
 
   const isUrl = t => /^https?:\/\//.test(t.trim());
 
-  const submit = () => {
+  const submit = async () => {
     if (!input.trim() || sending) return;
-    setSending(true);
-    const newNote = {
-      id: `qn-${Date.now()}`,
-      text: input.trim(),
-      type: isUrl(input) ? 'url' : 'text',
-      status: 'queued',
-      ago: 'just now',
-    };
-    setTimeout(() => {
-      setNotes(prev => [newNote, ...prev]);
+    setSending(true); setSubmitErr(null);
+    try {
+      await api.createTask({
+        instruction: input.trim(),
+        source: 'quick_note',
+        priority: 'normal',
+      });
       setInput('');
-      setSending(false);
       setSent(true);
       setTimeout(() => setSent(false), 2000);
-    }, 700);
+      await loadNotes();
+    } catch (e) {
+      setSubmitErr(e?.response?.data?.detail || e.message || 'Could not save note.');
+    } finally { setSending(false); }
   };
 
   const handleKey = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } };
