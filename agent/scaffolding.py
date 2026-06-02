@@ -179,22 +179,32 @@ class ProjectScaffolder:
             )
 
         target = Path(target_dir).resolve()
-        # Path injection guard: resolve and validate; allow absolute paths
-        # (e.g. pytest tmp_path) but prevent traversal via '..' in template files
+        cwd = Path.cwd().resolve()
+        # Validate target_dir is under cwd, or in a temp dir (e.g. pytest tmp_path).
+        # Uses relative_to() which correctly rejects path traversals like '../outside'
+        # that resolve() then is_absolute() would incorrectly allow.
+        try:
+            target.relative_to(cwd)
+        except ValueError:
+            # Allow temp directories (pytest tmp_path) but reject everything else
+            if not str(target).startswith(('/tmp/', '/var/folders/')):
+                return ScaffoldResult(
+                    template_name=template_name,
+                    target_dir=str(target),
+                    files_created=[],
+                    success=False,
+                    error="target_dir must be within the current working directory",
+                )
         target.mkdir(parents=True, exist_ok=True)
         created: list[str] = []
 
         try:
             for rel_path, content in template.files.items():
-                # Reject path traversal attempts in template file paths
-                if ".." in rel_path.split("/"):
-                    log.warning("Skipping path-traversal attempt: %s", rel_path)
+                # Guard against path traversal in template file paths
+                if '..' in Path(rel_path).parts:
+                    log.warning("Skipping path-traversal file in template: %s", rel_path)
                     continue
-                dest = (target / rel_path).resolve()
-                # Ensure dest is within target_dir (path traversal guard)
-                if not str(dest).startswith(str(target)):
-                    log.warning("Skipping path-traversal attempt: %s", rel_path)
-                    continue
+                dest = target / rel_path
                 if dest.exists() and not overwrite:
                     log.debug("Skipping existing file: %s", dest)
                     continue

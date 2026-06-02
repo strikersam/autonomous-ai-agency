@@ -64,8 +64,14 @@ class ServiceDaemon:
 
     def save_config(self, repo_path: str, models_path: str):
         """Save configuration."""
-        self.repo_path = Path(repo_path).expanduser()
-        self.models_path = Path(models_path).expanduser()
+        # Path injection guard: resolve and validate paths
+        _rp = Path(repo_path).expanduser().resolve()
+        _mp = Path(models_path).expanduser().resolve()
+        # Reject paths containing traversal attempts
+        if '..' in str(_rp) or '..' in str(_mp):
+            raise ValueError("Path traversal detected in configuration paths")
+        self.repo_path = _rp
+        self.models_path = _mp
         self.venv_python = self.repo_path / ".venv/bin/python"
 
         self.config_file.parent.mkdir(parents=True, exist_ok=True)

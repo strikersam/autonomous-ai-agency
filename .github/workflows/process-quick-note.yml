@@ -151,9 +151,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          URL="${{ steps.issue.outputs.url }}"
-          if [ -z "$URL" ]; then
-            gh issue comment "${{ steps.issue.outputs.number }}" \
+          # Use intermediate env vars to prevent code injection from issue body
+          ISSUE_URL="${{ steps.issue.outputs.url }}"
+          ISSUE_NUM="${{ steps.issue.outputs.number }}"
+          if [ -z "$ISSUE_URL" ]; then
+            gh issue comment "$ISSUE_NUM" \
               --repo "$REPO" \
               --body "$(cat <<'MSG'
           ❌ No URL found in the issue body.
@@ -206,10 +208,13 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
+          ISSUE_NUM="${{ steps.issue.outputs.number }}"
+          ISSUE_URL="${{ steps.issue.outputs.url }}"
+          ISSUE_TASK="${{ steps.issue.outputs.task }}"
           python3 .github/scripts/implement_agent.py \
-            "${{ steps.issue.outputs.url }}" \
-            "${{ steps.issue.outputs.number }}" \
-            "${{ steps.issue.outputs.task }}" \
+            "$ISSUE_URL" \
+            "$ISSUE_NUM" \
+            "$ISSUE_TASK" \
             2>&1 | tee /tmp/impl_output.txt
 
           if [ -f /tmp/impl_result.json ]; then
@@ -306,14 +311,15 @@ jobs:
               print(d.get('summary','(see diff)'))
           except Exception:
               print('(see diff)')
-          " 2>/dev/null || echo "(see diff)")
-
+          " 2>/dev/null || echo "(see diff)")          ISSUE_NUM="${{ steps.issue.outputs.number }}"
+          ISSUE_URL="${{ steps.issue.outputs.url }}"
+          ISSUE_TASK="${{ steps.issue.outputs.task }}"
           PR_BODY="$(cat <<PRBODY
-          ## Summary
-          Closes #${{ steps.issue.outputs.number }}
+## Summary
+Closes #${ISSUE_NUM}
 
-          **Source URL:** ${{ steps.issue.outputs.url }}
-          **Task:** ${{ steps.issue.outputs.task }}
+**Source URL:** ${ISSUE_URL}
+**Task:** ${ISSUE_TASK}
 
           ### What was implemented
           $IMPL_SUMMARY

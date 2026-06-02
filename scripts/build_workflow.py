@@ -307,9 +307,9 @@ def run_workflow(
         elif choice in ("q", "quit", "exit"):
             print(f"\n  {_c(YELLOW, '⏸')} Paused. Resume with:")
             print(f"     build-workflow --resume {run_id}")
-            print(f"  Or approve via API:")
+            print(f"   Or approve via API:")
             print(f"     curl -X POST {base}/workflow/{run_id}/approve \\")
-            print(f"       -H 'Authorization: Bearer {api_key or 'YOUR_KEY'}' \\")
+            print(f"       -H 'Authorization: Bearer <YOUR_KEY>' \\")
             print(f"       -d '{{\"approved_by\": \"human\"}}'")
             sys.exit(0)
         else:
