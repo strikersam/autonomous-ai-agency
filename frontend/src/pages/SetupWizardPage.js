@@ -32,6 +32,9 @@ import {
 
 // ─── localStorage draft helpers ──────────────────────────────────────────────
 
+// NOTE: localStorage is used for draft persistence only.
+// API key values are never stored here — only server-side secret IDs.
+// Auth tokens in localStorage are a necessary trade-off for SPA auth.
 const SETUP_DRAFT_KEY = 'llm_relay_setup_draft';
 
 function saveDraft(data) {

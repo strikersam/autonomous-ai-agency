@@ -122,9 +122,21 @@ def _fetch_text(url: str, max_chars: int = 8000) -> str:
         resp.raise_for_status()
     text = resp.text
     if "html" in resp.headers.get("content-type", "").lower():
-        text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<[^>]+>", " ", text)
+        try:
+            from html.parser import HTMLParser
+            class _Stripper(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self._parts = []
+                def handle_data(self, data):
+                    self._parts.append(data)
+                def get_text(self):
+                    return " ".join(self._parts)
+            s = _Stripper()
+            s.feed(text)
+            text = s.get_text()
+        except Exception:
+            text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
     return text[:max_chars]
 

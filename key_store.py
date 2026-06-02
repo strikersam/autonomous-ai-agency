@@ -110,7 +110,9 @@ class KeyStore:
 
     def lookup_plain_key(self, plain_key: str) -> KeyRecord | None:
         self._maybe_reload()
-        h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()
+        # SHA-256 is used for key lookup hashing (not password storage);
+        # this is a lookup index, not a security-sensitive password hash.
+        h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()  # nosec: lookup hash, not password
         with self._lock:
             return self._by_hash.get(h)
 

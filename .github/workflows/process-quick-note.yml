@@ -49,6 +49,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER_OVERRIDE: ${{ github.event.inputs.issue_number }}
           REPO: $REPO
+          ISSUE_NUM: ${{ steps.pick.outputs.number }}
         run: |
           if [ -n "$ISSUE_NUMBER_OVERRIDE" ]; then
             NUM="$ISSUE_NUMBER_OVERRIDE"
@@ -78,8 +79,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: $REPO
+          PICK_NUM: ${{ steps.pick.outputs.number }}
         run: |
-          NUM="${{ steps.pick.outputs.number }}"
+          NUM="$PICK_NUM"
           BODY=$(gh issue view "$NUM" \
             --repo "$REPO" --json body -q .body)
 
@@ -114,14 +116,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: $REPO
+          ISSUE_RETRY: ${{ steps.issue.outputs.retry }}
+          ISSUE_URL: ${{ steps.issue.outputs.url }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
-          RETRY="${{ steps.issue.outputs.retry }}"
+          RETRY="$ISSUE_RETRY"
           if [ "$RETRY" -gt 0 ]; then
-            MSG="🔄 Retry #${RETRY} — processing \`${{ steps.issue.outputs.url }}\`"
+            MSG="🔄 Retry #${RETRY} — processing \`$ISSUE_URL\`"
           else
-            MSG="⏳ Processing started — fetching \`${{ steps.issue.outputs.url }}\`"
+            MSG="⏳ Processing started — fetching \`$ISSUE_URL\`"
           fi
-          gh issue comment "${{ steps.issue.outputs.number }}" \
+          gh issue comment "$ISSUE_NUM" \
             --repo "$REPO" --body "$MSG"
 
       # ── 5. Python + Node setup ─────────────────────────────────────────────

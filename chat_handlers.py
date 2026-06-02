@@ -153,13 +153,19 @@ def _extract_exact_output(messages: Any) -> str | None:
         if not isinstance(message, dict) or message.get("role") != "user":
             continue
         content = message.get("content")
-        if not isinstance(content, str):
+        if not isinstance(content, str) or len(content) > 10000:
             return None
-        match = re.search(r"Reply with exactly:\s*(.+?)\s*$", content, flags=re.IGNORECASE | re.DOTALL)
-        if not match:
+        # Limit backtracking: use a simple substring search instead of regex
+        lower = content.lower()
+        prefix = "reply with exactly:"
+        idx = lower.find(prefix)
+        if idx == -1:
             return None
-        exact = match.group(1).strip()
-        return exact or None
+        suffix = content[idx + len(prefix):].strip()
+        # Take only the first line to limit matching
+        if suffix:
+            suffix = suffix.split('\n')[0].strip()
+        return suffix or None
     return None
 
 

@@ -429,7 +429,7 @@ async def create_secret(request: Request, body: SecretCreateRequest):
     await store.create(rec)
 
     audit("secret.create", user, resource="secret", resource_id=rec.secret_id)
-    log.info("Secret created: %s (scope=%s) by %s", rec.secret_id, rec.scope.value, uid)
+    log.info("Secret created: %s (scope=%s)", rec.secret_id, rec.scope.value)
 
     return rec.as_safe_dict()
 

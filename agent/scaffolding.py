@@ -178,13 +178,23 @@ class ProjectScaffolder:
                 error=f"Template {template_name!r} not found",
             )
 
-        target = Path(target_dir)
+        target = Path(target_dir).resolve()
+        # Path injection guard: resolve and validate; allow absolute paths
+        # (e.g. pytest tmp_path) but prevent traversal via '..' in template files
         target.mkdir(parents=True, exist_ok=True)
         created: list[str] = []
 
         try:
             for rel_path, content in template.files.items():
-                dest = target / rel_path
+                # Reject path traversal attempts in template file paths
+                if ".." in rel_path.split("/"):
+                    log.warning("Skipping path-traversal attempt: %s", rel_path)
+                    continue
+                dest = (target / rel_path).resolve()
+                # Ensure dest is within target_dir (path traversal guard)
+                if not str(dest).startswith(str(target)):
+                    log.warning("Skipping path-traversal attempt: %s", rel_path)
+                    continue
                 if dest.exists() and not overwrite:
                     log.debug("Skipping existing file: %s", dest)
                     continue

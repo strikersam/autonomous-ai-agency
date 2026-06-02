@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- **`deploy-frontend.yml` action version bumps**: `upload-pages-artifact@v3`→`@v5`, `deploy-pages@v4`→`@v5` to match `deploy-pages.yml` (fixed last cycle in PR #287).
+
 ### Added
 - **Persistent Memory System (#350) with auto-loading across AI coding tools (`agent/persistent_memory.py`, `agent/memory_middleware.py`, `scripts/memory_cli.py`, `tests/test_persistent_memory.py`, `docs/persistent-memory-system.md`).** Implements a comprehensive persistent memory system that enables AI coding tools (Claude Code, Cursor, VSCode, Zed, Aider, CLI) to maintain context across sessions, workspaces, and tools. Features: (1) Semantic categorization (preferences, context, learning, history, tool-config) for organized memory retrieval; (2) Scope-based auto-loading (global, workspace, session, tool) to control when memories are injected; (3) Priority-based retrieval (1-10) ensuring critical context loads first; (4) Cross-tool compatibility with automatic tool detection from request headers; (5) Memory middleware that transparently injects relevant memories into chat requests; (6) Full-featured CLI for memory management (save, recall, list, search, stats, export/import); (7) Access tracking and analytics for memory relevance scoring; (8) Tag support for flexible memory organization; (9) Bulk import/export for backup and migration. The system uses SQLite backend (shared with AgentSessionStore) with automatic fallback to temp storage on problematic filesystems. Environment variables: `MEMORY_AUTOLOAD_ENABLED` (default: true), `MEMORY_AUTOLOAD_MAX` (default: 50), `AGENT_DB_PATH` (default: .data/agent.db). Comprehensive test suite (231 tests) covers all memory operations, scoping, auto-loading, and migration scenarios.
 

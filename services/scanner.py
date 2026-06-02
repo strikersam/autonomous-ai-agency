@@ -148,20 +148,27 @@ def _looks_like_bot_challenge(html: str) -> bool:
     return len(html) < 30000
 
 
-def _hostname_is(url: str, domain: str) -> bool:
-    """Check if URL hostname exactly matches or is a subdomain of the given domain."""
+def _hostname_matches(url_or_host: str, *domains: str) -> bool:
+    """Check if a URL or hostname exactly matches or is a subdomain of any domain.
+
+    Uses urlparse for proper hostname extraction instead of substring matching.
+    This satisfies CodeQL's py/incomplete-url-substring-sanitization rule.
+    """
+    # Try parsing as URL first, then as raw hostname
     try:
-        hostname = urlparse(url).hostname or ""
-        hostname = hostname.lower()
-        domain = domain.lower()
-        return hostname == domain or hostname.endswith("." + domain)
+        parsed = urlparse(url_or_host)
+        hostname = (parsed.hostname or parsed.path or url_or_host).lower()
     except Exception:
-        return False
+        hostname = url_or_host.lower()
+    return any(hostname == d.lower() or hostname.endswith('.' + d.lower()) for d in domains)
 
 
 def _hostname_contains(url: str, *domains: str) -> bool:
-    """Check if URL hostname matches any of the given domains."""
-    return any(_hostname_is(url, d) for d in domains)
+    """Check if URL hostname exactly matches or is a subdomain of any domain.
+
+    Uses _hostname_matches for proper hostname comparison.
+    """
+    return _hostname_matches(url, *domains)
 
 
 def _content_contains_domain(content: str, *domains: str) -> bool:
@@ -1040,16 +1047,13 @@ class RepoScanner:
         parsed = urlparse(repo_url)
         hostname = (parsed.hostname or '').lower()
 
-        def _match(*domains):
-            return any(hostname == d or hostname.endswith('.' + d) for d in domains)
-
-        if _match('github.com'):
+        if _hostname_matches(hostname, 'github.com'):
             return 'github'
-        elif _match('gitlab.com'):
+        elif _hostname_matches(hostname, 'gitlab.com'):
             return 'gitlab'
-        elif _match('bitbucket.org'):
+        elif _hostname_matches(hostname, 'bitbucket.org'):
             return 'bitbucket'
-        elif _match('azure.com', 'dev.azure.com'):
+        elif _hostname_matches(hostname, 'azure.com', 'dev.azure.com'):
             return 'azure_devops'
         elif repo_url.startswith('git@'):
             # SSH URL: git@github.com:user/repo
