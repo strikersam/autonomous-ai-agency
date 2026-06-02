@@ -192,3 +192,4 @@ class HybridSystem:
             "average_latency_ms": round(self.average_latency_ms(), 1),
             "rules_configured": self.engine.rule_count,
         }
+# refresh diff
