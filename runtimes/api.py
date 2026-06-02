@@ -238,7 +238,9 @@ async def run_task_on_runtime(
     except RuntimeUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RuntimeExecutionError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        # Log internally for debugging; return sanitized message to caller
+        log.debug("Runtime execution error for %s: %s", runtime_id, exc)
+        raise HTTPException(status_code=500, detail="Internal server error during task execution") from exc
 
 
 # ── Runtime Lifecycle Control ─────────────────────────────────────────────────

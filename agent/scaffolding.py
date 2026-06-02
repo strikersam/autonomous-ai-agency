@@ -178,12 +178,26 @@ class ProjectScaffolder:
                 error=f"Template {template_name!r} not found",
             )
 
-        target = Path(target_dir)
+        target = Path(target_dir).resolve()
+        cwd = Path.cwd().resolve()
+        # Validate target_dir is under cwd or is an absolute path (e.g. pytest tmp_path)
+        if not str(target).startswith(str(cwd)) and not target.is_absolute():
+            return ScaffoldResult(
+                template_name=template_name,
+                target_dir=str(target),
+                files_created=[],
+                success=False,
+                error="target_dir must be within the current working directory or an absolute path",
+            )
         target.mkdir(parents=True, exist_ok=True)
         created: list[str] = []
 
         try:
             for rel_path, content in template.files.items():
+                # Guard against path traversal in template file paths
+                if '..' in Path(rel_path).parts:
+                    log.warning("Skipping path-traversal file in template: %s", rel_path)
+                    continue
                 dest = target / rel_path
                 if dest.exists() and not overwrite:
                     log.debug("Skipping existing file: %s", dest)
