@@ -4539,6 +4539,234 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=502, detail=f"Delete failed: {e}")
 
 
+
+
+
+
+# ─── Skills Registry & Recommendations ──────────────────────────────────────────
+# Exposes the dynamic skill registry over HTTP so the frontend and agents can
+# discover, search, and get context-aware recommendations.
+
+try:
+    from agent.skill_registry import SkillRegistry as _SkillRegistry
+    _SKILL_REGISTRY = _SkillRegistry(
+        github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_ACCESS_TOKEN")
+    )
+except Exception as _sr_err:
+    log.warning("Could not initialise SkillRegistry: %s", _sr_err)
+    _SKILL_REGISTRY = None  # type: ignore[assignment]
+
+
+@app.get("/api/skills")
+async def list_skills(
+    source: str | None = None,
+    query: str | None = None,
+    limit: int = 50,
+    user: dict = Depends(get_current_user),
+):
+    """List all indexed skills, optionally filtered by source and/or query."""
+    if _SKILL_REGISTRY is None:
+        return {"skills": [], "total": 0}
+    skills = _SKILL_REGISTRY.search(query) if query else _SKILL_REGISTRY.list(source=source)
+    return {"skills": [s.as_dict() for s in skills[:limit]], "total": len(skills)}
+
+
+@app.post("/api/skills/refresh")
+async def refresh_skills(user: dict = Depends(get_current_user)):
+    """Trigger a remote registry refresh (fetches from GitHub registries)."""
+    if _SKILL_REGISTRY is None:
+        return {"ok": False, "message": "SkillRegistry not available"}
+    added = await _SKILL_REGISTRY.refresh_remote()
+    total = len(_SKILL_REGISTRY.list())
+    return {"ok": True, "new_skills": added, "total": total}
+
+
+class SkillRecommendRequest(BaseModel):
+    tech_stack: list[str] = []
+    workflow_types: list[str] = []
+    query: str | None = None
+    limit: int = 10
+
+
+@app.post("/api/skills/recommend")
+async def recommend_skills(body: SkillRecommendRequest, user: dict = Depends(get_current_user)):
+    """
+    Return context-aware skill recommendations.
+    Pass tech_stack (from scanner) and/or workflow_types (from active workflows)
+    to get ranked, reason-annotated results.
+    """
+    if _SKILL_REGISTRY is None:
+        return {"recommendations": []}
+    recs = _SKILL_REGISTRY.recommend(
+        tech_stack=body.tech_stack,
+        workflow_types=body.workflow_types,
+        query=body.query,
+        limit=body.limit,
+    )
+    return {"recommendations": recs}
+
+
+@app.get("/api/skills/recommend/auto")
+async def auto_recommend_skills(
+    company_id: str | None = None,
+    limit: int = 10,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Auto-recommend skills by reading the company's scan results and active
+    workflows from the database — no client-side params needed.
+    """
+    if _SKILL_REGISTRY is None:
+        return {"recommendations": [], "tech_stack": [], "workflow_types": []}
+
+    tech_stack: list[str] = []
+    workflow_types: list[str] = []
+    uid = str(user.get("_id", user.get("id", "")))
+
+    # Resolve company_id — use provided or fall back to user's only company
+    cid = company_id
+    if not cid:
+        co = await get_db().companies.find_one({"user_id": uid})
+        if co:
+            cid = str(co["_id"])
+
+    if cid:
+        from bson import ObjectId as _ObjId
+        try:
+            co_doc = await get_db().companies.find_one({"_id": _ObjId(cid), "user_id": uid})
+            if co_doc:
+                # Pull tech stack from latest scan
+                scan = await get_db().website_scans.find_one(
+                    {"company_id": cid, "status": "success"},
+                    sort=[("completed_at", -1)],
+                )
+                if scan:
+                    detected = scan.get("detected_systems") or {}
+                    for cat in ("frameworks", "cms", "databases", "payment", "analytics", "hosting"):
+                        tech_stack.extend(detected.get(cat, []))
+                    tech_stack.extend(scan.get("technologies", []))
+                # Repo scan
+                repo_scan = await get_db().repo_scans.find_one(
+                    {"company_id": cid},
+                    sort=[("completed_at", -1)],
+                )
+                if repo_scan:
+                    inferred = repo_scan.get("inferred_stack") or {}
+                    for cat in ("frameworks", "languages", "databases"):
+                        tech_stack.extend(inferred.get(cat, []))
+                # Active workflows
+                async for wf in get_db().workflows.find(
+                    {"company_id": cid, "is_active": True}
+                ):
+                    name = (wf.get("name") or "").lower()
+                    triggers = wf.get("triggers") or []
+                    workflow_types.append(name)
+                    workflow_types.extend(triggers)
+        except Exception as exc:
+            log.debug("auto_recommend: error reading company data: %s", exc)
+
+    tech_stack = list(dict.fromkeys(t for t in tech_stack if t))[:20]
+    workflow_types = list(dict.fromkeys(w for w in workflow_types if w))[:10]
+
+    recs = _SKILL_REGISTRY.recommend(
+        tech_stack=tech_stack,
+        workflow_types=workflow_types,
+        limit=limit,
+    )
+    return {
+        "recommendations": recs,
+        "tech_stack": tech_stack,
+        "workflow_types": workflow_types,
+    }
+
+
+@app.get("/api/skills/{skill_id:path}")
+async def get_skill(skill_id: str, user: dict = Depends(get_current_user)):
+    """Return full details for one skill by ID."""
+    if _SKILL_REGISTRY is None:
+        raise HTTPException(status_code=503, detail="SkillRegistry not available")
+    skill = _SKILL_REGISTRY.get(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {**skill.as_dict(), "content": skill.raw_content}
+
+# ─── MCP Server Configuration ───────────────────────────────────────────────────
+# Stores user-configured MCP server records in the database.
+# Status is *not* polled server-side (MCP servers run on the user's machine);
+# the frontend sets status when it attempts a connection test.
+
+class McpServerBody(BaseModel):
+    name: str
+    cmd: str
+    desc: str = ""
+    status: str = "idle"
+    tools: int = 0
+
+
+@app.get("/api/mcp/servers")
+async def list_mcp_servers(user: dict = Depends(get_current_user)):
+    """Return all MCP server configurations for this user."""
+    uid = str(user.get("_id", user.get("id", "")))
+    servers: list[dict] = []
+    async for s in get_db().mcp_servers.find({"user_id": uid}).sort("created_at", 1):
+        s["id"] = str(s.pop("_id"))
+        servers.append(s)
+    return {"servers": servers}
+
+
+@app.post("/api/mcp/servers")
+async def create_mcp_server(body: McpServerBody, user: dict = Depends(get_current_user)):
+    """Add a new MCP server configuration."""
+    uid = str(user.get("_id", user.get("id", "")))
+    doc = {
+        "user_id": uid,
+        "name": body.name,
+        "cmd": body.cmd,
+        "desc": body.desc,
+        "status": body.status,
+        "tools": body.tools,
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await get_db().mcp_servers.insert_one(doc)
+    doc["id"] = str(result.inserted_id)
+    doc.pop("_id", None)
+    return doc
+
+
+@app.patch("/api/mcp/servers/{server_id}")
+async def update_mcp_server(server_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """Update status/tools/name on an MCP server."""
+    uid = str(user.get("_id", user.get("id", "")))
+    from bson import ObjectId as _ObjId
+    try:
+        oid = _ObjId(server_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid server ID")
+    allowed = {k: v for k, v in body.items() if k in ("name", "cmd", "desc", "status", "tools")}
+    if not allowed:
+        raise HTTPException(status_code=400, detail="No updatable fields provided")
+    result = await get_db().mcp_servers.update_one(
+        {"_id": oid, "user_id": uid}, {"$set": allowed}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return {"ok": True}
+
+
+@app.delete("/api/mcp/servers/{server_id}")
+async def delete_mcp_server(server_id: str, user: dict = Depends(get_current_user)):
+    """Remove an MCP server configuration."""
+    uid = str(user.get("_id", user.get("id", "")))
+    from bson import ObjectId as _ObjId
+    try:
+        oid = _ObjId(server_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid server ID")
+    result = await get_db().mcp_servers.delete_one({"_id": oid, "user_id": uid})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return {"ok": True}
+
 # ─── API Keys Management ───────────────────────────────────────────────────────
 
 
