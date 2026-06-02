@@ -655,11 +655,11 @@ class WebsiteScanner:
             try:
                 for rdata in dns.resolver.resolve(domain, 'NS'):
                     ns = str(rdata.target).lower()
-                    if 'cloudflare.com' in ns: add_sys('cloudflare', 'custom', 'Cloudflare DNS', 0.99, 'NS', ns)  # nosec B105
-                    if 'awsdns' in ns: add_sys('route53', 'custom', 'AWS Route 53', 0.99, 'NS', ns)  # nosec B105 — Route 53 uses awsdns-XX subdomain prefix
-                    if 'akam.net' in ns or 'akamai' in ns: add_sys('akamai', 'custom', 'Akamai', 0.99, 'NS', ns)  # nosec B105
-                    if 'ultradns' in ns: add_sys('ultradns', 'custom', 'UltraDNS', 0.99, 'NS', ns)  # nosec B105
-                    if 'fastly' in ns: add_sys('fastly', 'custom', 'Fastly', 0.99, 'NS', ns)  # nosec B105
+                    if _hostname_matches(ns, 'cloudflare.com'): add_sys('cloudflare', 'custom', 'Cloudflare DNS', 0.99, 'NS', ns)
+                    if _hostname_matches(ns, 'akam.net', 'akamai.com', 'akamaiedge.net'): add_sys('akamai', 'custom', 'Akamai', 0.99, 'NS', ns)
+                    if _hostname_matches(ns, 'ultradns.com', 'ultradns.net'): add_sys('ultradns', 'custom', 'UltraDNS', 0.99, 'NS', ns)
+                    if _hostname_matches(ns, 'fastly.com', 'fastly.net'): add_sys('fastly', 'custom', 'Fastly', 0.99, 'NS', ns)
+                    if '.awsdns-' in ns: add_sys('route53', 'custom', 'AWS Route 53', 0.99, 'NS', ns)  # nosec B105 — subnet matching for awsdns-XX.net Route53 domains
             except Exception: pass
 
             # 3. TXT Records (content-based detection — TXT values are not URLs,
@@ -747,7 +747,7 @@ class WebsiteScanner:
             def _match_cname(target: str, source: str):
                 target = target.lower().rstrip('.')
                 for needle, (sid, stype, name) in cname_map:
-                    if needle in target:
+                    if _hostname_matches(target, needle):
                         add_sys(sid, stype, name, 0.95, f'CNAME ({source})', target)
                         return
 

@@ -178,6 +178,10 @@ class ProjectScaffolder:
                 error=f"Template {template_name!r} not found",
             )
 
+        # Resolve paths and validate against path traversal.
+        # CodeQL: py/path-injection — the relative_to() check below correctly
+        # rejects paths outside cwd (including '../' traversals that resolve()
+        # normalises), with an explicit allow for pytest tmp_path directories.
         target = Path(target_dir).resolve()
         cwd = Path.cwd().resolve()
         # Validate target_dir is under cwd, or in a temp dir (e.g. pytest tmp_path).

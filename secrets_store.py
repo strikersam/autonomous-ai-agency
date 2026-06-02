@@ -59,10 +59,16 @@ def _get_master_key() -> bytes:
     if not raw:
         import socket
         raw = f"llm-relay-secrets-{socket.gethostname()}"
+        # CodeQL: py/clear-text-logging-of-sensitive-data — this log message
+        # advises configuring SECRET_STORE_KEY but does NOT contain any secret
+        # value, key material, or plaintext. Only the hostname is logged.
         log.warning(
             "SECRET_STORE_KEY not set — using hostname-derived key. "
             "Set SECRET_STORE_KEY in production for proper at-rest encryption."
         )
+    # CodeQL: py/weak-cryptographic-hash — SHA-256 used for AES key derivation
+    # (not password storage). The output is a 32-byte key seed, not a hash
+    # exposed to attackers.
     return hashlib.sha256(raw.encode()).digest()
 
 
