@@ -927,12 +927,12 @@ class WebsiteScanner:
             add_stack(cms, 'Salesforce Commerce Cloud')
             
         if 'x-powered-by' in headers_dict:
-            pb = headers_dict['x-powered-by']        # Header value matching for technology detection (not URL validation).
-        # Using str.__contains__ on known, static string literals from response headers.
-        if 'php' in pb: add_stack(languages, 'PHP')
-        if 'express' in pb: add_stack(frameworks, 'Express'); add_stack(languages, 'JavaScript')
-        if 'next.js' in pb: add_stack(frameworks, 'Next.js'); add_stack(frameworks, 'React')
-        if 'asp.net' in pb: add_stack(languages, 'C#')
+            pb = headers_dict['x-powered-by']
+            # Header value matching for technology detection (not URL validation).
+            if 'php' in pb: add_stack(languages, 'PHP')
+            if 'express' in pb: add_stack(frameworks, 'Express'); add_stack(languages, 'JavaScript')
+            if 'next.js' in pb: add_stack(frameworks, 'Next.js'); add_stack(frameworks, 'React')
+            if 'asp.net' in pb: add_stack(languages, 'C#')
         
         if 'vercel' in headers_dict.get('server', '') or 'x-vercel-id' in headers_dict: add_stack(hosting, 'Vercel')
         if 'netlify' in headers_dict.get('server', '') or 'x-nf-request-id' in headers_dict: add_stack(hosting, 'Netlify')
