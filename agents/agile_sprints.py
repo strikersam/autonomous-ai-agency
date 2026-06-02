@@ -55,7 +55,6 @@ class SprintMetrics:
     completed_points: int = 0
     average_velocity: float = 0.0
     days_remaining: float = 0.0
-    sprint_duration_days: int = 14
 
     @property
     def completion_percentage(self) -> float:
@@ -77,8 +76,7 @@ class SprintMetrics:
         """Whether the sprint is on track to complete."""
         if self.days_remaining <= 0:
             return self.completed_points >= self.total_points
-        daily_velocity = self.average_velocity / max(self.sprint_duration_days, 1)
-        return self.burndown_rate <= daily_velocity
+        return self.burndown_rate <= self.average_velocity
 
 
 @dataclass
@@ -146,6 +144,10 @@ class AgileSprint:
             sum(self._historical_velocity) / len(self._historical_velocity)
             if self._historical_velocity else 0.0
         )
+        # Normalize to daily velocity for same-unit comparison with burndown_rate
+        if self.start_date and self.end_date:
+            sprint_days = max((self.end_date - self.start_date).days, 1)
+            avg_vel = avg_vel / sprint_days
         days_remaining = 0
         if self.end_date is not None:
             delta = self.end_date - datetime.now(timezone.utc)
@@ -155,7 +157,6 @@ class AgileSprint:
             completed_points=completed,
             average_velocity=avg_vel,
             days_remaining=days_remaining,
-            sprint_duration_days=(self.end_date - self.start_date).days if self.end_date and self.start_date else 14,
         )
 
     @property
