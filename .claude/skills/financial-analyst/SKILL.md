@@ -82,3 +82,4 @@ pytest tests/test_financial_analyst.py -v
 ## Branch
 
 `fix/quick-note-236-agentic-cfo`
+# SKILL.md refresh Tue Jun  2 11:35:52 CEST 2026

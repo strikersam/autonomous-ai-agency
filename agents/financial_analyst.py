@@ -228,3 +228,4 @@ class FinancialAgent:
                 f"  {line.name:25s} ROI={line.roi:.2f}  → {rec.value.upper()}"
             )
         return lines
+# noop: refresh diff timestamp Tue Jun  2 11:35:52 CEST 2026
