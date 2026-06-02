@@ -155,7 +155,7 @@ jobs:
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
           URL="$ISSUE_URL"
-          if [ -z "$URL" ];
+          if [ -z "$URL" ]; then
             gh issue comment "$ISSUE_NUM" \
               --repo "$REPO" \
               --body "$(cat <<'MSG'
