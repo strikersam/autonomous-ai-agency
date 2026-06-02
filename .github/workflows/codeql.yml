@@ -1,16 +1,6 @@
 name: "CodeQL"
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - '**.py'
-      - '**.js'
-      - '**.jsx'
-      - '**.ts'
-      - '**.tsx'
-      - 'requirements*.txt'
-      - 'frontend/package*.json'
   pull_request:
     branches: [master]
   schedule:
@@ -18,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: codeql-${{ github.ref }}
+  group: codeql-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
@@ -41,6 +31,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install JS dependencies (for JavaScript analysis)
+        if: matrix.language == 'javascript-typescript'
+        working-directory: frontend
+        run: npm install --legacy-peer-deps
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
