@@ -137,8 +137,8 @@ class ServiceDaemon:
 
             return True, "Proxy starting (may take a moment)"
 
-        except Exception as e:
-            return False, f"Failed to start proxy: {str(e)}"
+        except Exception:
+            return False, "Failed to start proxy. Check logs for details."
 
     def stop_proxy(self) -> tuple[bool, str]:
         """Stop the proxy server."""
@@ -179,8 +179,8 @@ class ServiceDaemon:
             time.sleep(2)
             return True, "Tunnel starting"
 
-        except Exception as e:
-            return False, f"Failed to start tunnel: {str(e)}"
+        except Exception:
+            return False, "Failed to start tunnel. Check logs for details."
 
     def stop_tunnel(self) -> tuple[bool, str]:
         """Stop ngrok tunnel."""
@@ -269,10 +269,10 @@ async def configure(config: ServiceConfig):
                 "success": False,
                 "message": msg
             }
-    except Exception as e:
+    except Exception:
         return {
             "success": False,
-            "message": str(e)
+            "message": "Configuration failed. Check server logs."
         }
 
 

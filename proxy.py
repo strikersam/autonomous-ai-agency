@@ -744,11 +744,11 @@ async def rollback_agent_commit(session_id: str, auth: AuthContext = Depends(ver
             capture_output=True,
             text=True,
         )
-    except subprocess.CalledProcessError as exc:
+    except subprocess.CalledProcessError:
         raise HTTPException(
             status_code=500,
-            detail=(exc.stderr or exc.stdout or "git revert failed").strip(),
-        ) from exc
+            detail="git revert failed. Check server logs for details.",
+        )
     AGENT_SESSIONS.append_message(session_id, "system", f"Rolled back commit {target}")
     return {"status": "ok", "reverted_commit": target, "git_output": proc.stdout.strip()}
 

@@ -236,9 +236,11 @@ async def run_task_on_runtime(
     except RuntimePreflightError as exc:
         raise HTTPException(status_code=412, detail=exc.report.as_dict()) from exc
     except RuntimeUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        log.error("Runtime unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Runtime is currently unavailable") from exc
     except RuntimeExecutionError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        log.error("Runtime execution error: %s", exc)
+        raise HTTPException(status_code=500, detail="Runtime execution failed. Check server logs.") from exc
 
 
 # ── Runtime Lifecycle Control ─────────────────────────────────────────────────
@@ -268,8 +270,7 @@ async def start_runtime_container(runtime_id: str) -> dict:
         return result
     if result.get("status") == "error":
         # Log internally but return an informational 200 so the UI can display it
-        internal_error = str(result.get("error", "Unknown"))
-        log.warning(f"Runtime start non-fatal for {runtime_id}: {internal_error}")
+        log.warning("Runtime start non-fatal for %s", runtime_id)
         return {
             "runtime_id": runtime_id,
             "action": "start",
@@ -287,8 +288,7 @@ async def stop_runtime_container(runtime_id: str) -> dict:
     if result.get("docker_unavailable"):
         return result
     if result.get("status") == "error":
-        internal_error = str(result.get("error", "Unknown"))
-        log.error(f"Runtime stop failed for {runtime_id}: {internal_error}")
+        log.error("Runtime stop failed for %s", runtime_id)
         raise HTTPException(status_code=500, detail="Internal server error during runtime shutdown")
     return result
 

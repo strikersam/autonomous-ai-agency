@@ -80,8 +80,8 @@ class ServiceManager:
             self.status["proxy"] = "starting"
             return True
 
-        except Exception as e:
-            self.status["proxy"] = f"error: {str(e)}"
+        except Exception:
+            self.status["proxy"] = "error: failed to start proxy"
             return False
 
     def start_tunnel(self):
@@ -117,8 +117,8 @@ class ServiceManager:
 
             return True
 
-        except Exception as e:
-            self.status["tunnel"] = f"error: {str(e)}"
+        except Exception:
+            self.status["tunnel"] = "error: failed to start tunnel"
             return False
 
     def stop_proxy(self):

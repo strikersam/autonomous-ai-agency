@@ -45,7 +45,7 @@ def main() -> int:
     plain, rec = issue_new_api_key(ks, args.email.strip(), args.department.strip())
 
     print("Key created. Distribute this secret once (it cannot be shown again):")
-    print(plain)
+    print(plain)  # nosec: intended CLI output for one-time key display
     print()
     print(f"key_id:      {rec.key_id}")
     print(f"email:       {rec.email}")
