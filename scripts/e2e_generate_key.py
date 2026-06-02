@@ -35,7 +35,7 @@ def main() -> int:
     # Never print the key directly — keeps it out of the Actions log until the
     # workflow masks it with  echo "::add-mask::$(cat $file)".
     output_path = os.environ.get("E2E_KEY_OUTPUT_FILE", "/dev/stdout")
-    Path(output_path).write_text(plain, encoding="utf-8")
+    Path(output_path).write_text(plain, encoding="utf-8")  # nosec B108 — CI helper: writes API key to temp file that is immediately masked by workflow
     return 0
 
 

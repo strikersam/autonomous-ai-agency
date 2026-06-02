@@ -10,11 +10,14 @@ Each runtime (hermes, opencode, goose, aider) is a FastAPI service that:
 from __future__ import annotations
 
 import os
+import logging
 import time
 
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+log = logging.getLogger("agent-runtime")
 
 app = FastAPI(title="Agent Runtime")
 
@@ -381,9 +384,10 @@ async def run_task(req: RuntimeTaskRequest):
         )
         TASK_RESULTS[req.task_id] = result
         return result
-    except httpx.HTTPError as e:
+    except httpx.HTTPError:
         raise HTTPException(status_code=503, detail="Backend unavailable")
-    except Exception as e:
+    except Exception:
+        log.exception("Task execution failed for %s", req.task_id)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -418,9 +422,10 @@ async def run_instruction(req: RuntimeRunRequest):
             "success": True,
         }
         return result
-    except httpx.HTTPError as e:
+    except httpx.HTTPError:
         raise HTTPException(status_code=503, detail="Backend unavailable")
-    except Exception as e:
+    except Exception:
+        log.exception("Run instruction failed for %s", req.task_id)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -456,9 +461,10 @@ async def chat_completions(req: ChatRequest):
                 "total_tokens": 0,
             },
         }
-    except httpx.HTTPError as e:
+    except httpx.HTTPError:
         raise HTTPException(status_code=503, detail="Backend unavailable")
-    except Exception as e:
+    except Exception:
+        log.exception("Chat completion failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

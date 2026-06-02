@@ -8,7 +8,7 @@ from typing import Any
 
 SAFE_TOP_LEVEL = frozenset({"pytest", "rg", "git", "ls", "cat"})
 SAFE_GIT_SUBCOMMANDS = frozenset({"status", "diff", "log", "show", "rev-parse"})
-_UNSAFE_CHARS_RE = __import__('re').compile(r'[;&|`$(){}!<>\n\r]')
+_UNSAFE_CHARS_RE = __import__('re').compile(r'[;&|`$(){}!<>\n\r]')  # nosec B324 — used for shell metacharacter validation in validate_command
 
 
 def _safe_allowlist() -> set[str]:

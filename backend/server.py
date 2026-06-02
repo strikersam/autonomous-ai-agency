@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Optional, Dict, List, Tuple, Union, Literal
 
 import bcrypt
+import html
 import httpx
 import jwt
 
@@ -4977,10 +4978,11 @@ def _oauth_popup_html(
         payload = json.dumps({"type": "github_oauth", "success": True, "login": login})
         body = "<p style='font-family:monospace;padding:2rem'>GitHub connected! Closing…</p>"
     else:
+        escaped = html.escape(error_msg)
         payload = json.dumps(
-            {"type": "github_oauth", "success": False, "error": error_msg}
+            {"type": "github_oauth", "success": False, "error": escaped}
         )
-        body = f"<p style='font-family:monospace;padding:2rem;color:red'>Error: {error_msg}</p>"
+        body = f"<p style='font-family:monospace;padding:2rem;color:red'>Error: {escaped}</p>"
     # Use the known frontend origin so the browser only delivers the message there,
     # not to arbitrary openers (prevents cross-origin message interception).
     target_origin = json.dumps(frontend_url)
@@ -5721,6 +5723,21 @@ except Exception as _mcp_err:
 
 # ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
+
+_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
+
+if _FRONTEND_BUILD.exists():
+    app.mount(
+        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
+    )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        index = _FRONTEND_BUILD / "index.html"
+        if index.exists():
+            return HTMLResponse(index.read_text())
+        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
+
 
 _FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
 
