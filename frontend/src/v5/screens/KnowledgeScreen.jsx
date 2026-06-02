@@ -221,6 +221,23 @@ function KnowledgeScreen() {
 
   const filteredActivity = activity.filter(a => actFilter === 'all' || a.type === actFilter);
 
+  const handleCreateDoc = async (e) => {
+    e && e.preventDefault();
+    if (!newDocTitle.trim()) return;
+    setNewDocSaving(true);
+    try {
+      await api.createWikiPage({
+        title: newDocTitle.trim(),
+        content: newDocBody,
+        slug: newDocTitle.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+      });
+      setShowNewDoc(false); setNewDocTitle(''); setNewDocBody('');
+      refetch();
+    } catch (err) {
+      alert('Could not create doc: ' + (err?.response?.data?.detail || err.message));
+    } finally { setNewDocSaving(false); }
+  };
+
   return (
     <div style={{ padding:'20px 16px 48px', maxWidth:900, margin:'0 auto' }}>
       <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Knowledge</div>
