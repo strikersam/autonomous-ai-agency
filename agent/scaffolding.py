@@ -180,15 +180,21 @@ class ProjectScaffolder:
 
         target = Path(target_dir).resolve()
         cwd = Path.cwd().resolve()
-        # Validate target_dir is under cwd or is an absolute path (e.g. pytest tmp_path)
-        if not str(target).startswith(str(cwd)) and not target.is_absolute():
-            return ScaffoldResult(
-                template_name=template_name,
-                target_dir=str(target),
-                files_created=[],
-                success=False,
-                error="target_dir must be within the current working directory or an absolute path",
-            )
+        # Validate target_dir is under cwd, or in a temp dir (e.g. pytest tmp_path).
+        # Uses relative_to() which correctly rejects path traversals like '../outside'
+        # that resolve() then is_absolute() would incorrectly allow.
+        try:
+            target.relative_to(cwd)
+        except ValueError:
+            # Allow temp directories (pytest tmp_path) but reject everything else
+            if not str(target).startswith(('/tmp/', '/var/folders/')):
+                return ScaffoldResult(
+                    template_name=template_name,
+                    target_dir=str(target),
+                    files_created=[],
+                    success=False,
+                    error="target_dir must be within the current working directory",
+                )
         target.mkdir(parents=True, exist_ok=True)
         created: list[str] = []
 
