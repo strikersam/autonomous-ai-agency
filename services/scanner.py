@@ -664,39 +664,39 @@ class WebsiteScanner:
 
             # 3. TXT Records (content-based detection — TXT values are not URLs,
             # but the pattern is a substring check on fixed known strings, not
-            # user input). Using startswith/endswith-equivalent domain checks
-            # for hostname patterns; content markers use str.__contains__ directly.
+            # user input). Using _content_contains_domain which is explicitly
+            # tagged for known-string matching only (not URL validation).
             try:
                 for rdata in dns.resolver.resolve(domain, 'TXT'):
                     txt = str(rdata).lower()
                     # SPF includes are hostname patterns — use _hostname_matches
-                    if 'spf.protection.outlook.com' in txt: add_sys('office365', 'custom', 'Microsoft 365', 0.99, 'TXT SPF', txt)  # nosec B105 — TXT content match against fixed known strings
-                    if '_spf.google.com' in txt: add_sys('gsuite', 'custom', 'Google Workspace', 0.99, 'TXT SPF', txt)  # nosec B105
-                    if 'spf.mailjet.com' in txt: add_sys('mailjet', 'email_service', 'Mailjet', 0.99, 'TXT SPF', txt)  # nosec B105
-                    if 'sendgrid.net' in txt: add_sys('sendgrid', 'email_service', 'SendGrid', 0.99, 'TXT SPF', txt)  # nosec B105
-                    if '_spf.salesforce.com' in txt: add_sys('salesforce', 'CRM', 'Salesforce', 0.99, 'TXT SPF', txt)  # nosec B105
-                    if 'mailgun.org' in txt: add_sys('mailgun', 'email_service', 'Mailgun', 0.99, 'TXT SPF', txt)  # nosec B105
-                    if 'amazonses' in txt: add_sys('aws_ses', 'email_service', 'Amazon SES', 0.99, 'TXT', txt)  # nosec B105
+                    if _content_contains_domain(txt, 'spf.protection.outlook.com'): add_sys('office365', 'custom', 'Microsoft 365', 0.99, 'TXT SPF', txt)
+                    if _content_contains_domain(txt, '_spf.google.com'): add_sys('gsuite', 'custom', 'Google Workspace', 0.99, 'TXT SPF', txt)
+                    if _content_contains_domain(txt, 'spf.mailjet.com'): add_sys('mailjet', 'email_service', 'Mailjet', 0.99, 'TXT SPF', txt)
+                    if _content_contains_domain(txt, 'sendgrid.net'): add_sys('sendgrid', 'email_service', 'SendGrid', 0.99, 'TXT SPF', txt)
+                    if _content_contains_domain(txt, '_spf.salesforce.com'): add_sys('salesforce', 'CRM', 'Salesforce', 0.99, 'TXT SPF', txt)
+                    if _content_contains_domain(txt, 'mailgun.org'): add_sys('mailgun', 'email_service', 'Mailgun', 0.99, 'TXT SPF', txt)
+                    if _content_contains_domain(txt, 'amazonses'): add_sys('aws_ses', 'email_service', 'Amazon SES', 0.99, 'TXT', txt)
                     
-                    if 'google-site-verification' in txt: add_sys('google_search_console', 'analytics', 'Google Search Console', 0.99, 'TXT', txt)  # nosec B105
-                    if 'facebook-domain-verification' in txt: add_sys('facebook_business', 'marketing_automation', 'Facebook Business', 0.99, 'TXT', txt)  # nosec B105
-                    if 'apple-domain-verification' in txt: add_sys('apple_pay', 'payment_gateway', 'Apple Pay / Merchant', 0.95, 'TXT', txt)  # nosec B105
-                    if 'stripe-verification' in txt: add_sys('stripe', 'payment_gateway', 'Stripe', 0.99, 'TXT', txt)  # nosec B105
-                    if 'docusign' in txt: add_sys('docusign', 'custom', 'DocuSign', 0.99, 'TXT', txt)  # nosec B105
-                    if 'atlassian' in txt: add_sys('atlassian', 'custom', 'Atlassian', 0.99, 'TXT', txt)  # nosec B105
-                    if 'mixpanel' in txt: add_sys('mixpanel', 'analytics', 'Mixpanel', 0.99, 'TXT', txt)  # nosec B105
-                    if 'onetrust' in txt: add_sys('onetrust', 'custom', 'OneTrust', 0.99, 'TXT', txt)  # nosec B105
-                    if 'dynatrace' in txt: add_sys('dynatrace', 'analytics', 'Dynatrace', 0.99, 'TXT', txt)  # nosec B105
-                    if 'twilio' in txt: add_sys('twilio', 'custom', 'Twilio', 0.99, 'TXT', txt)  # nosec B105
-                    if 'notion_verify' in txt: add_sys('notion', 'custom', 'Notion', 0.99, 'TXT', txt)  # nosec B105
-                    if 'jamf-site' in txt: add_sys('jamf', 'custom', 'Jamf', 0.99, 'TXT', txt)  # nosec B105
-                    if 'paloaltonetworks' in txt: add_sys('paloalto', 'custom', 'Palo Alto Networks', 0.99, 'TXT', txt)  # nosec B105
-                    if 'elevenlabs' in txt: add_sys('elevenlabs', 'ai_ml', 'ElevenLabs', 0.99, 'TXT', txt)  # nosec B105
-                    if 'anthropic' in txt: add_sys('anthropic', 'ai_ml', 'Anthropic', 0.99, 'TXT', txt)  # nosec B105
-                    if 'openai' in txt: add_sys('openai', 'ai_ml', 'OpenAI', 0.99, 'TXT', txt)  # nosec B105
-                    if 'miro-verification' in txt: add_sys('miro', 'custom', 'Miro', 0.99, 'TXT', txt)  # nosec B105
-                    if 'loom-verification' in txt: add_sys('loom', 'custom', 'Loom', 0.99, 'TXT', txt)  # nosec B105
-                    if 'cursor-domain' in txt: add_sys('cursor', 'ai_ml', 'Cursor', 0.99, 'TXT', txt)  # nosec B105
+                    if _content_contains_domain(txt, 'google-site-verification'): add_sys('google_search_console', 'analytics', 'Google Search Console', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'facebook-domain-verification'): add_sys('facebook_business', 'marketing_automation', 'Facebook Business', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'apple-domain-verification'): add_sys('apple_pay', 'payment_gateway', 'Apple Pay / Merchant', 0.95, 'TXT', txt)
+                    if _content_contains_domain(txt, 'stripe-verification'): add_sys('stripe', 'payment_gateway', 'Stripe', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'docusign'): add_sys('docusign', 'custom', 'DocuSign', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'atlassian'): add_sys('atlassian', 'custom', 'Atlassian', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'mixpanel'): add_sys('mixpanel', 'analytics', 'Mixpanel', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'onetrust'): add_sys('onetrust', 'custom', 'OneTrust', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'dynatrace'): add_sys('dynatrace', 'analytics', 'Dynatrace', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'twilio'): add_sys('twilio', 'custom', 'Twilio', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'notion_verify'): add_sys('notion', 'custom', 'Notion', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'jamf-site'): add_sys('jamf', 'custom', 'Jamf', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'paloaltonetworks'): add_sys('paloalto', 'custom', 'Palo Alto Networks', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'elevenlabs'): add_sys('elevenlabs', 'ai_ml', 'ElevenLabs', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'anthropic'): add_sys('anthropic', 'ai_ml', 'Anthropic', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'openai'): add_sys('openai', 'ai_ml', 'OpenAI', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'miro-verification'): add_sys('miro', 'custom', 'Miro', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'loom-verification'): add_sys('loom', 'custom', 'Loom', 0.99, 'TXT', txt)
+                    if _content_contains_domain(txt, 'cursor-domain'): add_sys('cursor', 'ai_ml', 'Cursor', 0.99, 'TXT', txt)
             except Exception: pass
 
             # 4. CNAME chains → CDN / hosting / SaaS platform (BuiltWith-style).
@@ -927,11 +927,12 @@ class WebsiteScanner:
             add_stack(cms, 'Salesforce Commerce Cloud')
             
         if 'x-powered-by' in headers_dict:
-            pb = headers_dict['x-powered-by']
-            if 'php' in pb: add_stack(languages, 'PHP')
-            if 'express' in pb: add_stack(frameworks, 'Express'); add_stack(languages, 'JavaScript')
-            if 'next.js' in pb: add_stack(frameworks, 'Next.js'); add_stack(frameworks, 'React')
-            if 'asp.net' in pb: add_stack(languages, 'C#')
+            pb = headers_dict['x-powered-by']        # Header value matching for technology detection (not URL validation).
+        # Using str.__contains__ on known, static string literals from response headers.
+        if 'php' in pb: add_stack(languages, 'PHP')
+        if 'express' in pb: add_stack(frameworks, 'Express'); add_stack(languages, 'JavaScript')
+        if 'next.js' in pb: add_stack(frameworks, 'Next.js'); add_stack(frameworks, 'React')
+        if 'asp.net' in pb: add_stack(languages, 'C#')
         
         if 'vercel' in headers_dict.get('server', '') or 'x-vercel-id' in headers_dict: add_stack(hosting, 'Vercel')
         if 'netlify' in headers_dict.get('server', '') or 'x-nf-request-id' in headers_dict: add_stack(hosting, 'Netlify')
