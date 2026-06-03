@@ -82,6 +82,11 @@ Deploy Agency Core (Docker, Render, or `uvicorn` locally). On first boot, open t
 The **Doctor** screen (accessible any time from the sidebar) repeats this check live: git binary, GitHub token, repo access, Langfuse connectivity, and all registered runtimes. Green across the board means you're ready.
 
 > **No local GPU?** Set `LLM_PROVIDER=nvidia-nim` and `NVIDIA_API_KEY=<your-key>` to use Nvidia's free-tier hosted models. Zero local hardware required.
+>
+> **Website scanning?** Install Playwright for the scanner to detect JS-rendered technologies on sites like gucci.com:
+> ```bash
+> pip install playwright && playwright install --with-deps chromium
+> ```
 
 ---
 
@@ -352,11 +357,15 @@ cp .env.example .env
 #   NVIDIA_API_KEY=nvapi-...                 # free cloud inference
 ```
 
-### 3. Start the backend
+### 3. Start the backend (main application)
 
 ```bash
-uvicorn backend.server:app --reload --port 8001
+# The main application is backend.server:app, NOT proxy:app.
+# proxy.py is the API-key-gated proxy — it doesn't serve login/dashboard/wiki/company endpoints.
+uvicorn backend.server:app --host 0.0.0.0 --port 8001
 ```
+
+Verify: `curl http://localhost:8001/api/ping` should return `{"status":"ok"}`.
 
 ### 4. Start the frontend (development)
 
