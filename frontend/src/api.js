@@ -113,6 +113,7 @@ API.interceptors.response.use(
 export function fmtErr(detail) {
   if (detail == null) return 'Something went wrong.';
   if (typeof detail === 'string') return detail;
+  if (detail.message) return detail.message;
   if (Array.isArray(detail)) return detail.map(e => {
     const field = Array.isArray(e?.loc) ? e.loc[e.loc.length - 1] : null;
     const msg = e?.msg || JSON.stringify(e);

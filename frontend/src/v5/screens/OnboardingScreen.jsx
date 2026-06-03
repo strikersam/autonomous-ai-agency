@@ -47,40 +47,28 @@ const QUESTION_SETS = {
   ],
 };
 
-// Detect site type from discovered systems (use system_type/name, not id which may be a MongoDB ObjectId)
+// Detect site type from discovered systems — checks both system_type and name independently
 function detectSiteType(systems) {
-  const names = (systems || []).map(s => (s.system_type || s.name || '').toLowerCase());
-  if (names.some(n => ['shopify','woocommerce','bigcommerce','magento','ecommerce'].includes(n))) return 'ecommerce';
-  if (names.some(n => ['stripe','chargebee','paddle','saas'].includes(n))) return 'saas';
-  if (names.some(n => ['wordpress','ghost','contentful','strapi','sanity','cms','media'].includes(n))) return 'media';
+  const vals = (systems || []).flatMap(s => [s.system_type, s.name].filter(Boolean).map(v => v.toLowerCase()));
+  if (vals.some(n => ['shopify','woocommerce','bigcommerce','magento','ecommerce'].includes(n))) return 'ecommerce';
+  if (vals.some(n => ['stripe','chargebee','paddle','saas'].includes(n))) return 'saas';
+  if (vals.some(n => ['wordpress','ghost','contentful','strapi','sanity','cms','media'].includes(n))) return 'media';
   return 'generic';
 }
 
-// Detect business category from discovered systems
+// Detect business category from discovered systems — checks both system_type and name independently
 function detectBusinessCategory(systems) {
-  const names = (systems || []).map(s => (s.system_type || s.name || '').toLowerCase());
-  if (names.some(n => ['shopify','woocommerce','bigcommerce','magento','ecommerce'].includes(n))) return 'ecommerce';
-  if (names.some(n => ['stripe','chargebee','paddle'].includes(n))) return 'saas';
-  if (names.some(n => ['wordpress','ghost','contentful','strapi','sanity','cms'].includes(n))) return 'media';
-  if (names.some(n => ['salesforce','hubspot'].includes(n))) return 'agency';
+  const vals = (systems || []).flatMap(s => [s.system_type, s.name].filter(Boolean).map(v => v.toLowerCase()));
+  if (vals.some(n => ['shopify','woocommerce','bigcommerce','magento','ecommerce'].includes(n))) return 'ecommerce';
+  if (vals.some(n => ['stripe','chargebee','paddle'].includes(n))) return 'saas';
+  if (vals.some(n => ['wordpress','ghost','contentful','strapi','sanity','cms'].includes(n))) return 'media';
+  if (vals.some(n => ['salesforce','hubspot'].includes(n))) return 'agency';
   return 'other';
 }
 
 const ONBOARDING_ANSWERS_KEY = 'v5_onboarding_answers';
 
-function extractErr(err) {
-  const d = err?.response?.data?.detail;
-  if (d == null) return err?.message || 'Something went wrong.';
-  if (typeof d === 'string') return d;
-  if (d.message) return d.message;
-  if (Array.isArray(d)) return d.map((e) => {
-    const field = Array.isArray(e?.loc) ? e.loc[e.loc.length - 1] : null;
-    const msg = e?.msg || '';
-    return field && field !== 'body' ? `${field}: ${msg}`.trim() : msg;
-  }).filter(Boolean).join('; ') || 'Request failed.';
-  return 'Request failed.';
-}
-
+// extractErr removed — use api.fmtErr() consistently across all screens
 function isUnauth(err) {
   return err?.response?.status === 401 || err?.response?.status === 403;
 }
@@ -250,7 +238,7 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
       if (isUnauth(e)) {
         setErrorText('You must be logged in to set up a company. Please log in and try again.');
       } else {
-        setErrorText('Could not create company: ' + extractErr(e));
+        setErrorText('Could not create company: ' + (api.fmtErr(e?.response?.data?.detail) || e?.message || 'Something went wrong.'));
       }
       return;
     }
@@ -308,7 +296,7 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
       clearInterval(progressTimer);
       setScanning(false);
       setProgress(0);
-      setErrorText('Website scan failed: ' + extractErr(e));
+      setErrorText('Website scan failed: ' + (api.fmtErr(e?.response?.data?.detail) || e?.message || 'Something went wrong.'));
     }
   };
 
@@ -614,7 +602,7 @@ function DoneStep({ onFinish, companyId, companyName }) {
           })
           .catch(e => {
             setSpecialists([]);
-            setSpecsError(extractErr(e));
+            setSpecsError((api.fmtErr(e?.response?.data?.detail) || e?.message || 'Something went wrong.'));
           });
       });
   }, [companyId]);
