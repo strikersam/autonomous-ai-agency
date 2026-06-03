@@ -2733,6 +2733,7 @@ async def _run_agent_loop(
     provider_chain: Optional[List[ProviderConfig]] = None,
     allow_commercial_fallback: bool = True,
     workspace_root: Optional[Union[str, Path]] = None,
+    context: Optional[Dict] = None,
 ) -> str:
     try:
         from agent.loop import AgentRunner
@@ -2793,6 +2794,7 @@ async def _run_agent_loop(
         f"GITHUB STATUS: {github_status}\n\n"
         + (f"{auto_skill_guidance}\n\n" if auto_skill_guidance else "")
         + f"WIKI INDEX (current pages):\n{wiki_index}\n\n"
+        + ("USER CONTEXT:\n" + "\n".join(f"  {k}: {v}" for k, v in context.items()) + "\n\n" if context else "")
         + f"TASK: {instruction}"
     )
 
@@ -2828,7 +2830,12 @@ async def _run_agent_loop(
             return await _agent_provider_failure_response(instruction, exc)
         return (
             f"⚠️ Agent error: {exc}\n\n"
-            "If this persists, check the server logs for details."
+            "**Troubleshooting:**\n"
+            "• Verify your configured provider is reachable and has valid credentials (Providers → Test).\n"
+            "• If using Ollama, ensure it is running (`ollama serve`) and the model is pulled.\n"
+            "• If using NVIDIA NIM, verify your NVIDIA_API_KEY is valid and has credits remaining.\n"
+            "• For GitHub operations, connect a token at Settings → GitHub.\n"
+            "• Check the server logs for the full traceback.\n"
         )
 
 
@@ -2986,8 +2993,8 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
     if not key:
         return None
     base = (
-        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
-    ).rstrip("/")
+        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
+    ).rstrip("/").removesuffix("/v1")
     model = (
         os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
     )
@@ -3179,6 +3186,7 @@ class ChatMessage(BaseModel):
         False  # When True, forces multi-agent orchestration regardless of complexity
     )
     allow_commercial_fallback_once: bool = False
+    context: Optional[Dict] = None  # Company/repo/systems context from frontend chips
 
 
 _DIRECT_CHAT_PROVIDER_TIMEOUT_SEC = 20.0
@@ -3544,6 +3552,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 provider_chain=router.providers[1:],
                 allow_commercial_fallback=policy["allow_commercial_fallback"],
                 workspace_root=workspace_root,
+                context=body.context,
             )
             heartbeat("verification", f"Judge model: {role_models['judge']}")
             await _persist_agent_chat_response(

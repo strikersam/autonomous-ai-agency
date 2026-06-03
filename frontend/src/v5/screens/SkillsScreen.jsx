@@ -340,8 +340,8 @@ function SkillsScreen() {
       </div>
 
       {/* Honest preview notice — these templates are illustrative and not yet persisted/activated */}
-      <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,189,102,0.07)', border:'1px solid rgba(255,189,102,0.20)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 }}>
-        <strong style={{ color:'#ffbd66' }}>Preview.</strong> This is a catalogue of planned agentic-commerce skills. There’s no skills backend yet, so toggling a skill on/off here only changes it for this session — it does <strong>not</strong> activate the automation or persist after reload.
+      <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 }}>
+        <strong style={{ color:'var(--accent)' }}>Catalogue Preview.</strong> The commerce skill templates below are <strong>demo illustrations</strong> — toggling is session-only and does not persist or activate anything. A backend catalogue endpoint is planned. The <strong>Recommended</strong> and <strong>Registry</strong> tabs above call live APIs and reflect real backend data.
       </div>
 
       {/* How it works visual */}

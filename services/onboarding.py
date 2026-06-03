@@ -74,7 +74,8 @@ class OnboardingService:
         {"name": "detect_systems", "label": "Detect Systems", "description": "Detecting business systems"},
         {"name": "provision_specialists", "label": "Provision Specialists", "description": "Provisioning specialists"},
         {"name": "create_workflows", "label": "Create Workflows", "description": "Creating initial workflows"},
-        {"name": "complete", "label": "Complete", "description": "Onboarding complete"}
+        {"name": "complete", "label": "Complete", "description": "Onboarding complete"},
+        {"name": "activate_agency", "label": "Activate Agency", "description": "Starting 24x7 AI agency with specialist runtimes"}
     ]
 
     def __init__(
@@ -327,6 +328,53 @@ class OnboardingService:
                 })
                 
                 log.info(f"Completed onboarding for company {company_id}")
+
+                # ── Step 8: Activate Company Agency (24x7 specialist runtimes) ──
+                try:
+                    from services.company_agency import get_company_agency_service
+                    agency = get_company_agency_service()
+                    activation = await agency.activate_company(
+                        company_id=company_id,
+                        start_runtimes=True,
+                        create_schedules=True,
+                    )
+                    progress.steps.append({
+                        "name": "activate_agency",
+                        "status": activation.get("status", "unknown"),
+                        "completed_at": datetime.utcnow().isoformat(),
+                        "message": (
+                            f"Agency activated: {len(activation.get('specialists', []))} specialists, "
+                            f"{len(activation.get('runtimes_started', []))} runtimes, "
+                            f"{len(activation.get('schedules_created', []))} schedules"
+                        ),
+                        "details": activation,
+                    })
+                    log.info(
+                        "CompanyAgency: activated for %s — %s",
+                        company_id, activation.get("status"),
+                    )
+                except ImportError:
+                    log.info(
+                        "CompanyAgency not available — skipping 24x7 activation "
+                        "for company %s", company_id,
+                    )
+                    progress.steps.append({
+                        "name": "activate_agency",
+                        "status": "skipped",
+                        "completed_at": datetime.utcnow().isoformat(),
+                        "message": "CompanyAgency service not available — skipped",
+                    })
+                except Exception as exc:
+                    log.warning(
+                        "CompanyAgency: activation failed for %s: %s",
+                        company_id, exc,
+                    )
+                    progress.steps.append({
+                        "name": "activate_agency",
+                        "status": "failed",
+                        "completed_at": datetime.utcnow().isoformat(),
+                        "message": f"Agency activation failed: {exc}",
+                    })
                 
             except Exception as e:
                 progress.status = "failed"

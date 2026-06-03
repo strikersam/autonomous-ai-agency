@@ -113,6 +113,7 @@ API.interceptors.response.use(
 export function fmtErr(detail) {
   if (detail == null) return 'Something went wrong.';
   if (typeof detail === 'string') return detail;
+  if (detail.message) return detail.message;
   if (Array.isArray(detail)) return detail.map(e => {
     const field = Array.isArray(e?.loc) ? e.loc[e.loc.length - 1] : null;
     const msg = e?.msg || JSON.stringify(e);
@@ -344,6 +345,7 @@ export const listSyncConflicts = () => API.get('/api/sync/conflicts');
 export const resolveConflict = (id) => API.post(`/api/sync/conflicts/${id}/resolve`);
 
 // ── Company Graph & Onboarding (v5.0) ─────────────────────────────────────────
+export const listCompanies = (params = {}) => API.get('/api/company', { params });
 export const createCompany = (data) => API.post('/api/company', data);
 export const getCompany = (id) => API.get(`/api/company/${id}`);
 export const updateCompany = (id, data) => API.patch(`/api/company/${id}`, data);
@@ -360,6 +362,10 @@ export const pauseOnboarding = (id) => API.post(`/api/company/${id}/onboarding/p
 export const resumeOnboarding = (id) => API.post(`/api/company/${id}/onboarding/resume`);
 export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/cancel`);
 export const getPublicDoctorReport = () => API.get('/api/company/doctor/public');
+
+// Wake company runtimes (Docker containers)
+export const wakeCompanyRuntimes = (companyId = '') =>
+  API.post('/runtimes/wake-company-runtimes', null, { params: companyId ? { company_id: companyId } : {} });
 
 export default API;
 

@@ -84,29 +84,58 @@ function CompanyHeader({ data, isPreview }) {
 }
 
 function CompanyScreen() {
-  const companyId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
+  const storedId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
+  const [companies, setCompanies] = React.useState([]);
+  const [selectedCompanyId, setSelectedCompanyId] = React.useState(storedId || '');
   const [company, setCompany] = React.useState(null);
   const [graph, setGraph] = React.useState(null);
   const [specialists, setSpecialists] = React.useState([]);
-  const [loading, setLoading] = React.useState(!!companyId);
+  const [loading, setLoading] = React.useState(true);
+  const [loadingCompany, setLoadingCompany] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [activeTab, setActiveTab] = React.useState('overview');
   const tabs = ['overview', 'systems', 'specialists', 'priorities'];
   const mounted = React.useRef(true);
   React.useEffect(() => () => { mounted.current = false; }, []);
 
+  // Load company list on mount
   React.useEffect(() => {
-    if (!companyId) { setLoading(false); return; }
     (async () => {
-      setLoading(true); setError(null);
       try {
-        // getCompany returns the real Company object + its CompanyGraph.
-        const { data } = await api.getCompany(companyId);
+        const { data } = await api.listCompanies();
+        if (!mounted.current) return;
+        const list = data.companies || [];
+        setCompanies(list);
+        // Auto-select: prefer stored company, then first company, else empty
+        if (!selectedCompanyId && list.length > 0) {
+          const match = storedId ? list.find(c => c.id === storedId) : null;
+          const id = match ? match.id : list[0].id;
+          setSelectedCompanyId(id);
+          try { localStorage.setItem(COMPANY_ID_KEY, id); } catch {}
+        }
+        if (list.length === 0) setLoading(false);
+      } catch (e) {
+        // Fall back to stored company ID if listing fails
+        if (storedId) setSelectedCompanyId(storedId);
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  // Load selected company details
+  React.useEffect(() => {
+    if (!selectedCompanyId) { setLoading(false); return; }
+    (async () => {
+      setLoadingCompany(true); setError(null);
+      try {
+        const { data } = await api.getCompany(selectedCompanyId);
         if (!mounted.current) return;
         setCompany(data.company || data);
         setGraph(data.graph || null);
+        // Persist selection
+        try { localStorage.setItem(COMPANY_ID_KEY, selectedCompanyId); } catch {}
         try {
-          const sp = await api.listSpecialists(companyId);
+          const sp = await api.listSpecialists(selectedCompanyId);
           if (mounted.current) setSpecialists(sp.data?.specialists || (Array.isArray(sp.data) ? sp.data : []));
         } catch { /* specialists are optional */ }
       } catch (e) {
@@ -114,10 +143,10 @@ function CompanyScreen() {
         const detail = e?.response?.data?.detail;
         setError(detail ? api.fmtErr(detail) : (e?.message || 'Could not load the company graph.'));
       } finally {
-        if (mounted.current) setLoading(false);
+        if (mounted.current) { setLoadingCompany(false); setLoading(false); }
       }
     })();
-  }, [companyId]);
+  }, [selectedCompanyId]);
 
   // Build the view-model from real backend data only (no preview fallback).
   const displayName = (company?.name || 'Company').replace(/^www\./i, '');
@@ -148,33 +177,38 @@ function CompanyScreen() {
     priorities: company.goals || company.priorities || [],
   } : null;
 
-  // ── Loading / empty / error states (honest — never the old Acme preview) ──────
-  if (loading) {
+  // Company selector handler
+  const handleCompanyChange = (id) => {
+    setSelectedCompanyId(id);
+  };
+
+  // Loading / empty / error states
+  if (loading && companies.length === 0) {
     return (
       <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
         <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
-        <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading company graph…</div>
+        <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading companies...</div>
       </div>
     );
   }
-  if (!companyId) {
+  if (!selectedCompanyId && companies.length === 0) {
     return (
       <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
         <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
         <div style={{ padding: '32px', textAlign: 'center', borderRadius: 18, border: '1px dashed rgba(255,255,255,0.14)', color: 'var(--text-tertiary)' }}>
           <div style={{ fontSize: 30, marginBottom: 10 }}>🏢</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>No company graph yet</div>
-          <div style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 420, margin: '0 auto' }}>Complete the <strong>Onboarding</strong> flow to scan your site and build your company graph. It’ll show up here once created.</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>No companies found</div>
+          <div style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 420, margin: '0 auto' }}>Complete the <strong>Onboarding</strong> flow to scan your site and build your company graph. It will show up here once created.</div>
         </div>
       </div>
     );
   }
-  if (error || !d) {
+  if (error || (!d && !loadingCompany)) {
     return (
       <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
         <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
         <div style={{ padding: '28px', textAlign: 'center', borderRadius: 18, border: '1px solid rgba(255,107,125,0.20)', background: 'rgba(255,107,125,0.05)', color: '#ff6b7d' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Couldn’t load the company graph</div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Could not load the company graph</div>
           <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>{error || 'The company could not be found.'}</div>
         </div>
       </div>
@@ -183,24 +217,47 @@ function CompanyScreen() {
 
   return (
     <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
-      <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
-
-      <CompanyHeader data={d} isPreview={false}/>
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 18, overflowX: 'auto', paddingBottom: 4 }} className="scrollbar-hide">
-        {tabs.map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} style={{
-            padding: '7px 16px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            textTransform: 'capitalize', transition: 'all 0.15s ease', flexShrink: 0,
-            background: activeTab === t ? 'rgba(93,162,255,0.15)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${activeTab === t ? 'rgba(93,162,255,0.35)' : 'rgba(255,255,255,0.08)'}`,
-            color: activeTab === t ? '#fff' : 'var(--text-muted)',
-          }}>{t}</button>
-        ))}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase' }}>Company Graph</div>
+        {/* Company selector */}
+        {companies.length > 1 && (
+          <select
+            value={selectedCompanyId}
+            onChange={(e) => handleCompanyChange(e.target.value)}
+            style={{
+              padding: '6px 12px', borderRadius: 10, fontSize: 12, fontWeight: 600,
+              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+              color: 'var(--text-primary)', fontFamily: 'var(--font-main)', cursor: 'pointer',
+              outline: 'none', maxWidth: 280,
+            }}
+          >
+            {companies.map(c => (
+              <option key={c.id} value={c.id}>{c.name || c.domain || c.id}</option>
+            ))}
+          </select>
+        )}
       </div>
 
-      {activeTab === 'overview' && (
+      {loadingCompany && <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Loading company data...</div>}
+
+      {!loadingCompany && <CompanyHeader data={d} isPreview={false}/>}
+
+      {/* Tabs — gated behind !loadingCompany to prevent stale data flash */}
+      {!loadingCompany && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 18, overflowX: 'auto', paddingBottom: 4 }} className="scrollbar-hide">
+          {tabs.map(t => (
+            <button key={t} onClick={() => setActiveTab(t)} style={{
+              padding: '7px 16px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              textTransform: 'capitalize', transition: 'all 0.15s ease', flexShrink: 0,
+              background: activeTab === t ? 'rgba(93,162,255,0.15)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${activeTab === t ? 'rgba(93,162,255,0.35)' : 'rgba(255,255,255,0.08)'}`,
+              color: activeTab === t ? '#fff' : 'var(--text-muted)',
+            }}>{t}</button>
+          ))}
+        </div>
+      )}
+
+      {!loadingCompany && activeTab === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14, animation: 'fadeSlideUp 0.3s ease-out' }}>
           {/* Systems */}
           <Card>
@@ -272,7 +329,7 @@ function CompanyScreen() {
         </div>
       )}
 
-      {activeTab === 'specialists' && (
+      {!loadingCompany && activeTab === 'specialists' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12, animation: 'fadeSlideUp 0.3s ease-out' }}>
           {(d.specialists || []).map(sp => {
             const statusColor = sp.status === 'active' || sp.status === 'running' ? '#5da2ff' : 'var(--text-muted)';
@@ -315,7 +372,7 @@ function CompanyScreen() {
         </div>
       )}
 
-      {activeTab === 'systems' && (
+      {!loadingCompany && activeTab === 'systems' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeSlideUp 0.3s ease-out' }}>
           {(d.systems || []).map(sys => (
             <div key={sys.name} style={{
@@ -340,7 +397,7 @@ function CompanyScreen() {
         </div>
       )}
 
-      {activeTab === 'priorities' && (
+      {!loadingCompany && activeTab === 'priorities' && (
         <div style={{ maxWidth: 560, animation: 'fadeSlideUp 0.3s ease-out' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {(d.priorities || []).map((p, i) => (

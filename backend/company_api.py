@@ -53,7 +53,7 @@ class OnboardingProgressResponse(OnboardingProgress):
 from services.company_graph_store import get_company_graph_store
 from services.company_graph import get_company_graph_service
 from services.specialist import get_specialist_service
-from services.onboarding import OnboardingService
+from services.onboarding import OnboardingService, get_onboarding_service
 # Thunk functions to avoid circular import with backend.server.
 # NOTE: `request` MUST be annotated as `Request`. Without the annotation FastAPI
 # treats it as a required request-body field named "request", which makes every
@@ -95,12 +95,48 @@ router = APIRouter(prefix="/api/company", tags=["company"])
 # AUTHENTICATION HELPERS
 # =============================================================================
 
+def _resolve_user_id(user: dict) -> str:
+    """Extract a consistent user_id from the user dict.
+
+    Works across all auth methods:
+    - GitHub OAuth: user_id = "gh_<github_id>"  (from social_auth.py _upsert_user)
+    - Google OAuth: user_id = "goog_<google_id>"
+    - Email/password: user_id = "<email>" or MongoDB _id
+    - JWT token: user_id from the "sub" claim
+
+    Raises ValueError if no identifiable user_id can be extracted.
+    """
+    for key in ("_id", "id", "user_id", "email"):
+        val = user.get(key)
+        if val:
+            return str(val)
+    log.warning("Could not resolve user_id from user dict: %s", list(user.keys())[:5])
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not identify user from session",
+    )
+
+
+def _is_admin(user: dict) -> bool:
+    """Check if a user has admin role.
+
+    Works for both social_auth users (role in SocialUser) and
+    traditional users (role in MongoDB user document).
+    """
+    role = str(user.get("role", "user")).lower()
+    return role == "admin"
+
+
 async def get_company_access(
     company_id: str, 
     user: dict = Depends(_get_current_user_thunk)
 ) -> Company:
     """
     Verify user has access to a company and return the company.
+
+    - Admin users bypass ownership check (they can access any company).
+    - Regular users must be the owner or an admin of the company.
+
     Raises HTTPException if access is denied.
     """
     store = get_company_graph_store()
@@ -112,8 +148,12 @@ async def get_company_access(
             detail=f"Company {company_id} not found"
         )
     
-    # Check if user is owner or admin
-    user_id = str(user.get("_id") or user.get("id"))
+    # Admin users can access any company
+    if _is_admin(user):
+        return company
+
+    # Regular users: check owner_id or admin_ids
+    user_id = _resolve_user_id(user)
     if company.owner_id != user_id and user_id not in (company.admin_ids or []):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -129,6 +169,8 @@ async def get_optional_company_access(
 ) -> Optional[Company]:
     """
     Verify user has access to a company (if authenticated).
+
+    Admins bypass ownership check. Regular users must own or be admin of the company.
     Returns None if company not found or user not authenticated.
     """
     if not user:
@@ -139,8 +181,12 @@ async def get_optional_company_access(
     
     if not company:
         return None
+
+    # Admin users can access any company
+    if _is_admin(user):
+        return company
     
-    user_id = str(user.get("_id") or user.get("id"))
+    user_id = _resolve_user_id(user)
     if company.owner_id != user_id and user_id not in (company.admin_ids or []):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -154,6 +200,48 @@ async def get_optional_company_access(
 # COMPANY ENDPOINTS
 # =============================================================================
 
+@router.get("", response_model=dict)
+async def list_companies(
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    search: str | None = Query(None, description="Search by name or domain"),
+    user: dict = Depends(_get_current_user_thunk),
+) -> dict:
+    """
+    List companies.
+
+    - Admin users see ALL companies across the platform.
+    - Regular users see only companies they own or are admin/member of.
+
+    This ensures user-level setup isolation: regardless of whether the user
+    logged in via GitHub OAuth or Google OAuth, they only see their own
+    companies.  Admins can see every user's setup and activity.
+    """
+    store = get_company_graph_store()
+    user_id = _resolve_user_id(user)
+    is_admin_user = _is_admin(user)
+
+    if is_admin_user:
+        # Admin: see all companies
+        companies, total = await store.list_companies(
+            owner_id=None, limit=limit, offset=offset, search=search,
+        )
+    else:
+        # Regular user: only their own companies
+        companies, total = await store.list_companies(
+            owner_id=user_id, limit=limit, offset=offset, search=search,
+        )
+
+    return {
+        "companies": [c.model_dump() for c in companies],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "scoped_to_user": not is_admin_user,
+        "user_id": user_id if not is_admin_user else None,
+    }
+
+
 @router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def create_company(
     request: CompanyCreateRequest,
@@ -165,11 +253,11 @@ async def create_company(
     This is the entry point for the Company Graph.
     Creates a company and initializes its graph structure.
     """
-    user_id = str(user.get("_id") or user.get("id"))
+    user_id = _resolve_user_id(user)
     
     service = get_company_graph_service()
     
-    # Create the company
+    # Create the company with the user as owner
     company = await service.create_company(
         name=request.name,
         domain=request.domain,
@@ -209,6 +297,39 @@ async def get_company(
         company=company,
         graph=graph,
         message="Company retrieved successfully"
+    )
+
+
+@router.patch("/{company_id}", response_model=CompanyResponse)
+async def update_company(
+    company_id: str = Path(..., description="Company ID"),
+    request: CompanyUpdateRequest = Body(...),
+    user: dict = Depends(_get_current_user_thunk)
+) -> CompanyResponse:
+    """
+    Update a company's metadata.
+
+    Accepts partial updates for company fields including
+    intelligence_competitors and intelligence_keywords.
+    """
+    company = await get_company_access(company_id, user)
+
+    store = get_company_graph_store()
+    update_data = request.model_dump(exclude_unset=True, exclude_none=True)
+
+    if update_data:
+        updated_company = company.model_copy(update=update_data)
+        updated = await store.update_company(updated_company)
+        if updated:
+            company = updated
+
+    service = get_company_graph_service()
+    graph = await service.get_company_graph(company.id)
+
+    return CompanyResponse(
+        company=company,
+        graph=graph,
+        message="Company updated successfully"
     )
 
 

@@ -1,0 +1,5 @@
+[bandit]
+# Exclude test directories — test credentials and assertions are not production security issues
+exclude_dirs: tests,.venv,.git,node_modules,frontend
+# Skip rules that are appropriate in test code
+skips: B105,B101

@@ -1878,6 +1878,14 @@ class CompanyUpdateRequest(BaseModel):
         default=None,
         description="Approximate number of employees"
     )
+    intelligence_competitors: list[dict] | None = Field(
+        default=None,
+        description="Competitor tracking data from Intelligence screen"
+    )
+    intelligence_keywords: list[dict] | None = Field(
+        default=None,
+        description="Trend keywords from Intelligence screen"
+    )
     revenue_range: str | None = Field(
         default=None,
         description="Revenue range"

@@ -292,6 +292,10 @@ class TestBuiltWithFallback:
         monkeypatch.setenv("SCANNER_BUILTWITH_FALLBACK", "auto")
         # Non-200 (e.g. BuiltWith's own bot wall) → empty, never raises.
         self._stub_fetch(monkeypatch, status=403, body="blocked")
+        # Also stub headless render so the fallback cannot recover via Playwright.
+        async def _no_render(url):
+            return None
+        monkeypatch.setattr(scanner, "_render_html", _no_render)
         assert asyncio.run(scanner._query_builtwith("example.com")) == []
 
     def test_empty_domain_returns_empty(self, monkeypatch) -> None:
