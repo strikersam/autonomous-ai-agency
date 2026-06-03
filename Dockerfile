@@ -15,6 +15,9 @@ RUN apt-get update \
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
+# Install Playwright + headless Chromium for website scanning (gucci.com, etc.)
+RUN playwright install --with-deps chromium
+
 COPY . /app
 COPY --from=webui /src/webui/frontend/dist /app/webui/frontend/dist
 
