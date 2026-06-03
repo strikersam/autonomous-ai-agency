@@ -327,7 +327,7 @@ function SystemsStep({ onNext, onBack, onSystemsChange, detectedSystems = [] }) 
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
       <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>
-        {systemsToUse.length > 0 ? `I found ${systemsToUse.length} system${systemsToUse.length === 1 ? '' : 's'}` : 'No systems detected'}
+        {systemsToUse.length > 0 ? `I found ${systemsToUse.length} system${systemsToUse.length === 1 ? '' : 's'}` : 'No systems detected — try scanning with a different URL or check that the site is accessible'}
       </h2>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:18, maxWidth:440 }}>
         {systemsToUse.length > 0

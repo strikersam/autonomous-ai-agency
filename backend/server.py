@@ -2830,7 +2830,12 @@ async def _run_agent_loop(
             return await _agent_provider_failure_response(instruction, exc)
         return (
             f"⚠️ Agent error: {exc}\n\n"
-            "If this persists, check the server logs for details."
+            "**Troubleshooting:**\n"
+            "• Verify your configured provider is reachable and has valid credentials (Providers → Test).\n"
+            "• If using Ollama, ensure it is running (`ollama serve`) and the model is pulled.\n"
+            "• If using NVIDIA NIM, verify your NVIDIA_API_KEY is valid and has credits remaining.\n"
+            "• For GitHub operations, connect a token at Settings → GitHub.\n"
+            "• Check the server logs for the full traceback.\n"
         )
 
 
