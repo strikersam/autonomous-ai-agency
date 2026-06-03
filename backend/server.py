@@ -1629,8 +1629,8 @@ async def github_list_repos(user: dict = Depends(get_current_user)):
                 ],
                 "authorized": True,
             }
-        except Exception as e:
-            return {"repos": [], "authorized": True, "error": str(e)}
+        except Exception:
+            return {"repos": [], "authorized": True, "error": "Failed to fetch repositories"}
 
 
 class AuthorizeReposBody(BaseModel):

@@ -1,0 +1,61 @@
+name: Security Gate
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  security-events: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: security-gate-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-gate:
+    name: Security Gate — No New Alerts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Count Bandit alerts on base branch
+        id: base
+        run: |
+          git stash --quiet 2>/dev/null || true
+          git checkout ${{ github.event.pull_request.base.sha }} --quiet 2>/dev/null
+          BASE_COUNT=$(bandit -r . -f json --exit-zero -q 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('results',[])))" 2>/dev/null || echo "0")
+          echo "count=$BASE_COUNT" >> "$GITHUB_OUTPUT"
+          echo "Base branch Bandit alerts: $BASE_COUNT"
+          git checkout ${{ github.event.pull_request.head.sha }} --quiet 2>/dev/null
+          git stash pop --quiet 2>/dev/null || true
+
+      - name: Count Bandit alerts on PR branch
+        id: pr
+        run: |
+          PR_COUNT=$(bandit -r . -f json --exit-zero -q 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('results',[])))" 2>/dev/null || echo "0")
+          echo "count=$PR_COUNT" >> "$GITHUB_OUTPUT"
+          echo "PR branch Bandit alerts: $PR_COUNT"
+
+      - name: Compare alert counts
+        run: |
+          BASE=${{ steps.base.outputs.count }}
+          PR=${{ steps.pr.outputs.count }}
+          echo "Base branch alerts: $BASE"
+          echo "PR branch alerts: $PR"
+          if [ "$PR" -gt "$BASE" ]; then
+            echo "::error::PR introduces new Bandit security alerts ($PR > $BASE). Fix the new alerts before merging."
+            exit 1
+          fi
+          echo "✅ No new security alerts introduced ($PR <= $BASE)"
