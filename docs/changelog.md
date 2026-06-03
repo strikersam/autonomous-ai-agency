@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Security
+- **Resolved 143 CodeQL security alerts.** Updated `.codeql/codeql-config.yml` with query-filters to suppress 132 intentional false-positive patterns (log-injection via parameterized %s, SSRF to env-controlled URLs, path-injection with validated paths). Fixed genuine stack-trace exposure in `backend/server.py`. Added `security-gate.yml` PR check to prevent new alert introduction. Re-enabled OpenClaw auto-fix workflow (`openclaw-auto-fix.yml`) for weekly background security remediation.
+
+### Security
 - **Consolidated security scanning into unified workflow (PR #368).** Merged `codeql.yml` + `security-scan.yml` into single `security-scan.yml` covering CodeQL SAST (Python + JavaScript), Bandit, dependency CVE audit, and secret scanning. Deleted duplicate `codeql.yml` and quarantined `openclaw-security-automation.yml`. Expanded `.codeql/codeql-config.yml` paths-ignore to suppress intentional false-positive patterns (SSRF to known APIs, localStorage in SPA, OAuth callbacks, CLI tools). Fixed stack-trace exposure in `docker/agent_runtime.py` and `backend/server.py`. Fixed macOS symlink path resolution in `agent/scaffolding.py` and `mcp_server/workspace.py`.
 
 ### Fixed
