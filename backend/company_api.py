@@ -103,13 +103,17 @@ def _resolve_user_id(user: dict) -> str:
     - Google OAuth: user_id = "goog_<google_id>"
     - Email/password: user_id = "<email>" or MongoDB _id
     - JWT token: user_id from the "sub" claim
+
+    Raises ValueError if no identifiable user_id can be extracted.
     """
-    return str(
-        user.get("_id")
-        or user.get("id")
-        or user.get("user_id")
-        or user.get("email")
-        or "unknown"
+    for key in ("_id", "id", "user_id", "email"):
+        val = user.get(key)
+        if val:
+            return str(val)
+    log.warning("Could not resolve user_id from user dict: %s", list(user.keys())[:5])
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not identify user from session",
     )
 
 
@@ -120,7 +124,7 @@ def _is_admin(user: dict) -> bool:
     traditional users (role in MongoDB user document).
     """
     role = str(user.get("role", "user")).lower()
-    return role in ("admin",)
+    return role == "admin"
 
 
 async def get_company_access(
