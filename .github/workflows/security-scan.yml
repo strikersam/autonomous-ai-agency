@@ -1,26 +1,64 @@
-name: Security Scan
+name: "Security Scan"
 
 on:
   push:
-    branches: [master, main]
-    paths:
-      - '**.py'
-      - 'requirements*.txt'
+    branches: [master]
   pull_request:
-    branches: [master, main]
+    branches: [master]
   schedule:
-    - cron: '0 2 * * 1'   # weekly on Monday at 02:00 UTC
+    - cron: '30 2 * * 1'   # Weekly on Monday at 02:30 UTC
   workflow_dispatch:
 
+concurrency:
+  group: security-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  security-events: write
+  actions: read
+  contents: read
+  issues: write
+
 jobs:
-  bandit-sast:
+  # ── CodeQL SAST (Python + JavaScript) ────────────────────────────────────
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - python
+          - javascript-typescript
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install JS dependencies (for JavaScript analysis)
+        if: matrix.language == 'javascript-typescript'
+        run: |
+          if [ -f frontend/package.json ]; then
+            cd frontend && npm install --legacy-peer-deps
+          fi
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ./.codeql/codeql-config.yml
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ── Bandit SAST (Python pattern-based) ───────────────────────────────────
+  bandit:
     name: Bandit SAST
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-      security-events: write
-
     steps:
       - uses: actions/checkout@v4
 
@@ -42,13 +80,12 @@ jobs:
             --output /tmp/bandit.json \
             -ll \
             || true
-          # Count findings
           HIGH=$(python3 -c "import json,sys; d=json.load(open('/tmp/bandit.json')); print(sum(1 for r in d.get('results',[]) if r.get('issue_severity')=='HIGH'))" 2>/dev/null || echo 0)
           MEDIUM=$(python3 -c "import json,sys; d=json.load(open('/tmp/bandit.json')); print(sum(1 for r in d.get('results',[]) if r.get('issue_severity')=='MEDIUM'))" 2>/dev/null || echo 0)
           echo "high=${HIGH}" >> "$GITHUB_OUTPUT"
           echo "medium=${MEDIUM}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload bandit SARIF
+      - name: Upload bandit results
         uses: actions/upload-artifact@v4
         with:
           name: bandit-results
@@ -62,65 +99,14 @@ jobs:
             echo ""
             echo "| Severity | Count |"
             echo "|----------|-------|"
-            echo "| 🔴 High   | ${{ steps.bandit.outputs.high }} |"
-            echo "| 🟡 Medium | ${{ steps.bandit.outputs.medium }} |"
-            echo ""
-            if [ "${{ steps.bandit.outputs.high }}" -gt 0 ]; then
-              echo "> [!WARNING]"
-              echo "> High-severity findings detected. Please review /tmp/bandit.json."
-            fi
+            echo "| High   | ${{ steps.bandit.outputs.high }} |"
+            echo "| Medium | ${{ steps.bandit.outputs.medium }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Create issue for high-severity findings
-        if: steps.bandit.outputs.high > 0 && github.event_name == 'schedule'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let results = [];
-            try {
-              const raw = fs.readFileSync('/tmp/bandit.json', 'utf8');
-              const data = JSON.parse(raw);
-              results = (data.results || []).filter(r => r.issue_severity === 'HIGH');
-            } catch {}
-
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: 'security,auto-detected',
-              state: 'open',
-              per_page: 10,
-            });
-            const exists = issues.find(i => i.title.includes('Security: Bandit') && !i.pull_request);
-            if (exists) return;
-
-            const body = [
-              '## Security Alert: Bandit High-Severity Findings',
-              '',
-              `**${{ steps.bandit.outputs.high }} high-severity issue(s) detected.**`,
-              '',
-              ...results.slice(0, 10).map(r =>
-                `- **[${r.test_id}]** \`${r.filename}:${r.line_number}\` — ${r.issue_text}`
-              ),
-              '',
-              '_Auto-created by the security-scan workflow. The self-healing agent will attempt to fix these._',
-            ].join('\n');
-
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Security: Bandit High-Severity Findings — ${new Date().toISOString().split('T')[0]}`,
-              body,
-              labels: ['security', 'auto-detected', 'bug'],
-            });
-
+  # ── Dependency CVE Audit ──────────────────────────────────────────────────
   dependency-audit:
     name: Dependency CVE Audit
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-
     steps:
       - uses: actions/checkout@v4
 
@@ -144,75 +130,27 @@ jobs:
         run: |
           {
             echo "### Safety Dependency Audit"
-            ICON=$([[ "${{ steps.safety.outputs.vuln_count }}" == "0" ]] && echo "✅" || echo "⚠️")
+            ICON=$([[ "${{ steps.safety.outputs.vuln_count }}" == "0" ]] && echo "OK" || echo "WARN")
             echo "${ICON} **${{ steps.safety.outputs.vuln_count }} CVE(s) found** in requirements.txt"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Create issue for CVEs
-        if: steps.safety.outputs.vuln_count > 0 && github.event_name == 'schedule'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let vulns = [];
-            try {
-              const raw = fs.readFileSync('/tmp/safety.json', 'utf8');
-              const data = JSON.parse(raw);
-              vulns = Array.isArray(data) ? data : (data.vulnerabilities || []);
-            } catch {}
-
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: 'security,auto-detected',
-              state: 'open',
-              per_page: 10,
-            });
-            const exists = issues.find(i => i.title.includes('Security: CVE') && !i.pull_request);
-            if (exists) return;
-
-            const body = [
-              '## Security Alert: Vulnerable Dependencies',
-              '',
-              `**${{ steps.safety.outputs.vuln_count }} CVE(s) found in requirements.txt.**`,
-              '',
-              ...vulns.slice(0, 10).map(v => {
-                const pkg = v.package_name || v.name || 'unknown';
-                const ver = v.analyzed_version || v.installed_version || '?';
-                const advisory = (v.advisory || v.description || '').slice(0, 120);
-                return `- **${pkg}** ${ver}: ${advisory}`;
-              }),
-              '',
-              '_Auto-created by the security-scan workflow._',
-            ].join('\n');
-
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Security: CVE in Dependencies — ${new Date().toISOString().split('T')[0]}`,
-              body,
-              labels: ['security', 'auto-detected', 'dependencies'],
-            });
-
+  # ── Secret / Credential Scan ──────────────────────────────────────────────
   secret-scan:
-    name: Secret / Credential Scan
+    name: Secret Scan
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Scan for hardcoded secrets (grep)
+      - name: Scan for hardcoded secrets
         id: secrets
         run: |
           PATTERNS=(
-            "api_key\s*=\s*['\"][A-Za-z0-9_\-]{20,}['\"]"
-            "secret\s*=\s*['\"][^'\"]{8,}['\"]"
+            "api_key\\s*=\\s*['\\\"][A-Za-z0-9_\\-]{20,}['\\\"]"
+            "secret\\s*=\\s*['\\\"][^'\\\"]{8,}['\\\"]"
             "sk-[A-Za-z0-9]{32,}"
-            "bearer\s+[A-Za-z0-9_\-\.]{30,}"
+            "bearer\\s+[A-Za-z0-9_\\-\\.]{30,}"
           )
           TOTAL=0
           for P in "${PATTERNS[@]}"; do
@@ -223,7 +161,7 @@ jobs:
               --exclude-dir=".venv" \
               --exclude-dir="tests" \
               --exclude="generate_api_key.py" \
-              | grep -v "^\s*#" | wc -l || echo 0)
+              | grep -v "^\\s*#" | wc -l || echo 0)
             TOTAL=$((TOTAL + COUNT))
           done
           echo "secret_count=${TOTAL}" >> "$GITHUB_OUTPUT"
@@ -232,12 +170,12 @@ jobs:
         run: |
           {
             echo "### Secret Scan"
-            ICON=$([[ "${{ steps.secrets.outputs.secret_count }}" == "0" ]] && echo "✅" || echo "🚨")
+            ICON=$([[ "${{ steps.secrets.outputs.secret_count }}" == "0" ]] && echo "OK" || echo "ALERT")
             echo "${ICON} **${{ steps.secrets.outputs.secret_count }} potential secret pattern(s) found**"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail if secrets found
         if: steps.secrets.outputs.secret_count > 0
         run: |
-          echo "::error::Potential hardcoded secrets detected. Review grep output above."
+          echo "::error::Potential hardcoded secrets detected."
           exit 1

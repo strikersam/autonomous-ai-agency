@@ -191,9 +191,10 @@ class Workspace:
             sub = "."
         base = _safe_path(self.root, sub)
         results = []
+        resolved_root = self.root.resolve()
         for p in base.rglob("*"):
             if p.is_file() and ".git" not in p.parts:
-                results.append(str(p.relative_to(self.root)))
+                results.append(str(p.resolve().relative_to(resolved_root)))
             if len(results) >= limit:
                 break
         return sorted(results)

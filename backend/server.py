@@ -4408,7 +4408,7 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
         await get_db().providers.update_one(
             {"provider_id": provider_id}, {"$set": {"status": "error"}}
         )
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": "Failed to fetch repositories"}
 
 
 @app.get("/api/providers/{provider_id}/models")

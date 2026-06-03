@@ -201,7 +201,7 @@ async def health():
             "status": "degraded",
             "runtime": RUNTIME_NAME,
             "provider": "ollama",
-            "backend": str(e),
+            "backend": "Ollama connection error",
         }
 
 
@@ -226,7 +226,7 @@ async def list_models():
                 ],
             }
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Ollama unavailable: {e}")
+        raise HTTPException(status_code=503, detail="Ollama unavailable")
 
 
 def _candidate_ollama_bases() -> list[str]:
