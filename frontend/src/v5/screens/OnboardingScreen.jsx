@@ -19,31 +19,31 @@ const QUESTION_SETS = {
     { id:'peak',     label:'Are there peak traffic seasons (e.g. Black Friday, flash sales)?', type:'yesno' },
     { id:'deploys',  label:'How often do you deploy to production?', type:'select', options:['Multiple times a day','Daily','Weekly','Monthly or less'] },
     { id:'kpis',     label:'Which metrics matter most to you?', type:'multi', options:['Conversion rate','Cart abandonment','Site speed','SEO ranking','Support ticket volume','AOV'] },
-    { id:'pain',     label:'What is your biggest pain point right now?', type:'freeform', placeholder:'e.g. slow checkout, cart abandonment, stock visibility…' },
+    { id:'pain',     label:'What is your biggest pain point right now?', type:'freeform', placeholder:'e.g. slow checkout, cart abandonment, stock visibility...' },
   ],
   saas: [
     { id:'trials',   label:'Do you have a free trial or freemium tier?', type:'yesno' },
     { id:'deploys',  label:'How often do you deploy?', type:'select', options:['Continuous CI/CD','Daily','Weekly','Quarterly'] },
     { id:'kpis',     label:'Which metrics matter most?', type:'multi', options:['MRR growth','Churn rate','Activation rate','Support tickets','Feature adoption','NPS'] },
-    { id:'pain',     label:'What is your biggest technical pain point?', type:'freeform', placeholder:'e.g. onboarding drop-off, high churn, slow CI…' },
+    { id:'pain',     label:'What is your biggest technical pain point?', type:'freeform', placeholder:'e.g. onboarding drop-off, high churn, slow CI...' },
   ],
   media: [
-    { id:'publishing',label:'How many articles/posts do you publish per week?', type:'select', options:['1–5','6–20','20–50','50+'] },
+    { id:'publishing',label:'How many articles/posts do you publish per week?', type:'select', options:['1-5','6-20','20-50','50+'] },
     { id:'deploys',   label:'How often do you deploy the platform?', type:'select', options:['Continuous CI/CD','Weekly','Monthly','Rarely'] },
     { id:'kpis',      label:'Which metrics matter most?', type:'multi', options:['Page views','Time on site','Email subscribers','Ad revenue','SEO ranking','Engagement rate'] },
-    { id:'pain',      label:'What is your biggest pain point?', type:'freeform', placeholder:'e.g. slow editorial publishing, broken embeds, SEO gaps…' },
+    { id:'pain',      label:'What is your biggest pain point?', type:'freeform', placeholder:'e.g. slow editorial publishing, broken embeds, SEO gaps...' },
   ],
   agency: [
-    { id:'clients',   label:'How many active client projects do you manage?', type:'select', options:['1–5','6–15','16–50','50+'] },
+    { id:'clients',   label:'How many active client projects do you manage?', type:'select', options:['1-5','6-15','16-50','50+'] },
     { id:'deploys',   label:'How often do you deliver to clients?', type:'select', options:['Daily','Weekly','Monthly','Per project'] },
     { id:'kpis',      label:'Which outcomes matter most?', type:'multi', options:['Project delivery speed','Bug rate','Client satisfaction','Code quality','Team velocity','Revenue per project'] },
-    { id:'pain',      label:'What is your biggest operational pain point?', type:'freeform', placeholder:'e.g. scope creep, manual QA, context switching between clients…' },
+    { id:'pain',      label:'What is your biggest operational pain point?', type:'freeform', placeholder:'e.g. scope creep, manual QA, context switching between clients...' },
   ],
   generic: [
     { id:'deploys',  label:'How often do you deploy or ship changes?', type:'select', options:['Multiple times a day','Daily','Weekly','Monthly or less'] },
-    { id:'team',     label:'How large is your engineering team?', type:'select', options:['Solo','2–5','6–20','20+'] },
+    { id:'team',     label:'How large is your engineering team?', type:'select', options:['Solo','2-5','6-20','20+'] },
     { id:'kpis',     label:'Which outcomes matter most?', type:'multi', options:['Code quality','Deployment speed','Bug rate','Team velocity','Cost reduction','Security posture'] },
-    { id:'pain',     label:'What is your biggest technical pain point?', type:'freeform', placeholder:'e.g. technical debt, slow deployments, poor test coverage…' },
+    { id:'pain',     label:'What is your biggest technical pain point?', type:'freeform', placeholder:'e.g. technical debt, slow deployments, poor test coverage...' },
   ],
 };
 
@@ -55,6 +55,18 @@ function detectSiteType(systems) {
   if (names.some(n => ['wordpress','ghost','contentful','strapi','sanity','cms','media'].includes(n))) return 'media';
   return 'generic';
 }
+
+// Detect business category from discovered systems
+function detectBusinessCategory(systems) {
+  const names = (systems || []).map(s => (s.system_type || s.name || '').toLowerCase());
+  if (names.some(n => ['shopify','woocommerce','bigcommerce','magento','ecommerce'].includes(n))) return 'ecommerce';
+  if (names.some(n => ['stripe','chargebee','paddle'].includes(n))) return 'saas';
+  if (names.some(n => ['wordpress','ghost','contentful','strapi','sanity','cms'].includes(n))) return 'media';
+  if (names.some(n => ['salesforce','hubspot'].includes(n))) return 'agency';
+  return 'other';
+}
+
+const ONBOARDING_ANSWERS_KEY = 'v5_onboarding_answers';
 
 function extractErr(err) {
   const d = err?.response?.data?.detail;
@@ -117,7 +129,7 @@ function NonAdminGate() {
       <div style={{ fontSize:40, marginBottom:14 }}>✉️</div>
       <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:8 }}>Request sent!</h2>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.7, maxWidth:380, margin:'0 auto 20px' }}>
-        Your request has been sent to the administrator. You'll receive confirmation once your company is provisioned — usually within 24 hours.
+        Your request has been sent to the administrator. You will receive confirmation once your company is provisioned — usually within 24 hours.
       </p>
       <div style={{ padding:'12px 16px', borderRadius:14, background:'rgba(70,217,164,0.06)', border:'1px solid rgba(70,217,164,0.15)', display:'inline-block', fontSize:13, color:'#46d9a4' }}>
         Sent to: strikersam@gmail.com
@@ -132,12 +144,12 @@ function NonAdminGate() {
         <div>
           <div style={{ fontSize:13, fontWeight:700, color:'#ffbd66', marginBottom:3 }}>Admin setup required</div>
           <div style={{ fontSize:13, color:'var(--text-tertiary)', lineHeight:1.6 }}>
-            Company onboarding requires admin access. Send a request below — the admin will configure your company and let you know when it's ready.
+            Company onboarding requires admin access. Send a request below — the admin will configure your company and let you know when it is ready.
           </div>
         </div>
       </div>
       <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>Request company setup</h2>
-      <p style={{ fontSize:14, color: 'var(--text-tertiary)', lineHeight:1.6, marginBottom:20, maxWidth:440 }}>Describe what you need. The admin will set up your company, connect your systems, and let you know when it's ready.</p>
+      <p style={{ fontSize:14, color: 'var(--text-tertiary)', lineHeight:1.6, marginBottom:20, maxWidth:440 }}>Describe what you need. The admin will set up your company, connect your systems, and let you know when it is ready.</p>
       <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
           {[{v:name,s:setName,ph:'Your name',t:'text'},{v:email,s:setEmail,ph:'Your email',t:'email'}].map((f,i)=>(
@@ -149,7 +161,7 @@ function NonAdminGate() {
         <div>
           <label style={{ display:'block', fontSize:12, fontWeight:600, color:'var(--text-tertiary)', marginBottom:7 }}>What do you need? *</label>
           <textarea value={query} onChange={e=>setQuery(e.target.value)} rows={5}
-            placeholder="Describe your company, what you'd like to automate, your website URL, and any systems you use (e.g. Shopify, WordPress, Salesforce)…"
+            placeholder="Describe your company, what you would like to automate, your website URL, and any systems you use (e.g. Shopify, WordPress, Salesforce)..."
             style={{ width:'100%', padding:'12px 14px', borderRadius:14, resize:'vertical', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', lineHeight:1.6, transition:'border-color 0.2s' }}
             onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.5)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.12)'}/>
         </div>
@@ -165,7 +177,6 @@ function NonAdminGate() {
 // ── Step 1: URL discovery ──────────────────────────────────────────────────────
 
 // Maps the backend scanner's SystemType to a human label + icon for display.
-// The scanner returns { system_type, name, confidence, evidence }, not category/icon.
 const SYSTEM_TYPE_META = {
   CMS: { category: 'CMS & Content', icon: '📄' },
   CRM: { category: 'CRM & Sales', icon: '💼' },
@@ -200,11 +211,11 @@ const SYSTEM_TYPE_META = {
 };
 
 function DiscoveryStep({ onNext, onCompanyCreated }) {
-  const [url, setUrl]           = React.useState('https://acme-store.com');
+  const [url, setUrl]           = React.useState('');
   const [scanning, setScanning] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [errorText, setErrorText] = React.useState('');
-  const msgs = ['Registering company context…','Fetching page source…','Parsing JS bundles…','Detecting platforms…','Identifying data tools…','Almost done…'];
+  const msgs = ['Registering company context...','Fetching page source...','Parsing JS bundles...','Detecting platforms...','Identifying data tools...','Almost done...'];
   const msgIdx = Math.min(Math.floor((progress/100)*msgs.length), msgs.length-1);
 
   const handleScan = async () => {
@@ -214,20 +225,23 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
     setErrorText('');
 
     const domainClean = url.replace(/^https?:\/\//i, '').split('/')[0];
-    // Strip leading 'www.' so the derived name shows e.g. 'GUCCI' not 'WWW'
     const nameClean = domainClean.replace(/^www\./i, '').split('.')[0].toUpperCase();
     const displayDomain = domainClean.replace(/^www\./i, '');
 
-    // Step 1: Create company record. Surface auth errors immediately — don't silently fake it.
-    let companyId;
+    // Step 1: Scan website first to detect systems, then create company with detected category.
+    // This ensures business_category reflects the real scan results, not a hardcoded guess.
+    let detectedSystems = [];
+    let businessCategory = 'other';
+
     try {
+      // Create a temporary company first (needed for the scan endpoint)
       const createRes = await api.createCompany({
         name: nameClean,
         domain: domainClean,
-        business_category: 'ecommerce',
-        description: `E-commerce stack for ${nameClean}`,
+        business_category: 'other',
+        description: `Technology stack for ${nameClean}`,
       });
-      companyId = createRes?.data?.company?.id || createRes?.data?.id;
+      const companyId = createRes?.data?.company?.id || createRes?.data?.id;
       if (!companyId) throw new Error('Company created but no ID returned.');
       onCompanyCreated(companyId, nameClean, displayDomain);
     } catch (e) {
@@ -249,12 +263,26 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
     }, 300);
 
     try {
-      const scanRes = await api.scanWebsite(companyId, url);
+      // Re-read companyId from localStorage (set by onCompanyCreated above)
+      const cid = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
+      if (!cid) { setScanning(false); setErrorText('Company ID not found after creation.'); return; }
+
+      const scanRes = await api.scanWebsite(cid, url);
       clearInterval(progressTimer);
 
       const rawSystems = Array.isArray(scanRes?.data?.detected_systems)
         ? scanRes.data.detected_systems
         : [];
+
+      detectedSystems = rawSystems;
+      businessCategory = detectBusinessCategory(rawSystems);
+
+      // Update company with detected business category if different from default
+      if (businessCategory !== 'other') {
+        try {
+          await api.updateCompany(cid, { business_category: businessCategory });
+        } catch { /* best-effort update */ }
+      }
 
       const detectedList = rawSystems.map(s => {
         const meta = SYSTEM_TYPE_META[s.system_type] || SYSTEM_TYPE_META.custom;
@@ -274,7 +302,7 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
       setProgress(100);
       setTimeout(() => {
         setScanning(false);
-        onNext(detectedList, companyId);
+        onNext(detectedList, cid);
       }, 350);
     } catch (e) {
       clearInterval(progressTimer);
@@ -312,7 +340,7 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
         </div>
       )}
       <button onClick={handleScan} disabled={scanning||!url.trim()} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)', opacity:scanning||!url.trim()?0.6:1, transition:'all 0.2s' }}>
-        {scanning ? <><div style={{ width:14,height:14,border:'2px solid rgba(0,0,0,0.2)',borderTopColor:'#06111f',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>Scanning…</> : '→ Inspect & discover'}
+        {scanning ? <><div style={{ width:14,height:14,border:'2px solid rgba(0,0,0,0.2)',borderTopColor:'#06111f',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>Scanning...</> : '→ Inspect & discover'}
       </button>
     </div>
   );
@@ -331,8 +359,8 @@ function SystemsStep({ onNext, onBack, onSystemsChange, detectedSystems = [] }) 
       </h2>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:18, maxWidth:440 }}>
         {systemsToUse.length > 0
-          ? 'Review what was detected. Uncheck anything that doesn\'t apply — this determines which specialists are provisioned.'
-          : 'The scanner couldn\'t identify any recognisable systems on this URL. You can continue anyway — specialists will be set up based on your goals.'}
+          ? 'Review what was detected. Uncheck anything that does not apply — this determines which specialists are provisioned.'
+          : 'The scanner could not identify any recognisable systems on this URL. You can continue anyway — specialists will be set up based on your goals.'}
       </p>
       <div style={{ display:'flex', flexDirection:'column', gap:7, marginBottom:22 }}>
         {systemsToUse.map(sys=>{
@@ -378,8 +406,8 @@ function DetailsStep({ onNext, onBack, companyId }) {
   const handleDetailsSubmit = async () => {
     if (saving) return;
     setSaving(true); setSaveError(null);
-    // 1) GitHub token — persist via PUT /api/github/token. A bad/invalid token
-    //    is a hard error: surface it and don't advance (it was being dropped).
+
+    // GitHub token — persist via PUT /api/github/token
     if (ghToken.trim()) {
       try {
         await api.setGithubToken(ghToken.trim());
@@ -390,9 +418,10 @@ function DetailsStep({ onNext, onBack, companyId }) {
         return;
       }
     }
-    // 2) Repo scans — best-effort/optional; never block onboarding.
+
+    // Repo scans — always attempt (no preview_co guard)
     try {
-      if (companyId && companyId !== 'preview_co') {
+      if (companyId) {
         for (const r of repos.filter(r => r.url.trim())) {
           await api.scanRepo(companyId, r.url);
         }
@@ -400,6 +429,17 @@ function DetailsStep({ onNext, onBack, companyId }) {
     } catch (e) {
       console.warn('Repo scan failed during onboarding (non-blocking)', e);
     }
+
+    // Save goals to localStorage for later use
+    try {
+      const cleanGoals = goals.filter(g => g.trim());
+      if (cleanGoals.length > 0) {
+        const stored = JSON.parse(localStorage.getItem('v5_onboarding_details') || '{}');
+        stored.goals = cleanGoals;
+        localStorage.setItem('v5_onboarding_details', JSON.stringify(stored));
+      }
+    } catch {}
+
     setSaving(false);
     onNext();
   };
@@ -416,7 +456,7 @@ function DetailsStep({ onNext, onBack, companyId }) {
 
       <SLabel>GitHub access token</SLabel>
       <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:4 }}>
-        <input value={ghToken} onChange={e=>setGhToken(e.target.value)} placeholder="ghp_… (repo + PR scope)" style={{ ...inputStyle(), flex:1, fontFamily:'var(--font-mono)' }} onFocus={onFocus} onBlur={onBlur}/>
+        <input value={ghToken} onChange={e=>setGhToken(e.target.value)} placeholder="ghp_... (repo + PR scope)" style={{ ...inputStyle(), flex:1, fontFamily:'var(--font-mono)' }} onFocus={onFocus} onBlur={onBlur}/>
         <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer" style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', whiteSpace:'nowrap', textDecoration:'none', flexShrink:0 }}>Create →</a>
       </div>
       <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>Stored encrypted · never logged · gives agents read/write access to repos</div>
@@ -464,7 +504,7 @@ function DetailsStep({ onNext, onBack, companyId }) {
       {saveError && <div style={{ marginTop:16, padding:'10px 14px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{saveError}</div>}
       <div style={{ display:'flex', gap:10, marginTop:20 }}>
         <button onClick={onBack} disabled={saving} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
-        <button onClick={handleDetailsSubmit} disabled={saving} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:saving?'wait':'pointer', opacity:saving?0.7:1, boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>{saving ? 'Saving…' : 'Continue →'}</button>
+        <button onClick={handleDetailsSubmit} disabled={saving} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:saving?'wait':'pointer', opacity:saving?0.7:1, boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>{saving ? 'Saving...' : 'Continue →'}</button>
       </div>
     </div>
   );
@@ -472,10 +512,27 @@ function DetailsStep({ onNext, onBack, companyId }) {
 
 // ── Step 4: Smart tailored questions based on site type ───────────────────────
 function QuestionsStep({ onNext, onBack, siteType }) {
-  const [answers, setAnswers] = React.useState({});
+  const [answers, setAnswers] = React.useState(() => {
+    // Restore previously saved answers for this site type
+    try {
+      const saved = JSON.parse(localStorage.getItem(ONBOARDING_ANSWERS_KEY) || '{}');
+      return saved[siteType] || {};
+    } catch { return {}; }
+  });
   const questions = QUESTION_SETS[siteType] || QUESTION_SETS.generic;
   const typeLabel = { ecommerce:'e-commerce store', saas:'SaaS product', media:'media / content site', agency:'agency / services', generic:'web project' };
-  const set = (id,v) => setAnswers(p=>({...p,[id]:v}));
+  const set = (id,v) => {
+    setAnswers(p => {
+      const next = {...p, [id]:v};
+      // Persist answers to localStorage so they survive tab switches
+      try {
+        const saved = JSON.parse(localStorage.getItem(ONBOARDING_ANSWERS_KEY) || '{}');
+        saved[siteType] = next;
+        localStorage.setItem(ONBOARDING_ANSWERS_KEY, JSON.stringify(saved));
+      } catch {}
+      return next;
+    });
+  };
 
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
@@ -569,7 +626,7 @@ function DoneStep({ onFinish, companyId, companyName }) {
         <div>
           <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em' }}>Company provisioned</h2>
           <p style={{ fontSize:13, color:'#46d9a4' }}>
-            {companyName || 'Your company'} · {specialists === null ? 'Loading specialists…' : `${specialists.length} specialist${specialists.length === 1 ? '' : 's'} ready`} · monitoring starts now
+            {companyName || 'Your company'} · {specialists === null ? 'Loading specialists...' : `${specialists.length} specialist${specialists.length === 1 ? '' : 's'} ready`} · monitoring starts now
           </p>
         </div>
       </div>
@@ -584,7 +641,7 @@ function DoneStep({ onFinish, companyId, companyName }) {
         </div>
       )}
       {specialists === null && (
-        <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--text-muted)', marginBottom:18 }}>Loading specialists…</div>
+        <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--text-muted)', marginBottom:18 }}>Loading specialists...</div>
       )}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:8, marginBottom:22 }}>
         {(specialists || []).map((sp,i)=>(
@@ -609,11 +666,53 @@ function OnboardingScreen({ onComplete, isAdmin }) {
   const [systems,  setSystems]  = React.useState([]);
   const [companyId, setCompanyId] = React.useState(null);
   const [companyName, setCompanyName] = React.useState('');
+  const [checkingProgress, setCheckingProgress] = React.useState(true);
+
+  // On mount, check if there is already an in-progress onboarding to resume
+  React.useEffect(() => {
+    const storedId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
+    if (!storedId) { setCheckingProgress(false); return; }
+
+    (async () => {
+      try {
+        const { data } = await api.getOnboardingProgress(storedId);
+        const status = data.status;
+        if (status === 'completed') {
+          // Already done — skip to done step
+          setCompanyId(storedId);
+          setStep('done');
+        } else if (status === 'in_progress' || status === 'paused') {
+          // Resume from current progress — skip URL step since company exists
+          setCompanyId(storedId);
+          try {
+            const name = localStorage.getItem('v5_company_name');
+            if (name) setCompanyName(name);
+          } catch {}
+          // Jump to later step based on completed progress
+          const completed = data.completed_steps || 0;
+          if (completed >= 4) setStep('questions');
+          else if (completed >= 3) setStep('details');
+          else if (completed >= 2) setStep('systems');
+          else setStep('url');
+        }
+      } catch {
+        // Could not fetch progress — proceed normally
+      }
+      setCheckingProgress(false);
+    })();
+  }, []);
 
   if (!isAdmin) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:580, margin:'0 auto' }}>
       <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
       <NonAdminGate/>
+    </div>
+  );
+
+  if (checkingProgress) return (
+    <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto', textAlign:'center' }}>
+      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
+      <div style={{ padding:'40px 0', color:'var(--text-muted)', fontSize:14 }}>Checking onboarding status...</div>
     </div>
   );
 
