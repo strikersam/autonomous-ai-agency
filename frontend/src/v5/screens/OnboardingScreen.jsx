@@ -542,7 +542,9 @@ function DoneStep({ onFinish, companyId, companyName }) {
       skip_repo_scan: true,
       auto_provision_specialists: true,
     })
-      .catch(() => {}) // provisioning failure is non-fatal; list whatever exists
+      .catch((e) => {
+        setSpecsError('Specialist provisioning failed: ' + (e?.response?.data?.detail?.message || e?.message || 'Unknown error. Check that your LLM providers are reachable.'));
+      })
       .finally(() => {
         api.listSpecialists(companyId)
           .then(res => {

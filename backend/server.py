@@ -3179,6 +3179,7 @@ class ChatMessage(BaseModel):
         False  # When True, forces multi-agent orchestration regardless of complexity
     )
     allow_commercial_fallback_once: bool = False
+    context: Optional[dict] = None  # Company/repo/systems context from frontend chips
 
 
 _DIRECT_CHAT_PROVIDER_TIMEOUT_SEC = 20.0
