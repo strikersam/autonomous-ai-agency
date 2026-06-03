@@ -212,6 +212,39 @@ async def get_company(
     )
 
 
+@router.patch("/{company_id}", response_model=CompanyResponse)
+async def update_company(
+    company_id: str = Path(..., description="Company ID"),
+    request: CompanyUpdateRequest = Body(...),
+    user: dict = Depends(_get_current_user_thunk)
+) -> CompanyResponse:
+    """
+    Update a company's metadata.
+
+    Accepts partial updates for company fields including
+    intelligence_competitors and intelligence_keywords.
+    """
+    company = await get_company_access(company_id, user)
+
+    store = get_company_graph_store()
+    update_data = request.model_dump(exclude_unset=True, exclude_none=True)
+
+    if update_data:
+        updated_company = company.model_copy(update=update_data)
+        updated = await store.update_company(updated_company)
+        if updated:
+            company = updated
+
+    service = get_company_graph_service()
+    graph = await service.get_company_graph(company.id)
+
+    return CompanyResponse(
+        company=company,
+        graph=graph,
+        message="Company updated successfully"
+    )
+
+
 # =============================================================================
 
 # =============================================================================

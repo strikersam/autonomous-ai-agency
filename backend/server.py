@@ -2988,8 +2988,8 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
     if not key:
         return None
     base = (
-        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
-    ).rstrip("/")
+        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
+    ).rstrip("/").removesuffix("/v1")
     model = (
         os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
     )
