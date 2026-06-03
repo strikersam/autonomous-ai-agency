@@ -485,7 +485,8 @@ async def test_execution_timeout_marks_task_failed(
 
     class _SlowRuntimeManager:
         async def execute(self, spec):
-            await asyncio.sleep(0.05)
+            # Sleep longer than the timeout; wait_for cancels us, raising TimeoutError.
+            await asyncio.sleep(10)
 
     coordinator = TaskExecutionCoordinator(
         store=task_store,
