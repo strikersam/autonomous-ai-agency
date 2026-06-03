@@ -591,8 +591,12 @@ async def _do_handle_agent_mode(
     _direct_chat_store.append_message(session_id, "user", req.content)
 
     # Extract required state before background job starts (it may lose request context)
-    app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
-    sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
+    app_router = request.app.state.PROVIDER_ROUTER
+    sorted_providers: list = []
+    if hasattr(app_router, 'providers'):
+        sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
+    else:
+        log.warning("PROVIDER_ROUTER on app.state has no .providers attribute — agent jobs will use default OLLAMA_BASE")
     primary_provider = sorted_providers[0] if sorted_providers else None
     ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
     primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}

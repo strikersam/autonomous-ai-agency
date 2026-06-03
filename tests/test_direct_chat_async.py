@@ -113,16 +113,22 @@ def test_agent_mode_returns_runtime_validation_errors(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat2.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
 
-    async def fake_readiness(self, spec):
-        return RuntimeReadinessReport(
-            runtime_id="internal_agent",
-            ready=False,
-            selected_runtime="internal_agent",
-            summary="Missing task harness",
-            issues=[],
-        )
+    # Ensure no GitHub token leaks from the environment — the preflight doctor
+    # must see a missing token to return ready=False and trigger the 412 path.
+    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", lambda email: None)
 
-    monkeypatch.setattr("runtimes.adapters.internal_agent.InternalAgentAdapter.readiness_check", fake_readiness)
+    # Mock PROVIDER_ROUTER so _do_handle_agent_mode can resolve provider settings
+    class _FakeProvider:
+        priority = 1
+        api_key = None
+        normalized_base_url = "http://localhost:11434"
+        def auth_headers(self) -> dict[str, str]:
+            return {}
+
+    class _FakeRouter:
+        providers = (_FakeProvider(),)
+
+    monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter())
 
     client = TestClient(proxy.app)
     headers = {"Authorization": "Bearer fake-token"}

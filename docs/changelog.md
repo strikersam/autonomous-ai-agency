@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Fixed
+- **ProviderManager/ProviderRouter type mismatch in `direct_chat.py` causing AttributeError in agent jobs.** `app.state.PROVIDER_ROUTER` was assigned a `ProviderManager` (no `.providers` attribute), but `direct_chat.py` expected a `ProviderRouter`. Added `hasattr` guard with warning log for graceful fallback to default `OLLAMA_BASE` when providers list is unavailable.
+- **Test `test_agent_mode_returns_runtime_validation_errors` failing due to missing `PROVIDER_ROUTER` mock and leaking `GITHUB_TOKEN` env var.** Added `PROVIDER_ROUTER` mock consistent with sibling tests; patched `_get_github_token_for_user` to return `None` so the preflight doctor reliably returns `ready=False` regardless of host environment.
+- **Virtualenv dependencies restored.** Fresh `.venv` created with all requirements installed; full 1898-test suite passes.
 - **CI workflow permissions: replaced `GITHUB_TOKEN` with `GH_PAT` in write-capable workflows.** The repo's default workflow permissions are set to `read` and the repo-level setting blocks `GITHUB_TOKEN` from creating PRs (`'GitHub Actions is not permitted to create or approve pull requests'`). 8 write-capable workflows (`pull-request.yml`, `ci-failure-autofix.yml`, `openclaw-auto-fix.yml`, `process-quick-note.yml`, `dependabot-auto-merge.yml`, `auto-merge.yml`, `delete-merged-branch.yml`, `enrich-quick-note-context.yml`) now use the `GH_PAT` secret. `agency-cycle.yml` uses `GH_PAT` for git push and `GITHUB_TOKEN` for checkout. Read-only workflows (`weekly-trend-digest.yml`) retain `GITHUB_TOKEN` for least-privilege.
 
 ### Fixed
