@@ -3,11 +3,18 @@
 #
 # Spins up the backend + Playwright browser tests in Docker.
 # The backend uses SQLite (no MongoDB needed) and the pre-built frontend.
-# Playwright runs Chromium in headless mode, testing all 13 control plane
-# pages in both desktop (1280x720) and mobile (375x812) viewports.
+# Playwright runs Chromium in headless mode.
+#
+# Two test suites available:
+#   - test_browser.py: page load + console error checks (lightweight)
+#   - test_regression.py: full CRUD + interaction regression (comprehensive)
 #
 # Usage:
+#   # Lightweight smoke test (default):
 #   docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
+#
+#   # Full regression suite:
+#   TEST_FILE=tests/e2e/test_regression.py docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
 #
 # After run, check exit code:
 #   docker compose -f docker-compose.e2e.yml ps -q playwright | xargs docker inspect -f '{{.State.ExitCode}}'
@@ -57,4 +64,6 @@ services:
         condition: service_healthy
     volumes:
       - ./tests/e2e/test_browser.py:/app/tests/e2e/test_browser.py:ro
+      - ./tests/e2e/test_regression.py:/app/tests/e2e/test_regression.py:ro
       - /tmp/e2e-screenshots:/tmp/screenshots
+      - /tmp/e2e-artifacts:/tmp/e2e-artifacts

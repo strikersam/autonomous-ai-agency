@@ -22,7 +22,10 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 # Copy test files
 COPY tests/e2e/test_browser.py /app/tests/e2e/test_browser.py
+COPY tests/e2e/test_regression.py /app/tests/e2e/test_regression.py
 
 ENV RELAY_BASE_URL=http://backend:8001
 
-CMD ["python", "tests/e2e/test_browser.py"]
+# Default to smoke test; override with TEST_FILE for full regression:
+#   docker compose -f docker-compose.e2e.yml run -e TEST_FILE=tests/e2e/test_regression.py playwright
+CMD python "${TEST_FILE:-tests/e2e/test_browser.py}"
