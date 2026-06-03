@@ -27,7 +27,7 @@ jobs:
       - name: Check if PR already exists
         id: pr_check
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
           EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base master --state open --json number -q '.[0].number')
@@ -41,14 +41,14 @@ jobs:
       - name: Ensure auto-created label exists
         if: steps.pr_check.outputs.exists == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           gh label create auto-created --color "0075ca" --description "Automatically created PR" 2>/dev/null || true
 
       - name: Create PR if not exists
         if: steps.pr_check.outputs.exists == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
           PR_TITLE="Automated PR: $BRANCH_NAME"

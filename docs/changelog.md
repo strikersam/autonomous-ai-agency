@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Fixed
+- **CI workflow permissions: replaced `GITHUB_TOKEN` with `GH_PAT` in write-capable workflows.** The repo's default workflow permissions are set to `read` and the repo-level setting blocks `GITHUB_TOKEN` from creating PRs (`'GitHub Actions is not permitted to create or approve pull requests'`). 8 write-capable workflows (`pull-request.yml`, `ci-failure-autofix.yml`, `openclaw-auto-fix.yml`, `process-quick-note.yml`, `dependabot-auto-merge.yml`, `auto-merge.yml`, `delete-merged-branch.yml`, `enrich-quick-note-context.yml`) now use the `GH_PAT` secret. `agency-cycle.yml` uses `GH_PAT` for git push and `GITHUB_TOKEN` for checkout. Read-only workflows (`weekly-trend-digest.yml`) retain `GITHUB_TOKEN` for least-privilege.
+
+### Fixed
 - **CI test stability fixes for agency-cycle workflow.** (1) `pytest.ini` — suppressed `PytestUnhandledThreadExceptionWarning` to prevent spurious 'Event loop is closed' errors from aiosqlite background workers outliving test event loops. (2) `tests/test_scanner_security.py` — mocked `_render_html` in `test_scan_returns_failed_when_all_fetch_clients_fail` to prevent Playwright from spawning threads that outlive the test event loop. (3) `tests/test_tasks_workflow.py` — fixed `test_execution_timeout_marks_task_failed`: restored original `asyncio.sleep(10)` pattern so `asyncio.wait_for` cancellation works correctly. (4) `tests/test_company_graph.py` — `test_mongo_create_company_then_graph_roundtrip` now auto-detects MongoDB availability and skips gracefully when unreachable.
 
 ### Security

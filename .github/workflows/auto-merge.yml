@@ -33,7 +33,7 @@ jobs:
       - name: Merge PR
         if: steps.pr.outputs.pr_number != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           PR_NUMBER=${{ steps.pr.outputs.pr_number }}
           gh pr merge $PR_NUMBER --squash --auto-delete-branch=false --admin
