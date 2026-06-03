@@ -94,6 +94,18 @@ class RuntimeManager:
         """Return the active routing policy as a plain dict."""
         return self._router.policy.as_dict()
 
+    def update_policy(self, **kwargs: Any) -> None:
+        """Update the routing policy in-place."""
+        self._router.update_policy(**kwargs)
+
+    def health_summary(self) -> list[dict]:
+        """Return health status for all registered runtimes."""
+        return self._health.all_health()
+
+    def get_decision_log(self, limit: int = 100) -> list[dict]:
+        """Return routing decision audit log (newest first)."""
+        return self._router.get_decision_log(limit)
+
     async def get_runtime_health(self, runtime_id: str) -> dict | None:
         circuit = self._health._circuits.get(runtime_id)
         if circuit:

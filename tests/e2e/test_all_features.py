@@ -398,11 +398,31 @@ class TestGitHub:
 
 class TestRuntimes:
     def test_list_runtimes(self, client, auth_headers):
-        r = client.get("/api/runtimes", headers=auth_headers)
+        r = client.get("/runtimes/", headers=auth_headers)
         assert r.status_code == 200
+        body = r.json()
+        assert "runtimes" in body
+
+    def test_runtime_health(self, client, auth_headers):
+        r = client.get("/runtimes/health", headers=auth_headers)
+        assert r.status_code == 200, f"Health: {r.status_code} {r.text[:200]}"
+        body = r.json()
+        assert "health" in body
+
+    def test_runtime_decisions(self, client, auth_headers):
+        r = client.get("/runtimes/decisions", headers=auth_headers)
+        assert r.status_code == 200, f"Decisions: {r.status_code} {r.text[:200]}"
+        body = r.json()
+        assert "decisions" in body
+
+    def test_runtime_policy(self, client, auth_headers):
+        r = client.get("/runtimes/policy", headers=auth_headers)
+        assert r.status_code == 200, f"Policy: {r.status_code} {r.text[:200]}"
+        body = r.json()
+        assert "policy" in body
 
     def test_runtimes_no_auth(self, client):
-        r = client.get("/api/runtimes")
+        r = client.get("/runtimes/")
         assert r.status_code in (200, 401)
 
 
