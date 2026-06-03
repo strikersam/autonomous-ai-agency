@@ -2733,7 +2733,7 @@ async def _run_agent_loop(
     provider_chain: Optional[List[ProviderConfig]] = None,
     allow_commercial_fallback: bool = True,
     workspace_root: Optional[Union[str, Path]] = None,
-    context: Optional[dict] = None,
+    context: Optional[Dict] = None,
 ) -> str:
     try:
         from agent.loop import AgentRunner
@@ -2794,7 +2794,7 @@ async def _run_agent_loop(
         f"GITHUB STATUS: {github_status}\n\n"
         + (f"{auto_skill_guidance}\n\n" if auto_skill_guidance else "")
         + f"WIKI INDEX (current pages):\n{wiki_index}\n\n"
-        + (f"USER CONTEXT: {json.dumps(context)}\n\n" if context else "")
+        + ("USER CONTEXT:\n" + "\n".join(f"  {k}: {v}" for k, v in context.items()) + "\n\n" if context else "")
         + f"TASK: {instruction}"
     )
 
@@ -3181,7 +3181,7 @@ class ChatMessage(BaseModel):
         False  # When True, forces multi-agent orchestration regardless of complexity
     )
     allow_commercial_fallback_once: bool = False
-    context: Optional[dict] = None  # Company/repo/systems context from frontend chips
+    context: Optional[Dict] = None  # Company/repo/systems context from frontend chips
 
 
 _DIRECT_CHAT_PROVIDER_TIMEOUT_SEC = 20.0
