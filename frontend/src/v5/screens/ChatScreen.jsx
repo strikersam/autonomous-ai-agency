@@ -57,15 +57,6 @@ function relTime(iso) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function (api.fmtErr(err?.response?.data?.detail) || err?.message || 'Something went wrong.') {
-  const d = err?.response?.data?.detail;
-  if (d == null) return err?.message || 'Something went wrong.';
-  if (typeof d === 'string') return d;
-  if (d.message) return d.message;
-  if (Array.isArray(d)) return d.map((e) => e?.msg || '').filter(Boolean).join(' ') || 'Request failed.';
-  return 'Request failed.';
-}
-
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function AgentPicker({ selected, onSelect }) {
