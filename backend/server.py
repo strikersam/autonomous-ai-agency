@@ -4413,7 +4413,7 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
         await get_db().providers.update_one(
             {"provider_id": provider_id}, {"$set": {"status": "error"}}
         )
-        return {"ok": False, "error": "Failed to fetch repositories"}
+        return {"ok": False, "error": "Provider test failed. Check API key and base URL in Providers settings."}
 
 
 @app.get("/api/providers/{provider_id}/models")

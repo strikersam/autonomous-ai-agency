@@ -203,7 +203,10 @@ class Workspace:
         for p in base.rglob("*"):
             if p.is_file() and ".git" not in p.parts:
                 resolved_root = self.root.resolve()
-                results.append(str(p.resolve().relative_to(resolved_root)))
+                try:
+                    results.append(str(p.resolve().relative_to(resolved_root)))
+                except ValueError:
+                    continue  # symlink points outside workspace
             if len(results) >= limit:
                 break
         return sorted(results)
