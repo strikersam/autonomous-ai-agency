@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- **CI test stability fixes for agency-cycle workflow.** (1) `pytest.ini` — suppressed `PytestUnhandledThreadExceptionWarning` to prevent spurious 'Event loop is closed' errors from aiosqlite background workers outliving test event loops. (2) `tests/test_scanner_security.py` — mocked `_render_html` in `test_scan_returns_failed_when_all_fetch_clients_fail` to prevent Playwright from spawning threads that outlive the test event loop. (3) `tests/test_tasks_workflow.py` — fixed `test_execution_timeout_marks_task_failed`: restored original `asyncio.sleep(10)` pattern so `asyncio.wait_for` cancellation works correctly. (4) `tests/test_company_graph.py` — `test_mongo_create_company_then_graph_roundtrip` now auto-detects MongoDB availability and skips gracefully when unreachable.
+
 ### Security
 - **Resolved ws uninitialized memory disclosure (GHSA-58qx-3vcg-4xpx).** Bumped npm override for `ws` from `>=8.17.1` to `>=8.21.0` in `frontend/package.json`, resolving the last moderate-severity vulnerability. Frontend now has 0 npm audit vulnerabilities.
 

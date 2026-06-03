@@ -221,12 +221,28 @@ class TestMongoStoreExtraFieldTolerance:
         except (ImportError, ModuleNotFoundError):
             pytest.skip("company graph service not importable")
 
+        # Auto-skip if MongoDB is not reachable (e.g. CI without mongo service)
+        import pymongo.errors
+        try:
+            import pymongo
+            _client = pymongo.MongoClient(
+                "mongodb://localhost:27017",
+                serverSelectionTimeoutMS=2000,
+            )
+            _client.admin.command("ping")
+            _client.close()
+        except (pymongo.errors.ServerSelectionTimeoutError, pymongo.errors.ConnectionFailure, Exception):
+            pytest.skip("MongoDB not available — skipping roundtrip test")
+
+        svc = None
+        company_id = None
         try:
             svc = CompanyGraphService(store=CompanyGraphStore(backend="mongodb"))
             company = await svc.create_company(
                 name="RegressionCo", domain="regression.test",
                 business_category="other", owner_id="u_regression",
             )
+            company_id = company.id
             # This is where the 500 occurred before the fix.
             graph = await svc.get_or_create_company_graph(company.id)
             assert graph is not None
@@ -235,10 +251,11 @@ class TestMongoStoreExtraFieldTolerance:
             back = await svc.get_company(company.id)
             assert back is not None and back.id == company.id
         finally:
-            try:
-                await svc.delete_company(company.id)
-            except Exception:
-                pass
+            if svc and company_id:
+                try:
+                    await svc.delete_company(company_id)
+                except Exception:
+                    pass
 
 
 class TestDetectedSystemPersistence:

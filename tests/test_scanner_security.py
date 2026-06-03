@@ -79,6 +79,12 @@ async def test_scan_returns_failed_when_all_fetch_clients_fail(monkeypatch):
     except ImportError:
         pass  # curl_cffi not installed — httpx fallback is the only path
 
+    # Prevent headless browser fallback from spawning Playwright threads
+    # that outlive the test event loop.
+    async def _no_render(self_inner, url_inner):
+        return None
+    monkeypatch.setattr(WebsiteScanner, "_render_html", _no_render)
+
     res = await scanner.scan_website("https://example.com")
     assert res.status == "failed"
     assert True
