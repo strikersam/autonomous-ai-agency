@@ -191,7 +191,7 @@ class ProjectScaffolder:
             target.relative_to(cwd)
         except ValueError:
             # Allow temp directories (pytest tmp_path) but reject everything else
-            if not str(target).startswith(('/tmp/', '/var/folders/')):
+            if not str(target).startswith(('/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/')):
                 return ScaffoldResult(
                     template_name=template_name,
                     target_dir=str(target),

@@ -44,7 +44,7 @@ function ActivityRow({ entry }) {
           {model !== '—' ? model : (entry.message || entry.event_type || 'Activity')}
           {agent && <span style={{ marginLeft:6, fontSize:10, fontFamily:'var(--font-mono)', color:'var(--accent)' }}>@{agent}</span>}
         </div>
-        <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{provider} · {sessionId}</div>
+        <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{provider} · {sessionId}</div>
       </div>
       {latencyMs > 0 && <SparkBar value={latencyMs} max={20000} color={latencyMs > 10000 ? '#ffbd66' : '#46d9a4'}/>}
       <div style={{ textAlign:'right', flexShrink:0, minWidth:80 }}>

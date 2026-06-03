@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Fixed
+- **macOS path resolution in scaffolding and MCP workspace (`agent/scaffolding.py`, `mcp_server/workspace.py`).** On macOS, `Path.resolve()` follows `/var` → `/private/var` symlinks, causing `relative_to()` comparisons to fail when one side was resolved and the other was not. Fixed scaffolding's temp-directory allowlist to include `/private/tmp/` and `/private/var/folders/`; fixed `_safe_path()` to resolve both root and target consistently; added `_resolved_root` property on `Workspace` class; changed `list_files()`, `search_code()`, and `commit()` to use resolved paths for `relative_to()` calls.
+- **Issue #363 — multiple V5 production bugs across 17 files.** Fixes include: scanner log.error→log.warning for HTTPX fallback; NVIDIA double `/v1` URL fix in `provider_router.py`, `llm_providers.py`, `server.py`; strip leading `www.` from company display name in `OnboardingScreen.jsx`/`CompanyScreen.jsx`; persist `v5_company_domain` to localStorage; '+ New task' button with modal in `TaskBoardScreen.jsx`; 401 interceptor race condition fix in `api.js`; `ModelPicker` component in `ChatScreen.jsx` wired to live providers API; context chips pass company context to `chatSend`; actual error detail shown in `IntelligenceScreen.jsx`; `WebkitLineClamp` for LogsScreen multi-line; knowledge-relevant event filtering in `KnowledgeScreen.jsx`; Doctor screen 'Setup GitHub' button wired to `onNavigate`; GitHub repos endpoint checks both token sources.
+- **Friday maintenance sweep 2026-06-03.** No open PRs found. Workflows audited — all action versions valid, openclaw correctly cloned from GitHub (not npm), no setup-cli usage detected. Agent state confirmed healthy (status: ready). PAT rotation still required to unblock GitHub write operations.
+
+
 ### Security
 - **CodeQL configuration added to reduce alert noise (`.codeql/codeql-config.yml`, `.github/workflows/codeql.yml`).** Added workspace-level CodeQL configuration using `paths-ignore` to exclude test files, CI scripts with intentional `shell=True` patterns, dependencies, and generated code from scanning. The config file is referenced in the CodeQL workflow. This reduces noise from the `security-extended` query suite catching patterns in CI/agent workflows.
 

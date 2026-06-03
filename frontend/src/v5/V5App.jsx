@@ -74,7 +74,7 @@ export default function V5App() {
     logs:         <LogsScreen />,
     company:      <CompanyScreen />,
     onboarding:   <OnboardingScreen onComplete={() => go('company')} isAdmin={isAdmin} />,
-    doctor:       <DoctorScreen />,
+    doctor:       <DoctorScreen onNavigate={go} />,
     admin:        isAdmin ? <AdminScreen /> : <AdminLocked />,
   };
   return (

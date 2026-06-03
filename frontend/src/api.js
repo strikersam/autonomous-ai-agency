@@ -61,6 +61,7 @@ API.interceptors.request.use((config) => {
 
 // On 401, try refreshing the token once
 let isRefreshing = false;
+let refreshQueue = [];
 API.interceptors.response.use(
   (res) => res,
   async (error) => {
@@ -68,23 +69,41 @@ API.interceptors.response.use(
     if (error.response?.status === 401 && !orig._retry && !orig.url?.includes('/auth/')) {
       orig._retry = true;
       const refresh = localStorage.getItem('refresh_token');
-      if (refresh && !isRefreshing) {
-        isRefreshing = true;
-        try {
-          const { data } = await axios.post(
-            getApiUrl('/api/auth/refresh'),
-            { refresh_token: refresh },
-          );
-          localStorage.setItem('access_token', data.access_token);
-          orig.headers.Authorization = `Bearer ${data.access_token}`;
+      if (!refresh) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        window.location.href = getPublicPath('/login');
+        return Promise.reject(error);
+      }
+      if (isRefreshing) {
+        // Queue this request to retry after the in-flight refresh completes
+        return new Promise((resolve, reject) => {
+          refreshQueue.push({ resolve, reject });
+        }).then((token) => {
+          orig.headers.Authorization = `Bearer ${token}`;
           return API(orig);
-        } catch {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
-          window.location.href = getPublicPath('/login');
-        } finally {
-          isRefreshing = false;
-        }
+        });
+      }
+      isRefreshing = true;
+      try {
+        const { data } = await axios.post(
+          getApiUrl('/api/auth/refresh'),
+          { refresh_token: refresh },
+        );
+        localStorage.setItem('access_token', data.access_token);
+        orig.headers.Authorization = `Bearer ${data.access_token}`;
+        // Flush queued requests with the new token
+        refreshQueue.forEach(({ resolve }) => resolve(data.access_token));
+        refreshQueue = [];
+        return API(orig);
+      } catch {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        refreshQueue.forEach(({ reject }) => reject(error));
+        refreshQueue = [];
+        window.location.href = getPublicPath('/login');
+      } finally {
+        isRefreshing = false;
       }
     }
     return Promise.reject(error);
@@ -124,7 +143,7 @@ export const logout = () => {
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
-export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false) =>
+export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false, context = null) =>
   API.post('/api/chat/send', {
     content,
     session_id: sessionId,
@@ -133,6 +152,7 @@ export const chatSend = (content, sessionId, model, providerId, temperature, age
     temperature: temperature ?? null,
     agent_mode: agentMode,
     allow_commercial_fallback_once: allowCommercialFallbackOnce,
+    ...(context ? { context } : {}),
   });
 export const getAgentChatJob = (jobId) => API.get(`/api/chat/agent-jobs/${jobId}`);
 export const cancelAgentChatJob = (jobId) => API.post(`/api/chat/agent-jobs/${jobId}/cancel`);

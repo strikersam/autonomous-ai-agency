@@ -139,6 +139,9 @@ class CommercialFallbackRequiredError(RuntimeError):
 
 def _openai_url(base_url: str, path: str) -> str:
     base = base_url.strip().rstrip("/")
+    # Prevent double /v1 when base already ends with /v1
+    if base.endswith("/v1"):
+        return f"{base}{path}"
     parsed = urlparse(base)
     if parsed.path and parsed.path != "/":
         return f"{base}{path}"
@@ -212,6 +215,22 @@ _KNOWN_FREE_HOSTS = (
     "api.cloudflare.com",
 )
 _KNOWN_NVIDIA_HOSTS = ("integrate.api.nvidia.com",)
+
+
+def _normalize_nvidia_base_url(url: str) -> str:
+    """Normalize NVIDIA base URLs to avoid double /v1 when openai_compat_url appends it.
+
+    The NVIDIA API lives at ``https://integrate.api.nvidia.com/v1/chat/completions``.
+    Some config sources set ``NVIDIA_BASE_URL`` to the full ``/v1`` path; others
+    set it to just the host.  The ``_openai_url`` helper always appends ``/v1``
+    when ``parsed.path`` is ``/`` (empty), so a pre-existing ``/v1`` would become
+    ``/v1/v1/chat/completions``.  This normalization strips any trailing ``/v1``
+    so the downstream URL builder adds exactly one.
+    """
+    stripped = (url or '').strip().rstrip('/')
+    if stripped.endswith('/v1'):
+        stripped = stripped[:-3]
+    return stripped
 
 # Prefixes that identify AWS Bedrock model IDs / inference profile IDs.
 # Requests using these model IDs are routed exclusively to the bedrock provider
@@ -336,9 +355,9 @@ class ProviderRouter:
             or ""
         ).strip()
         if nvidia_key:
-            nvidia_base = (
+            nvidia_base = _normalize_nvidia_base_url(
                 os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
-            ).rstrip("/")
+            )
             providers.append(
                 ProviderConfig(
                     provider_id="nvidia-nim",

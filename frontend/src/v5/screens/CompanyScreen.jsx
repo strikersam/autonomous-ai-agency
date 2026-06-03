@@ -120,8 +120,9 @@ function CompanyScreen() {
   }, [companyId]);
 
   // Build the view-model from real backend data only (no preview fallback).
+  const displayName = (company?.name || 'Company').replace(/^www\./i, '');
   const d = company ? {
-    name: company.name || 'Company',
+    name: displayName,
     domain: company.domain || '',
     industry: company.business_category || company.industry || '',
     since: '',
