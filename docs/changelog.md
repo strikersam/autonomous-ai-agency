@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Security
+- **Resolved ws uninitialized memory disclosure (GHSA-58qx-3vcg-4xpx).** Bumped npm override for `ws` from `>=8.17.1` to `>=8.21.0` in `frontend/package.json`, resolving the last moderate-severity vulnerability. Frontend now has 0 npm audit vulnerabilities.
+
+### Security
 - **Resolved Dependabot alert #33 and Secret Scanning alert #1.** Added scoped npm override for `http-proxy-agent` to force `@tootallnate/once` from vulnerable `1.1.2` to patched `3.0.1` (GHSA-vpq2-c234-7xj6, CVE-2026-3449). Dismissed Secret Scanning alert for leaked Telegram bot token which was already removed in commit 0f46e21.
 
 ### Security
