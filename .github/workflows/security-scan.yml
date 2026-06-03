@@ -22,7 +22,7 @@ permissions:
 jobs:
   # ── CodeQL SAST (Python + JavaScript) ────────────────────────────────────
   codeql:
-    name: CodeQL (${{ matrix.language }})
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -136,7 +136,7 @@ jobs:
 
   # ── Secret / Credential Scan ──────────────────────────────────────────────
   secret-scan:
-    name: Secret Scan
+    name: Secret / Credential Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
