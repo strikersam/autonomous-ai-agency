@@ -33,7 +33,7 @@ except ImportError:
 
 BASE_URL = os.environ.get("RELAY_BASE_URL", "http://localhost:8001").rstrip("/")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105 — test credential only
 ARTIFACT_DIR = os.environ.get("E2E_ARTIFACT_DIR", "/tmp/e2e-artifacts")
 
 # ─── Viewports ────────────────────────────────────────────────────────────────
@@ -111,7 +111,8 @@ class APIClient:
             f"{self.base}/api/auth/login",
             data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
         )
-        assert resp.status == 200, f"API login failed: {resp.status} {resp.text()[:200]}"
+        if resp.status != 200:  # nosec B101 — test assertion; fast-fail on auth failure
+            raise RuntimeError(f"API login failed: {resp.status} {resp.text()[:200]}")
         return resp.json()["access_token"]
 
     def _headers(self) -> dict:
