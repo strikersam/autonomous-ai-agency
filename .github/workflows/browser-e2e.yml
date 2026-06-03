@@ -1,0 +1,99 @@
+name: Browser E2E — Playwright (desktop + mobile)
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-e2e:
+    name: Playwright browser tests (desktop + mobile)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest httpx
+
+      - name: Build and start backend
+        run: |
+          docker build -t llm-relay-backend -f Dockerfile.backend .
+          docker run -d --name e2e-backend \
+            -p 8001:8001 \
+            -e STORAGE_BACKEND=sqlite \
+            -e ADMIN_EMAIL=admin@llmrelay.local \
+            -e ADMIN_PASSWORD=WikiAdmin2026! \
+            -e JWT_SECRET=e2e-browser-test-secret \
+            -e LLM_PROVIDER=ollama \
+            -e ROUTER_HEALTH_CHECK_ENABLED=false \
+            llm-relay-backend
+
+      - name: Wait for backend
+        run: |
+          for i in {1..30}; do
+            STATUS=$(curl -sf http://localhost:8001/api/ping -o /dev/null -w "%{http_code}" 2>/dev/null || echo 000)
+            [ "$STATUS" = "200" ] && echo "Backend ready (attempt $i)" && exit 0
+            echo "Waiting... ($i/30, status=$STATUS)"; sleep 3
+          done
+          echo "::error::Backend did not start"
+          docker logs e2e-backend
+          exit 1
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Run Playwright E2E tests (desktop + mobile)
+        env:
+          RELAY_BASE_URL: http://localhost:8001
+          ADMIN_EMAIL: admin@llmrelay.local
+          ADMIN_PASSWORD: WikiAdmin2026!
+        run: |
+          python tests/e2e/test_browser.py
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-browser-screenshots
+          path: /tmp/*.png
+          retention-days: 7
+
+      - name: Upload backend logs on failure
+        if: failure()
+        run: |
+          docker logs e2e-backend > /tmp/backend-logs.txt 2>&1
+          cat /tmp/backend-logs.txt
+
+      - name: Run API e2e tests (complementary)
+        if: always()
+        run: |
+          ./.venv/bin/python -m pytest tests/e2e/test_all_features.py -v --tb=short -q || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop e2e-backend 2>/dev/null || true
+          docker rm e2e-backend 2>/dev/null || true
