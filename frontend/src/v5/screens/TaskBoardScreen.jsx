@@ -143,6 +143,12 @@ function TaskBoardScreen() {
   const [filter, setFilter] = React.useState('all');
   const [pendingApprove, setPendingApprove] = React.useState(null);
   const [pendingRetry, setPendingRetry]     = React.useState(null);
+  const [showNewTask, setShowNewTask] = React.useState(false);
+  const [newTaskTitle, setNewTaskTitle] = React.useState('');
+  const [newTaskDesc, setNewTaskDesc] = React.useState('');
+  const [newTaskPriority, setNewTaskPriority] = React.useState('medium');
+  const [newTaskType, setNewTaskType] = React.useState('task');
+  const [creatingTask, setCreatingTask] = React.useState(false);
 
   const [data, states, fetchAll] = useSafeData(null, {
     tasks: '/api/tasks/',
@@ -195,6 +201,11 @@ function TaskBoardScreen() {
                 textTransform: 'capitalize', transition: 'all 0.15s ease',
               }}>{f}</button>
             ))}
+            <button onClick={() => setShowNewTask(true)} style={{
+              padding: '5px 14px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              background: 'rgba(70,217,164,0.12)', border: '1px solid rgba(70,217,164,0.28)',
+              color: '#46d9a4', transition: 'all 0.15s ease',
+            }}>+ New task</button>
           </div>
         </div>
 
@@ -207,6 +218,47 @@ function TaskBoardScreen() {
           <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Loading tasks…</div>
         )}
       </div>
+
+      {/* New Task Modal */}
+      {showNewTask && (
+        <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'rgba(10,13,18,0.98)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:20, padding:'28px 24px', width:'100%', maxWidth:480 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:'#fff', marginBottom:16 }}>Create new task</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              <input value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} placeholder="Task title"
+                style={{ padding:'10px 14px', borderRadius:10, fontSize:13, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', outline:'none' }} autoFocus />
+              <textarea value={newTaskDesc} onChange={e => setNewTaskDesc(e.target.value)} placeholder="Description (optional)" rows={3}
+                style={{ padding:'10px 14px', borderRadius:10, fontSize:13, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', outline:'none', resize:'vertical', fontFamily:'var(--font-main)' }} />
+              <div style={{ display:'flex', gap:8 }}>
+                <select value={newTaskPriority} onChange={e => setNewTaskPriority(e.target.value)}
+                  style={{ flex:1, padding:'9px 12px', borderRadius:10, fontSize:13, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', outline:'none' }}>
+                  {['urgent','high','medium','low'].map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <select value={newTaskType} onChange={e => setNewTaskType(e.target.value)}
+                  style={{ flex:1, padding:'9px 12px', borderRadius:10, fontSize:13, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', outline:'none' }}>
+                  {['task','bug','security','general'].map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:16 }}>
+              <button onClick={() => { setShowNewTask(false); setNewTaskTitle(''); setNewTaskDesc(''); }}
+                style={{ padding:'9px 18px', borderRadius:10, fontSize:13, fontWeight:700, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-secondary)', cursor:'pointer' }}>Cancel</button>
+              <button disabled={!newTaskTitle.trim() || creatingTask} onClick={async () => {
+                setCreatingTask(true);
+                try {
+                  await api.createTask({ title: newTaskTitle.trim(), description: newTaskDesc.trim(), priority: newTaskPriority, task_type: newTaskType });
+                  setShowNewTask(false); setNewTaskTitle(''); setNewTaskDesc('');
+                  fetchAll();
+                } catch (e) { console.error('Create task failed', e); }
+                finally { setCreatingTask(false); }
+              }}
+                style={{ padding:'9px 18px', borderRadius:10, fontSize:13, fontWeight:700, background:newTaskTitle.trim() && !creatingTask ? 'linear-gradient(135deg,#6CB0FF,#3A7FE8)' : 'rgba(93,162,255,0.2)', border:'none', color:'#fff', cursor: newTaskTitle.trim() && !creatingTask ? 'pointer' : 'not-allowed' }}>
+                {creatingTask ? 'Creating…' : 'Create task'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Board */}
       <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', padding: '14px 20px 32px', display: 'flex', gap: 14 }} className="scrollbar-hide">

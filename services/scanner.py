@@ -278,7 +278,7 @@ class WebsiteScanner:
                         cookies = response.cookies
                         status_code = response.status_code
                     except Exception as e:
-                        log.error(f"HTTPX failed: {e}")
+                        log.warning(f"HTTPX fallback failed for {_safe_url}: {e}")
                         fetch_error = str(e)
 
             # If both fetch clients failed, surface the error rather than returning empty success

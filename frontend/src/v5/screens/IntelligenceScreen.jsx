@@ -59,7 +59,8 @@ Keep it sharp, practical, and under 300 words. No fluff. Write in plain English 
       setAnalysis(result);
       setGenerated(true);
     } catch (e) {
-      setError('Could not generate analysis. Check your connection and try again.');
+      const errMsg = e?.response?.data?.detail ? api.fmtErr(e.response.data.detail) : (e?.message || 'Unknown error');
+      setError('Could not generate analysis: ' + errMsg);
     } finally {
       setLoading(false);
     }

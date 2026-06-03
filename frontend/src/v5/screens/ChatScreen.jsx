@@ -267,6 +267,95 @@ function HistorySidebar({ sessions, loading, activeId, onSelect, onClose }) {
 }
 
 // ── Main ChatScreen ───────────────────────────────────────────────────────────
+function ModelPicker({ selected, onSelect }) {
+  const [open, setOpen] = React.useState(false);
+  const [providers, setProviders] = React.useState([]);
+  const [models, setModels] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    api.listProviders().then(({ data }) => {
+      if (!alive) return;
+      const list = data?.providers || [];
+      setProviders(list.filter(p => p.status === 'configured' || p.is_default));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  React.useEffect(() => {
+    if (!selected?.provider) { setModels([]); return; }
+    let alive = true;
+    setLoading(true);
+    api.listProviderModels(selected.provider).then(({ data }) => {
+      if (!alive) return;
+      setModels(data?.models || []);
+    }).catch(() => { if (alive) setModels([]); }).finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [selected?.provider]);
+
+  const currentLabel = selected?.model ? `${selected.model.split('/').pop()} (${selected.provider || 'auto'})` : 'Auto-select';
+
+  return (
+    <div style={{ position:'relative' }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
+        borderRadius:999, border:`1px solid ${open ? 'rgba(93,162,255,0.40)' : 'rgba(255,255,255,0.12)'}`,
+        background: open ? 'rgba(93,162,255,0.10)' : 'rgba(255,255,255,0.04)',
+        cursor:'pointer', transition:'all 0.15s', fontSize:11, color:'var(--text-secondary)',
+        fontFamily:'var(--font-mono)', letterSpacing:'0.08em', whiteSpace:'nowrap',
+      }}>
+        <span style={{ fontSize:13 }}>🤖</span>
+        <span>{currentLabel}</span>
+        <span style={{ fontSize:9, color:'var(--text-muted)' }}>▾</span>
+      </button>
+      {open && (
+        <>
+          <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setOpen(false)} />
+          <div style={{
+            position:'absolute', bottom:'calc(100% + 6px)', left:0, zIndex:50,
+            background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
+            borderRadius:16, padding:8, minWidth:280, maxHeight:320, overflowY:'auto',
+            boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
+          }}>
+            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Model</div>
+            <button onClick={() => { onSelect(null); setOpen(false); }} style={{
+              display:'flex', alignItems:'center', gap:9, width:'100%', padding:'8px 10px',
+              borderRadius:10, border:'none', background: !selected?.model ? 'rgba(93,162,255,0.10)' : 'transparent',
+              cursor:'pointer', textAlign:'left',
+            }}>
+              <span style={{ fontSize:13 }}>◎</span>
+              <div style={{ fontSize:12, fontWeight:600, color: !selected?.model ? '#fff' : 'var(--text-secondary)' }}>Auto-select (backend picks best model)</div>
+            </button>
+            {providers.map(p => (
+              <React.Fragment key={p.provider_id}>
+                <div style={{ padding:'4px 10px 2px', fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.08em', marginTop:4 }}>{p.name}</div>
+                {models.length > 0 && p.provider_id === selected?.provider ? (
+                  models.slice(0, 8).map(m => (
+                    <button key={m} onClick={() => { onSelect({ provider: p.provider_id, model: m }); setOpen(false); }} style={{
+                      display:'block', width:'100%', padding:'6px 10px 6px 20px', borderRadius:8, border:'none',
+                      background: selected?.model === m ? 'rgba(93,162,255,0.10)' : 'transparent',
+                      cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
+                      color: selected?.model === m ? '#fff' : 'var(--text-tertiary)',
+                    }}>{m}</button>
+                  ))
+                ) : (
+                  <button onClick={() => { onSelect({ provider: p.provider_id, model: p.default_model || '' }); setOpen(false); }} style={{
+                    display:'block', width:'100%', padding:'6px 10px 6px 20px', borderRadius:8, border:'none',
+                    background: selected?.provider === p.provider_id ? 'rgba(93,162,255,0.10)' : 'transparent',
+                    cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
+                    color: selected?.provider === p.provider_id ? '#fff' : 'var(--text-tertiary)',
+                  }}>{p.default_model || p.provider_id}</button>
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ChatScreen() {
   const [input,       setInput]        = React.useState('');
   const [messages,    setMessages]     = React.useState([]);
@@ -276,6 +365,7 @@ function ChatScreen() {
   const [progressEvents, setProgressEvents] = React.useState([]);
   const [agent,       setAgent]        = React.useState('auto');
   const [agentMode,   setAgentMode]    = React.useState(false);
+  const [selectedModel, setSelectedModel] = React.useState(null); // { provider, model } or null
   const [chips,       setChips]        = React.useState([]);
   const [showHistory, setShowHistory]  = React.useState(false);
   const [sessions,    setSessions]     = React.useState([]);
@@ -284,6 +374,17 @@ function ChatScreen() {
   const messagesEndRef = React.useRef(null);
   const textareaRef    = React.useRef(null);
   const mountedRef     = React.useRef(true);
+
+  // Load context chips from localStorage (company, wiki, sources)
+  React.useEffect(() => {
+    const initial = [];
+    try {
+      const companyId = localStorage.getItem('v5_company_id');
+      const companyName = localStorage.getItem('v5_company_name');
+      if (companyId && companyName) initial.push({ id:'company', icon:'🏢', label:companyName });
+    } catch { /* ignore */ }
+    setChips(initial);
+  }, []);
 
   const currentAgent = AVAILABLE_AGENTS.find(a=>a.id===agent)||AVAILABLE_AGENTS[1];
   // Picking a specific (non-auto) agent implies agent mode; "Auto-select" leaves
@@ -367,7 +468,13 @@ function ChatScreen() {
     setElapsed(0);
     setPhase(agentMode ? 'planning' : null);
     try {
-      const { data } = await api.chatSend(text, sessionId, null, null, null, agentMode);
+      // Build context payload from active chips (company, wiki, sources)
+      const contextPayload = chips.length > 0 ? {
+        company_id: localStorage.getItem('v5_company_id') || null,
+        company_name: chips.find(c => c.id === 'company')?.label || localStorage.getItem('v5_company_name') || null,
+        context_labels: chips.map(c => c.label),
+      } : null;
+      const { data } = await api.chatSend(text, sessionId, selectedModel?.model || null, selectedModel?.provider || null, null, agentMode, false, contextPayload);
       if (!mountedRef.current) return;
       if (data?.session_id) setSessionId(data.session_id);
       if (data?.job_id) {
@@ -446,6 +553,11 @@ function ChatScreen() {
 
           {/* Agent picker */}
           <AgentPicker selected={agent} onSelect={selectAgent}/>
+
+          <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
+
+          {/* Model picker */}
+          <ModelPicker selected={selectedModel} onSelect={setSelectedModel}/>
 
           <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 

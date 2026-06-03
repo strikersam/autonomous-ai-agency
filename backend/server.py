@@ -1593,8 +1593,13 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
 @app.get("/api/github/repos")
 async def github_list_repos(user: dict = Depends(get_current_user)):
     token = user.get("github_repo_token")
+    # Also check github_settings collection (set by popup OAuth flow)
     if not token:
-        return {"repos": [], "authorized": False}
+        doc = await get_db().github_settings.find_one({"user_id": user["_id"]})
+        if doc:
+            token = doc.get("token")
+    if not token:
+        return {"repos": [], "authorized": False, "message": "No GitHub token connected. Go to GitHub screen to connect one."}
 
     async with httpx.AsyncClient() as client:
         try:
@@ -2022,8 +2027,8 @@ async def seed_default_providers():
         os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or ""
     ).strip()
     _nvidia_base = (
-        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
-    ).rstrip("/")
+        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
+    ).rstrip("/").removesuffix("/v1")
     _nvidia_model = (
         os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
     )
