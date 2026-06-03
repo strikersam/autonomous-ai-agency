@@ -120,6 +120,7 @@ function CompanyScreen() {
         setLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps — mount-only auto-select, re-trigger not desired
   }, []);
 
   // Load selected company details
