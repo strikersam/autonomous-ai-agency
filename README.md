@@ -346,15 +346,16 @@ pip install -r backend/requirements.txt
 
 ```bash
 cp .env.example .env
-# Minimum required:
-#   SECRET_KEY=$(openssl rand -hex 32)
-#   STORAGE_BACKEND=sqlite          # skip MongoDB
-#   ADMIN_EMAIL=you@example.com
-#   ADMIN_PASSWORD=changeme
+# Edit .env with your credentials:
+#   - STORAGE_BACKEND=sqlite          # skip MongoDB for dev
+#   - ADMIN_EMAIL=you@example.com
+#   - ADMIN_PASSWORD=changeme
 #
-# Add one of:
-#   OLLAMA_BASE_URL=http://localhost:11434   # local GPU
-#   NVIDIA_API_KEY=nvapi-...                 # free cloud inference
+# Add at least one provider key:
+#   - NVIDIA_API_KEY=nvapi-...        # free cloud inference (no GPU)
+#   - ANTHROPIC_API_KEY=sk-ant-...    # Claude models
+#   - DEEPSEEK_API_KEY=sk-...         # DeepSeek API
+#   - OLLAMA_BASE_URL=http://localhost:11434  # local GPU
 ```
 
 ### 3. Start the backend (main application)
