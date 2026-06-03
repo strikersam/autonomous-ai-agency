@@ -90,6 +90,9 @@ class SpecialistService:
                 provisioned_at=datetime.utcnow()
             )
         
+        # Auto-resolve runtime if not explicitly provided
+        resolved_runtime = request.runtime or self._resolve_runtime(request.specialist_family)
+
         # Create new specialist
         specialist = Specialist(
             company_id=request.company_id,
@@ -99,7 +102,7 @@ class SpecialistService:
             tools=request.tools or self._get_default_tools(request.specialist_family),
             system_types=request.system_types or [],
             model_preference=request.model_preference,
-            runtime=request.runtime,
+            runtime=resolved_runtime,
             is_provisioned=True,
             provisioned_at=datetime.utcnow(),
             status="available",
@@ -538,6 +541,20 @@ class SpecialistService:
     # =========================================================================
     # HELPER METHODS
     # =========================================================================
+
+    @staticmethod
+    def _resolve_runtime(family: SpecialistFamily) -> str | None:
+        """Resolve the best available runtime for a specialist family.
+
+        Delegates to CompanyAgencyService for availability-aware resolution.
+        Falls back to 'internal_agent' if the agency service is unavailable.
+        """
+        try:
+            from services.company_agency import get_company_agency_service
+            agency = get_company_agency_service()
+            return agency.resolve_runtime_for_family(family)
+        except ImportError:
+            return "internal_agent"
 
     def _generate_specialist_name(self, family: SpecialistFamily) -> str:
         """Generate a name for a specialist based on family."""
