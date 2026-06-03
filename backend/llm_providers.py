@@ -30,11 +30,15 @@ def openai_compat_url(base_url: str, path: str) -> str:
 
     Supports base URLs either with or without a trailing /v1. URLs that
     already carry a non-root path (e.g. /v1beta/openai for Google Gemini)
-    are used as-is; bare hosts get /v1 appended.
+    are used as-is; bare hosts get /v1 appended. Defensively strips
+    trailing /v1 from the base before checking to prevent double /v1.
     """
     base = normalize_base_url(base_url)
     if not path.startswith("/"):
         path = "/" + path
+    # Prevent double /v1 when base already ends with /v1
+    if base.endswith("/v1"):
+        return f"{base}{path}"
     parsed = urlparse(base)
     if parsed.path and parsed.path != "/":
         return f"{base}{path}"

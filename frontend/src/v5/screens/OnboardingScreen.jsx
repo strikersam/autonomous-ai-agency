@@ -214,7 +214,9 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
     setErrorText('');
 
     const domainClean = url.replace(/^https?:\/\//i, '').split('/')[0];
-    const nameClean = domainClean.split('.')[0].toUpperCase();
+    // Strip leading 'www.' so the derived name shows e.g. 'GUCCI' not 'WWW'
+    const nameClean = domainClean.replace(/^www\./i, '').split('.')[0].toUpperCase();
+    const displayDomain = domainClean.replace(/^www\./i, '');
 
     // Step 1: Create company record. Surface auth errors immediately — don't silently fake it.
     let companyId;
@@ -227,7 +229,7 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
       });
       companyId = createRes?.data?.company?.id || createRes?.data?.id;
       if (!companyId) throw new Error('Company created but no ID returned.');
-      onCompanyCreated(companyId, nameClean, domainClean);
+      onCompanyCreated(companyId, nameClean, displayDomain);
     } catch (e) {
       setScanning(false);
       setProgress(0);
@@ -617,7 +619,13 @@ function OnboardingScreen({ onComplete, isAdmin }) {
     setCompanyId(id);
     setCompanyName(name || domain);
     // Persist so the Company screen can load this company's graph after onboarding.
-    try { if (id) localStorage.setItem(COMPANY_ID_KEY, id); } catch { /* storage unavailable */ }
+    try {
+      if (id) {
+        localStorage.setItem(COMPANY_ID_KEY, id);
+        localStorage.setItem('v5_company_domain', domain || '');
+        localStorage.setItem('v5_company_name', name || '');
+      }
+    } catch { /* storage unavailable */ }
   };
 
   const handleScanDone = (detectedList, id) => {

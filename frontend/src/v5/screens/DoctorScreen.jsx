@@ -23,7 +23,7 @@ function Skeleton({ h = 56 }) {
 }
 
 // ── single check row ──────────────────────────────────────────────────────────
-function CheckRow({ check, expanded, onToggle }) {
+function CheckRow({ check, expanded, onToggle, onSetup }) {
   const st = statusStyle(check.status);
   return (
     <div style={{ borderRadius: 14, border: `1px solid ${st.border}`, background: st.bg, overflow: 'hidden' }}>
@@ -55,14 +55,25 @@ function CheckRow({ check, expanded, onToggle }) {
         )}
       </button>
 
-      {expanded && check.explanation && (
+      {expanded && (check.explanation || onSetup) && (
         <div style={{ padding: '0 16px 14px 56px' }}>
-          <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
-              Plain-language explanation
+          {check.explanation && (
+            <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
+                Plain-language explanation
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>{check.explanation}</div>
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>{check.explanation}</div>
-          </div>
+          )}
+          {onSetup && (
+            <button onClick={(e) => { e.stopPropagation(); onSetup(); }} style={{
+              marginTop: 8, padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+              background: 'rgba(93,162,255,0.15)', border: '1px solid rgba(93,162,255,0.30)',
+              color: 'var(--accent)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              ⚙ Setup GitHub →
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -90,7 +101,7 @@ function ErrorBanner({ message, onRetry }) {
 }
 
 // ── main screen ───────────────────────────────────────────────────────────────
-export default function DoctorScreen() {
+export default function DoctorScreen({ onNavigate }) {
   const [data, states, reload] = useSafeData(API, { report: '/api/doctor' }, { refreshMs: 60_000 });
   const [expanded, setExpanded] = React.useState(null);
 
@@ -170,6 +181,7 @@ export default function DoctorScreen() {
                 check={check}
                 expanded={expanded === check.id}
                 onToggle={() => setExpanded(expanded === check.id ? null : check.id)}
+                onSetup={check.status !== 'pass' && /github/i.test(check.label) && onNavigate ? () => onNavigate('github') : undefined}
               />
             ))}
         {!loading && !error && checks.length === 0 && (

@@ -195,7 +195,14 @@ function KnowledgeScreen() {
   const pages   = data.pages?.pages || [];
   const sources = data.sources?.sources || [];
   const activityRaw = data.activity?.logs || data.activity?.events || data.activity?.activity || (Array.isArray(data.activity) ? data.activity : []);
-  const activity = activityRaw.map((log, i) => mapActivity(log, i));
+  // Knowledge tab filters to knowledge-relevant events (docs, sources, wiki, intelligence, agent jobs)
+  const knowledgeTypes = new Set(['wiki', 'source', 'source_ingest', 'intelligence', 'agent_job', 'task', 'skill', 'github', 'github_connect', 'auth']);
+  const activity = activityRaw
+    .filter(log => {
+      const et = (log.event_type || log.type || '').toLowerCase();
+      return !et || knowledgeTypes.has(et) || et.startsWith('wiki') || et.startsWith('source') || et.startsWith('agent');
+    })
+    .map((log, i) => mapActivity(log, i));
 
   const docs = pages.map(p => ({
     id: p._id || p.slug,
