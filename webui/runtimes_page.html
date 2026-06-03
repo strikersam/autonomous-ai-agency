@@ -17,24 +17,32 @@
       padding: 20px;
     }
     .container {
-      max-width: 900px;
+      max-width: 1000px;
       margin: 0 auto;
     }
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 40px;
+      margin-bottom: 30px;
       border-bottom: 1px solid #333;
       padding-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
     }
     h1 {
       font-size: 28px;
       font-weight: 600;
     }
+    .header-lhs {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
     .header-actions {
       display: flex;
       gap: 10px;
+      flex-wrap: wrap;
     }
     button {
       padding: 10px 20px;
@@ -51,6 +59,19 @@
     }
     .btn-primary:hover {
       background: #0e8b6e;
+    }
+    .btn-accent {
+      background: #7c3aed;
+      color: white;
+    }
+    .btn-accent:hover {
+      background: #6d28d9;
+      box-shadow: 0 0 16px rgba(124, 58, 237, 0.4);
+    }
+    .btn-accent:disabled {
+      background: #555;
+      box-shadow: none;
+      cursor: not-allowed;
     }
     .btn-secondary {
       background: #444;
@@ -70,9 +91,59 @@
       padding: 6px 12px;
       font-size: 12px;
     }
+    .company-input {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 6px 12px;
+    }
+    .company-input input {
+      background: transparent;
+      border: none;
+      color: #e0e0e0;
+      font-size: 13px;
+      width: 160px;
+      outline: none;
+    }
+    .company-input input::placeholder {
+      color: #666;
+    }
+    .company-input label {
+      font-size: 11px;
+      color: #888;
+      white-space: nowrap;
+    }
+    .status-banner {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      display: none;
+    }
+    .status-banner.success {
+      display: block;
+      background: #122f22;
+      border: 1px solid #10a37f;
+      color: #10a37f;
+    }
+    .status-banner.error {
+      display: block;
+      background: #2f1212;
+      border: 1px solid #d32f2f;
+      color: #d32f2f;
+    }
+    .status-banner.info {
+      display: block;
+      background: #1a1a2e;
+      border: 1px solid #7c3aed;
+      color: #c4b5fd;
+    }
     .runtimes-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
       gap: 20px;
       margin-bottom: 20px;
     }
@@ -82,21 +153,41 @@
       border-radius: 8px;
       padding: 20px;
       transition: all 0.2s;
+      position: relative;
     }
     .runtime-card:hover {
       border-color: #10a37f;
       background: #222;
     }
+    .runtime-card.company-scoped {
+      border-color: #7c3aed33;
+    }
+    .runtime-card.company-scoped:hover {
+      border-color: #7c3aed;
+    }
     .runtime-name {
       font-size: 18px;
       font-weight: 600;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
     .runtime-description {
       font-size: 12px;
       color: #999;
       margin-bottom: 15px;
       line-height: 1.5;
+    }
+    .runtime-meta {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+    .runtime-meta span {
+      display: inline-block;
+      background: #222;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-right: 6px;
+      margin-bottom: 4px;
     }
     .status {
       display: flex;
@@ -116,6 +207,14 @@
     }
     .status-dot.unhealthy {
       background: #d32f2f;
+    }
+    .status-dot.waking {
+      background: #f59e0b;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
     }
     .status-text {
       color: #999;
@@ -148,18 +247,52 @@
       font-size: 12px;
       margin-top: 10px;
     }
+    .badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-size: 10px;
+      background: #333;
+      padding: 3px 8px;
+      border-radius: 10px;
+    }
+    .badge.company {
+      background: #7c3aed33;
+      color: #c4b5fd;
+    }
+    .runtime-type {
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 8px;
+    }
+    .runtime-type.docker { background: #1a3a2a; color: #10a37f; }
+    .runtime-type.cli    { background: #2a1a3a; color: #c4b5fd; }
+    .runtime-type.builtin{ background: #1a1a3a; color: #7c9fff; }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>🚀 Agent Runtimes</h1>
+      <div class="header-lhs">
+        <h1>🚀 Agent Runtimes</h1>
+        <div class="company-input">
+          <label for="company-id">Company:</label>
+          <input type="text" id="company-id" placeholder="leave empty for all" />
+        </div>
+        <button class="btn-accent" id="wake-all-btn" onclick="wakeCompanyRuntimes()">
+          ⚡ Wake All Runtimes
+        </button>
+      </div>
       <div class="header-actions">
         <button class="btn-primary" onclick="startAll()">Start All</button>
         <button class="btn-danger" onclick="stopAll()">Stop All</button>
         <button class="btn-secondary btn-sm" onclick="refreshStatus()">Refresh</button>
       </div>
     </header>
+
+    <div class="status-banner" id="status-banner"></div>
 
     <div class="runtimes-grid" id="runtimes-container">
       <p>Loading runtimes...</p>
@@ -168,28 +301,58 @@
 
   <script>
     const API_BASE = '/runtimes';
-    const RUNTIMES = [
-      {
-        id: 'hermes',
-        name: 'Hermes',
-        description: 'Fast code executor'
-      },
-      {
-        id: 'opencode',
-        name: 'OpenCode',
-        description: 'Code generator & scaffolder'
-      },
-      {
-        id: 'goose',
-        name: 'Goose',
-        description: 'Multi-purpose agent'
-      },
-      {
-        id: 'aider',
-        name: 'Aider',
-        description: 'Pair programming assistant'
+
+    // Default runtime definitions (shown before API data loads)
+    const RUNTIME_META = {
+      'hermes':        { name: 'Hermes',       desc: 'Fast, lightweight code execution runtime',        type: 'docker', docker_container: 'hermes' },
+      'opencode':      { name: 'OpenCode',     desc: 'Code generation and scaffolding runtime',         type: 'docker', docker_container: 'opencode' },
+      'goose':         { name: 'Goose',        desc: 'Multi-purpose AI development agent',              type: 'docker', docker_container: 'goose' },
+      'aider':         { name: 'Aider',        desc: 'Pair programming and collaborative development',  type: 'docker', docker_container: 'aider' },
+      'claude_code':   { name: 'Claude Code',  desc: 'Anthropic Claude Code CLI — deep repo work',     type: 'cli',    docker_container: null, install_hint: 'npm i -g @anthropic-ai/claude-code' },
+      'jcode':         { name: 'jcode',        desc: 'High-performance Rust coding agent with MCP',     type: 'docker', docker_container: 'jcode' },
+      'task_harness':  { name: 'Task Harness', desc: 'Long-running multi-file agent workflow harness',  type: 'docker', docker_container: 'task-harness' },
+      'internal_agent':{ name: 'Internal Agent',desc: 'Built-in lightweight agent (always available)',   type: 'builtin', docker_container: null },
+    };
+
+    const DEFAULT_RUNTIMES = Object.entries(RUNTIME_META).map(([id, meta]) => ({ id, ...meta }));
+
+    // Fetch runtimes from API (dynamically registered)
+    async function fetchRuntimes() {
+      try {
+        const resp = await fetch(`${API_BASE}/`);
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        return data.runtimes || [];
+      } catch (e) {
+        console.error('Error fetching runtimes list:', e);
+        return null;
       }
-    ];
+    }
+
+    function resolveRuntimeMeta(runtimeId) {
+      // Use the RUNTIME_META lookup for known runtimes, fall back to generic
+      return RUNTIME_META[runtimeId] || {
+        name: runtimeId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        desc: '',
+        type: 'docker',
+        docker_container: runtimeId,
+      };
+    }
+
+    function isCliOnly(runtimeId, health) {
+      // Check if the health error indicates a missing CLI binary
+      if (!health || health.available === true) return false;
+      const err = (health.error || '').toLowerCase();
+      const cliPatterns = [
+        'not found in path',
+        'install:',
+        'npm install',
+        'pip install',
+        'cli-only',
+        'cannot be managed as a local',
+      ];
+      return cliPatterns.some(p => err.includes(p));
+    }
 
     async function getRuntimeStatus(runtimeId) {
       try {
@@ -209,15 +372,7 @@
         const response = await fetch(`${API_BASE}/${runtimeId}/start`, { method: 'POST' });
         const data = await response.json();
         if (response.ok) {
-          if (data.mode === 'local_subprocess') {
-            showMessage(runtimeId, `Started ${runtimeId} locally on ${data.base_url}`, 'success');
-          } else if (data.remote_managed) {
-            showMessage(runtimeId, `Runtime reachable remotely — no local start needed`, 'success');
-          } else if (data.docker_unavailable) {
-            showMessage(runtimeId, `Docker unavailable — started local fallback`, 'success');
-          } else {
-            showMessage(runtimeId, `Started ${runtimeId}`, 'success');
-          }
+          showMessage(runtimeId, buildStartMessage(runtimeId, data), 'success');
           setTimeout(refreshStatus, 2000);
         } else {
           showMessage(runtimeId, `Error: ${data.error || 'Unknown error'}`, 'error');
@@ -230,6 +385,20 @@
       }
     }
 
+    function buildStartMessage(runtimeId, data) {
+      if (data.mode === 'local_subprocess') {
+        return `Started ${runtimeId} locally on port ${data.base_url || '?'}`;
+      }
+      if (data.remote_managed) {
+        return `${runtimeId} is reachable remotely — no local start needed`;
+      }
+      if (data.docker_unavailable) {
+        return `Docker unavailable on this host — used local fallback`;
+      }
+      const container = data.docker_container || runtimeId;
+      return `Started ${runtimeId} (container: ${container})`;
+    }
+
     async function stopRuntime(runtimeId, button) {
       button.disabled = true;
       button.classList.add('loading');
@@ -240,7 +409,7 @@
           if (data.mode === 'local_subprocess') {
             showMessage(runtimeId, `Stopped ${runtimeId} local process`, 'success');
           } else if (data.remote_managed) {
-            showMessage(runtimeId, `Runtime managed remotely`, 'success');
+            showMessage(runtimeId, `${runtimeId} managed remotely`, 'success');
           } else {
             showMessage(runtimeId, `Stopped ${runtimeId}`, 'success');
           }
@@ -258,35 +427,103 @@
 
     async function startAll() {
       const buttons = document.querySelectorAll('.start-btn');
-      buttons.forEach(btn => {
-        btn.disabled = true;
-        btn.classList.add('loading');
-      });
+      buttons.forEach(btn => { btn.disabled = true; btn.classList.add('loading'); });
       try {
         const response = await fetch(`${API_BASE}/start-all`, { method: 'POST' });
         if (response.ok) {
+          const data = await response.json();
+          showBanner(`Started all runtimes (${Object.keys(data.runtimes || {}).length} total)`, 'success');
           setTimeout(refreshStatus, 2000);
         }
       } catch (e) {
-        console.error('Error starting all runtimes:', e);
+        showBanner(`Error starting all runtimes: ${e.message}`, 'error');
+      } finally {
+        buttons.forEach(btn => { btn.disabled = false; btn.classList.remove('loading'); });
       }
     }
 
     async function stopAll() {
       const buttons = document.querySelectorAll('.stop-btn');
-      buttons.forEach(btn => {
-        btn.disabled = true;
-        btn.classList.add('loading');
-      });
+      buttons.forEach(btn => { btn.disabled = true; btn.classList.add('loading'); });
       try {
         const response = await fetch(`${API_BASE}/stop-all`, { method: 'POST' });
         if (response.ok) {
+          const data = await response.json();
+          showBanner(`Stopped all runtimes`, 'info');
           setTimeout(refreshStatus, 2000);
         }
       } catch (e) {
-        console.error('Error stopping all runtimes:', e);
+        showBanner(`Error stopping all runtimes: ${e.message}`, 'error');
+      } finally {
+        buttons.forEach(btn => { btn.disabled = false; btn.classList.remove('loading'); });
       }
     }
+
+    // ── Wake All Runtimes (Company-Aware) ──────────────────────────────────
+
+    async function wakeCompanyRuntimes() {
+      const btn = document.getElementById('wake-all-btn');
+      const companyId = document.getElementById('company-id').value.trim();
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Waking runtimes...';
+
+      // Animate only company-scoped dots (those whose card has .company-scoped class)
+      document.querySelectorAll('.runtime-card.company-scoped .status-dot').forEach(dot => {
+        dot.className = 'status-dot waking';
+      });
+      // If no company-scoped cards found, pulse all non-builtin dots
+      if (!document.querySelector('.runtime-card.company-scoped')) {
+        document.querySelectorAll('.runtime-card:not(.builtin-card) .status-dot').forEach(dot => {
+          dot.className = 'status-dot waking';
+        });
+      }
+
+      try {
+        const url = companyId
+          ? `${API_BASE}/wake-company-runtimes?company_id=${encodeURIComponent(companyId)}`
+          : `${API_BASE}/wake-company-runtimes`;
+
+        const response = await fetch(url, { method: 'POST' });
+        const data = await response.json();
+
+        if (response.ok) {
+          const mode = data.mode || 'unknown';
+          const runtimeCount = Object.keys(data.runtimes || {}).length;
+          const started = data.started || 0;
+          const failed = data.failed || 0;
+
+          let msg = '';
+          if (mode === 'company-runtimes') {
+            msg = `⚡ Woke ${started} runtime(s) for company ${data.company_id}`;
+            if (failed > 0) msg += ` (${failed} failed)`;
+            // Show Docker container names for each runtime
+            const details = Object.entries(data.runtimes || {}).map(([id, info]) => {
+              const container = info.docker_container || id;
+              const status = info.status || '?';
+              return `${id} → ${container} (${status})`;
+            }).join(', ');
+            if (details) msg += ` — ${details}`;
+          } else if (mode === 'all-runtimes') {
+            msg = `⚡ Woke all ${runtimeCount} runtimes across all companies`;
+          } else if (mode === 'fallback-all-runtimes') {
+            msg = `⚡ CompanyAgencyService unavailable — woke all ${runtimeCount} runtimes`;
+          }
+
+          showBanner(msg, 'success');
+        } else {
+          showBanner(`Error: ${data.detail || 'Unknown error'}`, 'error');
+        }
+      } catch (e) {
+        showBanner(`Error waking runtimes: ${e.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⚡ Wake All Runtimes';
+        setTimeout(refreshStatus, 1500);
+      }
+    }
+
+    // ── UI helpers ──────────────────────────────────────────────────────────
 
     function showMessage(runtimeId, message, type) {
       const card = document.querySelector(`[data-runtime="${runtimeId}"]`);
@@ -300,35 +537,98 @@
       div.textContent = message;
       card.appendChild(div);
 
-      setTimeout(() => div.remove(), 3000);
+      setTimeout(() => div.remove(), 4000);
     }
+
+    function showBanner(message, type) {
+      const banner = document.getElementById('status-banner');
+      banner.className = `status-banner ${type}`;
+      banner.textContent = message;
+      banner.style.display = 'block';
+      setTimeout(() => { banner.style.display = 'none'; }, 6000);
+    }
+
+    // ── Render ──────────────────────────────────────────────────────────────
 
     async function refreshStatus() {
       const container = document.getElementById('runtimes-container');
       container.innerHTML = '';
 
-      for (const runtime of RUNTIMES) {
-        const status = await getRuntimeStatus(runtime.id);
-        const isHealthy = status?.health?.available;
+      // Try to fetch dynamic runtimes from API, fall back to defaults
+      const apiRuntimes = await fetchRuntimes();
+      const runtimeIds = (apiRuntimes && apiRuntimes.length > 0)
+        ? apiRuntimes.map(r => r.runtime_id)
+        : DEFAULT_RUNTIMES.map(r => r.id);
+
+      for (const runtimeId of runtimeIds) {
+        const meta = resolveRuntimeMeta(runtimeId);
+        const status = await getRuntimeStatus(runtimeId);
+        const health = status?.health || {};
+        const isHealthy = health?.available === true;
+        const isCli = isCliOnly(runtimeId, health);
+        const isBuiltin = meta.type === 'builtin';
+        const isDocker = meta.type === 'docker';
 
         const card = document.createElement('div');
         card.className = 'runtime-card';
-        card.setAttribute('data-runtime', runtime.id);
+        card.setAttribute('data-runtime', runtimeId);
+        if (meta.type === 'builtin') card.classList.add('builtin-card');
 
-        const statusDot = isHealthy ? 'healthy' : 'unhealthy';
-        const statusText = isHealthy ? 'Healthy' : 'Not Running';
-        const statusClass = isHealthy ? 'healthy' : 'unhealthy';
+        let statusDot, statusText, statusClass;
+        if (isBuiltin) {
+          statusDot = 'healthy'; statusText = 'Built-in'; statusClass = 'healthy';
+        } else if (isHealthy) {
+          statusDot = 'healthy'; statusText = 'Healthy'; statusClass = 'healthy';
+        } else if (isCli) {
+          statusDot = 'unhealthy'; statusText = 'CLI not installed'; statusClass = 'unhealthy';
+        } else {
+          statusDot = 'unhealthy'; statusText = 'Not Running'; statusClass = 'unhealthy';
+        }
+
+        // Runtime type badge
+        let typeBadge = '';
+        if (isBuiltin) {
+          typeBadge = '<span class="runtime-type builtin">🏠 Built-in</span>';
+        } else if (meta.type === 'cli') {
+          typeBadge = '<span class="runtime-type cli">💻 CLI Binary</span>';
+        } else {
+          typeBadge = '<span class="runtime-type docker">🐳 Docker</span>';
+        }
+
+        // Docker info line
+        let dockerInfo = '';
+        if (isDocker && meta.docker_container) {
+          dockerInfo = `<span>🐳 docker compose up ${meta.docker_container}</span>`;
+        } else if (meta.type === 'cli' && meta.install_hint) {
+          dockerInfo = `<span>💻 ${meta.install_hint}</span>`;
+        } else if (isBuiltin) {
+          dockerInfo = '<span>🏠 Always available</span>';
+        }
+
+        const version = health.version ? `<span>v${health.version}</span>` : '';
+        const latency = health.latency_ms ? `<span>⏱ ${health.latency_ms}ms</span>` : '';
+        const errorMsg = (!isHealthy && !isBuiltin && health.error)
+          ? `<div class="error">${health.error.substring(0, 120)}</div>` : '';
+
+        const showButtons = !isBuiltin && !isCli;
 
         card.innerHTML = `
-          <div class="runtime-name">${runtime.name}</div>
-          <div class="runtime-description">${runtime.description}</div>
+          <div class="runtime-name">${meta.name}</div>
+          <div class="runtime-description">${meta.desc}</div>
+          ${typeBadge}
+          <div class="runtime-meta">
+            ${dockerInfo}
+            ${version}
+            ${latency}
+          </div>
           <div class="status">
             <div class="status-dot ${statusDot}"></div>
             <span class="status-text ${statusClass}">${statusText}</span>
           </div>
+          ${errorMsg}
           <div class="runtime-actions">
-            <button class="btn-primary btn-sm start-btn" onclick="startRuntime('${runtime.id}', this)">Start</button>
-            <button class="btn-danger btn-sm stop-btn" onclick="stopRuntime('${runtime.id}', this)">Stop</button>
+            <button class="btn-primary btn-sm start-btn" onclick="startRuntime('${runtimeId}', this)" ${!showButtons ? 'disabled' : ''}>Start</button>
+            <button class="btn-danger btn-sm stop-btn" onclick="stopRuntime('${runtimeId}', this)" ${!showButtons ? 'disabled' : ''}>Stop</button>
           </div>
         `;
 
