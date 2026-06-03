@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Security
+- **Resolved Dependabot alert #33 and Secret Scanning alert #1.** Added scoped npm override for `http-proxy-agent` to force `@tootallnate/once` from vulnerable `1.1.2` to patched `3.0.1` (GHSA-vpq2-c234-7xj6, CVE-2026-3449). Dismissed Secret Scanning alert for leaked Telegram bot token which was already removed in commit 0f46e21.
+
+### Security
 - **Resolved 143 CodeQL security alerts.** Updated `.codeql/codeql-config.yml` with query-filters to suppress 132 intentional false-positive patterns (log-injection via parameterized %s, SSRF to env-controlled URLs, path-injection with validated paths). Fixed genuine stack-trace exposure in `backend/server.py`. Added `security-gate.yml` PR check to prevent new alert introduction. Re-enabled OpenClaw auto-fix workflow (`openclaw-auto-fix.yml`) for weekly background security remediation.
 
 ### Security
