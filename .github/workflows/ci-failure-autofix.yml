@@ -53,7 +53,7 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
 
       - name: Configure git identity
         run: |
@@ -77,7 +77,7 @@ jobs:
 
       - name: Download CI job logs via GitHub API
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           # Fetch logs for the failing run — reads metadata only, no code exec
           gh api \
@@ -233,7 +233,7 @@ https://claude.ai/code/session_01P3kGiygjALr4jwpetb8AXz"
       - name: Open issue when fix is too complex or verification fails
         if: steps.apply.outputs.status != 'ok'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           STATUS: ${{ steps.apply.outputs.status }}
         run: |
           # Use env vars — no ${{ }} expression inside run:
