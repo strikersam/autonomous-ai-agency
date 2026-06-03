@@ -2733,6 +2733,7 @@ async def _run_agent_loop(
     provider_chain: Optional[List[ProviderConfig]] = None,
     allow_commercial_fallback: bool = True,
     workspace_root: Optional[Union[str, Path]] = None,
+    context: Optional[dict] = None,
 ) -> str:
     try:
         from agent.loop import AgentRunner
@@ -2793,6 +2794,7 @@ async def _run_agent_loop(
         f"GITHUB STATUS: {github_status}\n\n"
         + (f"{auto_skill_guidance}\n\n" if auto_skill_guidance else "")
         + f"WIKI INDEX (current pages):\n{wiki_index}\n\n"
+        + (f"USER CONTEXT: {json.dumps(context)}\n\n" if context else "")
         + f"TASK: {instruction}"
     )
 
@@ -3545,6 +3547,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 provider_chain=router.providers[1:],
                 allow_commercial_fallback=policy["allow_commercial_fallback"],
                 workspace_root=workspace_root,
+                context=body.context,
             )
             heartbeat("verification", f"Judge model: {role_models['judge']}")
             await _persist_agent_chat_response(
