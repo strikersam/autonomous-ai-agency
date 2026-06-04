@@ -1045,15 +1045,15 @@ class AgentRunner:
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
         try:
-            subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)
-            subprocess.run(
+            subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)  # nosec B603,B607 - constant git argv, list form (no shell)
+            subprocess.run(  # nosec B603,B607 - constant git argv, list form (no shell)
                 ["git", "commit", "-m", f"agent: {description}"],
                 cwd=self.tools.root,
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            proc = subprocess.run(
+            proc = subprocess.run(  # nosec B603,B607 - constant git argv, list form (no shell)
                 ["git", "rev-parse", "HEAD"],
                 cwd=self.tools.root,
                 check=True,

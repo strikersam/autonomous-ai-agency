@@ -8,7 +8,8 @@
 exclude_dirs: tests,.venv,.git,node_modules,frontend
 # Low-severity rules skipped repo-wide (noise on legitimate code):
 #   B101 assert_used, B105 hardcoded_password_string (heuristic),
-#   B110 try_except_pass, B112 try_except_continue,
-#   B404 import subprocess, B603 subprocess_without_shell_equals_true,
-#   B607 start_process_with_partial_path
-skips: B101,B105,B110,B112,B404,B603,B607
+#   B110 try_except_pass, B112 try_except_continue, B404 import subprocess.
+# B603/B607 (subprocess exec) stay ENABLED globally; the few vetted callsites
+# (constant git argv / shutil.which-resolved CLI, list form, no shell) are
+# suppressed individually with inline `# nosec B603,B607`.
+skips: B101,B105,B110,B112,B404

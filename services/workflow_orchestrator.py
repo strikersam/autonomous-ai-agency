@@ -902,8 +902,12 @@ class WorkflowOrchestrator:
             if verdict not in ("APPROVED", "APPROVED_WITH_CONDITIONS"):
                 passed = False
 
-        # Try to verify PR if GitHub token available
-        github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        # Try to verify PR if GitHub token available. Use the caller's token
+        # (same as preflight/execute) so verification reflects the caller's
+        # access; env fallback only for internal/system runs (no user_id).
+        github_token = req.github_token
+        if github_token is None and req.user_id is None:
+            github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
         if github_token and execution.output:
             import re
             pr_matches = re.findall(r'github\.com/([^/]+/[^/]+)/pull/(\d+)', execution.output)

@@ -891,7 +891,7 @@ def _run_graphify(params: dict[str, Any]) -> dict[str, Any]:
     # 1. CLI query when a built graph is available.
     if action in ("query", "explain", "path") and cli and os.path.exists(graph_json):
         try:
-            proc = subprocess.run(
+            proc = subprocess.run(  # nosec B603 - resolved CLI path via shutil.which, list form (no shell)
                 [cli, "query", query] if query else [cli, "report"],
                 cwd=_REPO_ROOT, capture_output=True, text=True, timeout=60,
             )

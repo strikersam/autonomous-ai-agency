@@ -12,6 +12,7 @@ Locks two contracts that automated review surfaced on PR #391:
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from models.company_graph import Company
 
@@ -40,7 +41,7 @@ def test_company_is_frozen_and_activity_goes_through_model_copy():
 
     # Frozen: direct attribute assignment must fail (this is why the old
     # `company.activity_log = []` persist path silently did nothing).
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         company.integration_config = {"x": 1}
 
     # The supported path: model_copy with declared fields.
