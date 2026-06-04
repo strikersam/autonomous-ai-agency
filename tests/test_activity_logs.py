@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import backend.server as server
+
+# Match the password that CI injects via ADMIN_PASSWORD env var.
+# Falls back to the legacy hardcoded value for backwards compatibility.
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
 
 
 def _auth_headers(client) -> dict[str, str]:
     login = client.post(
         "/api/auth/login",
-        json={"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"},
+        json={"email": "admin@llmrelay.local", "password": _ADMIN_PASSWORD},
     )
-    assert login.status_code == 200
+    assert login.status_code == 200, (
+        f"Login failed ({login.status_code}): {login.text!r}. "
+        "Check that ADMIN_PASSWORD env var matches the value set in CI."
+    )
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
