@@ -251,6 +251,16 @@ class Agency:
     # ── Main cycle ────────────────────────────────────────────────────────────
 
     async def run_cycle(self) -> AgencyCycleResult:
+        # ── DEPRECATION: Agency.run_cycle() bypasses WorkflowOrchestrator ──
+        from services.workflow_orchestrator import emit_deprecation, is_legacy_mode
+        if not is_legacy_mode():
+            raise RuntimeError(
+                "Agency.run_cycle() is blocked in orchestrator mode. "
+                "Use WorkflowOrchestrator.execute() instead. "
+                "Set AGENCY_WORKFLOW_MODE=legacy to bypass (deprecated)."
+            )
+        emit_deprecation("Agency.run_cycle()")
+
         cycle_id = "cycle_" + secrets.token_hex(4)
         started_at = _now_str()
         self._cycle_count += 1

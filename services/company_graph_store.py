@@ -993,6 +993,7 @@ class SQLiteStore:
                 model_preference TEXT,
                 runtime TEXT,
                 system_types TEXT NOT NULL DEFAULT '[]',
+                bound_skills TEXT NOT NULL DEFAULT '[]',
                 is_provisioned INTEGER NOT NULL DEFAULT 0,
                 provisioned_at TEXT,
                 status TEXT NOT NULL DEFAULT 'available',
@@ -1049,6 +1050,12 @@ class SQLiteStore:
         columns = {row[1] for row in await cursor.fetchall()}  # row[1] == column name
         if "data" not in columns:
             await conn.execute("ALTER TABLE websites ADD COLUMN data TEXT")
+
+        # Migration: add bound_skills column to pre-existing specialists tables
+        cursor = await conn.execute("PRAGMA table_info(specialists)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "bound_skills" not in columns:
+            await conn.execute("ALTER TABLE specialists ADD COLUMN bound_skills TEXT NOT NULL DEFAULT '[]'")
 
         await conn.commit()
         log.info(f"SQLite schema initialized at {self._db_path}")
@@ -1396,14 +1403,14 @@ class SQLiteStore:
         doc = self._prepare_doc(specialist)
         await conn.execute("""
             INSERT INTO specialists (id, company_id, name, family, capabilities, tools,
-                                     model_preference, runtime, system_types, is_provisioned,
-                                     provisioned_at, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     model_preference, runtime, system_types, bound_skills,
+                                     is_provisioned, provisioned_at, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             doc["id"], doc.get("company_id"), doc["name"], doc["family"],
             doc.get("capabilities", "[]"), doc.get("tools", "[]"),
             doc.get("model_preference"), doc.get("runtime"),
-            doc.get("system_types", "[]"),
+            doc.get("system_types", "[]"), doc.get("bound_skills", "[]"),
             1 if doc.get("is_provisioned", False) else 0,
             doc.get("provisioned_at"), doc.get("status", "available"),
             doc["created_at"], doc["updated_at"]
@@ -1428,14 +1435,14 @@ class SQLiteStore:
         await conn.execute("""
             UPDATE specialists 
             SET company_id = ?, name = ?, family = ?, capabilities = ?, tools = ?,
-                model_preference = ?, runtime = ?, system_types = ?,
+                model_preference = ?, runtime = ?, system_types = ?, bound_skills = ?,
                 is_provisioned = ?, provisioned_at = ?, status = ?, updated_at = ?
             WHERE id = ?
         """, (
             doc.get("company_id"), doc["name"], doc["family"],
             doc.get("capabilities", "[]"), doc.get("tools", "[]"),
             doc.get("model_preference"), doc.get("runtime"),
-            doc.get("system_types", "[]"),
+            doc.get("system_types", "[]"), doc.get("bound_skills", "[]"),
             1 if doc.get("is_provisioned", False) else 0,
             doc.get("provisioned_at"), doc.get("status", "available"),
             doc["updated_at"], doc["id"]

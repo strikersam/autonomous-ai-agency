@@ -102,7 +102,12 @@ function ErrorBanner({ message, onRetry }) {
 
 // ── main screen ───────────────────────────────────────────────────────────────
 export default function DoctorScreen({ onNavigate }) {
-  const [data, states, reload] = useSafeData(API, { report: '/api/doctor' }, { refreshMs: 60_000 });
+  // Authenticated diagnostics — includes the user-specific GitHub / workspace /
+  // company-graph checks that drive the GitHub setup CTA on this screen. The
+  // no-auth `/api/doctor/public` endpoint intentionally omits those, so using it
+  // here would make the setup path unreachable. This screen is already gated
+  // behind auth, so there is no 401 surprise.
+  const [data, states, reload] = useSafeData(API, { report: '/api/doctor/diagnostics' }, { refreshMs: 60_000 });
   const [expanded, setExpanded] = React.useState(null);
 
   const report  = data.report;

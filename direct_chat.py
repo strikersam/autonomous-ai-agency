@@ -675,7 +675,15 @@ async def _do_handle_agent_mode(
                 return {"session_id": session_id, "status": "cancelled", "summary": "User rejected plan."}
 
         heartbeat("execution", "Executing planned changes")
-        result = await runner.run(metadata=req.metadata or {}, instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore())
+        # Direct-chat execution is a deliberate user-invoked path — set the
+        # orchestrator bypass token so the AgentRunner.run() deprecation guard
+        # (active under the default orchestrator mode) doesn't block it.
+        import services.workflow_orchestrator as _wo
+        _bypass_token = _wo._BYPASS.set(True)
+        try:
+            result = await runner.run(metadata=req.metadata or {}, instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore())
+        finally:
+            _wo._BYPASS.reset(_bypass_token)
 
         heartbeat("verification", "Validating the changes and ensuring quality")
         heartbeat("completed", "Task successfully completed")

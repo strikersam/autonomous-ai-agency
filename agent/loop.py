@@ -124,6 +124,19 @@ class AgentRunner:
     ) -> dict[str, Any]:
         # ``metadata`` is accepted for forward-compatibility (callers like
         # direct_chat.py may pass it) but is not consumed by the core loop.
+
+        # ── DEPRECATION: AgentRunner.run() bypasses WorkflowOrchestrator ──
+        # All execution should route through WorkflowOrchestrator.execute().
+        # Set AGENCY_WORKFLOW_MODE=orchestrator to enforce the golden path.
+        from services.workflow_orchestrator import emit_deprecation, is_legacy_mode
+        if not is_legacy_mode():
+            raise RuntimeError(
+                "AgentRunner.run() is blocked in orchestrator mode. "
+                "Use WorkflowOrchestrator.execute() instead. "
+                "Set AGENCY_WORKFLOW_MODE=legacy to bypass (deprecated)."
+            )
+        emit_deprecation("AgentRunner.run()")
+
         # Store current session_id for use by helper methods that need to
         # write into the durable session event log (e.g., tool_call/tool_result).
         self._current_session_id = session_id
@@ -1032,15 +1045,15 @@ class AgentRunner:
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
         try:
-            subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)
-            subprocess.run(
+            subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)  # nosec B603,B607 - constant git argv, list form (no shell)
+            subprocess.run(  # nosec B603,B607 - constant git argv, list form (no shell)
                 ["git", "commit", "-m", f"agent: {description}"],
                 cwd=self.tools.root,
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            proc = subprocess.run(
+            proc = subprocess.run(  # nosec B603,B607 - constant git argv, list form (no shell)
                 ["git", "rev-parse", "HEAD"],
                 cwd=self.tools.root,
                 check=True,

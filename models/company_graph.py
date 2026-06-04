@@ -48,7 +48,10 @@ SpecialistFamily = Literal[
     "engineering", "qa", "docs", "analytics", "ecommerce",
     "operations", "agile", "portfolio", "security", "devops",
     "data", "ml", "frontend", "backend", "fullstack", "mobile",
-    "cloud", "infra", "architecture", "product", "design", "ux"
+    "cloud", "infra", "architecture", "product", "design", "ux",
+    # Business / domain specialists (Agency Core v5 — full domain coverage)
+    "seo", "content", "marketing", "merchandising", "pim", "oms",
+    "dam", "crm", "support", "trading", "research", "platform"
 ]
 
 # Workflow phases (aligned with CRISPY workflow)
@@ -759,6 +762,11 @@ class Specialist(BaseModel):
     system_types: List[SystemType] = Field(
         default_factory=list,
         description="System types this specialist can work with"
+    )
+    # Skill bindings
+    bound_skills: List[str] = Field(
+        default_factory=list,
+        description="Skill IDs bound to this specialist (from services/skill_bindings.py)"
     )
     # Company-specific configuration
     company_id: str | None = Field(

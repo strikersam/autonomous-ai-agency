@@ -59,13 +59,35 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, try refreshing the token once
+// On network errors (CORS, connection refused, DNS failure), self-heal the
+// backend URL.  Only clears the stored URL on specific connectivity errors
+// (ECONNREFUSED, CORS, ERR_NETWORK) — NOT on transient timeouts or flaky DNS.
 let isRefreshing = false;
 let refreshQueue = [];
 API.interceptors.response.use(
   (res) => res,
   async (error) => {
-    const orig = error.config;
+    const orig = error.config || {};
+
+    // ── Self-heal on CORS / connection-refused errors ──────────────────────
+    if (!error.response && !orig._corsHeal && !orig.url?.startsWith('http')) {
+      const msg = (error.message || '').toLowerCase();
+      const isConnectionError = (
+        error.code === 'ERR_NETWORK' ||
+        msg.includes('network error') ||
+        msg.includes('cors') ||
+        msg.includes('econnrefused') ||
+        msg.includes('connection refused')
+      );
+      if (isConnectionError && localStorage.getItem('backend_url')) {
+        orig._corsHeal = true;
+        localStorage.removeItem('backend_url');
+        API.defaults.baseURL = getDefaultBackendUrl();
+        orig.baseURL = getDefaultBackendUrl();
+        return API(orig);
+      }
+    }
+
     if (error.response?.status === 401 && !orig._retry && !orig.url?.includes('/auth/')) {
       orig._retry = true;
       const refresh = localStorage.getItem('refresh_token');
@@ -381,4 +403,12 @@ export const refreshSkills        = ()              => API.post('/api/skills/ref
 export const recommendSkills      = (data)          => API.post('/api/skills/recommend', data);
 export const autoRecommendSkills  = (params = {})   => API.get('/api/skills/recommend/auto', { params });
 export const getSkill             = (skillId)       => API.get(`/api/skills/${encodeURIComponent(skillId)}`);
+
+// Company Skills (v5 SkillBindings)
+export const listCompanySkills    = (params = {})   => API.get('/api/company/skills', { params });
+export const autoRecommendCompanySkills = (companyId) =>
+  API.get('/api/company/skills/recommend/auto', { params: { company_id: companyId } });
+export const getCompanySkill      = (skillId)       => API.get(`/api/company/skills/${encodeURIComponent(skillId)}`);
+export const getSpecialistSkills  = (companyId, specialistId) =>
+  API.get(`/api/company/${companyId}/specialists/${specialistId}/skills`);
 

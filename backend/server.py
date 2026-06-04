@@ -2801,15 +2801,25 @@ async def _run_agent_loop(
     try:
         if session_id:
             _append_agent_session_message(session_id, "user", instruction)
-        result = await runner.run(
-            instruction=agent_instruction,
-            history=session_messages,
-            requested_model=requested_model,
-            auto_commit=True,
-            max_steps=8,
-            memory_store=UserMemoryStore(),
-            session_id=session_id,
-        )
+        # Live Agent Mode is a deliberate, user-invoked execution path. Set the
+        # orchestrator bypass token so the AgentRunner.run() deprecation guard
+        # (active under the default AGENCY_WORKFLOW_MODE=orchestrator) doesn't
+        # block it — the guard exists to catch *unintended* parallel callers,
+        # not the explicit chat Agent Mode toggle.
+        import services.workflow_orchestrator as _wo
+        _bypass_token = _wo._BYPASS.set(True)
+        try:
+            result = await runner.run(
+                instruction=agent_instruction,
+                history=session_messages,
+                requested_model=requested_model,
+                auto_commit=True,
+                max_steps=8,
+                memory_store=UserMemoryStore(),
+                session_id=session_id,
+            )
+        finally:
+            _wo._BYPASS.reset(_bypass_token)
         if session_id:
             AGENT_EVENT_STORE.update_result(
                 session_id,
@@ -5937,6 +5947,257 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     )
 
 
+@app.get("/api/doctor/public", response_model=_DoctorReport)
+async def get_public_doctor() -> _DoctorReport:
+    """Public Doctor endpoint — no authentication required.
+
+    Returns system-level diagnostics only (git, storage, provider health).
+    No user-specific checks (GitHub token, workspace, repo access).
+    """
+    import datetime
+    import shutil
+
+    checks: list[_DoctorCheck] = []
+
+    # 1. Git binary
+    git_ok = bool(shutil.which("git"))
+    checks.append(_DoctorCheck(
+        id="git_binary",
+        category="Setup",
+        label="Git binary",
+        status="pass" if git_ok else "fail",
+        detail="git found on PATH" if git_ok else "git not found on PATH",
+        explanation="Install git for repository operations" if not git_ok else None,
+    ))
+
+    # 2. Storage backend
+    try:
+        from db import get_store
+        store = get_store()
+        count = await store.count_companies() if hasattr(store, 'count_companies') else 0
+        checks.append(_DoctorCheck(
+            id="storage",
+            category="Storage",
+            label="Storage backend",
+            status="pass",
+            detail=f"Connected ({count} companies)",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="storage",
+            category="Storage",
+            label="Storage backend",
+            status="fail",
+            detail=f"Unavailable: {exc}",
+        ))
+
+    # 3. Provider health (Ollama reachability)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+            r = await client.get(f"{OLLAMA_BASE}/api/tags")
+            ollama_ok = r.status_code == 200
+    except Exception:
+        ollama_ok = False
+    checks.append(_DoctorCheck(
+        id="ollama",
+        category="Provider",
+        label="Ollama provider",
+        status="pass" if ollama_ok else "warn",
+        detail="Ollama reachable" if ollama_ok else "Ollama unreachable — start with ollama serve",
+        explanation="Ollama is the local LLM engine. Ensure it is running." if not ollama_ok else None,
+    ))
+
+    # 4. Runtime health
+    try:
+        mgr = get_runtime_manager()
+        runtimes = mgr.list_runtimes()
+        running = sum(1 for rt in runtimes if rt.get("available", False))
+        checks.append(_DoctorCheck(
+            id="runtimes",
+            category="Runtime",
+            label="Agent runtimes",
+            status="pass" if running > 0 else "warn",
+            detail=f"{running}/{len(runtimes)} runtimes available" if runtimes else "No runtimes registered",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="runtimes",
+            category="Runtime",
+            label="Agent runtimes",
+            status="warn",
+            detail=f"Could not query: {exc}",
+        ))
+
+    # 5. Feature gate status
+    workflow_mode = os.environ.get("AGENCY_WORKFLOW_MODE", "orchestrator")
+    checks.append(_DoctorCheck(
+        id="workflow_mode",
+        category="Feature",
+        label="Workflow mode",
+        status="pass" if workflow_mode == "orchestrator" else "warn",
+        detail=f"Golden path enforced ({workflow_mode})" if workflow_mode == "orchestrator" else f"Legacy mode ({workflow_mode})",
+        explanation="Set AGENCY_WORKFLOW_MODE=orchestrator for the production-grade golden path." if workflow_mode != "orchestrator" else None,
+    ))
+
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+    ready = fail_count == 0
+    summary = f"{pass_count}/{len(checks)} checks passing — {'healthy' if ready else 'action required'}"
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
+@app.get("/api/doctor/diagnostics", response_model=_DoctorReport)
+async def get_doctor_diagnostics(
+    user: dict = Depends(get_current_user),
+) -> _DoctorReport:
+    """Authenticated Doctor endpoint — full diagnostics.
+
+    Returns all system-level checks plus user-specific diagnostics:
+    GitHub token, workspace integrity, company graph health.
+    Requires authentication.
+    """
+    from agent.doctor import DirectChatDoctor
+    import datetime
+
+    # User-specific diagnostics: use ONLY the caller's own GitHub token, never
+    # the server-wide env fallback — otherwise a user with no GitHub connection
+    # would falsely report healthy against the host's token.
+    github_token = user.get("github_repo_token")
+    doctor = DirectChatDoctor(github_token=github_token)
+
+    checks: list[_DoctorCheck] = []
+
+    # 1. Preflight (GitHub token, git binary, repo access)
+    try:
+        preflight = await doctor.check_all()
+        if not preflight.issues:
+            checks.append(_DoctorCheck(
+                id="preflight",
+                category="Setup",
+                label="Git & GitHub setup",
+                status="pass",
+                detail="git found, GitHub token valid, repo accessible",
+            ))
+        else:
+            for issue in preflight.issues:
+                checks.append(_DoctorCheck(
+                    id=issue.code,
+                    category="Setup",
+                    label=issue.message[:80],
+                    status="fail",
+                    detail=issue.message,
+                    explanation=issue.fix_hint,
+                ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="preflight_error",
+            category="Setup",
+            label="Preflight checks",
+            status="warn",
+            detail=f"Could not run: {exc}",
+        ))
+
+    # 2. Company graph integrity
+    try:
+        # Use the same resolver as company creation so a user whose companies
+        # are owned by `_id` (not email) is matched correctly.
+        user_id = _wfo_resolve_user_id(user)
+        store = get_company_graph_store()
+        # list_companies returns a plain List[Company] (not a (list, total) tuple).
+        companies = await store.list_companies(owner_id=user_id, limit=10)
+        checks.append(_DoctorCheck(
+            id="company_graph",
+            category="Company",
+            label="Company Graph",
+            status="pass" if companies else "warn",
+            detail=f"{len(companies)} company(s) onboarded" if companies else "No companies onboarded yet",
+            explanation="Create a company via the Onboarding flow to start using the platform." if not companies else None,
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="company_graph",
+            category="Company",
+            label="Company Graph",
+            status="warn",
+            detail=f"Could not query: {exc}",
+        ))
+
+    # 3. Workspace integrity
+    workspace_root = os.environ.get("WORKSPACE_ROOT", str(ROOT_DIR))
+    workspace_exists = Path(workspace_root).exists()
+    checks.append(_DoctorCheck(
+        id="workspace",
+        category="Workspace",
+        label="Workspace",
+        status="pass" if workspace_exists else "fail",
+        detail=f"Workspace at {workspace_root}" if workspace_exists else f"Workspace not found: {workspace_root}",
+    ))
+
+    # 4. Skill library health
+    try:
+        from agent.skills import SkillLibrary
+        lib = SkillLibrary()
+        skill_count = len(lib.list_all())
+        checks.append(_DoctorCheck(
+            id="skills",
+            category="Skills",
+            label="Skill Library",
+            status="pass" if skill_count > 0 else "warn",
+            detail=f"{skill_count} skills loaded",
+        ))
+    except Exception:
+        checks.append(_DoctorCheck(
+            id="skills",
+            category="Skills",
+            label="Skill Library",
+            status="warn",
+            detail="Skill library unavailable",
+        ))
+
+    # 5. Workflow orchestrator status
+    try:
+        from services.workflow_orchestrator import get_workflow_orchestrator
+        orchestrator = get_workflow_orchestrator()
+        # Scope run visibility to the caller (admins see all) so diagnostics
+        # never leak other tenants' recent activity.
+        owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+        runs = orchestrator.list_runs(limit=5, owner_id=owner_id)
+        checks.append(_DoctorCheck(
+            id="orchestrator",
+            category="Workflow",
+            label="Workflow Orchestrator",
+            status="pass",
+            detail=f"Active ({len(runs)} recent runs)",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="orchestrator",
+            category="Workflow",
+            label="Workflow Orchestrator",
+            status="warn",
+            detail=f"Not available: {exc}",
+        ))
+
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+    ready = fail_count == 0
+    summary = f"{pass_count}/{len(checks)} checks passing — {'healthy' if ready else 'action required'}"
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
+
 # ─── Feature Routers ────────────────────────────────────────────────────────────
 app.include_router(agent_router)
 app.include_router(runtime_router)
@@ -5947,8 +6208,114 @@ app.include_router(activation_router)
 app.include_router(secrets_router)
 
 # Company Graph API
+from services.company_graph_store import get_company_graph_store
 import backend.company_api as company_api_module
 app.include_router(company_api_module.router)
+
+# Workflow Orchestrator API --- canonical execution backbone
+from services.workflow_orchestrator import (
+    ExecutionRequest,
+    get_workflow_orchestrator,
+)
+
+
+from backend.company_api import _resolve_user_id as _wfo_resolve_user_id
+from backend.company_api import _is_admin as _wfo_is_admin
+from backend.company_api import get_company_access as _wfo_company_access
+
+
+def _wfo_owned_run_or_404(orchestrator, run_id: str, user: dict):
+    """Fetch a run, enforcing per-user ownership (admins bypass).
+
+    Returns 404 — not 403 — when a non-admin requests a run they don't own,
+    so run IDs can't be enumerated across tenants (IDOR-safe).
+    """
+    run = orchestrator.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    if not _wfo_is_admin(user):
+        if run.user_id != _wfo_resolve_user_id(user):
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return run
+
+
+@app.post("/api/workflow/orchestrator/execute")
+async def workflow_orchestrator_execute(
+    body: ExecutionRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Execute work through the 11-phase golden path."""
+    orchestrator = get_workflow_orchestrator()
+    is_admin = _wfo_is_admin(user)
+
+    # If a company is targeted, the caller must have access to it — otherwise a
+    # user could run/approve a workflow against another tenant's company and read
+    # its graph snapshot back via bound_context (cross-tenant leak).
+    if body.company_id:
+        await _wfo_company_access(body.company_id, user)
+
+    # auto_approve bypasses the HITL ApprovalGate and is for trusted/internal
+    # callers only.  Never honor it from a non-admin, user-facing request.
+    if not is_admin:
+        body.auto_approve = False
+
+    # Stamp the run with a stable, auth-method-agnostic owner id so it can be
+    # scoped on list/get/approve.  Same resolver as the company endpoints.
+    body.user_id = _wfo_resolve_user_id(user)
+    # Execution must act with the CALLER's GitHub permissions, never the
+    # server-wide service-account token.
+    body.github_token = user.get("github_repo_token")
+    run = await orchestrator.execute(body)
+    return {"status": run.status, "run": run.as_dict()}
+
+
+@app.post("/api/workflow/orchestrator/approve/{run_id}")
+async def workflow_orchestrator_approve(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Approve a run paused at the ApprovalGate and resume execution."""
+    orchestrator = get_workflow_orchestrator()
+    # Ownership check first — a user may only approve their own runs (admin: any).
+    _wfo_owned_run_or_404(orchestrator, run_id, user)
+    # Attribute the approval to the authenticated user — never an arbitrary
+    # client-supplied string (audit-log integrity).
+    approved_by = _wfo_resolve_user_id(user)
+    try:
+        run = await orchestrator.approve_and_resume(run_id, approved_by=approved_by)
+        return {"status": run.status, "run": run.as_dict()}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.get("/api/workflow/orchestrator/runs")
+async def workflow_orchestrator_list_runs(
+    limit: int = 50,
+    user: dict = Depends(get_current_user),
+):
+    """List recent workflow orchestrator runs.
+
+    Non-admin users see only their own runs; admins see every run.
+    """
+    orchestrator = get_workflow_orchestrator()
+    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+    return {
+        "runs": orchestrator.list_runs(limit=limit, owner_id=owner_id),
+        "scoped_to_user": owner_id is not None,
+    }
+
+
+@app.get("/api/workflow/orchestrator/runs/{run_id}")
+async def workflow_orchestrator_get_run(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Get a single workflow orchestrator run by ID (owner or admin only)."""
+    orchestrator = get_workflow_orchestrator()
+    run = _wfo_owned_run_or_404(orchestrator, run_id, user)
+    return {"run": run.as_dict()}
 
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.

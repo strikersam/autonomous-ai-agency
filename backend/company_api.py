@@ -5,6 +5,8 @@ Provides all endpoints for managing companies, their graphs, and related entitie
 This is the canonical API for the Agency Core v5 Company Graph.
 """
 
+from __future__ import annotations
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, Request, status
 from typing import List, Optional, Any
 from datetime import datetime
@@ -197,6 +199,149 @@ async def get_optional_company_access(
 
 
 # =============================================================================
+# SKILLS ENDPOINTS
+# =============================================================================
+
+@router.get("/skills")
+async def list_skills(
+    family: str | None = Query(None, description="Filter by specialist family"),
+    category: str | None = Query(None, description="Filter by skill category"),
+    search: str | None = Query(None, description="Search by name/description"),
+    user: dict = Depends(_get_current_user_thunk),
+) -> dict:
+    """
+    List all available skills with optional filtering.
+
+    Returns the skill catalog from the SkillBindings registry.
+    """
+    try:
+        from services.skill_bindings import get_skill_bindings
+        bindings = get_skill_bindings()
+
+        if search:
+            skills = bindings.search(search)
+        elif family:
+            skills = bindings.list_for_family(family)
+        else:
+            skills = bindings.list_all()
+
+        # Filter by category if specified
+        if category:
+            skills = [s for s in skills if s.category.value == category]
+
+        return {
+            "skills": [s.as_dict() for s in skills],
+            "total": len(skills),
+        }
+    except ImportError:
+        return {"skills": [], "total": 0, "message": "SkillBindings service not available"}
+
+
+@router.get("/skills/recommend/auto")
+async def auto_recommend_skills(
+    company_id: str | None = Query(None, description="Company ID for context-based recommendations"),
+    user: dict = Depends(_get_current_user_thunk),
+) -> dict:
+    """
+    Auto-recommend skills based on the user's company context.
+
+    If company_id is provided, uses detected systems and specialist families.
+    Otherwise returns all skills with base scores.
+    """
+    try:
+        from services.skill_bindings import get_skill_bindings
+        bindings = get_skill_bindings()
+
+        system_types = []
+        specialist_families = []
+        tech_stack = []
+        workflow_types = []
+
+        if company_id:
+            # Enforce tenant access BEFORE reading any company graph metadata —
+            # otherwise any authenticated user could probe another tenant's
+            # stack/systems/specialists by guessing a company_id.
+            company = await get_company_access(company_id, user)
+            try:
+                store = get_company_graph_store()
+                # Get detected systems
+                websites = await store.list_websites(company.id)
+                for w in websites:
+                    if w.inferred_stack:
+                        tech_stack.extend(w.inferred_stack.frameworks or [])
+                        tech_stack.extend(w.inferred_stack.languages or [])
+                        tech_stack.extend(w.inferred_stack.cms or [])
+                # Get system types
+                detected = await store.list_detected_systems(company.id)
+                system_types = list({d.system_type for d in detected})
+
+                # Get specialist families
+                specialists = await store.list_specialists(company.id)
+                specialist_families = list({s.family for s in specialists})
+            except Exception as exc:
+                log.warning("auto_recommend_skills: context load failed: %s", exc)
+
+        recommendations = bindings.recommend_for_company(
+            system_types=system_types,
+            specialist_families=specialist_families,
+        )
+
+        return {
+            "recommendations": recommendations,
+            "tech_stack": list(dict.fromkeys(tech_stack))[:20],
+            "system_types": system_types,
+            "specialist_families": specialist_families,
+            "workflow_types": workflow_types,
+        }
+    except ImportError:
+        return {"recommendations": [], "tech_stack": [], "message": "SkillBindings service not available"}
+
+
+@router.get("/skills/{skill_id}")
+async def get_skill(
+    skill_id: str,
+    user: dict = Depends(_get_current_user_thunk),
+) -> dict:
+    """Get a single skill by its ID."""
+    try:
+        from services.skill_bindings import get_skill_bindings
+        bindings = get_skill_bindings()
+        skill = bindings.get(skill_id)
+        if not skill:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found")
+        return skill.as_dict()
+    except ImportError:
+        raise HTTPException(status_code=503, detail="SkillBindings service not available")
+
+
+class SkillRecommendRequest(BaseModel):
+    """Request to recommend skills based on context."""
+    model_config = {"frozen": True, "extra": "forbid"}
+    system_types: list[str] = _Field(default_factory=list)
+    specialist_families: list[str] = _Field(default_factory=list)
+
+
+@router.post("/skills/recommend")
+async def recommend_skills(
+    request: SkillRecommendRequest = Body(...),
+    user: dict = Depends(_get_current_user_thunk),
+) -> dict:
+    """Recommend skills based on provided context."""
+    try:
+        from services.skill_bindings import get_skill_bindings
+        bindings = get_skill_bindings()
+
+        recommendations = bindings.recommend_for_company(
+            system_types=request.system_types,
+            specialist_families=request.specialist_families,
+        )
+
+        return {"recommendations": recommendations}
+    except ImportError:
+        return {"recommendations": [], "message": "SkillBindings service not available"}
+
+
+# =============================================================================
 # COMPANY ENDPOINTS
 # =============================================================================
 
@@ -221,20 +366,22 @@ async def list_companies(
     user_id = _resolve_user_id(user)
     is_admin_user = _is_admin(user)
 
+    # NOTE: store.list_companies returns a plain List[Company] (no grand-total),
+    # so we must NOT tuple-unpack it (that 500s for any result count != 2).
     if is_admin_user:
         # Admin: see all companies
-        companies, total = await store.list_companies(
+        companies = await store.list_companies(
             owner_id=None, limit=limit, offset=offset, search=search,
         )
     else:
         # Regular user: only their own companies
-        companies, total = await store.list_companies(
+        companies = await store.list_companies(
             owner_id=user_id, limit=limit, offset=offset, search=search,
         )
 
     return {
         "companies": [c.model_dump() for c in companies],
-        "total": total,
+        "total": len(companies),
         "limit": limit,
         "offset": offset,
         "scoped_to_user": not is_admin_user,
@@ -935,8 +1082,22 @@ async def get_public_doctor_report():
     )
 
 
-# =============================================================================
-# EXPORT ROUTER
-# =============================================================================
-# This will be included in backend/server.py
-# app.include_router(router)
+@router.get("/{company_id}/specialists/{specialist_id}/skills")
+async def get_specialist_bound_skills(
+    company_id: str,
+    specialist_id: str,
+    user: dict = Depends(_get_current_user_thunk),
+) -> dict:
+    """Get the skills bound to a specific specialist."""
+    company = await get_company_access(company_id, user)
+    specialist_service = get_specialist_service()
+    # Scope the specialist to the authorized company — a caller who owns
+    # company A must not read a specialist that belongs to company B by ID.
+    specialist = await specialist_service.get_specialist(specialist_id)
+    if specialist is None or specialist.company_id != company.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Specialist {specialist_id} not found for this company",
+        )
+    skills = await specialist_service.get_bound_skills(specialist_id)
+    return {"specialist_id": specialist_id, "skills": skills, "total": len(skills)}
