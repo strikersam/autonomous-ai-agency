@@ -54,42 +54,42 @@ def _profiles():
         "shop.example-store.com": (
             [_ds("CMS", "Shopify"), _ds("payment_gateway", "Stripe")],
             StackInference(cms=["Shopify"], analytics=["Google Analytics"]),
-            {"analytics", "data", "backend", "frontend", "docs", "security", "operations"},
+            {"analytics", "backend", "content", "data", "docs", "frontend", "oms", "security", "seo"},
         ),
         "crm.example-saas.com": (
             [_ds("CRM", "Salesforce"), _ds("analytics", "Google Analytics")],
             StackInference(frameworks=["React"]),
-            {"analytics", "data", "backend", "frontend", "operations"},
+            {"analytics", "crm", "data", "frontend", "operations", "seo"},
         ),
         "blog.example-media.com": (
             [_ds("CMS", "WordPress"), _ds("analytics", "Matomo")],
             StackInference(cms=["WordPress"], languages=["PHP"]),
-            {"analytics", "data", "backend", "frontend", "docs"},
+            {"analytics", "content", "data", "docs", "frontend", "seo"},
         ),
         "app.example-app.com": (
             [_ds("database", "PostgreSQL")],
             StackInference(frameworks=["React", "Express"], databases=["PostgreSQL"]),
-            {"backend", "data", "infra", "frontend"},
+            {"backend", "data", "frontend", "infra"},
         ),
         "help.example-support.com": (
             [_ds("support", "Zendesk"), _ds("chat", "Intercom")],
             StackInference(),
-            {"operations", "docs", "backend", "frontend"},
+            {"crm", "docs", "frontend", "operations", "support"},
         ),
         "mkt.example-marketing.com": (
             [_ds("marketing_automation", "HubSpot")],
             StackInference(analytics=["HubSpot Analytics"]),
-            {"analytics", "data", "backend", "operations"},
+            {"analytics", "content", "data", "marketing", "seo"},
         ),
         "erp.example-corp.com": (
             [_ds("ERP", "SAP")],
             StackInference(),
-            {"operations", "backend", "data"},
+            {"data", "oms", "operations"},
         ),
         "static.example-jamstack.com": (
             [],
             StackInference(frameworks=["Vue"], analytics=["Plausible"]),
-            {"analytics", "data", "backend", "frontend"},
+            {"analytics", "data", "frontend", "seo"},
         ),
     }
 

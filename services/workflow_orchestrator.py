@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 log = logging.getLogger("agency.orchestrator")
 
@@ -136,6 +136,8 @@ class ExecutionRequest(BaseModel):
     (AgentRunner.run, Agency.run_cycle, etc.) are soft-deprecated.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     request: str = Field(..., min_length=1, max_length=16000)
     user_id: str | None = None
     company_id: str | None = None
@@ -151,6 +153,8 @@ class ExecutionRequest(BaseModel):
 class ClassifyOutput(BaseModel):
     """CLASSIFY phase: domain and task type determination."""
 
+    model_config = ConfigDict(extra="forbid")
+
     domain: str = Field(default="general")
     task_type: str = Field(default="general")
     complexity: str = Field(default="medium")
@@ -159,6 +163,8 @@ class ClassifyOutput(BaseModel):
 
 class PlanOutput(BaseModel):
     """PLAN phase: structured execution plan."""
+
+    model_config = ConfigDict(extra="forbid")
 
     goal: str
     steps: list[dict[str, Any]] = Field(default_factory=list)
@@ -170,6 +176,8 @@ class PlanOutput(BaseModel):
 class SpecialistSelection(BaseModel):
     """SELECT_SPECIALIST phase: which specialist(s) handle this work."""
 
+    model_config = ConfigDict(extra="forbid")
+
     specialist_ids: list[str] = Field(default_factory=list)
     specialist_names: list[str] = Field(default_factory=list)
     families: list[str] = Field(default_factory=list)
@@ -178,6 +186,8 @@ class SpecialistSelection(BaseModel):
 
 class PreflightReport(BaseModel):
     """PREFLIGHT phase: readiness check before execution."""
+
+    model_config = ConfigDict(extra="forbid")
 
     ready: bool = False
     issues: list[dict[str, str]] = Field(default_factory=list)
@@ -190,6 +200,8 @@ class PreflightReport(BaseModel):
 class BoundContext(BaseModel):
     """BIND_CONTEXT phase: resolved skills, memory, and company graph."""
 
+    model_config = ConfigDict(extra="forbid")
+
     skill_ids: list[str] = Field(default_factory=list)
     memory_keys: list[str] = Field(default_factory=list)
     company_graph_snapshot: dict[str, Any] = Field(default_factory=dict)
@@ -198,6 +210,8 @@ class BoundContext(BaseModel):
 
 class ExecutionResult(BaseModel):
     """EXECUTE phase: raw result from specialist agent(s)."""
+
+    model_config = ConfigDict(extra="forbid")
 
     output: str = ""
     changed_files: list[str] = Field(default_factory=list)
@@ -209,6 +223,8 @@ class ExecutionResult(BaseModel):
 class VerificationResult(BaseModel):
     """VERIFY phase: post-execution verification."""
 
+    model_config = ConfigDict(extra="forbid")
+
     passed: bool = False
     checks: list[dict[str, Any]] = Field(default_factory=list)
     test_results: dict[str, Any] = Field(default_factory=dict)
@@ -219,6 +235,8 @@ class VerificationResult(BaseModel):
 class JudgeVerdict(BaseModel):
     """JUDGE phase: final pass/fail verdict."""
 
+    model_config = ConfigDict(extra="forbid")
+
     verdict: str = Field(default="BLOCKED")  # APPROVED | APPROVED_WITH_CONDITIONS | REJECTED | BLOCKED
     security: str = Field(default="PASS")    # PASS | WARN | FAIL
     correctness: str = Field(default="PASS")  # PASS | WARN | FAIL
@@ -228,6 +246,8 @@ class JudgeVerdict(BaseModel):
 class SummaryOutput(BaseModel):
     """SUMMARIZE phase: human-readable summary."""
 
+    model_config = ConfigDict(extra="forbid")
+
     summary: str = ""
     next_steps: list[str] = Field(default_factory=list)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
@@ -236,6 +256,8 @@ class SummaryOutput(BaseModel):
 class PersistOutput(BaseModel):
     """PERSIST phase: what was written to Company Graph and durable storage."""
 
+    model_config = ConfigDict(extra="forbid")
+
     company_graph_updated: bool = False
     session_events_written: int = 0
     artifact_paths: list[str] = Field(default_factory=list)
@@ -243,6 +265,8 @@ class PersistOutput(BaseModel):
 
 class MonitorOutput(BaseModel):
     """MONITOR phase: KPIs logged for autonomous operation tracking."""
+
+    model_config = ConfigDict(extra="forbid")
 
     time_to_pickup_ms: int = 0
     time_to_first_heartbeat_ms: int = 0

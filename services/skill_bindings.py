@@ -315,7 +315,10 @@ class SkillBindings:
                 SkillInput(name="params", type="dict", description="Parameters for the action"),
             ],
             outputs=SkillOutput(type="dict", description="Result of the graph operation"),
-            specialist_families=["architecture", "docs", "analytics", "data", "engineering"],
+            specialist_families=[
+                "architecture", "docs", "analytics", "data", "engineering",
+                "content", "research", "crm", "support", "seo", "pim",
+            ],
             capabilities_added=["knowledge_graph_query", "relationship_tracing", "graph_export"],
             trigger_keywords=["knowledge graph", "obsidian", "graph", "BFS", "connected components"],
             source="local",

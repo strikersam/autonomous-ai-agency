@@ -48,7 +48,10 @@ SpecialistFamily = Literal[
     "engineering", "qa", "docs", "analytics", "ecommerce",
     "operations", "agile", "portfolio", "security", "devops",
     "data", "ml", "frontend", "backend", "fullstack", "mobile",
-    "cloud", "infra", "architecture", "product", "design", "ux"
+    "cloud", "infra", "architecture", "product", "design", "ux",
+    # Business / domain specialists (Agency Core v5 — full domain coverage)
+    "seo", "content", "marketing", "merchandising", "pim", "oms",
+    "dam", "crm", "support", "trading", "research", "platform"
 ]
 
 # Workflow phases (aligned with CRISPY workflow)

@@ -89,6 +89,24 @@ FAMILY_RUNTIME_MAP: dict[SpecialistFamily, list[str]] = {
     "agile":         ["internal_agent"],
     # Portfolio specialist → InternalAgent
     "portfolio":     ["internal_agent"],
+    # ── Business / domain specialists ──
+    # SEO / content / marketing → Goose (web research + CLI), then internal.
+    "seo":           ["goose", "hermes", "internal_agent"],
+    "content":       ["goose", "opencode", "internal_agent"],
+    "marketing":     ["goose", "hermes", "internal_agent"],
+    # Commerce ops — catalog/order/asset specialists lean on data + code runtimes.
+    "merchandising": ["hermes", "opencode", "internal_agent"],
+    "pim":           ["hermes", "opencode", "internal_agent"],
+    "oms":           ["opencode", "hermes", "internal_agent"],
+    "dam":           ["goose", "hermes", "internal_agent"],
+    # CRM / support — lightweight coordination + CLI automation.
+    "crm":           ["hermes", "goose", "internal_agent"],
+    "support":       ["goose", "internal_agent"],
+    # Trading / research — data-heavy, reasoning-first.
+    "trading":       ["hermes", "claude_code", "internal_agent"],
+    "research":      ["claude_code", "hermes", "internal_agent"],
+    # Platform operations — infra-style tooling.
+    "platform":      ["aider", "hermes", "internal_agent"],
 }
 
 # ── 24x7 Schedule Definitions ────────────────────────────────────────────────

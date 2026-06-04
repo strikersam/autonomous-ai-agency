@@ -77,12 +77,9 @@ class TestTypedContracts:
         assert out.security == "PASS"
         assert out.correctness == "PASS"
 
-    def test_all_contracts_pydantic_extra_forbid(self, subtests):
-        """Every transition model uses extra='forbid'.  Skipped until Pydantic
-        model_config extra='forbid' is applied to all 12 contract models."""
-        import pytest
-        pytest.skip("Model extra='forbid' not yet implemented on 12 contract models")
-        from pydantic import BaseModel as PydanticBase
+    def test_all_contracts_pydantic_extra_forbid(self):
+        """Every transition model uses extra='forbid' — unknown fields are
+        rejected at parse time so contract drift can't slip through silently."""
         from services import workflow_orchestrator as wo
 
         contract_models = [
@@ -100,13 +97,21 @@ class TestTypedContracts:
             wo.MonitorOutput,
         ]
         for model_cls in contract_models:
-            with subtests.test(msg=f"{model_cls.__name__} forbids extra fields"):
-                model_config = getattr(model_cls, "model_config", {})
-                extra = model_config.get("extra", "ignore")
-                assert extra == "forbid", (
-                    f"{model_cls.__name__}.model_config['extra'] = {extra!r}, "
-                    f"expected 'forbid'"
-                )
+            model_config = getattr(model_cls, "model_config", {})
+            extra = model_config.get("extra", "ignore")
+            assert extra == "forbid", (
+                f"{model_cls.__name__}.model_config['extra'] = {extra!r}, "
+                f"expected 'forbid'"
+            )
+
+    def test_extra_field_is_rejected(self):
+        """A concrete unknown field raises ValidationError (not silently dropped)."""
+        import pytest
+        from pydantic import ValidationError
+        from services.workflow_orchestrator import ExecutionRequest
+
+        with pytest.raises(ValidationError):
+            ExecutionRequest(request="ok", bogus_field="nope")
 
 
 # ── Test: WorkflowRun state machine ───────────────────────────────────────────
