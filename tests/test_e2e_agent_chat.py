@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 """
 End-to-end tests for the agent chat code-change flow.
@@ -20,7 +21,6 @@ Tests the full stack with real:
 Only outbound HTTP calls (LLM providers, GitHub API) are intercepted.
 All agent logic, MCP tool dispatch, and job lifecycle are real.
 """
-from __future__ import annotations
 
 import json
 import time

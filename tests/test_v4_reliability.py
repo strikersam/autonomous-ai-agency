@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 """tests/test_v4_reliability.py — Regression tests for v4 reliability claims.
 
@@ -11,7 +12,6 @@ Tests in this file must NOT break when workspace isolation or feature matrix
 code is added.  They prove the core system still works correctly.
 """
 
-from __future__ import annotations
 
 import asyncio
 import time

@@ -1,7 +1,7 @@
+from __future__ import annotations
 import os
 """Regression coverage for hosted control-plane routes and agent profile shape."""
 
-from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
