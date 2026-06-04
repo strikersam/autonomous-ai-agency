@@ -156,7 +156,7 @@ class TestDeprecationWarnings:
             "orchestrator-mode default is tested via explicit setattr in other tests"
         )
 
-    def test_agent_runner_blocked_in_orchestrator_mode(self, monkeypatch):
+    async def test_agent_runner_blocked_in_orchestrator_mode(self, monkeypatch):
         """AgentRunner.run() raises RuntimeError in orchestrator mode."""
         monkeypatch.setenv("AGENCY_WORKFLOW_MODE", "orchestrator")
         # Force re-import to pick up the env var
@@ -166,24 +166,17 @@ class TestDeprecationWarnings:
 
         from agent.loop import AgentRunner
         runner = AgentRunner(ollama_base="http://localhost:11434")
-        import asyncio
 
-        async def _try():
-            with pytest.raises(RuntimeError, match="AgentRunner.run.*blocked"):
-                await runner.run(
-                    instruction="test",
-                    history=[],
-                    requested_model=None,
-                    auto_commit=False,
-                    max_steps=1,
-                )
+        with pytest.raises(RuntimeError, match="AgentRunner.run.*blocked"):
+            await runner.run(
+                instruction="test",
+                history=[],
+                requested_model=None,
+                auto_commit=False,
+                max_steps=1,
+            )
 
-        asyncio.get_event_loop().run_until_complete(_try())
-
-        # Restore default mode
-        monkeypatch.setenv("AGENCY_WORKFLOW_MODE", "orchestrator")
-
-    def test_agency_blocked_in_orchestrator_mode(self, monkeypatch):
+    async def test_agency_blocked_in_orchestrator_mode(self, monkeypatch):
         """Agency.run_cycle() raises RuntimeError in orchestrator mode."""
         monkeypatch.setenv("AGENCY_WORKFLOW_MODE", "orchestrator")
         import importlib
@@ -193,15 +186,10 @@ class TestDeprecationWarnings:
         from agent.agency import Agency
         agency = Agency(tick_minutes=999)
 
-        import asyncio
+        with pytest.raises(RuntimeError, match="Agency.run_cycle.*blocked"):
+            await agency.run_cycle()
 
-        async def _try():
-            with pytest.raises(RuntimeError, match="Agency.run_cycle.*blocked"):
-                await agency.run_cycle()
-
-        asyncio.get_event_loop().run_until_complete(_try())
-
-    def test_multiswarm_blocked_in_orchestrator_mode(self, monkeypatch):
+    async def test_multiswarm_blocked_in_orchestrator_mode(self, monkeypatch):
         """MultiAgentSwarm.run() raises RuntimeError in orchestrator mode."""
         monkeypatch.setenv("AGENCY_WORKFLOW_MODE", "orchestrator")
         import importlib
@@ -211,18 +199,13 @@ class TestDeprecationWarnings:
         from agent.coordinator import MultiAgentSwarm, AgentSpec, TaskSpec
         swarm = MultiAgentSwarm(ollama_base="http://localhost:11434")
 
-        import asyncio
-
-        async def _try():
-            with pytest.raises(RuntimeError, match="MultiAgentSwarm.run.*blocked"):
-                await swarm.run(
-                    goal="test",
-                    agents=[AgentSpec(agent_id="w1")],
-                    tasks=[TaskSpec(task_id="t1", instruction="test")],
-                    max_concurrent=1,
-                )
-
-        asyncio.get_event_loop().run_until_complete(_try())
+        with pytest.raises(RuntimeError, match="MultiAgentSwarm.run.*blocked"):
+            await swarm.run(
+                goal="test",
+                agents=[AgentSpec(agent_id="w1")],
+                tasks=[TaskSpec(task_id="t1", instruction="test")],
+                max_concurrent=1,
+            )
 
 
 # ── Test: Golden path execution (no LLM required) ─────────────────────────────
@@ -231,7 +214,7 @@ class TestDeprecationWarnings:
 class TestGoldenPathExecution:
     """End-to-end execution through the golden path."""
 
-    def test_auto_approve_skips_approval_gate(self):
+    async def test_auto_approve_skips_approval_gate(self):
         """With auto_approve=True, execution runs through all phases."""
         from services.workflow_orchestrator import (
             ExecutionRequest,
@@ -239,21 +222,16 @@ class TestGoldenPathExecution:
             reset_orchestrator,
             Phase,
         )
-        import asyncio
 
         reset_orchestrator()
         orchestrator = get_workflow_orchestrator()
 
-        async def _run():
-            req = ExecutionRequest(
-                request="Test the golden path execution flow",
-                auto_approve=True,
-                max_steps=3,
-            )
-            run = await orchestrator.execute(req)
-            return run
-
-        run = asyncio.get_event_loop().run_until_complete(_run())
+        req = ExecutionRequest(
+            request="Test the golden path execution flow",
+            auto_approve=True,
+            max_steps=3,
+        )
+        run = await orchestrator.execute(req)
 
         assert run.status == "done", f"Expected 'done', got {run.status!r}"
         assert run.classify is not None
@@ -268,99 +246,72 @@ class TestGoldenPathExecution:
         assert run.persist is not None
         assert run.monitor is not None
 
-    def test_classify_detects_domain(self):
+    async def test_classify_detects_domain(self):
         """CLASSIFY correctly detects security domain."""
         from services.workflow_orchestrator import (
             ExecutionRequest,
             get_workflow_orchestrator,
             reset_orchestrator,
         )
-        import asyncio
 
         reset_orchestrator()
         orchestrator = get_workflow_orchestrator()
 
-        async def _run():
-            req = ExecutionRequest(
-                request="Fix the authentication vulnerability in the login handler",
-                auto_approve=True,
-                max_steps=1,
-            )
-            run = await orchestrator.execute(req)
-            return run
-
-        run = asyncio.get_event_loop().run_until_complete(_run())
+        req = ExecutionRequest(
+            request="Fix the authentication vulnerability in the login handler",
+            auto_approve=True,
+            max_steps=1,
+        )
+        run = await orchestrator.execute(req)
         assert run.classify is not None
         assert run.classify.domain in ("security", "dev"), (
             f"Expected security domain, got {run.classify.domain}"
         )
 
-    def test_approve_then_resume(self):
+    async def test_approve_then_resume(self):
         """A run blocks at ApprovalGate, is approved, then finishes."""
         from services.workflow_orchestrator import (
             ExecutionRequest,
             get_workflow_orchestrator,
             reset_orchestrator,
         )
-        import asyncio
 
         reset_orchestrator()
         orchestrator = get_workflow_orchestrator()
 
-        async def _step1():
-            req = ExecutionRequest(
-                request="Test approval gate",
-                auto_approve=False,
-                max_steps=1,
-            )
-            run = await orchestrator.execute(req)
-            return run
-
-        async def _step2(run_id):
-            orchestrator.approve(run_id, approved_by="test-user")
-            req = ExecutionRequest(
-                request="Test approval gate",
-                auto_approve=False,
-                max_steps=1,
-            )
-            run = await orchestrator.execute(req)
-            return run
-
-        run1 = asyncio.get_event_loop().run_until_complete(_step1())
+        req = ExecutionRequest(
+            request="Test approval gate",
+            auto_approve=False,
+            max_steps=1,
+        )
+        run1 = await orchestrator.execute(req)
         assert run1.status == "awaiting_approval", (
             f"Expected awaiting_approval, got {run1.status!r}"
         )
 
         # approve_and_resume continues execution
-        run2 = asyncio.get_event_loop().run_until_complete(
-            asyncio.ensure_future(orchestrator.approve_and_resume(run1.run_id, approved_by="test-user"))
-        )
+        run2 = await orchestrator.approve_and_resume(run1.run_id, approved_by="test-user")
         assert run2.status == "done", (
             f"Expected done after approve_and_resume, got {run2.status!r}"
         )
 
-    def test_bind_context_resolves_skills(self):
+    async def test_bind_context_resolves_skills(self):
         """BIND_CONTEXT resolves skills from SkillBindings."""
         from services.workflow_orchestrator import (
             ExecutionRequest,
             get_workflow_orchestrator,
             reset_orchestrator,
         )
-        import asyncio
 
         reset_orchestrator()
         orchestrator = get_workflow_orchestrator()
 
-        async def _run():
-            req = ExecutionRequest(
-                request="Conduct a security review of the authentication module",
-                auto_approve=True,
-                max_steps=1,
-            )
-            run = await orchestrator.execute(req)
-            return run
-
-        run = asyncio.get_event_loop().run_until_complete(_run())
+        req = ExecutionRequest(
+            request="Conduct a security review of the authentication module",
+            auto_approve=True,
+            max_steps=1,
+        )
+        run = await orchestrator.execute(req)
         assert run.bound_context is not None
         # Should bind skills for the security domain
         # Skills may return empty if SkillBindings is not initialized;
@@ -386,27 +337,22 @@ class TestApprovalGate:
         with pytest.raises(KeyError, match="not found"):
             orchestrator.approve("nonexistent")
 
-    def test_approve_non_waiting_run_raises(self):
+    async def test_approve_non_waiting_run_raises(self):
         from services.workflow_orchestrator import (
             ExecutionRequest,
             get_workflow_orchestrator,
             reset_orchestrator,
         )
-        import asyncio
 
         reset_orchestrator()
         orchestrator = get_workflow_orchestrator()
 
-        async def _run():
-            req = ExecutionRequest(
-                request="test",
-                auto_approve=True,
-                max_steps=1,
-            )
-            run = await orchestrator.execute(req)
-            return run
-
-        run = asyncio.get_event_loop().run_until_complete(_run())
+        req = ExecutionRequest(
+            request="test",
+            auto_approve=True,
+            max_steps=1,
+        )
+        run = await orchestrator.execute(req)
         assert run.status == "done"
 
         with pytest.raises(ValueError, match="not awaiting_approval"):
