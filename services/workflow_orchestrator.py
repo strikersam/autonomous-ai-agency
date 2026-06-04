@@ -988,23 +988,34 @@ class WorkflowOrchestrator:
         # Update Company Graph if company_id provided
         if req.company_id and run.summary:
             try:
+                from datetime import datetime, timezone
                 from services.company_graph_store import CompanyGraphStore
                 store = CompanyGraphStore()
                 company = await store.get_company(req.company_id)
                 if company:
-                    # Append to company activity log
-                    if not hasattr(company, 'activity_log') or company.activity_log is None:
-                        company.activity_log = []
-                    company.activity_log.append({
+                    # `Company` is a frozen, extra="forbid" model with no
+                    # `activity_log` field, so we cannot mutate it in place.
+                    # Record workflow activity in the existing mutable
+                    # `integration_config` dict and bump `last_activity`, then
+                    # persist a copy via model_copy (respects the contract).
+                    cfg = dict(company.integration_config or {})
+                    activity = list(cfg.get("workflow_activity", []))
+                    activity.append({
                         "run_id": run.run_id,
                         "timestamp": run.started_at,
                         "verdict": run.judge.verdict if run.judge else "UNKNOWN",
                         "summary": run.summary.summary,
                     })
-                    await store.update_company(company)
+                    # Cap the log so it can't grow unbounded.
+                    cfg["workflow_activity"] = activity[-50:]
+                    updated = company.model_copy(update={
+                        "integration_config": cfg,
+                        "last_activity": datetime.now(timezone.utc),
+                    })
+                    await store.update_company(updated)
                     company_updated = True
             except Exception as exc:
-                log.debug("Company Graph persist failed (non-fatal): %s", exc)
+                log.warning("Company Graph persist failed (non-fatal): %s", exc)
 
         # Write session events
         if req.session_id:

@@ -223,20 +223,22 @@ async def list_companies(
     user_id = _resolve_user_id(user)
     is_admin_user = _is_admin(user)
 
+    # NOTE: store.list_companies returns a plain List[Company] (no grand-total),
+    # so we must NOT tuple-unpack it (that 500s for any result count != 2).
     if is_admin_user:
         # Admin: see all companies
-        companies, total = await store.list_companies(
+        companies = await store.list_companies(
             owner_id=None, limit=limit, offset=offset, search=search,
         )
     else:
         # Regular user: only their own companies
-        companies, total = await store.list_companies(
+        companies = await store.list_companies(
             owner_id=user_id, limit=limit, offset=offset, search=search,
         )
 
     return {
         "companies": [c.model_dump() for c in companies],
-        "total": total,
+        "total": len(companies),
         "limit": limit,
         "offset": offset,
         "scoped_to_user": not is_admin_user,

@@ -6105,9 +6105,12 @@ async def get_doctor_diagnostics(
 
     # 2. Company graph integrity
     try:
-        user_id = str(user.get("email") or user.get("_id", ""))
+        # Use the same resolver as company creation so a user whose companies
+        # are owned by `_id` (not email) is matched correctly.
+        user_id = _wfo_resolve_user_id(user)
         store = get_company_graph_store()
-        companies, _ = await store.list_companies(owner_id=user_id, limit=10)
+        # list_companies returns a plain List[Company] (not a (list, total) tuple).
+        companies = await store.list_companies(owner_id=user_id, limit=10)
         checks.append(_DoctorCheck(
             id="company_graph",
             category="Company",
