@@ -166,7 +166,7 @@ export const logout = () => {
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
-export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false, context = null) =>
+export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false, context = null, repoUrl = null, repoRef = null) =>
   API.post('/api/chat/send', {
     content,
     session_id: sessionId,
@@ -176,6 +176,8 @@ export const chatSend = (content, sessionId, model, providerId, temperature, age
     agent_mode: agentMode,
     allow_commercial_fallback_once: allowCommercialFallbackOnce,
     ...(context ? { context } : {}),
+    ...(repoUrl ? { repo_url: repoUrl } : {}),
+    ...(repoRef ? { repo_ref: repoRef } : {}),
   });
 export const getAgentChatJob = (jobId) => API.get(`/api/chat/agent-jobs/${jobId}`);
 export const cancelAgentChatJob = (jobId) => API.post(`/api/chat/agent-jobs/${jobId}/cancel`);
@@ -383,6 +385,7 @@ export const startOnboarding = (id, data) => API.post(`/api/company/${id}/onboar
 export const pauseOnboarding = (id) => API.post(`/api/company/${id}/onboarding/pause`);
 export const resumeOnboarding = (id) => API.post(`/api/company/${id}/onboarding/resume`);
 export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/cancel`);
+export const deleteCompany = (id) => API.delete(`/api/company/${id}`);
 export const getPublicDoctorReport = () => API.get('/api/company/doctor/public');
 
 // Wake company runtimes (Docker containers)

@@ -480,6 +480,32 @@ async def update_company(
     )
 
 
+
+@router.delete("/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_company_endpoint(
+    company_id: str = Path(..., description="Company ID"),
+    user: dict = Depends(_get_current_user_thunk),
+) -> None:
+    """
+    Delete a company and all associated data.
+
+    Access control is handled by get_company_access:
+    - Admin users can delete any company.
+    - Regular users can only delete companies they own or are admin of.
+    """
+    company = await get_company_access(company_id, user)
+    
+    service = get_company_graph_service()
+    success = await service.delete_company(company.id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete company",
+        )
+    
+    log.info(f"Deleted company {company_id} and all associated data")
+
 # =============================================================================
 
 # =============================================================================
