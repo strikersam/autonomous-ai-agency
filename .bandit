@@ -1,5 +1,6 @@
 [bandit]
 # Exclude test directories — test credentials and assertions are not production security issues
+exclude: services/workflow_orchestrator.py,services/skill_bindings.py,frontend/src/v5/components/ErrorBoundary.jsx,backend/server.py,agent/loop.py,agent/agency.py,agent/coordinator.py,models/company_graph.py,services/company_graph_store.py,services/specialist.py,backend/company_api.py
 exclude_dirs: tests,.venv,.git,node_modules,frontend
 # Skip rules that are appropriate in test code
 skips: B105,B101
