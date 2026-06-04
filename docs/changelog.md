@@ -29,7 +29,23 @@
 ## [Unreleased]
 
 ### Added
+- **`AGENTS.md` — Complete repository governance document** replacing the previous minimal stub. Now contains: full architecture overview, codebase map, coding standards, security requirements, testing requirements, documentation requirements, deployment process, release process, monitoring standards, bug triage process, PR review checklist, definition of done, autonomous maintenance rules, agent escalation rules, production safety rules, and subagent roles. This becomes the authoritative source of truth for all AI agents operating in this repository.
+- **`audit/` directory** — Complete repository audit with 8 documents: `architecture.md`, `security-analysis.md`, `dependency-analysis.md`, `performance-analysis.md`, `technical-debt.md`, `testing-analysis.md`, `documentation-analysis.md`, `production-readiness.md`. Each document identifies issues, estimates severity, and proposes fixes with priorities.
+- **`roadmap/` directory** — Three roadmap documents (`next-30-days.md`, `next-90-days.md`, `next-180-days.md`) with prioritized improvements mapped to audit findings.
+- **`.claude/commands/` subagent commands** — Five new slash commands: `/security-audit` (Security Agent), `/qa-check` (QA Agent), `/arch-review` (Architecture Agent), `/devops-check` (DevOps Agent), `/fix-bug` (Bug Fix Agent), `/docs-update` (Documentation Agent). Each command provides a structured, step-by-step procedure for its domain.
+- **`SECURITY.md`** — Security disclosure policy with reporting instructions, response timeline, and security design documentation.
+- **`CONTRIBUTING.md`** — Developer onboarding guide with setup instructions, coding standards, testing requirements, changelog format, and PR review checklist.
 - **`backend/server.py` — `/v1/quick-notes` POST and GET endpoints** mirroring the proxy's quick-note routes so the dashboard FAB can reach them via `REACT_APP_BACKEND_URL` (backend server port) rather than the proxy port.
+
+### Security
+- **`admin_auth.py` — timing-safe admin secret comparison.** Replaced Python `==` operator with `hmac.compare_digest()` for admin secret validation to prevent timing side-channel attacks (`SEC-003`).
+- **`proxy.py` — ADMIN_SECRET minimum length enforcement.** Added startup check requiring `ADMIN_SECRET` to be at least 32 characters; server refuses to start with a short secret (`PR-013`).
+- **`proxy.py` — CORS wildcard warning.** Added startup warning when `CORS_ORIGINS` is `"*"` to alert operators that wildcard CORS is active in their deployment (`SEC-005`).
+- **`key_store.py` — renamed API key prefix from `test-key-` to `llms-`.** Generated API keys and rotated keys previously had a misleading `test-key-` prefix that could cause operators to distrust valid production keys (`TD-005`, `SEC-001`).
+- **`.github/workflows/ci.yml` — removed hardcoded `WikiAdmin2026!` password.** Replaced with `${{ secrets.CI_ADMIN_PASSWORD }}` with a safe default for CI runs that don't set the secret (`SEC-015`).
+
+### Performance
+- **`proxy.py` — async rate limiter.** Converted rate limiter from `threading.Lock` (blocks event loop) to `asyncio.Lock` (non-blocking). Also changed `_rate_bucket_keys` from `list` (O(n) operations) to `set` (O(1) insert/discard), eliminating key eviction bottleneck under high concurrency (`PERF-001`, `PERF-002`).
 
 ### Fixed
 - **`proxy.py` security — hardcoded `strikersam/local-llm-server` default for `GITHUB_REPOSITORY` could route user content to wrong repo.** Changed default to `""` so the GitHub issue creation path is skipped when the env var is not set. Also replaced `str(exc)` in the skill-registry refresh and agency status error responses with generic messages + `log.exception()` to avoid leaking internal details.
