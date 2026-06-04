@@ -36,23 +36,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest httpx
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Build frontend SPA
-        # frontend/build/ is gitignored, so it is NOT in the checkout. The
-        # backend serves the SPA from ../frontend/build (Dockerfile.backend
-        # COPYs it), and the browser test logs into the UI — so the build must
-        # exist in the Docker build context. Generate it here.
-        run: |
-          cd frontend
-          npm ci
-          CI=false npm run build
-          test -f build/index.html || { echo "::error::frontend build missing"; exit 1; }
-
       - name: Build and start backend
+        # Dockerfile.backend is multi-stage: it builds the React SPA from source
+        # (stage 1) and serves it from the backend image, so no separate frontend
+        # build step is needed here and it works from a clean checkout.
         run: |
           docker build -t llm-relay-backend -f Dockerfile.backend .
           docker run -d --name e2e-backend \
