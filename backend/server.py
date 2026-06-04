@@ -835,6 +835,13 @@ GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
 # https://my-backend.onrender.com/api/github/oauth/callback
 GITHUB_CALLBACK_URL = os.environ.get("GITHUB_CALLBACK_URL", "")
 
+# Imported early so /api/skills/discover can reference the registries list
+try:
+    from agent.skill_registry import GITHUB_REGISTRIES
+except ImportError:
+    log.warning("Could not import GITHUB_REGISTRIES — skill discover endpoint will show no registries")
+    GITHUB_REGISTRIES = []  # type: ignore[assignment]
+
 # ─── Model Catalog ────────────────────────────────────────────────────────────────
 # Best-in-class models per provider, tagged by role and tier.
 # role: planner = strong reasoning; executor = instruction-following/coding; verifier = critical eval
@@ -4572,10 +4579,11 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
 # discover, search, and get context-aware recommendations.
 
 try:
-    from agent.skill_registry import SkillRegistry as _SkillRegistry
+    from agent.skill_registry import SkillRegistry as _SkillRegistry, set_skill_registry
     _SKILL_REGISTRY = _SkillRegistry(
         github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_ACCESS_TOKEN")
     )
+    set_skill_registry(_SKILL_REGISTRY)
 except Exception as _sr_err:
     log.warning("Could not initialise SkillRegistry: %s", _sr_err)
     _SKILL_REGISTRY = None  # type: ignore[assignment]
@@ -4593,6 +4601,28 @@ async def list_skills(
         return {"skills": [], "total": 0}
     skills = _SKILL_REGISTRY.search(query) if query else _SKILL_REGISTRY.list(source=source)
     return {"skills": [s.as_dict() for s in skills[:limit]], "total": len(skills)}
+
+
+@app.get("/api/skills/discover")
+async def discover_remote_skills(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Preview what skills are available from remote GitHub registries without adding them."""
+    if _SKILL_REGISTRY is None:
+        return {"registries": [], "total": 0}
+    await _SKILL_REGISTRY.refresh_remote()
+    registries = {}
+    for reg in GITHUB_REGISTRIES:
+        rid = reg["id"]
+        registries[rid] = {"id": rid, "owner": reg["owner"], "repo": reg["repo"],
+                           "structure": reg.get("structure", "subdirs"), "skill_count": 0, "skills": []}
+    for skill in _SKILL_REGISTRY.list():
+        if skill.source.startswith("github:") and skill.registry_id in registries:
+            registries[skill.registry_id]["skill_count"] += 1
+            registries[skill.registry_id]["skills"].append({
+                "skill_id": skill.skill_id, "name": skill.name,
+                "description": (skill.description or "")[:120],
+                "tags": skill.tags[:5], "tech_relevance": skill.tech_relevance[:5], "url": skill.url})
+    result = sorted(registries.values(), key=lambda r: r["skill_count"], reverse=True)
+    return {"registries": result, "total": sum(r["skill_count"] for r in result)}
 
 
 @app.post("/api/skills/refresh")
@@ -5129,6 +5159,27 @@ async def platform_info(user: dict = Depends(get_current_user)):
     }
 
 
+@app.get("/api/ping")
+async def ping() -> dict[str, object]:
+    """Lightweight liveness probe — no external I/O."""
+    return {"status": "ok", "pong": True}
+
+
+@app.get("/api/status")
+async def system_status(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Authenticated system status summary for the Doctor screen."""
+    try:
+        await get_db().command("ping")
+        storage_ok = True
+    except Exception:
+        storage_ok = False
+    return {
+        "status": "ok" if storage_ok else "degraded",
+        "storage": storage_ok,
+        "provider": LLM_PROVIDER,
+    }
+
+
 @app.get("/api/health")
 async def health():
     try:
@@ -5163,6 +5214,77 @@ async def health():
         "ollama_relevant": ollama_relevant,
         "provider": LLM_PROVIDER,
     }
+
+
+# ─── Quick Notes (FAB + iPhone Shortcut) ────────────────────────────────────────
+# Mirrors the proxy.py /v1/quick-notes endpoints so the dashboard FAB can
+# reach them via REACT_APP_BACKEND_URL (backend server), not the proxy port.
+
+try:
+    from agent.quick_note import QuickNoteQueue as _QuickNoteQueue
+    _QUICK_NOTE_QUEUE: _QuickNoteQueue | None = _QuickNoteQueue()
+except Exception:
+    _QUICK_NOTE_QUEUE = None
+
+
+class _QuickNoteBody(BaseModel):
+    url: str = Field(default="", max_length=2000)
+    instruction: str = Field(default="", max_length=2000)
+
+
+@app.post("/v1/quick-notes")
+async def quick_notes_submit(
+    body: _QuickNoteBody,
+    user: dict = Depends(get_current_user),
+) -> dict[str, object]:
+    """Submit a quick-note URL or instruction from the dashboard FAB."""
+    url = body.url.strip()
+    instruction = body.instruction.strip()
+
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "")
+
+    title = f"quick-note: {url[:80]}" if url else f"quick-note: {instruction[:80]}"
+    issue_body = url
+    if instruction:
+        issue_body += f"\nTask: {instruction}"
+
+    if gh_token and gh_repo and url:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"https://api.github.com/repos/{gh_repo}/issues",
+                    json={"title": title, "body": issue_body, "labels": ["quick-note"]},
+                    headers={
+                        "Authorization": f"Bearer {gh_token}",
+                        "Accept": "application/vnd.github+json",
+                    },
+                )
+            if resp.status_code == 201:
+                issue_data = resp.json()
+                return {
+                    "status": "created",
+                    "channel": "github",
+                    "issue_number": issue_data["number"],
+                    "issue_url": issue_data.get("html_url", ""),
+                }
+            log.warning("Quick-note GitHub issue creation failed (%d)", resp.status_code)
+        except Exception:
+            log.exception("Quick-note GitHub issue creation error")
+
+    if _QUICK_NOTE_QUEUE is not None:
+        note = _QUICK_NOTE_QUEUE.add(url or instruction)
+        return {"status": "queued", "channel": "local", "note_id": note.note_id}
+    return {"status": "queued", "channel": "local", "note_id": None}
+
+
+@app.get("/v1/quick-notes")
+async def quick_notes_list(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """List queued quick-notes."""
+    if _QUICK_NOTE_QUEUE is None:
+        return {"notes": [], "count": 0}
+    notes = _QUICK_NOTE_QUEUE.list_all()
+    return {"notes": [n.as_dict() for n in notes], "count": len(notes)}
 
 
 # ─── GitHub Integration ─────────────────────────────────────────────────────────
@@ -6143,7 +6265,7 @@ async def get_doctor_diagnostics(
     try:
         from agent.skills import SkillLibrary
         lib = SkillLibrary()
-        skill_count = len(lib.list_all())
+        skill_count = len(lib.list())
         checks.append(_DoctorCheck(
             id="skills",
             category="Skills",

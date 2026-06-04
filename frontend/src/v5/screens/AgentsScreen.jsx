@@ -346,42 +346,73 @@ function RuntimesBar() {
 // ── Run-task modal ────────────────────────────────────────────────────────────
 // Dispatches a task to the autonomous agent pipeline via the real chat API
 // (agent_mode=true → HTTP 202 { job_id }) and streams the job to completion.
-function RunTaskModal({ agent, onClose }) {
+// ── Run-task modal ─────────────────────────────────────────────────────────────────────
+// Creates a tracked task in the Tasks board, then dispatches it through the
+// task pipeline (POST /api/tasks → POST /api/tasks/{id}/run). The task appears
+// in both the Agents screen (live execution) and the Tasks board (persistent).
+function RunTaskModal({ agent, onClose, onViewInTasks }) {
   const [task, setTask]     = React.useState('');
   const [status, setStatus] = React.useState('idle'); // idle | starting | running | done | error
   const [phase, setPhase]   = React.useState(null);
   const [result, setResult] = React.useState(null);
   const [error, setError]   = React.useState(null);
+  const [taskId, setTaskId] = React.useState(null);
   const mounted = React.useRef(true);
   React.useEffect(() => () => { mounted.current = false; }, []);
 
-  const poll = async (jobId) => {
+  const poll = async (tid) => {
+    setPhase('queued');
     for (let i = 0; i < 240; i++) {
       await new Promise(r => setTimeout(r, 1500));
       if (!mounted.current) return;
       let snap;
-      try { const { data } = await api.getAgentChatJob(jobId); snap = data; }
-      catch { if (mounted.current) { setStatus('error'); setError('Lost connection to the agent job — it may still be running on the server.'); } return; }
+      try { const { data } = await api.getTask(tid); snap = data.task || data; }
+      catch { if (mounted.current) { setStatus('error'); setError('Lost connection — the task may still be running on the server.'); } return; }
       if (!mounted.current) return;
-      setPhase(snap.phase || 'running');
-      if (['succeeded', 'failed', 'cancelled'].includes(snap.status)) {
-        if (snap.status === 'succeeded') { setStatus('done'); setResult(snap.result?.response || 'The agent finished but returned no message.'); }
-        else if (snap.status === 'cancelled') { setStatus('error'); setError('Agent job was cancelled.'); }
-        else { setStatus('error'); setError(snap.error?.message || 'The agent job failed.'); }
+      const st = snap?.status;
+      setPhase(st || 'in_progress');
+      if (st === 'done') {
+        setStatus('done');
+        setResult(snap?.result || snap?.error_message || 'Task completed.');
+        return;
+      }
+      if (st === 'failed') {
+        setStatus('error');
+        setError(snap?.error_message || 'Task execution failed.');
         return;
       }
     }
-    if (mounted.current) { setStatus('error'); setError('The job is taking longer than expected — check the Logs view for its status.'); }
+    if (mounted.current) { setStatus('error'); setError('Task exceeded 6 min timeout — check the Tasks board for its status.'); }
   };
 
   const run = async () => {
     if (!task.trim() || status === 'starting' || status === 'running') return;
     setStatus('starting'); setError(null); setResult(null); setPhase(null);
     try {
-      const { data } = await api.chatSend(task.trim(), null, null, null, null, true);
+      // 1. Create a persistent task in the Tasks board
+      const taskPayload = {
+        title: task.trim().substring(0, 80),
+        description: task.trim(),
+        prompt: task.trim(),
+        agent_id: agent.id,
+        runtime_id: agent.runtime || 'hermes',
+        priority: 'medium',
+        task_type: agent.specializations?.[0]?.replace(/_/g, ' ') || 'general',
+        tags: [agent.id, agent.origin || 'builtin'],
+      };
+      const { data: taskData } = await api.createTask(taskPayload);
       if (!mounted.current) return;
-      if (data?.job_id) { setStatus('running'); await poll(data.job_id); }
-      else { setStatus('done'); setResult(data?.response || 'No response.'); }
+      const tid = taskData?.task?.task_id;
+      if (!tid) throw new Error('Task created but no ID returned');
+      setTaskId(tid);
+
+      // 2. Trigger execution via the task pipeline
+      await api.runTask(tid);
+      if (!mounted.current) return;
+      setStatus('running');
+
+      // 3. Poll for completion
+      await poll(tid);
     } catch (e) {
       if (!mounted.current) return;
       const detail = e?.response?.data?.detail;
@@ -399,20 +430,54 @@ function RunTaskModal({ agent, onClose }) {
           <div style={{ fontSize:15, fontWeight:800, color:'#fff' }}>Run a task · {agent.name}</div>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', fontSize:20, cursor:'pointer' }}>×</button>
         </div>
-        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Dispatches your task to the autonomous agent pipeline and streams progress below. <strong style={{ color:'var(--text-tertiary)' }}>{agent.name}</strong> is a suggestion — the pipeline auto-routes to the best specialist runtime for the task.</div>
-        <textarea value={task} onChange={e=>setTask(e.target.value)} disabled={busy} placeholder="Describe the task…  e.g. ‘Audit the checkout flow for SEO regressions and open a PR’" rows={4}
+        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Creates a tracked task in the <strong style={{ color:'var(--text-tertiary)' }}>Tasks board</strong>, then dispatches it through the <strong style={{ color:'var(--text-tertiary)' }}>{agent.name}</strong> pipeline. Monitor progress here or find the full lifecycle in Tasks.</div>
+        <textarea value={task} onChange={e=>setTask(e.target.value)} disabled={busy} placeholder="Describe the task…  e.g. 'Audit the checkout flow for SEO regressions and open a PR'" rows={4}
           style={{ width:'100%', padding:'10px 12px', borderRadius:10, resize:'vertical', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', marginBottom:12 }}/>
         {busy && (
           <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.16)', fontSize:12, color:'var(--text-secondary)', display:'flex', alignItems:'center', gap:8 }}>
             <span style={{ width:7, height:7, borderRadius:'50%', background:'var(--accent)', animation:'pulse 1.4s infinite' }}/>
-            {status === 'starting' ? 'Dispatching task…' : `Running · ${phase || 'working'}…`}
+            {status === 'starting' ? 'Creating task…' : `Running · ${phase || 'in_progress'}…`}
+          </div>
+        )}
+        {taskId && status === 'running' && (
+          <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.14)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+            <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)' }}>
+              Task #{taskId} · <span style={{ color:'var(--text-muted)' }}>running in Tasks board</span>
+            </span>
+            {onViewInTasks && (
+              <button onClick={onViewInTasks} style={{
+                fontSize:10, fontFamily:'var(--font-mono)', fontWeight:700,
+                padding:'4px 10px', borderRadius:7, cursor:'pointer',
+                background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.28)',
+                color:'var(--accent)', letterSpacing:'0.08em', textTransform:'uppercase',
+              }}>View in Tasks →</button>
+            )}
           </div>
         )}
         {status === 'done' && result && (
-          <div style={{ marginBottom:12, padding:'12px', borderRadius:10, background:'rgba(70,217,164,0.07)', border:'1px solid rgba(70,217,164,0.20)', fontSize:13, color:'var(--text-secondary)', whiteSpace:'pre-wrap', lineHeight:1.55 }}>{result}</div>
+          <div style={{ marginBottom:12, padding:'12px', borderRadius:10, background:'rgba(70,217,164,0.07)', border:'1px solid rgba(70,217,164,0.20)', fontSize:13, color:'var(--text-secondary)', whiteSpace:'pre-wrap', lineHeight:1.55 }}>
+            <div style={{ marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:6 }}>
+              <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--success)', letterSpacing:'0.08em', textTransform:'uppercase' }}>✓ Completed</span>
+              <div style={{ display:'flex', gap:5 }}>
+                <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:'#5da2ff', background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.20)', textTransform:'uppercase', letterSpacing:'0.08em' }}>{agent.name}</span>
+                {taskId && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)', textTransform:'uppercase', letterSpacing:'0.08em' }}>Task #{taskId}</span>}
+              </div>
+            </div>
+            {result}
+          </div>
         )}
-        {error && (
-          <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>
+        {(error || (status === 'error')) && (
+          <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+            <span style={{ fontSize:12, color:'#ff6b7d' }}>{error || 'Task execution failed.'}</span>
+            {taskId && onViewInTasks && (
+              <button onClick={onViewInTasks} style={{
+                fontSize:10, fontFamily:'var(--font-mono)', fontWeight:700,
+                padding:'4px 10px', borderRadius:7, cursor:'pointer',
+                background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)',
+                color:'#ff6b7d', letterSpacing:'0.08em', textTransform:'uppercase',
+              }}>View in Tasks →</button>
+            )}
+          </div>
         )}
         <div style={{ display:'flex', gap:8 }}>
           <button onClick={run} disabled={busy || !task.trim()} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:(busy||!task.trim())?0.6:1 }}>{busy ? 'Running…' : '▶ Run task'}</button>
@@ -424,7 +489,7 @@ function RunTaskModal({ agent, onClose }) {
 }
 
 // Map a backend agent record (AgentDefinition) to the card view-model.
-function mapBackendAgent(a) {
+function mapBackendAgent(a, agentTaskStats = {}) {
   const id = a.agent_id || a.id;
   const builtin = BUILTIN_AGENT_DEFS.find(b => b.id === id || b.name.toLowerCase() === (a.name || '').toLowerCase());
   const tags = a.tags || [];
@@ -442,8 +507,8 @@ function mapBackendAgent(a) {
     model: a.model || '—',
     specializations: a.task_specializations || [],
     origin,
-    tasksWeek: a.use_count || 0,
-    avgMs: 0,
+    tasksWeek: agentTaskStats.weekTotal || a.use_count || 0,
+    avgMs: agentTaskStats.avgMs || 0,
     lastRun: a.last_used_at ? relTime(a.last_used_at) : '—',
     costPolicy: a.cost_policy || 'local_first',
     desc: a.description || builtin?.desc || '',
@@ -451,7 +516,7 @@ function mapBackendAgent(a) {
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-function AgentsScreen({ onNavigateToChat }) {
+function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
   const [showForm, setShowForm]         = React.useState(false);
   const [filter, setFilter]             = React.useState('all');
   const [runAgent, setRunAgent]         = React.useState(null);
@@ -460,6 +525,7 @@ function AgentsScreen({ onNavigateToChat }) {
     activity:  '/api/activity?limit=30',
     providers: '/api/providers',
     agents:    '/api/agents/',
+    taskCounts: '/api/tasks/counts',
   }, { refreshMs: 30000 });
 
   // Derive last-run hints from activity feed per built-in agent name keyword
@@ -476,6 +542,18 @@ function AgentsScreen({ onNavigateToChat }) {
     });
     return map;
   }, [data.activity]);
+
+  // Wire real task counts per agent from /api/tasks/counts
+  const agentTaskStats = React.useMemo(() => {
+    const counts = data.taskCounts?.counts || {};
+    return {
+      weekDone:   counts.done_this_week   || 0,
+      weekTodo:   counts.todo_this_week   || 0,
+      weekTotal:  (counts.done_this_week  || 0) + (counts.in_progress_this_week || 0),
+      avgMs:      counts.avg_task_ms      || 0,
+      total:      counts.total            || 0,
+    };
+  }, [data.taskCounts]);
 
   // Derive CEO directive list from recent activity
   const ceoCycleData = React.useMemo(() => {
@@ -498,17 +576,20 @@ function AgentsScreen({ onNavigateToChat }) {
   // return an equivalent agent (matched by id or name).
   const backendAgents = React.useMemo(() => {
     const list = data.agents?.agents || (Array.isArray(data.agents) ? data.agents : []);
-    return list.map(mapBackendAgent);
-  }, [data.agents]);
+    return list.map(a => mapBackendAgent(a, agentTaskStats));
+  }, [data.agents, agentTaskStats]);
 
   const agents = React.useMemo(() => {
     const seenIds   = new Set(backendAgents.map(a => a.id));
     const seenNames = new Set(backendAgents.map(a => (a.name || '').toLowerCase()));
     const builtins = BUILTIN_AGENT_DEFS
       .filter(b => !seenIds.has(b.id) && !seenNames.has(b.name.toLowerCase()))
-      .map(a => ({ ...a, status:'idle', currentTask:null, tasksWeek:0, avgMs:0, lastRun: agentLastRun[a.id] || '—', origin:'builtin' }));
+      .map(a => ({ ...a, status:'idle', currentTask:null, tasksWeek: agentTaskStats.weekTotal || 0, avgMs: agentTaskStats.avgMs || 0, lastRun: agentLastRun[a.id] || '—', origin:'builtin' }));
     return [...builtins, ...backendAgents];
-  }, [backendAgents, agentLastRun]);
+  }, [backendAgents, agentLastRun, agentTaskStats]);
+
+  // Navigate to Tasks board
+  const handleViewTasks = () => onNavigateToTasks && onNavigateToTasks();
 
   const handleCreate = async (payload) => {
     await api.createAgent(payload);
@@ -538,7 +619,7 @@ function AgentsScreen({ onNavigateToChat }) {
       <RuntimesBar/>
 
       {showForm && <NewAgentForm onCreate={handleCreate} onClose={() => setShowForm(false)}/>}
-      {runAgent && <RunTaskModal agent={runAgent} onClose={() => setRunAgent(null)}/>}
+      {runAgent && <RunTaskModal agent={runAgent} onClose={() => setRunAgent(null)} onViewInTasks={handleViewTasks}/>}
 
       {states.agents?.error && (
         <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', marginBottom:12, fontSize:12, color:'#ff6b7d' }}>

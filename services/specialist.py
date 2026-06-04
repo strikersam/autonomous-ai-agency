@@ -26,7 +26,7 @@ Usage:
 
 from __future__ import annotations
 from typing import List, Optional, Dict, Any, get_args
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import secrets
 
@@ -83,12 +83,12 @@ class SpecialistService:
         if existing:
             # Return first existing specialist of this family
             return SpecialistProvisionResult(
-                request_id=f"req_{secrets.token_hex(8)}",
-                specialist=existing[0],
-                status="skipped",
-                message="Specialist already provisioned",
-                provisioned_at=datetime.utcnow()
-            )
+            request_id=f"req_{secrets.token_hex(8)}",
+            specialist=existing[0],
+            status="skipped",
+            message="Specialist already provisioned",
+            provisioned_at=datetime.now(timezone.utc)
+        )
         
         # Auto-resolve runtime if not explicitly provided
         resolved_runtime = request.runtime or self._resolve_runtime(request.specialist_family)
@@ -108,7 +108,7 @@ class SpecialistService:
             runtime=resolved_runtime,
             bound_skills=bound_skills,
             is_provisioned=True,
-            provisioned_at=datetime.utcnow(),
+            provisioned_at=datetime.now(timezone.utc),
             status="available",
             config=request.config or {}
         )
@@ -125,7 +125,7 @@ class SpecialistService:
             specialist=created,
             status="success",
             message="Specialist provisioned successfully",
-            provisioned_at=datetime.utcnow()
+            provisioned_at=datetime.now(timezone.utc)
         )
 
     async def provision_specialists_for_company(
@@ -227,7 +227,7 @@ class SpecialistService:
             specialist = specialist.model_copy(update={
                 "is_provisioned": False,
                 "status": "deprovisioned",
-                "updated_at": datetime.utcnow()
+                "updated_at": datetime.now(timezone.utc)
             })
             await self.store.update_specialist(specialist)
         
@@ -258,7 +258,7 @@ class SpecialistService:
         
         specialist = specialist.model_copy(update={
             "status": "available",
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.now(timezone.utc)
         })
         
         await self.store.update_specialist(specialist)
@@ -287,7 +287,7 @@ class SpecialistService:
         specialist = specialist.model_copy(update={
             "status": "disabled",
             "disabled_reason": reason,
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.now(timezone.utc)
         })
         
         await self.store.update_specialist(specialist)
@@ -476,7 +476,7 @@ class SpecialistService:
         if specialist:
             specialist = specialist.model_copy(update={
                 "success_count": specialist.success_count + 1,
-                "last_activity": datetime.utcnow()
+                "last_activity": datetime.now(timezone.utc)
             })
             await self.store.update_specialist(specialist)
 
@@ -497,7 +497,7 @@ class SpecialistService:
             specialist = specialist.model_copy(update={
                 "error_count": specialist.error_count + 1,
                 "last_error": error,
-                "last_activity": datetime.utcnow()
+                "last_activity": datetime.now(timezone.utc)
             })
             await self.store.update_specialist(specialist)
 

@@ -29,6 +29,7 @@ _QUEUE_FILE = _REPO_ROOT / "tasks" / "quick_notes.json"
 
 PUSH_BRANCH = os.environ.get("QUICK_NOTE_PUSH_BRANCH", "master")
 INTERVAL_HOURS = int(os.environ.get("QUICK_NOTE_INTERVAL_HOURS", "4"))
+MAX_RETRIES = int(os.environ.get("QUICK_NOTE_MAX_RETRIES", "3"))  # max re-queue retries per note
 
 
 @dataclass
@@ -39,6 +40,7 @@ class QuickNote:
     status: str = "pending"   # pending | processing | done | failed
     processed_at: str | None = None
     error: str | None = None
+    retry_count: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -83,6 +85,25 @@ class QuickNoteQueue:
 
     def mark_failed(self, note_id: str, error: str) -> None:
         self._update(note_id, status="failed", processed_at=_now(), error=error[:500])
+
+    def bump_retry(self, note_id: str) -> int:
+        """Increment and return the retry count for a note. Returns the new count."""
+        with self._lock:
+            data = self._read()
+            for item in data["notes"]:
+                if item["note_id"] == note_id:
+                    item["retry_count"] = item.get("retry_count", 0) + 1
+                    self._write(data)
+                    return item["retry_count"]
+        return 0
+
+    def get_retry_count(self, note_id: str) -> int:
+        with self._lock:
+            data = self._read()
+            for item in data["notes"]:
+                if item["note_id"] == note_id:
+                    return item.get("retry_count", 0)
+        return 0
 
     def list_all(self) -> list[QuickNote]:
         with self._lock:
@@ -155,6 +176,7 @@ def process_note(
     queue: QuickNoteQueue,
     repo_root: Path = _REPO_ROOT,
     push_branch: str = PUSH_BRANCH,
+    max_retries: int = MAX_RETRIES,
 ) -> None:
     """Fetch URL, run Claude Code to implement, commit and push."""
     log.info("QuickNote processing: %s (%s)", note.note_id, note.url)
@@ -183,6 +205,7 @@ def process_note(
             capture_output=True,
             text=True,
             cwd=str(repo_root),
+            timeout=60,
         )
         committed = commit_result.returncode == 0
         if not committed and "nothing to commit" not in commit_result.stdout + commit_result.stderr:
@@ -198,7 +221,14 @@ def process_note(
 
     except Exception as exc:
         log.error("QuickNote %s failed: %s", note.note_id, exc)
-        queue.mark_failed(note.note_id, str(exc))
+        new_count = queue.bump_retry(note.note_id)
+        if new_count <= max_retries:
+            # Re-queue for retry — reset status to pending so next_pending() claims it
+            queue._update(note.note_id, status="pending", error=f"Retry {new_count}/{max_retries}: {str(exc)[:400]}")
+            log.info("QuickNote %s re-queued for retry %d/%d (backoff applies on next cycle)",
+                     note.note_id, new_count, max_retries)
+        else:
+            queue.mark_failed(note.note_id, f"Exhausted {max_retries} retries: {str(exc)[:400]}")
 
 
 # ── Background processor ──────────────────────────────────────────────────────
@@ -208,22 +238,33 @@ def start_processor(
     repo_root: Path = _REPO_ROOT,
     push_branch: str = PUSH_BRANCH,
     interval_hours: int = INTERVAL_HOURS,
+    max_retries: int = MAX_RETRIES,
 ) -> None:
-    """Start a daemon thread that processes one queued note every *interval_hours*."""
+    """Start a daemon thread that processes one queued note every *interval_hours*.
+
+    Permanently-failed notes (status=failed) are not retried. Notes that error
+    but are still pending are re-queued with capped backoff, up to *max_retries*.
+    After exhausting retries the note is left as 'failed' with no further attempts.
+    """
     interval_secs = interval_hours * 3600
 
     def _loop() -> None:
-        log.info("QuickNote processor started (interval=%dh, branch=%s)", interval_hours, push_branch)
+        log.info("QuickNote processor started (interval=%dh, branch=%s, max_retries=%d)",
+                 interval_hours, push_branch, max_retries)
         while True:
             try:
                 note = queue.next_pending()
                 if note:
-                    process_note(note, queue, repo_root, push_branch)
+                    process_note(note, queue, repo_root, push_branch, max_retries)
                 else:
                     log.debug("QuickNote: queue empty")
             except Exception as exc:
                 log.error("QuickNote processor error: %s", exc)
-            time.sleep(interval_secs)
+
+            # Capped backoff: fixed interval_secs per cycle, no per-retry exponential growth.
+            # The 4× cap handles retry storms (many notes failing simultaneously) without
+            # implementing per-note exponential backoff.
+            time.sleep(min(interval_secs * 4, interval_secs))
 
     threading.Thread(target=_loop, name="quick-note-processor", daemon=True).start()
 

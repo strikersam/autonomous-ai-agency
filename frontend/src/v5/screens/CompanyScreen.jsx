@@ -157,12 +157,22 @@ function CompanyScreen() {
     domain: company.domain || '',
     industry: company.business_category || company.industry || '',
     since: '',
-    systems: (graph?.systems || []).map(sys => ({
-      name: sys.name || sys.system_type || 'System',
-      category: sys.category || sys.system_type || 'Platform',
-      status: sys.status || 'connected',
-      icon: sys.icon || '⚙',
-    })),
+    systems: [
+      ...(graph?.systems || []).map((sys, i) => ({
+        id: sys.id || `sys-${i}`,
+        name: sys.name || sys.system_type || 'System',
+        category: sys.category || sys.system_type || 'Platform',
+        status: sys.status || 'connected',
+        icon: sys.icon || '⚙',
+      })),
+      ...(graph?.detected_systems || []).map((ds, i) => ({
+        id: ds.id || `det-${i}`,
+        name: ds.name || 'Detected System',
+        category: ds.system_type || 'Platform',
+        status: ds.is_active ? 'connected' : 'inactive',
+        icon: '🔍',
+      })),
+    ],
     repos: (graph?.repos || company.repos || []).map(r => ({
       name: r.name || r.full_name || r.url || 'repo',
       branch: r.default_branch || r.branch || 'main',
@@ -266,7 +276,7 @@ function CompanyScreen() {
             <SectionHeader label="Systems & Tools" icon="⚙"/>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {(d.systems || []).map(sys => (
-                <div key={sys.name} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <div key={sys.id} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                   <span style={{ fontSize: 16, flexShrink: 0 }}>{sys.icon}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{sys.name}</div>
@@ -377,7 +387,7 @@ function CompanyScreen() {
       {!loadingCompany && activeTab === 'systems' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeSlideUp 0.3s ease-out' }}>
           {(d.systems || []).map(sys => (
-            <div key={sys.name} style={{
+            <div key={sys.id} style={{
               borderRadius: 14, border: '1px solid rgba(255,255,255,0.09)',
               background: 'rgba(255,255,255,0.03)', padding: '14px 16px',
               display: 'flex', alignItems: 'center', gap: 12,
@@ -388,11 +398,11 @@ function CompanyScreen() {
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{sys.name}</span>
                   <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}>{sys.category}</span>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Connected · Last synced: 5 min ago</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sys.status === 'inactive' ? 'Inactive' : 'Connected'} · Last synced: 5 min ago</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                 <StatusDotC status={sys.status}/>
-                <span style={{ fontSize: 11, color: '#46d9a4' }}>Connected</span>
+                <span style={{ fontSize: 11, color: sys.status === 'inactive' ? '#ff6b7d' : '#46d9a4' }}>{sys.status === 'inactive' ? 'Inactive' : 'Connected'}</span>
               </div>
             </div>
           ))}

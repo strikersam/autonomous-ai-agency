@@ -51,6 +51,8 @@ _COLLECTIONS = [
     "oauth_states",
     "local_metrics",
     "command",
+    "companies",
+    "user_secrets",
 ]
 
 # Fields that are extracted into real columns for indexed lookup.

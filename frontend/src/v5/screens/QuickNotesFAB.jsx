@@ -17,6 +17,7 @@ function NoteStatusPill({ status }) {
     queued:     { color: '#7c9dff', bg: 'rgba(124,157,255,0.10)', label: 'Queued' },
     processing: { color: '#ffbd66', bg: 'rgba(255,189,102,0.10)', label: 'In progress', pulse: true },
     done:       { color: '#46d9a4', bg: 'rgba(70,217,164,0.08)',  label: 'Done' },
+    failed:     { color: '#ff6b7d', bg: 'rgba(255,107,125,0.10)', label: 'Failed' },
   };
   const s = map[status] || map.queued;
   return (
@@ -38,11 +39,38 @@ function QuickNotes({ onClose }) {
   const [sending, setSending] = React.useState(false);
   const [sent, setSent] = React.useState(false);
   const [submitErr, setSubmitErr] = React.useState(null);
+  const [ghConnected, setGhConnected] = React.useState(false);
   const textareaRef = React.useRef(null);
+
+  // Check if GitHub is connected (enables full implement→PR→merge pipeline)
+  const checkGh = React.useCallback(async () => {
+    try {
+      const { data } = await api.getGithubStatus();
+      setGhConnected(data?.connected || false);
+    } catch {
+      setGhConnected(false);
+    }
+  }, []);
 
   // Load recent quick-note tasks from the backend
   const loadNotes = React.useCallback(async () => {
     try {
+      // Try the quick-notes endpoint first, fall back to tasks
+      try {
+        const { data } = await api.listQuickNotes();
+        const raw = data.notes || [];
+        if (raw.length > 0) {
+          setNotes(raw.map(n => ({
+            id:     n.note_id || n.id,
+            text:   n.url || n.instruction || '(no text)',
+            type:   'url',
+            status: n.status === 'done' ? 'done' : n.status === 'processing' ? 'processing' : n.status === 'failed' ? 'failed' : 'queued',
+            ago:    n.added_at ? _relTime(n.added_at) : 'recently',
+          })));
+          return;
+        }
+      } catch { /* fall through to tasks */ }
+
       const { data } = await api.listTasks({ source: 'quick_note', limit: 10 });
       const raw = data.tasks || data.items || (Array.isArray(data) ? data : []);
       setNotes(raw.map(t => ({
@@ -59,9 +87,10 @@ function QuickNotes({ onClose }) {
   }, []);
 
   React.useEffect(() => {
+    checkGh();
     loadNotes();
     setTimeout(() => textareaRef.current?.focus(), 100);
-  }, [loadNotes]);
+  }, [loadNotes, checkGh]);
 
   const _relTime = (iso) => {
     const d = Date.now() - new Date(iso).getTime();
@@ -77,14 +106,28 @@ function QuickNotes({ onClose }) {
     if (!input.trim() || sending) return;
     setSending(true); setSubmitErr(null);
     try {
-      await api.createTask({
-        instruction: input.trim(),
-        source: 'quick_note',
-        priority: 'normal',
-      });
-      setInput('');
-      setSent(true);
-      setTimeout(() => setSent(false), 2000);
+      if (ghConnected && isUrl(input)) {
+        // GitHub connected + URL → create GH issue for full implement→PR→merge pipeline
+        const { data } = await api.createQuickNote({
+          url: input.trim(),
+          instruction: input.trim(),
+        });
+        if (data.channel === 'github' || data.channel === 'local') {
+          setInput('');
+          setSent(true);
+          setTimeout(() => setSent(false), 3000);
+        }
+      } else {
+        // Plain-text idea, or no GitHub → create internal task
+        await api.createTask({
+          instruction: input.trim(),
+          source: 'quick_note',
+          priority: 'normal',
+        });
+        setInput('');
+        setSent(true);
+        setTimeout(() => setSent(false), 2000);
+      }
       await loadNotes();
     } catch (e) {
       setSubmitErr(e?.response?.data?.detail || e.message || 'Could not save note.');
@@ -120,7 +163,9 @@ function QuickNotes({ onClose }) {
           }}>📝</div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Quick Notes</div>
-            <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>iPhone Shortcut → Dev Agent → git push</div>
+            <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+              {ghConnected ? 'GitHub connected → full implement → PR → review → merge pipeline' : 'iPhone Shortcut → Dev Agent → git push'}
+            </div>
           </div>
         </div>
         <button onClick={onClose} style={{
@@ -167,7 +212,7 @@ function QuickNotes({ onClose }) {
         </div>
         {sent && (
           <div style={{ marginTop: 8, fontSize: 11, color: '#46d9a4', fontFamily: 'var(--font-mono)', animation: 'fadeSlideUp 0.2s ease-out' }}>
-            ✓ Queued — Dev Agent will implement this shortly.
+            ✓ {ghConnected ? 'GitHub issue created — agents will implement, review, and auto-merge when green.' : 'Queued — Dev Agent will implement this shortly.'}
           </div>
         )}
         <div style={{ marginTop: 7, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>

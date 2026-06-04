@@ -18,7 +18,7 @@ Usage:
 
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import logging
 import secrets
@@ -219,7 +219,7 @@ class WebsiteScanner:
         # dnspython into a hard 500 for the whole scan instead of degrading to
         # an empty DNS result.
         scan_id = f"scan_{secrets.token_hex(8)}"
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
 
         try:
             if not website_url.startswith(("http://", "https://")):
@@ -230,7 +230,7 @@ class WebsiteScanner:
                 return WebsiteScanResult(
                     scan_id=scan_id, website_url=website_url, company_id=self.company_id,
                     status="failed", errors=["Blocked: only http/https schemes allowed"],
-                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                    started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
                 )
             
             _safe_url = parsed._replace(fragment="").geturl()
@@ -240,7 +240,7 @@ class WebsiteScanner:
                 return WebsiteScanResult(
                     scan_id=scan_id, website_url=website_url, company_id=self.company_id,
                     status="failed", errors=["Blocked: target URL is not a safe public address (SSRF protection)"],
-                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                    started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
                 )
 
             domain = parsed.hostname.replace('www.', '') if parsed.hostname else ""
@@ -290,7 +290,7 @@ class WebsiteScanner:
                 return WebsiteScanResult(
                     scan_id=scan_id, website_url=website_url, company_id=self.company_id,
                     status="failed", errors=[f"All fetch clients failed: {fetch_error}"],
-                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                    started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
                 )
 
             soup = BeautifulSoup(html, 'html.parser') if html else BeautifulSoup("", 'html.parser')
@@ -359,7 +359,7 @@ class WebsiteScanner:
                 sitemap_urls = await self._discover_sitemap(soup, website_url)
             
             pages_scanned = 1 + len(sitemap_urls) if sitemap_urls else 1
-            completed_at = datetime.utcnow()
+            completed_at = datetime.now(timezone.utc)
             
             return WebsiteScanResult(
                 scan_id=scan_id, website_url=website_url, company_id=self.company_id, status="success",
@@ -371,7 +371,7 @@ class WebsiteScanner:
             log.error(f"Error scanning website {website_url}: {e}")
             return WebsiteScanResult(
                 scan_id=scan_id, website_url=website_url, company_id=self.company_id, status="failed",
-                errors=[str(e)], started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                errors=[str(e)], started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
             )
 
     async def _render_html(self, url: str) -> Optional[tuple[str, dict, dict]]:
@@ -1011,7 +1011,7 @@ class RepoScanner:
             RepoScanResult with inferred stack and detected systems
         """
         scan_id = f"repo_scan_{secrets.token_hex(8)}"
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
         
         try:
             # Normalize URL
@@ -1037,7 +1037,7 @@ class RepoScanner:
                     files_scanned=0,
                     errors=[f"Provider {provider} not yet fully supported"],
                     started_at=started_at.isoformat(),
-                    completed_at=datetime.utcnow().isoformat()
+                    completed_at=datetime.now(timezone.utc).isoformat()
                 )
                 
         except Exception as e:
@@ -1049,7 +1049,7 @@ class RepoScanner:
                 status="failed",
                 errors=[str(e)],
                 started_at=started_at.isoformat(),
-                completed_at=datetime.utcnow().isoformat()
+                completed_at=datetime.now(timezone.utc).isoformat()
             )
 
     def _detect_provider(self, repo_url: str) -> str:
@@ -1114,7 +1114,7 @@ class RepoScanner:
                 status="failed",
                 errors=["Invalid GitHub repository URL"],
                 started_at=started_at.isoformat(),
-                completed_at=datetime.utcnow().isoformat()
+                completed_at=datetime.now(timezone.utc).isoformat()
             )
         
         owner = parts[0]
@@ -1148,7 +1148,7 @@ class RepoScanner:
                     # Detect systems
                     detected_systems = self._detect_systems_from_github_data(repo_data)
                     
-                    completed_at = datetime.utcnow()
+                    completed_at = datetime.now(timezone.utc)
                     
                     return RepoScanResult(
                         scan_id=scan_id,
@@ -1174,7 +1174,7 @@ class RepoScanner:
                         status="failed",
                         errors=["Repository not found"],
                         started_at=started_at.isoformat(),
-                        completed_at=datetime.utcnow().isoformat()
+                        completed_at=datetime.now(timezone.utc).isoformat()
                     )
                 elif response.status_code == 403:
                     return RepoScanResult(
@@ -1184,7 +1184,7 @@ class RepoScanner:
                         status="failed",
                         errors=["Rate limit exceeded or private repository without auth"],
                         started_at=started_at.isoformat(),
-                        completed_at=datetime.utcnow().isoformat()
+                        completed_at=datetime.now(timezone.utc).isoformat()
                     )
                 else:
                     return RepoScanResult(
@@ -1194,7 +1194,7 @@ class RepoScanner:
                         status="failed",
                         errors=[f"GitHub API error: {response.status_code}"],
                         started_at=started_at.isoformat(),
-                        completed_at=datetime.utcnow().isoformat()
+                        completed_at=datetime.now(timezone.utc).isoformat()
                     )
                     
         except Exception as e:
@@ -1206,7 +1206,7 @@ class RepoScanner:
                 status="failed",
                 errors=[str(e)],
                 started_at=started_at.isoformat(),
-                completed_at=datetime.utcnow().isoformat()
+                completed_at=datetime.now(timezone.utc).isoformat()
             )
 
     def _infer_stack_from_url(self, repo_url: str) -> StackInference:
