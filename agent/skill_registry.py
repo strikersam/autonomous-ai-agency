@@ -191,7 +191,7 @@ _MULTI_WORD_TECHS: tuple[str, ...] = tuple(
 )
 
 # Single-word techs — pre-compile word-boundary regex, sorted longest-first
-_SORTED_SINGLE: list[tuple[int, str]] = sorted(
+_SORTED_SINGLE: list[str] = sorted(
     (t for t in _ALL_TECHS if " " not in t and "." not in t),
     key=len, reverse=True,
 )
@@ -216,7 +216,7 @@ class _TechPattern:
             self.pattern = re.compile(r"\b" + re.escape(tech) + r"\b", flags=re.IGNORECASE)
 
 _SINGLE_WORD_TECHS_BY_LEN: tuple[_TechPattern, ...] = tuple(
-    _TechPattern(t) for _, t in _SORTED_SINGLE
+    _TechPattern(t) for t in _SORTED_SINGLE
 )
 
 
