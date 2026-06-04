@@ -36,6 +36,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest httpx
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend SPA
+        # frontend/build/ is gitignored, so it is NOT in the checkout. The
+        # backend serves the SPA from ../frontend/build (Dockerfile.backend
+        # COPYs it), and the browser test logs into the UI — so the build must
+        # exist in the Docker build context. Generate it here.
+        run: |
+          cd frontend
+          npm ci
+          CI=false npm run build
+          test -f build/index.html || { echo "::error::frontend build missing"; exit 1; }
+
       - name: Build and start backend
         run: |
           docker build -t llm-relay-backend -f Dockerfile.backend .
@@ -89,10 +105,25 @@ jobs:
 
       - name: Run API e2e tests (complementary)
         if: always()
+        env:
+          # This suite runs IN-PROCESS via FastAPI TestClient (it imports
+          # backend.server:app on the runner host, not the container). Without
+          # STORAGE_BACKEND=sqlite it defaults to mongo and every test fails with
+          # ServerSelectionTimeoutError (no Mongo on the runner). SQLite needs no
+          # external service.
+          STORAGE_BACKEND: sqlite
+          SQLITE_DB_PATH: /tmp/e2e_complementary.db
+          ADMIN_EMAIL: admin@llmrelay.local
+          ADMIN_PASSWORD: WikiAdmin2026!
+          JWT_SECRET: e2e-browser-test-secret
         run: |
           # Deps are installed to the job's system Python (see "Install test
           # deps"); there is no .venv here. Using ./.venv/bin/python raised
           # "No such file or directory" and silently skipped these tests.
+          # Kept as || true (non-blocking) because this suite still has a few
+          # pre-existing test bugs (e.g. asserting /api/ping, /api/doctor) that
+          # are out of scope here; the SQLite env at least stops the spurious
+          # Mongo-timeout failures so real regressions can surface in the log.
           python -m pytest tests/e2e/test_all_features.py -v --tb=short -q || true
 
       - name: Cleanup

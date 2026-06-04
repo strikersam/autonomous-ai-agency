@@ -42,6 +42,11 @@ COPY activation_api.py activation_api.py
 COPY infra_cost.py infra_cost.py
 COPY models/ models/
 COPY services/ services/
+# The backend serves the built React SPA from ../frontend/build (see
+# backend/server.py `_FRONTEND_BUILD`). Without this COPY the container has no
+# frontend, so /login (and every UI route) returns nothing — which is why the
+# Browser E2E job's login step found no form and failed. The build is committed.
+COPY frontend/build/ frontend/build/
 
 EXPOSE 8001
 
