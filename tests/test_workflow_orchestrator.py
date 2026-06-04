@@ -284,7 +284,7 @@ class TestGoldenPathExecution:
 
         # approve_and_resume continues execution
         run2 = asyncio.run(
-            asyncio.ensure_future(orchestrator.approve_and_resume(run1.run_id, approved_by="test-user"))
+            orchestrator.approve_and_resume(run1.run_id, approved_by="test-user")
         )
         assert run2.status == "done", (
             f"Expected done after approve_and_resume, got {run2.status!r}"
