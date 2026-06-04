@@ -582,61 +582,141 @@ class Agency:
 
 # ── CEO LLM prompt helpers ─────────────────────────────────────────────────────
 
-_CEO_SYSTEM_PROMPT = """You are the CEO agent of an autonomous AI engineering agency.
-Your repo is a self-hosted OpenAI-compatible LLM proxy (local-llm-server).
+_CEO_SYSTEM_PROMPT = """You are the CEO of an autonomous AI engineering agency operating 24/7.
+You manage a self-hosted AI platform (local-llm-server) that must continuously improve itself.
 
-Your job: review the current system state and issue up to 3 prioritized directives.
+## Your mandate
+You do NOT just react to problems — you proactively drive product quality, security,
+and value delivery. You reason about WHAT to fix, WHY it matters now, and HOW to prioritize.
 
-Respond ONLY with valid JSON array of directives. Each directive:
+## Output format
+Respond ONLY with a valid JSON array. Each directive:
 {
   "role": "dev|security|reviewer|release|scout|optimizer",
   "priority": 1-10,
   "title": "short title under 60 chars",
-  "instruction": "detailed instruction for the agent (multi-line ok)"
+  "instruction": "detailed step-by-step instruction for the agent — include file paths, commands to run, acceptance criteria"
 }
 
-Priority guide: 1=critical test failures, 2=security CVEs, 3=open quick-note tasks,
-4=code quality, 5=trend evaluation, 6=review, 7=optimization, 8=release check.
+## Priority framework
+1 = Test suite broken (blocks all other work)
+2 = Security CVE or auth vulnerability
+3 = User-requested feature (quick-note issues)
+4 = Bug causing user-visible failures
+5 = Performance degradation or reliability gap
+6 = Code quality or tech debt that's growing
+7 = Trend/opportunity evaluation worth a spike
+8 = Periodic review or release prep
+9–10 = Optimization when everything else is green
 
-Note: open GitHub issues titled "quick-note:*" that are not exhausted represent
-features requested by the repo owner. Treat them as priority 3 dev tasks.
-Exhausted quick-note issues (label: quick-note:exhausted) are handled automatically
-and should not appear in your directives.
+## Strategic context
+- This is a product used by real users — reliability > features
+- Every agent instruction MUST include: what files to read first, commands to run, how to verify success
+- Never create a directive for something already in-progress or recently resolved
+- If the system is healthy and no quick-note tasks exist, return [] — do not invent work
+- Quick-note GitHub issues (not exhausted) = high-priority user requests; always address before trend work
+- After any failing test cycle: first directive must be the test fix, nothing else until green
+- Recent git commits in the state show what changed — use them to spot regressions or opportunities
 
-Only issue directives where there is real work to do. If all nominal, return [].
+## Instruction quality bar
+A good instruction tells the agent:
+1. WHY this matters right now
+2. WHICH files to start with (include full paths)
+3. WHAT commands to run
+4. HOW to verify success (what should pass/change)
+5. WHAT to update in docs/changelog.md
 """
+
+
+def _collect_recent_git_context() -> str:
+    """Return recent commits and changed files for CEO situational awareness."""
+    import subprocess
+    try:
+        log = subprocess.run(
+            ["git", "log", "--oneline", "--no-merges", "-10"],
+            capture_output=True, text=True, timeout=5,
+        )
+        diff_stat = subprocess.run(
+            ["git", "diff", "--stat", "HEAD~5", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if log.returncode == 0 and log.stdout.strip():
+            out = f"Recent commits:\n{log.stdout.strip()}"
+            if diff_stat.returncode == 0 and diff_stat.stdout.strip():
+                changed = [l for l in diff_stat.stdout.splitlines() if "|" in l][:8]
+                out += "\nFiles changed recently:\n" + "\n".join(changed)
+            return out
+    except Exception:
+        pass
+    return ""
 
 
 def _build_ceo_prompt(state: dict[str, Any], cycle: int) -> str:
     lines = [f"# Agency state — cycle {cycle} at {_now_str()}\n"]
+
+    # ── Recent git activity ────────────────────────────────────────────────
+    git_ctx = _collect_recent_git_context()
+    if git_ctx:
+        lines.append(f"## Recent Changes\n{git_ctx}\n")
+
+    # ── Test health ────────────────────────────────────────────────────────
     loop = state.get("improvement_loop", {})
     if loop.get("failing_tests"):
-        lines.append(f"**FAILING TESTS ({len(loop['failing_tests'])}):**")
-        for t in loop["failing_tests"][:5]:
-            lines.append(f"  - {t}")
-    if loop.get("active_issues"):
-        lines.append(f"\n**ACTIVE ISSUES ({len(loop['active_issues'])}):**")
-        for i in loop["active_issues"][:5]:
-            lines.append(f"  [{i.get('category')}] {i.get('title')}")
+        lines.append(f"## FAILING TESTS ({len(loop['failing_tests'])}) ← FIX FIRST")
+        for t in loop["failing_tests"][:8]:
+            lines.append(f"  - `{t}`")
+    else:
+        lines.append("## Tests: ✅ All passing")
+
+    # ── Active issues by priority ──────────────────────────────────────────
+    active = loop.get("active_issues", [])
+    if active:
+        lines.append(f"\n## Active Issues ({len(active)})")
+        for i in sorted(active, key=lambda x: x.get("priority", 5))[:6]:
+            lines.append(f"  [{i.get('category','?')}] {i.get('title','')[:80]}")
+
+    # ── Self-healing events ────────────────────────────────────────────────
+    healing = state.get("self_healing", {}).get("recent_events", [])
+    if healing:
+        lines.append(f"\n## Self-Healing Events (last {len(healing)})")
+        for ev in healing[-3:]:
+            lines.append(f"  {ev.get('type','?')}: {str(ev.get('detail',''))[:60]}")
+
+    # ── Log monitor ────────────────────────────────────────────────────────
     monitor = state.get("log_monitor", {})
     if monitor.get("tasks_created", 0) > 0:
-        lines.append(f"\n**LOG ERRORS captured:** {monitor['tasks_created']} tasks created")
+        lines.append(f"\n## Runtime Errors: {monitor['tasks_created']} error tasks captured")
+
+    # ── Trends ────────────────────────────────────────────────────────────
     trends = state.get("top_trends", [])
     if trends:
-        lines.append(f"\n**LATEST TRENDS:**")
-        for t in trends:
-            lines.append(f"  [{t['source']}] {t['title']} (relevance={t['relevance_score']:.2f})")
-    lines.append(f"\nIssue totals — detected: {loop.get('issues_detected',0)}, "
-                 f"resolved: {loop.get('issues_resolved',0)}, "
-                 f"scans: {loop.get('scan_count',0)}")
+        lines.append(f"\n## AI/Tech Trends (top {min(3, len(trends))})")
+        for t in trends[:3]:
+            lines.append(f"  [{t['source']}] {t['title'][:80]} (relevance={t['relevance_score']:.2f})")
+
+    # ── Scan totals ────────────────────────────────────────────────────────
+    lines.append(
+        f"\n## Cumulative — detected: {loop.get('issues_detected', 0)}, "
+        f"resolved: {loop.get('issues_resolved', 0)}, "
+        f"cycles: {loop.get('scan_count', 0)}"
+    )
+
+    # ── Quick-note tasks (owner-requested features) ───────────────────────
     qn = state.get("quick_notes", {})
     if qn.get("actionable"):
-        lines.append(f"\n**OPEN QUICK-NOTE ISSUES ({len(qn['actionable'])}):**")
-        for i in qn["actionable"][:3]:
+        lines.append(f"\n## Owner-Requested Features — PRIORITY 3 ({len(qn['actionable'])} open)")
+        for i in qn["actionable"][:5]:
             labels = ", ".join(i.get("labels", []))
             lines.append(f"  #{i['number']} [{labels}] {i['title'][:80]}")
     if qn.get("exhausted_closed"):
-        lines.append(f"\nAuto-closed {qn['exhausted_closed']} exhausted quick-note issue(s) this cycle.")
+        lines.append(f"\nAuto-closed {qn['exhausted_closed']} completed quick-note issue(s).")
+
+    lines.append(
+        "\n## Instructions\n"
+        "Issue directives where there is concrete work to do. "
+        "Include exact file paths and commands in every instruction. "
+        "Return [] if all checks pass and no owner tasks exist."
+    )
     return "\n".join(lines)
 
 

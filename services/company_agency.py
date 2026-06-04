@@ -118,11 +118,15 @@ COMPANY_SCHEDULES = [
         "name_suffix": "website-health-scan",
         "cron": "*/30 * * * *",                # Every 30 minutes
         "instruction": (
-            "Run a health scan on all registered websites for this company. "
-            "Check for: HTTP 200 status, TLS certificate expiry, page load "
-            "time, broken links, and any detected stack changes. Report any "
-            "degradations or new detections. Update the Company Graph with "
-            "findings."
+            "Run a health scan on all registered websites for this company.\n\n"
+            "Steps:\n"
+            "1. Fetch each website URL, record HTTP status, TLS expiry, and response time.\n"
+            "2. Compare detected tech stack against the Company Graph's last recorded stack.\n"
+            "3. Flag any: HTTP non-200, TLS expiring <30 days, load time >3s, new systems detected.\n"
+            "4. If ANY degradation found: create a GitHub issue with severity (P1=down, P2=degraded, P3=change).\n"
+            "5. Update Company Graph via PATCH /api/company/{company_id} with findings.\n\n"
+            "Signal-driven: only create issues when state changes from last scan — "
+            "do not create duplicate issues for ongoing outages."
         ),
         "specialist_family": "frontend",
         "priority": 4,
@@ -131,13 +135,18 @@ COMPANY_SCHEDULES = [
         "name_suffix": "security-audit",
         "cron": "0 9 * * *",                   # Daily at 9 AM UTC
         "instruction": (
-            "Run a comprehensive security audit for this company. Check: "
-            "1) Website security headers (CSP, HSTS, X-Frame-Options), "
-            "2) Detected system CVEs against latest disclosures, "
-            "3) Repository secret scanning, "
-            "4) Dependency vulnerability check. "
-            "Create GitHub issues for any HIGH/CRITICAL findings. "
-            "Update the Company Graph with audit results."
+            "Run a comprehensive security audit for this company.\n\n"
+            "Steps:\n"
+            "1. Check website security headers: CSP, HSTS, X-Frame-Options, X-Content-Type-Options.\n"
+            "2. Look up CVEs for every detected system in the Company Graph "
+            "(use pip-audit or PyPI Security Advisories for Python, npm audit for Node).\n"
+            "3. Scan any linked repositories for committed secrets (gitleaks or truffleHog patterns).\n"
+            "4. Check Python/Node dependency freshness against the repo's requirements.txt/package.json.\n\n"
+            "Output:\n"
+            "- Create GitHub issues for HIGH/CRITICAL findings with remediation steps.\n"
+            "- For MEDIUM/LOW: add to a weekly digest comment on an existing 'security-audit' issue.\n"
+            "- Update Company Graph security_score field.\n\n"
+            "Only report NEW findings not already tracked in open GitHub issues."
         ),
         "specialist_family": "security",
         "priority": 2,
@@ -146,11 +155,15 @@ COMPANY_SCHEDULES = [
         "name_suffix": "stack-change-detection",
         "cron": "0 6 * * *",                   # Daily at 6 AM UTC
         "instruction": (
-            "Re-scan all company websites and repositories for technology "
-            "stack changes. Compare with the existing Company Graph. "
-            "Detect: new frameworks, removed libraries, CMS version changes, "
-            "new third-party integrations, analytics platform changes. "
-            "Generate a stack change report and update the Company Graph."
+            "Re-scan all company websites and repositories for technology stack changes.\n\n"
+            "Steps:\n"
+            "1. Re-run the website scanner on all URLs in the Company Graph.\n"
+            "2. Diff detected_systems against the stored Company Graph — find added/removed systems.\n"
+            "3. For each ADDED system: assess impact (new CDN? new CMS? potential cost/security implication).\n"
+            "4. For each REMOVED system: flag as possible migration or incident signal.\n"
+            "5. Update the Company Graph with new detected_systems.\n"
+            "6. Create a GitHub issue titled '[Stack Delta] {date}' summarising changes if any occurred.\n\n"
+            "Do not create an issue if nothing changed — only signal on delta."
         ),
         "specialist_family": "backend",
         "priority": 5,
@@ -159,10 +172,17 @@ COMPANY_SCHEDULES = [
         "name_suffix": "code-quality-scan",
         "cron": "0 12 * * *",                  # Daily at 12 PM UTC
         "instruction": (
-            "Run a code quality analysis across all company repositories. "
-            "Check: lint compliance, code duplication, complexity metrics, "
-            "test coverage trends, and dependency freshness. Generate a "
-            "quality report with actionable recommendations."
+            "Run a code quality analysis across all company repositories.\n\n"
+            "Steps:\n"
+            "1. Run flake8/ruff (Python) or eslint (JS) on the repo — count violations by severity.\n"
+            "2. Run pytest --cov if tests exist — record coverage percentage.\n"
+            "3. Check for TODO/FIXME/HACK markers with count and trend vs last scan.\n"
+            "4. Check that every public function has a type annotation (Python) or JSDoc (JS).\n"
+            "5. Identify the single highest-value cleanup task (worst file, lowest coverage, etc.).\n\n"
+            "Output:\n"
+            "- Create a GitHub issue titled '[Quality] {date}' only if quality is declining.\n"
+            "- If improving, comment on the existing quality issue with the metric update.\n"
+            "- Always update Company Graph quality_score (0.0–1.0 based on coverage + lint pass rate)."
         ),
         "specialist_family": "engineering",
         "priority": 6,
@@ -171,11 +191,17 @@ COMPANY_SCHEDULES = [
         "name_suffix": "trend-watch",
         "cron": "0 */6 * * *",                 # Every 6 hours
         "instruction": (
-            "Check for relevant AI/tech trends that could impact this company. "
-            "Look for: new model releases, framework updates, security "
-            "disclosures, competitor technology changes. If a trend is "
-            "actionable, create a GitHub issue with a detailed assessment "
-            "and recommended action."
+            "Check for AI/tech trends that could create a competitive advantage for this company.\n\n"
+            "Steps:\n"
+            "1. Check for new Ollama model releases (GET https://ollama.com/library).\n"
+            "2. Check for new Claude/OpenAI model announcements on their changelogs.\n"
+            "3. Check HackerNews/GitHub trending for frameworks matching the company's detected tech stack.\n"
+            "4. Check CVE feeds for vulnerabilities in the company's detected systems.\n\n"
+            "Output rules:\n"
+            "- Only create a GitHub issue if the trend is DIRECTLY actionable for this company's stack.\n"
+            "- Issue title format: '[Trend] {category}: {title}' with recommendation and effort estimate.\n"
+            "- Skip trends already tracked in open GitHub issues (check first).\n"
+            "- New Ollama models: always actionable if better than current default model."
         ),
         "specialist_family": "analytics",
         "priority": 7,
@@ -184,11 +210,16 @@ COMPANY_SCHEDULES = [
         "name_suffix": "company-graph-sync",
         "cron": "*/30 * * * *",                # Every 30 minutes
         "instruction": (
-            "Sync the Company Graph with the latest data. Verify all "
-            "specialists are healthy, runtimes are responsive, schedules "
-            "are executing on time. Update specialist statistics (success "
-            "count, error count, last activity). Generate a health dashboard "
-            "summary."
+            "Sync the Company Graph and verify platform health.\n\n"
+            "Steps:\n"
+            "1. GET /api/company/{company_id} — verify the record exists and is not stale.\n"
+            "2. GET /api/agents — verify each specialist is active and has recent activity.\n"
+            "3. Check that scheduled tasks are executing: last_activity timestamp < 2× cron interval.\n"
+            "4. GET /api/health — verify all backend services are UP.\n"
+            "5. Update specialist statistics: success_count, error_count, last_activity.\n\n"
+            "Alert: if any specialist has been inactive >2× its scheduled interval, "
+            "create a P2 GitHub issue: '[Health] Specialist {name} stalled at {last_activity}'.\n"
+            "Do not create duplicate alerts for already-open health issues."
         ),
         "specialist_family": "operations",
         "priority": 8,
