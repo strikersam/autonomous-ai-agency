@@ -109,7 +109,7 @@ function CheckRow({ check, expanded, onToggle, onNavigate, onFix }) {
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>{check.detail}</div>
             </div>
           )}
-          {(action || (check.status !== 'pass' && /github/i.test(check.label))) && (
+          {(action || (check.status !== 'pass' && /github/i.test(check.label)) || (check.status !== 'pass' && check.fixable && onFix)) && (
             <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {((action && action.href) || (!action && /github/i.test(check.label))) && onNavigate && (
                 <button onClick={(e) => { e.stopPropagation(); onNavigate(action?.href || 'github'); }} style={{
@@ -129,6 +129,17 @@ function CheckRow({ check, expanded, onToggle, onNavigate, onFix }) {
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase', marginRight: 6, opacity: 0.7 }}>{action.label || 'Fix'}:</span>
                   {action.hint}
                 </div>
+              )}
+              {check.status !== 'pass' && check.fixable && onFix && (
+                <button onClick={handleFix} disabled={fixing} style={{
+                  padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+                  background: fixing ? 'rgba(70,217,164,0.08)' : 'rgba(70,217,164,0.15)',
+                  border: '1px solid rgba(70,217,164,0.30)',
+                  color: '#46d9a4', cursor: fixing ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  {fixing ? 'Fixing…' : '⚡ Fix it'}
+                </button>
               )}
             </div>
           )}
@@ -208,15 +219,23 @@ export default function DoctorScreen({ onNavigate }) {
     }
   }
 
+  function authPost(path) {
+    const token = localStorage.getItem('access_token') || '';
+    return fetch(`${API}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+  }
+
   // Fix a single check (calls POST /api/doctor/fix/{checkId})
   const handleFixOne = async (checkId) => {
-    await API.post(`/api/doctor/fix/${checkId}`);
+    await authPost(`/api/doctor/fix/${checkId}`);
     reload();
   };
 
   // Fix all failing/warning checks (calls POST /api/doctor/fix-all)
   const handleFixAll = async () => {
-    await API.post('/api/doctor/fix-all');
+    await authPost('/api/doctor/fix-all');
     reload();
   };
 

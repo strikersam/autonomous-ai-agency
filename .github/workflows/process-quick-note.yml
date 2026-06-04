@@ -214,9 +214,6 @@ jobs:
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
           ISSUE_TASK: ${{ steps.issue.outputs.task }}
         run: |
-          ISSUE_NUM="\$ISSUE_NUM"
-          ISSUE_URL="\$ISSUE_URL"
-          ISSUE_TASK="\$ISSUE_TASK"
           python3 .github/scripts/implement_agent.py \
             "$ISSUE_URL" \
             "$ISSUE_NUM" \
@@ -328,9 +325,6 @@ jobs:
           except Exception:
               print('(see diff)')
           " 2>/dev/null || echo "(see diff)")
-          ISSUE_NUM="\$ISSUE_NUM"
-          ISSUE_URL="\$ISSUE_URL"
-          ISSUE_TASK="\$ISSUE_TASK"
           PR_BODY="$(cat <<PRBODY
           ## Summary
           Closes #$ISSUE_NUM

@@ -586,7 +586,7 @@ function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
       .filter(b => !seenIds.has(b.id) && !seenNames.has(b.name.toLowerCase()))
       .map(a => ({ ...a, status:'idle', currentTask:null, tasksWeek: agentTaskStats.weekTotal || 0, avgMs: agentTaskStats.avgMs || 0, lastRun: agentLastRun[a.id] || '—', origin:'builtin' }));
     return [...builtins, ...backendAgents];
-  }, [backendAgents, agentLastRun]);
+  }, [backendAgents, agentLastRun, agentTaskStats]);
 
   // Navigate to Tasks board
   const handleViewTasks = () => onNavigateToTasks && onNavigateToTasks();
