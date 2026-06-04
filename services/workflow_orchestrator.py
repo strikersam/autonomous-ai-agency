@@ -690,7 +690,13 @@ class WorkflowOrchestrator:
 
         try:
             from agent.doctor import DirectChatDoctor
-            github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+            # Preflight must validate the SAME credentials execution will use —
+            # the caller's token — so a green preflight reflects the caller's
+            # real GitHub access. Fall back to the env token only for internal
+            # system runs (no user_id), matching _handle_execute.
+            github_token = req.github_token
+            if github_token is None and req.user_id is None:
+                github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
             doctor = DirectChatDoctor(github_token=github_token)
             report = await doctor.check_all()
 
@@ -1024,7 +1030,20 @@ class WorkflowOrchestrator:
                         "last_activity": datetime.now(timezone.utc),
                     })
                     await store.update_company(updated)
-                    company_updated = True
+                    # Verify the round-trip: some backends (e.g. the SQLite
+                    # fallback) don't persist integration_config/last_activity,
+                    # so only report success if the activity actually survived.
+                    # (It is always durably recorded in the session event log
+                    # below regardless of backend.)
+                    verify = await store.get_company(req.company_id)
+                    company_updated = bool(
+                        verify and (verify.integration_config or {}).get("workflow_activity")
+                    )
+                    if not company_updated:
+                        log.info(
+                            "Company Graph activity not persisted by backend "
+                            "(recorded in session event log instead)."
+                        )
             except Exception as exc:
                 log.warning("Company Graph persist failed (non-fatal): %s", exc)
 
