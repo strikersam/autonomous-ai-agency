@@ -62,6 +62,8 @@ API.interceptors.request.use((config) => {
 // On network errors (CORS, connection refused, DNS failure), self-heal the
 // backend URL.  Only clears the stored URL on specific connectivity errors
 // (ECONNREFUSED, CORS, ERR_NETWORK) — NOT on transient timeouts or flaky DNS.
+let isRefreshing = false;
+let refreshQueue = [];
 API.interceptors.response.use(
   (res) => res,
   async (error) => {

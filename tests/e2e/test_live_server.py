@@ -394,7 +394,10 @@ def test_platform_info(c: httpx.Client, h: dict) -> None:
     # Returns {"catalog": [...], "agent_role_models": {...}}
     catalog = body.get("catalog", body) if isinstance(body, dict) else body
     count = len(catalog) if isinstance(catalog, list) else "?"
-    ok(f"GET /api/models/catalog → {count} model(s)")def test_company_lifecycle(c: httpx.Client, h: dict) -> None:
+    ok(f"GET /api/models/catalog → {count} model(s)")
+
+
+def test_company_lifecycle(c: httpx.Client, h: dict) -> None:
     """Company-graph lifecycle against the live server (no mocks).
 
     Regression coverage for the onboarding bugs that previously slipped through
