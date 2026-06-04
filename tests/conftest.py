@@ -45,6 +45,29 @@ def pytest_collection_modifyitems(
             item.add_marker(skip_db)
 
 
+
+# ─── Legacy workflow mode for tests (Phase 2 deprecation guard) ──────────
+# By default, ALL tests run in legacy mode so AgentRunner.run(),
+# Agency.run_cycle(), MultiAgentSwarm.run() etc. work without patching
+# every test individually.  Tests that need orchestrator mode explicitly
+# override via monkeypatch.setattr + importlib.reload.
+
+import pytest  # noqa: E402 — re-import for fixture decorator clarity
+
+
+@pytest.fixture(autouse=True)
+def _set_legacy_workflow_mode(monkeypatch):
+    """Default all tests to legacy workflow mode (Phase 2 compatibility).
+
+    Only patches WORKFLOW_MODE so ``is_legacy_mode()`` returns True naturally.
+    Tests that need orchestrator mode can override via
+    ``monkeypatch.setattr("...WORKFLOW_MODE", "orchestrator")``.
+    """
+    monkeypatch.setattr(
+        "services.workflow_orchestrator.WORKFLOW_MODE", "legacy"
+    )
+
+
 # ─── fixtures ─────────────────────────────────────────────────────────────────
 
 @pytest.fixture

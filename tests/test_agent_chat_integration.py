@@ -238,9 +238,7 @@ def test_agent_runner_singleton_uses_nim_when_key_set(
 def test_risky_module_detection_emits_warning(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # AgentRunner.run() is blocked in orchestrator mode; run in legacy.
-    monkeypatch.setattr("services.workflow_orchestrator.WORKFLOW_MODE", "legacy")
-    monkeypatch.setattr("services.workflow_orchestrator.is_legacy_mode", lambda: True)
+    # Legacy workflow mode set globally by conftest.py
 
     root = tmp_path / "repo"
     root.mkdir()
