@@ -93,6 +93,9 @@ class SpecialistService:
         # Auto-resolve runtime if not explicitly provided
         resolved_runtime = request.runtime or self._resolve_runtime(request.specialist_family)
 
+        # Auto-bind skills based on specialist family
+        bound_skills = self._auto_bind_skills(request.specialist_family)
+
         # Create new specialist
         specialist = Specialist(
             company_id=request.company_id,
@@ -103,6 +106,7 @@ class SpecialistService:
             system_types=request.system_types or [],
             model_preference=request.model_preference,
             runtime=resolved_runtime,
+            bound_skills=bound_skills,
             is_provisioned=True,
             provisioned_at=datetime.utcnow(),
             status="available",
@@ -537,6 +541,57 @@ class SpecialistService:
             stats["total_errors"] += specialist.error_count
         
         return stats
+
+    # =========================================================================
+    # SKILL BINDING
+    # =========================================================================
+
+    def _auto_bind_skills(self, family: str) -> list[str]:
+        """Auto-bind relevant skills to a specialist based on its family.
+
+        Uses the SkillBindings service to determine which skills are relevant
+        and returns the capability strings they add.
+
+        Args:
+            family: SpecialistFamily value
+
+        Returns:
+            List of skill IDs that were bound
+        """
+        try:
+            from services.skill_bindings import get_skill_bindings
+            bindings = get_skill_bindings()
+            skills = bindings.list_for_family(family)
+            return [s.skill_id for s in skills if s.is_enabled]
+        except ImportError:
+            return []
+        except Exception as exc:
+            log.warning("Failed to auto-bind skills for family '%s': %s", family, exc)
+            return []
+
+    async def get_bound_skills(self, specialist_id: str) -> list[dict[str, Any]]:
+        """Get the details of skills bound to a specialist.
+
+        Args:
+            specialist_id: Specialist ID
+
+        Returns:
+            List of skill dicts
+        """
+        try:
+            from services.skill_bindings import get_skill_bindings
+            bindings = get_skill_bindings()
+            specialist = await self.store.get_specialist(specialist_id)
+            if not specialist or not specialist.bound_skills:
+                return []
+            result = []
+            for skill_id in specialist.bound_skills:
+                skill = bindings.get(skill_id)
+                if skill:
+                    result.append(skill.as_dict())
+            return result
+        except ImportError:
+            return []
 
     # =========================================================================
     # HELPER METHODS

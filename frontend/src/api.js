@@ -382,3 +382,11 @@ export const recommendSkills      = (data)          => API.post('/api/skills/rec
 export const autoRecommendSkills  = (params = {})   => API.get('/api/skills/recommend/auto', { params });
 export const getSkill             = (skillId)       => API.get(`/api/skills/${encodeURIComponent(skillId)}`);
 
+// Company Skills (v5 SkillBindings)
+export const listCompanySkills    = (params = {})   => API.get('/api/company/skills', { params });
+export const autoRecommendCompanySkills = (companyId) =>
+  API.get('/api/company/skills/recommend/auto', { params: { company_id: companyId } });
+export const getCompanySkill      = (skillId)       => API.get(`/api/company/skills/${encodeURIComponent(skillId)}`);
+export const getSpecialistSkills  = (companyId, specialistId) =>
+  API.get(`/api/company/${companyId}/specialists/${specialistId}/skills`);
+

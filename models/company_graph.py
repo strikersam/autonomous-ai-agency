@@ -760,6 +760,11 @@ class Specialist(BaseModel):
         default_factory=list,
         description="System types this specialist can work with"
     )
+    # Skill bindings
+    bound_skills: List[str] = Field(
+        default_factory=list,
+        description="Skill IDs bound to this specialist (from services/skill_bindings.py)"
+    )
     # Company-specific configuration
     company_id: str | None = Field(
         default=None,
