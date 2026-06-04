@@ -213,10 +213,14 @@ class WebsiteScanner:
         include_sitemap: bool = True,
         max_pages: int = 20
     ) -> WebsiteScanResult:
-        import dns.resolver
+        # NOTE: do not import dns.resolver here. It is only needed by
+        # _analyze_dns, which imports it inside its own guarded try/except — an
+        # un-guarded import at method entry would turn a missing/broken
+        # dnspython into a hard 500 for the whole scan instead of degrading to
+        # an empty DNS result.
         scan_id = f"scan_{secrets.token_hex(8)}"
         started_at = datetime.utcnow()
-        
+
         try:
             if not website_url.startswith(("http://", "https://")):
                 website_url = f"https://{website_url}"
@@ -627,12 +631,21 @@ class WebsiteScanner:
         return list(systems_map.values())
 
     def _analyze_dns(self, domain: str) -> List[DetectedSystem]:
-        import dns.resolver
-        systems = []
-        
+        systems: List[DetectedSystem] = []
+
         if not domain:
             return systems
-            
+
+        # Soft import: if dnspython is unavailable, degrade to an empty DNS
+        # result rather than crashing the whole scan (the static/headless tiers
+        # still run). dnspython is a production dependency (backend/requirements
+        # .txt); this guard just keeps a dependency drift from 500-ing scans.
+        try:
+            import dns.resolver
+        except ImportError:
+            log.warning("dnspython not installed — skipping DNS analysis (no MX/NS/TXT/CNAME detection)")
+            return systems
+
         def add_sys(sys_id, sys_type, name, conf, ev_type, ev_val):
             systems.append(DetectedSystem(
                 system_type=sys_type, name=name, confidence=conf,
