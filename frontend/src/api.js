@@ -415,3 +415,10 @@ export const getCompanySkill      = (skillId)       => API.get(`/api/company/ski
 export const getSpecialistSkills  = (companyId, specialistId) =>
   API.get(`/api/company/${companyId}/specialists/${specialistId}/skills`);
 
+// ── Quick Notes (iPhone Shortcut + FAB) ────────────────────────────────────
+export const createQuickNote = (data) => API.post('/v1/quick-notes', data);
+export const listQuickNotes = () => API.get('/v1/quick-notes');
+
+// ── Agency Status ───────────────────────────────────────────────────────────
+export const getAgencyStatus = () => API.get('/agent/agency/status');
+

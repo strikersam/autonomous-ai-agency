@@ -57,6 +57,7 @@ from agent.token_budget import BudgetExceededError, TokenBudget
 from agent.user_memory import UserMemoryStore
 from agent.voice import VoiceCommandInterface
 from agent.watchdog import ResourceWatchdog
+from agent.quick_note import QuickNoteQueue, set_quick_note_queue, start_processor
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from handlers.anthropic_compat import handle_anthropic_messages
 from key_store import issue_new_api_key, load_key_store
@@ -347,7 +348,18 @@ SCHEDULER         = AgentScheduler()
 BACKGROUND_AGENT  = BackgroundAgent()
 COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
 BROWSER_SESSION   = BrowserSession()
+QUICK_NOTE_QUEUE  = QuickNoteQueue()
 BACKGROUND_AGENT.start()
+set_quick_note_queue(QUICK_NOTE_QUEUE)
+start_processor(QUICK_NOTE_QUEUE)
+try:
+    from agent.agency import Agency, set_agency
+    _AGENCY = Agency()
+    set_agency(_AGENCY)
+    _AGENCY.start()
+    log.info("CEO Agency started — tick=%dm", _AGENCY._tick // 60)
+except Exception as exc:
+    log.warning("CEO Agency failed to start: %s", exc)
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
@@ -1419,6 +1431,126 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
         if alias not in alias_set
     ]
     return {"object": "list", "data": local_entries + registry_only + alias_entries}
+
+
+# ─── Quick Notes API (/v1/quick-notes) ────────────────────────────────────────
+# iPhone Shortcut → POST /v1/quick-notes → queue → processor → git push
+# Also creates GitHub issues when GitHub token is configured so the
+# process-quick-note workflow can pick them up for full implement→PR→merge.
+
+class QuickNoteRequest(BaseModel):
+    url: str = Field(..., min_length=5, max_length=4000)
+    instruction: str = Field(default="", max_length=2000)
+
+
+@app.post("/v1/quick-notes")
+async def quick_notes_submit(
+    body: QuickNoteRequest,
+    request: Request,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Submit a quick-note URL or instruction from iPhone Shortcut or FAB.
+
+    When GitHub is configured (GH_TOKEN or GITHUB_TOKEN env var), creates a
+    GitHub issue with the quick-note label so the process-quick-note workflow
+    picks it up.  Otherwise queues it in the local QuickNoteQueue.
+    """
+    url = body.url.strip()
+    instruction = body.instruction.strip()
+
+    # Try GitHub issue creation first (process-quick-note workflow picks these up)
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "strikersam/local-llm-server")
+
+    title = f"quick-note: {url[:80]}"
+    issue_body_parts = [url]
+    if instruction:
+        issue_body_parts.append(f"\nTask: {instruction}")
+    issue_body = "\n".join(issue_body_parts)
+
+    if gh_token and gh_repo:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"https://api.github.com/repos/{gh_repo}/issues",
+                    json={
+                        "title": title,
+                        "body": issue_body,
+                        "labels": ["quick-note"],
+                    },
+                    headers={
+                        "Authorization": f"Bearer {gh_token}",
+                        "Accept": "application/vnd.github+json",
+                    },
+                )
+            if resp.status_code == 201:
+                issue_data = resp.json()
+                issue_number = issue_data["number"]
+                log.info(
+                    "Quick-note → GitHub issue #%d created: %s",
+                    issue_number, url,
+                )
+                return {
+                    "status": "created",
+                    "channel": "github",
+                    "issue_number": issue_number,
+                    "issue_url": issue_data.get("html_url", ""),
+                }
+            else:
+                log.warning(
+                    "Quick-note GitHub issue creation failed (%d): %s",
+                    resp.status_code, resp.text[:200],
+                )
+        except Exception as exc:
+            log.warning("Quick-note GitHub issue creation error: %s", exc)
+
+    # Fallback: queue locally
+    note = QUICK_NOTE_QUEUE.add(url)
+    log.info("Quick-note queued locally: %s → %s", note.note_id, url)
+    return {
+        "status": "queued",
+        "channel": "local",
+        "note_id": note.note_id,
+        "hint": (
+            "GitHub not configured — set GH_TOKEN to enable the full "
+            "implement→PR→review→merge pipeline."
+        ),
+    }
+
+
+@app.get("/v1/quick-notes")
+async def quick_notes_list(auth: AuthContext = Depends(verify_api_key)):
+    """List queued quick-notes (local queue only)."""
+    notes = QUICK_NOTE_QUEUE.list_all()
+    return {"notes": [n.as_dict() for n in notes], "count": len(notes)}
+
+
+# ─── Agency Status ───────────────────────────────────────────────────────────
+
+@app.get("/agent/agency/status")
+async def agency_status(auth: AuthContext = Depends(verify_api_key)):
+    """Get CEO Agency status for the AlertsBell and Doctor dashboards."""
+    try:
+        from agent.agency import get_agency
+        agency = get_agency()
+        if agency is None:
+            return {"running": False, "reason": "Agency not initialised"}
+        status = agency.get_status()
+        # Add recent directives as alerts
+        alerts: list[dict] = []
+        for d in agency._directives[-10:]:
+            alerts.append({
+                "id": d.directive_id,
+                "title": d.title,
+                "role": d.role.value,
+                "status": d.status,
+                "issued_at": d.issued_at,
+                "priority": d.priority,
+            })
+        status["alerts"] = alerts
+        return status
+    except Exception as exc:
+        return {"running": False, "error": str(exc)}
 
 
 # ─── Features API router ─────────────────────────────────────────────────────

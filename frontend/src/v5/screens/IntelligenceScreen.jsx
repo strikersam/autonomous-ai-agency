@@ -29,7 +29,7 @@ function TipBubble({ label, children }) {
 }
 
 // ── AI Analysis Panel ─────────────────────────────────────────────────────────
-function AIInsightsPanel({ company, competitors, keywords }) {
+function AIInsightsPanel({ company, competitors, keywords, onNavigate }) {
   const [analysis,  setAnalysis]  = React.useState('');
   const [loading,   setLoading]   = React.useState(false);
   const [error,     setError]     = React.useState('');
@@ -115,7 +115,7 @@ Keep it sharp, practical, and under 300 words. No fluff. Write in plain English 
           <div style={{ fontSize:13, color:'var(--text-secondary)', lineHeight:1.8, whiteSpace:'pre-wrap' }}>{analysis}</div>
           <div style={{ marginTop:10, fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', display:'flex', justifyContent:'space-between' }}>
             <span>Generated just now · Claude AI</span>
-            <span>Apply to <a href="#" style={{ color:'var(--accent)' }}>Schedules</a> or <a href="#" style={{ color:'var(--accent)' }}>Tasks</a></span>
+            <span>Apply to <a href="#" onClick={e=>{e.preventDefault(); onNavigate && onNavigate('schedules');}} style={{ color:'var(--accent)', cursor:'pointer' }}>Schedules</a> or <a href="#" onClick={e=>{e.preventDefault(); onNavigate && onNavigate('tasks');}} style={{ color:'var(--accent)', cursor:'pointer' }}>Tasks</a></span>
           </div>
         </div>
       )}
@@ -226,7 +226,7 @@ function KeywordRow({ kw, onToggle, onRemove }) {
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-function IntelligenceScreen() {
+function IntelligenceScreen({ onNavigate }) {
   const [competitors, setCompetitors] = React.useState([]);
   const [keywords,    setKeywords]    = React.useState([]);
   const [companyName, setCompanyName] = React.useState('Your Store');
@@ -302,7 +302,7 @@ function IntelligenceScreen() {
 
       {tab === 'briefing' && (
         <div style={{ animation:'fadeSlideUp 0.3s ease-out' }}>
-          <AIInsightsPanel company={companyName} competitors={competitors} keywords={keywords}/>
+          <AIInsightsPanel company={companyName} competitors={competitors} keywords={keywords} onNavigate={onNavigate}/>
 
           {/* What to do with insights */}
           <div style={{ padding:'14px 16px', borderRadius:16, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
@@ -314,7 +314,7 @@ function IntelligenceScreen() {
                 { icon:'✅', label:'Create a task', desc:'Turn a specific recommendation into a tracked task for your team.', screen:'tasks', color:'#c4b5fd' },
                 { icon:'💬', label:'Ask an agent', desc:'Open chat and paste the insight — an agent will plan the response.', screen:'chat', color:'#ffbd66' },
               ].map(a => (
-                <div key={a.label} style={{ padding:'11px 13px', borderRadius:13, background:`${a.color}07`, border:`1px solid ${a.color}20`, cursor:'pointer', transition:'all 0.15s' }}
+                <div key={a.label} onClick={() => onNavigate && onNavigate(a.screen)} style={{ padding:'11px 13px', borderRadius:13, background:`${a.color}07`, border:`1px solid ${a.color}20`, cursor:'pointer', transition:'all 0.15s' }}
                   onMouseEnter={e=>{e.currentTarget.style.background=`${a.color}12`;}}
                   onMouseLeave={e=>{e.currentTarget.style.background=`${a.color}07`;}}>
                   <div style={{ fontSize:16, marginBottom:5 }}>{a.icon}</div>

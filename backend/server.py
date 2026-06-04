@@ -835,6 +835,13 @@ GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
 # https://my-backend.onrender.com/api/github/oauth/callback
 GITHUB_CALLBACK_URL = os.environ.get("GITHUB_CALLBACK_URL", "")
 
+# Imported early so /api/skills/discover can reference the registries list
+try:
+    from agent.skill_registry import GITHUB_REGISTRIES
+except ImportError:
+    log.warning("Could not import GITHUB_REGISTRIES — skill discover endpoint will show no registries")
+    GITHUB_REGISTRIES = []  # type: ignore[assignment]
+
 # ─── Model Catalog ────────────────────────────────────────────────────────────────
 # Best-in-class models per provider, tagged by role and tier.
 # role: planner = strong reasoning; executor = instruction-following/coding; verifier = critical eval
@@ -4572,10 +4579,11 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
 # discover, search, and get context-aware recommendations.
 
 try:
-    from agent.skill_registry import SkillRegistry as _SkillRegistry
+    from agent.skill_registry import SkillRegistry as _SkillRegistry, set_skill_registry
     _SKILL_REGISTRY = _SkillRegistry(
         github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_ACCESS_TOKEN")
     )
+    set_skill_registry(_SKILL_REGISTRY)
 except Exception as _sr_err:
     log.warning("Could not initialise SkillRegistry: %s", _sr_err)
     _SKILL_REGISTRY = None  # type: ignore[assignment]
@@ -4593,6 +4601,28 @@ async def list_skills(
         return {"skills": [], "total": 0}
     skills = _SKILL_REGISTRY.search(query) if query else _SKILL_REGISTRY.list(source=source)
     return {"skills": [s.as_dict() for s in skills[:limit]], "total": len(skills)}
+
+
+@app.get("/api/skills/discover")
+async def discover_remote_skills(user: dict = Depends(get_current_user)):
+    """Preview what skills are available from remote GitHub registries without adding them."""
+    if _SKILL_REGISTRY is None:
+        return {"registries": [], "total": 0}
+    await _SKILL_REGISTRY.refresh_remote()
+    registries = {}
+    for reg in GITHUB_REGISTRIES:
+        rid = reg["id"]
+        registries[rid] = {"id": rid, "owner": reg["owner"], "repo": reg["repo"],
+                           "structure": reg.get("structure", "subdirs"), "skill_count": 0, "skills": []}
+    for skill in _SKILL_REGISTRY.list():
+        if skill.source.startswith("github:") and skill.registry_id in registries:
+            registries[skill.registry_id]["skill_count"] += 1
+            registries[skill.registry_id]["skills"].append({
+                "skill_id": skill.skill_id, "name": skill.name,
+                "description": (skill.description or "")[:120],
+                "tags": skill.tags[:5], "tech_relevance": skill.tech_relevance[:5], "url": skill.url})
+    result = sorted(registries.values(), key=lambda r: r["skill_count"], reverse=True)
+    return {"registries": result, "total": sum(r["skill_count"] for r in result)}
 
 
 @app.post("/api/skills/refresh")
@@ -6143,7 +6173,7 @@ async def get_doctor_diagnostics(
     try:
         from agent.skills import SkillLibrary
         lib = SkillLibrary()
-        skill_count = len(lib.list_all())
+        skill_count = len(lib.list())
         checks.append(_DoctorCheck(
             id="skills",
             category="Skills",

@@ -1596,7 +1596,7 @@ class SQLiteStore:
             company=company,
             websites=websites,
             repos=repos,
-            systems=[],
+            systems=[],  # BusinessSystems — use detected_systems for now
             specialists=specialists,
             workflows=[],
             knowledge=knowledge,
@@ -1604,8 +1604,8 @@ class SQLiteStore:
             approval_policies=[],
             detected_systems=detected_systems,
             version="1.0",
-            is_complete=False,
-            completeness_score=0.0
+            is_complete=len(detected_systems) > 0 or len(specialists) > 0,
+            completeness_score=0.5 if (len(detected_systems) > 0 or len(specialists) > 0) else 0.0
         )
 
     async def create_company_graph(self, graph: CompanyGraph) -> CompanyGraph:

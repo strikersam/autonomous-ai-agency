@@ -23,8 +23,10 @@ function Skeleton({ h = 56 }) {
 }
 
 // ── single check row ──────────────────────────────────────────────────────────
-function CheckRow({ check, expanded, onToggle, onSetup }) {
+function CheckRow({ check, expanded, onToggle, onNavigate }) {
   const st = statusStyle(check.status);
+  const action = check.action;  // from backend: { label, hint, href }
+  const hasExpandedContent = !!(check.explanation || action || check.detail);
   return (
     <div style={{ borderRadius: 14, border: `1px solid ${st.border}`, background: st.bg, overflow: 'hidden' }}>
       <button onClick={onToggle} style={{
@@ -46,16 +48,26 @@ function CheckRow({ check, expanded, onToggle, onSetup }) {
               padding: '2px 7px', borderRadius: 999, color: 'var(--text-muted)',
               background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)',
             }}>{check.category}</span>
+            {check.status !== 'pass' && action && (
+              <span style={{
+                fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.10em', textTransform: 'uppercase',
+                padding: '2px 7px', borderRadius: 999, color: st.color,
+                background: `${st.color}15`, border: `1px solid ${st.color}30`,
+              }}>needs attention</span>
+            )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{check.detail}</div>
         </div>
 
-        {check.explanation && (
-          <span style={{ fontSize: 14, color: 'var(--text-muted)', transform: expanded ? 'rotate(90deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>›</span>
-        )}
+        <span style={{
+          fontSize: 14, color: 'var(--text-muted)',
+          transform: expanded ? 'rotate(90deg)' : 'none',
+          display: 'inline-block', transition: 'transform 0.2s',
+          opacity: hasExpandedContent ? 1 : 0.3,
+        }}>›</span>
       </button>
 
-      {expanded && (check.explanation || onSetup) && (
+      {expanded && (
         <div style={{ padding: '0 16px 14px 56px' }}>
           {check.explanation && (
             <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -65,14 +77,36 @@ function CheckRow({ check, expanded, onToggle, onSetup }) {
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>{check.explanation}</div>
             </div>
           )}
-          {onSetup && (
-            <button onClick={(e) => { e.stopPropagation(); onSetup(); }} style={{
-              marginTop: 8, padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
-              background: 'rgba(93,162,255,0.15)', border: '1px solid rgba(93,162,255,0.30)',
-              color: 'var(--accent)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              ⚙ Setup GitHub →
-            </button>
+          {!check.explanation && check.detail && check.status !== 'pass' && (
+            <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
+                Details
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>{check.detail}</div>
+            </div>
+          )}
+          {(action || (check.status !== 'pass' && /github/i.test(check.label))) && (
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {((action && action.href) || (!action && /github/i.test(check.label))) && onNavigate && (
+                <button onClick={(e) => { e.stopPropagation(); onNavigate(action?.href || 'github'); }} style={{
+                  padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+                  background: 'rgba(93,162,255,0.15)', border: '1px solid rgba(93,162,255,0.30)',
+                  color: 'var(--accent)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  {action?.label || 'Setup GitHub'} →
+                </button>
+              )}
+              {action && !action.href && action.hint && (
+                <div style={{
+                  padding: '10px 14px', borderRadius: 10, fontSize: 12, fontWeight: 600,
+                  background: `${st.color}12`, border: `1px solid ${st.color}25`,
+                  color: st.color, lineHeight: 1.6, flex: 1,
+                }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase', marginRight: 6, opacity: 0.7 }}>{action.label || 'Fix'}:</span>
+                  {action.hint}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -120,6 +154,29 @@ export default function DoctorScreen({ onNavigate }) {
   const failCount = checks.filter(c => c.status === 'fail').length;
 
   const runAt = report?.run_at ? new Date(report.run_at).toLocaleTimeString() : null;
+
+  // Navigation wrapper: handles both screen IDs and API paths from backend action.href.
+  // Valid screen IDs in the app (must match V5App.jsx)
+  const VALID_SCREENS = ['dashboard','tasks','agents','skills','intelligence','providers','github','settings','doctor'];
+  // Map API path prefixes to their corresponding screen IDs
+  const PATH_TO_SCREEN = { runtimes: 'agents', providers: 'providers', tasks: 'tasks' };
+
+  function handleActionNav(href) {
+    if (!href || !onNavigate) return;
+    if (href.startsWith('/')) {
+      const parts = href.split('/').filter(Boolean);
+      const prefix = parts[0];
+      const screenId = PATH_TO_SCREEN[prefix] || prefix;
+      if (VALID_SCREENS.includes(screenId)) {
+        onNavigate(screenId);
+      }
+      return;
+    }
+    // Direct screen ID — navigate within the SPA
+    if (VALID_SCREENS.includes(href)) {
+      onNavigate(href);
+    }
+  }
 
   return (
     <div style={{ padding: '20px 16px 48px', maxWidth: 780, margin: '0 auto' }}>
@@ -186,7 +243,7 @@ export default function DoctorScreen({ onNavigate }) {
                 check={check}
                 expanded={expanded === check.id}
                 onToggle={() => setExpanded(expanded === check.id ? null : check.id)}
-                onSetup={check.status !== 'pass' && /github/i.test(check.label) && onNavigate ? () => onNavigate('github') : undefined}
+                onNavigate={handleActionNav}
               />
             ))}
         {!loading && !error && checks.length === 0 && (

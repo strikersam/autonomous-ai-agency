@@ -326,6 +326,38 @@ class OnboardingService:
                     "completed_at": datetime.utcnow().isoformat(),
                     "message": "Onboarding completed successfully"
                 })
+
+                # Refresh dynamic skills based on detected tech stack
+                try:
+                    from agent.skill_registry import get_skill_registry_safe
+                    sr = get_skill_registry_safe()
+                    if sr:
+                        await sr.refresh_remote_force()
+                        # Collect detected systems for recommendations
+                        tech_stack = []
+                        for website in websites:
+                            if website.inferred_stack:
+                                for fw in (website.inferred_stack.frameworks or []):
+                                    tech_stack.append(fw)
+                                if website.inferred_stack.cms:
+                                    tech_stack.append(website.inferred_stack.cms)
+                                if website.inferred_stack.analytics:
+                                    tech_stack.extend(website.inferred_stack.analytics)
+                            if website.detected_systems:
+                                for ds in website.detected_systems:
+                                    tech_stack.append(ds.name)
+                        for repo in repos:
+                            if repo.inferred_stack:
+                                for fw in (repo.inferred_stack.frameworks or []):
+                                    tech_stack.append(fw)
+                                for db in (repo.inferred_stack.databases or []):
+                                    tech_stack.append(db)
+                        if tech_stack:
+                            recs = sr.recommend(tech_stack=tech_stack, limit=5)
+                            log.info("Onboarding: refreshed dynamic skills for %s — %d recommendations from %d detected techs",
+                                     company_id, len(recs), len(set(tech_stack)))
+                except Exception as exc:
+                    log.debug("Onboarding: skill refresh skipped for %s: %s", company_id, exc)
                 
                 log.info(f"Completed onboarding for company {company_id}")
 

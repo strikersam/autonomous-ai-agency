@@ -346,42 +346,73 @@ function RuntimesBar() {
 // ── Run-task modal ────────────────────────────────────────────────────────────
 // Dispatches a task to the autonomous agent pipeline via the real chat API
 // (agent_mode=true → HTTP 202 { job_id }) and streams the job to completion.
+// ── Run-task modal ─────────────────────────────────────────────────────────────────────
+// Creates a tracked task in the Tasks board, then dispatches it through the
+// task pipeline (POST /api/tasks → POST /api/tasks/{id}/run). The task appears
+// in both the Agents screen (live execution) and the Tasks board (persistent).
 function RunTaskModal({ agent, onClose }) {
   const [task, setTask]     = React.useState('');
   const [status, setStatus] = React.useState('idle'); // idle | starting | running | done | error
   const [phase, setPhase]   = React.useState(null);
   const [result, setResult] = React.useState(null);
   const [error, setError]   = React.useState(null);
+  const [taskId, setTaskId] = React.useState(null);
   const mounted = React.useRef(true);
   React.useEffect(() => () => { mounted.current = false; }, []);
 
-  const poll = async (jobId) => {
+  const poll = async (tid) => {
+    setPhase('queued');
     for (let i = 0; i < 240; i++) {
       await new Promise(r => setTimeout(r, 1500));
       if (!mounted.current) return;
       let snap;
-      try { const { data } = await api.getAgentChatJob(jobId); snap = data; }
-      catch { if (mounted.current) { setStatus('error'); setError('Lost connection to the agent job — it may still be running on the server.'); } return; }
+      try { const { data } = await api.getTask(tid); snap = data.task || data; }
+      catch { if (mounted.current) { setStatus('error'); setError('Lost connection — the task may still be running on the server.'); } return; }
       if (!mounted.current) return;
-      setPhase(snap.phase || 'running');
-      if (['succeeded', 'failed', 'cancelled'].includes(snap.status)) {
-        if (snap.status === 'succeeded') { setStatus('done'); setResult(snap.result?.response || 'The agent finished but returned no message.'); }
-        else if (snap.status === 'cancelled') { setStatus('error'); setError('Agent job was cancelled.'); }
-        else { setStatus('error'); setError(snap.error?.message || 'The agent job failed.'); }
+      const st = snap?.status;
+      setPhase(st || 'in_progress');
+      if (st === 'done') {
+        setStatus('done');
+        setResult(snap?.result || snap?.error_message || 'Task completed.');
+        return;
+      }
+      if (st === 'failed') {
+        setStatus('error');
+        setError(snap?.error_message || 'Task execution failed.');
         return;
       }
     }
-    if (mounted.current) { setStatus('error'); setError('The job is taking longer than expected — check the Logs view for its status.'); }
+    if (mounted.current) { setStatus('error'); setError('Task exceeded 6 min timeout — check the Tasks board for its status.'); }
   };
 
   const run = async () => {
     if (!task.trim() || status === 'starting' || status === 'running') return;
     setStatus('starting'); setError(null); setResult(null); setPhase(null);
     try {
-      const { data } = await api.chatSend(task.trim(), null, null, null, null, true);
+      // 1. Create a persistent task in the Tasks board
+      const taskPayload = {
+        title: task.trim().substring(0, 80),
+        description: task.trim(),
+        prompt: task.trim(),
+        agent_id: agent.id,
+        runtime_id: agent.runtime || 'hermes',
+        priority: 'medium',
+        task_type: agent.specializations?.[0]?.replace(/_/g, ' ') || 'general',
+        tags: [agent.id, agent.origin || 'builtin'],
+      };
+      const { data: taskData } = await api.createTask(taskPayload);
       if (!mounted.current) return;
-      if (data?.job_id) { setStatus('running'); await poll(data.job_id); }
-      else { setStatus('done'); setResult(data?.response || 'No response.'); }
+      const tid = taskData?.task?.task_id;
+      if (!tid) throw new Error('Task created but no ID returned');
+      setTaskId(tid);
+
+      // 2. Trigger execution via the task pipeline
+      await api.runTask(tid);
+      if (!mounted.current) return;
+      setStatus('running');
+
+      // 3. Poll for completion
+      await poll(tid);
     } catch (e) {
       if (!mounted.current) return;
       const detail = e?.response?.data?.detail;
@@ -399,13 +430,18 @@ function RunTaskModal({ agent, onClose }) {
           <div style={{ fontSize:15, fontWeight:800, color:'#fff' }}>Run a task · {agent.name}</div>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', fontSize:20, cursor:'pointer' }}>×</button>
         </div>
-        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Dispatches your task to the autonomous agent pipeline and streams progress below. <strong style={{ color:'var(--text-tertiary)' }}>{agent.name}</strong> is a suggestion — the pipeline auto-routes to the best specialist runtime for the task.</div>
-        <textarea value={task} onChange={e=>setTask(e.target.value)} disabled={busy} placeholder="Describe the task…  e.g. ‘Audit the checkout flow for SEO regressions and open a PR’" rows={4}
+        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Creates a tracked task in the <strong style={{ color:'var(--text-tertiary)' }}>Tasks board</strong>, then dispatches it through the <strong style={{ color:'var(--text-tertiary)' }}>{agent.name}</strong> pipeline. Monitor progress here or find the full lifecycle in Tasks.</div>
+        <textarea value={task} onChange={e=>setTask(e.target.value)} disabled={busy} placeholder="Describe the task…  e.g. 'Audit the checkout flow for SEO regressions and open a PR'" rows={4}
           style={{ width:'100%', padding:'10px 12px', borderRadius:10, resize:'vertical', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', marginBottom:12 }}/>
         {busy && (
           <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.16)', fontSize:12, color:'var(--text-secondary)', display:'flex', alignItems:'center', gap:8 }}>
             <span style={{ width:7, height:7, borderRadius:'50%', background:'var(--accent)', animation:'pulse 1.4s infinite' }}/>
-            {status === 'starting' ? 'Dispatching task…' : `Running · ${phase || 'working'}…`}
+            {status === 'starting' ? 'Creating task…' : `Running · ${phase || 'in_progress'}…`}
+          </div>
+        )}
+        {taskId && status === 'running' && (
+          <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.14)', fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)' }}>
+            Task #{taskId} — view in Tasks board for full logs and checkpoints
           </div>
         )}
         {status === 'done' && result && (

@@ -157,12 +157,20 @@ function CompanyScreen() {
     domain: company.domain || '',
     industry: company.business_category || company.industry || '',
     since: '',
-    systems: (graph?.systems || []).map(sys => ({
-      name: sys.name || sys.system_type || 'System',
-      category: sys.category || sys.system_type || 'Platform',
-      status: sys.status || 'connected',
-      icon: sys.icon || '⚙',
-    })),
+    systems: [
+      ...(graph?.systems || []).map(sys => ({
+        name: sys.name || sys.system_type || 'System',
+        category: sys.category || sys.system_type || 'Platform',
+        status: sys.status || 'connected',
+        icon: sys.icon || '⚙',
+      })),
+      ...(graph?.detected_systems || []).map(ds => ({
+        name: ds.name || 'Detected System',
+        category: ds.system_type || 'Platform',
+        status: ds.is_active ? 'connected' : 'inactive',
+        icon: '🔍',
+      })),
+    ],
     repos: (graph?.repos || company.repos || []).map(r => ({
       name: r.name || r.full_name || r.url || 'repo',
       branch: r.default_branch || r.branch || 'main',

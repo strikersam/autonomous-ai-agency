@@ -67,7 +67,7 @@ export default function V5App() {
     agents:       <AgentsScreen onNavigateToChat={() => go('chat')} />,
     schedules:    <SchedulesScreen />,
     skills:       <SkillsScreen />,
-    intelligence: <IntelligenceScreen />,
+    intelligence: <IntelligenceScreen onNavigate={go} />,
     knowledge:    <KnowledgeScreen />,
     providers:    <ProvidersScreen />,
     github:       <GitHubScreen />,

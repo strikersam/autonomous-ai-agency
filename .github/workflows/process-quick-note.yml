@@ -5,11 +5,11 @@ name: Process Quick Note
 # See docs/architecture/agency-core-audit-2026-05-22.md. Re-enable by restoring the
 # `schedule:` and `push:` blocks below.
 on:
-  # schedule:
-  #   - cron: '0 */4 * * *'   (QUARANTINED)
-  # push:
-  #   branches: [master]
-  #   paths: ['.github/workflows/.trigger-quick-note']   (QUARANTINED)
+  schedule:
+    - cron: '0 */4 * * *'
+  push:
+    branches: [master]
+    paths: ['.github/workflows/.trigger-quick-note']
   workflow_dispatch:
     inputs:
       issue_number:
