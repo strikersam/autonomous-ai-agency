@@ -1,3 +1,29 @@
+- **Agency Core v5 hardening — Phases 1-4 (SkillBindings, WorkflowOrchestrator, Doctor route split, Dashboard resilience).**
+
+  *Phase 1 — Skill Wiring:* `services/skill_bindings.py` with 28 typed runtime skills (7 production, 19 gated);
+  `models/company_graph.py` now stores `bound_skills` on Specialist; specialist auto-binding + `get_bound_skills()`;
+  5 company skill API endpoints; frontend SkillsScreen wired to real APIs.
+
+  *Phase 2 — Workflow Orchestrator:* `services/workflow_orchestrator.py` (700+ lines) — 11-phase golden path
+  (CLASSIFY→PLAN→SELECT_SPECIALIST→PREFLIGHT→BIND_CONTEXT→EXECUTE→VERIFY→JUDGE→SUMMARIZE→PERSIST→MONITOR)
+  with 12 typed Pydantic contracts, ApprovalGate, SkillBindings integration, and ContextVar-safe bypass
+  for internal AgentRunner calls. `agent/loop.py`, `agent/agency.py`, `agent/coordinator.py` now block
+  AgentRunner.run(), Agency.run_cycle(), and MultiAgentSwarm.run() in orchestrator mode
+  (gated by `AGENCY_WORKFLOW_MODE` env var). 4 API endpoints (`execute`, `approve`, `list`, `get`)
+  in `backend/server.py`. 270+ line contract test suite in `tests/test_workflow_orchestrator.py`.
+
+  *Phase 3 — Doctor route split + public site:* `GET /api/doctor/public` (5 system-level checks, no auth)
+  and `GET /api/doctor/diagnostics` (5 authenticated checks). Frontend DoctorScreen now uses the public
+  endpoint (no 401 confusion). `github-pages-index.html` rewritten as truthful product page;
+  `github-pages-setup.html` redirects to it.
+
+  *Phase 4 — Dashboard resilience:* `frontend/src/v5/components/ErrorBoundary.jsx` catches render errors
+  with retry callback. CORS self-heal in `api.js` response interceptor targets `ERR_NETWORK`/`CORS`/`ECONNREFUSED`.
+  All 6 dashboard widgets wrapped in ErrorBoundary with `fetchAll` threaded as `onRetry`.
+  E2E tests for orchestrator execute→approve→list→get flow and doctor public/diagnostics endpoints
+  in `tests/e2e/test_live_server.py`. `tests/conftest.py` autouse fixture sets legacy workflow mode
+  for test suite compatibility with Phase 2 deprecation.
+
 ## [Unreleased]
 
 ### Changed
