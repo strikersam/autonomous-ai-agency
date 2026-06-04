@@ -9,6 +9,17 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def setup_database_moks(monkeypatch):  # noqa: PT004
+    # Allow legacy mode so Agency.run_cycle() tests work — the Agency
+    # is soft-deprecated in orchestrator mode and would raise RuntimeError.
+    # Must use setattr because the module-level WORKFLOW_MODE was read at
+    # import time; monkeypatch.setenv won't retroactively change it.
+    monkeypatch.setattr(
+        "services.workflow_orchestrator.WORKFLOW_MODE", "legacy"
+    )
+    monkeypatch.setattr(
+        "services.workflow_orchestrator.is_legacy_mode",
+        lambda: True,
+    )
     pass
 
 

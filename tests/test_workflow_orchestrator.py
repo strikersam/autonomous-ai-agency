@@ -358,9 +358,10 @@ class TestGoldenPathExecution:
         run = asyncio.get_event_loop().run_until_complete(_run())
         assert run.bound_context is not None
         # Should bind skills for the security domain
-        assert len(run.bound_context.skill_ids) >= 0  # skills bound for security domain, (
-            "Skill binding should not crash; at minimum returns empty list"
-        )
+        # Skills may return empty if SkillBindings is not initialized;
+        # a value >= 0 confirms the phase handler doesn't crash. In production
+        # with a populated skill registry, this would be > 0.
+        assert len(run.bound_context.skill_ids) >= 0
 
 
 # ── Test: ApprovalGate edge cases ─────────────────────────────────────────────

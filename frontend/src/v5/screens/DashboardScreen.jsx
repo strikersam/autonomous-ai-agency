@@ -1,6 +1,7 @@
 /* eslint-disable jsx-a11y/anchor-is-valid -- nav links wired later */
 import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 // dashboard.jsx — Resilient Dashboard wired to the real backend
 // Each widget fetches independently via useSafeData (Promise.allSettled) so a
@@ -27,7 +28,7 @@ function fmtTokens(n) {
 }
 
 // Widget wrapper with per-widget loading/error states
-function Widget({ title, action, actionLabel, loading, error, errorSeverity = 'warning', children, span = 1 }) {
+function Widget({ title, action, actionLabel, loading, error, errorSeverity = 'warning', onRetry, children, span = 1 }) {
   return (
     <div style={{
       borderRadius: 18, border: '1px solid var(--border)',
@@ -39,16 +40,29 @@ function Widget({ title, action, actionLabel, loading, error, errorSeverity = 'w
         padding: '14px 18px 0',
       }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>{title}</span>
-        {action && (
-          <button onClick={action} style={{
-            fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', textTransform: 'uppercase',
-            color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer',
-          }}
-          onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
-          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}>
-            {actionLabel || 'View all →'}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {onRetry && error && (
+            <button onClick={onRetry} style={{
+              fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', textTransform: 'uppercase',
+              color: 'var(--accent)', background: 'rgba(93,162,255,0.10)', border: '1px solid rgba(93,162,255,0.20)',
+              borderRadius: 6, cursor: 'pointer', padding: '2px 8px',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(93,162,255,0.18)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(93,162,255,0.10)'; }}>
+              Retry
+            </button>
+          )}
+          {action && (
+            <button onClick={action} style={{
+              fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', textTransform: 'uppercase',
+              color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer',
+            }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}>
+              {actionLabel || 'View all →'}
+            </button>
+          )}
+        </div>
       </div>
       <div style={{ padding: '12px 18px 16px' }}>
         {error && (
@@ -106,9 +120,9 @@ function Pill({ label, color = 'var(--text-muted)', bg = 'rgba(255,255,255,0.06)
   );
 }
 
-function ProviderHealthWidget({ data, loading, error }) {
+function ProviderHealthWidget({ data, loading, error, onRetry }) {
   return (
-    <Widget title="Provider & Runtime" loading={loading} error={error} errorSeverity="warning">
+    <Widget title="Provider & Runtime" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* Provider */}
         <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(93,162,255,0.05)', border: '1px solid rgba(93,162,255,0.12)' }}>
@@ -142,7 +156,7 @@ function ProviderHealthWidget({ data, loading, error }) {
   );
 }
 
-function RecentJobsWidget({ jobs, loading, error }) {
+function RecentJobsWidget({ jobs, loading, error, onRetry }) {
   const statusConfig = {
     completed: { color: '#46d9a4', label: 'Done', bg: 'rgba(70,217,164,0.08)' },
     running:   { color: '#5da2ff', label: 'Running', bg: 'rgba(93,162,255,0.08)' },
@@ -150,7 +164,7 @@ function RecentJobsWidget({ jobs, loading, error }) {
     failed:    { color: '#ff6b7d', label: 'Failed', bg: 'rgba(255,107,125,0.08)' },
   };
   return (
-    <Widget title="Recent Activity" loading={loading} error={error}>
+    <Widget title="Recent Activity" loading={loading} error={error} onRetry={onRetry}>
       {(!jobs || jobs.length === 0) && !loading && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>No activity yet.</div>
       )}
@@ -187,11 +201,11 @@ function RecentJobsWidget({ jobs, loading, error }) {
   );
 }
 
-function TasksWidget({ tasks, loading, error, title = 'Open Tasks' }) {
+function TasksWidget({ tasks, loading, error, onRetry, title = 'Open Tasks' }) {
   const priorityColor = { urgent: '#ff6b7d', high: '#ffbd66', medium: 'var(--text-muted)' };
   const statusColor = { in_progress: '#5da2ff', todo: 'var(--text-muted)', in_review: '#ffbd66', blocked: '#ff6b7d' };
   return (
-    <Widget title={title} loading={loading} error={error}>
+    <Widget title={title} loading={loading} error={error} onRetry={onRetry}>
       {(!tasks || tasks.length === 0) && !loading && !error && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
           No tasks. Use the Tasks screen to manage background jobs.
@@ -216,11 +230,11 @@ function TasksWidget({ tasks, loading, error, title = 'Open Tasks' }) {
   );
 }
 
-function CostWidget({ data, loading, error }) {
+function CostWidget({ data, loading, error, onRetry }) {
   const hasRatio = data.localRatio != null;
   const barW = `${Math.round((data.localRatio || 0) * 100)}%`;
   return (
-    <Widget title="Cost & Usage" loading={loading} error={error}>
+    <Widget title="Cost & Usage" loading={loading} error={error} onRetry={onRetry}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: hasRatio ? 12 : 0 }}>
         {[
           { label: 'Cost saved (24h)', value: data.saved, color: '#46d9a4' },
@@ -250,9 +264,9 @@ function CostWidget({ data, loading, error }) {
   );
 }
 
-function MonitoringWidget({ signals, loading, error }) {
+function MonitoringWidget({ signals, loading, error, onRetry }) {
   return (
-    <Widget title="Monitoring" loading={loading} error={error}>
+    <Widget title="Monitoring" loading={loading} error={error} onRetry={onRetry}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         {signals.map(s => (
           <div key={s.label} style={{
@@ -272,14 +286,14 @@ function MonitoringWidget({ signals, loading, error }) {
   );
 }
 
-function SystemHealthWidget({ health, loading, error }) {
+function SystemHealthWidget({ health, loading, error, onRetry }) {
   const services = [
     { label: 'MongoDB',  ok: health.mongo  ?? null },
     { label: 'Ollama',   ok: health.ollama_relevant ? (health.ollama ?? null) : null, skip: !health.ollama_relevant },
     { label: 'Langfuse', ok: health.langfuse ?? null },
   ].filter(s => !s.skip);
   return (
-    <Widget title="System Health" loading={loading} error={error} errorSeverity="warning">
+    <Widget title="System Health" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {services.map(s => (
           <div key={s.label} style={{
@@ -305,7 +319,7 @@ function SystemHealthWidget({ health, loading, error }) {
 }
 
 function DashboardScreen() {
-  const [data, states] = useSafeData(null, {
+  const [data, states, fetchAll] = useSafeData(null, {
     health:    '/api/health',
     stats:     '/api/stats',
     activity:  '/api/activity?limit=8',
@@ -430,38 +444,56 @@ function DashboardScreen() {
         gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
         gap: 14,
       }}>
-        <ProviderHealthWidget
-          data={providerData}
-          loading={states.health?.loading || states.providers?.loading}
-          error={states.health?.error || states.providers?.error}
-        />
-        <RecentJobsWidget
-          jobs={activityJobs}
-          loading={states.activity?.loading}
-          error={states.activity?.error}
-        />
-        <TasksWidget
-          tasks={openTasks}
-          loading={states.tasks?.loading}
-          error={states.tasks?.error}
-        />
-        <CostWidget
-          data={costData}
-          loading={states.metrics?.loading}
-          error={states.metrics?.error}
-          errorSeverity="warning"
-        />
-        <MonitoringWidget
-          signals={monitoringSignals}
-          loading={states.health?.loading || states.stats?.loading}
-          error={states.health?.error}
-        />
-        <SystemHealthWidget
-          health={providerData}
-          loading={states.health?.loading || states.stats?.loading}
-          error={states.health?.error}
-          errorSeverity="warning"
-        />
+        <ErrorBoundary onRetry={fetchAll}>
+          <ProviderHealthWidget
+            data={providerData}
+            loading={states.health?.loading || states.providers?.loading}
+            error={states.health?.error || states.providers?.error}
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll}>
+          <RecentJobsWidget
+            jobs={activityJobs}
+            loading={states.activity?.loading}
+            error={states.activity?.error}
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll}>
+          <TasksWidget
+            tasks={openTasks}
+            loading={states.tasks?.loading}
+            error={states.tasks?.error}
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll}>
+          <CostWidget
+            data={costData}
+            loading={states.metrics?.loading}
+            error={states.metrics?.error}
+            errorSeverity="warning"
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll}>
+          <MonitoringWidget
+            signals={monitoringSignals}
+            loading={states.health?.loading || states.stats?.loading}
+            error={states.health?.error}
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll}>
+          <SystemHealthWidget
+            health={providerData}
+            loading={states.health?.loading || states.stats?.loading}
+            error={states.health?.error}
+            errorSeverity="warning"
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
       </div>
     </div>
   );
