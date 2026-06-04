@@ -313,9 +313,15 @@ def base_url() -> str:
 
 def test_server_health(base_url: str) -> None:
     """Verify server responds to health check before running browser tests."""
+    import urllib.parse
     import urllib.request
+    # Only probe http(s) — urlopen also accepts file:/custom schemes, which we
+    # never want to hit from a base_url taken from the environment (Ruff S310).
+    parsed = urllib.parse.urlsplit(base_url)
+    if parsed.scheme not in ("http", "https"):
+        pytest.skip(f"Unsupported RELAY_BASE_URL scheme: {parsed.scheme!r}")
     try:
-        r = urllib.request.urlopen(f"{base_url}/api/health", timeout=10)
+        r = urllib.request.urlopen(f"{base_url}/api/health", timeout=10)  # noqa: S310 - scheme validated above
         assert r.status == 200
     except Exception as e:
         pytest.skip(f"Server not available: {e}")

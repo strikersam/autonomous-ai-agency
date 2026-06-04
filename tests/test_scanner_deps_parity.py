@@ -43,7 +43,7 @@ def _declared_packages() -> set[str]:
         if not line:
             continue
         # Strip version specifiers / extras: "uvicorn[standard]>=0.48" -> "uvicorn"
-        name = re.split(r"[\[<>=!~ ]", line, 1)[0].strip().lower()
+        name = re.split(r"[\[<>=!~ ]", line, maxsplit=1)[0].strip().lower()
         if name:
             pkgs.add(name)
     return pkgs

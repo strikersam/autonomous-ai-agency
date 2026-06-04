@@ -36,6 +36,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest httpx
 
+      - name: Generate ephemeral test credentials
+        # Don't commit signing material in the workflow. The JWT secret is
+        # generated fresh per run; the admin email/password are throwaway test
+        # fixtures for this ephemeral container (destroyed at job end). All three
+        # are shared across the steps below via $GITHUB_ENV.
+        run: |
+          {
+            echo "E2E_JWT_SECRET=$(openssl rand -hex 32)"
+            echo "E2E_ADMIN_EMAIL=admin@llmrelay.local"
+            echo "E2E_ADMIN_PASSWORD=$(openssl rand -base64 18)"
+          } >> "$GITHUB_ENV"
+
       - name: Build and start backend
         # Dockerfile.backend is multi-stage: it builds the React SPA from source
         # (stage 1) and serves it from the backend image, so no separate frontend
@@ -45,9 +57,9 @@ jobs:
           docker run -d --name e2e-backend \
             -p 8001:8001 \
             -e STORAGE_BACKEND=sqlite \
-            -e ADMIN_EMAIL=admin@llmrelay.local \
-            -e ADMIN_PASSWORD=WikiAdmin2026! \
-            -e JWT_SECRET=e2e-browser-test-secret \
+            -e ADMIN_EMAIL="$E2E_ADMIN_EMAIL" \
+            -e ADMIN_PASSWORD="$E2E_ADMIN_PASSWORD" \
+            -e JWT_SECRET="$E2E_JWT_SECRET" \
             -e LLM_PROVIDER=ollama \
             -e ROUTER_HEALTH_CHECK_ENABLED=false \
             llm-relay-backend
@@ -71,8 +83,8 @@ jobs:
       - name: Run Playwright E2E tests (desktop + mobile)
         env:
           RELAY_BASE_URL: http://localhost:8001
-          ADMIN_EMAIL: admin@llmrelay.local
-          ADMIN_PASSWORD: WikiAdmin2026!
+          ADMIN_EMAIL: ${{ env.E2E_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.E2E_ADMIN_PASSWORD }}
         run: |
           python tests/e2e/test_browser.py
 
@@ -100,9 +112,9 @@ jobs:
           # external service.
           STORAGE_BACKEND: sqlite
           SQLITE_DB_PATH: /tmp/e2e_complementary.db
-          ADMIN_EMAIL: admin@llmrelay.local
-          ADMIN_PASSWORD: WikiAdmin2026!
-          JWT_SECRET: e2e-browser-test-secret
+          ADMIN_EMAIL: ${{ env.E2E_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.E2E_ADMIN_PASSWORD }}
+          JWT_SECRET: ${{ env.E2E_JWT_SECRET }}
         run: |
           # Deps are installed to the job's system Python (see "Install test
           # deps"); there is no .venv here. Using ./.venv/bin/python raised

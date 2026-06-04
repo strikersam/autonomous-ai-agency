@@ -212,7 +212,7 @@ def test_get_store_returns_sqlite(monkeypatch, tmp_path):
 # and failing the Browser E2E job.
 
 @pytest.mark.asyncio
-async def test_subscript_access_returns_collection(store):
+async def test_subscript_access_returns_collection(store) -> None:
     """db['tasks'] must work like db.tasks (motor exposes both)."""
     attr_coll = store.tasks
     item_coll = store["tasks"]
@@ -224,7 +224,7 @@ async def test_subscript_access_returns_collection(store):
 
 
 @pytest.mark.asyncio
-async def test_taskstore_works_on_sqlite_backend(store):
+async def test_taskstore_works_on_sqlite_backend(store) -> None:
     """TaskStore(db=SQLiteStore) must not raise 'not subscriptable'.
 
     This is the exact path the TaskDispatcher exercises (list_pending) that
