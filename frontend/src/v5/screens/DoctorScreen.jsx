@@ -23,10 +23,27 @@ function Skeleton({ h = 56 }) {
 }
 
 // ── single check row ──────────────────────────────────────────────────────────
-function CheckRow({ check, expanded, onToggle, onNavigate }) {
+function CheckRow({ check, expanded, onToggle, onNavigate, onFix }) {
   const st = statusStyle(check.status);
   const action = check.action;  // from backend: { label, hint, href }
   const hasExpandedContent = !!(check.explanation || action || check.detail);
+  const [fixing, setFixing] = React.useState(false);
+  const [fixError, setFixError] = React.useState(null);
+
+  const handleFix = async (e) => {
+    e.stopPropagation();
+    if (!onFix || fixing) return;
+    setFixing(true);
+    setFixError(null);
+    try {
+      await onFix(check.id);
+    } catch (err) {
+      setFixError(err.message || 'Fix failed');
+    } finally {
+      setFixing(false);
+    }
+  };
+
   return (
     <div style={{ borderRadius: 14, border: `1px solid ${st.border}`, background: st.bg, overflow: 'hidden' }}>
       <button onClick={onToggle} style={{
@@ -54,6 +71,13 @@ function CheckRow({ check, expanded, onToggle, onNavigate }) {
                 padding: '2px 7px', borderRadius: 999, color: st.color,
                 background: `${st.color}15`, border: `1px solid ${st.color}30`,
               }}>needs attention</span>
+            )}
+            {check.status !== 'pass' && check.fixable && (
+              <span style={{
+                fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.10em', textTransform: 'uppercase',
+                padding: '2px 7px', borderRadius: 999, color: st.color,
+                background: `${st.color}15`, border: `1px solid ${st.color}30`,
+              }}>fixable</span>
             )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{check.detail}</div>
@@ -108,6 +132,11 @@ function CheckRow({ check, expanded, onToggle, onNavigate }) {
               )}
             </div>
           )}
+          {fixError && (
+            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,107,125,0.10)', border: '1px solid rgba(255,107,125,0.25)', fontSize: 12, color: '#ff6b7d' }}>
+              Fix failed: {fixError}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -143,6 +172,7 @@ export default function DoctorScreen({ onNavigate }) {
   // behind auth, so there is no 401 surprise.
   const [data, states, reload] = useSafeData(API, { report: '/api/doctor/diagnostics' }, { refreshMs: 60_000 });
   const [expanded, setExpanded] = React.useState(null);
+  const [filter, setFilter]     = React.useState('all');  // 'all' | 'pass' | 'warn' | 'fail'
 
   const report  = data.report;
   const loading = states.report?.loading;
@@ -178,6 +208,30 @@ export default function DoctorScreen({ onNavigate }) {
     }
   }
 
+  // Fix a single check (calls POST /api/doctor/fix/{checkId})
+  const handleFixOne = async (checkId) => {
+    await API.post(`/api/doctor/fix/${checkId}`);
+    reload();
+  };
+
+  // Fix all failing/warning checks (calls POST /api/doctor/fix-all)
+  const handleFixAll = async () => {
+    await API.post('/api/doctor/fix-all');
+    reload();
+  };
+
+  const failingChecks = checks.filter(c => c.status !== 'pass');
+
+  const DOT_CONFIG = [
+    { label: 'Passing',  count: passCount, color: '#46d9a4', filter: 'pass' },
+    { label: 'Warnings', count: warnCount, color: '#ffbd66', filter: 'warn' },
+    { label: 'Failing',  count: failCount, color: '#ff6b7d', filter: 'fail' },
+  ];
+
+  const displayedChecks = checks.filter(c =>
+    filter === 'all' ? true : c.status === filter
+  );
+
   return (
     <div style={{ padding: '20px 16px 48px', maxWidth: 780, margin: '0 auto' }}>
       {/* Header */}
@@ -188,23 +242,33 @@ export default function DoctorScreen({ onNavigate }) {
             <h1 style={{ fontSize: 26, fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1.1, marginBottom: 4 }}>Doctor</h1>
             <p style={{ fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>Live preflight checks, runtime health, and configuration diagnostics.</p>
           </div>
-          <button onClick={reload} disabled={loading} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7,
-            padding: '10px 20px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: loading ? 'default' : 'pointer',
-            background: loading ? 'rgba(93,162,255,0.08)' : 'rgba(93,162,255,0.15)',
-            border: '1px solid rgba(93,162,255,0.30)', color: loading ? 'var(--text-muted)' : 'var(--accent)',
-          }}>
-            {loading
-              ? <><div style={{ width: 12, height: 12, border: '2px solid rgba(93,162,255,0.2)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/> Running…</>
-              : <>↺ Refresh</>}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {failingChecks.length > 0 && (
+              <button onClick={handleFixAll} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 800, cursor: 'pointer',
+                background: 'rgba(70,217,164,0.15)', border: '1px solid rgba(70,217,164,0.30)',
+                color: '#46d9a4',
+              }}>
+                ⚡ Fix all ({failingChecks.length})
+              </button>
+            )}
+            <button onClick={reload} disabled={loading} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7,
+              padding: '10px 20px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: loading ? 'default' : 'pointer',
+              background: loading ? 'rgba(93,162,255,0.08)' : 'rgba(93,162,255,0.15)',
+              border: '1px solid rgba(93,162,255,0.30)', color: loading ? 'var(--text-muted)' : 'var(--accent)',
+            }}>
+              {loading
+                ? <><div style={{ width: 12, height: 12, border: '2px solid rgba(93,162,255,0.2)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/> Running…</>
+                : <>↺ Refresh</>}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Error banner (one failed endpoint — not the whole screen) */}
-      {error && <ErrorBanner message={error} onRetry={reload}/>}
-
-      {/* Score bar */}
+      {error && <ErrorBanner message={error} onRetry={reload}/>}        {/* Score bar */}
       {!error && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
@@ -214,20 +278,33 @@ export default function DoctorScreen({ onNavigate }) {
           {loading
             ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Running checks…</div>
             : <>
-                {[
-                  { label: 'Passing',  count: passCount, color: '#46d9a4' },
-                  { label: 'Warnings', count: warnCount, color: '#ffbd66' },
-                  { label: 'Failing',  count: failCount, color: '#ff6b7d' },
-                ].map((s, i) => (
+                {DOT_CONFIG.map((s, i) => (
                   <React.Fragment key={s.label}>
                     {i > 0 && <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <button
+                      onClick={() => setFilter(prev => prev === s.filter ? 'all' : s.filter)}
+                      title={`Filter to ${s.label.toLowerCase()} checks`}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        background: filter === s.filter ? `${s.color}18` : 'transparent',
+                        border: `1px solid ${filter === s.filter ? `${s.color}40` : 'transparent'}`,
+                        borderRadius: 8, padding: '4px 8px', cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
                       <span style={{ width: 7, height: 7, borderRadius: '50%', background: s.color }}/>
                       <span style={{ fontSize: 13, fontWeight: 700, color: s.color }}>{s.count}</span>
                       <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.label}</span>
-                    </div>
+                    </button>
                   </React.Fragment>
                 ))}
+                {filter !== 'all' && (
+                  <button onClick={() => setFilter('all')} style={{
+                    fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em',
+                    padding: '2px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.10)', color: 'var(--text-muted)', cursor: 'pointer',
+                  }}>Clear filter</button>
+                )}
                 {runAt && <span style={{ marginLeft: 'auto', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>Last run: {runAt}</span>}
               </>}
         </div>
@@ -237,15 +314,21 @@ export default function DoctorScreen({ onNavigate }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 22 }}>
         {loading
           ? [1,2,3,4].map(i => <Skeleton key={i} h={64}/>)
-          : checks.map(check => (
+          : displayedChecks.map(check => (
               <CheckRow
                 key={check.id}
                 check={check}
                 expanded={expanded === check.id}
                 onToggle={() => setExpanded(expanded === check.id ? null : check.id)}
                 onNavigate={handleActionNav}
+                onFix={check.fixable ? handleFixOne : null}
               />
             ))}
+        {!loading && !error && displayedChecks.length === 0 && filter !== 'all' && (
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: 32 }}>
+            No {filter} checks.
+          </div>
+        )}
         {!loading && !error && checks.length === 0 && (
           <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: 32 }}>No checks available.</div>
         )}

@@ -64,7 +64,7 @@ export default function V5App() {
     chat:         <ChatScreen />,
     dashboard:    <DashboardScreen dashboardState="healthy" />,
     tasks:        <TaskBoardScreen />,
-    agents:       <AgentsScreen onNavigateToChat={() => go('chat')} />,
+    agents:       <AgentsScreen onNavigateToChat={() => go('chat')} onNavigateToTasks={() => go('tasks')} />,
     schedules:    <SchedulesScreen />,
     skills:       <SkillsScreen />,
     intelligence: <IntelligenceScreen onNavigate={go} />,
