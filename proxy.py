@@ -136,6 +136,19 @@ if ADMIN_SECRET and ADMIN_SECRET in WEAK_ADMIN_SECRETS:
     )
     sys.exit(1)
 
+if ADMIN_SECRET and len(ADMIN_SECRET) < 32:
+    log.error(
+        "Refusing to start: ADMIN_SECRET must be at least 32 characters. "
+        "Generate a strong secret: python -c \"import secrets; print(secrets.token_urlsafe(32))\"",
+    )
+    sys.exit(1)
+
+if "*" in CORS_ORIGINS:
+    log.warning(
+        "⚠  CORS_ORIGINS is set to '*' (allow all). "
+        "Set CORS_ORIGINS to your specific frontend origin(s) in production.",
+    )
+
 if ADMIN_SECRET and not KEY_STORE.is_configured():
     log.warning(
         "ADMIN_SECRET is set but KEYS_FILE is not — POST /admin/keys will return 503 until KEYS_FILE is configured.",
@@ -161,25 +174,24 @@ class AuthContext:
 # ─── Rate limiter (in-memory, per key) ─────────────────────────────────────────
 
 _rate_buckets: dict[str, list[float]] = defaultdict(list)
-_rate_bucket_keys: list[str] = []
+_rate_bucket_keys: set[str] = set()
 _RATE_BUCKET_MAX_KEYS = 10_000
-_rate_lock = threading.Lock()
+_rate_lock = asyncio.Lock()
 
-def check_rate_limit(api_key: str) -> None:
+async def check_rate_limit(api_key: str) -> None:
     now = time.time()
     window = 60.0
-    with _rate_lock:
+    async with _rate_lock:
         # Evict keys that have had no activity in the last window to prevent unbounded growth
         if len(_rate_bucket_keys) >= _RATE_BUCKET_MAX_KEYS:
-            stale = [k for k in list(_rate_bucket_keys) if not _rate_buckets.get(k)]
+            stale = {
+                k for k in _rate_bucket_keys
+                if not _rate_buckets.get(k) or all(now - t >= window for t in _rate_buckets[k])
+            }
             for k in stale:
                 _rate_buckets.pop(k, None)
-                try:
-                    _rate_bucket_keys.remove(k)
-                except ValueError:
-                    pass
-        if api_key not in _rate_buckets:
-            _rate_bucket_keys.append(api_key)
+                _rate_bucket_keys.discard(k)
+        _rate_bucket_keys.add(api_key)
         bucket = _rate_buckets[api_key]
         # Drop entries outside the 1-minute window
         _rate_buckets[api_key] = [t for t in bucket if now - t < window]
@@ -192,7 +204,7 @@ def check_rate_limit(api_key: str) -> None:
 
 # ─── Auth dependency ────────────────────────────────────────────────────────────
 
-def verify_api_key(
+async def verify_api_key(
     request: Request,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
@@ -215,7 +227,7 @@ def verify_api_key(
 
     rec = KEY_STORE.lookup_plain_key(key)
     if rec:
-        check_rate_limit(key)
+        await check_rate_limit(key)
         return AuthContext(
             key=key,
             email=rec.email,
@@ -224,7 +236,7 @@ def verify_api_key(
             source="store",
         )
     if key in VALID_API_KEYS:
-        check_rate_limit(key)
+        await check_rate_limit(key)
         return AuthContext(
             key=key,
             email="unknown",

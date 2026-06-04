@@ -1,14 +1,10 @@
 name: Auto-merge PR
 
-# QUARANTINED 2026-05-22: auto-merge disabled pending Agency Core stabilization.
-# Previously merged any PR with --admin (bypassing branch protection) the instant CI
-# went green — incompatible with reviewing a multi-phase PR before merge.
-# See docs/architecture/agency-core-audit-2026-05-22.md. Re-enable by restoring workflow_run.
 on:
-  # workflow_run:
-  #   workflows: ["CI"]
-  #   types:
-  #     - completed   (QUARANTINED)
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
   workflow_dispatch: {}
 
 permissions:
@@ -20,13 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.pull_requests && github.event.workflow_run.conclusion == 'success' }}
     steps:
-      # gh CLI is pre-installed on ubuntu-latest; no additional setup step needed.
-
       - name: Get PR number from the workflow run
         id: pr
         run: |
-          # The workflow_run payload includes the pull_requests array
-          # We assume there is one PR associated with this workflow run
           PR_NUMBER=$(echo '${{ github.event.workflow_run.pull_requests[0].number }}')
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
 
@@ -36,4 +28,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           PR_NUMBER=${{ steps.pr.outputs.pr_number }}
-          gh pr merge $PR_NUMBER --squash --auto-delete-branch=false --admin
+          gh pr merge $PR_NUMBER --squash --auto-delete-branch=false

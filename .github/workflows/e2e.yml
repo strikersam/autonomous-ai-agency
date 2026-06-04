@@ -24,7 +24,7 @@ jobs:
       STORAGE_BACKEND: sqlite
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
-      ADMIN_PASSWORD: WikiAdmin2026!
+      ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-e2e-admin-do-not-use-in-production' }}
       SECRET_KEY: e2e-ci-secret-do-not-use-in-production
       OLLAMA_BASE: http://localhost:11434
       LANGFUSE_SECRET_KEY: ""
@@ -162,7 +162,7 @@ jobs:
       DB_NAME: e2e_mongodb
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
-      ADMIN_PASSWORD: WikiAdmin2026!
+      ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-e2e-admin-do-not-use-in-production' }}
       SECRET_KEY: e2e-ci-secret-do-not-use-in-production
       OLLAMA_BASE: http://localhost:11434
       LANGFUSE_SECRET_KEY: ""

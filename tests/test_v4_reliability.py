@@ -1,3 +1,5 @@
+from __future__ import annotations
+import os
 """tests/test_v4_reliability.py — Regression tests for v4 reliability claims.
 
 Ensures that the following already-claimed behaviors continue to work:
@@ -8,7 +10,7 @@ Tests in this file must NOT break when workspace isolation or feature matrix
 code is added.  They prove the core system still works correctly.
 """
 
-from __future__ import annotations
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
 
 import asyncio
 import time
@@ -112,7 +114,7 @@ class TestDirectChatNonBlocking:
         client = TestClient(srv.app)
         login = client.post(
             "/api/auth/login",
-            json={"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"},
+            json={"email": "admin@llmrelay.local", "password": _ADMIN_PASSWORD},
         )
         if login.status_code != 200:
             pytest.skip("Backend auth not configured in this test environment")

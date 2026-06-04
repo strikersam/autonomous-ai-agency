@@ -953,6 +953,51 @@ class WebsiteScanner:
         if 'x-amz-cf-id' in headers_dict: add_stack(hosting, 'AWS'); add_stack(infrastructure, 'AWS CloudFront')
         if 'cloudflare' in headers_dict.get('server', ''): add_stack(infrastructure, 'Cloudflare')
         if 'akamai' in headers_dict.get('server', '') or 'x-cache' in headers_dict: add_stack(infrastructure, 'Akamai')
+        # Render.com detection (common PaaS for Python/Node backends)
+        if 'onrender.com' in headers_dict.get('x-render-origin-server', '') \
+                or 'render' in headers_dict.get('server', '').lower() \
+                or 'x-render-id' in headers_dict:
+            add_stack(hosting, 'Render')
+        # FastAPI / Python backend signals
+        if 'fastapi' in headers_dict.get('x-powered-by', '').lower() \
+                or headers_dict.get('server', '').lower().startswith('uvicorn') \
+                or 'uvicorn' in headers_dict.get('via', '').lower():
+            add_stack(frameworks, 'FastAPI')
+            add_stack(languages, 'Python')
+        # Generic Python ASGI/WSGI
+        if 'gunicorn' in headers_dict.get('server', '').lower() \
+                or 'waitress' in headers_dict.get('server', '').lower() \
+                or 'hypercorn' in headers_dict.get('server', '').lower():
+            add_stack(languages, 'Python')
+        # React — broader pattern: CRA bundles use static/js/main.*.js
+        if 'react' in html_lower \
+                or 'static/js/main.' in html_lower \
+                or '__webpack_require__' in html_lower \
+                or 'data-reactroot' in html_lower \
+                or '_reactfiber' in html_lower:
+            add_stack(frameworks, 'React')
+            add_stack(languages, 'JavaScript')
+        # Vite / modern bundlers
+        if 'vite' in html_lower or '/@vite/' in html_lower or '/assets/index.' in html_lower:
+            add_stack(frameworks, 'Vite')
+            add_stack(languages, 'JavaScript')
+        # Tailwind CSS
+        if 'tailwind' in html_lower or 'tw-' in html_lower:
+            add_stack(frameworks, 'Tailwind CSS')
+        # MongoDB / document DB hints in error messages or meta
+        if 'mongodb' in html_lower or 'mongoose' in html_lower:
+            add_stack(databases, 'MongoDB')
+        # SQLite hint (often in dev/small backends)
+        if 'sqlite' in html_lower:
+            add_stack(databases, 'SQLite')
+        # OpenAI-compatible API signals
+        if '/v1/chat/completions' in html_lower or 'openai-compatible' in html_lower \
+                or 'ollama' in html_lower:
+            add_stack(frameworks, 'OpenAI-compatible API')
+        # GitHub Pages / Actions signals
+        if 'github.io' in headers_dict.get('x-github-request-id', '') \
+                or 'github' in headers_dict.get('server', '').lower():
+            add_stack(hosting, 'GitHub Pages')
             
         return StackInference(
             frameworks=frameworks, languages=languages, libraries=libraries,

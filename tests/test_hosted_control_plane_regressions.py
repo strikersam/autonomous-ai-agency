@@ -1,14 +1,17 @@
+from __future__ import annotations
+import os
 """Regression coverage for hosted control-plane routes and agent profile shape."""
 
-from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
 
+
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
 def _auth_headers(client: TestClient) -> dict[str, str]:
     login = client.post(
         "/api/auth/login",
-        json={"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"},
+        json={"email": "admin@llmrelay.local", "password": _ADMIN_PASSWORD},
     )
     assert login.status_code == 200
     token = login.json()["access_token"]

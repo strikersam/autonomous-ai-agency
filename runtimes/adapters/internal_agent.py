@@ -269,6 +269,7 @@ class InternalAgentAdapter(RuntimeAdapter):
         )
 
         started = time.perf_counter()
+
         try:
             # Resolve model: prefer spec → Nvidia default → leave None (auto)
             model = spec.model_preference
