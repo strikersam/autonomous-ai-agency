@@ -600,12 +600,11 @@ def _extract_tech_relevance(content: str) -> list[str]:
     content_lower = content.lower()
     found: list[str] = []
 
-    # Fast path: multi-word techs (e.g. "next.js", "material ui")
-    # Use word-boundary regex for multi-word too to avoid "next.js" matching
-    # inside "next.jsx" or similar false positives.
+    # Multi-word techs — use explicit [a-z0-9] boundary to avoid matching
+    # "next.js" inside "next.jsx" or similar compound identifiers.
     for tech in _MULTI_WORD_TECHS:
         pattern = re.compile(
-            r"(?<!\bp)?" + re.escape(tech) + r"(?![a-z0-9])",
+            r"(?<![a-z0-9])" + re.escape(tech) + r"(?![a-z0-9])",
             flags=re.IGNORECASE,
         )
         if pattern.search(content_lower):
@@ -667,7 +666,10 @@ def _first_paragraph(text: str) -> str:
 
 def _extract_tags(content: str) -> list[str]:
     """Pull hashtags and bold words from markdown as tags."""
+    import re as _re
     tags: list[str] = []
-    tags += re.findall(r"#(\bw+\b)", content)
-    tags += re.findall(r"\\*\\*([^*]{3,30})\\*\\*", content)
+    # Hashtags: # must NOT be preceded by an alphanumeric (not a word boundary)
+    tags += _re.findall(r"(?<![a-zA-Z0-9])#([a-zA-Z0-9_]{1,30})", content)
+    # Bold: **word** or __word__ with content length 3-30
+    tags += _re.findall(r"(?:^|[^a-zA-Z0-9])([a-zA-Z][^*\n]{2,28}[a-zA-Z0-9])", content)
     return list(dict.fromkeys(t.lower() for t in tags))[:12]

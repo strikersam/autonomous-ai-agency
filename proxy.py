@@ -1120,6 +1120,48 @@ async def scaffolding_apply(body: ScaffoldRequest, auth: AuthContext = Depends(v
     return result.as_dict()
 
 
+# ─── Skill Registry Refresh ───────────────────────────────────────────────
+
+class SkillsRefreshRequest(BaseModel):
+    force: bool = Field(default=False, description="Bypass 1-hour TTL and force-refresh")
+
+
+@app.post("/agent/skills/refresh")
+async def skills_refresh(
+    body: SkillsRefreshRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Manually trigger a skill registry refresh from all GitHub registries.
+
+    Use force=true to bypass the 1-hour TTL and always hit the GitHub API.
+    Returns the count of new skills added.
+    """
+    try:
+        from agent.skill_registry import get_skill_registry_safe
+        sr = get_skill_registry_safe()
+        if sr is None:
+            return JSONResponse(
+                {"error": "SkillRegistry not initialised"},
+                status_code=503,
+            )
+        if body.force:
+            added = await sr.refresh_remote_force()
+        else:
+            added = await sr.refresh_remote()
+        return {
+            "ok": True,
+            "added": added,
+            "total": len(sr.list()),
+            "forced": body.force,
+        }
+    except Exception as exc:
+        log.error("Skill registry refresh failed: %s", exc)
+        return JSONResponse(
+            {"error": str(exc)},
+            status_code=500,
+        )
+
+
 # ─── Skill Library ────────────────────────────────────────────────────────────
 
 class MpcSkillRequest(BaseModel):
