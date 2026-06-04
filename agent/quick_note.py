@@ -243,7 +243,7 @@ def start_processor(
     """Start a daemon thread that processes one queued note every *interval_hours*.
 
     Permanently-failed notes (status=failed) are not retried. Notes that error
-    but are still pending are re-queued with exponential backoff, up to *max_retries*.
+    but are still pending are re-queued with capped backoff, up to *max_retries*.
     After exhausting retries the note is left as 'failed' with no further attempts.
     """
     interval_secs = interval_hours * 3600
@@ -261,8 +261,9 @@ def start_processor(
             except Exception as exc:
                 log.error("QuickNote processor error: %s", exc)
 
-            # Exponential backoff: sleep interval * 2^(failed_notes_in_last_batch)
-            # Capped so we never sleep more than 4x the base interval on any retry storm.
+            # Capped backoff: fixed interval_secs per cycle, no per-retry exponential growth.
+            # The 4× cap handles retry storms (many notes failing simultaneously) without
+            # implementing per-note exponential backoff.
             time.sleep(min(interval_secs * 4, interval_secs))
 
     threading.Thread(target=_loop, name="quick-note-processor", daemon=True).start()
