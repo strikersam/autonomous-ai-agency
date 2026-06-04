@@ -5937,6 +5937,252 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     )
 
 
+@app.get("/api/doctor/public", response_model=_DoctorReport)
+async def get_public_doctor() -> _DoctorReport:
+    """Public Doctor endpoint — no authentication required.
+
+    Returns system-level diagnostics only (git, storage, provider health).
+    No user-specific checks (GitHub token, workspace, repo access).
+    """
+    import datetime
+    import shutil
+
+    checks: list[_DoctorCheck] = []
+
+    # 1. Git binary
+    git_ok = bool(shutil.which("git"))
+    checks.append(_DoctorCheck(
+        id="git_binary",
+        category="Setup",
+        label="Git binary",
+        status="pass" if git_ok else "fail",
+        detail="git found on PATH" if git_ok else "git not found on PATH",
+        explanation="Install git for repository operations" if not git_ok else None,
+    ))
+
+    # 2. Storage backend
+    try:
+        from db import get_store
+        store = get_store()
+        count = await store.count_companies() if hasattr(store, 'count_companies') else 0
+        checks.append(_DoctorCheck(
+            id="storage",
+            category="Storage",
+            label="Storage backend",
+            status="pass",
+            detail=f"Connected ({count} companies)",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="storage",
+            category="Storage",
+            label="Storage backend",
+            status="fail",
+            detail=f"Unavailable: {exc}",
+        ))
+
+    # 3. Provider health (Ollama reachability)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+            r = await client.get(f"{OLLAMA_BASE}/api/tags")
+            ollama_ok = r.status_code == 200
+    except Exception:
+        ollama_ok = False
+    checks.append(_DoctorCheck(
+        id="ollama",
+        category="Provider",
+        label="Ollama provider",
+        status="pass" if ollama_ok else "warn",
+        detail="Ollama reachable" if ollama_ok else "Ollama unreachable — start with ollama serve",
+        explanation="Ollama is the local LLM engine. Ensure it is running." if not ollama_ok else None,
+    ))
+
+    # 4. Runtime health
+    try:
+        mgr = get_runtime_manager()
+        runtimes = mgr.list_runtimes()
+        running = sum(1 for rt in runtimes if rt.get("available", False))
+        checks.append(_DoctorCheck(
+            id="runtimes",
+            category="Runtime",
+            label="Agent runtimes",
+            status="pass" if running > 0 else "warn",
+            detail=f"{running}/{len(runtimes)} runtimes available" if runtimes else "No runtimes registered",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="runtimes",
+            category="Runtime",
+            label="Agent runtimes",
+            status="warn",
+            detail=f"Could not query: {exc}",
+        ))
+
+    # 5. Feature gate status
+    workflow_mode = os.environ.get("AGENCY_WORKFLOW_MODE", "orchestrator")
+    checks.append(_DoctorCheck(
+        id="workflow_mode",
+        category="Feature",
+        label="Workflow mode",
+        status="pass" if workflow_mode == "orchestrator" else "warn",
+        detail=f"Golden path enforced ({workflow_mode})" if workflow_mode == "orchestrator" else f"Legacy mode ({workflow_mode})",
+        explanation="Set AGENCY_WORKFLOW_MODE=orchestrator for the production-grade golden path." if workflow_mode != "orchestrator" else None,
+    ))
+
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+    ready = fail_count == 0
+    summary = f"{pass_count}/{len(checks)} checks passing — {'healthy' if ready else 'action required'}"
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
+@app.get("/api/doctor/diagnostics", response_model=_DoctorReport)
+async def get_doctor_diagnostics(
+    user: dict = Depends(get_current_user),
+) -> _DoctorReport:
+    """Authenticated Doctor endpoint — full diagnostics.
+
+    Returns all system-level checks plus user-specific diagnostics:
+    GitHub token, workspace integrity, company graph health.
+    Requires authentication.
+    """
+    from agent.doctor import DirectChatDoctor
+    import datetime
+
+    github_token = (
+        user.get("github_repo_token")
+        or os.environ.get("GH_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+    )
+    doctor = DirectChatDoctor(github_token=github_token)
+
+    checks: list[_DoctorCheck] = []
+
+    # 1. Preflight (GitHub token, git binary, repo access)
+    try:
+        preflight = await doctor.check_all()
+        if not preflight.issues:
+            checks.append(_DoctorCheck(
+                id="preflight",
+                category="Setup",
+                label="Git & GitHub setup",
+                status="pass",
+                detail="git found, GitHub token valid, repo accessible",
+            ))
+        else:
+            for issue in preflight.issues:
+                checks.append(_DoctorCheck(
+                    id=issue.code,
+                    category="Setup",
+                    label=issue.message[:80],
+                    status="fail",
+                    detail=issue.message,
+                    explanation=issue.fix_hint,
+                ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="preflight_error",
+            category="Setup",
+            label="Preflight checks",
+            status="warn",
+            detail=f"Could not run: {exc}",
+        ))
+
+    # 2. Company graph integrity
+    try:
+        user_id = str(user.get("email") or user.get("_id", ""))
+        store = get_company_graph_store()
+        companies, _ = await store.list_companies(owner_id=user_id, limit=10)
+        checks.append(_DoctorCheck(
+            id="company_graph",
+            category="Company",
+            label="Company Graph",
+            status="pass" if companies else "warn",
+            detail=f"{len(companies)} company(s) onboarded" if companies else "No companies onboarded yet",
+            explanation="Create a company via the Onboarding flow to start using the platform." if not companies else None,
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="company_graph",
+            category="Company",
+            label="Company Graph",
+            status="warn",
+            detail=f"Could not query: {exc}",
+        ))
+
+    # 3. Workspace integrity
+    workspace_root = os.environ.get("WORKSPACE_ROOT", str(ROOT_DIR))
+    workspace_exists = Path(workspace_root).exists()
+    checks.append(_DoctorCheck(
+        id="workspace",
+        category="Workspace",
+        label="Workspace",
+        status="pass" if workspace_exists else "fail",
+        detail=f"Workspace at {workspace_root}" if workspace_exists else f"Workspace not found: {workspace_root}",
+    ))
+
+    # 4. Skill library health
+    try:
+        from agent.skills import SkillLibrary
+        lib = SkillLibrary()
+        skill_count = len(lib.list_all())
+        checks.append(_DoctorCheck(
+            id="skills",
+            category="Skills",
+            label="Skill Library",
+            status="pass" if skill_count > 0 else "warn",
+            detail=f"{skill_count} skills loaded",
+        ))
+    except Exception:
+        checks.append(_DoctorCheck(
+            id="skills",
+            category="Skills",
+            label="Skill Library",
+            status="warn",
+            detail="Skill library unavailable",
+        ))
+
+    # 5. Workflow orchestrator status
+    try:
+        from services.workflow_orchestrator import get_workflow_orchestrator
+        orchestrator = get_workflow_orchestrator()
+        runs = orchestrator.list_runs(limit=5)
+        checks.append(_DoctorCheck(
+            id="orchestrator",
+            category="Workflow",
+            label="Workflow Orchestrator",
+            status="pass",
+            detail=f"Active ({len(runs)} recent runs)",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="orchestrator",
+            category="Workflow",
+            label="Workflow Orchestrator",
+            status="warn",
+            detail=f"Not available: {exc}",
+        ))
+
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+    ready = fail_count == 0
+    summary = f"{pass_count}/{len(checks)} checks passing — {'healthy' if ready else 'action required'}"
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
+
 # ─── Feature Routers ────────────────────────────────────────────────────────────
 app.include_router(agent_router)
 app.include_router(runtime_router)
@@ -5947,6 +6193,7 @@ app.include_router(activation_router)
 app.include_router(secrets_router)
 
 # Company Graph API
+from services.company_graph_store import get_company_graph_store
 import backend.company_api as company_api_module
 app.include_router(company_api_module.router)
 

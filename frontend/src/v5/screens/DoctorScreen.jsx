@@ -102,7 +102,7 @@ function ErrorBanner({ message, onRetry }) {
 
 // ── main screen ───────────────────────────────────────────────────────────────
 export default function DoctorScreen({ onNavigate }) {
-  const [data, states, reload] = useSafeData(API, { report: '/api/doctor' }, { refreshMs: 60_000 });
+  const [data, states, reload] = useSafeData(API, { report: '/api/doctor/public' }, { refreshMs: 60_000 });
   const [expanded, setExpanded] = React.useState(null);
 
   const report  = data.report;
