@@ -4,7 +4,6 @@ import os
 End-to-end tests for the agent chat code-change flow.
 
 
-_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
 Tests the full stack with real:
   - FastAPI app (backend/server.py)
   - Auth (login → JWT)
@@ -22,6 +21,7 @@ Only outbound HTTP calls (LLM providers, GitHub API) are intercepted.
 All agent logic, MCP tool dispatch, and job lifecycle are real.
 """
 
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
 import json
 import time
 import urllib.parse
