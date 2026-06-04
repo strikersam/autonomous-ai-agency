@@ -573,3 +573,13 @@ class SQLiteStore:
     def __getattr__(self, name: str) -> _Collection:
         # Fallback for any collection not in _COLLECTIONS (e.g. dynamic names)
         return _Collection(self, name)
+
+    def __getitem__(self, name: str) -> _Collection:
+        # Mongo/motor exposes collections via BOTH ``db.tasks`` and
+        # ``db["tasks"]``. SQLiteStore previously supported only attribute access
+        # (__getattr__), so code written for Mongo that used subscript access —
+        # e.g. TaskStore/AgentStore's ``self._db["tasks"]`` — raised
+        # ``TypeError: 'SQLiteStore' object is not subscriptable`` under
+        # STORAGE_BACKEND=sqlite. Supporting __getitem__ makes the SQLite backend
+        # a drop-in for the subscript pattern too.
+        return _Collection(self, name)

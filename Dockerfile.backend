@@ -1,3 +1,18 @@
+# ── Stage 1: build the React SPA from source ──────────────────────────────────
+# The backend serves the built SPA from ../frontend/build. frontend/build/ is
+# gitignored (untracked), so we must NOT depend on it existing in the build
+# context — building it here from the tracked frontend/ source makes the image
+# self-contained for BOTH the Render production build (which uses this
+# Dockerfile from a clean checkout) and the Browser E2E CI job.
+FROM node:20-slim AS frontend-build
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+# CI=false so build-time ESLint warnings don't fail the production build.
+RUN CI=false npm run build
+
+# ── Stage 2: the Python backend ───────────────────────────────────────────────
 FROM python:3.11-slim
 
 # git is required by mcp_server workspace tools (clone_repo, git_commit, etc.)
@@ -42,6 +57,10 @@ COPY activation_api.py activation_api.py
 COPY infra_cost.py infra_cost.py
 COPY models/ models/
 COPY services/ services/
+# The built SPA from stage 1 (backend/server.py `_FRONTEND_BUILD` serves it at
+# /login and every UI route). Built from source in-image, so this never depends
+# on the gitignored frontend/build/ existing in the build context.
+COPY --from=frontend-build /frontend/build/ frontend/build/
 
 EXPOSE 8001
 

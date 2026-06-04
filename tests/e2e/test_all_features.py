@@ -8,6 +8,7 @@ matching the project's standard test pattern.
 """
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Any
 
@@ -16,8 +17,12 @@ from fastapi.testclient import TestClient
 
 from backend.server import app
 
-ADMIN_EMAIL = "admin@llmrelay.local"
-ADMIN_PASSWORD = "WikiAdmin2026!"
+# Read from the env so this in-process suite stays in sync with whatever
+# credentials the harness/workflow seeds the backend with (the browser-e2e job
+# generates an ephemeral ADMIN_PASSWORD per run); fall back to the historical
+# dev defaults for local runs.
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
