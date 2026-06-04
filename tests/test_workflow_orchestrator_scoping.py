@@ -153,6 +153,52 @@ class TestOrchestratorEndpointScoping:
         resp = api_client.post(f"/api/workflow/orchestrator/approve/{run_id}")
         assert resp.status_code == 404
 
+    def test_non_admin_cannot_auto_approve(self, api_client):
+        """A non-admin's auto_approve=true is ignored — the run still pauses at HITL."""
+        from services.workflow_orchestrator import reset_orchestrator
+
+        reset_orchestrator()
+        alice = {"_id": "alice", "email": "alice@example.com", "role": "user"}
+        _override_user(alice)
+        resp = api_client.post(
+            "/api/workflow/orchestrator/execute",
+            json={"request": "do risky thing", "auto_approve": True},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["run"]["status"] == "awaiting_approval"
+
+    def test_admin_may_auto_approve(self, api_client):
+        from services.workflow_orchestrator import reset_orchestrator
+
+        reset_orchestrator()
+        admin = {"_id": "root", "email": "admin@example.com", "role": "admin"}
+        _override_user(admin)
+        resp = api_client.post(
+            "/api/workflow/orchestrator/execute",
+            json={"request": "trusted internal run", "auto_approve": True},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["run"]["status"] == "done"
+
+    def test_approval_is_attributed_to_authenticated_user(self, api_client):
+        """approved_by comes from the session, not a client-supplied string."""
+        from services.workflow_orchestrator import reset_orchestrator
+
+        reset_orchestrator()
+        alice = {"_id": "alice", "email": "alice@example.com", "role": "user"}
+        _override_user(alice)
+        run_id = api_client.post(
+            "/api/workflow/orchestrator/execute",
+            json={"request": "needs approval", "auto_approve": False},
+        ).json()["run"]["run_id"]
+
+        # Even if a spoofed approved_by is sent as a query param, it's ignored.
+        resp = api_client.post(
+            f"/api/workflow/orchestrator/approve/{run_id}?approved_by=somebody-else"
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["run"]["approved_by"] == "alice"
+
     def test_admin_sees_all_runs(self, api_client):
         from services.workflow_orchestrator import reset_orchestrator
 

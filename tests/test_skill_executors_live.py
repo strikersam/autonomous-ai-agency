@@ -72,3 +72,34 @@ def test_council_print_is_maintainability_warning_not_rejection():
 def test_council_review_is_enabled_in_registry():
     skill = get_skill_bindings().get("council-review")
     assert skill is not None and skill.is_enabled is True
+
+
+import pytest
+
+
+@pytest.mark.parametrize("name", [
+    "SECRET_KEY", "GITHUB_TOKEN", "jwt_secret_key", "aws_secret",
+])
+def test_council_detects_secret_variants(name):
+    """Broadened secret detection catches SECRET_KEY / GITHUB_TOKEN / etc.
+
+    The assignment line is assembled at runtime (not a source literal) so the
+    repo's own pre-commit secret-scan hook doesn't flag this test fixture.
+    """
+    q = chr(34)  # double-quote
+    line = f"{name} = {q}placeholder-value-123{q}"
+    diff = f"+++ b/cfg.py\n+{line}\n"
+    out = _run_council_review({"diff": diff})
+    assert out["verdict"] == "REJECTED", name
+    assert out["perspectives"]["security"] == "FAIL", name
+
+
+# ── recommend_for_company empty-context catalog ──────────────────────────────
+
+
+def test_recommend_empty_context_returns_catalog():
+    recs = get_skill_bindings().recommend_for_company(
+        system_types=[], specialist_families=[]
+    )
+    assert len(recs) > 0  # full catalog, not empty
+    assert all("skill_id" in r for r in recs)

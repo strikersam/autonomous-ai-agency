@@ -1,6 +1,14 @@
 [bandit]
-# Exclude test directories — test credentials and assertions are not production security issues
-exclude: services/workflow_orchestrator.py,services/skill_bindings.py,frontend/src/v5/components/ErrorBoundary.jsx,backend/server.py,agent/loop.py,agent/agency.py,agent/coordinator.py,models/company_graph.py,services/company_graph_store.py,services/specialist.py,backend/company_api.py
+# Do NOT exclude core runtime/backend files from SAST — they are the most
+# security-critical paths and must keep Medium/High coverage. Instead of
+# blanket-excluding whole files, we skip only the low-severity, high-noise
+# rules that fire on legitimate patterns across this codebase (try/except/pass,
+# subprocess usage with constant argv, hardcoded-string heuristics, asserts).
+# Medium/High findings (shell injection, SQLi, etc.) remain fully enforced.
 exclude_dirs: tests,.venv,.git,node_modules,frontend
-# Skip rules that are appropriate in test code
-skips: B105,B101
+# Low-severity rules skipped repo-wide (noise on legitimate code):
+#   B101 assert_used, B105 hardcoded_password_string (heuristic),
+#   B110 try_except_pass, B112 try_except_continue,
+#   B404 import subprocess, B603 subprocess_without_shell_equals_true,
+#   B607 start_process_with_partial_path
+skips: B101,B105,B110,B112,B404,B603,B607

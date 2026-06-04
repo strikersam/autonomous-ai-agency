@@ -995,26 +995,28 @@ async def auto_recommend_skills(
         workflow_types = []
 
         if company_id:
+            # Enforce tenant access BEFORE reading any company graph metadata —
+            # otherwise any authenticated user could probe another tenant's
+            # stack/systems/specialists by guessing a company_id.
+            company = await get_company_access(company_id, user)
             try:
                 store = get_company_graph_store()
-                company = await store.get_company(company_id)
-                if company:
-                    # Get detected systems
-                    websites = await store.list_websites(company_id)
-                    for w in websites:
-                        if w.inferred_stack:
-                            tech_stack.extend(w.inferred_stack.frameworks or [])
-                            tech_stack.extend(w.inferred_stack.languages or [])
-                            tech_stack.extend(w.inferred_stack.cms or [])
-                    # Get system types
-                    detected = await store.list_detected_systems(company_id)
-                    system_types = list({d.system_type for d in detected})
+                # Get detected systems
+                websites = await store.list_websites(company.id)
+                for w in websites:
+                    if w.inferred_stack:
+                        tech_stack.extend(w.inferred_stack.frameworks or [])
+                        tech_stack.extend(w.inferred_stack.languages or [])
+                        tech_stack.extend(w.inferred_stack.cms or [])
+                # Get system types
+                detected = await store.list_detected_systems(company.id)
+                system_types = list({d.system_type for d in detected})
 
-                    # Get specialist families
-                    specialists = await store.list_specialists(company_id)
-                    specialist_families = list({s.family for s in specialists})
-            except Exception:
-                pass
+                # Get specialist families
+                specialists = await store.list_specialists(company.id)
+                specialist_families = list({s.family for s in specialists})
+            except Exception as exc:
+                log.warning("auto_recommend_skills: context load failed: %s", exc)
 
         recommendations = bindings.recommend_for_company(
             system_types=system_types,
@@ -1085,5 +1087,13 @@ async def get_specialist_bound_skills(
     """Get the skills bound to a specific specialist."""
     company = await get_company_access(company_id, user)
     specialist_service = get_specialist_service()
+    # Scope the specialist to the authorized company — a caller who owns
+    # company A must not read a specialist that belongs to company B by ID.
+    specialist = await specialist_service.get_specialist(specialist_id)
+    if specialist is None or specialist.company_id != company.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Specialist {specialist_id} not found for this company",
+        )
     skills = await specialist_service.get_bound_skills(specialist_id)
     return {"specialist_id": specialist_id, "skills": skills, "total": len(skills)}

@@ -444,7 +444,7 @@ function DashboardScreen() {
         gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
         gap: 14,
       }}>
-        <ErrorBoundary onRetry={fetchAll}>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.health?.error || states.providers?.error || '')}>
           <ProviderHealthWidget
             data={providerData}
             loading={states.health?.loading || states.providers?.loading}
@@ -452,7 +452,7 @@ function DashboardScreen() {
             onRetry={fetchAll}
           />
         </ErrorBoundary>
-        <ErrorBoundary onRetry={fetchAll}>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.activity?.error || '')}>
           <RecentJobsWidget
             jobs={activityJobs}
             loading={states.activity?.loading}
@@ -460,7 +460,7 @@ function DashboardScreen() {
             onRetry={fetchAll}
           />
         </ErrorBoundary>
-        <ErrorBoundary onRetry={fetchAll}>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.tasks?.error || '')}>
           <TasksWidget
             tasks={openTasks}
             loading={states.tasks?.loading}
@@ -468,7 +468,7 @@ function DashboardScreen() {
             onRetry={fetchAll}
           />
         </ErrorBoundary>
-        <ErrorBoundary onRetry={fetchAll}>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.metrics?.error || '')}>
           <CostWidget
             data={costData}
             loading={states.metrics?.loading}
@@ -477,19 +477,19 @@ function DashboardScreen() {
             onRetry={fetchAll}
           />
         </ErrorBoundary>
-        <ErrorBoundary onRetry={fetchAll}>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String((states.health?.error || '') + (states.stats?.error || ''))}>
           <MonitoringWidget
             signals={monitoringSignals}
             loading={states.health?.loading || states.stats?.loading}
-            error={states.health?.error}
+            error={states.health?.error || states.stats?.error}
             onRetry={fetchAll}
           />
         </ErrorBoundary>
-        <ErrorBoundary onRetry={fetchAll}>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String((states.health?.error || '') + (states.stats?.error || ''))}>
           <SystemHealthWidget
             health={providerData}
             loading={states.health?.loading || states.stats?.loading}
-            error={states.health?.error}
+            error={states.health?.error || states.stats?.error}
             errorSeverity="warning"
             onRetry={fetchAll}
           />

@@ -272,13 +272,18 @@ function SkillsScreen() {
   const [tab,         setTab]         = React.useState('catalogue'); // 'catalogue' | 'recommended' | 'registry'
   const [companyId,   setCompanyId]   = React.useState(null);
 
-  // Resolve current company ID from the companies list
+  // Resolve current company ID from the companies list.
+  // listCompanies() is NOT a single-company API — admins get every company and
+  // a normal user can own several — so only auto-select when there is exactly
+  // one company. With multiple, leave it unset (the user picks) rather than
+  // silently loading recommendations for an arbitrary tenant.
   React.useEffect(() => {
     const resolve = async () => {
       try {
         const { data } = await api.listCompanies();
-        if ((data.companies || []).length > 0) {
-          setCompanyId(data.companies[0].id);
+        const companies = data.companies || [];
+        if (companies.length === 1) {
+          setCompanyId(companies[0].id);
         }
       } catch { /* silent */ }
     };

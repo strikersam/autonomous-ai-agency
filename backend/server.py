@@ -2801,15 +2801,25 @@ async def _run_agent_loop(
     try:
         if session_id:
             _append_agent_session_message(session_id, "user", instruction)
-        result = await runner.run(
-            instruction=agent_instruction,
-            history=session_messages,
-            requested_model=requested_model,
-            auto_commit=True,
-            max_steps=8,
-            memory_store=UserMemoryStore(),
-            session_id=session_id,
-        )
+        # Live Agent Mode is a deliberate, user-invoked execution path. Set the
+        # orchestrator bypass token so the AgentRunner.run() deprecation guard
+        # (active under the default AGENCY_WORKFLOW_MODE=orchestrator) doesn't
+        # block it — the guard exists to catch *unintended* parallel callers,
+        # not the explicit chat Agent Mode toggle.
+        import services.workflow_orchestrator as _wo
+        _bypass_token = _wo._BYPASS.set(True)
+        try:
+            result = await runner.run(
+                instruction=agent_instruction,
+                history=session_messages,
+                requested_model=requested_model,
+                auto_commit=True,
+                max_steps=8,
+                memory_store=UserMemoryStore(),
+                session_id=session_id,
+            )
+        finally:
+            _wo._BYPASS.reset(_bypass_token)
         if session_id:
             AGENT_EVENT_STORE.update_result(
                 session_id,
@@ -6055,11 +6065,10 @@ async def get_doctor_diagnostics(
     from agent.doctor import DirectChatDoctor
     import datetime
 
-    github_token = (
-        user.get("github_repo_token")
-        or os.environ.get("GH_TOKEN")
-        or os.environ.get("GITHUB_TOKEN")
-    )
+    # User-specific diagnostics: use ONLY the caller's own GitHub token, never
+    # the server-wide env fallback — otherwise a user with no GitHub connection
+    # would falsely report healthy against the host's token.
+    github_token = user.get("github_repo_token")
     doctor = DirectChatDoctor(github_token=github_token)
 
     checks: list[_DoctorCheck] = []
@@ -6152,7 +6161,10 @@ async def get_doctor_diagnostics(
     try:
         from services.workflow_orchestrator import get_workflow_orchestrator
         orchestrator = get_workflow_orchestrator()
-        runs = orchestrator.list_runs(limit=5)
+        # Scope run visibility to the caller (admins see all) so diagnostics
+        # never leak other tenants' recent activity.
+        owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+        runs = orchestrator.list_runs(limit=5, owner_id=owner_id)
         checks.append(_DoctorCheck(
             id="orchestrator",
             category="Workflow",
@@ -6206,6 +6218,7 @@ from services.workflow_orchestrator import (
 
 from backend.company_api import _resolve_user_id as _wfo_resolve_user_id
 from backend.company_api import _is_admin as _wfo_is_admin
+from backend.company_api import get_company_access as _wfo_company_access
 
 
 def _wfo_owned_run_or_404(orchestrator, run_id: str, user: dict):
@@ -6230,6 +6243,19 @@ async def workflow_orchestrator_execute(
 ):
     """Execute work through the 11-phase golden path."""
     orchestrator = get_workflow_orchestrator()
+    is_admin = _wfo_is_admin(user)
+
+    # If a company is targeted, the caller must have access to it — otherwise a
+    # user could run/approve a workflow against another tenant's company and read
+    # its graph snapshot back via bound_context (cross-tenant leak).
+    if body.company_id:
+        await _wfo_company_access(body.company_id, user)
+
+    # auto_approve bypasses the HITL ApprovalGate and is for trusted/internal
+    # callers only.  Never honor it from a non-admin, user-facing request.
+    if not is_admin:
+        body.auto_approve = False
+
     # Stamp the run with a stable, auth-method-agnostic owner id so it can be
     # scoped on list/get/approve.  Same resolver as the company endpoints.
     body.user_id = _wfo_resolve_user_id(user)
@@ -6240,13 +6266,15 @@ async def workflow_orchestrator_execute(
 @app.post("/api/workflow/orchestrator/approve/{run_id}")
 async def workflow_orchestrator_approve(
     run_id: str,
-    approved_by: str = "human",
     user: dict = Depends(get_current_user),
 ):
     """Approve a run paused at the ApprovalGate and resume execution."""
     orchestrator = get_workflow_orchestrator()
     # Ownership check first — a user may only approve their own runs (admin: any).
     _wfo_owned_run_or_404(orchestrator, run_id, user)
+    # Attribute the approval to the authenticated user — never an arbitrary
+    # client-supplied string (audit-log integrity).
+    approved_by = _wfo_resolve_user_id(user)
     try:
         run = await orchestrator.approve_and_resume(run_id, approved_by=approved_by)
         return {"status": run.status, "run": run.as_dict()}

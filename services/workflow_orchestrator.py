@@ -735,15 +735,28 @@ class WorkflowOrchestrator:
         memory_keys: list[str] = []
         company_graph: dict[str, Any] = {}
 
-        # Bind skills from Phase 1 SkillBindings
+        # Bind skills from Phase 1 SkillBindings.
+        # recommend_for_company requires BOTH system_types and specialist_families
+        # and returns a list of dicts (skill.as_dict() + score/reasons) — not
+        # RuntimeSkill objects.  Pass the classified domain as a system hint and
+        # the selected specialists' families so the recommender actually fires.
         try:
             from services.skill_bindings import get_skill_bindings
             sb = get_skill_bindings()
             classify = run.classify
             domain = classify.domain if classify else "general"
-            recommended = sb.recommend_for_company(system_types=[domain])
-            skill_ids = [s.skill_id for s in recommended if s.is_enabled]
-            log.info("BindContext: resolved %d skill(s) for domain=%s", len(skill_ids), domain)
+            families = list(run.specialist.families) if run.specialist else []
+            recommended = sb.recommend_for_company(
+                system_types=[domain], specialist_families=families
+            )
+            skill_ids = [
+                r["skill_id"] for r in recommended
+                if r.get("is_enabled", True) and r.get("skill_id")
+            ]
+            log.info(
+                "BindContext: resolved %d skill(s) for domain=%s families=%s",
+                len(skill_ids), domain, families,
+            )
         except Exception as exc:
             log.debug("Skill binding failed (non-fatal): %s", exc)
 
@@ -785,8 +798,13 @@ class WorkflowOrchestrator:
             run.execution = ExecutionResult(output="No plan to execute")
             return
 
-        # Build instruction from plan
-        instruction = plan.goal
+        # Execute the FULL user request, not the truncated plan.goal (which is
+        # only a 200-char summary).  Dropping the tail would lose file names,
+        # constraints, and acceptance criteria for long requests.  The plan goal
+        # is included as a header for context.
+        instruction = req.request
+        if plan.goal and plan.goal.strip() and plan.goal[:200] != req.request[:200]:
+            instruction = f"Goal: {plan.goal}\n\nFull request:\n{req.request}"
 
         # Try AgentRunner for actual execution (bypass deprecation via flag)
         try:

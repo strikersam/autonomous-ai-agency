@@ -21,6 +21,17 @@ export class ErrorBoundary extends React.Component {
     }
   }
 
+  componentDidUpdate(prevProps) {
+    // React error boundaries do NOT auto-recover when child props change —
+    // they stay on the fallback until explicitly reset/remounted. When the
+    // caller passes a changing `resetKey` (e.g. a data version that bumps on a
+    // successful refetch), clear the error so a transient render exception
+    // doesn't leave the widget stuck on fallback after data later succeeds.
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
   handleRetry = () => {
     // Call parent's onRetry (e.g., to re-fetch data) before resetting state
     if (this.props.onRetry) {

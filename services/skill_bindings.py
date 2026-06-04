@@ -207,8 +207,19 @@ class SkillBindings:
         system_types: list[str],
         specialist_families: list[str],
     ) -> list[dict[str, Any]]:
-        """Recommend skills based on detected systems and provisioned specialists."""
+        """Recommend skills based on detected systems and provisioned specialists.
+
+        With no context (no system types and no specialist families), returns the
+        full catalog with a base score so callers that omit ``company_id`` get the
+        catalog rather than an empty list.
+        """
         scored: dict[str, tuple[RuntimeSkill, int, list[str]]] = {}
+
+        if not system_types and not specialist_families:
+            return [
+                {**skill.as_dict(), "score": 0, "reasons": []}
+                for skill in list(self._skills.values())[:20]
+            ]
 
         # Score skills by family match
         for family in specialist_families:
@@ -927,7 +938,12 @@ def _run_graphify(params: dict[str, Any]) -> dict[str, Any]:
 _COUNCIL_RULES = [
     (re.compile(r"\beval\s*\(|\bexec\s*\(", re.I), "security", "high",
      "Use of eval/exec — arbitrary code execution risk."),
-    (re.compile(r"(password|secret|api[_-]?key|token)\s*=\s*['\"][^'\"]+['\"]", re.I),
+    (re.compile(
+        r"\b(password|passwd|secret(?:[_-]?key)?|jwt[_-]?secret(?:[_-]?key)?|"
+        r"api[_-]?key|access[_-]?key|client[_-]?secret|"
+        r"(?:github|gh|aws|gitlab|slack|stripe|openai|anthropic)[_-]?(?:token|key|secret)|"
+        r"token)\b\s*=\s*['\"][^'\"]+['\"]",
+        re.I),
      "security", "high", "Possible hardcoded credential/secret."),
     (re.compile(r"subprocess\.(run|call|Popen)\([^)]*shell\s*=\s*True", re.I),
      "security", "high", "subprocess with shell=True — shell injection risk."),
