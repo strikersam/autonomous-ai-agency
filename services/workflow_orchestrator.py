@@ -33,6 +33,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 import secrets
@@ -58,19 +59,23 @@ if WORKFLOW_MODE not in ("orchestrator", "legacy"):
 
 
 # ── Orchestrator bypass flag (prevents circular deprecation block) ──────────
-# When the WorkflowOrchestrator itself calls AgentRunner (in _handle_execute),
-# it sets this True to bypass the deprecation check. All other callers are blocked.
-_ORCHESTRATOR_CALLING: bool = False
+# Uses contextvars.ContextVar for async/coroutine safety — each async task
+# gets its own isolated bypass flag. When the WorkflowOrchestrator itself
+# calls AgentRunner (in _handle_execute), it sets this True to bypass the
+# deprecation check. All other callers are blocked.
+_BYPASS: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_orchestrator_bypass", default=False
+)
 
 
 def _orchestrator_bypass() -> bool:
     """True when the WorkflowOrchestrator is the caller (bypass deprecation)."""
-    return _ORCHESTRATOR_CALLING
+    return _BYPASS.get()
 
 
 def is_legacy_mode() -> bool:
     """True when parallel execution paths are allowed (with warnings)."""
-    return WORKFLOW_MODE == "legacy" or _ORCHESTRATOR_CALLING
+    return WORKFLOW_MODE == "legacy" or _BYPASS.get()
 
 
 def emit_deprecation(caller: str) -> None:
@@ -329,7 +334,8 @@ class WorkflowOrchestrator:
         """Execute a request through the full golden path.
 
         Blocks at ApprovalGate unless ``req.auto_approve`` is True.
-        If ``resume_run_id`` is provided, resumes from that run's state.
+        If ``resume_run_id`` is provided, resumes from that run and skips
+        phases that already have output.
         Returns the completed WorkflowRun.
         """
         if resume_run_id and resume_run_id in self._runs:
@@ -342,8 +348,35 @@ class WorkflowOrchestrator:
 
         log.info("WorkflowOrchestrator: run=%s request=%.100s", run.run_id, req.request)
 
+        # Phase → output mapping for skip detection when resuming
+        _PHASE_OUTPUT = {
+            Phase.CLASSIFY: "classify",
+            Phase.PLAN: "plan",
+            Phase.SELECT_SPECIALIST: "specialist",
+            Phase.PREFLIGHT: "preflight",
+            Phase.BIND_CONTEXT: "bound_context",
+            Phase.EXECUTE: "execution",
+            Phase.VERIFY: "verification",
+            Phase.JUDGE: "judge",
+            Phase.SUMMARIZE: "summary",
+            Phase.PERSIST: "persist",
+            Phase.MONITOR: "monitor",
+        }
+
         for phase in GOLDEN_PATH:
             run.current_phase = phase.value
+
+            # Skip already-completed phases when resuming
+            attr_name = _PHASE_OUTPUT.get(phase)
+            if attr_name and resume_run_id:
+                existing = getattr(run, attr_name, None)
+                if existing is not None:
+                    log.debug(
+                        "WorkflowOrchestrator: run=%s skipping completed phase %s",
+                        run.run_id, phase.value,
+                    )
+                    continue
+
             log.debug("WorkflowOrchestrator: run=%s phase=%s", run.run_id, phase.value)
 
             try:
@@ -713,8 +746,9 @@ class WorkflowOrchestrator:
             import os as _os
             import services.workflow_orchestrator as _wo
 
-            # Set the bypass flag so AgentRunner.run() doesn't block us
-            _wo._ORCHESTRATOR_CALLING = True
+            # Set the bypass token so AgentRunner.run() doesn't block us.
+            # Uses ContextVar for async/coroutine safety.
+            _token = _wo._BYPASS.set(True)
             try:
                 runner = AgentRunner(
                     ollama_base=_os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
@@ -742,7 +776,7 @@ class WorkflowOrchestrator:
                     duration_ms=0,
                 )
             finally:
-                _wo._ORCHESTRATOR_CALLING = False
+                _wo._BYPASS.reset(_token)
         except Exception as exc:
             log.exception("Execution failed: %s", exc)
             run.execution = ExecutionResult(
