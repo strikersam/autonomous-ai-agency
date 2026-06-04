@@ -25,6 +25,11 @@ Limitations vs real Anthropic API:
     context so the local model still benefits from it on follow-up turns.
     See docs/architecture/advisor-strategy.md for the local equivalent pattern.
   - Caching / prompt caching headers are accepted but not functional.
+  - `effort` parameter (Claude Opus 4.8+) is accepted but stripped — Ollama
+    has no equivalent; the local model always uses its own defaults.
+  - `thinking` parameter (extended / adaptive thinking) is accepted but stripped —
+    Ollama has no extended-thinking support. Thinking content blocks in message
+    history are also silently removed before forwarding.
 """
 
 from __future__ import annotations
@@ -131,6 +136,11 @@ def _content_block_to_text(block: dict[str, Any]) -> str:
         return f"[Tool result ({tool_id})]: {content}"
     if btype == "tool_use":
         return f"[Called {block.get('name', 'unknown')} with {json.dumps(block.get('input', {}))}]"
+    # Thinking blocks — produced by Claude Opus 4.7+ adaptive/extended thinking.
+    # Strip silently: the local model has no use for another model's raw reasoning
+    # tokens, and including them would only waste context.
+    if btype == "thinking":
+        return ""
     # Advisor strategy blocks — produced by the real Anthropic API when the
     # advisor_20260301 beta tool is used.  We preserve the advice text so the
     # local model still has that context on follow-up turns.
@@ -182,11 +192,15 @@ _SERVER_TOOL_TYPES: frozenset[str] = frozenset({
     "advisor_20260301",        # Advisor strategy — Opus sub-inference (server-side only)
     "computer_use_20241022",   # Computer use beta
     "computer_use_20250124",
+    "computer_use_20260124",   # Computer use — 2026 variant
     "text_editor_20241022",    # Text editor tool (Claude Code)
     "text_editor_20250124",    # Text editor tool (Claude Code — 2025 variant)
+    "text_editor_20260101",    # Text editor tool (Claude Code — 2026 variant, v2.1.154+)
     "bash_20241022",           # Bash tool (Claude Code)
     "bash_20250124",           # Bash tool (Claude Code — 2025 variant)
+    "bash_20260101",           # Bash tool (Claude Code — 2026 variant, v2.1.154+)
     "web_search_20250305",     # Web search (server-side)
+    "web_search_20260101",     # Web search (server-side — 2026 variant)
 })
 
 
@@ -515,6 +529,20 @@ async def handle_anthropic_messages(
         val = payload.get(param)
         if val is not None:
             openai_payload[param] = val
+
+    # Strip Anthropic-specific parameters that Ollama does not understand.
+    # `effort` is new in Claude Opus 4.8 (Claude Code v2.1.154+); Ollama would
+    # return a 400 if we forwarded it.
+    effort = payload.get("effort")
+    if effort is not None:
+        log.debug("Stripping effort=%r — not supported by Ollama backend", effort)
+
+    # `thinking` (extended / adaptive) is an Anthropic-only capability.
+    # Ollama has no equivalent; forwarding it causes a 400 error.
+    thinking = payload.get("thinking")
+    if thinking is not None:
+        thinking_type = thinking.get("type") if isinstance(thinking, dict) else thinking
+        log.debug("Stripping thinking param (type=%r) — not supported by Ollama backend", thinking_type)
 
     forward_body = json.dumps(openai_payload).encode("utf-8")
     target_url = f"{ollama_base}/v1/chat/completions"

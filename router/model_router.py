@@ -102,9 +102,9 @@ def _opus_model() -> str | None:
     bedrock_key = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
     bedrock_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
     if bedrock_key and bedrock_secret:
-        return "us.anthropic.claude-opus-4-6-v1"
+        return "us.anthropic.claude-opus-4-8-v1"
     if os.environ.get("ANTHROPIC_API_KEY"):
-        return "claude-opus-4-6"
+        return "claude-opus-4-8"
     return None
 
 
@@ -132,8 +132,11 @@ def _build_builtin_model_map() -> dict[str, str]:
     _reason = "deepseek-ai/deepseek-v4-pro" if nvidia else "deepseek-r1:32b"
 
     return {
-        # Claude 4.7 family (largest → heaviest reasoning)
+        # Claude 4.8 family — Opus 4.8 is Claude Code's default as of v2.1.154
+        "claude-opus-4-8": _largest,
+        # Claude 4.7 family
         "claude-opus-4-7": _largest,
+        "claude-sonnet-4-7": _coder,
         # Claude 4.6 family
         "claude-opus-4-6": _heavy,
         "claude-sonnet-4-6": _coder,
