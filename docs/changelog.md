@@ -1,3 +1,5 @@
+- **Onboarding UX, logs, chat, admin fixes.** *Onboarding:* clickable breadcrumbs, restart button, Done back button. *Logs:* expandable messages (click to expand). *Chat:* ModelPicker two-step provider→model, mutual dropdown exclusion, repo URL input for code tasks. *Admin:* Companies tab with delete cleanup. *Backend:* DELETE /api/company/{id} endpoint.
+
 - **Agency Core v5 hardening — Phases 1-4 (SkillBindings, WorkflowOrchestrator, Doctor route split, Dashboard resilience).**
 
   *Phase 1 — Skill Wiring:* `services/skill_bindings.py` with 28 typed runtime skills (7 production, 19 gated);

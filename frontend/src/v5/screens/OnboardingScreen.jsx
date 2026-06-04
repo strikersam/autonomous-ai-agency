@@ -73,20 +73,25 @@ function isUnauth(err) {
   return err?.response?.status === 401 || err?.response?.status === 403;
 }
 
-function StepIndicator({ current }) {
+function StepIndicator({ current, onStepClick }) {
   const idx = STEPS.findIndex(s=>s.id===current);
   return (
     <div style={{ display:'flex', alignItems:'center', gap:0, marginBottom:26, overflowX:'auto' }} className="scrollbar-hide">
       {STEPS.map((step,i)=>{
-        const done=i<idx; const active=i===idx;
+        const done=i<idx; const active=i===idx; const clickable = done && onStepClick;
         return (
           <React.Fragment key={step.id}>
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, flexShrink:0 }}>
+            <button
+              onClick={clickable ? () => onStepClick(step.id) : undefined}
+              disabled={!clickable}
+              style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, flexShrink:0, background:'none', border:'none', cursor:clickable?'pointer':'default', padding:0, font:'inherit', opacity: clickable ? 1 : 0.7 }}
+              title={clickable ? `Go back to ${step.label}` : (active ? `Current: ${step.label}` : '')}
+            >
               <div style={{ width:26, height:26, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', background:done?'#46d9a4':active?'var(--accent)':'rgba(255,255,255,0.07)', border:`2px solid ${done?'#46d9a4':active?'var(--accent)':'rgba(255,255,255,0.14)'}`, fontSize:11, fontWeight:700, color:done||active?'#06111f':'var(--text-muted)', transition:'all 0.3s' }}>
                 {done?'✓':i+1}
               </div>
               <div style={{ fontSize:10, fontWeight:600, color:active?'#fff':done?'var(--text-tertiary)':'var(--text-muted)', whiteSpace:'nowrap' }}>{step.label}</div>
-            </div>
+            </button>
             {i<STEPS.length-1 && <div style={{ flex:1, minWidth:12, height:2, margin:'0 4px', marginBottom:16, background:i<idx?'#46d9a4':'rgba(255,255,255,0.10)', transition:'background 0.4s' }}/>}
           </React.Fragment>
         );
@@ -575,7 +580,7 @@ function QuestionsStep({ onNext, onBack, siteType }) {
 }
 
 // ── Step 5: Done ───────────────────────────────────────────────────────────────
-function DoneStep({ onFinish, companyId, companyName }) {
+function DoneStep({ onFinish, onRestart, onBack, companyId, companyName }) {
   const [specialists, setSpecialists] = React.useState(null); // null = loading
   const [specsError, setSpecsError]   = React.useState('');
 
@@ -640,9 +645,13 @@ function DoneStep({ onFinish, companyId, companyName }) {
           </div>
         ))}
       </div>
-      <button onClick={onFinish} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>
-        → Go to Company Graph
-      </button>
+      <div style={{ display:'flex', gap:10 }}>
+        <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
+        <button onClick={onRestart} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,189,102,0.08)', border:'1px solid rgba(255,189,102,0.22)', color:'#ffbd66', fontSize:13, fontWeight:700, cursor:'pointer' }}>↺ Restart</button>
+        <button onClick={onFinish} style={{ flex:1, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>
+          → Go to Company Graph
+        </button>
+      </div>
     </div>
   );
 }
@@ -666,7 +675,7 @@ function OnboardingScreen({ onComplete, isAdmin }) {
         const { data } = await api.getOnboardingProgress(storedId);
         const status = data.status;
         if (status === 'completed') {
-          // Already done — skip to done step
+          // Already done — show the done step but allow restart via breadcrumb or restart button
           setCompanyId(storedId);
           setStep('done');
         } else if (status === 'in_progress' || status === 'paused') {
@@ -717,6 +726,22 @@ function OnboardingScreen({ onComplete, isAdmin }) {
     } catch { /* storage unavailable */ }
   };
 
+  const handleRestartOnboarding = () => {
+    // Clear all onboarding state and start fresh
+    setStep('url');
+    setSystems([]);
+    setSiteType('generic');
+    setCompanyId(null);
+    setCompanyName('');
+    try {
+      localStorage.removeItem(COMPANY_ID_KEY);
+      localStorage.removeItem('v5_company_domain');
+      localStorage.removeItem('v5_company_name');
+      localStorage.removeItem(ONBOARDING_ANSWERS_KEY);
+      localStorage.removeItem('v5_onboarding_details');
+    } catch { /* storage unavailable */ }
+  };
+
   const handleScanDone = (detectedList, id) => {
     setSystems(detectedList);
     setSiteType(detectSiteType(detectedList));
@@ -732,12 +757,22 @@ function OnboardingScreen({ onComplete, isAdmin }) {
   return (
     <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto' }}>
       <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
-      <StepIndicator current={step}/>
+      <StepIndicator current={step} onStepClick={(s) => {
+        // When jumping back to URL step via breadcrumb, reset company state
+        // so the old company doesn't linger and cause duplicate creation.
+        if (s === 'url' && step !== 'url') {
+          setCompanyId(null);
+          setCompanyName('');
+          setSystems([]);
+          setSiteType('generic');
+        }
+        setStep(s);
+      }}/>
       {step==='url'       && <DiscoveryStep onNext={handleScanDone} onCompanyCreated={handleCompanyCreated}/>}
       {step==='systems'   && <SystemsStep onNext={handleSystemsConfirmed} onBack={()=>setStep('url')} detectedSystems={systems}/>}
       {step==='details'   && <DetailsStep onNext={()=>setStep('questions')} onBack={()=>setStep('systems')} companyId={companyId}/>}
       {step==='questions' && <QuestionsStep onNext={()=>setStep('done')} onBack={()=>setStep('details')} siteType={siteType}/>}
-      {step==='done'      && <DoneStep onFinish={onComplete} companyId={companyId} companyName={companyName}/>}
+      {step==='done'      && <DoneStep onFinish={onComplete} onRestart={handleRestartOnboarding} onBack={()=>setStep('questions')} companyId={companyId} companyName={companyName}/>}
     </div>
   );
 }

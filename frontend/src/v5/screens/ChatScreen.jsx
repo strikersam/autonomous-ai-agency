@@ -59,12 +59,15 @@ function relTime(iso) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function AgentPicker({ selected, onSelect }) {
+function AgentPicker({ selected, onSelect, onOpen, forceClose }) {
   const [open, setOpen] = React.useState(false);
   const ag = AVAILABLE_AGENTS.find(a => a.id === selected) || AVAILABLE_AGENTS[0];
+  // Close when another dropdown opens
+  React.useEffect(() => { if (forceClose) setOpen(false); }, [forceClose]);
+  const toggle = () => { setOpen(o => { const next = !o; if (next && onOpen) onOpen(); return next; }); };
   return (
     <div style={{ position:'relative' }}>
-      <button onClick={()=>setOpen(o=>!o)} style={{
+      <button onClick={toggle} style={{
         display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
         borderRadius:999, border:`1px solid ${open?'rgba(93,162,255,0.40)':'rgba(255,255,255,0.12)'}`,
         background:open?'rgba(93,162,255,0.10)':'rgba(255,255,255,0.04)',
@@ -104,6 +107,38 @@ function AgentPicker({ selected, onSelect }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── Repo URL quick-add input ──────────────────────────────────────────────
+function RepoUrlInput({ onAdd }) {
+  const [open, setOpen] = React.useState(false);
+  const [url, setUrl] = React.useState('');
+  const handleAdd = () => {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    onAdd(trimmed);
+    setUrl('');
+    setOpen(false);
+  };
+  if (!open) return (
+    <button onClick={() => setOpen(true)} title="Add repo URL for code tasks" style={{
+      display:'inline-flex', alignItems:'center', gap:3, padding:'2px 7px', borderRadius:999,
+      background:'rgba(255,255,255,0.04)', border:'1px dashed rgba(255,255,255,0.15)',
+      cursor:'pointer', fontSize:10, color:'var(--text-muted)', fontFamily:'var(--font-mono)', flexShrink:0,
+    }}>
+      <span>+</span><span>repo</span>
+    </button>
+  );
+  return (
+    <div style={{ display:'inline-flex', alignItems:'center', gap:4, flexShrink:0 }}>
+      <input value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key==='Enter') handleAdd(); if (e.key==='Escape') setOpen(false); }}
+        placeholder="github.com/org/repo"
+        autoFocus
+        style={{ width:160, padding:'3px 8px', borderRadius:8, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(93,162,255,0.30)', color:'#fff', fontSize:10, fontFamily:'var(--font-mono)', outline:'none' }}/>
+      <button onClick={handleAdd} style={{ padding:'2px 6px', borderRadius:6, background:'rgba(93,162,255,0.15)', border:'1px solid rgba(93,162,255,0.30)', color:'var(--accent)', fontSize:10, cursor:'pointer', fontFamily:'var(--font-mono)' }}>✓</button>
+      <button onClick={() => setOpen(false)} style={{ padding:'0 4px', background:'none', border:'none', color:'var(--text-muted)', fontSize:10, cursor:'pointer' }}>✕</button>
     </div>
   );
 }
@@ -258,11 +293,25 @@ function HistorySidebar({ sessions, loading, activeId, onSelect, onClose }) {
 }
 
 // ── Main ChatScreen ───────────────────────────────────────────────────────────
-function ModelPicker({ selected, onSelect }) {
+function ModelPicker({ selected, onSelect, onOpen, forceClose }) {
   const [open, setOpen] = React.useState(false);
   const [providers, setProviders] = React.useState([]);
   const [models, setModels] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
+  const [selProvider, setSelProvider] = React.useState(selected?.provider || null);
+  // Close when another dropdown opens
+  React.useEffect(() => { if (forceClose) setOpen(false); }, [forceClose]);
+  // Reset selProvider when dropdown opens to prevent stale state
+  const toggle = () => {
+    setOpen(o => {
+      const next = !o;
+      if (next) {
+        setSelProvider(selected?.provider || null);
+        if (onOpen) onOpen();
+      }
+      return next;
+    });
+  };
 
   React.useEffect(() => {
     let alive = true;
@@ -275,21 +324,21 @@ function ModelPicker({ selected, onSelect }) {
   }, []);
 
   React.useEffect(() => {
-    if (!selected?.provider) { setModels([]); return; }
+    if (!selProvider) { setModels([]); return; }
     let alive = true;
     setLoading(true);
-    api.listProviderModels(selected.provider).then(({ data }) => {
+    api.listProviderModels(selProvider).then(({ data }) => {
       if (!alive) return;
       setModels(data?.models || []);
     }).catch(() => { if (alive) setModels([]); }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [selected?.provider]);
+  }, [selProvider]);
 
   const currentLabel = selected?.model ? `${selected.model.split('/').pop()} (${selected.provider || 'auto'})` : 'Auto-select';
 
   return (
     <div style={{ position:'relative' }}>
-      <button onClick={() => setOpen(o => !o)} style={{
+      <button onClick={toggle} style={{
         display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
         borderRadius:999, border:`1px solid ${open ? 'rgba(93,162,255,0.40)' : 'rgba(255,255,255,0.12)'}`,
         background: open ? 'rgba(93,162,255,0.10)' : 'rgba(255,255,255,0.04)',
@@ -304,13 +353,13 @@ function ModelPicker({ selected, onSelect }) {
         <>
           <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setOpen(false)} />
           <div style={{
-            position:'absolute', bottom:'calc(100% + 6px)', left:0, zIndex:50,
+            position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:50,
             background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
-            borderRadius:16, padding:8, minWidth:280, maxHeight:320, overflowY:'auto',
+            borderRadius:16, padding:8, minWidth:280, maxHeight:360, overflowY:'auto',
             boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
           }}>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Model</div>
-            <button onClick={() => { onSelect(null); setOpen(false); }} style={{
+            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Model & Provider</div>
+            <button onClick={() => { onSelect(null); setSelProvider(null); setOpen(false); }} style={{
               display:'flex', alignItems:'center', gap:9, width:'100%', padding:'8px 10px',
               borderRadius:10, border:'none', background: !selected?.model ? 'rgba(93,162,255,0.10)' : 'transparent',
               cursor:'pointer', textAlign:'left',
@@ -318,28 +367,42 @@ function ModelPicker({ selected, onSelect }) {
               <span style={{ fontSize:13 }}>◎</span>
               <div style={{ fontSize:12, fontWeight:600, color: !selected?.model ? '#fff' : 'var(--text-secondary)' }}>Auto-select (backend picks best model)</div>
             </button>
+            <div style={{ height:1, background:'rgba(255,255,255,0.08)', margin:'6px 0' }} />
+            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.08em', padding:'4px 10px 6px' }}>Provider</div>
             {providers.map(p => (
-              <React.Fragment key={p.provider_id}>
-                <div style={{ padding:'4px 10px 2px', fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.08em', marginTop:4 }}>{p.name}</div>
-                {models.length > 0 && p.provider_id === selected?.provider ? (
-                  models.slice(0, 8).map(m => (
-                    <button key={m} onClick={() => { onSelect({ provider: p.provider_id, model: m }); setOpen(false); }} style={{
-                      display:'block', width:'100%', padding:'6px 10px 6px 20px', borderRadius:8, border:'none',
-                      background: selected?.model === m ? 'rgba(93,162,255,0.10)' : 'transparent',
-                      cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
-                      color: selected?.model === m ? '#fff' : 'var(--text-tertiary)',
-                    }}>{m}</button>
-                  ))
-                ) : (
-                  <button onClick={() => { onSelect({ provider: p.provider_id, model: p.default_model || '' }); setOpen(false); }} style={{
-                    display:'block', width:'100%', padding:'6px 10px 6px 20px', borderRadius:8, border:'none',
-                    background: selected?.provider === p.provider_id ? 'rgba(93,162,255,0.10)' : 'transparent',
-                    cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
-                    color: selected?.provider === p.provider_id ? '#fff' : 'var(--text-tertiary)',
-                  }}>{p.default_model || p.provider_id}</button>
-                )}
-              </React.Fragment>
+              <button key={p.provider_id} onClick={() => { setSelProvider(p.provider_id); }} style={{
+                display:'flex', alignItems:'center', gap:8, width:'100%', padding:'7px 10px',
+                borderRadius:8, border:'none',
+                background: selProvider === p.provider_id ? 'rgba(93,162,255,0.10)' : 'transparent',
+                cursor:'pointer', textAlign:'left', fontSize:12, color: selProvider === p.provider_id ? '#fff' : 'var(--text-secondary)',
+              }}>
+                <span style={{ fontSize:13 }}>{selProvider === p.provider_id ? '▼' : '▸'}</span>
+                <span>{p.name || p.provider_id}</span>
+              </button>
             ))}
+            {selProvider && (
+              <>
+                <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'4px 10px' }} />
+                <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.08em', padding:'2px 10px 6px' }}>Models for {providers.find(p=>p.provider_id===selProvider)?.name || selProvider}</div>
+                {loading && <div style={{ padding:'6px 16px', fontSize:11, color:'var(--text-muted)' }}>Loading models…</div>}
+                {!loading && models.length === 0 && (
+                  <button onClick={() => { onSelect({ provider: selProvider, model: '' }); setOpen(false); }} style={{
+                    display:'block', width:'100%', padding:'7px 10px 7px 20px', borderRadius:8, border:'none',
+                    background: selected?.provider === selProvider && !selected?.model ? 'rgba(93,162,255,0.10)' : 'transparent',
+                    cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
+                    color: selected?.provider === selProvider && !selected?.model ? '#fff' : 'var(--text-tertiary)',
+                  }}>Default model</button>
+                )}
+                {!loading && models.slice(0, 10).map(m => (
+                  <button key={m} onClick={() => { onSelect({ provider: selProvider, model: m }); setOpen(false); }} style={{
+                    display:'block', width:'100%', padding:'6px 10px 6px 20px', borderRadius:8, border:'none',
+                    background: selected?.model === m && selected?.provider === selProvider ? 'rgba(93,162,255,0.10)' : 'transparent',
+                    cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
+                    color: selected?.model === m && selected?.provider === selProvider ? '#fff' : 'var(--text-tertiary)',
+                  }}>{m}</button>
+                ))}
+              </>
+            )}
           </div>
         </>
       )}
@@ -362,17 +425,20 @@ function ChatScreen() {
   const [sessions,    setSessions]     = React.useState([]);
   const [historyLoading, setHistoryLoading] = React.useState(false);
   const [sessionId,   setSessionId]    = React.useState(null);
+  const [openDropdown, setOpenDropdown] = React.useState(null); // 'agent' | 'model' | null
   const messagesEndRef = React.useRef(null);
   const textareaRef    = React.useRef(null);
   const mountedRef     = React.useRef(true);
 
-  // Load context chips from localStorage (company, wiki, sources)
+  // Load context chips from localStorage (company, wiki, sources, repo)
   React.useEffect(() => {
     const initial = [];
     try {
       const companyId = localStorage.getItem('v5_company_id');
       const companyName = localStorage.getItem('v5_company_name');
       if (companyId && companyName) initial.push({ id:'company', icon:'🏢', label:companyName });
+      const savedRepoUrl = localStorage.getItem('v5_chat_repo_url');
+      if (savedRepoUrl) initial.push({ id:'repo', icon:'📁', label: savedRepoUrl.replace(/^https?:\/\//i,'').replace(/^github\.com\//,'').replace(/^gitlab\.com\//,'').replace(/^bitbucket\.org\//,''), _rawUrl: savedRepoUrl });
     } catch { /* ignore */ }
     setChips(initial);
   }, []);
@@ -459,13 +525,15 @@ function ChatScreen() {
     setElapsed(0);
     setPhase(agentMode ? 'planning' : null);
     try {
-      // Build context payload from active chips (company, wiki, sources)
+      // Build context payload from active chips (company, wiki, sources, repo)
+      const repoChip = chips.find(c => c.id === 'repo');
+      const repoUrl = repoChip?._rawUrl || (localStorage.getItem('v5_chat_repo_url') || null);
       const contextPayload = chips.length > 0 ? {
         company_id: localStorage.getItem('v5_company_id') || null,
         company_name: chips.find(c => c.id === 'company')?.label || localStorage.getItem('v5_company_name') || null,
         context_labels: chips.map(c => c.label),
       } : null;
-      const { data } = await api.chatSend(text, sessionId, selectedModel?.model || null, selectedModel?.provider || null, null, agentMode, false, contextPayload);
+      const { data } = await api.chatSend(text, sessionId, selectedModel?.model || null, selectedModel?.provider || null, null, agentMode, false, contextPayload, repoUrl);
       if (!mountedRef.current) return;
       if (data?.session_id) setSessionId(data.session_id);
       if (data?.job_id) {
@@ -543,12 +611,12 @@ function ChatScreen() {
           <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
           {/* Agent picker */}
-          <AgentPicker selected={agent} onSelect={selectAgent}/>
+          <AgentPicker selected={agent} onSelect={selectAgent} onOpen={() => setOpenDropdown('agent')} forceClose={openDropdown === 'model'}/>
 
           <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
           {/* Model picker */}
-          <ModelPicker selected={selectedModel} onSelect={setSelectedModel}/>
+          <ModelPicker selected={selectedModel} onSelect={setSelectedModel} onOpen={() => setOpenDropdown('model')} forceClose={openDropdown === 'agent'}/>
 
           <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
@@ -570,8 +638,17 @@ function ChatScreen() {
           {/* Context chips */}
           <div style={{ display:'flex', alignItems:'center', gap:5, overflowX:'auto', flex:1 }} className="scrollbar-hide">
             <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0 }}>Context:</span>
-            {chips.map(chip => <ContextChip key={chip.id} chip={chip} onRemove={id=>setChips(p=>p.filter(c=>c.id!==id))}/>)}
+            {chips.map(chip => <ContextChip key={chip.id} chip={chip} onRemove={id=>{
+              setChips(p=>p.filter(c=>c.id!==id));
+              if (id === 'repo') { try { localStorage.removeItem('v5_chat_repo_url'); } catch {} }
+            }}/>)}
             {chips.length === 0 && <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0 }}>none</span>}
+            {/* Repo URL quick-add input */}
+            <RepoUrlInput onAdd={(repoUrl) => {
+              try { localStorage.setItem('v5_chat_repo_url', repoUrl); } catch {}
+              const shortLabel = repoUrl.replace(/^https?:\/\//i, '').replace(/^github\.com\//, '').replace(/^gitlab\.com\//, '').replace(/^bitbucket\.org\//, '');
+              setChips(p => [...p.filter(c => c.id !== 'repo'), { id:'repo', icon:'📁', label: shortLabel, _rawUrl: repoUrl }]);
+            }}/>
           </div>
         </div>
 
