@@ -28,7 +28,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- **`runtimes/adapters/internal_agent.py` — `AgentRunner.run() is blocked in orchestrator mode` runtime error.** `InternalAgentAdapter.execute()` is the legitimate execution layer for the `WorkflowOrchestrator` — it must call `AgentRunner.run()` directly. Added `_BYPASS` ContextVar token set before `runner.run()` and reset in a `finally` block, matching the pattern already used by `direct_chat.py` and `WorkflowOrchestrator._handle_execute()`. Tasks dispatched through any specialist family's `internal_agent` runtime now run without hitting the orchestrator-mode deprecation block.
+
+### Added
+- **`.claude/skills/agent-browser/` — Browser automation skill via Chrome DevTools Protocol.** Teaches Claude to drive real Chrome sessions using the `agent-browser` CLI: navigate, snapshot, click, fill forms, take screenshots, and read JS errors — all without Playwright. ~93% fewer tokens per page interaction. Includes troubleshooting guide and platform-specific setup steps for testing `https://local-llm-server.strikersam.workers.dev`.
+- **`.claude/skills/perplexity/` — Web research skill via Perplexity API.** Structured instructions for using Perplexity's `sonar` and `sonar-pro` models to get cited, real-time web answers for CVE lookups, library docs, best-practice research, and competitive analysis — with inline Python snippets that require no extra dependencies.
+
 ### Changed
+- **`.github/workflows/` — Restored 5 quarantined agency workflows and removed duplicate/irrelevant automations.**  Un-quarantined: `agency-cycle.yml` (every 6 h), `continuous-improvement.yml` (daily 09:00 UTC), `weekly-trend-digest.yml` (Monday 08:00 UTC), `ci-failure-autofix.yml` (on CI failure, using `workflow_run`), `auto-merge.yml` (on CI success, `--admin` bypass removed so branch protection is respected). Deleted `deploy-pages.yml` (stale, targeting abandoned branches) and `pull-request.yml` (auto-created PRs on every push — noise). Reduced `enrich-quick-note-context.yml` from every 15 min to every 4 hours. Fixed hardcoded `WikiAdmin2026!` in `e2e.yml` with `${{ secrets.CI_ADMIN_PASSWORD }}`.
 - **`.github/workflows/` — Removed duplicate and irrelevant automations.** Deleted `deploy-pages.yml` (stale, targeted `agency-core-v5-hardening`/`main` branches and deployed the root directory — fully superseded by `deploy-frontend.yml`) and `pull-request.yml` (auto-created a PR on every push to every branch, causing PR spam). Reduced `enrich-quick-note-context.yml` schedule from every 15 minutes to every 4 hours. Fixed hardcoded `WikiAdmin2026!` password in `e2e.yml` (both SQLite and MongoDB jobs) — now uses `${{ secrets.CI_ADMIN_PASSWORD }}` with a safe non-secret default.
 
 ### Added
