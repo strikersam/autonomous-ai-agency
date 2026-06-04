@@ -489,7 +489,7 @@ function RunTaskModal({ agent, onClose, onViewInTasks }) {
 }
 
 // Map a backend agent record (AgentDefinition) to the card view-model.
-function mapBackendAgent(a) {
+function mapBackendAgent(a, agentTaskStats = {}) {
   const id = a.agent_id || a.id;
   const builtin = BUILTIN_AGENT_DEFS.find(b => b.id === id || b.name.toLowerCase() === (a.name || '').toLowerCase());
   const tags = a.tags || [];
@@ -576,8 +576,8 @@ function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
   // return an equivalent agent (matched by id or name).
   const backendAgents = React.useMemo(() => {
     const list = data.agents?.agents || (Array.isArray(data.agents) ? data.agents : []);
-    return list.map(mapBackendAgent);
-  }, [data.agents]);
+    return list.map(a => mapBackendAgent(a, agentTaskStats));
+  }, [data.agents, agentTaskStats]);
 
   const agents = React.useMemo(() => {
     const seenIds   = new Set(backendAgents.map(a => a.id));

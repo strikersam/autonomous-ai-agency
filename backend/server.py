@@ -5159,6 +5159,27 @@ async def platform_info(user: dict = Depends(get_current_user)):
     }
 
 
+@app.get("/api/ping")
+async def ping():
+    """Lightweight liveness probe — no external I/O."""
+    return {"status": "ok", "pong": True}
+
+
+@app.get("/api/status")
+async def system_status(user: dict = Depends(get_current_user)):
+    """Authenticated system status summary for the Doctor screen."""
+    try:
+        await get_db().command("ping")
+        storage_ok = True
+    except Exception:
+        storage_ok = False
+    return {
+        "status": "ok" if storage_ok else "degraded",
+        "storage": storage_ok,
+        "provider": LLM_PROVIDER,
+    }
+
+
 @app.get("/api/health")
 async def health():
     try:
