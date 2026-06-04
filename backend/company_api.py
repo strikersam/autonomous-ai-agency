@@ -5,6 +5,8 @@ Provides all endpoints for managing companies, their graphs, and related entitie
 This is the canonical API for the Agency Core v5 Company Graph.
 """
 
+from __future__ import annotations
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, Request, status
 from typing import List, Optional, Any
 from datetime import datetime
@@ -945,7 +947,7 @@ async def list_skills(
     category: str | None = Query(None, description="Filter by skill category"),
     search: str | None = Query(None, description="Search by name/description"),
     user: dict = Depends(_get_current_user_thunk),
-):
+) -> dict:
     """
     List all available skills with optional filtering.
 
@@ -978,7 +980,7 @@ async def list_skills(
 async def auto_recommend_skills(
     company_id: str | None = Query(None, description="Company ID for context-based recommendations"),
     user: dict = Depends(_get_current_user_thunk),
-):
+) -> dict:
     """
     Auto-recommend skills based on the user's company context.
 
@@ -1038,7 +1040,7 @@ async def auto_recommend_skills(
 async def get_skill(
     skill_id: str,
     user: dict = Depends(_get_current_user_thunk),
-):
+) -> dict:
     """Get a single skill by its ID."""
     try:
         from services.skill_bindings import get_skill_bindings
@@ -1062,7 +1064,7 @@ class SkillRecommendRequest(BaseModel):
 async def recommend_skills(
     request: SkillRecommendRequest = Body(...),
     user: dict = Depends(_get_current_user_thunk),
-):
+) -> dict:
     """Recommend skills based on provided context."""
     try:
         from services.skill_bindings import get_skill_bindings
@@ -1083,7 +1085,7 @@ async def get_specialist_bound_skills(
     company_id: str,
     specialist_id: str,
     user: dict = Depends(_get_current_user_thunk),
-):
+) -> dict:
     """Get the skills bound to a specific specialist."""
     company = await get_company_access(company_id, user)
     specialist_service = get_specialist_service()

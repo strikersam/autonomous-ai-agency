@@ -27,9 +27,39 @@
 
 ## What is Agency Core?
 
-Agency Core is a **self-hosted autonomous AI platform** that turns any server — your laptop, a $10 VPS, or a GPU box — into a private AI team. It ships a CEO orchestrator agent and a fleet of domain specialists that work together on real engineering and business tasks: writing code, opening pull requests, running tests, updating docs, and managing recurring operations — all without sending your data to the cloud.
+**Agency Core is an autonomous AI agency.** You onboard a company with **a single URL** — that's the whole setup. From that URL, Agency Core scans the website, infers the tech stack and business systems, builds a persistent **Company Graph**, and **auto-provisions a fleet of specialist agents** led by a **CEO orchestrator**. From that moment the agency runs the company's knowledge-work itself: it delegates the **entire consulting engagement — agile delivery, portfolio management, software development, design, SEO/content, e-commerce operations, support, and more — to agents**, and only comes back to you for approvals.
 
-At its core it is also a **drop-in OpenAI-compatible proxy** for Ollama, so Cursor, Continue, Aider, Claude Code, and any other AI coding tool can point at `http://localhost:8000` and use your local models through a single authenticated endpoint.
+You don't wire up integrations or write config. You paste a URL; the agency figures out what the company is, what specialists it needs, which skills to bind, and what recurring work to run — then does it, with evidence (PR links, test output, diffs, reasoning traces) for every action.
+
+It is **self-hosted and privacy-first**: everything runs on a server you control — your laptop, a $10 VPS, or a GPU box — and your data never leaves your perimeter. Under the hood it is also a **drop-in OpenAI-compatible proxy** for Ollama, so Cursor, Continue, Aider, and Claude Code can point at `http://localhost:8000` and use your local models through one authenticated endpoint.
+
+> **One URL in → a working AI agency out.** Onboard `https://yourcompany.com` and the CEO + specialists start running agile boards, managing the portfolio, shipping code, reviewing PRs, writing docs and content, and monitoring operations — autonomously, with human approval gates on anything that matters.
+
+---
+
+## In plain English (no jargon)
+
+Think of Agency Core as **hiring a whole agency that happens to be AI** — and onboarding them takes one step.
+
+1. **You give it your website address.** (e.g. `https://acme-shop.com`)
+2. **It studies the business.** It reads the site, works out what the company does and what tools it uses (online store, support desk, analytics, code, …), and writes that down as a living profile.
+3. **It hires the right team.** A "CEO" agent assembles specialists for exactly what your business needs — developers, designers, an agile coach, a portfolio manager, SEO/content, e-commerce ops, support, and so on.
+4. **It gets to work.** You chat in plain English ("fix this bug", "plan next sprint", "write the launch blog post"). The CEO splits the job up, hands pieces to the right specialists, and they do the work — then show you the results with proof (links, tests, diffs).
+5. **You stay in control.** Anything important pauses for your **yes/no approval** before it happens. Nothing is sent to the cloud — it all runs on your own machine.
+
+```mermaid
+flowchart LR
+    A["🌐 You paste one URL"] --> B["🔍 Scan the website<br/>detect stack & systems"]
+    B --> C["🧠 Build the Company Graph<br/>(a living profile)"]
+    C --> D["👔 CEO agent assembles<br/>the right specialists"]
+    D --> E["💬 You ask in plain English"]
+    E --> F["⚙️ Workflow engine:<br/>plan → approve → do → verify"]
+    F --> G["✅ Results with evidence<br/>PRs · tests · diffs · docs"]
+    F -. "needs sign-off" .-> H["🙋 Human approval gate"]
+    H -. "approved" .-> F
+```
+
+*(The diagram above renders automatically on GitHub. Want live UI screenshots in the README? They need a running instance — start the app, and the browser-E2E/Playwright job can capture real screens; I can wire that up on request rather than ship mock-ups.)*
 
 ---
 
@@ -74,7 +104,45 @@ Once onboarded, Agency Core runs a fleet of specialists coordinated by a CEO age
 - Classify every request to the optimal local model (code → Qwen3-Coder, reasoning → DeepSeek-R1)
 - Provide real-time health diagnostics for all running agents, runtimes, and providers
 
----## Using your autonomous agency
+### Agile, portfolio & design agents
+
+- **Agentic agile**: run sprints, standups, retros, and backlog grooming as a coached cadence
+- **Agentic portfolio management**: roadmapping, prioritisation, resource allocation, and strategy across initiatives
+- **Design & UX**: UI/UX proposals, prototyping notes, design-system consistency reviews
+- **Product**: turn briefs into requirements, user stories, and prioritised roadmaps
+
+### Business & domain agents (auto-provisioned from the scan)
+
+Based on what the URL scan detects, Agency Core spins up the right **domain specialists** — not just generic engineers:
+
+| Detected system | Specialist provisioned |
+|---|---|
+| Storefront / commerce stack | **E-commerce**, **Merchandising**, **OMS** (order management) |
+| Product catalog / PIM | **PIM** specialist (product data, attributes, taxonomy) |
+| Asset / media platform (DAM) | **DAM** specialist (ingestion, metadata, delivery) |
+| CRM / support desk | **CRM operations**, **Support** (triage, KB, SLA) |
+| Analytics / search / SEO | **Analytics**, **SEO**, **Content strategist** |
+| Marketing automation | **Marketing** (campaigns, attribution, A/B) |
+| Markets / research needs | **Trading & market research**, **Research** |
+| Cloud / infra / CI | **Platform operations**, **DevOps**, **Security**, **CI/fix** |
+
+> The full roster is **34 specialist families** (engineering + business + domain). Each specialist has typed inputs/outputs, routing rules, an optimal runtime, and **bound Skills** it can call.
+
+### Skills the agents can use
+
+Specialists and workflows bind to a **typed Skill Library**, including:
+
+- **ECC** — cross-harness agent orchestration (Claude Code, Cursor, Codex, OpenCode, …)
+- **Obsidian Knowledge Graph** — typed knowledge graph (BFS, connected components, tag search)
+- **Graphify** — token-efficient codebase querying over the knowledge graph
+- **Council Review** — multi-perspective (security / correctness / performance / maintainability) review of a diff with a structured verdict
+- plus agile, financial-analyst, dependency-audit, docs-sync, release-readiness, and more
+
+Each skill declares its inputs/outputs and safety/approval requirements, and is exposed via API and UI.
+
+---
+
+## Using your autonomous agency
 
 ### Getting started — first boot
 

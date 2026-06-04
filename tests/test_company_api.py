@@ -71,7 +71,11 @@ class TestCreateCompanyValidation:
 
         for name in ("_get_current_user_thunk", "_get_optional_user_thunk"):
             fn = getattr(company_api, name)
-            param = inspect.signature(fn).parameters.get("request")
+            # eval_str=True resolves PEP 563 string annotations (the module uses
+            # `from __future__ import annotations`) the same way FastAPI does via
+            # get_type_hints — so this still asserts the param resolves to
+            # fastapi.Request, the property that prevents the phantom body field.
+            param = inspect.signature(fn, eval_str=True).parameters.get("request")
             assert param is not None, f"{name} must take a `request` parameter"
             assert param.annotation is Request, (
                 f"{name}'s `request` param must be annotated as fastapi.Request "
