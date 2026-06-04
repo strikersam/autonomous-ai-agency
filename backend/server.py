@@ -4604,7 +4604,7 @@ async def list_skills(
 
 
 @app.get("/api/skills/discover")
-async def discover_remote_skills(user: dict = Depends(get_current_user)):
+async def discover_remote_skills(user: dict = Depends(get_current_user)) -> dict[str, object]:
     """Preview what skills are available from remote GitHub registries without adding them."""
     if _SKILL_REGISTRY is None:
         return {"registries": [], "total": 0}
@@ -5160,13 +5160,13 @@ async def platform_info(user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/ping")
-async def ping():
+async def ping() -> dict[str, object]:
     """Lightweight liveness probe — no external I/O."""
     return {"status": "ok", "pong": True}
 
 
 @app.get("/api/status")
-async def system_status(user: dict = Depends(get_current_user)):
+async def system_status(user: dict = Depends(get_current_user)) -> dict[str, object]:
     """Authenticated system status summary for the Doctor screen."""
     try:
         await get_db().command("ping")

@@ -23,7 +23,7 @@ from typing import Any
 
 import httpx
 
-log = logging.getLogger("skill-registry")
+log = logging.getLogger("qwen-proxy")
 
 # ---------------------------------------------------------------------------
 # Known GitHub skill registries
@@ -671,5 +671,6 @@ def _extract_tags(content: str) -> list[str]:
     # Hashtags: # must NOT be preceded by an alphanumeric (not a word boundary)
     tags += _re.findall(r"(?<![a-zA-Z0-9])#([a-zA-Z0-9_]{1,30})", content)
     # Bold: **word** or __word__ with content length 3-30
-    tags += _re.findall(r"(?:^|[^a-zA-Z0-9])([a-zA-Z][^*\n]{2,28}[a-zA-Z0-9])", content)
+    tags += _re.findall(r"\*\*([^\n*]{3,30})\*\*", content)
+    tags += _re.findall(r"__([^\n_]{3,30})__", content)
     return list(dict.fromkeys(t.lower() for t in tags))[:12]

@@ -1604,8 +1604,8 @@ class SQLiteStore:
             approval_policies=[],
             detected_systems=detected_systems,
             version="1.0",
-            is_complete=len(detected_systems) > 0 or len(specialists) > 0,
-            completeness_score=0.5 if (len(detected_systems) > 0 or len(specialists) > 0) else 0.0
+            is_complete=len(detected_systems) > 0 and len(specialists) > 0,
+            completeness_score=1.0 if (len(detected_systems) > 0 and len(specialists) > 0) else 0.5 if (len(detected_systems) > 0 or len(specialists) > 0) else 0.0
         )
 
     async def create_company_graph(self, graph: CompanyGraph) -> CompanyGraph:

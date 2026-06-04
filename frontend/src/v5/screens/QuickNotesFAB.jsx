@@ -17,6 +17,7 @@ function NoteStatusPill({ status }) {
     queued:     { color: '#7c9dff', bg: 'rgba(124,157,255,0.10)', label: 'Queued' },
     processing: { color: '#ffbd66', bg: 'rgba(255,189,102,0.10)', label: 'In progress', pulse: true },
     done:       { color: '#46d9a4', bg: 'rgba(70,217,164,0.08)',  label: 'Done' },
+    failed:     { color: '#ff6b7d', bg: 'rgba(255,107,125,0.10)', label: 'Failed' },
   };
   const s = map[status] || map.queued;
   return (
@@ -63,7 +64,7 @@ function QuickNotes({ onClose }) {
             id:     n.note_id || n.id,
             text:   n.url || n.instruction || '(no text)',
             type:   'url',
-            status: n.status === 'done' ? 'done' : n.status === 'processing' ? 'processing' : 'queued',
+            status: n.status === 'done' ? 'done' : n.status === 'processing' ? 'processing' : n.status === 'failed' ? 'failed' : 'queued',
             ago:    n.added_at ? _relTime(n.added_at) : 'recently',
           })));
           return;
@@ -105,19 +106,19 @@ function QuickNotes({ onClose }) {
     if (!input.trim() || sending) return;
     setSending(true); setSubmitErr(null);
     try {
-      if (ghConnected) {
-        // GitHub connected → create GH issue with quick-note label for full pipeline
+      if (ghConnected && isUrl(input)) {
+        // GitHub connected + URL → create GH issue for full implement→PR→merge pipeline
         const { data } = await api.createQuickNote({
           url: input.trim(),
           instruction: input.trim(),
         });
-        if (data.channel === 'github') {
+        if (data.channel === 'github' || data.channel === 'local') {
           setInput('');
           setSent(true);
           setTimeout(() => setSent(false), 3000);
         }
       } else {
-        // No GitHub → create internal task as fallback
+        // Plain-text idea, or no GitHub → create internal task
         await api.createTask({
           instruction: input.trim(),
           source: 'quick_note',

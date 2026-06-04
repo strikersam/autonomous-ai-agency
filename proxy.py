@@ -1154,10 +1154,10 @@ async def skills_refresh(
             "total": len(sr.list()),
             "forced": body.force,
         }
-    except Exception as exc:
-        log.error("Skill registry refresh failed: %s", exc)
+    except Exception:
+        log.exception("Skill registry refresh failed")
         return JSONResponse(
-            {"error": str(exc)},
+            {"error": "Skill registry refresh failed"},
             status_code=500,
         )
 
@@ -1502,7 +1502,7 @@ async def quick_notes_submit(
 
     # Try GitHub issue creation first (process-quick-note workflow picks these up)
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
-    gh_repo = os.environ.get("GITHUB_REPOSITORY", "strikersam/local-llm-server")
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "")
 
     title = f"quick-note: {url[:80]}"
     issue_body_parts = [url]
@@ -1591,8 +1591,9 @@ async def agency_status(auth: AuthContext = Depends(verify_api_key)):
             })
         status["alerts"] = alerts
         return status
-    except Exception as exc:
-        return {"running": False, "error": str(exc)}
+    except Exception:
+        log.exception("Agency status check failed")
+        return {"running": False, "error": "Agency status unavailable"}
 
 
 # ─── Features API router ─────────────────────────────────────────────────────
