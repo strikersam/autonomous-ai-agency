@@ -1,6 +1,14 @@
 - Update generic scanner.
 
-## [Unreleased]
+## [Unreleased] — 2026-06-04
+
+### Added
+- Standard rate-limit response headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`) on 429 responses in `proxy.py`.
+- `GET /v1/models/health` endpoint — returns per-model Ollama availability and health probe cache state.
+- Per-key token spend tracking in `chat_handlers.py` + `GET /admin/api/spend` admin endpoint in `proxy.py`.
+- 21 new tests covering the above features (`tests/test_rate_limit_headers.py`, `tests/test_models_health_endpoint.py`, `tests/test_key_spend_tracking.py`).
+
+
 
 ### Added
 - `agent/skill_registry.py`: new dynamic SkillRegistry that indexes local `.claude/skills/` and fetches remote skill packs from GitHub registries (agency-agents, agent-skills, anthropic-skills). Provides tech-stack-aware and workflow-aware skill recommendations via `recommend()`.
@@ -14,4 +22,3 @@
 - `IntelligenceScreen`: competitors and keywords persisted to localStorage (with backend `PATCH /api/company/:id` fallback); company name pulled from backend instead of hardcoded "Acme Store".
 - `SkillsScreen`: added Recommended and Registry tabs backed by live `/api/skills/recommend/auto` and `/api/skills` endpoints; catalogue toggles persisted to localStorage; hardcoded preview warning replaced with live tech-stack detection banner.
 - `frontend/src/api.js`: added `listSkills`, `refreshSkills`, `recommendSkills`, `autoRecommendSkills`, `getSkill`, `listMcpServers`, `createMcpServer`, `updateMcpServer`, `deleteMcpServer`, `updateCompany`.
-
