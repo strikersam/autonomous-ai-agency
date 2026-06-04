@@ -247,10 +247,11 @@ def run_tests(base_url: str) -> bool:
             page = context.new_page()
 
             try:
-                # Wait for server to be ready
+                # Wait for server to be ready. NOTE: the app serves /api/health,
+                # not /api/ping — health returns 200 even in SQLite/degraded mode.
                 for attempt in range(30):
                     try:
-                        r = page.goto(f"{base_url}/api/ping", timeout=5000)
+                        r = page.goto(f"{base_url}/api/health", timeout=5000)
                         if r and r.status == 200:
                             break
                     except Exception:
@@ -314,7 +315,7 @@ def test_server_health(base_url: str) -> None:
     """Verify server responds to health check before running browser tests."""
     import urllib.request
     try:
-        r = urllib.request.urlopen(f"{base_url}/api/ping", timeout=10)
+        r = urllib.request.urlopen(f"{base_url}/api/health", timeout=10)
         assert r.status == 200
     except Exception as e:
         pytest.skip(f"Server not available: {e}")

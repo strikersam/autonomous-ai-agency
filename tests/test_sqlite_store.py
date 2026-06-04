@@ -202,3 +202,35 @@ def test_get_store_returns_sqlite(monkeypatch, tmp_path):
     from db.sqlite_store import SQLiteStore
     assert isinstance(store, SQLiteStore)
     db.reset_store()
+
+
+# ── subscript access (Mongo-compatibility) ────────────────────────────────────
+# Regression: SQLiteStore exposed collections only via attribute access
+# (__getattr__), so Mongo-style subscript access — db["tasks"], used by
+# TaskStore/AgentStore — raised "TypeError: 'SQLiteStore' object is not
+# subscriptable" under STORAGE_BACKEND=sqlite, crash-looping the TaskDispatcher
+# and failing the Browser E2E job.
+
+@pytest.mark.asyncio
+async def test_subscript_access_returns_collection(store):
+    """db['tasks'] must work like db.tasks (motor exposes both)."""
+    attr_coll = store.tasks
+    item_coll = store["tasks"]
+    assert type(item_coll) is type(attr_coll)
+    # round-trips through the subscript-accessed collection
+    await item_coll.insert_one({"task_id": "t1", "status": "todo"})
+    doc = await store["tasks"].find_one({"task_id": "t1"})
+    assert doc and doc["status"] == "todo"
+
+
+@pytest.mark.asyncio
+async def test_taskstore_works_on_sqlite_backend(store):
+    """TaskStore(db=SQLiteStore) must not raise 'not subscriptable'.
+
+    This is the exact path the TaskDispatcher exercises (list_pending) that
+    crash-looped in the Browser E2E backend container."""
+    from tasks.store import TaskStore
+    ts = TaskStore(db=store)
+    # list_pending hits self._db["tasks"].find(...)
+    pending = await ts.list_pending(limit=5)
+    assert pending == []

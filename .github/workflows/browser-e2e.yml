@@ -52,7 +52,7 @@ jobs:
       - name: Wait for backend
         run: |
           for i in {1..30}; do
-            STATUS=$(curl -sf http://localhost:8001/api/ping -o /dev/null -w "%{http_code}" 2>/dev/null || echo 000)
+            STATUS=$(curl -sf http://localhost:8001/api/health -o /dev/null -w "%{http_code}" 2>/dev/null || echo 000)
             [ "$STATUS" = "200" ] && echo "Backend ready (attempt $i)" && exit 0
             echo "Waiting... ($i/30, status=$STATUS)"; sleep 3
           done
@@ -90,7 +90,10 @@ jobs:
       - name: Run API e2e tests (complementary)
         if: always()
         run: |
-          ./.venv/bin/python -m pytest tests/e2e/test_all_features.py -v --tb=short -q || true
+          # Deps are installed to the job's system Python (see "Install test
+          # deps"); there is no .venv here. Using ./.venv/bin/python raised
+          # "No such file or directory" and silently skipped these tests.
+          python -m pytest tests/e2e/test_all_features.py -v --tb=short -q || true
 
       - name: Cleanup
         if: always()
