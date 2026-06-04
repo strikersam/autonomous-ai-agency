@@ -16,6 +16,15 @@
 
 ---
 
+## What's New — 2026-06-04
+
+- **Claude Opus 4.8 routing** — the proxy now correctly maps `claude-opus-4-8` (Claude Code's default since v2.1.154) to your best local reasoning model. `claude-sonnet-4-7` is also mapped. Users on the latest Claude Code no longer fall through to heuristic routing.
+- **Bedrock ARN updated** — Bedrock deployments now use the `claude-opus-4-8` cross-region inference ARN (`us.anthropic.claude-opus-4-8-v1`).
+- **2026 tool stripping** — `text_editor_20260101`, `bash_20260101`, `computer_use_20260124`, and `web_search_20260101` (new Claude Code v2.1.154+ tool variants) are now stripped before forwarding to Ollama, preventing 400 errors on every request from the new CLI.
+- **Effort + thinking parameter hygiene** — the `effort` parameter (Opus 4.8 always sends `"high"`) and the `thinking` parameter (adaptive/extended thinking) are now stripped from forwarded requests. Thinking content blocks in message history are also silently removed.
+
+---
+
 ## What is Agency Core?
 
 Agency Core is a **self-hosted autonomous AI platform** that turns any server — your laptop, a $10 VPS, or a GPU box — into a private AI team. It ships a CEO orchestrator agent and a fleet of domain specialists that work together on real engineering and business tasks: writing code, opening pull requests, running tests, updating docs, and managing recurring operations — all without sending your data to the cloud.
