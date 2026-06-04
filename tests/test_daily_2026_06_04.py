@@ -84,8 +84,8 @@ def test_opus_model_prefers_4_8_bedrock_arn():
     os.environ.pop("ANTHROPIC_API_KEY", None)
     try:
         result = _opus_model()
-        assert result == "us.anthropic.claude-opus-4-8-v1", (
-            f"Expected us.anthropic.claude-opus-4-8-v1, got {result}"
+        assert result == "us.anthropic.claude-opus-4-8", (
+            f"Expected us.anthropic.claude-opus-4-8 (no -v1 per AWS model card), got {result}"
         )
     finally:
         os.environ.pop("AWS_ACCESS_KEY_ID", None)
@@ -167,6 +167,12 @@ def test_thinking_block_is_stripped_to_empty():
 
 def test_thinking_block_with_adaptive_type():
     block = {"type": "thinking", "thinking": "Adaptive reasoning output"}
+    assert _content_block_to_text(block) == ""
+
+
+def test_redacted_thinking_block_is_stripped():
+    """redacted_thinking blocks (safety-filtered chain-of-thought) must also be stripped."""
+    block = {"type": "redacted_thinking", "data": "some-opaque-blob"}
     assert _content_block_to_text(block) == ""
 
 

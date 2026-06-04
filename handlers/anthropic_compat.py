@@ -137,9 +137,9 @@ def _content_block_to_text(block: dict[str, Any]) -> str:
     if btype == "tool_use":
         return f"[Called {block.get('name', 'unknown')} with {json.dumps(block.get('input', {}))}]"
     # Thinking blocks — produced by Claude Opus 4.7+ adaptive/extended thinking.
-    # Strip silently: the local model has no use for another model's raw reasoning
-    # tokens, and including them would only waste context.
-    if btype == "thinking":
+    # redacted_thinking appears when Anthropic's safety filters redact the raw
+    # chain-of-thought; both variants are useless to a local model and waste context.
+    if btype in ("thinking", "redacted_thinking"):
         return ""
     # Advisor strategy blocks — produced by the real Anthropic API when the
     # advisor_20260301 beta tool is used.  We preserve the advice text so the

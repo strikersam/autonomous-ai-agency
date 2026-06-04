@@ -102,7 +102,7 @@ def _opus_model() -> str | None:
     bedrock_key = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
     bedrock_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
     if bedrock_key and bedrock_secret:
-        return "us.anthropic.claude-opus-4-8-v1"
+        return "us.anthropic.claude-opus-4-8"
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "claude-opus-4-8"
     return None
