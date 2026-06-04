@@ -3,9 +3,16 @@
   "session_id": "agency-cycle-fresh-2026-06-04",
   "status": "ready",
   "last_updated": "2026-06-04T00:00:00Z",
-  "next_step": "Run agency-cycle.yml workflow \u2014 CEO assessment, pytest baseline, bandit scan.",
+  "next_step": null,
   "completed_steps": [
-    "weekly-maintenance-2026-06-04"
+    "weekly-maintenance-2026-06-04",
+    "fetch-open-prs",
+    "audit-workflow-files",
+    "verify-agent-state",
+    "verify-branch-cleanup",
+    "update-changelog",
+    "reset-agent-state-files",
+    "trigger-agency-cycle"
   ],
   "notes": "Fresh start after Friday maintenance sweep 2026-06-04. No PRs found. All workflows healthy. agency-cycle.yml triggered."
 }
