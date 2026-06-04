@@ -35,7 +35,7 @@ Agency Core is the answer to all of this. It is a **self-hosted AI agency** — 
 
 Paste one URL. Walk away. Come back to a working AI team.
 
-```
+```text
 https://yourcompany.com
        ↓
   [Agency Core]
@@ -154,7 +154,7 @@ The defining feature of Agency Core is not what agents can do — it's that they
 
 ### When something goes wrong, agents fix it — not you
 
-```
+```text
 Health scan detects broken page at 3 AM
      ↓
 Security or Dev specialist creates a fix task automatically
@@ -565,7 +565,7 @@ Push to `master` — CI does the rest:
 2. Docker build → Render deploy hook → health check
 3. React build → GitHub Pages
 
-```
+```text
 Required secrets:
   RENDER_DEPLOY_HOOK_URL   → Render → service → Settings → Deploy Hook
   RENDER_BACKEND_URL       → your Render service URL

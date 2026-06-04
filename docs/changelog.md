@@ -28,6 +28,9 @@
 
 ## [Unreleased]
 
+### Added
+- **`backend/server.py` — `/v1/quick-notes` POST and GET endpoints** mirroring the proxy's quick-note routes so the dashboard FAB can reach them via `REACT_APP_BACKEND_URL` (backend server port) rather than the proxy port.
+
 ### Fixed
 - **`proxy.py` security — hardcoded `strikersam/local-llm-server` default for `GITHUB_REPOSITORY` could route user content to wrong repo.** Changed default to `""` so the GitHub issue creation path is skipped when the env var is not set. Also replaced `str(exc)` in the skill-registry refresh and agency status error responses with generic messages + `log.exception()` to avoid leaking internal details.
 - **`QuickNotesFAB.jsx` — plain-text ideas were sent as URLs when GitHub connected.** Added `isUrl(input)` guard so the GitHub issue path is only taken when the input is actually a URL; plain-text ideas fall through to the internal task queue. Also added `failed` status to `NoteStatusPill` (was mapped to "Queued" before), and treat `data.channel === 'local'` as success so the confirmation message fires even when the backend falls back to local storage.

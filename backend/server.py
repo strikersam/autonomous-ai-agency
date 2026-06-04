@@ -5216,6 +5216,77 @@ async def health():
     }
 
 
+# ─── Quick Notes (FAB + iPhone Shortcut) ────────────────────────────────────────
+# Mirrors the proxy.py /v1/quick-notes endpoints so the dashboard FAB can
+# reach them via REACT_APP_BACKEND_URL (backend server), not the proxy port.
+
+try:
+    from agent.quick_note import QuickNoteQueue as _QuickNoteQueue
+    _QUICK_NOTE_QUEUE: _QuickNoteQueue | None = _QuickNoteQueue()
+except Exception:
+    _QUICK_NOTE_QUEUE = None
+
+
+class _QuickNoteBody(BaseModel):
+    url: str = Field(default="", max_length=2000)
+    instruction: str = Field(default="", max_length=2000)
+
+
+@app.post("/v1/quick-notes")
+async def quick_notes_submit(
+    body: _QuickNoteBody,
+    user: dict = Depends(get_current_user),
+) -> dict[str, object]:
+    """Submit a quick-note URL or instruction from the dashboard FAB."""
+    url = body.url.strip()
+    instruction = body.instruction.strip()
+
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "")
+
+    title = f"quick-note: {url[:80]}" if url else f"quick-note: {instruction[:80]}"
+    issue_body = url
+    if instruction:
+        issue_body += f"\nTask: {instruction}"
+
+    if gh_token and gh_repo and url:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"https://api.github.com/repos/{gh_repo}/issues",
+                    json={"title": title, "body": issue_body, "labels": ["quick-note"]},
+                    headers={
+                        "Authorization": f"Bearer {gh_token}",
+                        "Accept": "application/vnd.github+json",
+                    },
+                )
+            if resp.status_code == 201:
+                issue_data = resp.json()
+                return {
+                    "status": "created",
+                    "channel": "github",
+                    "issue_number": issue_data["number"],
+                    "issue_url": issue_data.get("html_url", ""),
+                }
+            log.warning("Quick-note GitHub issue creation failed (%d)", resp.status_code)
+        except Exception:
+            log.exception("Quick-note GitHub issue creation error")
+
+    if _QUICK_NOTE_QUEUE is not None:
+        note = _QUICK_NOTE_QUEUE.add(url or instruction)
+        return {"status": "queued", "channel": "local", "note_id": note.note_id}
+    return {"status": "queued", "channel": "local", "note_id": None}
+
+
+@app.get("/v1/quick-notes")
+async def quick_notes_list(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """List queued quick-notes."""
+    if _QUICK_NOTE_QUEUE is None:
+        return {"notes": [], "count": 0}
+    notes = _QUICK_NOTE_QUEUE.list_all()
+    return {"notes": [n.as_dict() for n in notes], "count": len(notes)}
+
+
 # ─── GitHub Integration ─────────────────────────────────────────────────────────
 # All GitHub API calls are proxied through the backend so the PAT never
 # leaves the server. The token is stored per-user in get_db().github_settings.
