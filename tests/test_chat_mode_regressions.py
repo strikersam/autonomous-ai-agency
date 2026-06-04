@@ -1,3 +1,4 @@
+import os
 from __future__ import annotations
 
 import asyncio
@@ -13,10 +14,12 @@ import backend.server as server
 from provider_router import ProviderAttempt, ProviderConfig, ProviderResult
 
 
+
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
 def _auth_headers(client) -> dict[str, str]:
     login = client.post(
         "/api/auth/login",
-        json={"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"},
+        json={"email": "admin@llmrelay.local", "password": _ADMIN_PASSWORD},
     )
     assert login.status_code == 200
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
@@ -174,7 +177,7 @@ def test_agent_stream_endpoint_emits_server_sent_events(client) -> None:
 def test_agent_status_endpoint_accepts_access_token_query_param(client) -> None:
     login = client.post(
         "/api/auth/login",
-        json={"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"},
+        json={"email": "admin@llmrelay.local", "password": _ADMIN_PASSWORD},
     )
     assert login.status_code == 200, login.text
     token = login.json()["access_token"]

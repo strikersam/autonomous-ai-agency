@@ -1,6 +1,9 @@
+import os
 """
 End-to-end tests for the agent chat code-change flow.
 
+
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
 Tests the full stack with real:
   - FastAPI app (backend/server.py)
   - Auth (login → JWT)
@@ -209,7 +212,7 @@ def _build_agent_http_mock(
 def _auth_headers(client: TestClient) -> dict[str, str]:
     resp = client.post(
         "/api/auth/login",
-        json={"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"},
+        json={"email": "admin@llmrelay.local", "password": _ADMIN_PASSWORD},
     )
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
