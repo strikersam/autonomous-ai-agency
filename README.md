@@ -16,35 +16,28 @@
 
 ---
 
-## What's New — 2026-06-04
-
-- **Claude Opus 4.8 routing** — the proxy now correctly maps `claude-opus-4-8` (Claude Code's default since v2.1.154) to your best local reasoning model. `claude-sonnet-4-7` is also mapped. Users on the latest Claude Code no longer fall through to heuristic routing.
-- **Bedrock ARN updated** — Bedrock deployments now use the `claude-opus-4-8` cross-region inference ARN (`us.anthropic.claude-opus-4-8-v1`).
-- **2026 tool stripping** — `text_editor_20260101`, `bash_20260101`, `computer_use_20260124`, and `web_search_20260101` (new Claude Code v2.1.154+ tool variants) are now stripped before forwarding to Ollama, preventing 400 errors on every request from the new CLI.
-- **Effort + thinking parameter hygiene** — the `effort` parameter (Opus 4.8 always sends `"high"`) and the `thinking` parameter (adaptive/extended thinking) are now stripped from forwarded requests. Thinking content blocks in message history are also silently removed.
-
----
-
 ## What is Agency Core?
 
-**Agency Core is an autonomous AI agency.** You onboard a company with **a single URL** — that's the whole setup. From that URL, Agency Core scans the website, infers the tech stack and business systems, builds a persistent **Company Graph**, and **auto-provisions a fleet of specialist agents** led by a **CEO orchestrator**. From that moment the agency runs the company's knowledge-work itself: it delegates the **entire consulting engagement — agile delivery, portfolio management, software development, design, SEO/content, e-commerce operations, support, and more — to agents**, and only comes back to you for approvals.
+**Agency Core is an autonomous AI agency.** You onboard a company with **a single URL** — that's the whole setup. From that URL, Agency Core scans the website, infers the tech stack and business systems, builds a persistent **Company Graph**, and **auto-provisions a fleet of specialist agents** led by a **CEO orchestrator**.
+
+From that moment the agency runs the company's knowledge-work itself: it delegates the **entire consulting engagement — agile delivery, portfolio management, software development, design, SEO/content, e-commerce operations, support, bug fixes, and more — to agents**, and only comes back to you for approvals.
 
 You don't wire up integrations or write config. You paste a URL; the agency figures out what the company is, what specialists it needs, which skills to bind, and what recurring work to run — then does it, with evidence (PR links, test output, diffs, reasoning traces) for every action.
 
 It is **self-hosted and privacy-first**: everything runs on a server you control — your laptop, a $10 VPS, or a GPU box — and your data never leaves your perimeter. Under the hood it is also a **drop-in OpenAI-compatible proxy** for Ollama, so Cursor, Continue, Aider, and Claude Code can point at `http://localhost:8000` and use your local models through one authenticated endpoint.
 
-> **One URL in → a working AI agency out.** Onboard `https://yourcompany.com` and the CEO + specialists start running agile boards, managing the portfolio, shipping code, reviewing PRs, writing docs and content, and monitoring operations — autonomously, with human approval gates on anything that matters.
+> **One URL in → a working AI agency out.** Onboard `https://yourcompany.com` and the CEO + specialists start running agile boards, managing the portfolio, shipping code, reviewing PRs, writing docs and content, monitoring operations — and never go idle.
 
 ---
 
-## In plain English (no jargon)
+## In plain English
 
 Think of Agency Core as **hiring a whole agency that happens to be AI** — and onboarding them takes one step.
 
 1. **You give it your website address.** (e.g. `https://acme-shop.com`)
 2. **It studies the business.** It reads the site, works out what the company does and what tools it uses (online store, support desk, analytics, code, …), and writes that down as a living profile.
 3. **It hires the right team.** A "CEO" agent assembles specialists for exactly what your business needs — developers, designers, an agile coach, a portfolio manager, SEO/content, e-commerce ops, support, and so on.
-4. **It gets to work.** You chat in plain English ("fix this bug", "plan next sprint", "write the launch blog post"). The CEO splits the job up, hands pieces to the right specialists, and they do the work — then show you the results with proof (links, tests, diffs).
+4. **It gets to work — and stays at work.** You chat in plain English ("fix this bug", "plan next sprint", "write the launch blog post"). The CEO splits the job up, hands pieces to the right specialists, and they do the work — then show you the results with proof (links, tests, diffs). Schedules keep agents running 24x7; a crash-recovery watchdog brings anything back that falls over.
 5. **You stay in control.** Anything important pauses for your **yes/no approval** before it happens. Nothing is sent to the cloud — it all runs on your own machine.
 
 ```mermaid
@@ -57,9 +50,9 @@ flowchart LR
     F --> G["✅ Results with evidence<br/>PRs · tests · diffs · docs"]
     F -. "needs sign-off" .-> H["🙋 Human approval gate"]
     H -. "approved" .-> F
+    G --> I["🔄 Next scheduled job<br/>agents never idle"]
+    I --> F
 ```
-
-*(The diagram above renders automatically on GitHub. Want live UI screenshots in the README? They need a running instance — start the app, and the browser-E2E/Playwright job can capture real screens; I can wire that up on request rather than ship mock-ups.)*
 
 ---
 
@@ -73,14 +66,17 @@ flowchart LR
 | AI "agents" are demo toys that can't commit code or open PRs | Full git integration: branch → commit → PR → CI watch → HITL approval gate → merge |
 | No visibility into what the AI did or why | Langfuse observability: every LLM call, token count, latency, cost, and decision trace |
 | Cloud AI pricing scales with usage — costs explode at team scale | Marginal inference cost is electricity; scale a 50-person team for the same server bill |
+| Agents go idle and lose context between sessions | Crash-recovery reconciler + AI runner watchdog keep every agent alive and resumable |
 
 ---
 
-## The autonomous agency — what your agents can do
+## Features
 
-Once onboarded, Agency Core runs a fleet of specialists coordinated by a CEO agent. You describe what you want in plain English; the CEO decomposes it into a structured plan, assigns subtasks to the right specialist, and returns results with evidence — PR links, test output, diffs, and reasoning traces.
+### The full agent capability roster
 
-### Engineering agents
+Once onboarded, Agency Core runs a fleet of specialists coordinated by a CEO agent. You describe what you want in plain English; the CEO decomposes it into a structured plan, assigns subtasks to the right specialist, and returns results with evidence.
+
+#### Engineering agents
 
 - **Bug fixing**: analyse a bug report, write a fix, open a PR, watch CI, wait for your approval before merging
 - **Dependency audit**: scan for CVEs, create a safe upgrade PR with passing tests
@@ -90,28 +86,28 @@ Once onboarded, Agency Core runs a fleet of specialists coordinated by a CEO age
 - **Release management**: bump version, draft changelog, tag, verify CI, open the release PR
 - **Documentation**: keep API docs, architecture records, and runbooks in sync with code changes
 
-### Content & knowledge agents
+#### Content & knowledge agents
 
 - Write product descriptions, blog posts, or wiki articles from a brief
 - Keep your internal knowledge base accurate — agents update docs when code changes
 - Summarise and classify incoming GitHub issues, Slack threads, and support tickets
 - Schedule weekly trend digests and release notes automatically
 
-### Operations agents
+#### Operations agents
 
 - Monitor CI/CD pipelines and alert you when something needs a human decision
 - Manage recurring schedules: daily summaries, weekly audits, on-call handoffs
 - Classify every request to the optimal local model (code → Qwen3-Coder, reasoning → DeepSeek-R1)
 - Provide real-time health diagnostics for all running agents, runtimes, and providers
 
-### Agile, portfolio & design agents
+#### Agile, portfolio & design agents
 
 - **Agentic agile**: run sprints, standups, retros, and backlog grooming as a coached cadence
 - **Agentic portfolio management**: roadmapping, prioritisation, resource allocation, and strategy across initiatives
 - **Design & UX**: UI/UX proposals, prototyping notes, design-system consistency reviews
 - **Product**: turn briefs into requirements, user stories, and prioritised roadmaps
 
-### Business & domain agents (auto-provisioned from the scan)
+#### Business & domain agents (auto-provisioned from the scan)
 
 Based on what the URL scan detects, Agency Core spins up the right **domain specialists** — not just generic engineers:
 
@@ -138,7 +134,91 @@ Specialists and workflows bind to a **typed Skill Library**, including:
 - **Council Review** — multi-perspective (security / correctness / performance / maintainability) review of a diff with a structured verdict
 - plus agile, financial-analyst, dependency-audit, docs-sync, release-readiness, and more
 
-Each skill declares its inputs/outputs and safety/approval requirements, and is exposed via API and UI.
+The skill registry supports both flat and nested GitHub directory layouts, ETag caching, and semaphore-controlled rate limiting. New skills are discovered automatically via the registry API without restarting the server.
+
+### AI-powered onboarding
+
+The onboarding engine generates **AI-tailored questions** based on the detected domain and tech stack — not generic forms. Answer them once and the agency creates scoped remediation tasks, provisions the right specialists, and configures 24x7 schedules immediately.
+
+```bash
+# Generate context-aware onboarding questions for a company
+POST /api/companies/{id}/onboarding/questions
+
+# Submit answers → remediations + specialist provisioning happen automatically
+POST /api/companies/{id}/onboarding/answers
+```
+
+### Quick Notes (iPhone → agent tasks)
+
+Capture a thought from your phone and it becomes an agent task automatically. The **Quick Note processor** accepts URL-based payloads (Shortcuts app, share sheet), enqueues them with capped-backoff retry, and routes them to the right specialist — no laptop needed.
+
+```bash
+# iOS Shortcut / share sheet → this endpoint → agent task
+POST /api/quick-notes
+```
+
+---
+
+## 24x7 autonomous operations — agents never go idle
+
+This is the core promise: **after onboarding, your agents own the work**. The platform is built so specialists stay alive, resume after crashes, and run on schedule without human babysitting.
+
+### What activates automatically at onboarding
+
+| Schedule | Cadence | What it does |
+|----------|---------|--------------|
+| Website health scan | Every 30 min | Check all company sites for uptime, TLS expiry, and stack changes |
+| Security audit | Daily 9 AM | CVE scan, security headers, repo secret scanning |
+| Stack change detection | Daily 6 AM | Re-scan for new frameworks, removed libraries, new integrations |
+| Code quality scan | Daily 12 PM | Lint compliance, duplication, complexity, dependency freshness |
+| Trend watch | Every 6 hrs | New model releases, framework updates, competitor tech changes |
+| Company graph sync | Every 30 min | Verify all specialists healthy, runtimes responsive, schedules executing |
+| Doc-sync | On every push | Keep API docs, architecture records, and runbooks in sync with code |
+
+### How agents stay alive 24x7
+
+**No agent ever dies quietly.** Every mechanism that could leave an agent idle or stranded has a countermeasure:
+
+| Failure scenario | Countermeasure |
+|---|---|
+| Agent crashes mid-task | Crash-recovery reconciler re-queues stranded `IN_PROGRESS` tasks on restart |
+| Runtime container stops | ⚡ **Wake All Runtimes** button (or `POST /runtimes/wake-company-runtimes`) restarts every Docker container instantly |
+| AI coding session exhausted / rate-limited | `python scripts/ai_runner.py resume` — AI runner watchdog detects the gap and resumes from the last checkpoint |
+| Schedule misfires | Scheduler reconciles missed runs on boot; nothing is silently skipped |
+| Context lost between sessions | Company Graph + per-session chat history give every agent full context on every wake |
+| LLM provider goes down | Provider priority chain (Bedrock → NIM → DeepSeek → Anthropic → Ollama) — automatic failover, no human intervention |
+
+### Company maintenance loop
+
+Once activated, the agency runs a continuous maintenance loop without you:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Every 30 min: Health scan → issues found?                  │
+│    ├─ No  → log green, schedule next run                    │
+│    └─ Yes → Security/Dev specialist creates fix task        │
+│              ↓                                              │
+│  Dev specialist: analyse → branch → fix → PR → CI          │
+│    ├─ CI green + low-risk → auto-approve gate passes        │
+│    └─ CI green + needs review → surfaces to you for sign-off│
+│              ↓                                              │
+│  Merge → Doc-sync updates runbooks → Graph sync verifies   │
+│              ↓                                              │
+│  Next scheduled run picks up, loop continues               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Support tickets, bug reports, and GitHub issues follow the same loop — the Support specialist triages, Dev fixes, you approve merges.
+
+### HITL approval gates
+
+Agency Core never merges code, deploys, or sends external messages without your sign-off:
+
+1. Agent reaches a gate → pauses and surfaces the decision in your dashboard
+2. Shows exactly what will happen — the diff, the deploy command, the message body
+3. Waits for your **Approve**, **Deny**, or **Redirect** (send back with comments)
+
+Gates are configurable per task type: auto-approve low-risk operations (reformatting docs), require explicit sign-off on anything touching production.
 
 ---
 
@@ -149,7 +229,7 @@ Each skill declares its inputs/outputs and safety/approval requirements, and is 
 Deploy Agency Core (Docker, Render, or `uvicorn` locally). On first boot:
 
 1. **Setup Wizard** walks you through five steps: connect Ollama, generate API key, create admin, pull a model, run health check
-2. **Doctor screen** confirms every dependency is reachable — git, GitHub token, repo access, Langfuse, runtimes
+2. **Doctor screen** confirms every dependency is reachable — git, GitHub token, repo access, Langfuse, runtimes. Each failing check has a **Fix** button that resolves it in one click
 3. **No local GPU?** Set `LLM_PROVIDER=nvidia-nim` and `NVIDIA_API_KEY=<your-key>` to use Nvidia's free-tier hosted models
 4. **Website scanning?** Install Playwright to detect JS-rendered technologies:
    ```bash
@@ -158,63 +238,40 @@ Deploy Agency Core (Docker, Render, or `uvicorn` locally). On first boot:
 
 ### The automatic flow — one URL, fully managed
 
-Agency Core can take a single company URL and spin up a fully autonomous AI team that manages the company 24x7.
-
-1. **Create a company** — open the Company screen, paste your URL, click onboard
-2. **Agents auto-discover** — the scanner detects the tech stack, systems, and frameworks
-3. **Specialists provision** — agents are assigned optimal runtimes (Goose, OpenCode, Claude Code, etc.)
-4. **24x7 schedules activate** — health scans, security audits, stack monitoring, trend watching all run automatically
-5. **You approve gates** — agents bring decisions to you via HITL approval; nothing happens without sign-off
-
 ```bash
-# Or do it with one API call:
+# One API call starts the whole agency:
 curl -X POST http://localhost:8001/api/company/{id}/onboarding/start \
   -H "Content-Type: application/json" \
-  -d '{"website_urls": ["https://gucci.com"]}'
+  -d '{"website_urls": ["https://yourcompany.com"]}'
 ```
+
+| Step | What runs | Output |
+|------|-----------|--------|
+| **Scan website** | `services/scanner.py` — Playwright + curl_cffi | Detected stack: React, Next.js, Shopify, Stripe, Google Analytics |
+| **AI onboarding questions** | `services/onboarding.py` | Context-aware questions generated from detected domain + stack |
+| **Detect systems** | `services/onboarding.py` step 4 | System types: `frontend`, `backend`, `ecommerce`, `analytics`, `payment_gateway` |
+| **Provision specialists** | `services/specialist.py` + runtime auto-assignment | 5 specialists: Frontend (Goose), Backend (OpenCode), Security (Claude Code), Analytics (Hermes), Operations (Goose) |
+| **Create workflows** | `services/onboarding.py` step 6 | Development + QA workflows with specialist assignments |
+| **Activate 24x7 agency** | `services/company_agency.py` | 6 always-on schedules: health scan, security audit, stack monitor, code quality, trend watch, graph sync |
 
 ### Talking to your agency
 
-Once agents are running, talk to the CEO in plain English. Because the Company Graph knows your stack, answers are context-aware ("use Pydantic v2, that's what your codebase uses") instead of generic:
+Once agents are running, talk to the CEO in plain English. Because the Company Graph knows your stack, answers are context-aware:
 
 > "There's a memory leak in the session manager reported in issue #142. Find the root cause, write a fix, and open a PR for my review."
 
 The CEO agent reads the issue, produces a structured plan, delegates to the Dev specialist, and returns a PR link with test results. Every conversation is persisted — pick up where you left off.
 
-### What you can schedule
-
-Agents run on schedule and only interrupt you when a human decision is needed:
-
-| Schedule | When | What it does |
-|----------|------|--------------|
-| Website health scan | Every 30 min | Check all company sites for uptime, TLS expiry, stack changes |
-| Security audit | Daily 9 AM | CVE scan, security headers, repo secret scanning |
-| Stack change detection | Daily 6 AM | Re-scan for new frameworks, removed libraries, new integrations |
-| Code quality scan | Daily 12 PM | Lint compliance, duplication, complexity, dependency freshness |
-| Trend watch | Every 6 hrs | New model releases, framework updates, competitor tech changes |
-| Company graph sync | Every 30 min | Verify all specialists healthy, runtimes responsive, schedules executing |
-| Doc-sync (per-commit) | On push | Keep API docs, architecture records, and runbooks in sync with code |
-
 ### Interacting with your running agency
-
-All interactions flow through these interfaces:
 
 | Interface | What it does |
 |-----------|-------------|
 | **Chat** | Talk to the CEO agent in plain English — it decomposes tasks, delegates to specialists, and returns results with PR links and test output |
 | **Task Board** | Kanban view of all agent jobs: queued → planning → executing → verifying → awaiting approval → done |
+| **Quick Notes** | Fire tasks from your iPhone via Shortcuts or share sheet — URL-initiated, retried automatically |
 | **Schedules** | Pause, resume, or delete any 24x7 schedule; trigger immediate runs |
 | **Runtimes** | Start/stop individual runtimes, or ⚡ Wake All Runtimes for a company |
 | **Admin** | Manage users, assign roles, toggle onboarding per user, view audit logs |
-
-### HITL approval gates
-
-Agency Core never merges code, deploys, or sends external messages without your sign-off:
-1. Agent reaches a gate → pauses and surfaces the decision in your dashboard
-2. Shows exactly what will happen — the diff, the deploy command, the message body
-3. Waits for your **Approve**, **Deny**, or **Redirect** (send back with comments)
-
-Gates are configurable per task type: auto-approve low-risk operations (reformatting docs), require explicit sign-off on anything touching production.
 
 ---
 
@@ -225,7 +282,7 @@ Gates are configurable per task type: auto-approve low-risk operations (reformat
 | **Dashboard** | Live health of all agents, recent activity, and system metrics at a glance |
 | **Chat** | Conversational interface to the CEO agent; full persistent history per session |
 | **Task Board** | Kanban view of all agent jobs: queued → planning → executing → review → done |
-| **Agents** | All registered specialists with capabilities, current workload, runtime, and model |
+| **Agents** | All registered specialists with capabilities, current workload, runtime, and model — aggregate task stats per agent |
 | **Providers** | Connected LLM providers (Ollama, AWS Bedrock, Nvidia NIM) with health and cost data |
 | **Runtimes** | Execution substrates — internal loop, Docker agent, external harnesses (OpenCode, Aider, Goose) |
 | **Knowledge** | Internal wiki maintained by agents from your code, docs, and past decisions |
@@ -235,7 +292,7 @@ Gates are configurable per task type: auto-approve low-risk operations (reformat
 | **Logs** | Full trace of every LLM call: token count, latency, provider, cost, and decision context |
 | **Company** | Your organisation profile, tech stack, and knowledge graph seed data |
 | **Admin** | User management, role assignment, instance activation, audit log, onboarding controls |
-| **Doctor** | Self-diagnostics — checks every dependency, connectivity, and configuration item live |
+| **Doctor** | Self-diagnostics — checks every dependency, connectivity, and configuration item live; one-click Fix buttons per check |
 
 ---
 
@@ -311,7 +368,7 @@ This is your team's memory: wiki pages, source material, and reusable context.
 
 ### 🔭 Logs and activity
 
-This helps you answer, ‘what just happened?’ — every LLM call, token count, latency, and cost.
+This helps you answer, 'what just happened?' — every LLM call, token count, latency, and cost.
 
 <p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs"/></p>
 
@@ -359,6 +416,7 @@ The dashboard is responsive — sign in, run the setup wizard, and monitor agent
 │  ├─ /api/chat/send           Agency Core conversational API      │
 │  ├─ /api/tasks/*             Task CRUD + async dispatcher        │
 │  ├─ /api/agent/*             Agent job management + HITL gates   │
+│  ├─ /api/quick-notes         Quick Note processor (iPhone tasks) │
 │  ├─ /api/doctor              Live system health diagnostics      │
 │  ├─ /api/activation/*        Instance licensing + user mgmt      │
 │  └─ /mcp-internal            MCP server for agent tool calls     │
@@ -377,6 +435,10 @@ The dashboard is responsive — sign in, run the setup wizard, and monitor agent
 │  ├─ Per-task git worktree isolation (concurrent-safe execution)  │
 │  └─ Opt-in external runtimes: Docker, OpenCode, Aider, Goose    │
 ├──────────────────────────────────────────────────────────────────┤
+│  Skill Registry — flat + subdir GitHub layouts, ETag caching     │
+│  ├─ Semaphore rate-limiting (stays within 60 req/h unauth limit) │
+│  └─ Dynamic tech-relevance extraction for context-aware binding  │
+├──────────────────────────────────────────────────────────────────┤
 │  Storage (swappable at runtime)                                  │
 │  ├─ MongoDB (default) — Motor async driver                       │
 │  └─ SQLite (STORAGE_BACKEND=sqlite) — zero external deps         │
@@ -386,7 +448,7 @@ The dashboard is responsive — sign in, run the setup wizard, and monitor agent
 
 ---
 
-## Quickstart
+## Setup
 
 ### Prerequisites
 
@@ -420,7 +482,7 @@ cp .env.example .env
 #   - OLLAMA_BASE_URL=http://localhost:11434  # local GPU
 ```
 
-### 3. Start the backend (main application)
+### 3. Start the backend
 
 ```bash
 # The main application is backend.server:app, NOT proxy:app.
@@ -512,6 +574,25 @@ Only providers with keys configured are tried. Set just the keys you have.
 
 ---
 
+## Agent runtimes — the engines behind the specialists
+
+Every specialist is assigned an optimal runtime based on its family:
+
+| Specialist Family | Preferred Runtime | Runtime Type | Docker Service |
+|-------------------|-------------------|-------------|----------------|
+| `frontend`, `ux`, `design`, `docs`, `operations`, `product` | **Goose** | 🐳 Docker | `docker compose up goose` |
+| `backend`, `mobile`, `ecommerce`, `qa` | **OpenCode** | 🐳 Docker | `docker compose up opencode` |
+| `security`, `engineering`, `architecture`, `ml`, `fullstack` | **Claude Code** | 💻 CLI | `npm i -g @anthropic-ai/claude-code` |
+| `devops`, `cloud`, `infra` | **Aider** | 🐳 Docker | `docker compose up aider` |
+| `analytics`, `data` | **Hermes** | 🐳 Docker | `docker compose up hermes` |
+| `task_harness` (long-running workflows) | **Task Harness** | 🐳 Docker | `docker compose up task-harness` |
+| `jcode` (high-perf Rust agent) | **jcode** | 🐳 Docker | `docker compose up jcode` |
+| `agile`, `portfolio` | **Internal Agent** | 🏠 Built-in | Always available |
+
+Start all runtimes at once from the **Runtimes** page — the ⚡ **Wake All Runtimes** button starts every Docker container your company's specialists need (calls `POST /runtimes/wake-company-runtimes`).
+
+---
+
 ## Security
 
 - **No secrets in source** — all configuration via environment variables; nothing hardcoded
@@ -545,6 +626,8 @@ python generate_api_key.py
 python scripts/ai_runner.py start
 python scripts/ai_runner.py status
 python scripts/ai_runner.py resume
+python scripts/ai_runner.py stop
+python scripts/ai_runner.py logs
 ```
 
 See [`CLAUDE.md`](CLAUDE.md) for the full contributor guide, skill map, risky-module policy, and AI agent working rules.
@@ -559,69 +642,11 @@ See [`CLAUDE.md`](CLAUDE.md) for the full contributor guide, skill map, risky-mo
 | Phase 2 — ModelRouter wiring | ✅ Done | Single router for all request types; classification → model hint |
 | Phase 3 — SQLite + one backend | ✅ Done | Swappable storage adapter, dead-router removal, zero-dep option |
 | Phase 4 — Runtime resilience | ✅ Done | Crash-recovery reconciler, worktree isolation, opt-in external runtimes |
-| Phase 5 — Doctor & dashboard resilience | ✅ Done | `/api/doctor` endpoint, `useSafeData` hook, live DoctorScreen |
+| Phase 5 — Doctor & dashboard resilience | ✅ Done | `/api/doctor` endpoint, `useSafeData` hook, live DoctorScreen with per-check fix buttons |
 | Phase 6 — Workflow engine | ✅ Done | Persisted state machine, CEO agency with branch/PR safety, HITL approval gates |
 | Phase 7 — Onboarding engine | ✅ Done | URL → stack inference → system detection → specialist provisioning → 24x7 agency activation |
-| Phase 8 — Multi-tenant isolation | ✅ Done | Per-user scoping across companies, chat/agent sessions, and workflow-orchestrator runs (GitHub/Google/email); admin sees all, user sees own; cross-tenant run access is IDOR-safe (404, not 403) |
-
----
-
-## The autonomous agency — one URL is all it takes
-
-Agency Core can take a single company URL and spin up a fully autonomous AI team that manages the company 24x7. Here's the exact flow:
-
-### 1. Onboard a company
-```bash
-# One API call — that's it
-curl -X POST http://localhost:8001/api/company/{id}/onboarding/start \
-  -H "Content-Type: application/json" \
-  -d '{"website_urls": ["https://gucci.com"]}'
-```
-
-### 2. What happens automatically
-| Step | What runs | Output |
-|------|-----------|--------|
-| **Scan website** | `services/scanner.py` — Playwright + curl_cffi | Detected stack: React, Next.js, Shopify, Stripe, Google Analytics |
-| **Detect systems** | `services/onboarding.py` step 4 | System types: `frontend`, `backend`, `ecommerce`, `analytics`, `payment_gateway` |
-| **Provision specialists** | `services/specialist.py` + runtime auto-assignment | 5 specialists: Frontend (Goose), Backend (OpenCode), Security (Claude Code), Analytics (Hermes), Operations (Goose) |
-| **Create workflows** | `services/onboarding.py` step 6 | Development + QA workflows with specialist assignments |
-| **Activate agency** | `services/company_agency.py` | 6 24x7 schedules: health scan, security audit, stack monitor, code quality, trend watch, graph sync |
-
-### 3. Your agents are now working 24x7
-```
-Every 30 min → Website health scan (frontend specialist via Goose runtime)
-Daily 9 AM   → Security audit (security specialist via Claude Code runtime)
-Daily 6 AM   → Stack change detection (backend specialist via OpenCode runtime)
-Daily 12 PM  → Code quality scan (engineering specialist via Claude Code runtime)
-Every 6 hrs  → Trend watch (analytics specialist via Hermes runtime)
-Every 30 min → Company graph sync (operations specialist via Goose runtime)
-```
-
-### 4. What you control
-- **HITL approval gates** — agents never merge code, deploy, or send messages without your sign-off
-- **Per-user isolation** — every user (GitHub, Google, email) sees only their own companies; admins see all
-- **Runtime selection** — pick which runtime each specialist family uses (Goose, OpenCode, Claude Code, Aider, Hermes)
-- **Schedule control** — pause, resume, or delete any 24x7 schedule
-- **Wake All Runtimes** — one-click button on the Runtimes page starts all Docker containers for a company's specialists
-
----
-
-## Agent runtimes — the engines behind the specialists
-
-Every specialist is assigned an optimal runtime based on its family:
-
-| Specialist Family | Preferred Runtime | Runtime Type | Docker Service |
-|-------------------|-------------------|-------------|----------------|
-| `frontend`, `ux`, `design`, `docs`, `operations`, `product` | **Goose** | 🐳 Docker | `docker compose up goose` |
-| `backend`, `mobile`, `ecommerce`, `qa` | **OpenCode** | 🐳 Docker | `docker compose up opencode` |
-| `security`, `engineering`, `architecture`, `ml`, `fullstack` | **Claude Code** | 💻 CLI | `npm i -g @anthropic-ai/claude-code` |
-| `devops`, `cloud`, `infra` | **Aider** | 🐳 Docker | `docker compose up aider` |
-| `analytics`, `data` | **Hermes** | 🐳 Docker | `docker compose up hermes` |
-| `task_harness` (long-running workflows) | **Task Harness** | 🐳 Docker | `docker compose up task-harness` |
-| `jcode` (high-perf Rust agent) | **jcode** | 🐳 Docker | `docker compose up jcode` |
-| `agile`, `portfolio` | **Internal Agent** | 🏠 Built-in | Always available |
-
-Start all runtimes at once from the **Runtimes** page — the ⚡ **Wake All Runtimes** button starts every Docker container your company's specialists need (calls `POST /runtimes/wake-company-runtimes`).
+| Phase 8 — Multi-tenant isolation | ✅ Done | Per-user scoping across companies, chat/agent sessions, and workflow-orchestrator runs (GitHub/Google/email); admin sees all, user sees own; cross-tenant run access is IDOR-safe |
+| Phase 9 — AI onboarding + Quick Notes | ✅ Done | AI-tailored onboarding questions from domain scan; Quick Note processor with retry backoff for iPhone-initiated tasks; skill registry ETag caching + semaphore rate-limiting |
 
 ---
 
