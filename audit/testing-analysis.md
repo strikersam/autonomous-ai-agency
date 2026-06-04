@@ -56,8 +56,10 @@ The test suite is extensive (158 test files, ~15,000+ LOC) and covers a broad ra
   run: |
     pytest -x -v --tb=short --timeout=120 \
       --cov=. --cov-report=xml --cov-report=term-missing \
-      --cov-fail-under=70 \
       --ignore=tests/test_hardware.py
+      # Note: Add --cov-fail-under only after measuring baseline; set to actual
+      # baseline minus 1-2% to avoid immediate CI failure (several modules are
+      # currently at 40-60% coverage).
       
 - name: Upload coverage
   uses: codecov/codecov-action@v4
@@ -93,7 +95,8 @@ This pattern may recur in other test files. Tests with `pass` give false confide
 
 **Fix:** Add a custom pytest plugin or linting rule that fails the build if any test function body consists only of `pass`. Run a one-time audit:
 ```bash
-grep -rn "def test_.*:\n\s*pass" tests/
+pcregrep -rM "def test_[^:]+:\n\s+pass\s*$" tests/
+# Or with ast-grep: ast-grep --pattern $'def test_$_($$$):\n  pass'
 ```
 
 ---
@@ -122,7 +125,7 @@ grep -rn "def test_.*:\n\s*pass" tests/
 
 **Issue:** CI tests only run against Python 3.13. The codebase may be used on 3.11 or 3.12 systems.
 
-**Fix:** Add Python 3.11 and 3.12 to the test matrix, or explicitly document that 3.13 is the minimum supported version.
+**Fix:** Explicitly document in README.md and pyproject.toml that Python 3.13+ is the minimum supported version per coding guidelines. Do NOT add 3.11/3.12 to the CI matrix — the codebase uses 3.13+ features and the coding guidelines require 3.13+.
 
 ---
 

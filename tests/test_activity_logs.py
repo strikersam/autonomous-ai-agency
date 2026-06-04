@@ -5,9 +5,7 @@ import os
 
 import backend.server as server
 
-# Match the password that CI injects via ADMIN_PASSWORD env var.
-# Falls back to the legacy hardcoded value for backwards compatibility.
-_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
 
 def _auth_headers(client) -> dict[str, str]:
