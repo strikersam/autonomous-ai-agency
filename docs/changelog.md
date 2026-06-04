@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Fixed
+- **Friday maintenance sweep 2026-06-04.** No open PRs found. All 21 workflow files audited — action versions valid (`actions/configure-pages@v6` confirmed, all actions at known-good versions), no openclaw npm/setup-cli issues. Agent state confirmed healthy (status: ready). Branch `fix/session-resume-provider-mismatch` already merged/cleaned. Agency-cycle.yml triggered via workflow_dispatch.
+
+### Fixed
 - **CI: suppress intentional exhaustive-deps ESLint warning in CompanyScreen.jsx.** The mount-only `useEffect` that auto-selects a company intentionally uses `selectedCompanyId` and `storedId` but should not re-trigger on their changes. Added an `eslint-disable-next-line react-hooks/exhaustive-deps` comment with explanation — this is the standard React pattern for mount-only effects. Fixes the `Frontend test + build` CI failure on master caused by `CI=true` treating ESLint warnings as errors.
 - **RuntimeManager missing delegate methods causing 500 errors on runtime endpoints.** `GET /runtimes/decisions`, `PUT /runtimes/policy`, and `GET /runtimes/health` all crashed with `AttributeError` because `RuntimeManager` lacked `get_decision_log()`, `update_policy()`, and `health_summary()` methods — the API called these on the manager but only the inner `_router`/`_health` objects had them. Added three delegate methods to `runtimes/manager.py` that forward to `self._router` and `self._health` respectively.
 - **Onboarding endpoints crashed with NameError — missing `get_onboarding_service` import.** `backend/company_api.py` imported `OnboardingService` but called the factory function `get_onboarding_service()` without importing it, causing all onboarding endpoints (`/api/company/{id}/onboarding/start`, `/pause`, `/resume`) to return 500. Fixed by adding `get_onboarding_service` to the import statement.
