@@ -359,7 +359,7 @@ try:
     _AGENCY.start()
     log.info("CEO Agency started — tick=%dm", _AGENCY._tick // 60)
 except Exception as exc:
-    log.warning("CEO Agency failed to start: %s", exc)
+    log.error("CEO Agency failed to start: %s", exc)
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)

@@ -183,6 +183,7 @@ def process_note(
             capture_output=True,
             text=True,
             cwd=str(repo_root),
+            timeout=60,
         )
         committed = commit_result.returncode == 0
         if not committed and "nothing to commit" not in commit_result.stdout + commit_result.stderr:
