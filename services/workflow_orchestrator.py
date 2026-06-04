@@ -881,12 +881,29 @@ class WorkflowOrchestrator:
         passed = True
         pr_verified = False
 
+        # Only code-editing task types must change files. Read-only work
+        # (review/audit/research/docs queries) legitimately produces useful
+        # output with zero changed files — requiring edits would always fail it.
+        _EDITING_TASK_TYPES = {"bug_fix", "feature", "refactor", "release"}
+        task_type = run.classify.task_type if run.classify else "general"
+        edits_expected = task_type in _EDITING_TASK_TYPES
+
         # Check for changed files
         if execution.changed_files:
             checks.append({"check": "files_changed", "passed": True, "detail": f"{len(execution.changed_files)} file(s)"})
-        else:
+        elif edits_expected:
             checks.append({"check": "files_changed", "passed": False, "detail": "No files changed"})
             passed = False
+        else:
+            # Read-only task: success requires meaningful output instead.
+            has_output = bool((execution.output or "").strip())
+            checks.append({
+                "check": "read_only_output",
+                "passed": has_output,
+                "detail": f"{task_type}: produced output" if has_output else f"{task_type}: empty output",
+            })
+            if not has_output:
+                passed = False
 
         # Check judge verdict from execution
         judge_data = None

@@ -342,6 +342,35 @@ class TestApprovalGate:
         with pytest.raises(KeyError, match="not found"):
             orchestrator.approve("nonexistent")
 
+    async def test_read_only_task_passes_verify_without_file_changes(self):
+        """A review/audit task with output but no changed files must VERIFY pass."""
+        from services.workflow_orchestrator import (
+            WorkflowRun, ClassifyOutput, ExecutionResult, ExecutionRequest,
+            get_workflow_orchestrator, reset_orchestrator,
+        )
+        reset_orchestrator()
+        orch = get_workflow_orchestrator()
+        run = WorkflowRun()
+        run.classify = ClassifyOutput(domain="dev", task_type="review")
+        run.execution = ExecutionResult(output="Security review: no SQLi found.", changed_files=[])
+        await orch._handle_verify(run, ExecutionRequest(request="review the auth module"))
+        assert run.verification is not None
+        assert run.verification.passed is True
+
+    async def test_editing_task_fails_verify_without_file_changes(self):
+        from services.workflow_orchestrator import (
+            WorkflowRun, ClassifyOutput, ExecutionResult, ExecutionRequest,
+            get_workflow_orchestrator, reset_orchestrator,
+        )
+        reset_orchestrator()
+        orch = get_workflow_orchestrator()
+        run = WorkflowRun()
+        run.classify = ClassifyOutput(domain="dev", task_type="bug_fix")
+        run.execution = ExecutionResult(output="Tried to fix", changed_files=[])
+        await orch._handle_verify(run, ExecutionRequest(request="fix the bug"))
+        assert run.verification is not None
+        assert run.verification.passed is False
+
     async def test_approve_non_waiting_run_raises(self):
         from services.workflow_orchestrator import (
             ExecutionRequest,
