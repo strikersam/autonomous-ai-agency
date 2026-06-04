@@ -485,7 +485,7 @@ See [`CLAUDE.md`](CLAUDE.md) for the full contributor guide, skill map, risky-mo
 | Phase 5 — Doctor & dashboard resilience | ✅ Done | `/api/doctor` endpoint, `useSafeData` hook, live DoctorScreen |
 | Phase 6 — Workflow engine | ✅ Done | Persisted state machine, CEO agency with branch/PR safety, HITL approval gates |
 | Phase 7 — Onboarding engine | ✅ Done | URL → stack inference → system detection → specialist provisioning → 24x7 agency activation |
-| Phase 8 — Multi-tenant isolation | 🔄 In progress | Per-user company scoping (GitHub/Google/email), admin sees all, user sees own |
+| Phase 8 — Multi-tenant isolation | ✅ Done | Per-user scoping across companies, chat/agent sessions, and workflow-orchestrator runs (GitHub/Google/email); admin sees all, user sees own; cross-tenant run access is IDOR-safe (404, not 403) |
 
 ---
 

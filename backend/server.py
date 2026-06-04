@@ -6204,6 +6204,25 @@ from services.workflow_orchestrator import (
 )
 
 
+from backend.company_api import _resolve_user_id as _wfo_resolve_user_id
+from backend.company_api import _is_admin as _wfo_is_admin
+
+
+def _wfo_owned_run_or_404(orchestrator, run_id: str, user: dict):
+    """Fetch a run, enforcing per-user ownership (admins bypass).
+
+    Returns 404 — not 403 — when a non-admin requests a run they don't own,
+    so run IDs can't be enumerated across tenants (IDOR-safe).
+    """
+    run = orchestrator.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    if not _wfo_is_admin(user):
+        if run.user_id != _wfo_resolve_user_id(user):
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return run
+
+
 @app.post("/api/workflow/orchestrator/execute")
 async def workflow_orchestrator_execute(
     body: ExecutionRequest,
@@ -6211,7 +6230,9 @@ async def workflow_orchestrator_execute(
 ):
     """Execute work through the 11-phase golden path."""
     orchestrator = get_workflow_orchestrator()
-    body.user_id = user.get("email") or user.get("_id", "")
+    # Stamp the run with a stable, auth-method-agnostic owner id so it can be
+    # scoped on list/get/approve.  Same resolver as the company endpoints.
+    body.user_id = _wfo_resolve_user_id(user)
     run = await orchestrator.execute(body)
     return {"status": run.status, "run": run.as_dict()}
 
@@ -6224,6 +6245,8 @@ async def workflow_orchestrator_approve(
 ):
     """Approve a run paused at the ApprovalGate and resume execution."""
     orchestrator = get_workflow_orchestrator()
+    # Ownership check first — a user may only approve their own runs (admin: any).
+    _wfo_owned_run_or_404(orchestrator, run_id, user)
     try:
         run = await orchestrator.approve_and_resume(run_id, approved_by=approved_by)
         return {"status": run.status, "run": run.as_dict()}
@@ -6238,9 +6261,16 @@ async def workflow_orchestrator_list_runs(
     limit: int = 50,
     user: dict = Depends(get_current_user),
 ):
-    """List recent workflow orchestrator runs."""
+    """List recent workflow orchestrator runs.
+
+    Non-admin users see only their own runs; admins see every run.
+    """
     orchestrator = get_workflow_orchestrator()
-    return {"runs": orchestrator.list_runs(limit=limit)}
+    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+    return {
+        "runs": orchestrator.list_runs(limit=limit, owner_id=owner_id),
+        "scoped_to_user": owner_id is not None,
+    }
 
 
 @app.get("/api/workflow/orchestrator/runs/{run_id}")
@@ -6248,11 +6278,9 @@ async def workflow_orchestrator_get_run(
     run_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Get a single workflow orchestrator run by ID."""
+    """Get a single workflow orchestrator run by ID (owner or admin only)."""
     orchestrator = get_workflow_orchestrator()
-    run = orchestrator.get_run(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    run = _wfo_owned_run_or_404(orchestrator, run_id, user)
     return {"run": run.as_dict()}
 
 # Initialise the secrets store with our MongoDB handle so it persists to the

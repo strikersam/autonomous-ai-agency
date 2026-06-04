@@ -262,6 +262,11 @@ class WorkflowRun:
     started_at: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     status: str = "pending"  # pending → running → awaiting_approval → executing → done | failed
 
+    # Multi-tenant ownership — set from the originating ExecutionRequest so
+    # list_runs/get_run/approve can be scoped per user (admin sees all).
+    user_id: str | None = None
+    company_id: str | None = None
+
     # Phase outputs (None until the phase completes)
     classify: ClassifyOutput | None = None
     plan: PlanOutput | None = None
@@ -289,6 +294,8 @@ class WorkflowRun:
             "started_at": self.started_at,
             "status": self.status,
             "current_phase": self.current_phase,
+            "user_id": self.user_id,
+            "company_id": self.company_id,
             "approved": self.approved,
             "approved_by": self.approved_by,
             "approved_at": self.approved_at,
@@ -343,6 +350,12 @@ class WorkflowOrchestrator:
         else:
             run = WorkflowRun()
         run._request = req
+        # Stamp ownership from the originating request (new runs only; resumed
+        # runs keep their original owner so approval can't re-attribute them).
+        if run.user_id is None:
+            run.user_id = req.user_id
+        if run.company_id is None:
+            run.company_id = req.company_id
         run.status = "running"
         self._runs[run.run_id] = run
 
@@ -441,8 +454,19 @@ class WorkflowOrchestrator:
     def get_run(self, run_id: str) -> WorkflowRun | None:
         return self._runs.get(run_id)
 
-    def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
-        return [r.as_dict() for r in list(self._runs.values())[-limit:]]
+    def list_runs(
+        self, limit: int = 50, *, owner_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """List recent runs.
+
+        When ``owner_id`` is provided, only runs stamped with that ``user_id``
+        are returned — the per-user scoping used by non-admin callers.  Pass
+        ``owner_id=None`` (the default) for the admin/unscoped view.
+        """
+        runs = list(self._runs.values())
+        if owner_id is not None:
+            runs = [r for r in runs if r.user_id == owner_id]
+        return [r.as_dict() for r in runs[-limit:]]
 
     # ── Default Phase Handlers ────────────────────────────────────────────────
 
