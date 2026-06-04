@@ -45,6 +45,8 @@ Each skill has:
 from __future__ import annotations
 
 import logging
+import os
+import re
 from enum import Enum
 from typing import Any
 
@@ -331,7 +333,7 @@ class SkillBindings:
             description="Query the codebase knowledge graph (71.5x fewer tokens than raw file reads). Use for exploration, dependency tracing, and architecture understanding before opening files.",
             category=SkillCategory.KNOWLEDGE,
             safety=SkillSafety.READ_ONLY,
-            is_enabled=False,
+            is_enabled=True,
             inputs=[
                 SkillInput(name="query", type="str", description="Natural language question about the codebase"),
                 SkillInput(name="action", type="str", default="query", description="Action: query, explain, path, report"),
@@ -350,7 +352,7 @@ class SkillBindings:
             description="Simulates a council of reviewers (security, correctness, performance, maintainability) independently evaluating a change. Produces structured verdicts.",
             category=SkillCategory.REVIEW,
             safety=SkillSafety.READ_ONLY,
-            is_enabled=False,
+            is_enabled=True,
             inputs=[
                 SkillInput(name="diff", type="str", description="The git diff or code change to review"),
                 SkillInput(name="changed_files", type="list[str]", default=[], description="List of files changed"),
@@ -829,12 +831,18 @@ def _execute_skill_impl(skill_id: str, params: dict[str, Any]) -> dict[str, Any]
             "recommendations": ["No cloud spend detected — all inference is local. Cost is electricity only."],
         }
 
-    elif skill_id in ("council-review", "risky-module-review", "implementation-planner",
+    elif skill_id == "graphify":
+        result["result"] = _run_graphify(params)
+
+    elif skill_id == "council-review":
+        result["result"] = _run_council_review(params)
+
+    elif skill_id in ("risky-module-review", "implementation-planner",
                        "test-first-executor", "stop-slop-quality", "changelog-enforcer",
                        "release-readiness", "branch-cleanup", "docs-sync", "dependency-audit",
                        "modularity-review", "hybrid-reasoning", "cowork-session",
                        "research-coordinator", "managed-agents-dreams", "graphiti-temporal",
-                       "ai-engineering-insights", "graphify", "repowise-intelligence"):
+                       "ai-engineering-insights", "repowise-intelligence"):
         result["result"] = {"skill": skill_id, "status": "skill_registered", "note": "Execution delegates to LLM-backed agent tools or CLI. The skill framework is active and available for specialist binding."}
 
     else:
@@ -842,6 +850,154 @@ def _execute_skill_impl(skill_id: str, params: dict[str, Any]) -> dict[str, Any]
         result["error"] = f"No execution handler for skill '{skill_id}'"
 
     return result
+
+
+# =============================================================================
+# LIVE SKILL EXECUTORS (graphify, council-review)
+# =============================================================================
+
+# Repo root = parent of the services/ package directory.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _run_graphify(params: dict[str, Any]) -> dict[str, Any]:
+    """Live Graphify executor — queries the codebase knowledge graph.
+
+    Order of preference:
+      1. ``graphify query "<q>"`` via the CLI when a built graph exists.
+      2. Keyword search over the committed ``graphify-out/GRAPH_REPORT.md``.
+      3. ``available=False`` with a clear note — never a fake success.
+    """
+    import shutil
+    import subprocess
+
+    action = (params.get("action") or "query").lower()
+    query = (params.get("query") or "").strip()
+    graph_json = os.path.join(_REPO_ROOT, "graphify-out", "graph.json")
+    report_md = os.path.join(_REPO_ROOT, "graphify-out", "GRAPH_REPORT.md")
+    cli = shutil.which("graphify")
+
+    # 1. CLI query when a built graph is available.
+    if action in ("query", "explain", "path") and cli and os.path.exists(graph_json):
+        try:
+            proc = subprocess.run(
+                [cli, "query", query] if query else [cli, "report"],
+                cwd=_REPO_ROOT, capture_output=True, text=True, timeout=60,
+            )
+            if proc.returncode == 0:
+                return {"available": True, "source": "graphify-cli",
+                        "action": action, "query": query,
+                        "answer": proc.stdout.strip()[:8000]}
+            # fall through to report search on non-zero exit
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            log.warning("graphify CLI failed: %s", exc)
+
+    # 2. Degrade to searching the committed report.
+    if os.path.exists(report_md):
+        try:
+            with open(report_md, encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+        except OSError as exc:
+            return {"available": False, "error": f"could not read GRAPH_REPORT.md: {exc}"}
+
+        if action == "report" or not query:
+            head = "\n".join(lines[:120])
+            return {"available": True, "source": "graph-report",
+                    "action": "report", "summary": head, "total_lines": len(lines)}
+
+        q = query.lower()
+        hits = [ln for ln in lines if q in ln.lower()]
+        return {
+            "available": True, "source": "graph-report-search",
+            "action": action, "query": query,
+            "match_count": len(hits), "matches": hits[:40],
+        }
+
+    # 3. No artifacts at all.
+    return {
+        "available": False,
+        "action": action,
+        "note": "No graphify graph.json or GRAPH_REPORT.md found. "
+                "Run `graphify update .` to build the codebase graph.",
+    }
+
+
+# Heuristic patterns for the deterministic review council. Each entry is
+# (compiled-regex, perspective, severity, message).
+_COUNCIL_RULES = [
+    (re.compile(r"\beval\s*\(|\bexec\s*\(", re.I), "security", "high",
+     "Use of eval/exec — arbitrary code execution risk."),
+    (re.compile(r"(password|secret|api[_-]?key|token)\s*=\s*['\"][^'\"]+['\"]", re.I),
+     "security", "high", "Possible hardcoded credential/secret."),
+    (re.compile(r"subprocess\.(run|call|Popen)\([^)]*shell\s*=\s*True", re.I),
+     "security", "high", "subprocess with shell=True — shell injection risk."),
+    (re.compile(r"\.format\s*\(.*\)\s*\)|f['\"].*SELECT .*\{", re.I), "security", "medium",
+     "String-built SQL — verify it is parameterized (injection risk)."),
+    (re.compile(r"except\s*:\s*(#.*)?$", re.M), "correctness", "medium",
+     "Bare except — swallows all errors including KeyboardInterrupt."),
+    (re.compile(r"except\s+\w+\s*:\s*\n\s*pass", re.M), "correctness", "medium",
+     "Silently passing on an exception — error is discarded."),
+    (re.compile(r"\bprint\s*\(", re.I), "maintainability", "low",
+     "print() in changed code — use the module logger instead."),
+    (re.compile(r"#\s*(TODO|FIXME|XXX)", re.I), "maintainability", "low",
+     "TODO/FIXME left in the change."),
+    (re.compile(r"for\s+\w+\s+in\s+.+:\s*\n(?:.*\n)*?\s*.*\.(get|find|query|filter)\(", re.I),
+     "performance", "low", "Query/lookup inside a loop — check for an N+1 pattern."),
+]
+
+
+def _run_council_review(params: dict[str, Any]) -> dict[str, Any]:
+    """Live council reviewer — deterministic, rules-based multi-perspective
+    review over a diff.  Real static analysis (no LLM, no canned verdict):
+    added lines are scanned against security/correctness/performance/
+    maintainability heuristics and a structured verdict is produced.
+    """
+    diff = params.get("diff") or ""
+    changed_files = params.get("changed_files") or []
+
+    if not diff.strip():
+        return {"verdict": "BLOCKED", "reason": "empty diff",
+                "findings": [], "perspectives": {}}
+
+    # Only review *added* lines (diff lines starting with '+', excluding the
+    # +++ file header) — that's what the change introduces.
+    added = [
+        ln[1:] for ln in diff.splitlines()
+        if ln.startswith("+") and not ln.startswith("+++")
+    ]
+    added_text = "\n".join(added)
+
+    findings: list[dict[str, Any]] = []
+    for rule, perspective, severity, message in _COUNCIL_RULES:
+        if rule.search(added_text):
+            findings.append({
+                "perspective": perspective,
+                "severity": severity,
+                "message": message,
+            })
+
+    perspectives = {"security": "PASS", "correctness": "PASS",
+                    "performance": "PASS", "maintainability": "PASS"}
+    for f in findings:
+        # high/medium fail the perspective; low warns.
+        if f["severity"] in ("high", "medium"):
+            perspectives[f["perspective"]] = "FAIL"
+        elif perspectives[f["perspective"]] == "PASS":
+            perspectives[f["perspective"]] = "WARN"
+
+    has_high = any(f["severity"] == "high" for f in findings)
+    has_fail = any(v == "FAIL" for v in perspectives.values())
+    verdict = ("REJECTED" if has_high
+               else "APPROVED_WITH_CONDITIONS" if has_fail
+               else "APPROVED")
+
+    return {
+        "verdict": verdict,
+        "perspectives": perspectives,
+        "findings": findings,
+        "files_reviewed": changed_files,
+        "added_lines": len(added),
+    }
 
 
 # =============================================================================
