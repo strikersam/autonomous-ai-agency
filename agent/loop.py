@@ -124,6 +124,19 @@ class AgentRunner:
     ) -> dict[str, Any]:
         # ``metadata`` is accepted for forward-compatibility (callers like
         # direct_chat.py may pass it) but is not consumed by the core loop.
+
+        # ── DEPRECATION: AgentRunner.run() bypasses WorkflowOrchestrator ──
+        # All execution should route through WorkflowOrchestrator.execute().
+        # Set AGENCY_WORKFLOW_MODE=orchestrator to enforce the golden path.
+        from services.workflow_orchestrator import emit_deprecation, is_legacy_mode
+        if not is_legacy_mode():
+            raise RuntimeError(
+                "AgentRunner.run() is blocked in orchestrator mode. "
+                "Use WorkflowOrchestrator.execute() instead. "
+                "Set AGENCY_WORKFLOW_MODE=legacy to bypass (deprecated)."
+            )
+        emit_deprecation("AgentRunner.run()")
+
         # Store current session_id for use by helper methods that need to
         # write into the durable session event log (e.g., tool_call/tool_result).
         self._current_session_id = session_id

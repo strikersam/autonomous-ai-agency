@@ -5950,6 +5950,64 @@ app.include_router(secrets_router)
 import backend.company_api as company_api_module
 app.include_router(company_api_module.router)
 
+# Workflow Orchestrator API --- canonical execution backbone
+from services.workflow_orchestrator import (
+    ExecutionRequest,
+    get_workflow_orchestrator,
+)
+
+
+@app.post("/api/workflow/orchestrator/execute")
+async def workflow_orchestrator_execute(
+    body: ExecutionRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Execute work through the 11-phase golden path."""
+    orchestrator = get_workflow_orchestrator()
+    body.user_id = user.get("email") or user.get("_id", "")
+    run = await orchestrator.execute(body)
+    return {"status": run.status, "run": run.as_dict()}
+
+
+@app.post("/api/workflow/orchestrator/approve/{run_id}")
+async def workflow_orchestrator_approve(
+    run_id: str,
+    approved_by: str = "human",
+    user: dict = Depends(get_current_user),
+):
+    """Approve a run paused at the ApprovalGate and resume execution."""
+    orchestrator = get_workflow_orchestrator()
+    try:
+        run = await orchestrator.approve_and_resume(run_id, approved_by=approved_by)
+        return {"status": run.status, "run": run.as_dict()}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.get("/api/workflow/orchestrator/runs")
+async def workflow_orchestrator_list_runs(
+    limit: int = 50,
+    user: dict = Depends(get_current_user),
+):
+    """List recent workflow orchestrator runs."""
+    orchestrator = get_workflow_orchestrator()
+    return {"runs": orchestrator.list_runs(limit=limit)}
+
+
+@app.get("/api/workflow/orchestrator/runs/{run_id}")
+async def workflow_orchestrator_get_run(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Get a single workflow orchestrator run by ID."""
+    orchestrator = get_workflow_orchestrator()
+    run = orchestrator.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return {"run": run.as_dict()}
+
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.
 get_secrets_store(db=get_db())
