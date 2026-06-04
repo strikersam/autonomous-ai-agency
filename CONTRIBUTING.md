@@ -167,7 +167,7 @@ Key areas to understand before contributing:
 - `proxy.py` — main entry point, auth, rate limiting
 - `router/` — model routing logic (read `router/CLAUDE.md` first)
 - `agent/` — multi-agent orchestration (read `agent/CLAUDE.md` first)
-- `key_store.py`, `admin_auth.py` — risky modules requiring extra care
+- **Risky modules** (see AGENTS.md for full list): `key_store.py`, `admin_auth.py`, `agent/tools.py`, `proxy.py` (auth middleware), `handlers/v3_auth.py`, `rbac.py`, `social_auth.py` — all require the `risky-module-review` workflow
 
 ---
 

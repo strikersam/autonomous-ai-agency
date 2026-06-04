@@ -184,7 +184,10 @@ async def check_rate_limit(api_key: str) -> None:
     async with _rate_lock:
         # Evict keys that have had no activity in the last window to prevent unbounded growth
         if len(_rate_bucket_keys) >= _RATE_BUCKET_MAX_KEYS:
-            stale = {k for k in _rate_bucket_keys if not _rate_buckets.get(k)}
+            stale = {
+                k for k in _rate_bucket_keys
+                if not _rate_buckets.get(k) or all(now - t >= window for t in _rate_buckets[k])
+            }
             for k in stale:
                 _rate_buckets.pop(k, None)
                 _rate_bucket_keys.discard(k)

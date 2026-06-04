@@ -28,6 +28,17 @@
 
 ## [Unreleased]
 
+### Fixed
+- Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
+- Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
+- `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)
+- Removed redundant orchestrator bypass from `InternalAgentAdapter`; orchestrator already sets it via `WorkflowOrchestrator._handle_execute()`, preventing direct API callers from bypassing workflow gates
+- Added `# nosec B603,B607` to subprocess.run git calls in `agent/agency.py` to resolve 4 new Bandit security alerts
+
+### Changed
+- CONTRIBUTING.md risky modules list now matches AGENTS.md (added agent/tools.py, handlers/v3_auth.py, rbac.py, social_auth.py)
+- roadmap/next-30-days.md: removed duplicate SECURITY.md task entry
+
 ### Changed
 - **`agent/agency.py` — Strategic CEO intelligence upgrade.** Replaced the generic 8-line CEO system prompt with a full strategic framework: priority ladder (1=failing tests → 8=release prep), instruction quality bar (every directive must include file paths, commands, verification steps, and a changelog update), and guidance on when to return `[]` vs when to create work. Added `_collect_recent_git_context()` which feeds the last 10 commits and changed-file diff into every CEO assessment — the CEO now knows what changed since last cycle and can spot regressions or opportunities from code context, not just metric signals.
 - **`services/company_agency.py` — Signal-driven task instructions.** Rewrote all 6 `COMPANY_SCHEDULES` task instructions from generic calendar-based descriptions to concrete step-by-step agent instructions with explicit signal-driven rules: health scan only creates GitHub issues on state change (not on every run), security audit separates HIGH/CRITICAL (new issue) from MEDIUM/LOW (comment on existing), stack-change-detection only fires an issue on delta, quality scan tracks trend not just snapshot, trend-watch only creates issues for trends directly applicable to the company's detected stack, and graph-sync alerts when a specialist is stalled (inactive for >2× its scheduled interval).

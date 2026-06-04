@@ -32,7 +32,6 @@
 |------|----------|-------|-----------|
 | Create `SECURITY.md` | P1 | Docs Agent | DOC-001 |
 | Create `CONTRIBUTING.md` | P1 | Docs Agent | DOC-002 |
-| Create `SECURITY.md` | P1 | Docs Agent | DOC-001 |
 | Archive/remove `REVIEW_AND_FIXES.md` and `AGENCY_CORE_V5_PROGRESS.md` | P2 | Docs Agent | DOC-005 |
 | Remove `fix-pr271-remaining-bugs.patch` from root | P2 | Docs Agent | TD-013 |
 

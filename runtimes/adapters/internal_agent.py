@@ -269,15 +269,6 @@ class InternalAgentAdapter(RuntimeAdapter):
         )
 
         started = time.perf_counter()
-        # Set the orchestrator bypass flag so AgentRunner.run() doesn't block
-        # this legitimate caller.  InternalAgentAdapter is the execution layer
-        # for the WorkflowOrchestrator — it must call AgentRunner directly.
-        # Uses ContextVar so it's async-coroutine-safe (each task is isolated).
-        try:
-            from services import workflow_orchestrator as _wo
-            _bypass_token = _wo._BYPASS.set(True)
-        except Exception:
-            _bypass_token = None
 
         try:
             # Resolve model: prefer spec → Nvidia default → leave None (auto)
@@ -303,13 +294,6 @@ class InternalAgentAdapter(RuntimeAdapter):
         except Exception as exc:
             self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
             raise RuntimeExecutionError(self.RUNTIME_ID, str(exc), spec.task_id) from exc
-        finally:
-            if _bypass_token is not None:
-                try:
-                    from services import workflow_orchestrator as _wo
-                    _wo._BYPASS.reset(_bypass_token)
-                except Exception:
-                    pass
 
         # Collect every file that was actually written to disk across all steps.
         changed_files: list[str] = []

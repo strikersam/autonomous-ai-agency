@@ -2,8 +2,6 @@ from __future__ import annotations
 import os
 """tests/test_v4_reliability.py — Regression tests for v4 reliability claims.
 
-
-_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
 Ensures that the following already-claimed behaviors continue to work:
   C3 - Existing reliability regression tests
   C4 - Security regressions
@@ -12,6 +10,7 @@ Tests in this file must NOT break when workspace isolation or feature matrix
 code is added.  They prove the core system still works correctly.
 """
 
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
 
 import asyncio
 import time
