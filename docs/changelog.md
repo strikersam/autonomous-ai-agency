@@ -28,6 +28,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **`.github/workflows/` — Removed duplicate and irrelevant automations.** Deleted `deploy-pages.yml` (stale, targeted `agency-core-v5-hardening`/`main` branches and deployed the root directory — fully superseded by `deploy-frontend.yml`) and `pull-request.yml` (auto-created a PR on every push to every branch, causing PR spam). Reduced `enrich-quick-note-context.yml` schedule from every 15 minutes to every 4 hours. Fixed hardcoded `WikiAdmin2026!` password in `e2e.yml` (both SQLite and MongoDB jobs) — now uses `${{ secrets.CI_ADMIN_PASSWORD }}` with a safe non-secret default.
+
 ### Added
 - **`AGENTS.md` — Complete repository governance document** replacing the previous minimal stub. Now contains: full architecture overview, codebase map, coding standards, security requirements, testing requirements, documentation requirements, deployment process, release process, monitoring standards, bug triage process, PR review checklist, definition of done, autonomous maintenance rules, agent escalation rules, production safety rules, and subagent roles. This becomes the authoritative source of truth for all AI agents operating in this repository.
 - **`audit/` directory** — Complete repository audit with 8 documents: `architecture.md`, `security-analysis.md`, `dependency-analysis.md`, `performance-analysis.md`, `technical-debt.md`, `testing-analysis.md`, `documentation-analysis.md`, `production-readiness.md`. Each document identifies issues, estimates severity, and proposes fixes with priorities.
