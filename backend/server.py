@@ -6262,6 +6262,9 @@ async def workflow_orchestrator_execute(
     # Stamp the run with a stable, auth-method-agnostic owner id so it can be
     # scoped on list/get/approve.  Same resolver as the company endpoints.
     body.user_id = _wfo_resolve_user_id(user)
+    # Execution must act with the CALLER's GitHub permissions, never the
+    # server-wide service-account token.
+    body.github_token = user.get("github_repo_token")
     run = await orchestrator.execute(body)
     return {"status": run.status, "run": run.as_dict()}
 

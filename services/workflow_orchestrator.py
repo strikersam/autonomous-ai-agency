@@ -148,6 +148,10 @@ class ExecutionRequest(BaseModel):
     )
     max_steps: int = Field(default=30, ge=1, le=100)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # The CALLER's GitHub token, so workflow execution acts with the user's own
+    # repo permissions — not the server-wide service account. exclude=True keeps
+    # it out of every model_dump()/as_dict() so it never leaks in API output.
+    github_token: str | None = Field(default=None, exclude=True, repr=False)
 
 
 class ClassifyOutput(BaseModel):
@@ -816,10 +820,17 @@ class WorkflowOrchestrator:
             # Uses ContextVar for async/coroutine safety.
             _token = _wo._BYPASS.set(True)
             try:
+                # Use the caller's GitHub token so the workflow acts with the
+                # user's own repo permissions. Only fall back to the server-wide
+                # token for internal/system runs (no user_id) — never let a
+                # user-initiated run borrow the service account's repo access.
+                gh_token = req.github_token
+                if gh_token is None and req.user_id is None:
+                    gh_token = _os.environ.get("GH_TOKEN") or _os.environ.get("GITHUB_TOKEN")
                 runner = AgentRunner(
                     ollama_base=_os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
                     workspace_root=_os.getcwd(),
-                    github_token=_os.environ.get("GH_TOKEN") or _os.environ.get("GITHUB_TOKEN"),
+                    github_token=gh_token,
                     email=req.user_id,
                 )
                 result = await runner.run(
