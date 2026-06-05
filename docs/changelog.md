@@ -29,6 +29,8 @@
 ## [Unreleased]
 
 ### Fixed
+- **TaskBoardScreen create-task modal swallowed API errors with bare `console.error` — no user feedback.** Added `createError` state with an inline red error banner inside the modal (matching the existing error-styling pattern). Error is cleared on modal open, Cancel click, and at the start of each new create attempt to prevent stale error persistence. Error message now uses the `api.fmtErr?.()` fallback chain for readable messages.
+
 - **NVIDIA NIM double `/v1` URL causing task execution failures on production.** `agent/loop.py` line 911 hardcoded `f"{self.ollama_base}/v1/chat/completions"` — when `ollama_base` already contained `/v1` (from `runtimes/adapters/internal_agent.py` `_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"`), the result was `/v1/v1/chat/completions` (404). Fix: (1) `agent/loop.py` now uses `_openai_url()` from `provider_router` which handles the `/v1` suffix correctly; (2) `_NVIDIA_BASE_URL` no longer includes `/v1`; `_best_cloud_primary_base()` and `_nvidia_provider_chain()` normalise the URL; (3) `setup/api.py`, `webui/providers.py`, `render.yaml`, `.env.example` updated to use the correct default URL without `/v1`. `docker/agent_runtime.py` intentionally unchanged — its `_chat_with_openai_compat` appends `/chat/completions` directly (does not inject `/v1`), so the base must contain it.
 
 ### Added
