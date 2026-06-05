@@ -41,6 +41,16 @@
   not bypass). Bypass is an async-safe `ContextVar` set/reset per asyncio task. New
   regression tests in `tests/test_internal_agent_bypass.py`; `tests/test_workflow_orchestrator.py`
   updated (`Agency.run_cycle()` is now a sanctioned internal caller, not blocked).
+- **Free Kimi web-bridge provider + default-on specialist runtimes.** With no free
+  runtime/provider configured, every task hit "All runtimes failed and policy prevents
+  paid escalation" (the only Kimi path was the *paid* Moonshot API). New
+  `providers/kimi_bridge.py` registers a `kimi-web-bridge` provider classified **free**
+  (`_FREE_CLOUD_PROVIDER_IDS`) that reaches Kimi via an OpenAI-compatible bridge
+  endpoint (`KIMI_BRIDGE_URL`) without a paid key, so `internal_agent`/Hermes can
+  actually produce code; appended in `ProviderRouter.from_env()` and surfaced in the
+  Providers list. Hermes/Goose/Aider are now registered **by default** in
+  `runtimes/manager.py` (graceful unavailable-when-absent; `RUNTIME_EXTERNAL_DISABLED`
+  escape hatch). Tests in `tests/test_kimi_bridge_provider.py`.
 - Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
 - Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
 - `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)

@@ -2162,6 +2162,22 @@ async def seed_default_providers():
             "status": "configured" if MOONSHOT_API_KEY else "unconfigured",
         },
         {
+            "provider_id": "kimi-web-bridge",
+            "name": "Kimi Web Bridge (free, no API key)",
+            "type": "openai-compatible",
+            "base_url": os.environ.get("KIMI_BRIDGE_URL", "http://localhost:8011/v1"),
+            "api_key": os.environ.get("KIMI_BRIDGE_TOKEN", ""),
+            "default_model": os.environ.get("KIMI_BRIDGE_MODEL", "kimi-k2.6"),
+            "is_default": False,
+            # Free tier — preferred over paid escalation when enabled.
+            "priority": int(os.environ.get("KIMI_BRIDGE_PRIORITY", "5") or "5"),
+            "tier": "free_cloud",
+            "status": "configured"
+            if os.environ.get("KIMI_BRIDGE_ENABLED", "").strip().lower()
+            in {"true", "1", "yes"}
+            else "unconfigured",
+        },
+        {
             "provider_id": "anthropic-universal",
             "name": "Anthropic (Universal Key)",
             "type": "emergent-anthropic",
