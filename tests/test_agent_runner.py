@@ -668,7 +668,7 @@ def test_commit_step_handles_missing_git_gracefully(tmp_path: Path):
 
 # ── GitHubTools agent_initiated regression test ───────────────────────────────
 
-def test_agent_runner_github_tools_agent_initiated_is_true(tmp_path: Path):
+def test_agent_runner_github_tools_agent_initiated_is_true(tmp_path: Path) -> None:
     """Regression: AgentRunner must wire GitHubTools with agent_initiated=True."""
     root = tmp_path / "repo"
     root.mkdir()

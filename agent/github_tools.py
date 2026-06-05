@@ -483,7 +483,7 @@ class LocalWorkspace:
         # in .git/config is a security risk.
         await self._run("git", "remote", "set-url", "origin", self.clone_url)
         try:
-            rc, out, err = await self._run(
+            rc, _out, err = await self._run(
                 "git", "push", "--set-upstream", "origin", branch
             )
             if rc != 0:
