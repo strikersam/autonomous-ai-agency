@@ -270,6 +270,7 @@ function SkillsScreen() {
   const [filter,      setFilter]      = React.useState('all');
   const [search,      setSearch]      = React.useState('');
   const [tab,         setTab]         = React.useState('catalogue'); // 'catalogue' | 'recommended' | 'registry'
+  const userPickedTab = React.useRef(false); // becomes true once the user clicks a tab
   const [companyId,   setCompanyId]   = React.useState(null);
 
   // Resolve current company ID from the companies list.
@@ -295,16 +296,16 @@ function SkillsScreen() {
     const load = async () => {
       // Load recommended skills from company skill API
       try {
-        if (companyId) {
-          const { data } = await api.autoRecommendCompanySkills(companyId);
-          setRecommended(data.recommendations || []);
-          setTechStack(data.tech_stack || []);
-          setWfTypes(data.workflow_types || []);
-        } else {
-          const { data } = await api.autoRecommendCompanySkills();
-          setRecommended(data.recommendations || []);
-          setTechStack(data.tech_stack || []);
-        }
+        const { data } = companyId
+          ? await api.autoRecommendCompanySkills(companyId)
+          : await api.autoRecommendCompanySkills();
+        const recs = data.recommendations || [];
+        setRecommended(recs);
+        setTechStack(data.tech_stack || []);
+        if (data.workflow_types) setWfTypes(data.workflow_types);
+        // Domain-aware default: if we have real recommendations and the user hasn't
+        // manually chosen a tab, show them instead of the commerce demo catalogue.
+        if (!userPickedTab.current && recs.length > 0) setTab('recommended');
       } catch { /* non-critical */ }
       // Load registry skills from company skill API
       try {
@@ -371,6 +372,24 @@ function SkillsScreen() {
       {/* Honest preview notice — templates are illustrative; registry comes from the backend */}
       <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 }}>
         <strong style={{ color:'var(--accent)' }}>Catalogue Preview.</strong> The commerce skill templates below are <strong>demo illustrations</strong> — toggling is session-only. The <strong>Recommended</strong> and <strong>Registry</strong> tabs call live backend APIs (<code>/api/company/skills</code>) and reflect real specialist skill bindings.
+      </div>
+
+      {/* Tab switcher — without this the Recommended/Registry (live, domain-aware)
+          skills were unreachable and users only ever saw the commerce demo catalogue. */}
+      <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+        {[
+          { id:'recommended', label:'Recommended' },
+          { id:'registry', label:'Registry' },
+          { id:'catalogue', label:'Catalogue (demo)' },
+        ].map(t => (
+          <button key={t.id} onClick={()=>{ userPickedTab.current = true; setTab(t.id); }} style={{
+            padding:'6px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer',
+            fontFamily:'var(--font-mono)', letterSpacing:'0.04em',
+            background: tab===t.id ? 'rgba(93,162,255,0.14)' : 'rgba(255,255,255,0.04)',
+            border:`1px solid ${tab===t.id ? 'rgba(93,162,255,0.40)' : 'rgba(255,255,255,0.12)'}`,
+            color: tab===t.id ? '#fff' : 'var(--text-secondary)', transition:'all 0.15s',
+          }}>{t.label}</button>
+        ))}
       </div>
 
       {/* How it works visual */}

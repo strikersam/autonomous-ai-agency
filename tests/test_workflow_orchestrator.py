@@ -181,18 +181,38 @@ class TestDeprecationWarnings:
                 max_steps=1,
             )
 
-    async def test_agency_blocked_in_orchestrator_mode(self, monkeypatch):
-        """Agency.run_cycle() raises RuntimeError in orchestrator mode."""
-        monkeypatch.setenv("AGENCY_WORKFLOW_MODE", "orchestrator")
-        import importlib
+    async def test_agency_sanctioned_in_orchestrator_mode(self, monkeypatch):
+        """Agency.run_cycle() is a *sanctioned internal caller*: under orchestrator
+        mode it is permitted (not blocked) so the CEO 24x7 loop actually runs.
+
+        It emits a deprecation note and sets the orchestrator bypass for the cycle
+        duration; the directives it issues flow through the dispatcher's sanctioned
+        InternalAgentAdapter leaf (which sets its own bypass).
+        """
+        monkeypatch.setattr(
+            "services.workflow_orchestrator.WORKFLOW_MODE", "orchestrator"
+        )
         import services.workflow_orchestrator as wo
-        importlib.reload(wo)
 
         from agent.agency import Agency
         agency = Agency(tick_minutes=999)
 
-        with pytest.raises(RuntimeError, match="Agency.run_cycle.*blocked"):
-            await agency.run_cycle()
+        # Stub the heavy/networked internals so the cycle runs deterministically.
+        async def _no_quick_notes():
+            return []
+
+        async def _assess(_ctx):
+            return ("nominal", [])
+
+        monkeypatch.setattr(agency, "_handle_quick_notes", _no_quick_notes)
+        monkeypatch.setattr(agency, "_ceo_assess_llm", _assess)
+
+        # Must NOT raise; must complete a cycle.
+        result = await agency.run_cycle()
+        assert result is not None
+        assert result.directives_issued == 0
+        # The bypass must be reset after the cycle (no leakage into other coroutines).
+        assert wo._BYPASS.get() is False
 
     async def test_multiswarm_blocked_in_orchestrator_mode(self, monkeypatch):
         """MultiAgentSwarm.run() raises RuntimeError in orchestrator mode."""

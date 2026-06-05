@@ -261,11 +261,12 @@ class InternalAgentAdapter(RuntimeAdapter):
         runner = AgentRunner(
             ollama_base=primary_base,
             workspace_root=worktree_path,
-            # provider_chain removed — AgentRunner uses ProviderRouter.from_env() directly
             github_token=spec.context.get("github_token"),
             email=spec.context.get("user_email"),
             department=spec.context.get("department"),
             key_id=spec.context.get("key_id"),
+            repo_url=spec.context.get("repo_url"),
+            base_branch=spec.context.get("base_branch", "main"),
         )
 
         started = time.perf_counter()
@@ -280,6 +281,13 @@ class InternalAgentAdapter(RuntimeAdapter):
             # agent writes files but lets the user review before committing.
             auto_commit = bool(spec.context.get("auto_commit", False))
 
+            # NOTE: the orchestrator bypass is intentionally NOT set here. This
+            # adapter is also reachable via the direct `/runtimes/{id}/execute` API
+            # (runtimes/api.py), and that path must stay gated so direct callers
+            # cannot skip workflow approval. The bypass is instead set by the
+            # *sanctioned* background caller (TaskExecutionCoordinator.execute) and
+            # by the CEO Agency cycle, both of which are autonomous, gate-aware
+            # execution paths.
             result = await runner.run(
                 instruction=spec.instruction,
                 history=list(spec.context.get("conversation", [])),

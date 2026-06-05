@@ -188,6 +188,9 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "google-gemini-free",
     "cloudflare-ai",
     "opencode-zen",
+    # Kimi (Moonshot) reached via a no-API-key web bridge — classified FREE so the
+    # routing policy permits it without triggering paid-escalation refusal.
+    "kimi-web-bridge",
 }
 # Nvidia NIM is free-tier — treated as highest-priority free cloud provider
 _NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
@@ -676,6 +679,24 @@ class ProviderRouter:
                     or "claude-sonnet-4-5-20250929",
                     priority=60,
                 )
+            )
+
+        # ── Free Kimi (Moonshot) web bridge — no paid API key required ──
+        # Added near the end so it joins the chain whenever KIMI_BRIDGE_ENABLED is
+        # set. Classified free (see _FREE_CLOUD_PROVIDER_IDS) so the routing policy
+        # uses it before any paid escalation. This is what lets internal_agent /
+        # Hermes actually produce code without a paid provider.
+        try:
+            from providers.kimi_bridge import kimi_bridge_provider_config
+
+            _kimi_cfg = kimi_bridge_provider_config()
+            if _kimi_cfg is not None:
+                providers.append(_kimi_cfg)
+        except Exception as _kimi_err:  # pragma: no cover - defensive
+            import logging as _logging
+
+            _logging.getLogger("qwen-proxy").warning(
+                "Kimi bridge provider not added: %s", _kimi_err, exc_info=True
             )
 
         return cls(sorted(providers, key=provider_sort_key))

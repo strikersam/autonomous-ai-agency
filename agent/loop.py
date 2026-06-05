@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,8 @@ class AgentRunner:
         key_id: str | None = None,
         num_ctx: int | None = None,
         keep_alive: str | None = None,
+        repo_url: str | None = None,
+        base_branch: str = "main",
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -65,7 +68,10 @@ class AgentRunner:
         self.keep_alive = keep_alive
         self.tools = WorkspaceTools(workspace_root)
         from agent.github_tools import GitHubTools
-        self.github = GitHubTools(github_token)
+        # agent_initiated=True activates the autonomy gate for everything this agent
+        # does on GitHub: no commits/pushes to protected branches and no PR merges —
+        # the agent proposes via PR and a human merges.
+        self.github = GitHubTools(github_token, agent_initiated=True)
         self.ctx = ContextManager()
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
@@ -74,6 +80,9 @@ class AgentRunner:
         # MCP client — injected after construction when an MCP sidecar is
         # available.  None means fall back to local WorkspaceTools for all ops.
         self._mcp = None
+        # Repository context for auto-push + PR (Direct Chat / managed agents)
+        self.repo_url = repo_url
+        self.base_branch = base_branch
         # Legacy auth storage (prefer passing to run())
         self.email = email
         self.department = department
@@ -242,7 +251,23 @@ class AgentRunner:
                         "failure_phase": "judge",
                     }
 
-            summary = self._build_summary(plan.goal, step_results, commits)
+            # Push and open a PR when auto_commit produced local commits and we have
+            # a GitHub repo URL to target. Gated behind AGENT_AUTO_PR_ENABLED (default
+            # off) so this new agent-initiated GitHub write path is opt-in and has a
+            # rollout kill switch.
+            pr_url: str | None = None
+            if (
+                auto_commit
+                and commits
+                and self.repo_url
+                and os.environ.get("AGENT_AUTO_PR_ENABLED", "").strip().lower()
+                in {"true", "1", "yes"}
+            ):
+                pr_url = await self._auto_push_and_pr(
+                    commits, self._current_session_id, plan.goal
+                )
+
+            summary = self._build_summary(plan.goal, step_results, commits, pr_url)
             self._log_event(session_id, "assistant_message", {"summary": summary})
 
             # Update auth context if passed in run()
@@ -260,6 +285,7 @@ class AgentRunner:
                 "commits": commits,
                 "summary": summary,
                 "judge": judge,
+                "pr_url": pr_url,
             }
         finally:
             # Clear the ephemeral session marker to avoid accidental cross-session writes
@@ -1111,7 +1137,93 @@ class AgentRunner:
             max_steps=int(max_steps),
         )
 
-    def _build_summary(self, goal: str, step_results: list[dict[str, Any]], commits: list[str]) -> str:
+    async def _auto_push_and_pr(self, commits: list[str], session_id: str | None, goal: str = "") -> str | None:
+        """Push commits and open a PR on GitHub. Returns the PR URL or None.
+
+        Only activates when repo_url points to a GitHub repository and the
+        runner has a valid GitHub token.  Protected branches (main/master) are
+        never pushed to directly — we create a feature branch, push that, and
+        open a PR for the user to review.
+        """
+        if not self.repo_url or not self.github.token:
+            return None
+
+        import re as _re
+        from agent.github_tools import LocalWorkspace
+
+        # Accept dotted repo names (e.g. service.api), an optional .git suffix, and
+        # extra path/query segments after owner/repo.
+        match = _re.search(
+            r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/#?]+?)(?:\.git)?(?:[/?#]|$)",
+            self.repo_url,
+        )
+        if not match:
+            log.debug("repo_url %r does not match github.com pattern — skipping auto-PR", self.repo_url)
+            return None
+
+        owner, repo = match.group("owner"), match.group("repo")
+
+        try:
+            ws = LocalWorkspace(owner, repo, self.github.token)
+            # Force the workspace path to the runner's actual working directory
+            # (which may be a worktree or temp copy, not WORKSPACE_BASE_DIR).
+            ws.path = Path(self.tools.root)
+
+            if not ws.exists():
+                log.debug("Workspace %s is not a git repo — skipping auto-PR", self.tools.root)
+                return None
+
+            current_branch = await ws.current_branch()
+            base_branch = self.base_branch
+
+            # Never push directly to a protected branch OR to the PR base branch —
+            # opening a PR with head == base is rejected by GitHub. Isolate the agent's
+            # changes on a fresh feature branch in those cases.
+            if current_branch == base_branch or current_branch in ("main", "master"):
+                push_branch = f"agent/task-{uuid.uuid4().hex[:8]}"
+                await ws.create_branch(push_branch, current_branch)
+                self._log_event(session_id, "step_start", {"description": f"Created branch {push_branch}"})
+            else:
+                push_branch = current_branch
+
+            # Push with token-scrubbing (LocalWorkspace.push handles try/finally).
+            await ws.push(branch=push_branch, agent_initiated=True)
+            self._log_event(session_id, "step_start", {"description": f"Pushed branch {push_branch}"})
+
+            # Derive a meaningful PR title from the task goal or first commit.
+            pr_title = goal or (commits[0] if commits else "Agent auto-commit")
+            # Strip commit hash if goal wasn't available and we fell through.
+            if not goal and len(pr_title) == 40 and pr_title.isalnum():
+                pr_title = f"Agent changes ({pr_title[:7]})"
+            # Cap title length for GitHub (256 char limit, leave slack).
+            pr_title = pr_title[:200]
+
+            pr_body = "🤖 Automated PR created by AI Agent.\n\n### Commits\n" + "\n".join(
+                f"- `{c[:7]}`" for c in commits
+            )
+
+            pr_result = await self.github.open_pull_request(
+                owner=owner,
+                repo=repo,
+                title=pr_title,
+                head=push_branch,
+                base=base_branch,
+                body=pr_body,
+                agent_initiated=True,
+            )
+            pr_url = pr_result.get("html_url") or ""
+            self._log_event(session_id, "assistant_message", {
+                "summary": f"Opened PR: {pr_url}",
+                "pr_url": pr_url,
+            })
+            log.info("Auto-PR opened: %s", pr_url)
+            return pr_url
+
+        except Exception as exc:
+            log.warning("Auto-push/PR failed (non-fatal): %s", exc)
+            return None
+
+    def _build_summary(self, goal: str, step_results: list[dict[str, Any]], commits: list[str], pr_url: str | None = None) -> str:
         applied = sum(1 for step in step_results if step.get("status") == "applied")
         failed = [step for step in step_results if step.get("status") == "failed"]
         parts = [f"Goal: {goal}", f"Applied steps: {applied}/{len(step_results)}"]
@@ -1119,4 +1231,6 @@ class AgentRunner:
             parts.append(f"Failed steps: {len(failed)}")
         if commits:
             parts.append(f"Commits: {len(commits)}")
+        if pr_url:
+            parts.append(f"PR: {pr_url}")
         return " | ".join(parts)

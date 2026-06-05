@@ -84,6 +84,12 @@ log = logging.getLogger("llm-wiki")
 
 _ERROR_LOG_BUFFER: deque[dict[str, object]] = deque(maxlen=250)
 
+# Always-on in-memory activity feed. Mongo-backed activity_log is the durable
+# store, but it is silently skipped when no DB is available (e.g. SQLite / Render
+# without Mongo) — which is why the alerts bell always showed zero. log_activity()
+# now also writes here so business events surface regardless of the DB backend.
+_ACTIVITY_BUFFER: deque[dict[str, object]] = deque(maxlen=250)
+
 
 class _InMemoryErrorLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
@@ -1273,6 +1279,19 @@ async def lifespan(app_: "FastAPI"):
     )
     dispatcher_task = asyncio.create_task(dispatcher.run_forever())
     log.info("Task dispatcher started in background")
+
+    # Self-onboarding bootstrap: register the platform as its own company (linked to
+    # its GitHub repo) and hand the connect/verify work to the agency's own agents.
+    # Fire-and-forget so a missing DB or network never blocks/crashes startup.
+    try:
+        from services.self_bootstrap import ensure_self_company, self_bootstrap_enabled
+
+        if self_bootstrap_enabled():
+            asyncio.create_task(ensure_self_company())
+            log.info("Self-bootstrap scheduled (platform onboards itself as a company)")
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Self-bootstrap could not be scheduled: %s", exc)
+
     yield
     if dispatcher is not None:
         dispatcher.stop()
@@ -2162,6 +2181,25 @@ async def seed_default_providers():
             "status": "configured" if MOONSHOT_API_KEY else "unconfigured",
         },
         {
+            "provider_id": "kimi-web-bridge",
+            "name": "Kimi Web Bridge (free, no API key)",
+            "type": "openai-compatible",
+            "base_url": os.environ.get("KIMI_BRIDGE_URL", "http://localhost:8011/v1"),
+            "api_key": os.environ.get("KIMI_BRIDGE_TOKEN", "")
+            if os.environ.get("KIMI_BRIDGE_ENABLED", "").strip().lower()
+            in {"true", "1", "yes"}
+            else "",
+            "default_model": os.environ.get("KIMI_BRIDGE_MODEL", "kimi-k2.6"),
+            "is_default": False,
+            # Free tier — preferred over paid escalation when enabled.
+            "priority": int(os.environ.get("KIMI_BRIDGE_PRIORITY", "5") or "5"),
+            "tier": "free_cloud",
+            "status": "configured"
+            if os.environ.get("KIMI_BRIDGE_ENABLED", "").strip().lower()
+            in {"true", "1", "yes"}
+            else "unconfigured",
+        },
+        {
             "provider_id": "anthropic-universal",
             "name": "Anthropic (Universal Key)",
             "type": "emergent-anthropic",
@@ -2862,18 +2900,19 @@ async def _run_agent_loop(
 async def log_activity(
     category: str, message: str, user_id: str = None, meta: dict = None
 ):
+    entry = {
+        "category": category,
+        "message": message,
+        "user_id": user_id,
+        "meta": meta or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Always record to the in-memory feed so the alerts bell works even without a DB.
+    _ACTIVITY_BUFFER.appendleft(dict(entry))
     try:
-        await get_db().activity_log.insert_one(
-            {
-                "category": category,
-                "message": message,
-                "user_id": user_id,
-                "meta": meta or {},
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        await get_db().activity_log.insert_one(dict(entry))
     except Exception as exc:
-        log.debug("Activity log skipped (DB unavailable): %s", exc)
+        log.warning("Activity log DB write skipped (DB unavailable): %s", exc)
 
 
 # ─── Auth Endpoints ─────────────────────────────────────────────────────────────
@@ -4267,6 +4306,10 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
             logs.append(entry)
     except Exception as exc:
         log.debug("Activity query unavailable: %s", exc)
+    # Merge the always-on in-memory feeds so alerts work without a DB and reflect
+    # recent business events (task failures, quick-notes, onboarding, etc.).
+    if _ACTIVITY_BUFFER:
+        logs.extend(list(_ACTIVITY_BUFFER)[:limit])
     if _ERROR_LOG_BUFFER:
         logs.extend(list(_ERROR_LOG_BUFFER)[:limit])
     logs.sort(
@@ -4275,7 +4318,21 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
         ),
         reverse=True,
     )
-    logs = logs[:limit]
+    # De-duplicate entries that exist in both Mongo and the in-memory buffer
+    # (same event written to both by log_activity).
+    deduped: list = []
+    seen: set = set()
+    for entry in logs:
+        key = (
+            str(entry.get("created_at") or entry.get("timestamp") or ""),
+            str(entry.get("message") or ""),
+            str(entry.get("category") or entry.get("level") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(entry)
+    logs = deduped[:limit]
     return {"logs": logs, "events": logs, "activity": logs}
 
 
@@ -4581,7 +4638,7 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
 try:
     from agent.skill_registry import SkillRegistry as _SkillRegistry, set_skill_registry
     _SKILL_REGISTRY = _SkillRegistry(
-        github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_ACCESS_TOKEN")
+        github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_ACCESS_TOKEN")
     )
     set_skill_registry(_SKILL_REGISTRY)
 except Exception as _sr_err:
@@ -5241,13 +5298,54 @@ async def quick_notes_submit(
     url = body.url.strip()
     instruction = body.instruction.strip()
 
-    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN", "")
     gh_repo = os.environ.get("GITHUB_REPOSITORY", "")
 
     title = f"quick-note: {url[:80]}" if url else f"quick-note: {instruction[:80]}"
     issue_body = url
     if instruction:
         issue_body += f"\nTask: {instruction}"
+
+    # Always turn the quick-note into a real Task so the agency actually picks it up.
+    # Previously notes were only filed as a GitHub issue or parked in a local queue
+    # processed by a `claude` CLI that isn't present in production — so they "stayed
+    # there forever". Creating a Task routes the note through the working dispatcher →
+    # agents (which propose a PR), which is what the operator actually wants.
+    quick_note_task_id = None
+    try:
+        from tasks.service import TaskWorkflowService
+        from tasks.models import Task as _QNTask
+
+        owner_id = str(
+            user.get("_id") or user.get("id") or user.get("sub")
+            or user.get("email") or "system"
+        )
+        note_instruction = instruction or (
+            f"Review this resource and take any useful action for the company/repo, "
+            f"then open a PR with your proposal: {url}" if url else ""
+        )
+        if note_instruction:
+            _qn_wf = TaskWorkflowService(store=get_task_store())
+            _qn_task = _QNTask(
+                owner_id=owner_id,
+                title=title[:512],
+                description=issue_body[:32000],
+                prompt=note_instruction[:32000],
+                task_type="quick_note",
+                tags=["quick-note"],
+                source="quick-note",
+            )
+            await _qn_wf.create_task(_qn_task, actor=f"user:{owner_id}")
+            quick_note_task_id = _qn_task.task_id
+            log.info("Quick-note converted to task %s", quick_note_task_id)
+            await log_activity(
+                "quick_note",
+                f"Quick-note queued for the agency as task {quick_note_task_id}: {title[:80]}",
+                user_id=owner_id,
+                meta={"task_id": quick_note_task_id},
+            )
+    except Exception:
+        log.exception("Quick-note → task conversion failed")
 
     if gh_token and gh_repo and url:
         try:
@@ -5267,6 +5365,7 @@ async def quick_notes_submit(
                     "channel": "github",
                     "issue_number": issue_data["number"],
                     "issue_url": issue_data.get("html_url", ""),
+                    "task_id": quick_note_task_id,
                 }
             log.warning("Quick-note GitHub issue creation failed (%d)", resp.status_code)
         except Exception:
@@ -5274,8 +5373,18 @@ async def quick_notes_submit(
 
     if _QUICK_NOTE_QUEUE is not None:
         note = _QUICK_NOTE_QUEUE.add(url or instruction)
-        return {"status": "queued", "channel": "local", "note_id": note.note_id}
-    return {"status": "queued", "channel": "local", "note_id": None}
+        return {
+            "status": "queued",
+            "channel": "local",
+            "note_id": note.note_id,
+            "task_id": quick_note_task_id,
+        }
+    return {
+        "status": "queued",
+        "channel": "local",
+        "note_id": None,
+        "task_id": quick_note_task_id,
+    }
 
 
 @app.get("/v1/quick-notes")
@@ -5948,6 +6057,7 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
 
     github_token = (
         (user or {}).get("github_repo_token")
+        or os.environ.get("GH_PAT") 
         or os.environ.get("GH_TOKEN")
         or os.environ.get("GITHUB_TOKEN")
     )
@@ -6280,6 +6390,64 @@ async def get_doctor_diagnostics(
             label="Skill Library",
             status="warn",
             detail="Skill library unavailable",
+        ))
+
+    # 4b. Skill registry ("skills repos") connectivity — this is what the operator
+    # means by "skills repo connected": the GitHub-backed SkillRegistry that pulls
+    # skills from the configured registries (anthropics/skills, this repo, etc.).
+    try:
+        from agent.skill_registry import (
+            GITHUB_REGISTRIES,
+            get_skill_registry_safe,
+        )
+
+        registry = get_skill_registry_safe()
+        if registry is None:
+            checks.append(_DoctorCheck(
+                id="skill_registry",
+                category="Skills",
+                label="Skills Repos",
+                status="fail",
+                detail="Skill registry not initialised — skills repos are not connected.",
+                explanation="Set GITHUB_TOKEN so the server can fetch the configured "
+                "skill registries, then restart. Local .claude/skills still load without it.",
+            ))
+        else:
+            all_skills = registry.list()
+            local_n = sum(1 for s in all_skills if s.source == "local")
+            remote_sources = {
+                s.source for s in all_skills if s.source.startswith("github:")
+            }
+            n_registries = len(GITHUB_REGISTRIES)
+            if remote_sources:
+                checks.append(_DoctorCheck(
+                    id="skill_registry",
+                    category="Skills",
+                    label="Skills Repos",
+                    status="pass",
+                    detail=f"Connected: {len(remote_sources)}/{n_registries} skill "
+                    f"repos, {len(all_skills)} skills ({local_n} local).",
+                ))
+            else:
+                checks.append(_DoctorCheck(
+                    id="skill_registry",
+                    category="Skills",
+                    label="Skills Repos",
+                    status="warn",
+                    detail=f"{local_n} local skills loaded; {n_registries} remote skill "
+                    "repos configured but none fetched yet.",
+                    explanation="Remote skill repos load asynchronously and need network "
+                    "(and GITHUB_TOKEN to avoid rate limits). They will appear after the "
+                    "first refresh.",
+                ))
+    except Exception as exc:
+        log.exception("Skill registry check failed")
+        checks.append(_DoctorCheck(
+            id="skill_registry",
+            category="Skills",
+            label="Skills Repos",
+            status="warn",
+            detail="Skill registry check failed",
         ))
 
     # 5. Workflow orchestrator status

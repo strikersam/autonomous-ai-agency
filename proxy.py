@@ -336,7 +336,7 @@ class ProviderRouter:
 PROVIDER_ROUTER = ProviderRouter()
 AGENT_SESSIONS = AgentSessionStore()
 USER_MEMORY = UserMemoryStore()
-_GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or None
+_GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or None
 AGENT_RUNNER = AgentRunner(
     ollama_base=OLLAMA_BASE,
     workspace_root=Path(__file__).resolve().parent,
@@ -1513,7 +1513,7 @@ async def quick_notes_submit(
     instruction = body.instruction.strip()
 
     # Try GitHub issue creation first (process-quick-note workflow picks these up)
-    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN", "")
     gh_repo = os.environ.get("GITHUB_REPOSITORY", "")
 
     title = f"quick-note: {url[:80]}"
@@ -1566,7 +1566,7 @@ async def quick_notes_submit(
         "channel": "local",
         "note_id": note.note_id,
         "hint": (
-            "GitHub not configured — set GH_TOKEN to enable the full "
+            "GitHub not configured — set GH_TOKEN / GH_PAT to enable the full "
             "implement→PR→review→merge pipeline."
         ),
     }
