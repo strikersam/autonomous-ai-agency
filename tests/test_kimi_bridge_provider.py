@@ -18,13 +18,13 @@ from providers.kimi_bridge import (
 )
 
 
-def test_disabled_by_default(monkeypatch):
+def test_disabled_by_default(monkeypatch) -> None:
     monkeypatch.delenv("KIMI_BRIDGE_ENABLED", raising=False)
     assert kimi_bridge_provider_config() is None
     assert kimi_bridge_status()["enabled"] is False
 
 
-def test_enabled_returns_free_classified_config(monkeypatch):
+def test_enabled_returns_free_classified_config(monkeypatch) -> None:
     monkeypatch.setenv("KIMI_BRIDGE_ENABLED", "true")
     monkeypatch.setenv("KIMI_BRIDGE_URL", "http://bridge.local:9000/v1")
     cfg = kimi_bridge_provider_config()
@@ -36,7 +36,7 @@ def test_enabled_returns_free_classified_config(monkeypatch):
     assert provider_access_tier(cfg) == "free_cloud"
 
 
-def test_browser_mode_requires_ack(monkeypatch):
+def test_browser_mode_requires_ack(monkeypatch) -> None:
     monkeypatch.setenv("KIMI_BRIDGE_ENABLED", "true")
     monkeypatch.setenv("KIMI_BRIDGE_MODE", "browser")
     monkeypatch.delenv("KIMI_BRIDGE_BROWSER", raising=False)
@@ -47,7 +47,7 @@ def test_browser_mode_requires_ack(monkeypatch):
     assert kimi_bridge_provider_config() is not None
 
 
-def test_present_in_from_env_when_enabled(monkeypatch):
+def test_present_in_from_env_when_enabled(monkeypatch) -> None:
     monkeypatch.setenv("KIMI_BRIDGE_ENABLED", "true")
     monkeypatch.delenv("KIMI_BRIDGE_MODE", raising=False)
     router = ProviderRouter.from_env()
@@ -55,7 +55,7 @@ def test_present_in_from_env_when_enabled(monkeypatch):
     assert KIMI_BRIDGE_PROVIDER_ID in ids
 
 
-def test_absent_in_from_env_when_disabled(monkeypatch):
+def test_absent_in_from_env_when_disabled(monkeypatch) -> None:
     monkeypatch.delenv("KIMI_BRIDGE_ENABLED", raising=False)
     router = ProviderRouter.from_env()
     ids = [p.provider_id for p in router.providers]

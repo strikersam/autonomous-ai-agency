@@ -663,3 +663,19 @@ def test_commit_step_handles_missing_git_gracefully(tmp_path: Path):
         result = runner._commit_step("test step", ["notes.txt"])
 
     assert result is None
+
+
+# ── GitHubTools agent_initiated regression test ───────────────────────────────
+
+def test_agent_runner_github_tools_agent_initiated_is_true(tmp_path: Path):
+    """Regression: AgentRunner must wire GitHubTools with agent_initiated=True."""
+    root = tmp_path / "repo"
+    root.mkdir()
+
+    runner = AgentRunner(
+        ollama_base="http://localhost:11434",
+        workspace_root=root,
+        github_token="test-token-123",
+    )
+
+    assert runner.github.agent_initiated is True

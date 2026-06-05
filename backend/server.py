@@ -2185,7 +2185,10 @@ async def seed_default_providers():
             "name": "Kimi Web Bridge (free, no API key)",
             "type": "openai-compatible",
             "base_url": os.environ.get("KIMI_BRIDGE_URL", "http://localhost:8011/v1"),
-            "api_key": os.environ.get("KIMI_BRIDGE_TOKEN", ""),
+            "api_key": os.environ.get("KIMI_BRIDGE_TOKEN", "")
+            if os.environ.get("KIMI_BRIDGE_ENABLED", "").strip().lower()
+            in {"true", "1", "yes"}
+            else "",
             "default_model": os.environ.get("KIMI_BRIDGE_MODEL", "kimi-k2.6"),
             "is_default": False,
             # Free tier — preferred over paid escalation when enabled.
@@ -2909,7 +2912,7 @@ async def log_activity(
     try:
         await get_db().activity_log.insert_one(dict(entry))
     except Exception as exc:
-        log.debug("Activity log DB write skipped (DB unavailable): %s", exc)
+        log.warning("Activity log DB write skipped (DB unavailable): %s", exc)
 
 
 # ─── Auth Endpoints ─────────────────────────────────────────────────────────────
@@ -6437,12 +6440,13 @@ async def get_doctor_diagnostics(
                     "first refresh.",
                 ))
     except Exception as exc:
+        log.exception("Skill registry check failed")
         checks.append(_DoctorCheck(
             id="skill_registry",
             category="Skills",
             label="Skills Repos",
             status="warn",
-            detail=f"Skill registry check failed: {exc}",
+            detail="Skill registry check failed",
         ))
 
     # 5. Workflow orchestrator status

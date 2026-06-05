@@ -257,70 +257,67 @@ class Agency:
         # InternalAgentAdapter (the golden-path EXECUTE leaf, which sets its own
         # bypass in its own asyncio context). We therefore permit the cycle under the
         # default AGENCY_WORKFLOW_MODE=orchestrator instead of forcing the global
-        # flag to "legacy". The bypass is set for the duration of the cycle (and
-        # reset in `finally`) so any future inline runner call is also unblocked.
+        # flag to "legacy". No bypass is needed at the cycle level since all inline
+        # execution happens in InternalAgentAdapter which sets its own localized bypass.
         import services.workflow_orchestrator as _wo
 
         if not _wo.is_legacy_mode():
             _wo.emit_deprecation("Agency.run_cycle() [sanctioned 24x7 internal cycle]")
-        _bypass_token = _wo._BYPASS.set(True)
-        try:
-            cycle_id = "cycle_" + secrets.token_hex(4)
-            started_at = _now_str()
-            self._cycle_count += 1
-            log.info("Agency cycle %s starting (count=%d)", cycle_id, self._cycle_count)
 
-            # Quick-note maintenance: close exhausted issues, dispatch pending ones to Dev
-            qn_directives = await self._handle_quick_notes()
+        cycle_id = "cycle_" + secrets.token_hex(4)
+        started_at = _now_str()
+        self._cycle_count += 1
+        log.info("Agency cycle %s starting (count=%d)", cycle_id, self._cycle_count)
 
-            state_context = self._build_state_context()
-            state_context["quick_notes"] = self._last_quick_notes
+        # Quick-note maintenance: close exhausted issues, dispatch pending ones to Dev
+        qn_directives = await self._handle_quick_notes()
 
-            # CEO assessment — try LLM first, fall back to rule-based
-            assessment, ceo_directives = await self._ceo_assess_llm(state_context)
+        state_context = self._build_state_context()
+        state_context["quick_notes"] = self._last_quick_notes
 
-            # De-duplicate: skip directives whose title is already in a recent
-            # "running" or "pending" directive to prevent the CEO from re-issuing
-            # the same work repeatedly before the previous run finishes.
-            recent_titles: set[str] = {
-                d.title for d in self._directives[-50:]
-                if d.status in {"pending", "running"}
-            }
-            deduped: list[AgentDirective] = []
-            for directive in (qn_directives + ceo_directives):
-                if directive.title in recent_titles:
-                    log.debug(
-                        "Agency: skipping duplicate directive '%s' (already pending/running)",
-                        directive.title,
-                    )
-                else:
-                    deduped.append(directive)
-                    recent_titles.add(directive.title)
+        # CEO assessment — try LLM first, fall back to rule-based
+        assessment, ceo_directives = await self._ceo_assess_llm(state_context)
 
-            directives = deduped
-            for directive in directives:
-                self._directives.append(directive)
-                self._dispatch_directive(directive)
+        # De-duplicate: skip directives whose title is already in a recent
+        # "running" or "pending" directive to prevent the CEO from re-issuing
+        # the same work repeatedly before the previous run finishes.
+        recent_titles: set[str] = {
+            d.title for d in self._directives[-50:]
+            if d.status in {"pending", "running"}
+        }
+        deduped: list[AgentDirective] = []
+        for directive in (qn_directives + ceo_directives):
+            if directive.title in recent_titles:
+                log.debug(
+                    "Agency: skipping duplicate directive '%s' (already pending/running)",
+                    directive.title,
+                )
+            else:
+                deduped.append(directive)
+                recent_titles.add(directive.title)
 
-            if len(self._directives) > 200:
-                self._directives = self._directives[-200:]
+        directives = deduped
+        for directive in directives:
+            self._directives.append(directive)
+            self._dispatch_directive(directive)
 
-            result = AgencyCycleResult(
-                cycle_id=cycle_id,
-                started_at=started_at,
-                directives_issued=len(directives),
-                directives=[d.as_dict() for d in directives],
-                improvement_issues_seen=self._issue_count(),
-                ceo_assessment=assessment,
-            )
-            self._history.append(result)
-            if len(self._history) > 50:
-                self._history = self._history[-50:]
+        if len(self._directives) > 200:
+            self._directives = self._directives[-200:]
 
-            log.info("Agency cycle %s done — %d directive(s)", cycle_id, len(directives))
-            return result
-        finally:
-            _wo._BYPASS.reset(_bypass_token)
+        result = AgencyCycleResult(
+            cycle_id=cycle_id,
+            started_at=started_at,
+            directives_issued=len(directives),
+            directives=[d.as_dict() for d in directives],
+            improvement_issues_seen=self._issue_count(),
+            ceo_assessment=assessment,
+        )
+        self._history.append(result)
+        if len(self._history) > 50:
+            self._history = self._history[-50:]
+
+        log.info("Agency cycle %s done — %d directive(s)", cycle_id, len(directives))
+        return result
 
     # ── Quick-note GitHub issue maintenance ──────────────────────────────────
 

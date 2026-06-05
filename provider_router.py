@@ -695,8 +695,8 @@ class ProviderRouter:
         except Exception as _kimi_err:  # pragma: no cover - defensive
             import logging as _logging
 
-            _logging.getLogger("qwen-proxy").debug(
-                "Kimi bridge provider not added: %s", _kimi_err
+            _logging.getLogger("qwen-proxy").warning(
+                "Kimi bridge provider not added: %s", _kimi_err, exc_info=True
             )
 
         return cls(sorted(providers, key=provider_sort_key))

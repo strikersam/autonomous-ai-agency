@@ -204,4 +204,4 @@ class FollowUpRequest(BaseModel):
     """A follow-up instruction that re-opens and re-queues a task with new guidance."""
 
     message: str = Field(..., min_length=1, max_length=10_000)
-    model_preference: str | None = Field(default=None, max_length=128)
+    model_preference: str | None = Field(default=None, max_length=200)
