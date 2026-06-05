@@ -25,6 +25,7 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Literal, Optional
 
@@ -34,8 +35,7 @@ from pydantic import BaseModel, Field
 
 from .browser_driver import KimiBrowserDriver
 
-log = logging.getLogger("kimi-bridge")
-logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("qwen-proxy")
 
 _driver: Optional[KimiBrowserDriver] = None
 
@@ -47,7 +47,7 @@ _DEFAULT_MODEL = os.environ.get("KIMI_BRIDGE_MODEL", "kimi-k2.6").strip() or "ki
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _driver
     _driver = KimiBrowserDriver()
     await _driver.start()
@@ -75,11 +75,10 @@ def _verify_token(request: Request) -> None:
     request through — this is only acceptable during local development.
     """
     if not _BRIDGE_TOKEN:
-        log.warning(
-            "KIMI_BRIDGE_TOKEN is not set — bearer auth is disabled. "
-            "This is insecure in production."
+        raise HTTPException(
+            status_code=503,
+            detail="Kimi bridge: KIMI_BRIDGE_TOKEN not configured",
         )
-        return
 
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
@@ -159,13 +158,14 @@ async def chat_completions(request: Request, body: ChatCompletionRequest) -> JSO
         reply_text = await _driver.ask(messages)
     except Exception as exc:
         log.exception("Browser driver ask() failed: %s", exc)
-        raise HTTPException(status_code=502, detail=f"Kimi bridge error: {exc}") from exc
+        raise HTTPException(status_code=502, detail="Kimi bridge upstream failure") from exc
 
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
     # Best-effort token count (rough approximation: 1 token ≈ 4 chars)
     prompt_chars = sum(len(m.get("content", "")) for m in messages)
-    completion_chars = len(reply_text)
+    prompt_tokens = max(1, prompt_chars // 4)
+    completion_tokens = max(1, len(reply_text) // 4)
 
     return JSONResponse(
         {
@@ -181,9 +181,9 @@ async def chat_completions(request: Request, body: ChatCompletionRequest) -> JSO
                 }
             ],
             "usage": {
-                "prompt_tokens": max(1, prompt_chars // 4),
-                "completion_tokens": max(1, completion_chars // 4),
-                "total_tokens": max(1, (prompt_chars + completion_chars) // 4),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
             },
         }
     )

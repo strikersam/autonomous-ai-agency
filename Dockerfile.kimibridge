@@ -4,7 +4,10 @@ WORKDIR /app
 
 # Copy just what the bridge needs
 COPY requirements.txt ./
-RUN pip install --no-cache-dir fastapi uvicorn playwright && \
+RUN pip install --no-cache-dir \
+    "fastapi==0.115.6" \
+    "uvicorn==0.32.1" \
+    "playwright==1.49.0" && \
     python -m playwright install chromium --with-deps
 
 COPY services/kimi_bridge_server ./services/kimi_bridge_server
@@ -13,6 +16,9 @@ COPY providers/kimi_bridge.py ./providers/kimi_bridge.py
 # Persistent browser profile is mounted at runtime via -v
 ENV PLAYWRIGHT_USER_DATA_DIR=/kimi_profile
 ENV KIMI_BRIDGE_HEADLESS=true
+
+RUN mkdir -p /kimi_profile && chown -R pwuser:pwuser /app /kimi_profile
+USER pwuser
 
 EXPOSE 8011
 

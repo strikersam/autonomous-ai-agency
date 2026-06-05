@@ -46,7 +46,7 @@ KIMI_BRIDGE_TOKEN=$KIMI_BRIDGE_TOKEN \
 
 Set these environment variables on the **main backend** service:
 
-```
+```bash
 KIMI_BRIDGE_ENABLED=true
 KIMI_BRIDGE_URL=http://kimibridge:8011/v1
 KIMI_BRIDGE_TOKEN=<same token>

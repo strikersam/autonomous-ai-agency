@@ -20,13 +20,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from playwright.async_api import BrowserContext, Page
 
-log = logging.getLogger("kimi-bridge")
+log = logging.getLogger("qwen-proxy")
 
 _DEFAULT_USER_DATA_DIR = str(Path.home() / ".kimi_bridge_profile")
 _KIMI_URL = "https://kimi.moonshot.cn"
@@ -109,7 +110,8 @@ class KimiBrowserDriver:
 
     async def _submit_prompt(self, prompt: str) -> str:
         page = self._page
-        assert page is not None
+        if page is None:
+            raise RuntimeError("KimiBrowserDriver._page is None; call start() first")
 
         try:
             await page.goto(_KIMI_URL, wait_until="domcontentloaded", timeout=30_000)
@@ -153,8 +155,6 @@ def _messages_to_prompt(messages: list[dict]) -> str:
 
 async def _wait_for_reply(page: "Page", timeout: float = 120.0) -> str:
     """Poll the page until the streaming response is complete, then return its text."""
-    import time
-
     deadline = time.monotonic() + timeout
     last_text = ""
     stable_count = 0
@@ -197,4 +197,4 @@ if __name__ == "__main__":
         driver = KimiBrowserDriver()
         asyncio.run(driver.login())
     else:
-        print("Usage: python -m services.kimi_bridge_server.browser_driver --login")
+        log.error("Usage: python -m services.kimi_bridge_server.browser_driver --login")
