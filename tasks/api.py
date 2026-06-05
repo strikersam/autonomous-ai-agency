@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from tasks.models import (
     ApprovalRequest,
     CommentAddRequest,
+    FollowUpRequest,
     Task,
     TaskCreateRequest,
     TaskPriority,
@@ -264,6 +265,36 @@ async def retry_task(task_id: str, request: Request, user: Any = Depends(_curren
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
     return {"task": task.as_dict()}
+
+
+@task_router.post("/{task_id}/follow-up")
+async def follow_up_task(
+    task_id: str,
+    body: FollowUpRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: Any = Depends(_current_user),
+) -> dict[str, Any]:
+    """Give a task new guidance and re-run it, carrying the conversation forward.
+
+    This is the missing 'rerun / give follow-up command' capability: the message is
+    appended to the task thread and the task is re-opened and re-queued (the
+    dispatcher picks it up; we also kick an immediate background run).
+    """
+    task, store, actor = await _load_task(request, task_id, user)
+    workflow = _get_workflow(request)
+    try:
+        workflow.follow_up(
+            task,
+            actor=actor,
+            message=body.message,
+            model_preference=body.model_preference,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await store.update(task)
+    _queue_task_execution(background_tasks, request, task.task_id)
+    return {"task": task.as_dict(), "queued": True}
 
 
 @task_router.post("/{task_id}/escalate")

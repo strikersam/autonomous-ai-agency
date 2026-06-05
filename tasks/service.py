@@ -254,6 +254,49 @@ class TaskWorkflowService:
         task.error_message = None
         return task
 
+    def follow_up(
+        self,
+        task: Task,
+        *,
+        actor: str,
+        message: str,
+        model_preference: str | None = None,
+    ) -> Task:
+        """Add a follow-up instruction to a task and re-queue it for execution.
+
+        Unlike :meth:`retry` (which simply re-runs the same task), ``follow_up``
+        lets a human (or the CEO) give *new* guidance. The message is appended as a
+        comment so it carries into the agent's conversation/instruction context
+        (see ``_build_spec``'s ``conversation`` key), then the task is re-opened and
+        re-queued. Works from any non-active state (done/failed/blocked/in_review)
+        and from in_progress (which just re-arms the pending run).
+        """
+        if not message or not message.strip():
+            raise ValueError("Follow-up message must not be empty")
+
+        # Append the new instruction as a comment first — this becomes part of the
+        # conversation history handed to the runtime on the next run.
+        self.add_comment(task, author=actor, body=message)
+
+        if model_preference:
+            task.model_preference = model_preference
+
+        # add_comment already re-queues IN_REVIEW tasks for non-agent authors; for
+        # other states, re-open and queue explicitly.
+        if not task.pending_agent_run:
+            if task.status is TaskStatus.IN_PROGRESS:
+                task.pending_agent_run = True
+            else:
+                self.transition(
+                    task,
+                    TaskStatus.IN_PROGRESS,
+                    actor=actor,
+                    message=f"Follow-up requested by {actor}",
+                    pending_agent_run=True,
+                )
+        task.error_message = None
+        return task
+
     def escalate(self, task: Task, *, actor: str, reason: str | None = None) -> Task:
         task.escalation_count += 1
         task.escalation_reason = reason or task.escalation_reason
@@ -610,6 +653,19 @@ class TaskExecutionCoordinator:
                 },
                 "comments": [comment.model_dump() for comment in task.comments[-20:]],
                 "history": [entry.model_dump() for entry in task.execution_log[-20:]],
+                # Structured conversation history for the runtime's AgentRunner
+                # (it reads context["conversation"]). This is what carries follow-up
+                # instructions and prior agent replies across re-runs — without it,
+                # a re-queued task would lose the thread.
+                "conversation": [
+                    {
+                        "role": "assistant"
+                        if comment.author.startswith(("agent:", "runtime:"))
+                        else "user",
+                        "content": comment.body,
+                    }
+                    for comment in task.comments[-20:]
+                ],
             },
         )
 

@@ -51,6 +51,13 @@
   Providers list. Hermes/Goose/Aider are now registered **by default** in
   `runtimes/manager.py` (graceful unavailable-when-absent; `RUNTIME_EXTERNAL_DISABLED`
   escape hatch). Tests in `tests/test_kimi_bridge_provider.py`.
+- **Task follow-up / rerun with conversation carry-over.** There was no way to give a
+  task new guidance and re-run it. New `TaskWorkflowService.follow_up()` +
+  `POST /api/tasks/{id}/follow-up` append the message to the thread and re-open/re-queue
+  the task (works from done/failed/blocked/in_review). `_build_spec` now also exposes the
+  thread as `context["conversation"]` — the key the runtime's AgentRunner actually reads —
+  so follow-up instructions and prior agent replies survive across re-runs. Tests in
+  `tests/test_task_follow_up.py`.
 - Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
 - Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
 - `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)
