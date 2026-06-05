@@ -146,6 +146,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
         run: |
+          # Copy the context script to /tmp BEFORE any git branch switches.
+          # git checkout master removes generate_context.py (it only lives on
+          # the feature branch), so we need a stable path for the whole loop.
+          cp .github/scripts/generate_context.py /tmp/generate_context.py
+          export REPO_ROOT_PATH="$(pwd)"
+
           python3 - <<'PYEOF'
           import json, os, subprocess, sys, time
           from pathlib import Path
@@ -153,6 +159,7 @@ jobs:
           issues = json.load(open('/tmp/eligible_issues.json'))
           repo = os.environ['REPO']
           gh_token = os.environ['GH_TOKEN']
+          repo_root = os.environ.get('REPO_ROOT_PATH', os.getcwd())
           results = []
 
           def run(cmd, **kw):
@@ -170,15 +177,18 @@ jobs:
               print(f"{'='*60}")
 
               # ── Generate context ──────────────────────────────────────────
+              # Use /tmp copy of script so it survives git branch switches,
+              # and pass REPO_ROOT so CLAUDE.md / graphify paths still resolve.
               env = dict(os.environ)
               env.update({
                   'ISSUE_NUMBER': num,
                   'ISSUE_TITLE': title,
                   'ISSUE_BODY': body[:4000],
                   'ISSUE_LABELS': labels,
+                  'REPO_ROOT': repo_root,
               })
               r = subprocess.run(
-                  ['python3', '.github/scripts/generate_context.py', num],
+                  ['python3', '/tmp/generate_context.py', num],
                   env=env, text=True, capture_output=False, timeout=120
               )
               if r.returncode != 0 or not Path('/tmp/context_result.json').exists():
@@ -193,7 +203,8 @@ jobs:
 
               # ── Create branch ─────────────────────────────────────────────
               run(['git', 'push', 'origin', '--delete', branch], check=False)
-              # Reset to master for each issue
+              # Return to master for a clean base, then create the context branch.
+              # generate_context.py is safely in /tmp so branch switch is fine.
               run(['git', 'checkout', 'master'])
               run(['git', 'checkout', '-b', branch])
 
