@@ -1233,6 +1233,41 @@ If no clear tasks emerge from the answers, return an empty array []"""
                 "task_type": "remediation",
             })
 
+    # Persist the user's stated priorities onto the company so the company page
+    # surfaces them (previously onboarding answers were turned into tasks and the
+    # priorities tab stayed empty forever). Derive priorities from the KPI/metrics
+    # answers the user selected plus their stated pain point.
+    try:
+        derived_priorities: list[str] = []
+        for key in ("priorities", "goals", "kpis", "outcomes", "metrics"):
+            val = request.answers.get(key)
+            if isinstance(val, list):
+                derived_priorities.extend(str(v).strip() for v in val if str(v).strip())
+            elif isinstance(val, str) and val.strip():
+                derived_priorities.extend(p.strip() for p in val.split(",") if p.strip())
+        if pain_answer and pain_answer.strip():
+            derived_priorities.append(f"Resolve: {pain_answer.strip()[:120]}")
+        # De-duplicate, preserve order, cap at 10.
+        seen_p: set[str] = set()
+        unique_priorities = [
+            p for p in derived_priorities
+            if not (p in seen_p or seen_p.add(p))
+        ][:10]
+        if unique_priorities:
+            store_cg = get_company_graph_store()
+            existing = list(getattr(company, "priorities", []) or [])
+            merged = existing + [p for p in unique_priorities if p not in existing]
+            updated_company = company.model_copy(update={"priorities": merged[:10]})
+            saved = await store_cg.update_company(updated_company)
+            if saved:
+                company = saved
+            log.info(
+                "Saved %d priorities to company %s from onboarding answers",
+                len(merged[:10]), company_id,
+            )
+    except Exception as exc:  # never block task creation on priority persistence
+        log.warning("Failed to persist onboarding priorities for %s: %s", company_id, exc)
+
     # Create tasks in the task store
     priority_map = {"high": "high", "medium": "medium", "low": "low"}
     user_id = _resolve_user_id(user)
@@ -1264,6 +1299,7 @@ If no clear tasks emerge from the answers, return an empty array []"""
     return {
         "tasks": created_tasks,
         "total": len(created_tasks),
+        "priorities": list(getattr(company, "priorities", []) or []),
         "message": f"Created {len(created_tasks)} remediation task(s)",
         "source": "ai" if created_tasks else "none",
     }

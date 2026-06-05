@@ -58,6 +58,16 @@
   thread as `context["conversation"]` — the key the runtime's AgentRunner actually reads —
   so follow-up instructions and prior agent replies survive across re-runs. Tests in
   `tests/test_task_follow_up.py`.
+- **Company priorities are captured and shown.** The company page showed 0 priorities
+  even after onboarding because the `Company` model had no priorities field and answers
+  were discarded into tasks. Added `Company.priorities`; `POST /{id}/onboarding/answers`
+  now derives priorities from the user's KPI/metric selections + stated pain point and
+  persists them onto the company (and returns them).
+- **Quick-notes become real Tasks.** Submitting a quick-note (`POST /v1/quick-notes`) now
+  creates a Task routed through the working dispatcher so agents actually pick it up and
+  propose a PR — previously notes were only filed as a GitHub issue or parked in a local
+  queue processed by a `claude` CLI absent in production, so they "stayed there forever".
+  Tests in `tests/test_quick_note_to_task.py`.
 - Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
 - Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
 - `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)

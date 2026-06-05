@@ -1022,6 +1022,11 @@ class Company(BaseModel):
         default="",
         description="Company tagline or slogan"
     )
+    priorities: List[str] = Field(
+        default_factory=list,
+        description="Strategic priorities / goals captured during onboarding "
+        "(surfaced on the company page and used to seed agent work)"
+    )
     founded_year: int | None = Field(
         default=None,
         description="Year the company was founded"

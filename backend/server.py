@@ -5265,6 +5265,41 @@ async def quick_notes_submit(
     if instruction:
         issue_body += f"\nTask: {instruction}"
 
+    # Always turn the quick-note into a real Task so the agency actually picks it up.
+    # Previously notes were only filed as a GitHub issue or parked in a local queue
+    # processed by a `claude` CLI that isn't present in production — so they "stayed
+    # there forever". Creating a Task routes the note through the working dispatcher →
+    # agents (which propose a PR), which is what the operator actually wants.
+    quick_note_task_id = None
+    try:
+        from tasks.service import TaskWorkflowService
+        from tasks.models import Task as _QNTask
+
+        owner_id = str(
+            user.get("_id") or user.get("id") or user.get("sub")
+            or user.get("email") or "system"
+        )
+        note_instruction = instruction or (
+            f"Review this resource and take any useful action for the company/repo, "
+            f"then open a PR with your proposal: {url}" if url else ""
+        )
+        if note_instruction:
+            _qn_wf = TaskWorkflowService(store=get_task_store())
+            _qn_task = _QNTask(
+                owner_id=owner_id,
+                title=title[:512],
+                description=issue_body[:32000],
+                prompt=note_instruction[:32000],
+                task_type="quick_note",
+                tags=["quick-note"],
+                source="quick-note",
+            )
+            await _qn_wf.create_task(_qn_task, actor=f"user:{owner_id}")
+            quick_note_task_id = _qn_task.task_id
+            log.info("Quick-note converted to task %s", quick_note_task_id)
+    except Exception:
+        log.exception("Quick-note → task conversion failed")
+
     if gh_token and gh_repo and url:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
@@ -5283,6 +5318,7 @@ async def quick_notes_submit(
                     "channel": "github",
                     "issue_number": issue_data["number"],
                     "issue_url": issue_data.get("html_url", ""),
+                    "task_id": quick_note_task_id,
                 }
             log.warning("Quick-note GitHub issue creation failed (%d)", resp.status_code)
         except Exception:
@@ -5290,8 +5326,18 @@ async def quick_notes_submit(
 
     if _QUICK_NOTE_QUEUE is not None:
         note = _QUICK_NOTE_QUEUE.add(url or instruction)
-        return {"status": "queued", "channel": "local", "note_id": note.note_id}
-    return {"status": "queued", "channel": "local", "note_id": None}
+        return {
+            "status": "queued",
+            "channel": "local",
+            "note_id": note.note_id,
+            "task_id": quick_note_task_id,
+        }
+    return {
+        "status": "queued",
+        "channel": "local",
+        "note_id": None,
+        "task_id": quick_note_task_id,
+    }
 
 
 @app.get("/v1/quick-notes")
