@@ -154,7 +154,7 @@ jobs:
           """).strip()
 
           payload = {
-              "model": "claude-sonnet-4-6",
+              "model": "claude-sonnet-4-20250514",
               "max_tokens": 4096,
               "messages": [{"role": "user", "content": prompt}],
           }
@@ -171,7 +171,17 @@ jobs:
           with urllib.request.urlopen(req, timeout=120) as resp:
               body = json.loads(resp.read())
 
-          diff_text = body["content"][0]["text"].strip()
+          # Handle both streaming and non-streaming response formats
+          if "content" in body and isinstance(body["content"], list):
+              diff_text = "".join(
+                  block.get("text", "") for block in body["content"]
+                  if block.get("type") == "text"
+              ).strip()
+          elif "choices" in body:
+              diff_text = body["choices"][0]["message"]["content"].strip()
+          else:
+              diff_text = body.get("completion", "").strip()
+
           pathlib.Path("/tmp/autofix.patch").write_text(diff_text)
           print(f"Claude response ({len(diff_text)} chars):\n{diff_text[:300]}")
           PYEOF
