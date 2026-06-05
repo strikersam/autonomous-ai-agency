@@ -65,7 +65,10 @@ class AgentRunner:
         self.keep_alive = keep_alive
         self.tools = WorkspaceTools(workspace_root)
         from agent.github_tools import GitHubTools
-        self.github = GitHubTools(github_token)
+        # agent_initiated=True activates the autonomy gate for everything this agent
+        # does on GitHub: no commits/pushes to protected branches and no PR merges —
+        # the agent proposes via PR and a human merges.
+        self.github = GitHubTools(github_token, agent_initiated=True)
         self.ctx = ContextManager()
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is

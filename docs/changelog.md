@@ -28,6 +28,17 @@
 
 ## [Unreleased]
 
+### Security
+- **Autonomy gate — agents propose via PR, humans merge.** New `agent/autonomy_gate.py`
+  bounds what the autonomous loop can do to the repo: agent-initiated commits/pushes to
+  protected branches (main/master, extendable via `AUTONOMY_PROTECTED_BRANCHES`) and any
+  agent-initiated PR merge are refused (`AutonomyViolation`). Enforced at the GitHub write
+  surface (`GitHubTools.commit_file`/`open_pull_request`/`merge_pull_request`, `LocalWorkspace.push`)
+  with safe defaults so human/API callers are unaffected; `AgentRunner` constructs its
+  `GitHubTools` with the gate active. *Risk:* an over-broad gate could block legitimate human
+  commits — mitigated by the per-instance/per-call `agent_initiated` flag (default False).
+  *Verified by:* `risky-module-review` skill + `tests/test_autonomy_gate.py`.
+
 ### Fixed
 - **Agency execution spine unblocked (CEO + tasks no longer idle).** Background agent
   work was permanently dead under the default `AGENCY_WORKFLOW_MODE=orchestrator`:
