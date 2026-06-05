@@ -66,9 +66,7 @@ from runtimes.api import runtime_router
 from router import get_router as _get_model_router
 from runtimes.manager import get_runtime_manager
 from schedules import schedules_router
-from tasks.automation import TaskAutomationService
 from tasks.api import task_router
-from tasks.dispatcher import TaskDispatcher
 from tasks.store import TaskStore, get_task_store, set_task_store
 from setup import setup_router
 from activation_api import activation_router
@@ -1253,10 +1251,10 @@ async def get_current_user(request: Request) -> dict:
 
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
-    dispatcher: Optional[TaskDispatcher] = None
-    dispatcher_task: Optional[asyncio.Task] = None
-    task_automation: Optional[TaskAutomationService] = None
-    runtime_manager = get_runtime_manager()
+    from services.background import start_background_services, run_background_in_web
+
+    from services.background import BackgroundServices
+    bg: Optional[BackgroundServices] = None
     try:
         await ensure_bootstrap()
         log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
@@ -1265,45 +1263,23 @@ async def lifespan(app_: "FastAPI"):
         log.info(
             "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
         )
-    task_automation = TaskAutomationService(store=get_task_store())
-    SCHEDULER.set_on_fire(task_automation.handle_scheduled_job)
-    log.info("Scheduler automation wired to task workflow")
-    await runtime_manager.start()
-    log.info(
-        "RuntimeManager started (%d runtimes registered)",
-        len(runtime_manager._registry.ids()),
-    )
-    dispatcher = TaskDispatcher(
-        workspace_root=str(ROOT_DIR),
-        poll_interval_s=10.0,
-    )
-    dispatcher_task = asyncio.create_task(dispatcher.run_forever())
-    log.info("Task dispatcher started in background")
 
-    # Self-onboarding bootstrap: register the platform as its own company (linked to
-    # its GitHub repo) and hand the connect/verify work to the agency's own agents.
-    # Fire-and-forget so a missing DB or network never blocks/crashes startup.
-    try:
-        from services.self_bootstrap import ensure_self_company, self_bootstrap_enabled
-
-        if self_bootstrap_enabled():
-            asyncio.create_task(ensure_self_company())
-            log.info("Self-bootstrap scheduled (platform onboards itself as a company)")
-    except Exception as exc:  # pragma: no cover - defensive
-        log.warning("Self-bootstrap could not be scheduled: %s", exc)
+    if run_background_in_web():
+        bg = await start_background_services(
+            workspace_root=ROOT_DIR,
+            task_store=get_task_store(),
+            scheduler=SCHEDULER,
+        )
+    else:
+        log.info(
+            "RUN_BACKGROUND_IN_WEB=false — background services skipped "
+            "(expected: dedicated worker process is running)"
+        )
 
     yield
-    if dispatcher is not None:
-        dispatcher.stop()
-    if dispatcher_task is not None:
-        dispatcher_task.cancel()
-        try:
-            await dispatcher_task
-        except asyncio.CancelledError:
-            pass
-        log.info("Task dispatcher stopped")
-    await runtime_manager.stop()
-    log.info("RuntimeManager stopped")
+
+    if bg is not None:
+        await bg.stop()
 
 
 app = FastAPI(title=f"{APP_LABEL} — {APP_TAGLINE}", version=__version__, lifespan=lifespan)

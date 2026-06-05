@@ -220,3 +220,77 @@ services:
       # ================================================================
       - key: AUTONOMY_PROTECTED_BRANCHES
         value: "main,master"
+
+      # ================================================================
+      # WORKER — set to "false" once the worker service below is running
+      # so background tasks are not double-processed.
+      # ================================================================
+      - key: RUN_BACKGROUND_IN_WEB
+        value: "true"
+
+  # ── Always-on Worker (24×7 task execution + CEO loop) ─────────────────────
+  # A separate worker service so task execution continues even when the web
+  # service is sleeping on the free tier.  Switch the web service
+  # RUN_BACKGROUND_IN_WEB to "false" once this worker is active and healthy.
+  - type: worker
+    name: local-llm-server-worker
+    env: docker
+    dockerfilePath: ./Dockerfile.backend
+    plan: free
+    startCommand: python worker_main.py
+    envVars:
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        value: llm_wiki_dashboard
+      - key: STORAGE_BACKEND
+        value: "sqlite"
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: local-llm-server
+          envVarKey: JWT_SECRET
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: NVIDIA_BASE_URL
+        value: "https://integrate.api.nvidia.com/v1"
+      - key: NVIDIA_DEFAULT_MODEL
+        value: "nvidia/nemotron-3-super-120b-a12b"
+      - key: AGENT_PLANNER_MODEL
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: AGENT_EXECUTOR_MODEL
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: AGENT_VERIFIER_MODEL
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: AGENT_JUDGE_MODEL
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: LLM_PROVIDER
+        value: "nvidia-nim"
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: "us-east-1"
+      - key: BEDROCK_MODEL_ID
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GH_PAT
+        sync: false
+      - key: SELF_BOOTSTRAP_ENABLED
+        value: "false"
+      - key: AGENCY_WORKFLOW_MODE
+        value: "orchestrator"
+      - key: AUTONOMY_PROTECTED_BRANCHES
+        value: "main,master"
+      - key: RUNTIME_DEFAULT
+        value: "internal_agent"
+      - key: KIMI_BRIDGE_ENABLED
+        value: "false"
+      - key: KIMI_BRIDGE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
