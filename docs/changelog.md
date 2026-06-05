@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Added
+- **Issue Context Generator workflow (`.github/workflows/issue-context-generator.yml`)** — triggers immediately on any issue opened or `quick-note` label added; calls NVIDIA NIM (with Claude fallback) to generate a codebase-aware implementation prompt + prioritised TODO list; commits `docs/context/issue-N.md` to a new branch; creates a **DRAFT** PR (no CodeRabbit/Copilot reviews); closes the issue with a PR link. Replaces the old static-template `enrich-quick-note-context.yml` which added no LLM reasoning and never created PRs.
+- **Bulk Issue Context Generator workflow (`.github/workflows/bulk-issue-context.yml`)** — `workflow_dispatch` workflow that processes all open issues in one run. Skips issues with existing context/impl branches. Supports dry-run mode and configurable label exclusions.
+- **Context generation script (`.github/scripts/generate_context.py`)** — LLM-powered script loading CLAUDE.md + graphify graph report as codebase context, calling NVIDIA NIM models (4 fallback chain) then Claude Opus as final fallback. Outputs structured JSON with PR description, context document, todos, relevant files, and risk flags.
+
+### Changed
+- **`process-quick-note.yml`** — PR creation now uses `--draft` flag to suppress CodeRabbit/Copilot auto-reviews on implementation PRs. Branch creation step now detects and reuses an existing `claude/context-issue-N` branch (from the context generator) so implementation commits land on the pre-existing draft PR rather than opening a duplicate.
+
 - **Killer TODO Roadmap (`docs/roadmap-killer-todos.md`)** — 33-item implementation backlog synthesised from deep analysis of NousResearch/hermes-agent, modimihir07/agentic-os, NVIDIA-NeMo/Nemotron, kyegomez/OpenMythos, CodebuffAI/codebuff, and CompanyHelm/companyhelm. Covers agent efficiency, NVIDIA/cloud integration, direct-chat improvements, deployment, autonomy, observability, and vision. No implementation started — proposal only.
 
 - **Onboarding UX, logs, chat, admin fixes.** *Onboarding:* clickable breadcrumbs, restart button, Done back button. *Logs:* expandable messages (click to expand). *Chat:* ModelPicker two-step provider→model, mutual dropdown exclusion, repo URL input for code tasks. *Admin:* Companies tab with delete cleanup. *Backend:* DELETE /api/company/{id} endpoint.

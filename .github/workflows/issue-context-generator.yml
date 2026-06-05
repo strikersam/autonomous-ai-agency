@@ -1,0 +1,236 @@
+name: Issue Context Generator
+
+# Triggers whenever a new issue is opened (quick-note OR any issue).
+# Also fires when the 'quick-note' label is added to an existing issue.
+#
+# Pipeline:
+#   open issue → generate prompt + TODO → branch → commit context doc → DRAFT PR → close issue
+#
+# PRs are created in DRAFT status to prevent CodeRabbit / Copilot reviews
+# until a human or the process-quick-note workflow converts to ready.
+
+on:
+  issues:
+    types: [opened, labeled]
+
+# One run per issue at a time; newer events cancel older pending runs for the
+# same issue (e.g. a label added right after open).
+concurrency:
+  group: issue-context-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  generate-context:
+    # Skip labeled events unless the added label is 'quick-note'.
+    # This prevents spurious reruns when unrelated labels are added.
+    if: >
+      github.event.action == 'opened' ||
+      (github.event.action == 'labeled' &&
+       github.event.label.name == 'quick-note')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      # ── 2. Python setup ──────────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install openai requests anthropic --quiet
+
+      # ── 3. Generate context (prompt + TODO list) ─────────────────────────────
+      - name: Generate context via LLM
+        id: context
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_LABELS: ${{ toJson(github.event.issue.labels) }}
+        run: |
+          python3 .github/scripts/generate_context.py \
+            "$ISSUE_NUMBER" \
+            2>&1 | tee /tmp/context_output.txt
+
+          if [ -f /tmp/context_result.json ]; then
+            echo "generated=true" >> "$GITHUB_OUTPUT"
+            SUGGESTED_TITLE=$(python3 -c "
+          import json, sys
+          d = json.load(open('/tmp/context_result.json'))
+          print(d.get('title', '')[:70])
+            " 2>/dev/null || echo "")
+            echo "title=$SUGGESTED_TITLE" >> "$GITHUB_OUTPUT"
+          else
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+            echo "Context generation failed — see log above."
+          fi
+
+      # ── 4. Create context branch ─────────────────────────────────────────────
+      - name: Create context branch
+        id: branch
+        if: steps.context.outputs.generated == 'true'
+        env:
+          ISSUE_NUM: ${{ github.event.issue.number }}
+        run: |
+          BRANCH="claude/context-issue-${ISSUE_NUM}"
+          git config user.email "claude-actions@github.com"
+          git config user.name "Claude Actions [bot]"
+
+          # Remove any stale branch from a previous run
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      # ── 5. Write context document and commit ALL logical artifacts ────────────
+      # Any file written by the context script or this step is committed here.
+      # This ensures the draft PR always reflects a logically-complete snapshot.
+      - name: Commit context doc to branch
+        id: commit
+        if: steps.branch.outputs.branch != ''
+        env:
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          mkdir -p docs/context
+
+          # Write the context markdown file
+          python3 - <<'PYEOF'
+          import json, os
+          result = json.load(open('/tmp/context_result.json'))
+          issue = os.environ['ISSUE_NUM']
+          content = result.get('context_doc', result.get('pr_description', ''))
+          with open(f'docs/context/issue-{issue}.md', 'w') as f:
+              f.write(content)
+          print(f"Wrote docs/context/issue-{issue}.md ({len(content)} chars)")
+          PYEOF
+
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "docs(context): generate implementation plan for issue #${ISSUE_NUM}"
+            git push -u origin "$BRANCH"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Context doc committed and pushed to $BRANCH"
+          fi
+
+      # ── 6. Create DRAFT pull request ─────────────────────────────────────────
+      # Draft status prevents CodeRabbit, Copilot, and other review bots from
+      # triggering until the PR is explicitly marked ready for review.
+      - name: Create draft PR
+        id: pr
+        if: steps.branch.outputs.branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          SUGGESTED_TITLE: ${{ steps.context.outputs.title }}
+        run: |
+          PR_BODY=$(python3 -c "
+          import json, os, sys
+          try:
+              d = json.load(open('/tmp/context_result.json'))
+              print(d.get('pr_description', '(context generation failed)'))
+          except Exception as e:
+              print(f'Error reading context: {e}')
+              sys.exit(1)
+          ")
+
+          # Use LLM-suggested title if available, else derive from issue title
+          if [ -n "$SUGGESTED_TITLE" ]; then
+            PR_TITLE="$SUGGESTED_TITLE"
+          else
+            PR_TITLE="plan: ${ISSUE_TITLE:0:60} (#${ISSUE_NUM})"
+          fi
+
+          PR_URL=$(gh pr create \
+            --repo "$REPO" \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY" \
+            --base master \
+            --head "$BRANCH" \
+            --draft 2>&1) || {
+            # Recover existing draft PR if one already exists for this branch
+            echo "WARN: gh pr create failed — checking for existing PR"
+            PR_URL=$(gh pr list \
+              --repo "$REPO" \
+              --head "$BRANCH" \
+              --state open \
+              --json url \
+              --jq '.[0].url' 2>/dev/null || echo "")
+          }
+
+          PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$PR_URL"    >> "$GITHUB_OUTPUT"
+          echo "Draft PR: #$PR_NUM — $PR_URL"
+
+      # ── 7. Close issue — draft PR created ────────────────────────────────────
+      - name: Close issue with draft PR reference
+        if: steps.pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          PR_NUM: ${{ steps.pr.outputs.pr_number }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+        run: |
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" \
+            --body "$(cat <<MSG
+          🧠 **Context generated** — Draft PR #${PR_NUM} created with a full implementation prompt and TODO list.
+
+          **Draft PR:** ${PR_URL}
+
+          The PR is in **draft** status (no code-review bots triggered). Next steps:
+          - **Auto-implement:** trigger the _Process Quick Note_ workflow with issue \`${ISSUE_NUM}\`
+          - **Manual:** open the branch in Claude Code or your editor and implement against the plan
+
+          The branch \`claude/context-issue-${ISSUE_NUM}\` is ready. When implementation is complete, mark the PR as ready for review.
+          MSG
+          )"
+          gh issue close "$ISSUE_NUM" \
+            --repo "$REPO" \
+            --reason completed
+
+      # ── 8. Failure fallback ───────────────────────────────────────────────────
+      - name: Comment — context generation failed
+        if: >
+          always() &&
+          steps.context.outputs.generated != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+        run: |
+          TAIL=$(tail -30 /tmp/context_output.txt 2>/dev/null || echo "(no log)")
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" \
+            --body "$(cat <<MSG
+          ⚠️ Context generation failed — no draft PR was created.
+
+          \`\`\`
+          $TAIL
+          \`\`\`
+
+          Please trigger the workflow manually once NVIDIA_API_KEY or ANTHROPIC_API_KEY is confirmed.
+          MSG
+          )" 2>/dev/null || true
