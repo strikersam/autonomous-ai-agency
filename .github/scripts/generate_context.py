@@ -33,12 +33,13 @@ RESULT_FILE = "/tmp/context_result.json"  # nosec: B108 - predictable temp path;
 # and executed after a git branch switch removes it from the working tree.
 REPO_ROOT = Path(os.environ.get("REPO_ROOT", str(Path(__file__).parent.parent.parent)))
 
-# NVIDIA NIM models tried in order
+# NVIDIA NIM models tried in order.
+# nvidia/llama-3.1-nemotron-ultra-253b-v1 removed — returns 404 on this account.
 NVIDIA_MODELS = [
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
     "qwen/qwen3-coder-480b-a35b-instruct",
     "nvidia/llama-3.3-nemotron-super-49b-v1",
     "meta/llama-3.3-70b-instruct",
+    "qwen/qwen2.5-coder-32b-instruct",
 ]
 CLAUDE_MODEL = "claude-opus-4-8"
 
@@ -163,7 +164,7 @@ def _call_nvidia(prompt: str, user_msg: str) -> dict:
                 ],
                 temperature=0.3,
                 max_tokens=2048,
-                timeout=120,
+                timeout=240,
             )
             text = resp.choices[0].message.content or ""
             return _parse_json(text)

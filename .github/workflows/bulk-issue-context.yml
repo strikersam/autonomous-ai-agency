@@ -187,11 +187,17 @@ jobs:
                   'ISSUE_LABELS': labels,
                   'REPO_ROOT': repo_root,
               })
-              r = subprocess.run(
-                  ['python3', '/tmp/generate_context.py', num],
-                  env=env, text=True, capture_output=False, timeout=120
-              )
-              if r.returncode != 0 or not Path('/tmp/context_result.json').exists():
+              try:
+                  r = subprocess.run(
+                      ['python3', '/tmp/generate_context.py', num],
+                      env=env, text=True, capture_output=False, timeout=300
+                  )
+                  gen_ok = r.returncode == 0 and Path('/tmp/context_result.json').exists()
+              except subprocess.TimeoutExpired:
+                  print(f"  ✗ Context generation timed out for #{num} (>300s) — skipping")
+                  results.append({'number': num, 'status': 'context_timeout'})
+                  continue
+              if not gen_ok:
                   print(f"  ✗ Context generation failed for #{num}")
                   results.append({'number': num, 'status': 'context_failed'})
                   continue
