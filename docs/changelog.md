@@ -29,6 +29,14 @@
 ## [Unreleased]
 
 ### Added
+- **`services/shared_state.py` — Redis-backed shared-state service for cross-worker cooldown persistence.** Provider cooldown state was previously stored in module-level dicts that do not survive process restarts and cannot be shared across workers. Migrated to a SharedState service with optional Redis backend (from `REDIS_URL` env var), `cooldown_set`/`cooldown_get`/`cooldown_scan` operations, and in-memory fallback when Redis is unavailable. `provider_router.py` cooldowns are now async and durable across restarts. 20 tests in `tests/test_shared_state.py`.
+
+### Fixed
+- **RepoScanner GitHub API rate limiting — unauthenticated calls returned 500s on production.** `RepoScanner._scan_github_repo()` made unauthenticated GitHub API calls (60 req/hr limit), hitting rate limits and returning 500 errors. `RepoScanner` now accepts an optional `github_token` parameter; `scan_repo_endpoint` and `sync_company_graph` resolve the user's token from `user.github_repo_token` → `github_settings` collection → `GH_PAT`/`GH_TOKEN`/`GITHUB_TOKEN` env vars, enabling authenticated API calls (5000 req/hr).
+- **InternalAgentAdapter health check only recognised Nvidia and local Ollama — runtime appeared unhealthy when other cloud providers were configured.** `health_check()` now checks ALL 17 cloud providers in `_best_cloud_primary_base()` priority order (Nvidia, OpenCode Zen, DeepSeek, Groq, DashScope, OpenRouter, Together, Mistral, Google Gemini, Cloudflare, HuggingFace, ZhiPu, MiniMax). Cloudflare correctly requires both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Reports healthy immediately when any cloud key exists; falls back to local Ollama probe only when no cloud key is configured.
+- **Four broken GitHub Actions workflows repaired:** `auto-merge.yml` (PR detection condition fixed for empty arrays), `ci-failure-autofix.yml` (invalid Claude model name), `openclaw-auto-fix.yml` (bandit stderr/JSON handling), `nightly-regression.yml` (newline sanitization in shell contexts).
+
+### Added
 - **`services/kimi_bridge_server/` — Kimi web-bridge microservice (Task 1 / P0).** Standalone
   OpenAI-compatible HTTP service (`POST /v1/chat/completions`, `GET /v1/models`, `GET /health`)
   backed by a Playwright browser session logged in to kimi.com — no paid API key required.
