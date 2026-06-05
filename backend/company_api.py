@@ -12,6 +12,7 @@ from typing import List, Optional, Any
 from datetime import datetime
 import json
 import logging
+import os
 import secrets
 
 from pydantic import BaseModel
@@ -578,6 +579,26 @@ async def sync_company_graph(
     # Re-scan if requested or if it's been a while
     if force_rescan or not websites or not repos:
         from services.scanner import WebsiteScanner, RepoScanner
+
+        # Resolve GitHub token for authenticated repo scanning
+        _gh_token: str | None = user.get("github_repo_token")
+        if not _gh_token:
+            try:
+                from backend.server import get_db
+                uid = user.get("_id") or user.get("id") or user.get("user_id")
+                if uid:
+                    doc = await get_db().github_settings.find_one({"user_id": uid})
+                    if doc:
+                        _gh_token = doc.get("token")
+            except Exception:
+                pass
+        if not _gh_token:
+            _gh_token = (
+                os.environ.get("GH_PAT")
+                or os.environ.get("GH_TOKEN")
+                or os.environ.get("GITHUB_TOKEN")
+            )
+
         for website in websites:
             if force_rescan or not website.last_scanned:
                 ws = WebsiteScanner(company_id=company.id)
@@ -596,7 +617,7 @@ async def sync_company_graph(
 
         for repo in repos:
             if force_rescan or not repo.last_scanned:
-                rs = RepoScanner(company_id=company.id)
+                rs = RepoScanner(company_id=company.id, github_token=_gh_token)
                 result = await rs.scan_repo(repo_url=repo.url)
                 if result.status == "success" and result.inferred_stack:
                     updated = repo.model_copy(update={
@@ -722,9 +743,30 @@ async def scan_repo_endpoint(
     """
     company = await get_company_access(company_id, user)
 
+    # Resolve the user's GitHub token for authenticated API calls.
+    # Check user's github_repo_token, then github_settings collection,
+    # then server-level env vars (mirrors server.py GitHub access logic).
+    github_token: str | None = user.get("github_repo_token")
+    if not github_token:
+        try:
+            from backend.server import get_db
+            uid = user.get("_id") or user.get("id") or user.get("user_id")
+            if uid:
+                doc = await get_db().github_settings.find_one({"user_id": uid})
+                if doc:
+                    github_token = doc.get("token")
+        except Exception:
+            pass
+    if not github_token:
+        github_token = (
+            os.environ.get("GH_PAT")
+            or os.environ.get("GH_TOKEN")
+            or os.environ.get("GITHUB_TOKEN")
+        )
+
     # Perform the scan
     from services.scanner import RepoScanner
-    _rs = RepoScanner(company_id=company.id)
+    _rs = RepoScanner(company_id=company.id, github_token=github_token)
     result = await _rs.scan_repo(repo_url=request.repo_url)
     
     # If scan was successful, add repo to company

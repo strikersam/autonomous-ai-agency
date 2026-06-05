@@ -14,10 +14,10 @@ from provider_router import (
 
 
 @pytest.fixture(autouse=True)
-def reset_cooldowns():
-    clear_cooldowns()
+async def reset_cooldowns():
+    await clear_cooldowns()
     yield
-    clear_cooldowns()
+    await clear_cooldowns()
 
 
 def test_provider_sort_key_order():

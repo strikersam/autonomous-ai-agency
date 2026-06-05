@@ -65,11 +65,11 @@ def test_openai_url_strips_trailing_slash():
 
 
 @pytest.fixture(autouse=True)
-def reset_provider_cooldowns():
+async def reset_provider_cooldowns():
     """Clear module-level cooldown state before every test so tests don't bleed into each other."""
-    clear_cooldowns()
+    await clear_cooldowns()
     yield
-    clear_cooldowns()
+    await clear_cooldowns()
 
 
 @pytest.mark.anyio

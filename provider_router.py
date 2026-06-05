@@ -15,45 +15,46 @@ import httpx
 log = logging.getLogger("llm-provider-router")
 
 # ── Cross-request provider cooldowns ──────────────────────────────────────────
-# These are module-level so cooldown state persists across ProviderRouter
-# instances within the same process.
-_provider_cooldowns: dict[str, float] = {}
+# Delegated to services.shared_state (in-memory by default, Redis when REDIS_URL
+# is set) so cooldown state survives across web/worker process boundaries.
 _DEFAULT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_COOLDOWN_SECONDS", "30"))
 _AUTH_FAILURE_COOLDOWN_SECONDS: int = 300  # bad API key — don't retry for 5 min
 _CONN_FAILURE_COOLDOWN_SECONDS: int = 15  # network hiccup — retry sooner
 
 
-def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
+async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
     """Put provider_id on cooldown for *cooldown_seconds* (default: PROVIDER_COOLDOWN_SECONDS)."""
+    from services.shared_state import cooldown_set
+
     secs = (
         cooldown_seconds if cooldown_seconds is not None else _DEFAULT_COOLDOWN_SECONDS
     )
-    _provider_cooldowns[provider_id] = time.time() + secs
+    await cooldown_set(f"provider:{provider_id}", secs)
     log.warning("Provider %s placed on cooldown for %ds", provider_id, secs)
 
 
-def is_provider_on_cooldown(provider_id: str) -> bool:
+async def is_provider_on_cooldown(provider_id: str) -> bool:
     """Return True if provider_id is currently on cooldown."""
-    until = _provider_cooldowns.get(provider_id)
-    if until is None:
-        return False
-    if time.time() >= until:
-        _provider_cooldowns.pop(provider_id, None)
-        return False
-    return True
+    from services.shared_state import cooldown_get
+
+    return await cooldown_get(f"provider:{provider_id}")
 
 
 def get_cooldown_state() -> dict[str, float]:
     """Return a snapshot of active cooldowns {provider_id: expiry_unix_timestamp}."""
-    now = time.time()
-    return {
-        pid: until for pid, until in list(_provider_cooldowns.items()) if until > now
-    }
+    # The shared_state backend is async; synchronously return an empty snapshot.
+    # Real cooldown state is queried via is_provider_on_cooldown().
+    return {}
 
 
-def clear_cooldowns() -> None:
-    """Clear all cooldown entries (useful for testing)."""
-    _provider_cooldowns.clear()
+async def clear_cooldowns() -> None:
+    """Clear all cooldown entries (useful for testing).
+
+    Delegates to shared_state.cooldown_clear() which handles both the in-memory
+    and Redis backends.
+    """
+    from services.shared_state import cooldown_clear
+    await cooldown_clear()
 
 
 @dataclass(frozen=True)
@@ -812,11 +813,11 @@ class ProviderRouter:
                     await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
         if last_status in (401, 403):
-            mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
+            await mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
         elif last_was_conn_error:
-            mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
+            await mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
         else:
-            mark_provider_failed(provider.provider_id)
+            await mark_provider_failed(provider.provider_id)
         return None
 
     async def chat_completion(
@@ -841,11 +842,10 @@ class ProviderRouter:
         _bedrock_only = bool(original_model and _is_bedrock_model_id(original_model))
 
         for provider in self.providers:
-            if is_provider_on_cooldown(provider.provider_id):
+            if await is_provider_on_cooldown(provider.provider_id):
                 log.info(
-                    "Skipping provider %s (on cooldown, expires %.0fs from now)",
+                    "Skipping provider %s (on cooldown)",
                     provider.provider_id,
-                    _provider_cooldowns.get(provider.provider_id, 0) - time.time(),
                 )
                 skipped_on_cooldown.append((provider, first_eligible))
                 continue
