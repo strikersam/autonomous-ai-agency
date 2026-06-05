@@ -80,6 +80,9 @@ async def test_backend_lifespan_starts_runtime_manager_and_dispatcher(monkeypatc
         created_tasks.append(task)
         return task
 
+    # This test asserts exactly one background task (the dispatcher) is created.
+    # Disable the self-onboarding bootstrap so it doesn't add a second create_task.
+    monkeypatch.setenv("SELF_BOOTSTRAP_ENABLED", "false")
     monkeypatch.setattr(server, "ensure_bootstrap", fake_ensure_bootstrap)
     monkeypatch.setattr(server, "get_runtime_manager", lambda: manager)
     monkeypatch.setattr(server, "TaskDispatcher", fake_dispatcher)

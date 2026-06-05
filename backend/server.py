@@ -1279,6 +1279,19 @@ async def lifespan(app_: "FastAPI"):
     )
     dispatcher_task = asyncio.create_task(dispatcher.run_forever())
     log.info("Task dispatcher started in background")
+
+    # Self-onboarding bootstrap: register the platform as its own company (linked to
+    # its GitHub repo) and hand the connect/verify work to the agency's own agents.
+    # Fire-and-forget so a missing DB or network never blocks/crashes startup.
+    try:
+        from services.self_bootstrap import ensure_self_company, self_bootstrap_enabled
+
+        if self_bootstrap_enabled():
+            asyncio.create_task(ensure_self_company())
+            log.info("Self-bootstrap scheduled (platform onboards itself as a company)")
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Self-bootstrap could not be scheduled: %s", exc)
+
     yield
     if dispatcher is not None:
         dispatcher.stop()

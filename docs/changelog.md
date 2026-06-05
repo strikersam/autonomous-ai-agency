@@ -76,6 +76,12 @@
   `/api/doctor` that reports whether the GitHub-backed `SkillRegistry` initialised and how
   many of the configured skill repos are connected — directly answering the "skills repo
   not connected" diagnostic.
+- **Self-onboarding bootstrap.** New `services/self_bootstrap.py` registers the platform
+  as its own company (linked to `github.com/strikersam/local-llm-server`) on startup and
+  hands the "connect & verify the repo" work to the agency's own agents as a Task (which
+  flows through the dispatcher + PR-autonomy gate). Idempotent (keyed on domain),
+  fire-and-forget, never blocks/crashes startup; gated by `SELF_BOOTSTRAP_ENABLED`. Wired
+  into the server lifespan. Tests in `tests/test_self_bootstrap.py`.
 - Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
 - Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
 - `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)
