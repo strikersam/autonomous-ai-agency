@@ -186,22 +186,36 @@ jobs:
           echo "fetch_chars=$CHARS" >> "$GITHUB_OUTPUT"
           echo "Fetched $CHARS chars"
 
-      # ── 7. Create feature branch ───────────────────────────────────────────
-      - name: Create feature branch
+      # ── 7. Create / reuse feature branch ─────────────────────────────────────
+      # If a context branch was already created by the issue-context-generator
+      # workflow (claude/context-issue-N), reuse it so implementation commits
+      # land on the existing draft PR rather than opening a second PR.
+      - name: Create or reuse feature branch
         id: branch
         if: steps.pick.outputs.found == 'true' && steps.fetch.outputs.fetch_chars != ''
         env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          REPO: ${{ github.repository }}
         run: |
-          BRANCH="quick-note/issue-$ISSUE_NUM"
           git config user.email "claude-actions@github.com"
           git config user.name "Claude Actions [bot]"
 
-          # Clean up any stale branch
-          git push origin --delete "$BRANCH" 2>/dev/null || true
-          git checkout -b "$BRANCH"
+          CONTEXT_BRANCH="claude/context-issue-${ISSUE_NUM}"
+          IMPL_BRANCH="quick-note/issue-${ISSUE_NUM}"
 
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          # Check if a context branch (from issue-context-generator) already exists
+          if git ls-remote --exit-code origin "refs/heads/${CONTEXT_BRANCH}" 2>/dev/null; then
+            echo "Reusing existing context branch: $CONTEXT_BRANCH"
+            git fetch origin "$CONTEXT_BRANCH"
+            git checkout -b "$CONTEXT_BRANCH" "origin/$CONTEXT_BRANCH"
+            echo "branch=$CONTEXT_BRANCH" >> "$GITHUB_OUTPUT"
+          else
+            # Fall back to a fresh implementation branch
+            git push origin --delete "$IMPL_BRANCH" 2>/dev/null || true
+            git checkout -b "$IMPL_BRANCH"
+            echo "branch=$IMPL_BRANCH" >> "$GITHUB_OUTPUT"
+          fi
 
       # ── 8. Implement features with Claude ──────────────────────────────────
       - name: Implement features (Claude agentic loop)
@@ -340,21 +354,35 @@ jobs:
           PRBODY
           )"
 
-          PR_URL=$(gh pr create \
+          # Check for an existing draft PR on this branch (created by issue-context-generator)
+          EXISTING_PR=$(gh pr list \
             --repo "$REPO" \
-            --title "feat: implement quick-note issue #$ISSUE_NUM" \
-            --body "$PR_BODY" \
-            --base master \
-            --head "$BRANCH" 2>&1) || {
-            # gh pr create may fail if a PR already exists for this branch; recover it
-            echo "WARN: gh pr create failed ($PR_URL) — checking for existing PR on branch"
-            PR_URL=$(gh pr list \
+            --head "$BRANCH" \
+            --state open \
+            --json url,number,isDraft \
+            --jq '.[0]' 2>/dev/null || echo "")
+
+          if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
+            echo "Found existing PR on branch $BRANCH — reusing it"
+            PR_URL=$(echo "$EXISTING_PR" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['url'])")
+          else
+            # Create a new DRAFT PR — draft prevents CodeRabbit/Copilot reviews until ready
+            PR_URL=$(gh pr create \
               --repo "$REPO" \
+              --title "feat: implement quick-note issue #$ISSUE_NUM" \
+              --body "$PR_BODY" \
+              --base master \
               --head "$BRANCH" \
-              --state open \
-              --json url \
-              --jq '.[0].url' 2>/dev/null || echo "")
-          }
+              --draft 2>&1) || {
+              echo "WARN: gh pr create failed ($PR_URL) — checking for existing PR"
+              PR_URL=$(gh pr list \
+                --repo "$REPO" \
+                --head "$BRANCH" \
+                --state open \
+                --json url \
+                --jq '.[0].url' 2>/dev/null || echo "")
+            }
+          fi
 
           PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
           echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"

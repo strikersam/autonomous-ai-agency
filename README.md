@@ -274,6 +274,66 @@ Drop a task from anywhere — no laptop needed.
 
 ---
 
+## Issue → Context → Draft PR automation
+
+Every GitHub issue is automatically turned into an actionable, codebase-aware
+implementation plan — no manual triage required.
+
+```text
+issue opened (or `quick-note` label added)
+        ↓
+  [issue-context-generator workflow]
+        ↓
+  fetch linked URL (multi-strategy)  ──►  NVIDIA NIM (free models)
+        ↓                                 fallback: Claude Opus
+  generate: implementation prompt + prioritised TODO list
+            + relevant files + risk flags, grounded in CLAUDE.md
+            and the graphify codebase graph
+        ↓
+  commit docs/context/issue-N.md  ──►  open DRAFT PR  ──►  close issue
+```
+
+**Why draft PRs?** Draft status suppresses CodeRabbit / Copilot auto-reviews,
+so the plan lands cleanly without burning review cycles. When you (or the
+*Process Quick Note* workflow) implement against the plan, mark the PR ready
+for review.
+
+### The workflows
+
+| Workflow | Trigger | What it does |
+|----------|---------|--------------|
+| **`issue-context-generator.yml`** | Any issue `opened`, or `quick-note` label added | Fetches the linked URL, generates a grounded prompt + TODO plan, commits `docs/context/issue-N.md`, opens a **draft PR**, closes the issue. |
+| **`bulk-issue-context.yml`** | Manual (`workflow_dispatch`) | Backfills **all** open issues in one run. Supports `dry_run`, label exclusions, explicit `issue_numbers` targeting, and `regenerate` mode (updates an existing draft PR in place — preserves the PR number). |
+| **`process-quick-note.yml`** | Schedule / manual | Picks up a context branch and implements the plan — runs the agentic loop, tests, applies review feedback, and opens its PR as a **draft**. Reuses an existing `claude/context-issue-N` branch so implementation commits land on the pre-built draft PR. |
+
+### Free-first model routing
+
+Context generation runs on **free NVIDIA NIM models** by preference —
+`qwen/qwen3-coder-480b-a35b-instruct` → `nvidia/llama-3.3-nemotron-super-49b-v1`
+→ `meta/llama-3.3-70b-instruct` → `qwen/qwen2.5-coder-32b-instruct`, with
+Claude Opus as a final fallback only if every NVIDIA model is unavailable.
+
+### Backfilling existing issues
+
+```bash
+# Dry run — list what would be processed, change nothing
+gh workflow run bulk-issue-context.yml -f dry_run=true
+
+# Process all open issues (skips exhausted / agency-escalation by default)
+gh workflow run bulk-issue-context.yml
+
+# Target specific issues; regenerate updates existing draft PRs in place
+gh workflow run bulk-issue-context.yml \
+  -f issue_numbers="416,398,364" -f regenerate=true
+```
+
+> **Note:** the `issues`-event auto-trigger only fires once these workflows are
+> on the **default branch (master)** — GitHub runs event-triggered workflows
+> from master only. Before merge, use `workflow_dispatch` (the `bulk-issue-context`
+> commands above) to process issues from any branch.
+
+---
+
 ## Privacy, security, and cost
 
 ### Your data never leaves your server

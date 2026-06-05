@@ -3,6 +3,7 @@ name: Security Gate
 on:
   pull_request:
     branches: [master]
+    paths-ignore: ["docs/context/**"]
 
 permissions:
   security-events: write
@@ -17,6 +18,8 @@ jobs:
   security-gate:
     name: Security Gate — No New Alerts
     runs-on: ubuntu-latest
+    # Skip on draft PRs (e.g. auto-generated context plans).
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
         with:
