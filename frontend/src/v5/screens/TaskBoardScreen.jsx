@@ -149,6 +149,7 @@ function TaskBoardScreen() {
   const [newTaskPriority, setNewTaskPriority] = React.useState('medium');
   const [newTaskType, setNewTaskType] = React.useState('task');
   const [creatingTask, setCreatingTask] = React.useState(false);
+  const [createError, setCreateError] = React.useState('');
 
   const [data, states, fetchAll] = useSafeData(null, {
     tasks: '/api/tasks/',
@@ -201,7 +202,7 @@ function TaskBoardScreen() {
                 textTransform: 'capitalize', transition: 'all 0.15s ease',
               }}>{f}</button>
             ))}
-            <button onClick={() => setShowNewTask(true)} style={{
+            <button onClick={() => { setShowNewTask(true); setCreateError(''); }} style={{
               padding: '5px 14px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
               background: 'rgba(70,217,164,0.12)', border: '1px solid rgba(70,217,164,0.28)',
               color: '#46d9a4', transition: 'all 0.15s ease',
@@ -240,16 +241,21 @@ function TaskBoardScreen() {
                 </select>
               </div>
             </div>
+            {createError && (
+              <div style={{ marginTop:14, padding:'9px 12px', borderRadius:10, background:'rgba(255,107,125,0.07)', border:'1px solid rgba(255,107,125,0.18)', fontSize:12, color:'#ff6b7d', lineHeight:1.5 }}>
+                {createError}
+              </div>
+            )}
             <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:16 }}>
-              <button onClick={() => { setShowNewTask(false); setNewTaskTitle(''); setNewTaskDesc(''); }}
+              <button onClick={() => { setShowNewTask(false); setNewTaskTitle(''); setNewTaskDesc(''); setCreateError(''); }}
                 style={{ padding:'9px 18px', borderRadius:10, fontSize:13, fontWeight:700, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-secondary)', cursor:'pointer' }}>Cancel</button>
               <button disabled={!newTaskTitle.trim() || creatingTask} onClick={async () => {
-                setCreatingTask(true);
+                setCreateError(''); setCreatingTask(true);
                 try {
                   await api.createTask({ title: newTaskTitle.trim(), description: newTaskDesc.trim(), priority: newTaskPriority, task_type: newTaskType });
                   setShowNewTask(false); setNewTaskTitle(''); setNewTaskDesc('');
                   fetchAll();
-                } catch (e) { console.error('Create task failed', e); }
+                } catch (e) { setCreateError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not create task. Check your connection and try again.'); }
                 finally { setCreatingTask(false); }
               }}
                 style={{ padding:'9px 18px', borderRadius:10, fontSize:13, fontWeight:700, background:newTaskTitle.trim() && !creatingTask ? 'linear-gradient(135deg,#6CB0FF,#3A7FE8)' : 'rgba(93,162,255,0.2)', border:'none', color:'#fff', cursor: newTaskTitle.trim() && !creatingTask ? 'pointer' : 'not-allowed' }}>
