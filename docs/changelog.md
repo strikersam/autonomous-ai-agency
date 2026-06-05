@@ -28,102 +28,32 @@
 
 ## [Unreleased]
 
-### Security
-- **Autonomy gate — agents propose via PR, humans merge.** New `agent/autonomy_gate.py`
-  bounds what the autonomous loop can do to the repo: agent-initiated commits/pushes to
-  protected branches (main/master, extendable via `AUTONOMY_PROTECTED_BRANCHES`) and any
-  agent-initiated PR merge are refused (`AutonomyViolation`). Enforced at the GitHub write
-  surface (`GitHubTools.commit_file`/`open_pull_request`/`merge_pull_request`, `LocalWorkspace.push`)
-  with safe defaults so human/API callers are unaffected; `AgentRunner` constructs its
-  `GitHubTools` with the gate active. *Risk:* an over-broad gate could block legitimate human
-  commits — mitigated by the per-instance/per-call `agent_initiated` flag (default False).
-  *Verified by:* `risky-module-review` skill + `tests/test_autonomy_gate.py`.
-
 ### Added
-- **`services/background.py` + `worker_main.py` — Always-on Worker entrypoint (Task 2 / P0).**
-  Extracted `RuntimeManager` / `TaskDispatcher` / `SCHEDULER` / self-bootstrap startup into
-  `services/background.py:start_background_services()` callable from both the FastAPI lifespan
-  and a standalone worker process. `worker_main.py` is the worker entrypoint: `asyncio.run()` an
-  async main that boots all background services and blocks until `SIGTERM` / `SIGINT`. `render.yaml`
-  gains a `type: worker` service (`local-llm-server-worker`) running `python worker_main.py` for
-  24×7 task execution on the free tier. New env flag `RUN_BACKGROUND_IN_WEB` (default `true`)
-  controls whether the web process also runs background services; flip to `false` once the worker
-  is deployed. `docs/runbooks/worker.md` covers deployment, verification, graceful shutdown, and
-  troubleshooting. 8 unit tests in `tests/test_background_services.py`;
-  `tests/test_backend_runtime_bootstrap.py` updated to patch at the `services.background` level.
+- **`services/kimi_bridge_server/` — Kimi web-bridge microservice (Task 1 / P0).** Standalone
+  OpenAI-compatible HTTP service (`POST /v1/chat/completions`, `GET /v1/models`, `GET /health`)
+  backed by a Playwright browser session logged in to kimi.com — no paid API key required.
+  `browser_driver.py`: persistent Chromium profile (`PLAYWRIGHT_USER_DATA_DIR`), asyncio lock for
+  request serialisation, one-time manual login helper (`--login` flag), and headless `ask()` for
+  inference. `app.py`: Pydantic request model matching OpenAI chat schema, hmac bearer-token auth
+  (`KIMI_BRIDGE_TOKEN`, `hmac.compare_digest`), OpenAI-shaped response with best-effort usage
+  counts, streaming rejected (not supported by web-UI approach). `Dockerfile.kimibridge` uses the
+  official Playwright base image; `README.md` covers one-time login, running, and Docker usage.
+  11 unit tests in `tests/test_kimi_bridge_server.py` (mocked driver, auth enforcement, response
+  shape, prompt helpers).
 
 ### Fixed
-- Address CodeRabbit review on the Kimi browser-routing / auto-PR feature: gate agent
-  auto-push/PR behind `AGENT_AUTO_PR_ENABLED` (default off); parse dotted GitHub repo
-  names and branch off whenever HEAD already equals the PR base; normalize whitespace-only
-  Kimi bridge env values; forward the bridge `api_key` as `OPENAI_API_KEY` to Goose and log
-  (not swallow) bridge-resolution failures in Goose/Hermes; gate the `WEB_BROWSE` capability
-  of Goose/Aider on Kimi-bridge availability so the router won't route web tasks to a
-  runtime with no browser path.
-- CI Security Gate: `tests/test_autonomy_gate.py` passed a string literal `token="x"` to
-  `GitHubTools`, tripping Bandit **B106** (3 new alerts). Token is now sourced from a variable/env so
-  no new alerts are introduced (gate green).
-- **Agency execution spine unblocked (CEO + tasks no longer idle).** Background agent
-  work was permanently dead under the default `AGENCY_WORKFLOW_MODE=orchestrator`:
-  the `TaskDispatcher` reached `AgentRunner.run()` through `InternalAgentAdapter`
-  without the orchestrator `_BYPASS` set, so every task failed with "AgentRunner.run()
-  is blocked in orchestrator mode" and was marked BLOCKED after 10 retries; the CEO
-  `Agency.run_cycle()` raised every tick and the agency sat idle. Fix scopes the bypass
-  to the *sanctioned* autonomous callers — `TaskExecutionCoordinator.execute()`
-  (dispatcher- and scheduler-driven) and the CEO `Agency.run_cycle()` cycle — so they
-  execute, while the direct `/runtimes/{id}/execute` API stays gated (the adapter does
-  not bypass). Bypass is an async-safe `ContextVar` set/reset per asyncio task. New
-  regression tests in `tests/test_internal_agent_bypass.py`; `tests/test_workflow_orchestrator.py`
-  updated (`Agency.run_cycle()` is now a sanctioned internal caller, not blocked).
-- **Free Kimi web-bridge provider + default-on specialist runtimes.** With no free
-  runtime/provider configured, every task hit "All runtimes failed and policy prevents
-  paid escalation" (the only Kimi path was the *paid* Moonshot API). New
-  `providers/kimi_bridge.py` registers a `kimi-web-bridge` provider classified **free**
-  (`_FREE_CLOUD_PROVIDER_IDS`) that reaches Kimi via an OpenAI-compatible bridge
-  endpoint (`KIMI_BRIDGE_URL`) without a paid key, so `internal_agent`/Hermes can
-  actually produce code; appended in `ProviderRouter.from_env()` and surfaced in the
-  Providers list. Hermes/Goose/Aider are now registered **by default** in
-  `runtimes/manager.py` (graceful unavailable-when-absent; `RUNTIME_EXTERNAL_DISABLED`
-  escape hatch). Tests in `tests/test_kimi_bridge_provider.py`.
-- **Task follow-up / rerun with conversation carry-over.** There was no way to give a
-  task new guidance and re-run it. New `TaskWorkflowService.follow_up()` +
-  `POST /api/tasks/{id}/follow-up` append the message to the thread and re-open/re-queue
-  the task (works from done/failed/blocked/in_review). `_build_spec` now also exposes the
-  thread as `context["conversation"]` — the key the runtime's AgentRunner actually reads —
-  so follow-up instructions and prior agent replies survive across re-runs. Tests in
-  `tests/test_task_follow_up.py`.
-- **Company priorities are captured and shown.** The company page showed 0 priorities
-  even after onboarding because the `Company` model had no priorities field and answers
-  were discarded into tasks. Added `Company.priorities`; `POST /{id}/onboarding/answers`
-  now derives priorities from the user's KPI/metric selections + stated pain point and
-  persists them onto the company (and returns them).
-- **Quick-notes become real Tasks.** Submitting a quick-note (`POST /v1/quick-notes`) now
-  creates a Task routed through the working dispatcher so agents actually pick it up and
-  propose a PR — previously notes were only filed as a GitHub issue or parked in a local
-  queue processed by a `claude` CLI absent in production, so they "stayed there forever".
-  Tests in `tests/test_quick_note_to_task.py`.
-- **Alerts work without a database.** `log_activity()` now always records to an in-memory
-  activity feed (merged into `/api/activity`, de-duplicated against Mongo), so the alerts
-  bell is no longer permanently zero when Mongo is unavailable; quick-note→task events are
-  emitted to it. Tests in `tests/test_activity_feed.py`.
-- **Doctor reports skills-repo connectivity.** Added a dedicated "Skills Repos" check to
-  `/api/doctor` that reports whether the GitHub-backed `SkillRegistry` initialised and how
-  many of the configured skill repos are connected — directly answering the "skills repo
-  not connected" diagnostic.
-- **Self-onboarding bootstrap.** New `services/self_bootstrap.py` registers the platform
-  as its own company (linked to `github.com/strikersam/local-llm-server`) on startup and
-  hands the "connect & verify the repo" work to the agency's own agents as a Task (which
-  flows through the dispatcher + PR-autonomy gate). Idempotent (keyed on domain),
-  fire-and-forget, never blocks/crashes startup; gated by `SELF_BOOTSTRAP_ENABLED`. Wired
-  into the server lifespan. Tests in `tests/test_self_bootstrap.py`.
-- **Chat model/provider dropdown no longer gets cut off.** `ModelPicker`/`AgentPicker`
-  now compute viewport-aware placement (flip up/down based on available space, capped
-  scrollable height) instead of always opening in a fixed direction.
-- **Skills are no longer always e-commerce.** The Skills page had Recommended/Registry
-  tabs wired to live, domain-aware backend skills but **no UI to switch to them**, so users
-  were stuck on the commerce demo catalogue. Added a tab switcher and made the page default
-  to the domain-aware Recommended tab when real recommendations exist. (Verified: `npm run
-  build` compiles.)
+- **`services/kimi_bridge_server/` — CodeRabbit review hardening.** `app.py`: logger renamed to
+  `"qwen-proxy"` (coding guideline); lifespan annotated `-> AsyncIterator[None]`; `_verify_token`
+  is now fail-closed (raises `HTTP 503`) when `KIMI_BRIDGE_TOKEN` is not configured; error detail
+  no longer exposes raw exception message; `total_tokens` is derived from `prompt_tokens +
+  completion_tokens` (not re-computed independently). `browser_driver.py`: logger renamed to
+  `"qwen-proxy"`; `import time` moved to module level; bare `assert` replaced with explicit
+  `RuntimeError`; `print()` replaced with `log.error()`. `Dockerfile.kimibridge`: packages pinned
+  (`fastapi==0.115.6`, `uvicorn==0.32.1`, `playwright==1.49.0`); non-root `pwuser` added.
+  `tests/test_kimi_bridge_server.py`: `"test-secret"` literal replaced by `auth_token` fixture
+  (`secrets.token_hex(16)`); return type annotations added to all test functions.
+  `services/kimi_bridge_server/__init__.py`: added `from __future__ import annotations`.
+  `README.md`: env-var fenced block marked as `bash`.
 - Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
 - Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
 - `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)
