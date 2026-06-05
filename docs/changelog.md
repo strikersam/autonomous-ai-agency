@@ -68,6 +68,14 @@
   propose a PR — previously notes were only filed as a GitHub issue or parked in a local
   queue processed by a `claude` CLI absent in production, so they "stayed there forever".
   Tests in `tests/test_quick_note_to_task.py`.
+- **Alerts work without a database.** `log_activity()` now always records to an in-memory
+  activity feed (merged into `/api/activity`, de-duplicated against Mongo), so the alerts
+  bell is no longer permanently zero when Mongo is unavailable; quick-note→task events are
+  emitted to it. Tests in `tests/test_activity_feed.py`.
+- **Doctor reports skills-repo connectivity.** Added a dedicated "Skills Repos" check to
+  `/api/doctor` that reports whether the GitHub-backed `SkillRegistry` initialised and how
+  many of the configured skill repos are connected — directly answering the "skills repo
+  not connected" diagnostic.
 - Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
 - Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
 - `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)

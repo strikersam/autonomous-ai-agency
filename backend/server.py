@@ -84,6 +84,12 @@ log = logging.getLogger("llm-wiki")
 
 _ERROR_LOG_BUFFER: deque[dict[str, object]] = deque(maxlen=250)
 
+# Always-on in-memory activity feed. Mongo-backed activity_log is the durable
+# store, but it is silently skipped when no DB is available (e.g. SQLite / Render
+# without Mongo) — which is why the alerts bell always showed zero. log_activity()
+# now also writes here so business events surface regardless of the DB backend.
+_ACTIVITY_BUFFER: deque[dict[str, object]] = deque(maxlen=250)
+
 
 class _InMemoryErrorLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
@@ -2878,18 +2884,19 @@ async def _run_agent_loop(
 async def log_activity(
     category: str, message: str, user_id: str = None, meta: dict = None
 ):
+    entry = {
+        "category": category,
+        "message": message,
+        "user_id": user_id,
+        "meta": meta or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Always record to the in-memory feed so the alerts bell works even without a DB.
+    _ACTIVITY_BUFFER.appendleft(dict(entry))
     try:
-        await get_db().activity_log.insert_one(
-            {
-                "category": category,
-                "message": message,
-                "user_id": user_id,
-                "meta": meta or {},
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        await get_db().activity_log.insert_one(dict(entry))
     except Exception as exc:
-        log.debug("Activity log skipped (DB unavailable): %s", exc)
+        log.debug("Activity log DB write skipped (DB unavailable): %s", exc)
 
 
 # ─── Auth Endpoints ─────────────────────────────────────────────────────────────
@@ -4283,6 +4290,10 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
             logs.append(entry)
     except Exception as exc:
         log.debug("Activity query unavailable: %s", exc)
+    # Merge the always-on in-memory feeds so alerts work without a DB and reflect
+    # recent business events (task failures, quick-notes, onboarding, etc.).
+    if _ACTIVITY_BUFFER:
+        logs.extend(list(_ACTIVITY_BUFFER)[:limit])
     if _ERROR_LOG_BUFFER:
         logs.extend(list(_ERROR_LOG_BUFFER)[:limit])
     logs.sort(
@@ -4291,7 +4302,21 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
         ),
         reverse=True,
     )
-    logs = logs[:limit]
+    # De-duplicate entries that exist in both Mongo and the in-memory buffer
+    # (same event written to both by log_activity).
+    deduped: list = []
+    seen: set = set()
+    for entry in logs:
+        key = (
+            str(entry.get("created_at") or entry.get("timestamp") or ""),
+            str(entry.get("message") or ""),
+            str(entry.get("category") or entry.get("level") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(entry)
+    logs = deduped[:limit]
     return {"logs": logs, "events": logs, "activity": logs}
 
 
@@ -5297,6 +5322,12 @@ async def quick_notes_submit(
             await _qn_wf.create_task(_qn_task, actor=f"user:{owner_id}")
             quick_note_task_id = _qn_task.task_id
             log.info("Quick-note converted to task %s", quick_note_task_id)
+            await log_activity(
+                "quick_note",
+                f"Quick-note queued for the agency as task {quick_note_task_id}: {title[:80]}",
+                user_id=owner_id,
+                meta={"task_id": quick_note_task_id},
+            )
     except Exception:
         log.exception("Quick-note → task conversion failed")
 
@@ -6342,6 +6373,63 @@ async def get_doctor_diagnostics(
             label="Skill Library",
             status="warn",
             detail="Skill library unavailable",
+        ))
+
+    # 4b. Skill registry ("skills repos") connectivity — this is what the operator
+    # means by "skills repo connected": the GitHub-backed SkillRegistry that pulls
+    # skills from the configured registries (anthropics/skills, this repo, etc.).
+    try:
+        from agent.skill_registry import (
+            GITHUB_REGISTRIES,
+            get_skill_registry_safe,
+        )
+
+        registry = get_skill_registry_safe()
+        if registry is None:
+            checks.append(_DoctorCheck(
+                id="skill_registry",
+                category="Skills",
+                label="Skills Repos",
+                status="fail",
+                detail="Skill registry not initialised — skills repos are not connected.",
+                explanation="Set GITHUB_TOKEN so the server can fetch the configured "
+                "skill registries, then restart. Local .claude/skills still load without it.",
+            ))
+        else:
+            all_skills = registry.list()
+            local_n = sum(1 for s in all_skills if s.source == "local")
+            remote_sources = {
+                s.source for s in all_skills if s.source.startswith("github:")
+            }
+            n_registries = len(GITHUB_REGISTRIES)
+            if remote_sources:
+                checks.append(_DoctorCheck(
+                    id="skill_registry",
+                    category="Skills",
+                    label="Skills Repos",
+                    status="pass",
+                    detail=f"Connected: {len(remote_sources)}/{n_registries} skill "
+                    f"repos, {len(all_skills)} skills ({local_n} local).",
+                ))
+            else:
+                checks.append(_DoctorCheck(
+                    id="skill_registry",
+                    category="Skills",
+                    label="Skills Repos",
+                    status="warn",
+                    detail=f"{local_n} local skills loaded; {n_registries} remote skill "
+                    "repos configured but none fetched yet.",
+                    explanation="Remote skill repos load asynchronously and need network "
+                    "(and GITHUB_TOKEN to avoid rate limits). They will appear after the "
+                    "first refresh.",
+                ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="skill_registry",
+            category="Skills",
+            label="Skills Repos",
+            status="warn",
+            detail=f"Skill registry check failed: {exc}",
         ))
 
     # 5. Workflow orchestrator status
