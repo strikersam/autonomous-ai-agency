@@ -3,6 +3,7 @@ name: Changelog check
 on:
   pull_request:
     branches: ["main", "master"]
+    paths-ignore: ["docs/context/**"]
 
 permissions:
   contents: read
@@ -11,8 +12,11 @@ jobs:
   changelog:
     name: Require changelog entry
     runs-on: ubuntu-latest
-    # Dependabot PRs never touch changelog — exempt them
-    if: github.actor != 'dependabot[bot]'
+    # Skip Dependabot PRs (never touch changelog) and draft PRs (e.g.
+    # auto-generated context plans, which only add docs/context/*.md).
+    if: >
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.draft == false
 
     steps:
       - uses: actions/checkout@v4
