@@ -1,0 +1,19 @@
+FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
+
+WORKDIR /app
+
+# Copy just what the bridge needs
+COPY requirements.txt ./
+RUN pip install --no-cache-dir fastapi uvicorn playwright && \
+    python -m playwright install chromium --with-deps
+
+COPY services/kimi_bridge_server ./services/kimi_bridge_server
+COPY providers/kimi_bridge.py ./providers/kimi_bridge.py
+
+# Persistent browser profile is mounted at runtime via -v
+ENV PLAYWRIGHT_USER_DATA_DIR=/kimi_profile
+ENV KIMI_BRIDGE_HEADLESS=true
+
+EXPOSE 8011
+
+CMD ["uvicorn", "services.kimi_bridge_server.app:app", "--host", "0.0.0.0", "--port", "8011"]

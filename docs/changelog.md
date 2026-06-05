@@ -51,6 +51,17 @@
   is deployed. `docs/runbooks/worker.md` covers deployment, verification, graceful shutdown, and
   troubleshooting. 8 unit tests in `tests/test_background_services.py`;
   `tests/test_backend_runtime_bootstrap.py` updated to patch at the `services.background` level.
+- **`services/kimi_bridge_server/` — Kimi web-bridge microservice (Task 1 / P0).** Standalone
+  OpenAI-compatible HTTP service (`POST /v1/chat/completions`, `GET /v1/models`, `GET /health`)
+  backed by a Playwright browser session logged in to kimi.com — no paid API key required.
+  `browser_driver.py`: persistent Chromium profile (`PLAYWRIGHT_USER_DATA_DIR`), asyncio lock for
+  request serialisation, one-time manual login helper (`--login` flag), and headless `ask()` for
+  inference. `app.py`: Pydantic request model matching OpenAI chat schema, hmac bearer-token auth
+  (`KIMI_BRIDGE_TOKEN`, `hmac.compare_digest`), OpenAI-shaped response with best-effort usage
+  counts, streaming rejected (not supported by web-UI approach). `Dockerfile.kimibridge` uses the
+  official Playwright base image; `README.md` covers one-time login, running, and Docker usage.
+  11 unit tests in `tests/test_kimi_bridge_server.py` (mocked driver, auth enforcement, response
+  shape, prompt helpers).
 
 ### Fixed
 - Address CodeRabbit review on the Kimi browser-routing / auto-PR feature: gate agent
