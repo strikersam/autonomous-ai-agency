@@ -50,7 +50,22 @@
 
 ## [Unreleased]
 
+### Added
+- **Issue → Context → Draft PR automation.** Three workflows turn every GitHub issue into a codebase-aware implementation plan: `issue-context-generator.yml` (triggers on any issue opened / `quick-note` label — fetches the linked URL, calls free NVIDIA NIM models with Claude Opus fallback, generates an implementation prompt + prioritised TODO list grounded in CLAUDE.md and the graphify graph, commits `docs/context/issue-N.md`, opens a **draft PR**, closes the issue); `bulk-issue-context.yml` (`workflow_dispatch` to backfill all open issues, with `dry_run`, label exclusions, explicit `issue_numbers` targeting, and `regenerate` mode that updates existing draft PRs in place); and `.github/scripts/generate_context.py` (the LLM engine — 4-model NVIDIA fallback chain, URL grounding via the shared `fetch_url.py`, structured JSON output). Replaces the old static-template `enrich-quick-note-context.yml` which added no LLM reasoning and never created PRs.
+- **README — "Issue → Context → Draft PR automation" section** documenting the pipeline, free-first NVIDIA model routing, backfill commands, and the master-branch auto-trigger caveat.
+
+### Changed
+- **`process-quick-note.yml`** — PR creation now uses `--draft` (suppresses CodeRabbit/Copilot auto-reviews on implementation PRs). Branch creation detects and reuses an existing `claude/context-issue-N` branch so implementation commits land on the pre-built draft PR instead of opening a duplicate.
+- **CI no longer runs on draft PRs or docs-only context commits.** `paths-ignore: ["docs/context/**"]` added to the push/pull_request triggers of `ci.yml`, `e2e.yml`, `browser-e2e.yml`, `security-gate.yml`, `changelog-check.yml`, `security-scan.yml`, plus `if: github.event.pull_request.draft == false` job guards on `ci.yml`, `e2e.yml`, `browser-e2e.yml`, `security-gate.yml`, `changelog-check.yml`. Draft status only stops review bots, not GitHub Actions — these guards stop auto-generated context draft PRs from triggering the full CI suite.
+- **Context PR titles use a `docs:` prefix** so the `changelog-check` gate exempts them (context PRs only add `docs/context/*.md`).
+
 ### Fixed
+- **All 20 V5 screens audited for swallowed errors; approve/retry now show inline error banners.** `handleRetry` previously had a bare `catch (_) {}` swallowing all errors silently; now shows a yellow click-to-dismiss actionError banner. `handleApprove` filters out expected 404/400 (optimistic: no checkpoint to approve) but surfaces real failures.
+
+- **Browser E2E now covers 20 pages (was 13).** Added 7 missing V5 routes: `/intelligence`, `/company`, `/github`, `/skills`, `/doctor`, `/onboarding`, `/admin`.
+
+- **Flaky Playwright browser E2E timeouts fixed.** Changed all `wait_until=networkidle` to `domcontentloaded` with adjusted timeouts -- pages with auto-refresh polling (Dashboard 15s, etc.) never settle to `networkidle`, causing intermittent CI failures.
+
 - **TaskBoardScreen create-task modal swallowed API errors with bare `console.error` — no user feedback.** Added `createError` state with an inline red error banner inside the modal (matching the existing error-styling pattern). Error is cleared on modal open, Cancel click, and at the start of each new create attempt to prevent stale error persistence. Error message now uses the `api.fmtErr?.()` fallback chain for readable messages.
 
 - **NVIDIA NIM double `/v1` URL causing task execution failures on production.** `agent/loop.py` line 911 hardcoded `f"{self.ollama_base}/v1/chat/completions"` — when `ollama_base` already contained `/v1` (from `runtimes/adapters/internal_agent.py` `_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"`), the result was `/v1/v1/chat/completions` (404). Fix: (1) `agent/loop.py` now uses `_openai_url()` from `provider_router` which handles the `/v1` suffix correctly; (2) `_NVIDIA_BASE_URL` no longer includes `/v1`; `_best_cloud_primary_base()` and `_nvidia_provider_chain()` normalise the URL; (3) `setup/api.py`, `webui/providers.py`, `render.yaml`, `.env.example` updated to use the correct default URL without `/v1`. `docker/agent_runtime.py` intentionally unchanged — its `_chat_with_openai_compat` appends `/chat/completions` directly (does not inject `/v1`), so the base must contain it.

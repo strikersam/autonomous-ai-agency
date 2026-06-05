@@ -2,7 +2,7 @@
 """
 Browser-based E2E tests — runs with Playwright against a live LLM Relay instance.
 
-Covers ALL 13 control plane pages in both desktop (1280x720) and mobile (375x812)
+Covers ALL 20 control plane pages in both desktop (1280x720) and mobile (375x812)
 viewports. Verifies pages load without console errors, key UI elements are present,
 and navigation works.
 
@@ -48,6 +48,13 @@ PAGES = [
     {"path": "/schedules", "name": "Schedules"},
     {"path": "/chat", "name": "Chat"},
     {"path": "/knowledge", "name": "Knowledge"},
+    {"path": "/skills", "name": "Skills"},
+    {"path": "/intelligence", "name": "Intelligence"},
+    {"path": "/company", "name": "Company"},
+    {"path": "/github", "name": "GitHub"},
+    {"path": "/doctor", "name": "Doctor"},
+    {"path": "/onboarding", "name": "Onboarding"},
+    {"path": "/admin", "name": "Admin"},
     {"path": "/runtimes", "name": "Runtimes"},
     {"path": "/routing", "name": "Routing"},
     {"path": "/providers", "name": "Providers"},
@@ -86,8 +93,8 @@ def do_login(page: Page, base_url: str) -> bool:
     """Log in and return True on success."""
     print(f"\n{'='*60}\n  Login\n{'='*60}")
 
-    page.goto(f"{base_url}/login", wait_until="networkidle", timeout=15000)
-    page.wait_for_timeout(1000)
+    page.goto(f"{base_url}/login", wait_until="domcontentloaded", timeout=15000)
+    page.wait_for_timeout(1500)
 
     # Check if already logged in (redirected away from login)
     if "login" not in page.url.lower():
@@ -131,8 +138,8 @@ def do_login(page: Page, base_url: str) -> bool:
 
     # Strategy 3: Try admin UI login page
     if email_field is None or pw_field is None:
-        page.goto(f"{base_url}/admin/ui/login", wait_until="networkidle", timeout=15000)
-        page.wait_for_timeout(500)
+        page.goto(f"{base_url}/admin/ui/login", wait_until="domcontentloaded", timeout=15000)
+        page.wait_for_timeout(800)
         email_field = page.locator('input[name="username"], input[type="text"]:visible').first
         pw_field = page.locator('input[type="password"]:visible').first
 
@@ -156,8 +163,8 @@ def do_login(page: Page, base_url: str) -> bool:
     else:
         pw_field.press("Enter")
 
-    page.wait_for_load_state("networkidle", timeout=15000)
-    page.wait_for_timeout(1000)
+    page.wait_for_load_state("domcontentloaded", timeout=15000)
+    page.wait_for_timeout(1500)
 
     # Verify we're logged in (not on login page anymore)
     current = page.url
@@ -190,8 +197,11 @@ def test_page(page: Page, base_url: str, page_info: dict, viewport_name: str) ->
     page.on("console", on_console)
 
     try:
-        page.goto(f"{base_url}{path}", wait_until="networkidle", timeout=15000)
-        time.sleep(0.5)
+        # Use domcontentloaded instead of networkidle — pages with auto-refresh
+        # (Dashboard polls every 15s, etc.) never reach networkidle, causing flaky
+        # timeouts in CI. domcontentloaded is reliable when the SPA shell loads.
+        page.goto(f"{base_url}{path}", wait_until="domcontentloaded", timeout=15000)
+        page.wait_for_timeout(800)
     except Exception as e:
         fail(f"{name} ({viewport_name})", f"navigation error: {e}")
         return
