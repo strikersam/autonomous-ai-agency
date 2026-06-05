@@ -6,7 +6,6 @@ import logging
 import os
 import time
 import asyncio
-from threading import Lock
 from typing import Any
 
 from agents.store import AgentDefinition, AgentStore, get_agent_store
@@ -15,6 +14,7 @@ from runtimes.manager import RuntimeManager, get_runtime_manager
 from tasks.models import Task, TaskComment, TaskStatus
 from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
+from services.shared_state import claim as _shared_claim, release as _shared_release
 
 log = logging.getLogger("qwen-proxy")
 
@@ -388,9 +388,6 @@ _DISPATCH_RETRY_LIMIT = 10  # max re-queues before a task is blocked
 class TaskExecutionCoordinator:
     """Executes tasks through the runtime layer using agent definitions."""
 
-    _active_task_ids: set[str] = set()
-    _active_task_ids_guard = Lock()
-
     def __init__(
         self,
         *,
@@ -411,7 +408,7 @@ class TaskExecutionCoordinator:
         )
 
     async def execute(self, task_id: str) -> Task:
-        if not self._claim_task(task_id):
+        if not await self._claim_task(task_id):
             log.info("Task %s is already executing; skipping duplicate run request", task_id)
             existing = await self.store.get(task_id)
             if existing is None:
@@ -420,10 +417,10 @@ class TaskExecutionCoordinator:
 
         task = await self.store.get(task_id)
         if task is None:
-            self._release_task(task_id)
+            await self._release_task(task_id)
             raise ValueError(f"Task not found: {task_id}")
         if not task.pending_agent_run:
-            self._release_task(task_id)
+            await self._release_task(task_id)
             return task
 
         try:
@@ -574,21 +571,16 @@ class TaskExecutionCoordinator:
             )
         finally:
             await self.store.update(task)
-            self._release_task(task_id)
+            await self._release_task(task_id)
         return task
 
-    @classmethod
-    def _claim_task(cls, task_id: str) -> bool:
-        with cls._active_task_ids_guard:
-            if task_id in cls._active_task_ids:
-                return False
-            cls._active_task_ids.add(task_id)
-            return True
+    @staticmethod
+    async def _claim_task(task_id: str) -> bool:
+        return await _shared_claim(f"task:active:{task_id}", ttl=3600)
 
-    @classmethod
-    def _release_task(cls, task_id: str) -> None:
-        with cls._active_task_ids_guard:
-            cls._active_task_ids.discard(task_id)
+    @staticmethod
+    async def _release_task(task_id: str) -> None:
+        await _shared_release(f"task:active:{task_id}")
 
     async def _resolve_agent(self, task: Task) -> AgentDefinition | None:
         if task.agent_id:
