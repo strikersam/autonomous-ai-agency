@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 - used only to invoke the trusted local fetch_url.py script
 import sys
 import textwrap
 import time
@@ -100,8 +100,8 @@ def _fetch_url_content(url: str) -> str:
 
     log.info("Fetching article content from %s ...", url)
     try:
-        subprocess.run(  # nosec B603 - fixed script path, url is the only arg
-            ["python3", script, url], timeout=150, check=False,
+        subprocess.run(  # nosec B603 - sys.executable + fixed script path, url is the only arg
+            [sys.executable, script, url], timeout=150, check=False,
             capture_output=True, text=True,
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
