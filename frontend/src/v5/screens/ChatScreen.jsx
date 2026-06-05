@@ -62,12 +62,28 @@ function relTime(iso) {
 function AgentPicker({ selected, onSelect, onOpen, forceClose }) {
   const [open, setOpen] = React.useState(false);
   const ag = AVAILABLE_AGENTS.find(a => a.id === selected) || AVAILABLE_AGENTS[0];
+  const btnRef = React.useRef(null);
+  // Viewport-aware placement so the menu is never clipped off-screen.
+  const [placement, setPlacement] = React.useState({ up: true, maxH: 360 });
   // Close when another dropdown opens
   React.useEffect(() => { if (forceClose) setOpen(false); }, [forceClose]);
-  const toggle = () => { setOpen(o => { const next = !o; if (next && onOpen) onOpen(); return next; }); };
+  const toggle = () => { setOpen(o => {
+    const next = !o;
+    if (next) {
+      const r = btnRef.current?.getBoundingClientRect();
+      if (r) {
+        const below = window.innerHeight - r.bottom;
+        const above = r.top;
+        const up = above >= below;
+        setPlacement({ up, maxH: Math.max(180, Math.min(360, (up ? above : below) - 16)) });
+      }
+      if (onOpen) onOpen();
+    }
+    return next;
+  }); };
   return (
     <div style={{ position:'relative' }}>
-      <button onClick={toggle} style={{
+      <button ref={btnRef} onClick={toggle} style={{
         display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
         borderRadius:999, border:`1px solid ${open?'rgba(93,162,255,0.40)':'rgba(255,255,255,0.12)'}`,
         background:open?'rgba(93,162,255,0.10)':'rgba(255,255,255,0.04)',
@@ -82,9 +98,10 @@ function AgentPicker({ selected, onSelect, onOpen, forceClose }) {
         <>
           <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={()=>setOpen(false)}/>
           <div style={{
-            position:'absolute', bottom:'calc(100% + 6px)', left:0, zIndex:50,
+            position:'absolute', left:0, zIndex:50,
+            ...(placement.up ? { bottom:'calc(100% + 6px)' } : { top:'calc(100% + 6px)' }),
             background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
-            borderRadius:16, padding:8, minWidth:240,
+            borderRadius:16, padding:8, minWidth:240, maxHeight:placement.maxH, overflowY:'auto',
             boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
           }}>
             <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Chat with</div>
@@ -299,6 +316,10 @@ function ModelPicker({ selected, onSelect, onOpen, forceClose }) {
   const [models, setModels] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [selProvider, setSelProvider] = React.useState(selected?.provider || null);
+  const btnRef = React.useRef(null);
+  // Viewport-aware placement so the menu never gets clipped off-screen (it used to
+  // always open downward and get cut off near the bottom of the screen).
+  const [placement, setPlacement] = React.useState({ up: false, maxH: 360 });
   // Close when another dropdown opens
   React.useEffect(() => { if (forceClose) setOpen(false); }, [forceClose]);
   // Reset selProvider when dropdown opens to prevent stale state
@@ -307,6 +328,13 @@ function ModelPicker({ selected, onSelect, onOpen, forceClose }) {
       const next = !o;
       if (next) {
         setSelProvider(selected?.provider || null);
+        const r = btnRef.current?.getBoundingClientRect();
+        if (r) {
+          const below = window.innerHeight - r.bottom;
+          const above = r.top;
+          const up = below < 340 && above > below;
+          setPlacement({ up, maxH: Math.max(180, Math.min(360, (up ? above : below) - 16)) });
+        }
         if (onOpen) onOpen();
       }
       return next;
@@ -338,7 +366,7 @@ function ModelPicker({ selected, onSelect, onOpen, forceClose }) {
 
   return (
     <div style={{ position:'relative' }}>
-      <button onClick={toggle} style={{
+      <button ref={btnRef} onClick={toggle} style={{
         display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
         borderRadius:999, border:`1px solid ${open ? 'rgba(93,162,255,0.40)' : 'rgba(255,255,255,0.12)'}`,
         background: open ? 'rgba(93,162,255,0.10)' : 'rgba(255,255,255,0.04)',
@@ -353,9 +381,10 @@ function ModelPicker({ selected, onSelect, onOpen, forceClose }) {
         <>
           <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setOpen(false)} />
           <div style={{
-            position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:50,
+            position:'absolute', left:0, zIndex:50,
+            ...(placement.up ? { bottom:'calc(100% + 6px)' } : { top:'calc(100% + 6px)' }),
             background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
-            borderRadius:16, padding:8, minWidth:280, maxHeight:360, overflowY:'auto',
+            borderRadius:16, padding:8, minWidth:280, maxHeight:placement.maxH, overflowY:'auto',
             boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
           }}>
             <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Model & Provider</div>

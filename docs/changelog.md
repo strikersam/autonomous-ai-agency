@@ -82,6 +82,14 @@
   flows through the dispatcher + PR-autonomy gate). Idempotent (keyed on domain),
   fire-and-forget, never blocks/crashes startup; gated by `SELF_BOOTSTRAP_ENABLED`. Wired
   into the server lifespan. Tests in `tests/test_self_bootstrap.py`.
+- **Chat model/provider dropdown no longer gets cut off.** `ModelPicker`/`AgentPicker`
+  now compute viewport-aware placement (flip up/down based on available space, capped
+  scrollable height) instead of always opening in a fixed direction.
+- **Skills are no longer always e-commerce.** The Skills page had Recommended/Registry
+  tabs wired to live, domain-aware backend skills but **no UI to switch to them**, so users
+  were stuck on the commerce demo catalogue. Added a tab switcher and made the page default
+  to the domain-aware Recommended tab when real recommendations exist. (Verified: `npm run
+  build` compiles.)
 - Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
 - Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
 - `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)
