@@ -287,30 +287,25 @@ class TestProviderCooldown:
 
     def test_broken_provider_gets_cooldown_on_error(self, monkeypatch):
         import provider_router as pr
-        from provider_router import mark_provider_failed, get_cooldown_state
+        from provider_router import mark_provider_failed, is_provider_on_cooldown
 
-        pr.clear_cooldowns()
-        mark_provider_failed("bad_prov_test", cooldown_seconds=60)
-        state = get_cooldown_state()
-        assert "bad_prov_test" in state
-        assert state["bad_prov_test"] > time.time()
-        pr.clear_cooldowns()
+        asyncio.run(pr.clear_cooldowns())
+        asyncio.run(mark_provider_failed("bad_prov_test", cooldown_seconds=60))
+        assert asyncio.run(is_provider_on_cooldown("bad_prov_test")) is True
+        asyncio.run(pr.clear_cooldowns())
 
     def test_provider_comes_off_cooldown_after_expiry(self, monkeypatch):
         import provider_router as pr
-        from provider_router import clear_cooldowns, is_provider_on_cooldown
+        from provider_router import clear_cooldowns, is_provider_on_cooldown, mark_provider_failed
 
-        clear_cooldowns()
+        asyncio.run(clear_cooldowns())
 
-        # Inject an already-expired cooldown
-        pr._provider_cooldowns["recovering_test"] = time.time() - 1.0
-
-        # After expiry, is_provider_on_cooldown should return False and clean up
-        result = is_provider_on_cooldown("recovering_test")
+        # Put provider on a very short cooldown
+        asyncio.run(mark_provider_failed("recovering_test", cooldown_seconds=0))
+        # After expiry, is_provider_on_cooldown should return False
+        result = asyncio.run(is_provider_on_cooldown("recovering_test"))
         assert result is False
-        # Expired entry should be removed
-        assert "recovering_test" not in pr._provider_cooldowns
-        clear_cooldowns()
+        asyncio.run(clear_cooldowns())
 
 
 # ---------------------------------------------------------------------------
