@@ -1031,14 +1031,16 @@ class RepoScanner:
     - Detect dependencies
     """
 
-    def __init__(self, company_id: Optional[str] = None):
+    def __init__(self, company_id: Optional[str] = None, github_token: Optional[str] = None):
         """
         Initialize the repository scanner.
         
         Args:
             company_id: Optional company ID for context
+            github_token: Optional GitHub personal access token for authenticated API calls
         """
         self.company_id = company_id
+        self.github_token = github_token
         self.user_agent = "AgencyCore/1.0 (Company Graph Repo Scanner)"
         self.timeout = 30.0
 
@@ -1169,10 +1171,17 @@ class RepoScanner:
         # Note: This requires a GitHub token for private repos
         github_api_url = f"https://api.github.com/repos/{owner}/{repo_name}"
         
+        # Build headers with optional GitHub token for authenticated API calls.
+        # Without a token, GitHub's unauthenticated rate limit is 60 requests/hour
+        # (which is easily exhausted), causing 403/rate-limit errors.
+        _req_headers = {"User-Agent": self.user_agent}
+        if self.github_token:
+            _req_headers["Authorization"] = f"Bearer {self.github_token}"
+        
         try:
             async with httpx.AsyncClient(
                 timeout=self.timeout,
-                headers={"User-Agent": self.user_agent}
+                headers=_req_headers
             ) as client:
                 # Get repo info
                 response = await client.get(github_api_url)
