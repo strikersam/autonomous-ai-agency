@@ -146,11 +146,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
         run: |
-          # Copy the context script to /tmp BEFORE any git branch switches.
-          # git checkout master removes generate_context.py (it only lives on
-          # the feature branch), so we need a stable path for the whole loop.
+          # Copy the scripts to /tmp BEFORE any git branch switches.
+          # git checkout master removes them (they only live on the feature
+          # branch), so we need stable paths for the whole loop.
           cp .github/scripts/generate_context.py /tmp/generate_context.py
+          cp .github/scripts/fetch_url.py /tmp/fetch_url.py
           export REPO_ROOT_PATH="$(pwd)"
+          export FETCH_URL_SCRIPT="/tmp/fetch_url.py"
 
           python3 - <<'PYEOF'
           import json, os, subprocess, sys, time

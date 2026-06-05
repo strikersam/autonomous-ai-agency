@@ -20,6 +20,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import subprocess
 import sys
 import textwrap
 import time
@@ -68,6 +70,56 @@ def _load_codebase_context() -> str:
 
 
 # ---------------------------------------------------------------------------
+# URL article fetcher — reuses the battle-tested fetch_url.py multi-strategy
+# fetcher so quick-note context is grounded in the ACTUAL article, not a guess.
+# ---------------------------------------------------------------------------
+
+def _extract_url(title: str, body: str) -> str | None:
+    """Return the first http(s) URL found in the issue title or body."""
+    m = re.search(r"https?://[^\s>)\]]+", f"{title}\n{body}")
+    return m.group(0) if m else None
+
+
+def _fetch_url_content(url: str) -> str:
+    """Fetch article text via the shared fetch_url.py script (multi-strategy).
+
+    Returns up to 6000 chars of plain text, or "" if the fetch fails. The fetch
+    script writes to /tmp/note_content.txt; we read it back. FETCH_URL_SCRIPT
+    overrides the script path so this works after the bulk workflow copies the
+    scripts to /tmp (git branch switches remove them from the working tree).
+    """
+    script = os.environ.get(
+        "FETCH_URL_SCRIPT", str(Path(__file__).parent / "fetch_url.py")
+    )
+    out_file = "/tmp/note_content.txt"  # nosec: B108 - shared convention with fetch_url.py
+    try:
+        if os.path.exists(out_file):
+            os.remove(out_file)
+    except OSError:
+        pass
+
+    log.info("Fetching article content from %s ...", url)
+    try:
+        subprocess.run(  # nosec B603 - fixed script path, url is the only arg
+            ["python3", script, url], timeout=150, check=False,
+            capture_output=True, text=True,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        log.warning("URL fetch failed for %s: %s", url, exc)
+        return ""
+
+    if os.path.exists(out_file):
+        try:
+            content = Path(out_file).read_text()[:6000]
+            log.info("Fetched %d chars of article content", len(content))
+            return content
+        except OSError:
+            return ""
+    log.warning("URL fetch produced no content for %s", url)
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Prompt builder
 # ---------------------------------------------------------------------------
 
@@ -102,39 +154,48 @@ def _build_user_message(
     body: str,
     labels: list[str],
     codebase_ctx: str,
+    article_content: str = "",
 ) -> str:
     label_str = ", ".join(labels) if labels else "none"
-    return textwrap.dedent(f"""\
-        ## GitHub Issue #{issue_number}
 
-        **Title:** {title}
-        **Labels:** {label_str}
+    # Built as a list of lines (no source indentation) to avoid textwrap.dedent
+    # failing when interpolated multi-line values have zero leading whitespace.
+    article_section = (
+        f"---\n## Linked Article Content (fetched from the issue URL)\n\n"
+        f"{article_content}\n\n"
+        f"Base your prompt and TODOs on what this article ACTUALLY describes — "
+        f"do not guess or assume.\n\n"
+        if article_content
+        else "---\n## Linked Article Content\n\n"
+        "_No URL content available — base the plan on the issue body and your "
+        "knowledge of the topic, and state assumptions explicitly._\n\n"
+    )
 
-        **Body:**
-        {body or "(no body provided)"}
+    output_format = (
+        "{\n"
+        '  "title": "<one-line PR title, max 70 chars, prefix feat:/fix:/refactor:>",\n'
+        '  "prompt": "<full implementation prompt for the AI coding agent, 300-600 words>",\n'
+        '  "todos": [\n'
+        '    {"step": 1, "task": "<task>", "complexity": "S|M|L", "file": "<primary file or null>"}\n'
+        "  ],\n"
+        '  "relevant_files": ["<file1>", "<file2>"],\n'
+        '  "risk_flags": ["<only modules actually touched by the plan>"],\n'
+        '  "notes": "<any architectural notes or open questions>"\n'
+        "}"
+    )
 
-        ---
-        ## Codebase Context
-
-        {codebase_ctx}
-
-        ---
-        ## Your Output Format
-
-        Return **valid JSON only** — no markdown fences, no preamble:
-
-        {{
-          "title": "<one-line PR title, max 70 chars, prefix feat:/fix:/refactor:>",
-          "prompt": "<full implementation prompt for the AI coding agent, 300-600 words>",
-          "todos": [
-            {{"step": 1, "task": "<task>", "complexity": "S|M|L", "file": "<primary file or null>"}},
-            ...
-          ],
-          "relevant_files": ["<file1>", "<file2>"],
-          "risk_flags": ["<flag1>"] | [],
-          "notes": "<any architectural notes or open questions>"
-        }}
-    """)
+    return (
+        f"## GitHub Issue #{issue_number}\n\n"
+        f"**Title:** {title}\n"
+        f"**Labels:** {label_str}\n\n"
+        f"**Body:**\n{body or '(no body provided)'}\n\n"
+        f"{article_section}"
+        f"---\n## Codebase Context\n\n{codebase_ctx}\n\n"
+        f"---\n## Your Output Format\n\n"
+        f"Return **valid JSON only** — no markdown fences, no preamble. "
+        f"Only list a module in risk_flags if your plan actually modifies it:\n\n"
+        f"{output_format}\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -227,57 +288,41 @@ def _build_pr_description(issue_number: str, title: str, result: dict) -> str:
     )
     notes = result.get("notes", "")
 
-    return textwrap.dedent(f"""\
-        ## Context Plan — Issue #{issue_number}: {title}
-
-        > Auto-generated by the **issue-context-generator** workflow.
-        > This is a **DRAFT PR** — implement by triggering the Process Quick Note
-        > workflow or by opening a Claude Code session on this branch.
-
-        ---
-
-        ## Implementation Prompt
-
-        {result.get('prompt', '(prompt generation failed)')}
-
-        ---
-
-        ## TODO List
-
-        {todos_md or '_No TODOs generated._'}
-
-        ---
-
-        ## Relevant Files to Read First
-
-        {relevant or '_None identified._'}
-
-        ---
-
-        ## Risk Flags
-
-        {risk_md}
-
-        ---
-
-        ## Architectural Notes
-
-        {notes or '_None._'}
-
-        ---
-
-        *Closes #{issue_number}*
-    """)
+    # Built by joining lines with no source indentation — textwrap.dedent does
+    # NOT work here because the interpolated multi-line values (todos_md, prompt)
+    # start at column 0, which defeats dedent's common-whitespace detection and
+    # leaves the template lines indented (renders as a code block on GitHub).
+    return (
+        f"## Context Plan — Issue #{issue_number}: {title}\n\n"
+        f"> Auto-generated by the **issue-context-generator** workflow.\n"
+        f"> This is a **DRAFT PR** — implement by triggering the Process Quick Note\n"
+        f"> workflow or by opening a Claude Code session on this branch.\n\n"
+        f"---\n\n"
+        f"## Implementation Prompt\n\n"
+        f"{result.get('prompt', '(prompt generation failed)')}\n\n"
+        f"---\n\n"
+        f"## TODO List\n\n"
+        f"{todos_md or '_No TODOs generated._'}\n\n"
+        f"---\n\n"
+        f"## Relevant Files to Read First\n\n"
+        f"{relevant or '_None identified._'}\n\n"
+        f"---\n\n"
+        f"## Risk Flags\n\n"
+        f"{risk_md}\n\n"
+        f"---\n\n"
+        f"## Architectural Notes\n\n"
+        f"{notes or '_None._'}\n\n"
+        f"---\n\n"
+        f"*Closes #{issue_number}*\n"
+    )
 
 
 def _build_context_doc(issue_number: str, title: str, result: dict, pr_description: str) -> str:
-    return textwrap.dedent(f"""\
-        # Issue #{issue_number}: {title}
-
-        _Generated: {time.strftime('%Y-%m-%d')}_
-
-        {pr_description}
-    """)
+    return (
+        f"# Issue #{issue_number}: {title}\n\n"
+        f"_Generated: {time.strftime('%Y-%m-%d')}_\n\n"
+        f"{pr_description}\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +344,17 @@ def main() -> None:
     log.info("Generating context for issue #%s: %s", issue_number, title)
 
     codebase_ctx = _load_codebase_context()
-    user_msg = _build_user_message(issue_number, title, body, labels, codebase_ctx)
+
+    # Fetch the linked article so the plan is grounded in real content, not a
+    # guess. Quick-note issues carry their entire value in the URL.
+    article_content = ""
+    url = _extract_url(title, body)
+    if url:
+        article_content = _fetch_url_content(url)
+
+    user_msg = _build_user_message(
+        issue_number, title, body, labels, codebase_ctx, article_content
+    )
 
     result: dict = {}
     errors: list[str] = []
