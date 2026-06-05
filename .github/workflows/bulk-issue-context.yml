@@ -68,10 +68,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
           SKIP_LABELS: ${{ github.event.inputs.skip_labels }}
+          SKIP_CSV: ${{ github.event.inputs.skip_labels }}
           MAX_ISSUES: ${{ github.event.inputs.max_issues }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          SKIP_CSV="${SKIP_LABELS:-quick-note:exhausted,agency-escalation}"
+          SKIP_CSV="${SKIP_CSV:-${SKIP_LABELS:-quick-note:exhausted,agency-escalation}}"
 
           # Fetch all open issues as JSON
           gh issue list \
@@ -135,8 +136,6 @@ jobs:
           PYEOF
 
           echo "Eligible issue count: $ELIGIBLE_COUNT"
-        env:
-          SKIP_CSV: ${{ github.event.inputs.skip_labels }}
 
       # ── 4. Process each eligible issue ───────────────────────────────────────
       - name: Process all eligible issues

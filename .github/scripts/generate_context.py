@@ -28,7 +28,7 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
 log = logging.getLogger("generate_context")
 
-RESULT_FILE = "/tmp/context_result.json"
+RESULT_FILE = "/tmp/context_result.json"  # nosec: B108 - predictable temp path; matches implement_agent.py convention for inter-step communication
 REPO_ROOT = Path(__file__).parent.parent.parent
 
 # NVIDIA NIM models tried in order
