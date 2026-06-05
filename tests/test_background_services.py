@@ -89,7 +89,7 @@ async def test_start_background_services_starts_runtime_manager(monkeypatch):
         patch("services.background.TaskAutomationService", _StubTaskAutomation),
     ):
         bg = await bg_mod.start_background_services(
-            workspace_root="/tmp/test",
+            workspace_root="/tmp/test",  # nosec B108 — test-only path, no real temp file
             task_store=MagicMock(),
             scheduler=scheduler,
         )
@@ -126,7 +126,7 @@ async def test_start_background_services_wires_scheduler(monkeypatch):
         patch("services.background.TaskAutomationService", _TrackedAutomation),
     ):
         bg = await bg_mod.start_background_services(
-            workspace_root="/tmp/test",
+            workspace_root="/tmp/test",  # nosec B108 — test-only path, no real temp file
             task_store=MagicMock(),
             scheduler=scheduler,
         )
@@ -152,7 +152,7 @@ async def test_stop_is_idempotent(monkeypatch):
         patch("services.background.TaskAutomationService", _StubTaskAutomation),
     ):
         bg = await bg_mod.start_background_services(
-            workspace_root="/tmp/test",
+            workspace_root="/tmp/test",  # nosec B108 — test-only path, no real temp file
             task_store=MagicMock(),
             scheduler=scheduler,
         )
