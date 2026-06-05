@@ -150,6 +150,7 @@ function TaskBoardScreen() {
   const [newTaskType, setNewTaskType] = React.useState('task');
   const [creatingTask, setCreatingTask] = React.useState(false);
   const [createError, setCreateError] = React.useState('');
+  const [actionError, setActionError] = React.useState('');
 
   const [data, states, fetchAll] = useSafeData(null, {
     tasks: '/api/tasks/',
@@ -158,21 +159,26 @@ function TaskBoardScreen() {
   const rawTasks = data.tasks?.tasks || [];
 
   const handleApprove = async (taskId) => {
-    setPendingApprove(taskId);
+    setActionError(''); setPendingApprove(taskId);
     try {
       await api.approveTaskCheckpoint(taskId, { approved: true, reason: 'Approved via UI' });
-    } catch (_) {
-      // optimistic — backend may not have a pending checkpoint
+    } catch (e) {
+      // Only surface real failures — missing checkpoint (404/400) is expected in optimistic flow
+      if (e?.response?.status !== 404 && e?.response?.status !== 400) {
+        setActionError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not approve task.');
+      }
     }
     setPendingApprove(null);
     fetchAll();
   };
 
   const handleRetry = async (taskId) => {
-    setPendingRetry(taskId);
+    setActionError(''); setPendingRetry(taskId);
     try {
       await api.retryTask(taskId);
-    } catch (_) {}
+    } catch (e) {
+      setActionError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not retry task.');
+    }
     setPendingRetry(null);
     fetchAll();
   };
@@ -213,6 +219,11 @@ function TaskBoardScreen() {
         {error && (
           <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,107,125,0.07)', border: '1px solid rgba(255,107,125,0.18)', fontSize: 12, color: '#ff6b7d' }}>
             Could not load tasks: {error}
+          </div>
+        )}
+        {actionError && (
+          <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,189,102,0.07)', border: '1px solid rgba(255,189,102,0.18)', fontSize: 12, color: '#ffbd66', cursor: 'pointer' }} onClick={() => setActionError('')}>
+            {actionError} <span style={{ fontSize: 10, opacity: 0.6 }}>(click to dismiss)</span>
           </div>
         )}
         {loading && (
