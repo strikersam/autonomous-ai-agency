@@ -83,6 +83,13 @@ class _InMemoryBackend:
             full_key = f"cooldown:{key}"
             return full_key in self._data
 
+    async def cooldown_clear(self) -> None:
+        """Clear all cooldown entries (for test teardown)."""
+        async with self._guard:
+            to_remove = [k for k in self._data if k.startswith("cooldown:")]
+            for k in to_remove:
+                del self._data[k]
+
     async def incr_window(self, key: str, window_s: int, _limit: int = 0) -> int:
         async with self._guard:
             full_key = f"window:{key}"
@@ -142,6 +149,18 @@ class _RedisBackend:
         client = await self._client()
         return await client.exists(f"{self._prefix}cooldown:{key}") > 0
 
+    async def cooldown_clear(self) -> None:
+        """Clear all cooldown entries (for test teardown)."""
+        client = await self._client()
+        pattern = f"{self._prefix}cooldown:*"
+        cursor: int = 0
+        while True:
+            cursor, keys = await client.scan(cursor, match=pattern, count=100)
+            if keys:
+                await client.delete(*keys)
+            if cursor == 0:
+                break
+
     async def incr_window(self, key: str, window_s: int, _limit: int = 0) -> int:
         client = await self._client()
         full_key = f"{self._prefix}window:{key}"
@@ -199,6 +218,11 @@ async def cooldown_set(key: str, ttl: int) -> None:
 async def cooldown_get(key: str) -> bool:
     """Return True if *key* is still within its cooldown window."""
     return await _get_backend().cooldown_get(key)
+
+
+async def cooldown_clear() -> None:
+    """Clear all cooldown entries (for test teardown)."""
+    await _get_backend().cooldown_clear()
 
 
 async def incr_window(key: str, window_s: int, limit: int = 0) -> int:

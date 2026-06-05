@@ -14,11 +14,11 @@ from provider_router import (
 
 
 @pytest.fixture(autouse=True)
-def reset_cooldowns():
+async def reset_cooldowns():
     """Ensure each test starts with no active cooldowns."""
-    clear_cooldowns()
+    await clear_cooldowns()
     yield
-    clear_cooldowns()
+    await clear_cooldowns()
 
 
 @pytest.mark.anyio
@@ -185,7 +185,7 @@ async def test_provider_on_cooldown_is_skipped(monkeypatch) -> None:
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
 
     monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
-    mark_provider_failed("ollama-local", cooldown_seconds=300)
+    await mark_provider_failed("ollama-local", cooldown_seconds=300)
 
     router = ProviderRouter(
         [

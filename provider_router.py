@@ -47,13 +47,14 @@ def get_cooldown_state() -> dict[str, float]:
     return {}
 
 
-def clear_cooldowns() -> None:
+async def clear_cooldowns() -> None:
     """Clear all cooldown entries (useful for testing).
 
-    With the shared_state backend, individual entries naturally expire via TTL.
-    This is a no-op for the in-memory path; the Redis path would require scanning
-    keys which is expensive. Tests should use short TTLs instead.
+    Delegates to shared_state.cooldown_clear() which handles both the in-memory
+    and Redis backends.
     """
+    from services.shared_state import cooldown_clear
+    await cooldown_clear()
 
 
 @dataclass(frozen=True)
