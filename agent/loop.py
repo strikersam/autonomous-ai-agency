@@ -251,10 +251,18 @@ class AgentRunner:
                         "failure_phase": "judge",
                     }
 
-            # Push and open a PR when auto_commit produced local commits and
-            # we have a GitHub repo URL to target.
+            # Push and open a PR when auto_commit produced local commits and we have
+            # a GitHub repo URL to target. Gated behind AGENT_AUTO_PR_ENABLED (default
+            # off) so this new agent-initiated GitHub write path is opt-in and has a
+            # rollout kill switch.
             pr_url: str | None = None
-            if auto_commit and commits and self.repo_url:
+            if (
+                auto_commit
+                and commits
+                and self.repo_url
+                and os.environ.get("AGENT_AUTO_PR_ENABLED", "").strip().lower()
+                in {"true", "1", "yes"}
+            ):
                 pr_url = await self._auto_push_and_pr(
                     commits, self._current_session_id, plan.goal
                 )
@@ -1143,12 +1151,17 @@ class AgentRunner:
         import re as _re
         from agent.github_tools import LocalWorkspace
 
-        match = _re.search(r"github\.com/([^/]+)/([^/.]+)", self.repo_url)
+        # Accept dotted repo names (e.g. service.api), an optional .git suffix, and
+        # extra path/query segments after owner/repo.
+        match = _re.search(
+            r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/#?]+?)(?:\.git)?(?:[/?#]|$)",
+            self.repo_url,
+        )
         if not match:
             log.debug("repo_url %r does not match github.com pattern — skipping auto-PR", self.repo_url)
             return None
 
-        owner, repo = match.group(1), match.group(2).removesuffix(".git")
+        owner, repo = match.group("owner"), match.group("repo")
 
         try:
             ws = LocalWorkspace(owner, repo, self.github.token)
@@ -1163,8 +1176,10 @@ class AgentRunner:
             current_branch = await ws.current_branch()
             base_branch = self.base_branch
 
-            # Never push directly to a protected branch — create a feature branch.
-            if current_branch in ("main", "master"):
+            # Never push directly to a protected branch OR to the PR base branch —
+            # opening a PR with head == base is rejected by GitHub. Isolate the agent's
+            # changes on a fresh feature branch in those cases.
+            if current_branch == base_branch or current_branch in ("main", "master"):
                 push_branch = f"agent/task-{uuid.uuid4().hex[:8]}"
                 await ws.create_branch(push_branch, current_branch)
                 self._log_event(session_id, "step_start", {"description": f"Created branch {push_branch}"})

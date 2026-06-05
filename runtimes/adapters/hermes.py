@@ -160,8 +160,11 @@ class HermesAdapter(RuntimeAdapter):
                 _kb_cfg = kimi_bridge_runtime_config()
                 if _kb_cfg:
                     payload["kimi_bridge"] = _kb_cfg
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning(
+                    "Hermes: failed to resolve kimi_bridge_runtime_config for browser "
+                    "task; running without the bridge: %s", exc,
+                )
 
         t0 = time.monotonic()
         try:

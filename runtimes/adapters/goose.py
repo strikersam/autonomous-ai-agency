@@ -62,6 +62,18 @@ class GooseAdapter(RuntimeAdapter):
         RuntimeCapability.WEB_BROWSE,
     })
 
+    def supports(self, capability: RuntimeCapability) -> bool:
+        # WEB_BROWSE only works when the Kimi bridge is configured — that is Goose's
+        # only browser path. Don't advertise it otherwise, or the router could route
+        # a web_browse task here and run plain Goose with no browsing support.
+        if capability == RuntimeCapability.WEB_BROWSE:
+            try:
+                from providers.kimi_bridge import kimi_bridge_runtime_config
+                return kimi_bridge_runtime_config() is not None
+            except Exception:
+                return False
+        return capability in self.CAPABILITIES
+
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
         self._base_url = (config or {}).get("base_url") or os.environ.get("GOOSE_BASE_URL", "")
@@ -140,6 +152,7 @@ class GooseAdapter(RuntimeAdapter):
         # browser access for web-aware tasks.
         model = spec.model_preference or self._model
         api_base: str | None = None
+        api_key: str | None = None
         _needs_browser = task_wants_browser(spec)
         if _needs_browser:
             try:
@@ -148,13 +161,20 @@ class GooseAdapter(RuntimeAdapter):
                 if _kb:
                     model = str(_kb.get("model", model))
                     api_base = str(_kb.get("base_url", "")) or None
-            except Exception:
-                pass
+                    api_key = _kb.get("api_key") or None
+            except Exception as exc:
+                log.warning(
+                    "Goose: failed to resolve kimi_bridge_runtime_config for browser "
+                    "task; running without the bridge: %s", exc,
+                )
 
         env = os.environ.copy()
         if api_base:
             env["OPENAI_API_BASE"] = api_base
             env["OPENAI_BASE_URL"] = api_base
+            # Goose authenticates OpenAI-compatible endpoints via OPENAI_API_KEY.
+            if api_key:
+                env["OPENAI_API_KEY"] = str(api_key)
 
         cmd = [
             bin_path, "run",

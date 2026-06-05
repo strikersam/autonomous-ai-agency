@@ -55,6 +55,17 @@ def _enabled() -> bool:
     }
 
 
+def _norm_env(name: str, fallback: str | None = None) -> str | None:
+    """Read an env var, strip it, and fall back when empty/whitespace-only.
+
+    Avoids treating a whitespace-only value (e.g. ``"   "``) as configured, which
+    would otherwise yield an unusable empty base_url/model.
+    """
+    raw = os.environ.get(name)
+    val = raw.strip() if raw is not None else ""
+    return val or fallback
+
+
 def kimi_bridge_runtime_config() -> dict[str, str | None] | None:
     """Return Kimi bridge config for external runtimes (Hermes, Goose, Aider).
 
@@ -80,9 +91,9 @@ def kimi_bridge_runtime_config() -> dict[str, str | None] | None:
         return None
 
     return {
-        "base_url": (os.environ.get("KIMI_BRIDGE_URL") or _DEFAULT_URL).strip(),
-        "model": os.environ.get("KIMI_BRIDGE_MODEL", _DEFAULT_MODEL),
-        "api_key": os.environ.get("KIMI_BRIDGE_TOKEN") or None,
+        "base_url": _norm_env("KIMI_BRIDGE_URL", _DEFAULT_URL),
+        "model": _norm_env("KIMI_BRIDGE_MODEL", _DEFAULT_MODEL),
+        "api_key": _norm_env("KIMI_BRIDGE_TOKEN", None),
     }
 
 
@@ -123,7 +134,7 @@ def kimi_bridge_provider_config() -> ProviderConfig | None:
         )
         return None
 
-    base_url = (os.environ.get("KIMI_BRIDGE_URL") or _DEFAULT_URL).strip()
+    base_url = _norm_env("KIMI_BRIDGE_URL", _DEFAULT_URL)
     try:
         priority = int(os.environ.get("KIMI_BRIDGE_PRIORITY", "5"))
     except ValueError:
@@ -138,8 +149,8 @@ def kimi_bridge_provider_config() -> ProviderConfig | None:
         provider_id=KIMI_BRIDGE_PROVIDER_ID,
         type="openai-compatible",
         base_url=base_url,
-        api_key=os.environ.get("KIMI_BRIDGE_TOKEN") or None,
-        default_model=os.environ.get("KIMI_BRIDGE_MODEL", _DEFAULT_MODEL),
+        api_key=_norm_env("KIMI_BRIDGE_TOKEN", None),
+        default_model=_norm_env("KIMI_BRIDGE_MODEL", _DEFAULT_MODEL),
         # below Nvidia NIM (-10) but above the generic paid cloud fallbacks so a
         # configured free Kimi bridge is preferred over commercial escalation.
         priority=priority,

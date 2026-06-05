@@ -63,6 +63,18 @@ class AiderAdapter(RuntimeAdapter):
         RuntimeCapability.WEB_BROWSE,
     })
 
+    def supports(self, capability: RuntimeCapability) -> bool:
+        # WEB_BROWSE only works when the Kimi bridge is configured — that is Aider's
+        # only browser path. Don't advertise it otherwise, or the router could route
+        # a web_browse task here and run plain Aider with no browsing support.
+        if capability == RuntimeCapability.WEB_BROWSE:
+            try:
+                from providers.kimi_bridge import kimi_bridge_runtime_config
+                return kimi_bridge_runtime_config() is not None
+            except Exception:
+                return False
+        return capability in self.CAPABILITIES
+
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
         self._base_url = (config or {}).get("base_url") or os.environ.get("AIDER_BASE_URL", "")

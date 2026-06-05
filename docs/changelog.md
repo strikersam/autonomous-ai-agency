@@ -40,6 +40,13 @@
   *Verified by:* `risky-module-review` skill + `tests/test_autonomy_gate.py`.
 
 ### Fixed
+- Address CodeRabbit review on the Kimi browser-routing / auto-PR feature: gate agent
+  auto-push/PR behind `AGENT_AUTO_PR_ENABLED` (default off); parse dotted GitHub repo
+  names and branch off whenever HEAD already equals the PR base; normalize whitespace-only
+  Kimi bridge env values; forward the bridge `api_key` as `OPENAI_API_KEY` to Goose and log
+  (not swallow) bridge-resolution failures in Goose/Hermes; gate the `WEB_BROWSE` capability
+  of Goose/Aider on Kimi-bridge availability so the router won't route web tasks to a
+  runtime with no browser path.
 - CI Security Gate: `tests/test_autonomy_gate.py` passed a string literal `token="x"` to
   `GitHubTools`, tripping Bandit **B106** (3 new alerts). Token is now sourced from a variable/env so
   no new alerts are introduced (gate green).
