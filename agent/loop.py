@@ -907,8 +907,12 @@ class AgentRunner:
         # Fallback: call Ollama-compatible endpoint
         headers = {"Content-Type": "application/json", **self.provider_headers}
         start = time.perf_counter()
+        # Build the chat URL defensively: use _openai_url to prevent double /v1
+        # when ollama_base already ends with /v1 (e.g. Nvidia NIM).
+        from provider_router import _openai_url
+        chat_url = _openai_url(self.ollama_base, "/chat/completions")
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(f"{self.ollama_base}/v1/chat/completions", json=payload, headers=headers)
+            resp = await client.post(chat_url, json=payload, headers=headers)
         duration_ms = int((time.perf_counter() - start) * 1000)
         resp.raise_for_status()
         data = resp.json()

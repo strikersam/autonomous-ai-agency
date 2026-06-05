@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.loop import AgentRunner
-from provider_router import ProviderConfig
+from provider_router import ProviderConfig, _normalize_nvidia_base_url
 from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
@@ -34,8 +34,10 @@ from runtimes.base import (
     TaskSpec,
 )
 
-# Nvidia NIM endpoint — OpenAI-compatible, free tier
-_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+# Nvidia NIM endpoint — OpenAI-compatible, free tier.
+# NOTE: do NOT include /v1 in the base URL; the downstream OpenAI-compatible
+# URL builders (_openai_url, AgentRunner._chat_text) append it themselves.
+_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com"
 _NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
 
@@ -48,7 +50,7 @@ def _nvidia_provider_chain() -> list[ProviderConfig]:
     ).strip()
     if not key:
         return []
-    base = (os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL).rstrip("/")
+    base = _normalize_nvidia_base_url(os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL)
     return [
         ProviderConfig(
             provider_id="nvidia-nim",
@@ -70,7 +72,7 @@ def _best_cloud_primary_base(local_ollama_base: str) -> str:
     """
     nvidia_key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
     if nvidia_key:
-        return (os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL).rstrip("/")
+        return _normalize_nvidia_base_url(os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL)
 
     zen_key = os.environ.get("OPENCODE_ZEN_API_KEY")
     if zen_key:
