@@ -280,6 +280,13 @@ class InternalAgentAdapter(RuntimeAdapter):
             # agent writes files but lets the user review before committing.
             auto_commit = bool(spec.context.get("auto_commit", False))
 
+            # NOTE: the orchestrator bypass is intentionally NOT set here. This
+            # adapter is also reachable via the direct `/runtimes/{id}/execute` API
+            # (runtimes/api.py), and that path must stay gated so direct callers
+            # cannot skip workflow approval. The bypass is instead set by the
+            # *sanctioned* background caller (TaskExecutionCoordinator.execute) and
+            # by the CEO Agency cycle, both of which are autonomous, gate-aware
+            # execution paths.
             result = await runner.run(
                 instruction=spec.instruction,
                 history=list(spec.context.get("conversation", [])),

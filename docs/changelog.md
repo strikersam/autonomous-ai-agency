@@ -29,6 +29,18 @@
 ## [Unreleased]
 
 ### Fixed
+- **Agency execution spine unblocked (CEO + tasks no longer idle).** Background agent
+  work was permanently dead under the default `AGENCY_WORKFLOW_MODE=orchestrator`:
+  the `TaskDispatcher` reached `AgentRunner.run()` through `InternalAgentAdapter`
+  without the orchestrator `_BYPASS` set, so every task failed with "AgentRunner.run()
+  is blocked in orchestrator mode" and was marked BLOCKED after 10 retries; the CEO
+  `Agency.run_cycle()` raised every tick and the agency sat idle. Fix scopes the bypass
+  to the *sanctioned* autonomous callers — `TaskExecutionCoordinator.execute()`
+  (dispatcher- and scheduler-driven) and the CEO `Agency.run_cycle()` cycle — so they
+  execute, while the direct `/runtimes/{id}/execute` API stays gated (the adapter does
+  not bypass). Bypass is an async-safe `ContextVar` set/reset per asyncio task. New
+  regression tests in `tests/test_internal_agent_bypass.py`; `tests/test_workflow_orchestrator.py`
+  updated (`Agency.run_cycle()` is now a sanctioned internal caller, not blocked).
 - Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
 - Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
 - `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)
