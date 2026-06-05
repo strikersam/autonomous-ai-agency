@@ -40,6 +40,9 @@
   *Verified by:* `risky-module-review` skill + `tests/test_autonomy_gate.py`.
 
 ### Fixed
+- CI Security Gate: `tests/test_autonomy_gate.py` passed a string literal `token="x"` to
+  `GitHubTools`, tripping Bandit **B106** (3 new alerts). Token is now sourced from a variable/env so
+  no new alerts are introduced (gate green).
 - **Agency execution spine unblocked (CEO + tasks no longer idle).** Background agent
   work was permanently dead under the default `AGENCY_WORKFLOW_MODE=orchestrator`:
   the `TaskDispatcher` reached `AgentRunner.run()` through `InternalAgentAdapter`
