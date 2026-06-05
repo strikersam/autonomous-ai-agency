@@ -58,47 +58,53 @@ class _StubTask:
         return self._coro.__await__()
 
 import pytest
+import services.background as bg_mod
+
 @pytest.mark.anyio
 async def test_backend_lifespan_starts_runtime_manager_and_dispatcher(monkeypatch):
-    manager = _StubRuntimeManager()
-    dispatchers: list[_StubTaskDispatcher] = []
-    created_tasks: list[_StubTask] = []
+    """Web lifespan delegates to start_background_services when RUN_BACKGROUND_IN_WEB=true."""
+    called: list[str] = []
+
+    async def fake_start_background_services(**kwargs):
+        called.append("start")
+        # Return a stub BackgroundServices-like object
+        class _FakeBg:
+            async def stop(self):
+                called.append("stop")
+        return _FakeBg()
 
     async def fake_ensure_bootstrap() -> None:
         return None
 
-    def fake_dispatcher(*, workspace_root: str, poll_interval_s: float) -> _StubTaskDispatcher:
-        dispatcher = _StubTaskDispatcher(
-            workspace_root=workspace_root,
-            poll_interval_s=poll_interval_s,
-        )
-        dispatchers.append(dispatcher)
-        return dispatcher
-
-    def fake_create_task(coro):
-        task = _StubTask(coro)
-        created_tasks.append(task)
-        return task
-
-    # This test asserts exactly one background task (the dispatcher) is created.
-    # Disable the self-onboarding bootstrap so it doesn't add a second create_task.
     monkeypatch.setenv("SELF_BOOTSTRAP_ENABLED", "false")
+    monkeypatch.setenv("RUN_BACKGROUND_IN_WEB", "true")
     monkeypatch.setattr(server, "ensure_bootstrap", fake_ensure_bootstrap)
-    monkeypatch.setattr(server, "get_runtime_manager", lambda: manager)
-    monkeypatch.setattr(server, "TaskDispatcher", fake_dispatcher)
-    monkeypatch.setattr(server.asyncio, "create_task", fake_create_task)
+    monkeypatch.setattr(bg_mod, "start_background_services", fake_start_background_services)
 
     lifecycle = server.lifespan(server.app)
     await lifecycle.__aenter__()
-
-    assert manager.started == 1
-    assert len(dispatchers) == 1
-    assert dispatchers[0].workspace_root == str(server.ROOT_DIR)
-    assert dispatchers[0].poll_interval_s == 10.0
-    assert len(created_tasks) == 1
+    assert "start" in called
 
     await lifecycle.__aexit__(None, None, None)
+    assert "stop" in called
 
-    assert dispatchers[0].stop_called == 1
-    assert created_tasks[0].cancel_called == 1
-    assert manager.stopped == 1
+
+@pytest.mark.anyio
+async def test_backend_lifespan_skips_bg_when_flag_false(monkeypatch):
+    """RUN_BACKGROUND_IN_WEB=false: lifespan starts but background services are NOT started."""
+    started: list[bool] = []
+
+    async def fake_start_background_services(**kwargs):
+        started.append(True)
+
+    async def fake_ensure_bootstrap() -> None:
+        return None
+
+    monkeypatch.setenv("RUN_BACKGROUND_IN_WEB", "false")
+    monkeypatch.setattr(server, "ensure_bootstrap", fake_ensure_bootstrap)
+    monkeypatch.setattr(bg_mod, "start_background_services", fake_start_background_services)
+
+    lifecycle = server.lifespan(server.app)
+    await lifecycle.__aenter__()
+    assert not started, "start_background_services should NOT be called when flag is false"
+    await lifecycle.__aexit__(None, None, None)

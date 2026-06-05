@@ -39,6 +39,19 @@
   commits — mitigated by the per-instance/per-call `agent_initiated` flag (default False).
   *Verified by:* `risky-module-review` skill + `tests/test_autonomy_gate.py`.
 
+### Added
+- **`services/background.py` + `worker_main.py` — Always-on Worker entrypoint (Task 2 / P0).**
+  Extracted `RuntimeManager` / `TaskDispatcher` / `SCHEDULER` / self-bootstrap startup into
+  `services/background.py:start_background_services()` callable from both the FastAPI lifespan
+  and a standalone worker process. `worker_main.py` is the worker entrypoint: `asyncio.run()` an
+  async main that boots all background services and blocks until `SIGTERM` / `SIGINT`. `render.yaml`
+  gains a `type: worker` service (`local-llm-server-worker`) running `python worker_main.py` for
+  24×7 task execution on the free tier. New env flag `RUN_BACKGROUND_IN_WEB` (default `true`)
+  controls whether the web process also runs background services; flip to `false` once the worker
+  is deployed. `docs/runbooks/worker.md` covers deployment, verification, graceful shutdown, and
+  troubleshooting. 8 unit tests in `tests/test_background_services.py`;
+  `tests/test_backend_runtime_bootstrap.py` updated to patch at the `services.background` level.
+
 ### Fixed
 - Address CodeRabbit review on the Kimi browser-routing / auto-PR feature: gate agent
   auto-push/PR behind `AGENT_AUTO_PR_ENABLED` (default off); parse dotted GitHub repo
