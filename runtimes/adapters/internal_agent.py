@@ -173,31 +173,77 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     async def health_check(self) -> RuntimeHealth:
         """
-        Determine availability of the internal agent runtime by preferring an NVIDIA NIM configuration and falling back to a conservative local Ollama probe.
-        
-        If an `NVIDIA_API_KEY` (or `NVidiaApiKey`) is present the runtime is reported available and labeled as the `nvidia-nim` provider. If no NVIDIA key is present the function attempts a short HTTP probe against the configured Ollama base (from `OLLAMA_BASE`, `OLLAMA_BASE_URL`, or the adapter's configured base). When probing the default local Ollama port (`:11434`) the `/v1/health` path is used; the probe uses a small timeout and must return a 2xx/3xx status to be considered healthy.
-        
-        Returns:
-            RuntimeHealth: Availability status and details. `available=True` when an NVIDIA key exists or the Ollama probe succeeds; otherwise `available=False` with `error="Local Ollama not reachable"`. The returned `details` include `workspace_root` and `provider`, and when a successful probe occurs also include the `probe_url`.
-        """
-        nvidia_key = (
-            os.environ.get("NVIDIA_API_KEY")
-            or os.environ.get("NVidiaApiKey")
-            or ""
-        ).strip()
-        provider_label = "nvidia-nim" if nvidia_key else "ollama"
-        # If Nvidia key present, assume external provider is reachable (best-effort)
-        if nvidia_key:
-            return RuntimeHealth(
-                runtime_id=self.RUNTIME_ID,
-                available=True,
-                details={"workspace_root": self._workspace_root, "provider": provider_label},
-            )
+        Determine availability of the internal agent runtime.
 
-        # Probe local Ollama endpoint conservatively using async HTTP
+        Checks cloud providers in the same priority order as ``_best_cloud_primary_base()``:
+        Nvidia NIM → OpenCode Zen → DeepSeek → Groq → DashScope → OpenRouter →
+        Together → Mistral → Google Gemini → Cloudflare → HuggingFace → ZhiPu →
+        MiniMax.  If ANY cloud provider key is configured, the runtime is reported
+        available without a network probe (assumes the provider is reachable).
+
+        Falls back to a local Ollama HTTP probe only when no cloud key is present.
+        The Ollama probe is lightweight (GET on the configured base URL, 2 s timeout)
+        and only marks the runtime unavailable when it definitively fails.
+
+        Returns:
+            RuntimeHealth: ``available=True`` when any cloud key or a reachable
+            Ollama endpoint is found; ``available=False`` with a diagnostic error
+            otherwise.
+        """
+        # Check ALL cloud providers that _best_cloud_primary_base() knows about.
+        # If any key is set, assume the provider is reachable (same best-effort
+        # assumption already made for Nvidia).  This matches the actual execution
+        # path where AgentRunner routes through whichever cloud provider is
+        # configured — so the health check must not report "unavailable" when a
+        # working cloud provider (e.g. DeepSeek) exists but isn't Nvidia.
+        cloud_keys: list[tuple[str, str]] = [
+            ("nvidia-nim", "NVIDIA_API_KEY"),
+            ("nvidia-nim", "NVidiaApiKey"),
+            ("opencode-zen", "OPENCODE_ZEN_API_KEY"),
+            ("deepseek", "DEEPSEEK_API_KEY"),
+            ("groq", "GROQ_API_KEY"),
+            ("dashscope", "DASHSCOPE_API_KEY"),
+            ("dashscope", "QWEN_API_KEY"),
+            ("openrouter", "OPENROUTER_API_KEY"),
+            ("together", "TOGETHER_API_KEY"),
+            ("mistral", "MISTRAL_API_KEY"),
+            ("google-gemini", "GOOGLE_API_KEY"),
+            ("google-gemini", "GEMINI_API_KEY"),
+            # Cloudflare requires BOTH token AND account ID — single-key check
+            # would falsely report healthy when only one is set.
+            ("cloudflare", ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID")),
+            ("huggingface", "HF_TOKEN"),
+            ("huggingface", "HUGGINGFACE_API_TOKEN"),
+            ("zhipu", "ZHIPU_API_KEY"),
+            ("minimax", "MINIMAX_API_KEY"),
+        ]
+        for provider_label, env_spec in cloud_keys:
+            if isinstance(env_spec, tuple):
+                # Multi-key requirement (e.g. Cloudflare needs token + account)
+                if all(os.environ.get(k, "").strip() for k in env_spec):
+                    return RuntimeHealth(
+                        runtime_id=self.RUNTIME_ID,
+                        available=True,
+                        details={
+                            "workspace_root": self._workspace_root,
+                            "provider": provider_label,
+                            "source": f"env:{','.join(env_spec)}",
+                        },
+                    )
+            elif os.environ.get(env_spec, "").strip():
+                return RuntimeHealth(
+                    runtime_id=self.RUNTIME_ID,
+                    available=True,
+                    details={
+                        "workspace_root": self._workspace_root,
+                        "provider": provider_label,
+                        "source": f"env:{env_spec}",
+                    },
+                )
+
+        # No cloud key found — probe local Ollama as the last resort.
         import httpx
         base = (os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or self._ollama_base).rstrip("/")
-        # Prefer a lightweight endpoint; many Ollama installs respond on root
         probe_url = f"{base}/v1/health" if base.endswith(":11434") else base
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
@@ -206,21 +252,25 @@ class InternalAgentAdapter(RuntimeAdapter):
                 return RuntimeHealth(
                     runtime_id=self.RUNTIME_ID,
                     available=True,
-                    details={"workspace_root": self._workspace_root, "provider": provider_label, "probe_url": probe_url},
+                    details={"workspace_root": self._workspace_root, "provider": "ollama", "probe_url": probe_url},
                 )
             return RuntimeHealth(
                 runtime_id=self.RUNTIME_ID,
                 available=False,
                 error=f"Ollama probe returned HTTP {resp.status_code} at {probe_url}",
-                details={"workspace_root": self._workspace_root, "provider": provider_label},
+                details={"workspace_root": self._workspace_root, "provider": "ollama"},
             )
         except Exception:
             pass
         return RuntimeHealth(
             runtime_id=self.RUNTIME_ID,
             available=False,
-            error=f"Local Ollama not reachable at {probe_url} — start Ollama or set OLLAMA_BASE",
-            details={"workspace_root": self._workspace_root, "provider": provider_label},
+            error=(
+                "No cloud provider API key configured and local Ollama not reachable. "
+                "Set any of NVIDIA_API_KEY, DEEPSEEK_API_KEY, GROQ_API_KEY, "
+                "TOGETHER_API_KEY, HF_TOKEN, etc. to enable the internal agent runtime."
+            ),
+            details={"workspace_root": self._workspace_root, "provider": "none"},
         )
 
     async def execute(self, spec: TaskSpec) -> TaskResult:
