@@ -4638,7 +4638,7 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
 try:
     from agent.skill_registry import SkillRegistry as _SkillRegistry, set_skill_registry
     _SKILL_REGISTRY = _SkillRegistry(
-        github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_ACCESS_TOKEN")
+        github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_ACCESS_TOKEN")
     )
     set_skill_registry(_SKILL_REGISTRY)
 except Exception as _sr_err:
@@ -5298,7 +5298,7 @@ async def quick_notes_submit(
     url = body.url.strip()
     instruction = body.instruction.strip()
 
-    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN", "")
     gh_repo = os.environ.get("GITHUB_REPOSITORY", "")
 
     title = f"quick-note: {url[:80]}" if url else f"quick-note: {instruction[:80]}"
@@ -6057,6 +6057,7 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
 
     github_token = (
         (user or {}).get("github_repo_token")
+        or os.environ.get("GH_PAT") 
         or os.environ.get("GH_TOKEN")
         or os.environ.get("GITHUB_TOKEN")
     )

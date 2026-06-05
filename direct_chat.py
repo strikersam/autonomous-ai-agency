@@ -323,7 +323,7 @@ async def _get_github_token_for_user(user_email: str) -> str | None:
     except Exception as e:
         log.debug("Could not fetch GitHub token from secrets: %s", e)
     # Fallback: env var
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
 
 
 def _is_trivial_message(content: str) -> bool:

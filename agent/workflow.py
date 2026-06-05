@@ -282,7 +282,7 @@ class WorkflowEngine:
         """Run doctor checks before execution; block task if critical issues found."""
         try:
             from agent.doctor import DirectChatDoctor
-            github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+            github_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN")
             doctor = DirectChatDoctor(github_token=github_token)
             report = await doctor.check_all()
 
@@ -327,7 +327,7 @@ class WorkflowEngine:
         pr_verified = False
 
         # If the result mentions a PR/branch, verify it exists in GitHub
-        github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        github_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN")
         if github_token and task.result:
             import re
             pr_matches = re.findall(r'github\.com/([^/]+/[^/]+)/pull/(\d+)', task.result or "")

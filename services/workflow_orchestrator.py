@@ -696,7 +696,7 @@ class WorkflowOrchestrator:
             # system runs (no user_id), matching _handle_execute.
             github_token = req.github_token
             if github_token is None and req.user_id is None:
-                github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+                github_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN")
             doctor = DirectChatDoctor(github_token=github_token)
             report = await doctor.check_all()
 
@@ -832,7 +832,7 @@ class WorkflowOrchestrator:
                 # user-initiated run borrow the service account's repo access.
                 gh_token = req.github_token
                 if gh_token is None and req.user_id is None:
-                    gh_token = _os.environ.get("GH_TOKEN") or _os.environ.get("GITHUB_TOKEN")
+                    gh_token = _os.environ.get("GH_TOKEN") or _os.environ.get("GH_PAT") or _os.environ.get("GITHUB_TOKEN")
                 runner = AgentRunner(
                     ollama_base=_os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
                     workspace_root=_os.getcwd(),
@@ -924,7 +924,7 @@ class WorkflowOrchestrator:
         # access; env fallback only for internal/system runs (no user_id).
         github_token = req.github_token
         if github_token is None and req.user_id is None:
-            github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+            github_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN")
         if github_token and execution.output:
             import re
             pr_matches = re.findall(r'github\.com/([^/]+/[^/]+)/pull/(\d+)', execution.output)

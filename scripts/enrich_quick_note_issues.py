@@ -22,7 +22,7 @@ log = logging.getLogger("qwen-proxy")
 
 
 def _headers() -> dict[str, str]:
-    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_PAT") or os.getenv("GH_TOKEN")
     h = {"Accept": "application/vnd.github+json"}
     if token:
         h["Authorization"] = f"Bearer {token}"
@@ -132,8 +132,8 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    if not args.dry_run and not (os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")):
-        raise SystemExit("GITHUB_TOKEN or GH_TOKEN is required unless --dry-run is used")
+    if not args.dry_run and not (os.getenv("GITHUB_TOKEN") or os.getenv("GH_PAT") or os.getenv("GH_TOKEN")):
+        raise SystemExit("GITHUB_TOKEN / GH_PAT / GH_TOKEN is required unless --dry-run is used")
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 

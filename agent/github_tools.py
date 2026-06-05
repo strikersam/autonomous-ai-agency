@@ -476,20 +476,21 @@ class LocalWorkspace:
         """Push the current branch.  Sets upstream on first push."""
         if branch is None:
             branch = await self.current_branch()
-        # Autonomy gate: agents may not push to a protected branch — they push an
-        # 'agent/…' branch and open a PR instead.
         from agent.autonomy_gate import assert_agent_can_write
         assert_agent_can_write(branch, agent_initiated=agent_initiated, action="push")
-        # Temporarily set token in remote URL, push, then clear it
+        # Temporarily set token in remote URL, push, then ALWAYS clear it — even if
+        # the push raises (network error, timeout, auth failure).  A leftover token
+        # in .git/config is a security risk.
         await self._run("git", "remote", "set-url", "origin", self.clone_url)
-        rc, out, err = await self._run(
-            "git", "push", "--set-upstream", "origin", branch
-        )
-        # Always clear the token from remote URL
-        await self._run("git", "remote", "set-url", "origin",
-                        f"https://github.com/{self.owner}/{self.repo}.git")
-        if rc != 0:
-            raise RuntimeError(f"git push failed: {err}")
+        try:
+            rc, out, err = await self._run(
+                "git", "push", "--set-upstream", "origin", branch
+            )
+            if rc != 0:
+                raise RuntimeError(f"git push failed: {err}")
+        finally:
+            await self._run("git", "remote", "set-url", "origin",
+                            f"https://github.com/{self.owner}/{self.repo}.git")
         return {"pushed": True, "branch": branch}
 
 
@@ -526,7 +527,7 @@ async def _get_token(user: dict) -> str | None:
     except Exception as e:
         log.debug("Could not fetch GitHub token from secrets: %s", e)
     # Fallback: env var
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
 
 
 @github_router.get("/repos")

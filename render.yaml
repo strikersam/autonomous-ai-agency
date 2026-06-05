@@ -11,6 +11,10 @@ services:
         sync: false
       - key: DB_NAME
         value: llm_wiki_dashboard
+      # Storage backend: sqlite (zero-dependency, Render free tier safe)
+      # or mongo when Atlas is provisioned.
+      - key: STORAGE_BACKEND
+        value: "sqlite"
 
       # JWT / Auth
       - key: JWT_SECRET
@@ -175,3 +179,44 @@ services:
         value: /tmp/mcp-workspaces
       - key: GITHUB_TOKEN
         sync: false
+      - key: GH_PAT
+        sync: false
+
+      # ================================================================
+      # WORKFLOW / AGENCY — golden-path execution backbone
+      # orchestrator = full 11-phase golden path (default); legacy = old paths
+      # ================================================================
+      - key: AGENCY_WORKFLOW_MODE
+        value: "orchestrator"
+
+      # ================================================================
+      # SELF-BOOTSTRAP — platform registers itself as a company on startup
+      # ================================================================
+      - key: SELF_BOOTSTRAP_ENABLED
+        value: "true"
+      - key: SELF_BOOTSTRAP_URL
+        value: "https://local-llm-server.onrender.com"
+      - key: SELF_BOOTSTRAP_REPO
+        value: "https://github.com/strikersam/local-llm-server"
+
+      # ================================================================
+      # KIMI (MOONSHOT) WEB BRIDGE — free Kimi access without an API key.
+      # Point KIMI_BRIDGE_URL at any OpenAI-compatible bridge (e.g. a
+      # Cloudflare Worker that proxies kimi.com). Disabled by default.
+      # To enable: set KIMI_BRIDGE_ENABLED=true and KIMI_BRIDGE_URL.
+      # ================================================================
+      - key: KIMI_BRIDGE_ENABLED
+        value: "false"
+      - key: KIMI_BRIDGE_URL
+        sync: false
+      - key: KIMI_BRIDGE_MODEL
+        value: "kimi-k2.6"
+      - key: KIMI_BRIDGE_PRIORITY
+        value: "5"
+
+      # ================================================================
+      # AUTONOMY GATE — protected branches agents may never write to.
+      # Comma-separated; defaults to main,master.
+      # ================================================================
+      - key: AUTONOMY_PROTECTED_BRANCHES
+        value: "main,master"

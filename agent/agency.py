@@ -45,7 +45,7 @@ log = logging.getLogger("qwen-proxy")
 # ── GitHub helpers ─────────────────────────────────────────────────────────────
 
 def _gh_token() -> str:
-    return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+    return os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN", "")
 
 
 def _gh_repo() -> str:
