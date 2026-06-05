@@ -55,6 +55,37 @@ def _enabled() -> bool:
     }
 
 
+def kimi_bridge_runtime_config() -> dict[str, str | None] | None:
+    """Return Kimi bridge config for external runtimes (Hermes, Goose, Aider).
+
+    Returns a dict with ``base_url``, ``model``, and ``api_key`` suitable for
+    passing to an external agent runtime so it can use the Kimi bridge as its
+    LLM backend when browser access is needed.
+
+    Returns ``None`` when the bridge is not enabled.
+
+    Callers can use this unconditionally::
+
+        cfg = kimi_bridge_runtime_config()
+        if cfg:
+            runtime_payload["kimi_bridge"] = cfg
+    """
+    if not _enabled():
+        return None
+
+    mode = os.environ.get("KIMI_BRIDGE_MODE", "endpoint").strip().lower()
+    if mode == "browser" and os.environ.get("KIMI_BRIDGE_BROWSER", "").lower() not in {
+        "true", "1", "yes",
+    }:
+        return None
+
+    return {
+        "base_url": (os.environ.get("KIMI_BRIDGE_URL") or _DEFAULT_URL).strip(),
+        "model": os.environ.get("KIMI_BRIDGE_MODEL", _DEFAULT_MODEL),
+        "api_key": os.environ.get("KIMI_BRIDGE_TOKEN") or None,
+    }
+
+
 def kimi_bridge_status() -> dict[str, object]:
     """Lightweight status used by the Providers UI / Doctor."""
     return {

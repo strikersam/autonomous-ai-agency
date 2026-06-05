@@ -35,6 +35,7 @@ from runtimes.base import (
     RuntimeUnavailableError,
     TaskResult,
     TaskSpec,
+    task_wants_browser,
 )
 
 log = logging.getLogger("runtime.aider")
@@ -59,6 +60,7 @@ class AiderAdapter(RuntimeAdapter):
         RuntimeCapability.GIT_OPERATIONS,
         RuntimeCapability.FILE_READ_WRITE,
         RuntimeCapability.MULTI_FILE_EDIT,
+        RuntimeCapability.WEB_BROWSE,
     })
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
@@ -140,7 +142,22 @@ class AiderAdapter(RuntimeAdapter):
             raise RuntimeUnavailableError(self.RUNTIME_ID, f"Binary '{self._bin}' not found")
 
         workspace = spec.workspace_path or "."
+
+        # When the task needs web browsing and the Kimi bridge is available,
+        # route through the Kimi bridge endpoint so Aider can use kimi.com's
+        # browser access for web-aware tasks.
         model = spec.model_preference or self._model
+        api_base: str | None = None
+        _needs_browser = task_wants_browser(spec)
+        if _needs_browser:
+            try:
+                from providers.kimi_bridge import kimi_bridge_runtime_config
+                _kb = kimi_bridge_runtime_config()
+                if _kb:
+                    model = str(_kb.get("model", model))
+                    api_base = str(_kb.get("base_url", "")) or None
+            except Exception:
+                pass
 
         cmd = [
             bin_path,
@@ -149,6 +166,8 @@ class AiderAdapter(RuntimeAdapter):
             "--yes",          # auto-confirm file edits
             "--message", spec.instruction,
         ]
+        if api_base:
+            cmd.extend(["--openai-api-base", api_base])
         if self._no_auto_commit:
             cmd.append("--no-auto-commits")
 
@@ -185,7 +204,7 @@ class AiderAdapter(RuntimeAdapter):
             success=success,
             output=output,
             model_used=model,
-            provider_used="local",
+            provider_used="kimi-web-bridge" if api_base else "local",
             execution_time_ms=elapsed_ms,
             metadata={
                 "returncode": proc.returncode,

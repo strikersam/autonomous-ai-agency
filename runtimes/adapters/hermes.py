@@ -150,6 +150,19 @@ class HermesAdapter(RuntimeAdapter):
         if spec.tool_allowlist is not None:
             payload["tool_allowlist"] = spec.tool_allowlist
 
+        # Inject Kimi bridge config so Hermes Agent can use it for browser tasks.
+        # The bridge is an OpenAI-compatible endpoint that reaches kimi.com, which
+        # can browse the web.  Only injected when the task actually needs web access.
+        from runtimes.base import task_wants_browser
+        if task_wants_browser(spec):
+            try:
+                from providers.kimi_bridge import kimi_bridge_runtime_config
+                _kb_cfg = kimi_bridge_runtime_config()
+                if _kb_cfg:
+                    payload["kimi_bridge"] = _kb_cfg
+            except Exception:
+                pass
+
         t0 = time.monotonic()
         try:
             async with httpx.AsyncClient(
