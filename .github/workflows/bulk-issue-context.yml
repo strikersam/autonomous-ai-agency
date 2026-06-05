@@ -193,7 +193,7 @@ jobs:
           export FETCH_URL_SCRIPT="/tmp/fetch_url.py"
 
           python3 - <<'PYEOF'
-          import json, os, subprocess, sys, time
+          import json, os, re, subprocess, sys, time
           from pathlib import Path
 
           issues = json.load(open('/tmp/eligible_issues.json'))
@@ -245,7 +245,15 @@ jobs:
               result = json.load(open('/tmp/context_result.json'))
               pr_description = result.get('pr_description', '')
               context_doc = result.get('context_doc', pr_description)
-              pr_title = result.get('title', f'plan: {title[:60]} (#{num})')
+              # Context PRs only add docs/context/*.md, so they must carry a
+              # `docs:` title — the changelog-check gate exempts docs:/chore:/etc
+              # prefixes. Strip any feat:/fix: prefix the LLM emitted, then force docs:.
+              raw_title = result.get('title', f'{title[:55]} (#{num})')
+              clean_title = re.sub(
+                  r'^(feat|fix|refactor|chore|docs|style|ci|test|perf|build)(\([^)]*\))?:\s*',
+                  '', raw_title,
+              )
+              pr_title = f"docs: {clean_title}"[:70]
               is_regen = bool(issue.get('_regenerate'))
 
               # ── Prepare branch ────────────────────────────────────────────

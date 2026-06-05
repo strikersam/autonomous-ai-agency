@@ -12,6 +12,8 @@
 
 ### Changed
 - **`bulk-issue-context.yml`** — added `issue_numbers` (explicit targeting, any issue state) and `regenerate` (update existing draft PRs in place via `gh pr edit`, preserving PR numbers) inputs. Copies both `generate_context.py` and `fetch_url.py` to `/tmp` before the loop so they survive git branch switches. Wraps generation in `try/except TimeoutExpired` so one slow call can't crash the batch.
+- **CI no longer runs on draft PRs or docs-only context commits.** Added `if: github.event.pull_request.draft == false` job guards to `ci.yml`, `e2e.yml`, `browser-e2e.yml`, `security-gate.yml`, `changelog-check.yml`, and `paths-ignore: ["docs/context/**"]` to the push/pull_request triggers of `ci.yml`, `e2e.yml`, `browser-e2e.yml`, `security-gate.yml`, `changelog-check.yml`, `security-scan.yml`. Draft status only stops review bots, not GitHub Actions — these guards stop the auto-generated context draft PRs from triggering the full CI suite. (Takes effect once on `master`, since `pull_request` workflow config is read from the base branch.)
+- **Context PR titles use a `docs:` prefix** (`issue-context-generator.yml` + `bulk-issue-context.yml`) — context PRs only add `docs/context/*.md`, so a `docs:` title is accurate and exempts them from `changelog-check` (which previously failed every `feat:`-titled context PR for not updating the changelog).
 
 ### Changed
 - **`process-quick-note.yml`** — PR creation now uses `--draft` flag to suppress CodeRabbit/Copilot auto-reviews on implementation PRs. Branch creation step now detects and reuses an existing `claude/context-issue-N` branch (from the context generator) so implementation commits land on the pre-existing draft PR rather than opening a duplicate.

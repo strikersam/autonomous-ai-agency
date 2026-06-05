@@ -156,10 +156,14 @@ jobs:
 
           # Use LLM-suggested title if available, else derive from issue title
           if [ -n "$SUGGESTED_TITLE" ]; then
-            PR_TITLE="$SUGGESTED_TITLE"
+            RAW_TITLE="$SUGGESTED_TITLE"
           else
-            PR_TITLE="plan: ${ISSUE_TITLE:0:60} (#${ISSUE_NUM})"
+            RAW_TITLE="${ISSUE_TITLE:0:55} (#${ISSUE_NUM})"
           fi
+          # Context PRs only add docs/context/*.md — force a `docs:` prefix so the
+          # changelog-check gate exempts them. Strip any feat:/fix: prefix first.
+          CLEAN_TITLE=$(echo "$RAW_TITLE" | sed -E 's/^(feat|fix|refactor|chore|docs|style|ci|test|perf|build)(\([^)]*\))?:[[:space:]]*//')
+          PR_TITLE="docs: ${CLEAN_TITLE}"
 
           PR_URL=$(gh pr create \
             --repo "$REPO" \
