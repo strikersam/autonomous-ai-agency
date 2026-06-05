@@ -3,7 +3,15 @@
 ### Added
 - **Issue Context Generator workflow (`.github/workflows/issue-context-generator.yml`)** — triggers immediately on any issue opened or `quick-note` label added; calls NVIDIA NIM (with Claude fallback) to generate a codebase-aware implementation prompt + prioritised TODO list; commits `docs/context/issue-N.md` to a new branch; creates a **DRAFT** PR (no CodeRabbit/Copilot reviews); closes the issue with a PR link. Replaces the old static-template `enrich-quick-note-context.yml` which added no LLM reasoning and never created PRs.
 - **Bulk Issue Context Generator workflow (`.github/workflows/bulk-issue-context.yml`)** — `workflow_dispatch` workflow that processes all open issues in one run. Skips issues with existing context/impl branches. Supports dry-run mode and configurable label exclusions.
-- **Context generation script (`.github/scripts/generate_context.py`)** — LLM-powered script loading CLAUDE.md + graphify graph report as codebase context, calling NVIDIA NIM models (4 fallback chain) then Claude Opus as final fallback. Outputs structured JSON with PR description, context document, todos, relevant files, and risk flags.
+- **Context generation script (`.github/scripts/generate_context.py`)** — LLM-powered script loading CLAUDE.md + graphify graph report as codebase context, calling NVIDIA NIM models (4 fallback chain) then Claude Opus as final fallback. Outputs structured JSON with PR description, context document, todos, relevant files, and risk flags. Now **fetches the linked URL** via the shared `fetch_url.py` multi-strategy fetcher so plans are grounded in the actual article content instead of guessing.
+- **README — "Issue → Context → Draft PR automation" section** documenting the full issue-context pipeline: the three workflows (`issue-context-generator`, `bulk-issue-context`, `process-quick-note`), free-first NVIDIA model routing, backfill commands, and the master-branch auto-trigger caveat.
+
+### Fixed
+- **Context generator markdown rendering** — `_build_pr_description`, `_build_context_doc`, and `_build_user_message` no longer use `textwrap.dedent` with interpolated multi-line values (dedent's common-whitespace detection was defeated by inserted values at column 0, leaving template lines indented and rendering as a code block on GitHub). Rewritten as line-joined f-strings.
+- **Context generator security** — removed always-404 `nvidia/llama-3.1-nemotron-ultra-253b-v1` from the model chain; fixed Bandit B607 (use `sys.executable`) + B404 nosec on the subprocess import; per-model timeout raised to 240s.
+
+### Changed
+- **`bulk-issue-context.yml`** — added `issue_numbers` (explicit targeting, any issue state) and `regenerate` (update existing draft PRs in place via `gh pr edit`, preserving PR numbers) inputs. Copies both `generate_context.py` and `fetch_url.py` to `/tmp` before the loop so they survive git branch switches. Wraps generation in `try/except TimeoutExpired` so one slow call can't crash the batch.
 
 ### Changed
 - **`process-quick-note.yml`** — PR creation now uses `--draft` flag to suppress CodeRabbit/Copilot auto-reviews on implementation PRs. Branch creation step now detects and reuses an existing `claude/context-issue-N` branch (from the context generator) so implementation commits land on the pre-existing draft PR rather than opening a duplicate.
