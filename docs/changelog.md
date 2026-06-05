@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Added
+- **Killer TODO Roadmap (`docs/roadmap-killer-todos.md`)** — 33-item implementation backlog synthesised from deep analysis of NousResearch/hermes-agent, modimihir07/agentic-os, NVIDIA-NeMo/Nemotron, kyegomez/OpenMythos, CodebuffAI/codebuff, and CompanyHelm/companyhelm. Covers agent efficiency, NVIDIA/cloud integration, direct-chat improvements, deployment, autonomy, observability, and vision. No implementation started — proposal only.
+
 - **Onboarding UX, logs, chat, admin fixes.** *Onboarding:* clickable breadcrumbs, restart button, Done back button. *Logs:* expandable messages (click to expand). *Chat:* ModelPicker two-step provider→model, mutual dropdown exclusion, repo URL input for code tasks. *Admin:* Companies tab with delete cleanup. *Backend:* DELETE /api/company/{id} endpoint.
 
 - **Agency Core v5 hardening — Phases 1-4 (SkillBindings, WorkflowOrchestrator, Doctor route split, Dashboard resilience).**
