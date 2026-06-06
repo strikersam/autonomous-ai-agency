@@ -37,6 +37,11 @@ DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
 DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
 DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b")
 
+# Nemotron Reward Model toggle (B1).  When NVIDIA_API_KEY is set, the reward
+# model scores step outputs as a cheaper/faster alternative to the LLM verifier.
+# Set NEMOTRON_REWARD_ENABLED=false to disable and always use the LLM verifier.
+_REWARD_ENABLED = os.environ.get("NEMOTRON_REWARD_ENABLED", "auto").strip().lower() not in ("false", "0", "no", "off")
+
 # Adaptive Loop Halting: exit the plan→execute→verify cycle early when the
 # verifier returns confidence >= this threshold on a step.  Reduces average
 # LLM calls per simple step from ~3 to ~1.5.  Set to 1.0 to disable.
@@ -102,6 +107,12 @@ class AgentRunner:
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
         self._session_store = session_store
+        # Nemotron reward scorer (B1): quick quality check before LLM verifier.
+        # Lazily initialised on first use so it doesn't break in envs without httpx.
+        self._reward_scorer: Any = None
+        # Capability registry (A3): dynamic tool dispatch replacing hardcoded
+        # if/elif chains with registry-based lookup.
+        self._tool_registry: Any = None
         # MCP client — injected after construction when an MCP sidecar is
         # available.  None means fall back to local WorkspaceTools for all ops.
         self._mcp = None
@@ -584,36 +595,67 @@ class AgentRunner:
                 new_content = self._clean_generated_file_content(new_content)
                 syntax_issues = self._local_syntax_check(out_path, new_content)
                 syntax_issues.extend(self._local_safety_check(out_path, new_content))
-                try:
-                    verification = await self._chat_json(
-                        verifier_model,
-                        build_verification_prompt(
-                            goal=goal,
-                            step=step,
-                            target_file=out_path,
-                            original_content=original_content,
-                            new_content=new_content,
-                            syntax_issues=syntax_issues,
-                        ),
+
+                # ── B1: Nemotron Reward Model fast-path scoring ────────────
+                # Before calling the expensive LLM verifier, try the reward
+                # model for a quick quality score.  If the score is high enough
+                # (>= _REWARD_PASS_THRESHOLD), skip the LLM verifier entirely.
+                # Falls back to LLM verifier when reward model is unavailable.
+                reward_score: float | None = None
+                if _REWARD_ENABLED and not syntax_issues:
+                    scorer = self._get_reward_scorer()
+                    if scorer and scorer.is_available:
+                        try:
+                            reward_result = await scorer.score(
+                                prompt=f"{goal}\nStep: {step.get('description', '')}\nFile: {out_path}",
+                                response=new_content[:8000],
+                            )
+                            reward_score = reward_result.score
+                            self._log_event(
+                                session_id, "step_complete",
+                                {"reward_score": reward_score, "reward_model_used": reward_result.model_used},
+                            )
+                        except Exception as exc:
+                            log.debug("Reward scoring failed (falling back to LLM verifier): %s", exc)
+
+                # If reward score is high enough, skip the LLM verifier
+                if reward_score is not None and reward_score >= float(os.environ.get("NEMOTRON_REWARD_PASS_THRESHOLD", "0.7")):
+                    log.info(
+                        "Reward model score %.2f >= threshold — skipping LLM verifier for %s",
+                        reward_score, out_path,
                     )
-                    verdict = VerificationResult.model_validate(verification)
-                except Exception as verif_exc:
-                    retries += 1
-                    feedback_issues = syntax_issues + [f"verifier_output_invalid: {verif_exc}"]
-                    # StopIteration (exhausted mock iterator) or persistent format failure → fail immediately
-                    is_exhausted = isinstance(verif_exc, (StopIteration, RuntimeError)) and "StopIteration" in str(verif_exc)
-                    if retries > 2 or is_exhausted:
-                        return {
-                            "step_id": step["id"],
-                            "description": step["description"],
-                            "status": "failed",
-                            "failure_phase": "verification",
-                            "issues": feedback_issues,
-                            "changed_files": changed_files,
-                            "observations": observations,
-                            "models": {"executor": executor_model, "verifier": verifier_model},
-                        }
-                    continue
+                    verdict = VerificationResult(status="pass", issues=[], confidence=reward_score)
+                else:
+                    try:
+                        verification = await self._chat_json(
+                            verifier_model,
+                            build_verification_prompt(
+                                goal=goal,
+                                step=step,
+                                target_file=out_path,
+                                original_content=original_content,
+                                new_content=new_content,
+                                syntax_issues=syntax_issues,
+                            ),
+                        )
+                        verdict = VerificationResult.model_validate(verification)
+                    except Exception as verif_exc:
+                        retries += 1
+                        feedback_issues = syntax_issues + [f"verifier_output_invalid: {verif_exc}"]
+                        # StopIteration (exhausted mock iterator) or persistent format failure → fail immediately
+                        is_exhausted = isinstance(verif_exc, (StopIteration, RuntimeError)) and "StopIteration" in str(verif_exc)
+                        if retries > 2 or is_exhausted:
+                            return {
+                                "step_id": step["id"],
+                                "description": step["description"],
+                                "status": "failed",
+                                "failure_phase": "verification",
+                                "issues": feedback_issues,
+                                "changed_files": changed_files,
+                                "observations": observations,
+                                "models": {"executor": executor_model, "verifier": verifier_model},
+                            }
+                        continue
                 if verdict.status == "pass" and not syntax_issues:
                     diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
@@ -709,14 +751,28 @@ class AgentRunner:
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
     ) -> Any:
+        # ── A3: Capability Registry dynamic dispatch ─────────────────────────
+        # Try the tool registry first for dynamically registered tools.
+        # Falls back to the hardcoded if/elif chain for legacy tools.
+        tr = self._get_tool_registry()
+        if tr is not None:
+            tool_def = tr.get(tool)
+            if tool_def is not None:
+                try:
+                    result = tool_def.handler(**args)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    return result
+                except Exception as exc:
+                    log.debug("Capability registry tool %r failed: %s", tool, exc)
+                    return f"[tool error via registry: {exc}]"
+
+        # Legacy hardcoded dispatch (fallback)
         if tool == "read_file":
             return self.tools.read_file(str(args.get("path", "")))
         if tool == "head_file":
-            # JIT retrieval: read only the first N lines so the context window
-            # stays lean during the inspection phase.
             return self.tools.head_file(str(args.get("path", "")), int(args.get("lines", 50)))
         if tool == "file_index":
-            # Lightweight index tier: always-loaded, ~150 chars per entry.
             return self.tools.file_index(str(args.get("path", ".")), int(args.get("max_entries", 100)))
         if tool == "list_files":
             return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
@@ -1156,6 +1212,30 @@ class AgentRunner:
                 issues.append("Auth task still contains a hardcoded SECRET_KEY.")
 
         return issues
+
+    # ── Reward scorer accessor (B1) ─────────────────────────────────────────
+
+    def _get_reward_scorer(self) -> Any:
+        if self._reward_scorer is None:
+            try:
+                from services.reward_scorer import get_reward_scorer
+                self._reward_scorer = get_reward_scorer()
+            except Exception as exc:
+                log.debug("Could not load reward scorer: %s", exc)
+                self._reward_scorer = False  # sentinel: tried and failed
+        return self._reward_scorer if self._reward_scorer is not False else None
+
+    # ── Capability registry accessor (A3) ───────────────────────────────────
+
+    def _get_tool_registry(self) -> Any:
+        if self._tool_registry is None:
+            try:
+                from agent.capability_registry import get_tool_registry
+                self._tool_registry = get_tool_registry()
+            except Exception as exc:
+                log.debug("Could not load tool registry: %s", exc)
+                self._tool_registry = False
+        return self._tool_registry if self._tool_registry is not False else None
 
     def _safe_read(self, path: str) -> str:
         try:

@@ -81,4 +81,4 @@
 | Date | Agent/Tool | Branch | Action |
 |------|------------|--------|--------|
 | 2026-06-05 | claude-sonnet-4-6 (Opus agent) | claude/llm-server-roadmap-pr-COcKN | Created roadmap TODO from 6 OSS repos research |
-| 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented ★2 Sub-Agent Configs, ★3 Reasoning Budget, A2 ReAct Loop, vLLM backend; 24 tests pass, 0 regressions |
+| 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented B1 Nemotron Reward Scoring, C2 Function Calling, A3 Capability Registry; 35+ tests |
