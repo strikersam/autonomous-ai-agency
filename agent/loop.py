@@ -16,7 +16,7 @@ import httpx
 
 from agent.context_manager import ContextManager
 from agent.context_pruner import ContextPruner
-from agent.models import AgentPlan, ToolCall, VerificationResult
+from agent.models import AgentPlan, SubAgentConfig, ToolCall, VerificationResult
 from agent.prompts import (
     build_compaction_prompt,
     build_execution_prompt,
@@ -24,6 +24,7 @@ from agent.prompts import (
     build_tool_prompt,
     build_verification_prompt,
 )
+from agent.react_loop import ReactScratchpad
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
@@ -40,6 +41,17 @@ DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b
 # verifier returns confidence >= this threshold on a step.  Reduces average
 # LLM calls per simple step from ~3 to ~1.5.  Set to 1.0 to disable.
 _CONFIDENCE_THRESHOLD = float(os.environ.get("AGENT_CONFIDENCE_THRESHOLD", "0.9"))
+
+# Reasoning token budget (★3 roadmap item).  Controls thinking/reasoning depth
+# for models that support it (DeepSeek-R1, Qwen3-Coder, Nemotron NIM, vLLM).
+# low=512, medium=2048, high=8192, max=unbounded (default: high).
+_REASONING_BUDGET_MAP: dict[str, int] = {
+    "low": 512,
+    "medium": 2048,
+    "high": 8192,
+    "max": -1,
+}
+_REASONING_BUDGET_DEFAULT = os.environ.get("AGENT_REASONING_BUDGET", "high").strip().lower()
 
 
 
@@ -82,6 +94,10 @@ class AgentRunner:
         # 3-phase context-pruner middleware: runs before every LLM call to enforce
         # token budgets and wrap older context as historical memory.
         self.pruner = ContextPruner()
+        # Specialized sub-agent configurations (★2 roadmap item).
+        # Keyed by role name ("file_picker", "planner", "editor", "reviewer").
+        # When set, _spawn_subagent uses the configured per-role model.
+        self.sub_agents: dict[str, SubAgentConfig] = {}
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
@@ -96,6 +112,17 @@ class AgentRunner:
         self.email = email
         self.department = department
         self.key_id = key_id
+
+    def configure_sub_agents(self, configs: list[SubAgentConfig]) -> None:
+        """Set per-role sub-agent configurations for specialized routing (★2).
+
+        When sub-agent configs are registered, ``_spawn_subagent`` and the
+        tool-call loop use the configured per-role model instead of the default
+        executor/verifier — enabling the File Picker → Planner → Editor →
+        Reviewer pattern where each role is routed to the cheapest capable model.
+        """
+        self.sub_agents = {c.role: c for c in configs}
+        log.debug("configured %d specialized sub-agent(s): %s", len(configs), list(self.sub_agents.keys()))
 
     async def plan(
         self,
@@ -414,6 +441,10 @@ class AgentRunner:
         executor_model = executor_decision.resolved_model if not requested_model else requested_model
         if not executor_model:
             executor_model = DEFAULT_EXECUTOR_MODEL
+        # Consult sub-agent configs for per-phase model selection (★2)
+        editor_cfg = self.sub_agents.get("editor")
+        if editor_cfg and editor_cfg.model:
+            executor_model = editor_cfg.model
 
         verifier_decision = get_router().route(
             requested_model=requested_model,
@@ -422,11 +453,18 @@ class AgentRunner:
         verifier_model = verifier_decision.resolved_model if not requested_model else requested_model
         if not verifier_model:
             verifier_model = DEFAULT_VERIFIER_MODEL
+        # Consult sub-agent configs for verifier role (★2)
+        reviewer_cfg = self.sub_agents.get("reviewer")
+        if reviewer_cfg and reviewer_cfg.model:
+            verifier_model = reviewer_cfg.model
 
         log.debug(
             "agent execute: executor=%s verifier=%s",
             executor_model, verifier_model,
         )
+
+        # ReAct scratchpad: accumulates reasoning trace across tool calls (A2)
+        scratchpad = ReactScratchpad()
 
         for remaining in range(15, 0, -1):
             try:
@@ -434,24 +472,33 @@ class AgentRunner:
                 # keep the tool-selection prompt lean.  Recent observations are
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
-                tool_call = await self._chat_json(
-                    executor_model,
-                    build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining),
-                )
+                tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                # Inject ReAct scratchpad trace into the system message so the
+                # model can see its own reasoning across tool calls (A2)
+                scratchpad_ctx = scratchpad.to_prompt_context()
+                if scratchpad_ctx and tool_messages:
+                    sys_content = str(tool_messages[0].get("content", ""))
+                    tool_messages[0]["content"] = f"{sys_content}\n\n{scratchpad_ctx}"
+                tool_call = await self._chat_json(executor_model, tool_messages)
                 call = ToolCall.model_validate(tool_call)
             except Exception as exc:
                 observations.append({"tool": "error", "result": f"tool selection failed: {exc}"})
                 continue
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
+                scratchpad.record_thought(call.args.get("reason", "step complete"))
                 break
             if call.tool == "spawn_subagent":
                 sub_result = await self._spawn_subagent(**call.args)
                 observations.append({"tool": "spawn_subagent", "result": sub_result.get("summary", str(sub_result))})
                 context_items.append({"tool": "spawn_subagent", "result": sub_result})
+                scratchpad.record_action("spawn_subagent", call.args)
+                scratchpad.record_observation(sub_result.get("summary", "subagent completed"))
                 continue
+            scratchpad.record_action(call.tool, call.args)
             self._log_event(session_id, "tool_call", {"tool": call.tool, "args": call.args})
             result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
+            scratchpad.record_observation(result)
             self._log_event(session_id, "tool_result", {"tool": call.tool, "result": str(result)[:500]})
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
@@ -809,6 +856,12 @@ class AgentRunner:
         messages = self.pruner.prune(messages)
         payload["messages"] = messages
 
+        # Reasoning token budget (★3): inject thinking_token_budget for supported models
+        _budget_key = os.environ.get("AGENT_REASONING_BUDGET", _REASONING_BUDGET_DEFAULT).strip().lower()
+        _budget_tokens = _REASONING_BUDGET_MAP.get(_budget_key)
+        if _budget_tokens is not None and _budget_tokens > 0:
+            payload["thinking_token_budget"] = _budget_tokens
+
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
         if self.num_ctx:
@@ -1158,9 +1211,16 @@ class AgentRunner:
         *,
         instruction: str,
         max_steps: int = 3,
+        role: str = "",
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Spawn a child AgentRunner for a delegated sub-task."""
+        """Spawn a child AgentRunner for a delegated sub-task.
+
+        When sub-agent configs are registered (★2), the child runner inherits
+        the per-role model and tool allowlist.  The ``role`` kwarg selects the
+        config (e.g. ``"file_picker"``, ``"editor"``); when empty or unmatched
+        the child uses the parent's default model.
+        """
         if not instruction or not instruction.strip():
             return {"error": "spawn_subagent requires a non-empty instruction"}
         sub = AgentRunner(
@@ -1170,12 +1230,20 @@ class AgentRunner:
             provider_temperature=self.provider_temperature,
             session_store=self._session_store,
         )
+        # Apply per-role sub-agent config if available
+        cfg = self.sub_agents.get(role) if role else None
+        if cfg:
+            sub.configure_sub_agents([cfg])
+            override_model = cfg.model or None
+            log.debug("spawn_subagent role=%s model=%s", role, override_model or "(inherit)")
+        else:
+            override_model = None
         return await sub.run(
             instruction=instruction,
             history=[],
-            requested_model=None,
+            requested_model=override_model,
             auto_commit=False,
-            max_steps=int(max_steps),
+            max_steps=int(max_steps) if not cfg else min(int(max_steps), cfg.max_steps),
         )
 
     async def _auto_push_and_pr(self, commits: list[str], session_id: str | None, goal: str = "") -> str | None:

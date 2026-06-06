@@ -325,7 +325,6 @@ async def handle_openai_chat_completions(
 
     # Structured output validation: if the request had a response_format,
     # validate the output is valid JSON and retry once on failure.
-    out_text, pt, ct = _openai_usage_from_response(data)
     if _has_response_format(payload):
         schema = None
         rf = payload.get("response_format", {})
@@ -333,6 +332,7 @@ async def handle_openai_chat_completions(
             js = rf.get("json_schema", {})
             if isinstance(js, dict):
                 schema = js.get("schema")
+        out_text, pt, ct = _openai_usage_from_response(data)
         is_valid, cleaned = _validate_json_response(out_text or "", schema)
         if not is_valid:
             log.warning("Structured output validation failed: %s — retrying once", cleaned[:200])
@@ -375,20 +375,26 @@ async def handle_openai_chat_completions(
 def _openai_usage_from_response(data: Any) -> tuple[str, int, int]:
     out_text = ""
     if isinstance(data, dict):
-        if _STRIP_THINK_TAGS:
-            choices = data.get("choices")
-            if isinstance(choices, list):
-                for choice in choices:
-                    if not isinstance(choice, dict):
-                        continue
-                    msg = choice.get("message")
-                    if isinstance(msg, dict) and isinstance(msg.get("content"), str):
-                        msg["content"] = _strip_think_blocks(msg["content"])
         choices = data.get("choices") or []
         if choices and isinstance(choices[0], dict):
             msg = choices[0].get("message") or {}
             if isinstance(msg, dict) and isinstance(msg.get("content"), str):
-                out_text = msg["content"]
+                content = msg["content"]
+                # Extract <think> content into reasoning_content BEFORE stripping (★3)
+                think_match = re.search(r"<think>([\s\S]*?)(?:</think>|$)", content, re.IGNORECASE)
+                if think_match and "reasoning_content" not in msg:
+                    reasoning = think_match.group(1).strip()
+                    msg["reasoning_content"] = reasoning
+                out_text = content
+            else:
+                out_text = ""
+        if _STRIP_THINK_TAGS:
+            for choice in (choices or []):
+                if not isinstance(choice, dict):
+                    continue
+                msg = choice.get("message")
+                if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                    msg["content"] = _strip_think_blocks(msg["content"])
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         pt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
         ct = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)

@@ -356,6 +356,30 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["bedrock", "claude", "claude4", "fast"],
     ),
+    # ── vLLM OpenAI-compatible backend (★3 reasoning budget) ────────────────
+    # vLLM is an OpenAI-compatible serving layer for local/cloud models.
+    # Register it as a first-class target alongside Ollama so clients can
+    # route to vLLM-served models (DeepSeek-V3, Qwen, Nemotron, etc.) via
+    # the same routing infrastructure.  Set VLLM_BASE_URL env var to activate.
+    "vllm:default": ModelCapability(
+        name="vllm:default",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "reasoning",
+            "analysis",
+            "planning",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=131072,
+        type="general",
+        cost_tier=2,
+        tags=["vllm", "openai-compat", "cloud"],
+    ),
 }
 
 

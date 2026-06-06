@@ -43,10 +43,10 @@
 | # | Item | Priority | Status | PR |
 |---|------|----------|--------|-----|
 | ★1 | 3-Phase Context-Pruner Middleware | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
-| ★2 | Specialized Sub-Agents with Per-Role Models | P0 | `TODO` | — |
-| ★3 | Reasoning Token Budget + Toggle | P0 | `TODO` | — |
+| ★2 | Specialized Sub-Agents with Per-Role Models | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| ★3 | Reasoning Token Budget + Toggle | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | A1 | Hermes ChatML Prompt Format | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
-| A2 | Multi-Hop ReAct Loop | P0 | `TODO` | — |
+| A2 | Multi-Hop ReAct Loop | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | B1 | Nemotron Reward Model Scoring | P0 | `TODO` | — |
 | C1 | Structured Output / JSON Mode | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | C2 | Function Calling (OpenAI-compatible) | P0 | `TODO` | — |
@@ -81,4 +81,4 @@
 | Date | Agent/Tool | Branch | Action |
 |------|------------|--------|--------|
 | 2026-06-05 | claude-sonnet-4-6 (Opus agent) | claude/llm-server-roadmap-pr-COcKN | Created roadmap TODO from 6 OSS repos research |
-| 2026-06-05 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Built dynamic session planning workflow |
+| 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented ★2 Sub-Agent Configs, ★3 Reasoning Budget, A2 ReAct Loop, vLLM backend; 24 tests pass, 0 regressions |
