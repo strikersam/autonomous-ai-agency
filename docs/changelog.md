@@ -978,3 +978,6 @@
 - ECC Harness Patterns (agents/harness_adapter.py, #237).
 - Quality Checker (agents/quality_checker.py, #237).
 - Temporal Context (services/temporal_context.py, #237).
+
+### Fixed
+- **Telegram bot error log showed literal `<redacted>` instead of the actual `TELEGRAM_ALLOWED_USER_IDS` value.** The CodeRabbit auto-fix on PR #438 replaced the raw env value with a hardcoded `<redacted>` string, making it impossible to see what value was configured. The error log now shows the actual raw value (Telegram user IDs are public identifiers, not secrets). `_parse_user_ids` also logs rejected tokens at DEBUG level for easier troubleshooting.

@@ -88,11 +88,18 @@ def _parse_user_ids(raw: str) -> set[int]:
     tokens = _re.split(r'[,;\s]+', raw.strip())
     result = set()
     for token in tokens:
+        if not token:
+            continue
         # Strip surrounding quotes, brackets, parentheses
         cleaned = token.strip().strip('"\'[](){}')
         # Only accept tokens that are purely numeric (with optional leading minus)
         if _re.match(r'^-?\d+$', cleaned):
             result.add(int(cleaned))
+        elif cleaned:
+            log.debug(
+                "Rejected Telegram user ID token %r (cleaned as %r) — must be purely numeric.",
+                token, cleaned,
+            )
     return result
 
 
@@ -696,9 +703,10 @@ async def run_bot() -> None:
     if not ALLOWED_USER_IDS:
         raw = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "")
         log.error(
-            "TELEGRAM_ALLOWED_USER_IDS produced no numeric IDs (got <redacted>, length=%d). "
+            "TELEGRAM_ALLOWED_USER_IDS produced no numeric IDs (got %r, length=%d). "
             "Use the NUMERIC id from @userinfobot (e.g. 8120976), comma-separated — "
             "not your @username, and without quotes. No one can use the bot.",
+            raw,
             len(raw),
         )
         return
