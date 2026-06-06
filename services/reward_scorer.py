@@ -53,13 +53,16 @@ def _nvidia_api_key() -> str | None:
 
 
 class RewardScore(BaseModel):
-    """Structured result from the Nemotron reward model."""
+    """Result of a single reward model scoring operation."""
 
     score: float = Field(default=0.0, ge=0.0, le=1.0)
     model: str = Field(default="")
     model_used: bool = Field(default=True)
     latency_ms: float = Field(default=0.0)
     error: str = Field(default="")
+
+
+class RewardScorer:
     """Scores agent step outputs using the Nemotron-4-340B-Reward model.
 
     The reward model evaluates instruction-following quality: given a prompt
@@ -208,8 +211,8 @@ class RewardScore(BaseModel):
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
 
-        # Try regex extract
-        match = _re.search(r"(\d+\.?\d*)", content)
+        # Try regex extract (match positive numbers only, ignore leading minus)
+        match = _re.search(r"(?<![-.\d])(\d+\.?\d*)", content)
         if match:
             score = float(match.group(1))
             return max(0.0, min(1.0, score))

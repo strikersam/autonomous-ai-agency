@@ -343,13 +343,20 @@ def _infer_parameters_from_func(func: Callable) -> dict[str, Any]:
         param_type = "string"
         if param.annotation is not inspect.Parameter.empty:
             annotation = param.annotation
-            if annotation is int:
+            # Handle from __future__ import annotations (string annotations)
+            if isinstance(annotation, str):
+                annotation_str = annotation
+            elif hasattr(annotation, "__name__"):
+                annotation_str = annotation.__name__
+            else:
+                annotation_str = str(annotation)
+            if annotation_str in ("int", "integer"):
                 param_type = "integer"
-            elif annotation is float:
+            elif annotation_str in ("float", "number"):
                 param_type = "number"
-            elif annotation is bool:
+            elif annotation_str in ("bool", "boolean"):
                 param_type = "boolean"
-            elif annotation is list:
+            elif annotation_str in ("list", "array"):
                 param_type = "array"
         props[param_name] = {"type": param_type, "description": f"Parameter: {param_name}"}
         if param.default is inspect.Parameter.empty:

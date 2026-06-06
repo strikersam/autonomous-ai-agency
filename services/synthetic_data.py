@@ -173,7 +173,7 @@ class SyntheticDataPipeline:
                     response_parts.append(f"[{tool}] {result}")
             response = "\n".join(response_parts) or f"Applied changes to: {', '.join(changed)}"
 
-            confidence = step.get("_confidence_scores", [0.0])
+            confidence = step.get("_confidence_scores", [])
             score = confidence[0] if confidence else 0.5
 
             if self.add_step_result(

@@ -21,8 +21,6 @@
 #   make prod-restart → docker compose -f docker-compose.prod.yml restart proxy
 # ─────────────────────────────────────────────────────────────────────────────
 
-version: "3.9"
-
 networks:
   llm-net:
     driver: bridge
@@ -144,7 +142,7 @@ services:
     ports:
       - "${PROXY_PORT:-8000}:8000"
     env_file:
-      - .env.prod
+      - ${ENV_FILE:-.env.example}
     environment:
       - OLLAMA_BASE=http://ollama:11434
       - MONGO_URL=mongodb://mongo:27017

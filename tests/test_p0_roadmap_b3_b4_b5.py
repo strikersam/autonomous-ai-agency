@@ -87,10 +87,12 @@ class TestSyntheticDataPipeline:
         pipeline = SyntheticDataPipeline()
         pipeline.add_step_result(instruction="A", response="R", reward_score=0.95, session_id="s1")
         pipeline.add_step_result(instruction="B", response="R", reward_score=0.55, session_id="s1")
-        all_samples = pipeline.list_samples()
-        assert len(all_samples) == 2
         high = pipeline.list_samples(min_score=0.8)
         assert len(high) == 1
+        # With default min_score=0.7, only the 0.95 sample is in the pipeline
+        all_pipeline = pipeline.list_samples()
+        assert len(all_pipeline) == 1
+        assert all_pipeline[0].reward_score >= 0.7
 
     def test_export_alpaca(self, tmp_path) -> None:
         pipeline = SyntheticDataPipeline(output_dir=str(tmp_path))
@@ -135,7 +137,8 @@ class TestSyntheticDataPipeline:
         assert pipeline.stats()["total_samples"] == 0
 
     def test_add_from_session_results(self) -> None:
-        pipeline = SyntheticDataPipeline()
+        # Use lower min_score so the 0.5 confidence score passes filtering
+        pipeline = SyntheticDataPipeline(min_score=0.4)
         steps = [{"status": "applied", "changed_files": ["x.py"], "description": "Fix bug",
                   "step_id": 1, "observations": [{"tool": "write_file", "result": "ok"}]}]
         accepted = pipeline.add_from_session_results("s1", steps, "Fix all bugs")

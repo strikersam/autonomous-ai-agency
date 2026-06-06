@@ -181,6 +181,9 @@ class ContextWindowManager:
         Looks up the model in the capability registry; falls back to
         the default context window.
         """
+        if not model:
+            return self._default_context_window
+
         try:
             from router.registry import get_registry
 

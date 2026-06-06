@@ -66,11 +66,11 @@ class TestChatHistoryIntegration:
 class TestContextWindowIntegration:
     def test_sliding_window_preserves_system(self) -> None:
         from services.context_window import ContextWindowManager, TruncationStrategy
-        mgr = ContextWindowManager(default_context_window=150)
+        mgr = ContextWindowManager(default_context_window=30)
         msgs = [
             {"role": "system", "content": "You are a coder."},
-            {"role": "user", "content": "x" * 300},
-            {"role": "assistant", "content": "y" * 200},
+            {"role": "user", "content": "x" * 600},
+            {"role": "assistant", "content": "y" * 400},
             {"role": "user", "content": "Short final"},
             {"role": "assistant", "content": "Last message."},
         ]
@@ -80,14 +80,16 @@ class TestContextWindowIntegration:
 
     def test_smart_compact_inserts_summary(self) -> None:
         from services.context_window import ContextWindowManager, TruncationStrategy
-        mgr = ContextWindowManager(default_context_window=200)
+        mgr = ContextWindowManager(default_context_window=20)
         msgs = [
             {"role": "system", "content": "System."},
-            {"role": "user", "content": "a" * 200},
-            {"role": "assistant", "content": "b" * 200},
-            {"role": "user", "content": "c" * 100},
-            {"role": "assistant", "content": "d" * 100},
-            {"role": "user", "content": "Final question."},
+            {"role": "user", "content": "a" * 500},
+            {"role": "assistant", "content": "b" * 500},
+            {"role": "user", "content": "c" * 400},
+            {"role": "assistant", "content": "d" * 400},
+            {"role": "user", "content": "e" * 400},
+            {"role": "assistant", "content": "f" * 400},
+            {"role": "user", "content": "g" * 400},
             {"role": "assistant", "content": "Final answer."},
         ]
         result = mgr.truncate(msgs, strategy=TruncationStrategy.SMART_COMPACT)
@@ -172,24 +174,30 @@ class TestOTELTracingIntegration:
         assert tracer is not None
 
     def test_span_context_parsing(self) -> None:
-        from services.otel_tracing import span_context_from_request, TraceContext
+        import services.otel_tracing as ot
+        old_enabled = ot._OTEL_ENABLED
+        ot._OTEL_ENABLED = True
+        try:
+            from services.otel_tracing import span_context_from_request, TraceContext
 
-        class MockHeaders:
-            headers = {}
+            class MockHeaders:
+                headers = {}
 
-        # No traceparent header → None
-        req1 = MockHeaders()
-        assert span_context_from_request(req1) is None
+            # No traceparent header → None
+            req1 = MockHeaders()
+            assert span_context_from_request(req1) is None
 
-        # Valid traceparent → TraceContext
-        class MockWithTrace:
-            headers = {"traceparent": "00-abc123def456-0123456789ab-01"}
+            # Valid traceparent → TraceContext
+            class MockWithTrace:
+                headers = {"traceparent": "00-abc123def456-0123456789ab-01"}
 
-        req2 = MockWithTrace()
-        tc = span_context_from_request(req2)
-        assert tc is not None
-        assert tc.trace_id == "abc123def456"
-        assert tc.is_sampled is True
+            req2 = MockWithTrace()
+            tc = span_context_from_request(req2)
+            assert tc is not None
+            assert tc.trace_id == "abc123def456"
+            assert tc.is_sampled is True
+        finally:
+            ot._OTEL_ENABLED = old_enabled
 
     def test_span_context_to_headers(self) -> None:
         from services.otel_tracing import TraceContext, span_context_to_headers

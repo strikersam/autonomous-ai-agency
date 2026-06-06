@@ -22,7 +22,7 @@ from .reward_scorer import RewardScorer, RewardScore, get_reward_scorer
 from .task_queue import PriorityTaskQueue, PrioritizedTask, Priority, get_task_queue
 
 # Agent Message Bus (A5)
-from .agent_bus import AgentMessageBus, AgentEvent, get_agent_bus
+from .agent_bus import AgentMessageBus, get_agent_bus
 
 # Synthetic Training Data (B3)
 from .synthetic_data import SyntheticDataPipeline, TrainingSample, get_synthetic_pipeline
@@ -75,7 +75,6 @@ __all__ = [
     "get_task_queue",
     # Agent Message Bus (A5)
     "AgentMessageBus",
-    "AgentEvent",
     "get_agent_bus",
     # Synthetic Training Data (B3)
     "SyntheticDataPipeline",

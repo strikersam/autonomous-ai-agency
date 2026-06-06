@@ -196,15 +196,13 @@ class SteeringInjector:
         }
 
         for label, value in sorted(labels.items()):
+            desc = label_descriptions.get(label, f"Prioritize {label}")
             if value >= 4:
-                desc = label_descriptions.get(label, f"Prioritize {label}")
-                parts.append(f"- {desc} (priority: maximum)")
+                parts.append(f"- [{label}] {desc} (priority: maximum)")
             elif value >= 3:
-                desc = label_descriptions.get(label, f"Consider {label}")
-                parts.append(f"- {desc}")
+                parts.append(f"- [{label}] {desc}")
             elif value >= 2:
-                desc = label_descriptions.get(label, f"Balance {label}")
-                parts.append(f"- {desc} (balanced)")
+                parts.append(f"- [{label}] {desc} (balanced)")
 
         if not parts:
             return ""

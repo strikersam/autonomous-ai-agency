@@ -69,11 +69,24 @@ class TestStreamingDeltaReconstructor:
             recon.feed_sse_bytes(c)
 
         emitted = await recon.emit_all()
-        # Should have content chunks + finish + done marker + sentinel
+        # emit_all returns SSE-formatted bytes; extract content for assertion
         assert len(emitted) >= 3
         full_text = b"".join(emitted).decode()
-        assert "Hello" in full_text
-        assert "World" in full_text
+        # Parse SSE lines to extract content deltas
+        import json as _json
+        content_parts: list[str] = []
+        for line in full_text.split("\n"):
+            if line.startswith("data: ") and line != "data: [DONE]":
+                try:
+                    obj = _json.loads(line[6:])
+                    delta = obj["choices"][0].get("delta", {})
+                    if "content" in delta:
+                        content_parts.append(delta["content"])
+                except Exception:
+                    pass
+        extracted = "".join(content_parts)
+        assert "Hello" in extracted
+        assert "World" in extracted
         assert "[DONE]" in full_text
 
     @pytest.mark.asyncio
@@ -81,7 +94,19 @@ class TestStreamingDeltaReconstructor:
         recon = StreamingDeltaReconstructor(model="test", chunk_size=10)
         recon.feed_text("Direct text feed without SSE parsing")
         emitted = await recon.emit_all()
-        full_text = b"".join(emitted).decode()
+        # Parse SSE chunks to extract content
+        import json as _json
+        content_parts: list[str] = []
+        for chunk in emitted:
+            try:
+                obj = _json.loads(chunk.decode().removeprefix("data: ").strip())
+                if isinstance(obj, dict):
+                    delta = obj.get("choices", [{}])[0].get("delta", {})
+                    if "content" in delta:
+                        content_parts.append(delta["content"])
+            except Exception:
+                pass
+        full_text = "".join(content_parts)
         assert "Direct text feed" in full_text
 
     @pytest.mark.asyncio
@@ -142,7 +167,21 @@ class TestStreamingDeltaReconstructor:
         async for chunk in recon.emit():
             chunks.append(chunk)
         assert len(chunks) >= 1
-        assert b"test content" in b"".join(chunks)
+        # Parse SSE chunks to extract content
+        import json as _json
+        content_parts: list[str] = []
+        for chunk in chunks:
+            try:
+                line = chunk.decode().strip()
+                if line.startswith("data: ") and line != "data: [DONE]":
+                    obj = _json.loads(line[6:])
+                    delta = obj.get("choices", [{}])[0].get("delta", {})
+                    if "content" in delta:
+                        content_parts.append(delta["content"])
+            except Exception:
+                pass
+        full_text = "".join(content_parts)
+        assert "test content" in full_text
 
 
 # ── C4: Chat History Persistence ─────────────────────────────────────────────
@@ -310,11 +349,11 @@ class TestContextWindowManager:
         assert result.strategy_used == "none"
 
     def test_truncate_sliding_window(self) -> None:
-        mgr = ContextWindowManager(default_context_window=200)
+        mgr = ContextWindowManager(default_context_window=40)
         msgs = [
             {"role": "system", "content": "You are a coder."},
-            {"role": "user", "content": "x" * 300},
-            {"role": "assistant", "content": "y" * 200},
+            {"role": "user", "content": "x" * 600},
+            {"role": "assistant", "content": "y" * 400},
             {"role": "user", "content": "Short"},
             {"role": "assistant", "content": "Last message"},
         ]
@@ -338,14 +377,14 @@ class TestContextWindowManager:
         assert result.truncated_count <= len(msgs)
 
     def test_truncate_smart_compact(self) -> None:
-        mgr = ContextWindowManager(default_context_window=200)
+        mgr = ContextWindowManager(default_context_window=80)
         msgs = [
             {"role": "system", "content": "System."},
-            {"role": "user", "content": "x" * 200},
-            {"role": "assistant", "content": "y" * 200},
-            {"role": "user", "content": "x2" * 100},
-            {"role": "assistant", "content": "y2" * 100},
-            {"role": "user", "content": "z" * 100},
+            {"role": "user", "content": "x" * 300},
+            {"role": "assistant", "content": "y" * 300},
+            {"role": "user", "content": "x2" * 200},
+            {"role": "assistant", "content": "y2" * 200},
+            {"role": "user", "content": "z" * 200},
             {"role": "assistant", "content": "Final."},
         ]
         result = mgr.truncate(msgs, strategy=TruncationStrategy.SMART_COMPACT)

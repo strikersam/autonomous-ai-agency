@@ -144,7 +144,7 @@ class TestParseToolCalls:
 class TestNormalizeToolChoice:
     def test_none_tool_choice_returns_unchanged(self) -> None:
         payload = {"model": "qwen3-coder:30b", "messages": []}
-        result = _normalize_tool_choice(payload)
+        result = _normalize_tool_choice(payload, model=payload["model"])
         assert "tool_choice" not in result
 
     def test_auto_tool_choice_injects_instruction(self) -> None:
@@ -153,7 +153,7 @@ class TestNormalizeToolChoice:
             "messages": [{"role": "user", "content": "hello"}],
             "tool_choice": "auto",
         }
-        result = _normalize_tool_choice(payload)
+        result = _normalize_tool_choice(payload, model=payload["model"])
         assert "tool_choice" not in result
         assert "may call a tool" in result["messages"][0]["content"].lower()
 
@@ -163,7 +163,7 @@ class TestNormalizeToolChoice:
             "messages": [{"role": "system", "content": "You are helpful."}],
             "tool_choice": "required",
         }
-        result = _normalize_tool_choice(payload)
+        result = _normalize_tool_choice(payload, model=payload["model"])
         assert "tool_choice" not in result
         assert "must call a tool" in result["messages"][0]["content"].lower()
 
@@ -173,7 +173,7 @@ class TestNormalizeToolChoice:
             "messages": [],
             "tool_choice": "none",
         }
-        result = _normalize_tool_choice(payload)
+        result = _normalize_tool_choice(payload, model=payload["model"])
         assert "tool_choice" not in result
 
     def test_specific_tool(self) -> None:
@@ -182,7 +182,7 @@ class TestNormalizeToolChoice:
             "messages": [{"role": "user", "content": "hi"}],
             "tool_choice": {"type": "function", "function": {"name": "read_file"}},
         }
-        result = _normalize_tool_choice(payload)
+        result = _normalize_tool_choice(payload, model=payload["model"])
         assert "tool_choice" not in result
         assert "read_file" in result["messages"][0]["content"]
 
@@ -193,7 +193,7 @@ class TestNormalizeToolChoice:
             "messages": [{"role": "user", "content": "hi"}],
             "tool_choice": "auto",
         }
-        result = _normalize_tool_choice(payload)
+        result = _normalize_tool_choice(payload, model=payload["model"])
         assert result["tool_choice"] == "auto"
 
 
