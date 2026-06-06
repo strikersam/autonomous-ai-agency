@@ -412,10 +412,26 @@ async def _embedded_run(task: str, model: str) -> dict:
         repo_url=repo_url or None,
         base_branch=base_branch,
     )
-    result = await agent.run(
-        instruction=task, history=[], requested_model=model,
-        auto_commit=True, max_steps=_freebuff_max_steps(),
-    )
+
+    # Allow the agent run even when the host process runs in orchestrator mode
+    # (e.g. embedded in the backend web service). FreeBuff is a sanctioned,
+    # user-invoked path, so we set the orchestrator bypass for the duration of
+    # this run — the same mechanism TaskExecutionCoordinator uses. Harmless when
+    # the process is already in legacy mode (dedicated worker).
+    bypass_token = None
+    try:
+        from services.workflow_orchestrator import _BYPASS
+        bypass_token = _BYPASS.set(True)
+    except Exception:
+        _BYPASS = None  # type: ignore[assignment]
+    try:
+        result = await agent.run(
+            instruction=task, history=[], requested_model=model,
+            auto_commit=True, max_steps=_freebuff_max_steps(),
+        )
+    finally:
+        if bypass_token is not None and _BYPASS is not None:
+            _BYPASS.reset(bypass_token)
     return {"result": result}
 
 

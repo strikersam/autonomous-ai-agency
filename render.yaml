@@ -228,6 +228,33 @@ services:
       - key: RUN_BACKGROUND_IN_WEB
         value: "true"
 
+      # ================================================================
+      # FREEBUFF TELEGRAM BOT — run inside this web service (free tier:
+      # one service hosts both the API and the phone-control bot).
+      # Set the *sync:false* secrets in the dashboard. RUN_TELEGRAM_BOT
+      # gates startup; BOT_KEEPALIVE self-pings RENDER_EXTERNAL_URL so the
+      # free instance does not sleep (the bot's long-poll alone won't keep
+      # it awake). See docs/deploy/freebuff-telegram-bot.md.
+      # ================================================================
+      - key: RUN_TELEGRAM_BOT
+        value: "true"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALLOWED_USER_IDS
+        sync: false
+      - key: TELEGRAM_ADMIN_USER_IDS
+        sync: false
+      - key: FREEBUFF_EMBEDDED
+        value: "true"
+      - key: AGENT_AUTO_PR_ENABLED
+        value: "true"
+      - key: FREEBUFF_REPO_URL
+        value: "https://github.com/strikersam/local-llm-server"
+      - key: FREEBUFF_BASE_BRANCH
+        value: "master"
+      - key: BOT_KEEPALIVE
+        value: "true"
+
   # ── Always-on Worker (24×7 task execution + CEO loop) ─────────────────────
   # A separate worker service so task execution continues even when the web
   # service is sleeping on the free tier.  Switch the web service
