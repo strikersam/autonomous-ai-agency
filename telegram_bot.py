@@ -78,11 +78,22 @@ def _parse_user_ids(raw: str) -> set[int]:
 
     Accepts comma/space/semicolon separators and ignores wrapping quotes,
     brackets, or stray characters (e.g. ``"123, 456"``, ``[123 456]``,
-    ``@name`` is dropped — usernames are not valid IDs). Uses a digit regex so
-    common copy-paste mistakes still work.
+    ``@name`` is dropped — usernames are not valid IDs). Splits on separators,
+    strips wrapping quotes/brackets, and validates each token is purely numeric.
     """
     import re as _re
-    return {int(m) for m in _re.findall(r"-?\d+", raw or "")}
+    if not raw:
+        return set()
+    # Split on common separators: comma, semicolon, whitespace
+    tokens = _re.split(r'[,;\s]+', raw.strip())
+    result = set()
+    for token in tokens:
+        # Strip surrounding quotes, brackets, parentheses
+        cleaned = token.strip().strip('"\'[](){}')
+        # Only accept tokens that are purely numeric (with optional leading minus)
+        if _re.match(r'^-?\d+$', cleaned):
+            result.add(int(cleaned))
+    return result
 
 
 ALLOWED_USER_IDS: set[int] = _parse_user_ids(_raw_allowed)
@@ -684,12 +695,11 @@ async def run_bot() -> None:
         return
     if not ALLOWED_USER_IDS:
         raw = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "")
-        preview = (raw[:24] + "…") if len(raw) > 25 else raw
         log.error(
-            "TELEGRAM_ALLOWED_USER_IDS produced no numeric IDs (got %r, len=%d). "
+            "TELEGRAM_ALLOWED_USER_IDS produced no numeric IDs (got <redacted>, length=%d). "
             "Use the NUMERIC id from @userinfobot (e.g. 8120976), comma-separated — "
             "not your @username, and without quotes. No one can use the bot.",
-            preview, len(raw),
+            len(raw),
         )
         return
 
