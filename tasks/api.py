@@ -11,6 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 
 from tasks.models import (
     ApprovalRequest,
+    ClarifyRequest,
     CommentAddRequest,
     FollowUpRequest,
     Task,
@@ -112,6 +113,8 @@ async def create_task(body: TaskCreateRequest, request: Request, user: Any = Dep
         due_date=body.due_date,
         requires_approval=body.requires_approval,
         status=body.status,
+        story_points=body.story_points,
+        sprint_id=body.sprint_id,
         review_reason="Created in review lane" if body.status is TaskStatus.IN_REVIEW else None,
     )
     try:
@@ -197,6 +200,10 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
         task.due_date = updates["due_date"]
     if "requires_approval" in updates:
         task.requires_approval = updates["requires_approval"]
+    if "story_points" in updates:
+        task.story_points = updates["story_points"]
+    if "sprint_id" in updates:
+        task.sprint_id = updates["sprint_id"]
     if "agent_id" in updates:
         workflow.assign_agent(task, updates["agent_id"], actor=actor)
 
@@ -302,6 +309,22 @@ async def escalate_task(task_id: str, request: Request, user: Any = Depends(_cur
     task, store, actor = await _load_task(request, task_id, user)
     workflow = _get_workflow(request)
     workflow.escalate(task, actor=actor)
+    await store.update(task)
+    return {"task": task.as_dict()}
+
+
+@task_router.patch("/{task_id}/clarify")
+async def clarify_task(task_id: str, body: ClarifyRequest, request: Request, user: Any = Depends(_current_user)) -> dict[str, Any]:
+    task, store, actor = await _load_task(request, task_id, user)
+    task.status = TaskStatus.NEEDS_CLARIFICATION
+    task.blocked_reason = body.reason
+    task.add_log(
+        f"Clarification requested: {body.reason}",
+        event_type="clarification_requested",
+        actor=actor,
+        task_status=task.status,
+    )
+    task.touch()
     await store.update(task)
     return {"task": task.as_dict()}
 

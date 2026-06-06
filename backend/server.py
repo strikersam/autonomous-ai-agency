@@ -6634,6 +6634,12 @@ app.include_router(secrets_router)
 from agents.portfolio_api import portfolio_router
 app.include_router(portfolio_router)
 
+try:
+    from agents.agile_api import agile_router
+    app.include_router(agile_router)
+except Exception as _agile_err:
+    log.warning("Agile API not mounted: %s", _agile_err)
+
 # Company Graph API
 from services.company_graph_store import get_company_graph_store
 import backend.company_api as company_api_module
