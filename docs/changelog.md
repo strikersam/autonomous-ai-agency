@@ -29,6 +29,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **`ADMIN_PASSWORD` is now sourced exclusively from the `ADMIN_PASSWORD` environment variable.**
+  Removed all hardcoded `"WikiAdmin2026!"` literals from every test file and CI workflow.
+  `backend/server.py` remains the single canonical fallback; all test files now derive the
+  password from `server.ADMIN_PASSWORD` (unit tests) or `os.environ.get("ADMIN_PASSWORD")`
+  (live-server/e2e tests). CI workflows use `secrets.CI_ADMIN_PASSWORD` only — no hardcoded
+  fallback. Changing the env var on Render/CI now propagates to every code path automatically.
 - **Runtime 401 auth errors no longer stall tasks for 10 re-queue cycles.**
   `InternalAgentAdapter.execute()` now iterates an ordered provider chain
   (NVIDIA → DeepSeek → Groq → DashScope → OpenRouter → Together → Mistral →

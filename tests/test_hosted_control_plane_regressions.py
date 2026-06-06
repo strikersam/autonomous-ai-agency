@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 
 
-_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
+import backend.server as _server
+_ADMIN_PASSWORD = _server.ADMIN_PASSWORD
 def _auth_headers(client: TestClient) -> dict[str, str]:
     login = client.post(
         "/api/auth/login",

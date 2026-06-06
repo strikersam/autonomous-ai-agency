@@ -45,6 +45,8 @@ jobs:
 
       - name: Run pytest baseline
         id: baseline
+        env:
+          ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD }}
         run: |
           python -m pytest --tb=no -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
@@ -118,25 +120,38 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FAILING: ${{ steps.baseline.outputs.failing }}
         run: |
+          git config user.email "agency-bot@local-llm-server"
+          git config user.name "Agency Bot"
+
+          FAILING_LIST=$(echo "$FAILING" | tr ',' '\n' | sed 's/^/  - /' | head -20)
+
           cat > /tmp/dev_instruction.txt <<EOF
           You are the Dev Agent in the local-llm-server agency.
 
           The following tests are currently failing:
-          $(echo "$FAILING" | tr ',' '\n' | sed 's/^/  - /')
+          ${FAILING_LIST}
 
-          Run \`python -m pytest --tb=short -x\` to see the failures.
+          Run \`python -m pytest --tb=short -x\` to see the exact failures.
           Fix each failing test by correcting the implementation (never skip or mock tests).
           After fixing, run pytest again to confirm green.
           Update docs/changelog.md under [Unreleased] ### Fixed.
-          Commit all changes with message: \`fix: resolve failing tests from agency cycle\`
+          Signal completion with IMPLEMENTATION_COMPLETE when all tests pass.
           EOF
 
-          if command -v claude &>/dev/null; then
-            claude --print --dangerously-skip-permissions "$(cat /tmp/dev_instruction.txt)" || true
+          # implement_agent.py uses NVIDIA NIM (free) with Anthropic Opus fallback.
+          # This works in any GitHub Actions runner — no Claude CLI required.
+          if [ -n "$NVIDIA_API_KEY" ] || [ -n "$ANTHROPIC_API_KEY" ]; then
+            python .github/scripts/implement_agent.py \
+              "$(cat /tmp/dev_instruction.txt)" \
+              0 \
+              "agency-autofix" \
+              2>&1 | tail -60 || true
           else
-            echo "Claude CLI not available — skipping automated fix"
+            echo "No LLM API key configured — automated fix skipped. Set NVIDIA_API_KEY or ANTHROPIC_API_KEY secret."
           fi
 
       - name: Run tests after fix attempt
