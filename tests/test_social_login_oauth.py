@@ -66,6 +66,28 @@ def test_just_within_window_accepted():
     assert _valid_login_state(_doc(age_seconds=599), provider="google") is True
 
 
+def test_naive_created_at_does_not_raise():
+    """MongoDB/motor returns naive UTC datetimes. Subtracting a naive datetime
+    from an aware now() raised TypeError -> 500 *after* the state check passed
+    (the production "Internal server error" on Google login). The validator must
+    normalise naive timestamps instead of crashing."""
+    naive_recent = {
+        "state": "abc123",
+        "flow_type": "login",
+        "provider": "google",
+        "created_at": datetime.utcnow(),  # naive, like PyMongo returns
+    }
+    assert _valid_login_state(naive_recent, provider="google") is True
+
+    naive_expired = {
+        "state": "abc123",
+        "flow_type": "login",
+        "provider": "google",
+        "created_at": datetime.utcnow() - timedelta(seconds=601),
+    }
+    assert _valid_login_state(naive_expired, provider="google") is False
+
+
 def test_login_endpoints_do_not_depend_on_session_cookie():
     """The login handlers must persist state via _store_login_state, not the
     session cookie (the source of the original bug)."""
