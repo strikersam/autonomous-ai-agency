@@ -21,7 +21,8 @@ Only outbound HTTP calls (LLM providers, GitHub API) are intercepted.
 All agent logic, MCP tool dispatch, and job lifecycle are real.
 """
 
-_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
+import backend.server as _server
+_ADMIN_PASSWORD = _server.ADMIN_PASSWORD
 import json
 import time
 import urllib.parse

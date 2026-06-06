@@ -20,7 +20,7 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001")
 
 # Test credentials from test_credentials.md
 ADMIN_EMAIL = "admin@llmrelay.local"
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
 
 def _server_reachable(url: str, timeout: float = 1.0) -> bool:

@@ -28,6 +28,37 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Auto-resolved escalation issues on passing CI.** `continuous-improvement.yml` now runs on every push to master (in addition to the daily cron), and both `continuous-improvement.yml` and `agency-cycle.yml` now auto-close any open `CI: Failing Tests` or `Agency: Cannot Fix Tests` issues when tests pass — no more stale escalation issues hanging open after fixes are merged.
+- **`ADMIN_PASSWORD` is now sourced exclusively from the `ADMIN_PASSWORD` environment variable.**
+  Removed all hardcoded `"WikiAdmin2026!"` literals from every test file and CI workflow.
+  `backend/server.py` remains the single canonical fallback; all test files now derive the
+  password from `server.ADMIN_PASSWORD` (unit tests) or `os.environ.get("ADMIN_PASSWORD")`
+  (live-server/e2e tests). CI workflows use `secrets.CI_ADMIN_PASSWORD` only — no hardcoded
+  fallback. Changing the env var on Render/CI now propagates to every code path automatically.
+- **Runtime 401 auth errors no longer stall tasks for 10 re-queue cycles.**
+  `InternalAgentAdapter.execute()` now iterates an ordered provider chain
+  (NVIDIA → DeepSeek → Groq → DashScope → OpenRouter → Together → Mistral →
+  Gemini → Cloudflare → HuggingFace → ZhiPu → MiniMax → local Ollama) and
+  passes the correct `Authorization: Bearer <key>` header for each cloud
+  provider — the header was previously omitted, causing every NVIDIA request
+  to fail with 401. On 401 or any other provider error the adapter
+  immediately skips to the next provider; only after exhausting the entire
+  chain does it raise `RuntimeExecutionError`. Introduced
+  `_ordered_provider_configs()` (replaces `_best_cloud_primary_base()` in the
+  execution path) and `_is_auth_error()` helpers.
+- **Agency escalation issues now include actionable error details.**
+  `agency-cycle.yml` previously created GitHub issues containing only raw
+  pytest dot/F output (no test names, no error messages). The workflow now
+  runs a second `pytest --tb=short` pass on the failing tests and includes the
+  short tracebacks in the issue body alongside the list of `FAILED` test IDs.
+- **`TaskDispatcher` reconciler no longer crashes on startup.**
+  `TaskExecutionCoordinator` was missing the `_active_task_ids` attribute that
+  `TaskDispatcher._reconcile()` required. Added the set to `__init__` and
+  converted `_claim_task` / `_release_task` from `@staticmethod` to instance
+  methods that keep it up to date, so the reconciler correctly skips tasks
+  that are actively executing rather than treating them as stranded.
+
 ### Added
 - **FreeBuff — self-hosted Codebuff-style coding agent on free NVIDIA models, with Telegram phone control.** New `FreeBuffAgent` (`agent/loop.py`) subclasses `AgentRunner` and pins model selection to a curated set of free NVIDIA NIM models (`nvidia/nemotron-3-super-120b-a12b`, `qwen/qwen2.5-coder-32b-instruct`, `meta/llama-3.3-70b-instruct`, `meta/llama-3.1-8b-instruct`, `deepseek-ai/deepseek-r1`; override via `FREEBUFF_MODELS`). `resolve_model()` coerces any paid/unknown model back to a free one so it never routes to a paid endpoint; the runner is pinned to the NVIDIA NIM base + key when `NVIDIA_API_KEY` is set and falls back to a local base otherwise. Three proxy endpoints (`GET /freebuff/models`, `POST /freebuff/plan` — read-only preview, `POST /freebuff/run` — execute with optional commit + draft PR). The Telegram bot (`telegram_bot.py`) gains an admin-only `/freebuff <task>` flow driven entirely by inline buttons: pick a free model → review the generated plan → **Accept & run** (commit + draft PR) or **Reject**; callbacks re-check admin auth and use compact `fb:<action>[:<arg>]` data with index-based model selection (64-byte limit safe). Tests in `tests/test_freebuff.py` and `tests/test_telegram_freebuff.py`. Docs in `docs/agents.md`.
 - **FreeBuff always-on Telegram bot (24×7 deploy).** New embedded mode lets `telegram_bot.py` run the FreeBuff agent in-process — no proxy server, MongoDB, or public port — so it deploys as a single self-contained worker. `_fb_models`/`_fb_plan`/`_fb_run` dispatch to either in-process `FreeBuffAgent` (when `FREEBUFF_EMBEDDED=true`) or the HTTP proxy (default). Embedded runs clone `FREEBUFF_REPO_URL` with the GitHub token, edit on free NVIDIA models, and open a draft PR (`AGENT_AUTO_PR_ENABLED`, `AGENCY_WORKFLOW_MODE=legacy`, base branch `FREEBUFF_BASE_BRANCH`). Ships `scripts/run_freebuff_bot.py` (launcher), `Dockerfile.telegram`, a `freebuff-telegram-bot` Render worker in `render.yaml`, and `docs/deploy/freebuff-telegram-bot.md`. 9 tests in `tests/test_freebuff_bot.py`.

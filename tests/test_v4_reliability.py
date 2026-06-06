@@ -10,7 +10,8 @@ Tests in this file must NOT break when workspace isolation or feature matrix
 code is added.  They prove the core system still works correctly.
 """
 
-_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
+import backend.server as _server
+_ADMIN_PASSWORD = _server.ADMIN_PASSWORD
 
 import asyncio
 import time
