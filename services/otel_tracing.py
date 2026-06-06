@@ -181,7 +181,8 @@ class TracerFactory:
             if hasattr(provider, "shutdown"):
                 provider.shutdown()
         except Exception:  # nosec B110 — OTEL shutdown is best-effort
-            pass─
+            pass
+
 
 _factory: TracerFactory | None = None
 
