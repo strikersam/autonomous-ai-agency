@@ -43,6 +43,12 @@
 - **Context PR titles use a `docs:` prefix** so the `changelog-check` gate exempts them (context PRs only add `docs/context/*.md`).
 
 ### Fixed
+- **Social login (GitHub & Google OAuth) broken by three bugs in `backend/server.py`.**
+  1. *Session key collision*: Both `github_login` and `google_login` wrote to the same `session["oauth_state"]` key; starting one flow after the other (or in a multi-tab scenario) silently overwrote the state, causing the callback's CSRF check to always fail with "Invalid OAuth state". Fixed by using provider-specific keys: `github_oauth_state` and `google_oauth_state`.
+  2. *Google redirect_uri mismatch*: The callback used `request.url_for("google_callback")` which generates the wrong scheme/host behind a reverse proxy, causing Google's token exchange to reject the request. Fixed: both `/api/auth/google/login` and `/api/auth/google/callback` now derive `redirect_uri` from the new `OAUTH_REDIRECT_BASE` env var (with a local-dev fallback to `url_for`).
+  3. *Missing redirect_uri for GitHub*: GitHub OAuth authorize URL was missing `redirect_uri`, relying on the default registered callback. Now explicitly passed from `OAUTH_REDIRECT_BASE`.
+  Additional: added `timeout=15` on all social-login `httpx.AsyncClient` calls; wrapped HTTP exchanges in `try/except` for clean 502 errors instead of unhandled exceptions.
+
 - **All 20 V5 screens audited for swallowed errors; approve/retry now show inline error banners.** `handleRetry` previously had a bare `catch (_) {}` swallowing all errors silently; now shows a yellow click-to-dismiss actionError banner. `handleApprove` filters out expected 404/400 (optimistic: no checkpoint to approve) but surfaces real failures.
 
 - **Browser E2E now covers 20 pages (was 13).** Added 7 missing V5 routes: `/intelligence`, `/company`, `/github`, `/skills`, `/doctor`, `/onboarding`, `/admin`.

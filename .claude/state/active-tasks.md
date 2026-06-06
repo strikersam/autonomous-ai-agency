@@ -26,6 +26,7 @@
 | 2 | Dynamic Session Planning Workflow (this task) | `IN_PROGRESS` | [#406](https://github.com/strikersam/local-llm-server/pull/406) | hooks + tracker + AGENTS.md update | 2026-06-05 |
 | 3 | Agentic Portfolio Management (WSJF) + v5 Portfolio screen | `DONE` | #423, #426 | portfolio.py, agile health/retro, v5 board | 2026-06-06 |
 | 4 | Autonomous Portfolio Intelligence (signals → initiatives, 6h cron) | `IN_PROGRESS` | claude/portfolio-autonomous | portfolio_intelligence.py + refresh workflow + UI provenance | 2026-06-06 |
+| 5 | Fix social login (Google & GitHub OAuth) | `DONE` | `claude/social-login-google-github-BBGoT` | 3 bugs fixed in backend/server.py — see bug log #4-6 | 2026-06-06 |
 
 ---
 
@@ -36,6 +37,9 @@
 | 1 | NVIDIA NIM double `/v1` URL in `agent/loop.py` line 911 | 2026-06-03 | 2026-06-03 | #397 | `BUG_FIXED` |
 | 2 | ProviderManager vs ProviderRouter type mismatch in `direct_chat.py` | 2026-06-03 | 2026-06-03 | #399 | `BUG_FIXED` |
 | 3 | TaskBoardScreen create-task modal silently swallowed API errors | 2026-06-05 | 2026-06-05 | #406 parent | `BUG_FIXED` |
+| 4 | GitHub+Google share `session["oauth_state"]` — CSRF check always fails on multi-tab/provider-switch | 2026-06-06 | 2026-06-06 | `claude/social-login-google-github-BBGoT` | `BUG_FIXED` |
+| 5 | Google redirect_uri via `url_for` breaks behind proxy — token exchange rejected by Google | 2026-06-06 | 2026-06-06 | `claude/social-login-google-github-BBGoT` | `BUG_FIXED` |
+| 6 | GitHub OAuth URL missing `redirect_uri`; no timeout on httpx clients in login flows | 2026-06-06 | 2026-06-06 | `claude/social-login-google-github-BBGoT` | `BUG_FIXED` |
 
 ---
 

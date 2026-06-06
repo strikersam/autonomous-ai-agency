@@ -1144,6 +1144,10 @@ GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", JWT_SECRET)
+# Base URL of this server — used for OAuth callback URIs.
+# Must match exactly what is registered in GitHub/Google OAuth App settings.
+# Example: https://myserver.com  (no trailing slash)
+OAUTH_REDIRECT_BASE = os.environ.get("OAUTH_REDIRECT_BASE", "").rstrip("/")
 
 # ─── Auth Helpers ───────────────────────────────────────────────────────────────
 
@@ -1307,10 +1311,16 @@ async def github_login(request: Request):
     if not GITHUB_CLIENT_ID:
         raise HTTPException(status_code=503, detail="GitHub login not configured")
     state = secrets.token_urlsafe(32)
-    request.session["oauth_state"] = state
+    request.session["github_oauth_state"] = state
+    redirect_uri = (
+        f"{OAUTH_REDIRECT_BASE}/api/auth/github/callback"
+        if OAUTH_REDIRECT_BASE
+        else str(request.url_for("github_callback"))
+    )
     url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}&state={state}&scope=user:email"
+        f"&redirect_uri={redirect_uri}"
     )
     return RedirectResponse(url)
 
@@ -1398,105 +1408,112 @@ async def github_callback(request: Request, code: str = None, state: str = None)
         return _oauth_popup_html(True, login=login)
 
     # Login flow: state was stored in the session by /api/auth/github/login
-    if state != request.session.pop("oauth_state", None):
+    if state != request.session.pop("github_oauth_state", None):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
-    async with httpx.AsyncClient() as client:
-        # 1. Exchange code for token
-        resp = await client.post(
-            "https://github.com/login/oauth/access_token",
-            data={
-                "client_id": GITHUB_CLIENT_ID,
-                "client_secret": GITHUB_CLIENT_SECRET,
-                "code": code,
-            },
-            headers={"Accept": "application/json"},
-        )
-        resp.raise_for_status()
-        token_data = resp.json()
-        access_token = token_data.get("access_token")
-        if not access_token:
-            raise HTTPException(status_code=400, detail="GitHub token exchange failed")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # 1. Exchange code for token
+            resp = await client.post(
+                "https://github.com/login/oauth/access_token",
+                data={
+                    "client_id": GITHUB_CLIENT_ID,
+                    "client_secret": GITHUB_CLIENT_SECRET,
+                    "code": code,
+                },
+                headers={"Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            token_data = resp.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                err = token_data.get("error_description") or token_data.get("error") or "No token returned"
+                raise HTTPException(status_code=400, detail=f"GitHub token exchange failed: {err}")
 
-        # 2. Get user info
-        user_resp = await client.get(
-            "https://api.github.com/user",
-            headers={"Authorization": f"token {access_token}"},
-        )
-        user_resp.raise_for_status()
-        gh_user = user_resp.json()
-
-        # 3. Get email (GitHub might not return it in the main user object)
-        email = gh_user.get("email")
-        if not email:
-            email_resp = await client.get(
-                "https://api.github.com/user/emails",
+            # 2. Get user info
+            user_resp = await client.get(
+                "https://api.github.com/user",
                 headers={"Authorization": f"token {access_token}"},
             )
-            email_resp.raise_for_status()
-            emails = email_resp.json()
-            # Find primary verified email
-            primary = next(
-                (e for e in emails if e.get("primary") and e.get("verified")), None
-            )
-            email = (
-                primary.get("email")
-                if primary
-                else (emails[0].get("email") if emails else None)
-            )
+            user_resp.raise_for_status()
+            gh_user = user_resp.json()
 
-        if not email:
-            raise HTTPException(
-                status_code=400, detail="Could not retrieve email from GitHub"
-            )
+            # 3. Get email (GitHub might not return it in the main user object)
+            email = gh_user.get("email")
+            if not email:
+                email_resp = await client.get(
+                    "https://api.github.com/user/emails",
+                    headers={"Authorization": f"token {access_token}"},
+                )
+                email_resp.raise_for_status()
+                emails = email_resp.json()
+                # Find primary verified email
+                primary = next(
+                    (e for e in emails if e.get("primary") and e.get("verified")), None
+                )
+                email = (
+                    primary.get("email")
+                    if primary
+                    else (emails[0].get("email") if emails else None)
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("GitHub OAuth login error: %s", exc)
+        raise HTTPException(status_code=502, detail="GitHub OAuth request failed")
 
-        # 4. Find or create user
-        user = await get_db().users.find_one({"email": email.lower()})
-        uid_str = str(gh_user["id"])
-        now = datetime.now(timezone.utc).isoformat()
-
-        if not user:
-            # Automatic registration
-            new_user = {
-                "email": email.lower(),
-                "name": gh_user.get("name") or gh_user.get("login"),
-                "avatar_url": gh_user.get("avatar_url"),
-                "provider": "github",
-                "provider_user_id": uid_str,
-                "role": "user",
-                "created_at": now,
-                "last_login": now,
-            }
-            result = await get_db().users.insert_one(new_user)
-            user_id = str(result.inserted_id)
-            await log_activity(
-                "auth", f"New user {email} registered via GitHub", user_id=user_id
-            )
-        else:
-            # Update existing user with social info if missing or just update last_login
-            user_id = str(user["_id"])
-            await get_db().users.update_one(
-                {"_id": user["_id"]},
-                {
-                    "$set": {
-                        "last_login": now,
-                        "provider": user.get("provider", "github"),
-                        "provider_user_id": user.get("provider_user_id", uid_str),
-                        "avatar_url": user.get("avatar_url")
-                        or gh_user.get("avatar_url"),
-                    }
-                },
-            )
-            await log_activity(
-                "auth", f"User {email} logged in via GitHub", user_id=user_id
-            )
-
-        # 5. Generate tokens and redirect to frontend
-        access = create_access_token(user_id, email)
-        refresh = create_refresh_token(user_id)
-        return RedirectResponse(
-            f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+    if not email:
+        raise HTTPException(
+            status_code=400, detail="Could not retrieve email from GitHub"
         )
+
+    # 4. Find or create user
+    user = await get_db().users.find_one({"email": email.lower()})
+    uid_str = str(gh_user["id"])
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not user:
+        # Automatic registration
+        new_user = {
+            "email": email.lower(),
+            "name": gh_user.get("name") or gh_user.get("login"),
+            "avatar_url": gh_user.get("avatar_url"),
+            "provider": "github",
+            "provider_user_id": uid_str,
+            "role": "user",
+            "created_at": now,
+            "last_login": now,
+        }
+        result = await get_db().users.insert_one(new_user)
+        user_id = str(result.inserted_id)
+        await log_activity(
+            "auth", f"New user {email} registered via GitHub", user_id=user_id
+        )
+    else:
+        # Update existing user with social info if missing or just update last_login
+        user_id = str(user["_id"])
+        await get_db().users.update_one(
+            {"_id": user["_id"]},
+            {
+                "$set": {
+                    "last_login": now,
+                    "provider": user.get("provider", "github"),
+                    "provider_user_id": user.get("provider_user_id", uid_str),
+                    "avatar_url": user.get("avatar_url")
+                    or gh_user.get("avatar_url"),
+                }
+            },
+        )
+        await log_activity(
+            "auth", f"User {email} logged in via GitHub", user_id=user_id
+        )
+
+    # 5. Generate tokens and redirect to frontend
+    access = create_access_token(user_id, email)
+    refresh = create_refresh_token(user_id)
+    return RedirectResponse(
+        f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+    )
 
 
 @app.get("/api/auth/github/repo-access")
@@ -1678,11 +1695,14 @@ async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google login not configured")
     state = secrets.token_urlsafe(32)
-    request.session["oauth_state"] = state
-    # Simplified redirect URI - in production this must match exactly what is in Google Console
-    redirect_uri = f"{request.url_for('google_callback')}"
-    # Ensure it's using the correct scheme (handled by middleware usually, but explicit is safer for some proxies)
-    # However, for simplicity we rely on FastAPI's url_for.
+    request.session["google_oauth_state"] = state
+    # Use OAUTH_REDIRECT_BASE so the redirect_uri matches what is registered in Google Console.
+    # Falls back to url_for only in local dev where no proxy is involved.
+    redirect_uri = (
+        f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback"
+        if OAUTH_REDIRECT_BASE
+        else str(request.url_for("google_callback"))
+    )
     url = (
         f"https://accounts.google.com/o/oauth2/v2/auth"
         f"?client_id={GOOGLE_CLIENT_ID}&response_type=code&scope=openid%20email%20profile"
@@ -1695,92 +1715,98 @@ async def google_login(request: Request):
 async def google_callback(request: Request, code: str = None, state: str = None):
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
-    if state != request.session.pop("oauth_state", None):
+    if state != request.session.pop("google_oauth_state", None):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
-    async with httpx.AsyncClient() as client:
-        # 1. Exchange code for token
-        redirect_uri = f"{request.url_for('google_callback')}"
-        resp = await client.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "code": code,
-                "grant_type": "authorization_code",
-                "redirect_uri": redirect_uri,
-            },
-        )
-        resp.raise_for_status()
-        token_data = resp.json()
-        access_token = token_data.get("access_token")
-        if not access_token:
-            raise HTTPException(status_code=400, detail="Google token exchange failed")
+    # redirect_uri must be identical to the one used in /api/auth/google/login
+    redirect_uri = (
+        f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback"
+        if OAUTH_REDIRECT_BASE
+        else str(request.url_for("google_callback"))
+    )
 
-        # 2. Get user info
-        user_resp = await client.get(
-            "https://www.googleapis.com/oauth2/v3/userinfo",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        user_resp.raise_for_status()
-        g_user = user_resp.json()
-
-        email = g_user.get("email")
-        if not email:
-            raise HTTPException(
-                status_code=400, detail="Could not retrieve email from Google"
-            )
-
-        # 3. Find or create user
-        user = await get_db().users.find_one({"email": email.lower()})
-        uid_str = str(g_user.get("sub"))
-        now = datetime.now(timezone.utc).isoformat()
-
-        if not user:
-            new_user = {
-                "email": email.lower(),
-                "name": g_user.get("name"),
-                "avatar_url": g_user.get("picture"),
-                "provider": "google",
-                "provider_user_id": uid_str,
-                "role": "user",
-                "created_at": now,
-                "last_login": now,
-            }
-            result = await get_db().users.insert_one(new_user)
-            user_id = str(result.inserted_id)
-            try:
-                await log_activity(
-                    "auth", f"New user {email} registered via Google", user_id=user_id
-                )
-            except NameError:
-                pass
-        else:
-            user_id = str(user["_id"])
-            await get_db().users.update_one(
-                {"_id": user["_id"]},
-                {
-                    "$set": {
-                        "last_login": now,
-                        "provider": user.get("provider", "google"),
-                        "provider_user_id": user.get("provider_user_id", uid_str),
-                        "avatar_url": user.get("avatar_url") or g_user.get("picture"),
-                    }
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # 1. Exchange code for token
+            resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
                 },
             )
-            try:
-                await log_activity(
-                    "auth", f"User {email} logged in via Google", user_id=user_id
-                )
-            except NameError:
-                pass
+            resp.raise_for_status()
+            token_data = resp.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                raise HTTPException(status_code=400, detail="Google token exchange failed")
 
-        # 4. Generate tokens and redirect to frontend
-        access = create_access_token(user_id, email)
-        refresh = create_refresh_token(user_id)
-        return RedirectResponse(
-            f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+            # 2. Get user info
+            user_resp = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            user_resp.raise_for_status()
+            g_user = user_resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("Google OAuth login error: %s", exc)
+        raise HTTPException(status_code=502, detail="Google OAuth request failed")
+
+    email = g_user.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=400, detail="Could not retrieve email from Google"
         )
+
+    # 3. Find or create user
+    user = await get_db().users.find_one({"email": email.lower()})
+    uid_str = str(g_user.get("sub"))
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not user:
+        new_user = {
+            "email": email.lower(),
+            "name": g_user.get("name"),
+            "avatar_url": g_user.get("picture"),
+            "provider": "google",
+            "provider_user_id": uid_str,
+            "role": "user",
+            "created_at": now,
+            "last_login": now,
+        }
+        result = await get_db().users.insert_one(new_user)
+        user_id = str(result.inserted_id)
+        await log_activity(
+            "auth", f"New user {email} registered via Google", user_id=user_id
+        )
+    else:
+        user_id = str(user["_id"])
+        await get_db().users.update_one(
+            {"_id": user["_id"]},
+            {
+                "$set": {
+                    "last_login": now,
+                    "provider": user.get("provider", "google"),
+                    "provider_user_id": user.get("provider_user_id", uid_str),
+                    "avatar_url": user.get("avatar_url") or g_user.get("picture"),
+                }
+            },
+        )
+        await log_activity(
+            "auth", f"User {email} logged in via Google", user_id=user_id
+        )
+
+    # 4. Generate tokens and redirect to frontend
+    access = create_access_token(user_id, email)
+    refresh = create_refresh_token(user_id)
+    return RedirectResponse(
+        f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+    )
 
 
 app.add_middleware(
