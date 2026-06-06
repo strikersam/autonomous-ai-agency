@@ -294,7 +294,7 @@ def run_tests(base_url: str) -> bool:
                         r = page.goto(f"{base_url}/api/health", timeout=5000)
                         if r and r.status == 200:
                             break
-                    except Exception:
+                    except Exception:  # nosec B110 - graceful degradation in browser test
                         pass
                     time.sleep(2)
                 else:
@@ -306,8 +306,8 @@ def run_tests(base_url: str) -> bool:
 
                 if not do_login(page, base_url):
                     try:
-                        page.screenshot(path=f"/tmp/e2e-login-fail-{viewport['name']}.png")
-                    except Exception:
+                        page.screenshot(path=f"/tmp/e2e-login-fail-{viewport['name']}.png")  # nosec B108 - test screenshot path
+                    except Exception:  # nosec B110 - graceful degradation in browser test
                         pass
 
                 for page_info in PAGES:
@@ -316,8 +316,8 @@ def run_tests(base_url: str) -> bool:
             except Exception as e:
                 fail(f"fatal {viewport['name']}", str(e))
                 try:
-                    page.screenshot(path=f"/tmp/e2e-fatal-{viewport['name']}.png")
-                except Exception:
+                    page.screenshot(path=f"/tmp/e2e-fatal-{viewport['name']}.png")  # nosec B108 - test screenshot path
+                except Exception:  # nosec B110 - cleanup handler
                     pass
             finally:
                 context.close()
@@ -354,14 +354,14 @@ def test_server_health(base_url: str) -> None:
     if parsed.scheme not in ("http", "https"):
         pytest.skip(f"Unsupported RELAY_BASE_URL scheme: {parsed.scheme!r}")
     try:
-        r = urllib.request.urlopen(f"{base_url}/api/health", timeout=10)
-        assert r.status == 200
+        r = urllib.request.urlopen(f"{base_url}/api/health", timeout=10)  # nosec B310 - health check URL from config
+        assert r.status == 200  # nosec B101
     except Exception as e:
         pytest.skip(f"Server not available: {e}")
 
 
 def test_new_features_browser(base_url: str) -> None:
-    assert run_tests(base_url), "Browser tests failed. See output above for details."
+    assert run_tests(base_url), "Browser tests failed. See output above for details."  # nosec B101
 
 
 if __name__ == "__main__":
