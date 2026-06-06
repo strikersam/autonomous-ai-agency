@@ -1238,3 +1238,139 @@ class AgentRunner:
         if pr_url:
             parts.append(f"PR: {pr_url}")
         return " | ".join(parts)
+
+
+# ── FreeBuff: self-hosted Codebuff-style agent on free NVIDIA NIM models ───────
+
+# Curated set of free NVIDIA NIM model IDs FreeBuff is allowed to route to.
+# Overridable via FREEBUFF_MODELS (comma-separated) for new-model rollouts.
+_DEFAULT_FREE_NVIDIA_MODELS: tuple[str, ...] = (
+    "nvidia/nemotron-3-super-120b-a12b",
+    "qwen/qwen2.5-coder-32b-instruct",
+    "meta/llama-3.3-70b-instruct",
+    "meta/llama-3.1-8b-instruct",
+    "deepseek-ai/deepseek-r1",
+)
+
+# NVIDIA NIM is OpenAI-compatible and lives behind /v1; the runner's _chat_text
+# uses _openai_url() so this base must NOT double the /v1 segment.
+NVIDIA_NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+
+
+def free_nvidia_models() -> list[str]:
+    """Return the curated list of free NVIDIA NIM models FreeBuff may use."""
+    raw = os.environ.get("FREEBUFF_MODELS", "").strip()
+    if raw:
+        models = [m.strip() for m in raw.split(",") if m.strip()]
+        if models:
+            return models
+    return list(_DEFAULT_FREE_NVIDIA_MODELS)
+
+
+def _nvidia_api_key() -> str | None:
+    return os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
+
+
+class FreeBuffAgent(AgentRunner):
+    """Codebuff-style coding agent pinned to free NVIDIA NIM models.
+
+    FreeBuff is a self-hosted take on Codebuff's "Free Buff": a cloud coding
+    agent that runs on free models. It reuses the full ``AgentRunner`` plan →
+    execute → verify loop but constrains model selection to the curated free
+    NVIDIA NIM set (see :meth:`available_models`) so it never routes to a paid
+    endpoint. It is designed to be driven from a phone via the Telegram bot:
+    pick a model, review the plan, then accept (commit + draft PR) or reject.
+
+    When ``NVIDIA_API_KEY`` is configured the runner is pinned to the NVIDIA NIM
+    base URL with the key in the Authorization header. With no key set it falls
+    back to a local OpenAI-compatible base so construction never fails (tests /
+    local-only deployments).
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        ollama_base: str | None = None,
+        provider_headers: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        api_key = _nvidia_api_key()
+        base = ollama_base
+        headers = dict(provider_headers or {})
+        if api_key:
+            base = base or NVIDIA_NIM_BASE_URL
+            headers.setdefault("Authorization", f"Bearer {api_key}")
+        base = base or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
+        super().__init__(ollama_base=base, provider_headers=headers or None, **kwargs)
+        # Selected free model for this session (coerced to a valid free model).
+        self.model = self.resolve_model(model)
+
+    @classmethod
+    def available_models(cls) -> list[str]:
+        """List the free NVIDIA NIM models a user may pick (e.g. via Telegram)."""
+        return free_nvidia_models()
+
+    @classmethod
+    def is_free_model(cls, model: str | None) -> bool:
+        """True when *model* is in the curated free NVIDIA NIM set."""
+        return bool(model) and model in free_nvidia_models()
+
+    def resolve_model(self, requested: str | None) -> str:
+        """Coerce *requested* to a free NVIDIA model.
+
+        Returns *requested* when it is already a free model; otherwise falls
+        back to the currently-selected model (if any) or the first free model.
+        Never returns a paid/non-free model — that is the whole point of FreeBuff.
+        """
+        models = free_nvidia_models()
+        if requested and requested in models:
+            return requested
+        if requested:
+            log.warning(
+                "FreeBuff: %r is not a free NVIDIA model — using %s instead",
+                requested, (getattr(self, "model", None) or models[0]),
+            )
+        return getattr(self, "model", None) or models[0]
+
+    async def plan(  # type: ignore[override]
+        self,
+        *,
+        instruction: str,
+        history: list[dict[str, str]] | None = None,
+        requested_model: str | None = None,
+        max_steps: int = 30,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentPlan:
+        return await super().plan(
+            instruction=instruction,
+            history=history or [],
+            requested_model=self.resolve_model(requested_model),
+            max_steps=max_steps,
+            user_id=user_id,
+            memory_store=memory_store,
+            session_id=session_id,
+            metadata=metadata,
+        )
+
+    async def run(  # type: ignore[override]
+        self,
+        *,
+        instruction: str,
+        history: list[dict[str, str]] | None = None,
+        requested_model: str | None = None,
+        auto_commit: bool = False,
+        max_steps: int = 10,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return await super().run(
+            instruction=instruction,
+            history=history or [],
+            requested_model=self.resolve_model(requested_model),
+            auto_commit=auto_commit,
+            max_steps=max_steps,
+            **kwargs,
+        )
