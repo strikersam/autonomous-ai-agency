@@ -1,0 +1,25 @@
+# ── FreeBuff Telegram bot — always-on worker (Render / Docker) ─────────────────
+# Runs telegram_bot.py in embedded mode (FreeBuff agent in-process). No web port
+# is exposed: the bot uses Telegram long-polling, so it works behind any network.
+FROM python:3.11-slim
+
+# git is required to clone the target repo and push branches / open PRs.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY . /app
+
+# Embedded, single-process defaults (overridable via env).
+ENV FREEBUFF_EMBEDDED=true \
+    AGENCY_WORKFLOW_MODE=legacy \
+    AGENT_AUTO_PR_ENABLED=true \
+    FREEBUFF_BASE_BRANCH=master \
+    PYTHONUNBUFFERED=1
+
+CMD ["python", "scripts/run_freebuff_bot.py"]

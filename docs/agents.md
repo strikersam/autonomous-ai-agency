@@ -116,6 +116,15 @@ the per-user model list to stay within Telegram's 64-byte callback_data limit.
 
 ---
 
+## Running 24×7
+
+To drive FreeBuff from your phone anytime, run the Telegram bot as an always-on
+worker (Render free tier or Docker). It runs the agent in-process (**embedded
+mode**) — no proxy server needed — clones the repo, edits on free models, and
+opens a draft PR. Full step-by-step: [`docs/deploy/freebuff-telegram-bot.md`](deploy/freebuff-telegram-bot.md).
+
+---
+
 ## Environment variables
 
 | Variable | Default | Purpose |

@@ -323,6 +323,102 @@ def _review_keyboard() -> list[list[dict]]:
     ]]
 
 
+# ── FreeBuff backend: embedded (in-process agent) or HTTP (proxy) ───────────────
+# Embedded mode runs FreeBuffAgent directly in this process — no proxy server
+# needed — so the bot is a single self-contained 24x7 worker (Render/Docker).
+# HTTP mode (default) talks to a running proxy at PROXY_BASE_URL.
+
+def _embedded() -> bool:
+    return os.environ.get("FREEBUFF_EMBEDDED", "").strip().lower() in {"true", "1", "yes"}
+
+
+def _freebuff_max_steps() -> int:
+    try:
+        return max(1, min(20, int(os.environ.get("FREEBUFF_MAX_STEPS", "10"))))
+    except ValueError:
+        return 10
+
+
+async def _fb_models() -> list[str]:
+    """Return the free model list (embedded or via proxy)."""
+    if _embedded():
+        from agent.loop import FreeBuffAgent
+        return FreeBuffAgent.available_models()
+    data = await _proxy_get("/freebuff/models", use_admin=False)
+    return data.get("models", [])
+
+
+async def _fb_plan(task: str, model: str) -> dict:
+    """Generate a read-only plan (embedded or via proxy). Shape: {model, plan}."""
+    if _embedded():
+        from agent.loop import FreeBuffAgent
+        agent = FreeBuffAgent(model=model)
+        plan = await agent.plan(
+            instruction=task, history=[], requested_model=model,
+            max_steps=_freebuff_max_steps(),
+        )
+        return {"model": agent.resolve_model(model), "plan": plan.model_dump()}
+    return await _proxy_post(
+        "/freebuff/plan", {"instruction": task, "model": model}, use_admin=False,
+    )
+
+
+async def _fb_run(task: str, model: str) -> dict:
+    """Execute a FreeBuff task (embedded or via proxy). Shape: {result: {...}}."""
+    if _embedded():
+        return await _embedded_run(task, model)
+    return await _proxy_post(
+        "/freebuff/run",
+        {"instruction": task, "model": model, "auto_commit": True, "open_pr": True},
+        use_admin=False,
+    )
+
+
+async def _embedded_run(task: str, model: str) -> dict:
+    """Run FreeBuffAgent in-process against a fresh clone, committing + opening a PR.
+
+    Clones FREEBUFF_REPO_URL with the GitHub token so the agent edits a real
+    checkout and its existing auto-push/PR path can open a draft PR. Returns the
+    same ``{"result": {...}}`` shape as the proxy endpoint so callers are agnostic.
+    """
+    import re
+    import shutil
+
+    from agent.loop import FreeBuffAgent
+
+    repo_url = os.environ.get("FREEBUFF_REPO_URL", "").strip()
+    base_branch = os.environ.get("FREEBUFF_BASE_BRANCH", "master").strip() or "master"
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT")
+    workspace_root: str | None = None
+
+    if repo_url and token:
+        m = re.search(r"github\.com[:/]([^/]+)/([^/#?.]+)", repo_url)
+        if m:
+            from agent.github_tools import LocalWorkspace
+            owner, repo = m.group(1), m.group(2)
+            try:
+                ws = LocalWorkspace(owner, repo, token)
+                if ws.path.exists():
+                    shutil.rmtree(ws.path, ignore_errors=True)
+                await ws.clone_or_pull()
+                workspace_root = str(ws.path)
+            except Exception as exc:  # clone failure → run without PR, still report
+                log.warning("FreeBuff clone failed (%s) — running without PR", exc)
+
+    agent = FreeBuffAgent(
+        model=model,
+        workspace_root=workspace_root,
+        github_token=token,
+        repo_url=repo_url or None,
+        base_branch=base_branch,
+    )
+    result = await agent.run(
+        instruction=task, history=[], requested_model=model,
+        auto_commit=True, max_steps=_freebuff_max_steps(),
+    )
+    return {"result": result}
+
+
 async def cmd_freebuff(user_id: int, chat_id: int, bot_token: str, task: str) -> None:
     """Start a FreeBuff flow: fetch free models and present a picker keyboard."""
     if not _is_admin(user_id):
@@ -332,8 +428,7 @@ async def cmd_freebuff(user_id: int, chat_id: int, bot_token: str, task: str) ->
         await _send_message(bot_token, chat_id, "Usage: /freebuff <task description>")
         return
     try:
-        data = await _proxy_get("/freebuff/models", use_admin=False)
-        models = data.get("models", [])
+        models = await _fb_models()
     except Exception as exc:
         await _send_message(bot_token, chat_id, f"Could not load FreeBuff models: {exc}")
         return
@@ -383,11 +478,7 @@ async def _process_callback(bot_token: str, callback: dict) -> None:
         await _answer_callback(bot_token, callback_id, f"Planning with {model}…")
         await _edit_message(bot_token, chat_id, message_id, f"Generating plan with `{model}`…")
         try:
-            result = await _proxy_post(
-                "/freebuff/plan",
-                {"instruction": state["task"], "model": model},
-                use_admin=False,
-            )
+            result = await _fb_plan(state["task"], model)
             plan = result.get("plan", {})
             steps = plan.get("steps", [])
             lines = [f"*Plan* (`{model}`)", f"_{plan.get('goal', state['task'])[:300]}_", ""]
@@ -412,11 +503,7 @@ async def _process_callback(bot_token: str, callback: dict) -> None:
         await _answer_callback(bot_token, callback_id, "Running…")
         await _edit_message(bot_token, chat_id, message_id, f"Running FreeBuff with `{model}`… (this may take a while)")
         try:
-            result = await _proxy_post(
-                "/freebuff/run",
-                {"instruction": state["task"], "model": model, "auto_commit": True, "open_pr": True},
-                use_admin=False,
-            )
+            result = await _fb_run(state["task"], model)
             summary = result.get("result", {}).get("summary", str(result))
             pr_url = (result.get("result", {}) or {}).get("pr_url")
             text = f"*FreeBuff result* (`{model}`)\n```\n{summary[:3000]}\n```"
