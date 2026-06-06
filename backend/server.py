@@ -1333,6 +1333,11 @@ def _valid_login_state(doc: Optional[dict], provider: str) -> bool:
         return False
     created = doc.get("created_at")
     if isinstance(created, datetime):
+        # MongoDB (motor) returns naive UTC datetimes by default, so normalise to
+        # tz-aware before comparing — otherwise "offset-naive vs offset-aware"
+        # raises TypeError and the callback 500s after the state check passes.
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
         # Defensive expiry check for backends without a TTL index (e.g. SQLite).
         if (datetime.now(timezone.utc) - created).total_seconds() > 600:
             return False
