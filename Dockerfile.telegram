@@ -16,10 +16,13 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY . /app
 
 # Embedded, single-process defaults (overridable via env).
+# PYTHONPATH=/app so `import telegram_bot` resolves regardless of how the
+# entrypoint is launched.
 ENV FREEBUFF_EMBEDDED=true \
     AGENCY_WORKFLOW_MODE=legacy \
     AGENT_AUTO_PR_ENABLED=true \
     FREEBUFF_BASE_BRANCH=master \
+    PYTHONPATH=/app \
     PYTHONUNBUFFERED=1
 
 CMD ["python", "scripts/run_freebuff_bot.py"]
