@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Added
+- **B3 Synthetic Training Data Pipeline (`services/synthetic_data.py`).** Auto-generates Alpaca/ShareGPT-format fine-tuning data from agent session traces with reward_score filtering, per-session caps, and JSONL/JSON export. Exported from `services/__init__.py`.
+- **B4 Safety Guardrails (`services/guardrails.py`).** Configurable guardrail engine with regex-based topic filtering, jailbreak detection (first-pass filter), PII output scanning, and YAML/JSON rule configuration. GuardResult model with blocked/warned flags and statistics.
+- **B5 NIM Connection Pool + Circuit Breaker (`services/nim_pool.py`).** Persistent httpx.AsyncClient pool with state-machine circuit breaker (CLOSED/OPEN/HALF_OPEN), exponential backoff with jitter, provider-scoped circuit tracking, and CircuitBreakerOpenError. Replaces ad-hoc per-request httpx clients.
 - **A4 Async Task Queue (`services/task_queue.py`).** PriorityTaskQueue with asyncio priority queue (CRITICAL→BACKGROUND), worker pool, backpressure (429), SSE progress tracking, memory-safe task eviction.
 - **A5 Inter-Agent Message Bus (`services/agent_bus.py`).** AgentMessageBus pub/sub with wildcard patterns, event history replay, integrated into AgentRunner for agent lifecycle events.
 - **B2 SteerLM Steering Tokens (`router/steering.py`).** SteeringInjector with quality/chatml/nemotron formats, 5 PRESETS, steering_for_task auto-selector, integrated into AgentRunner._chat_text.

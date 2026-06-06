@@ -47,21 +47,21 @@
 | ★3 | Reasoning Token Budget + Toggle | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | A1 | Hermes ChatML Prompt Format | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | A2 | Multi-Hop ReAct Loop | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
-| B1 | Nemotron Reward Model Scoring | P0 | `TODO` | — |
+| B1 | Nemotron Reward Model Scoring | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | C1 | Structured Output / JSON Mode | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
-| C2 | Function Calling (OpenAI-compatible) | P0 | `TODO` | — |
+| C2 | Function Calling (OpenAI-compatible) | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | F1 | Precise Diff Application (Codebuff-style) | P0 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | ★4 | Skill/Procedural Memory | P1 | `TODO` | — |
 | ★5 | Sandboxed Agent Execution | P1 | `TODO` | — |
 | ★6 | Cost Analytics + FTS5 Memory + Constitution | P1 | `TODO` | — |
 | ★7 | Adaptive Loop Halting | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
-| A3 | Capability Registry + Dynamic Tool Discovery | P1 | `TODO` | — |
-| A4 | Async Task Queue | P1 | `TODO` | — |
-| A5 | Inter-Agent Message Bus | P1 | `TODO` | — |
-| B2 | SteerLM Steering Tokens | P1 | `TODO` | — |
-| B3 | Synthetic Training Data Pipeline | P1 | `TODO` | — |
-| B4 | NeMo Guardrails | P1 | `TODO` | — |
-| B5 | NIM Connection Pooling + Circuit Breaker | P1 | `TODO` | — |
+| A3 | Capability Registry + Dynamic Tool Discovery | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| A4 | Async Task Queue | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| A5 | Inter-Agent Message Bus | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| B2 | SteerLM Steering Tokens | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| B3 | Synthetic Training Data Pipeline | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| B4 | NeMo Guardrails | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| B5 | NIM Connection Pooling + Circuit Breaker | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | C3 | Streaming Delta Reconstruction | P1 | `TODO` | — |
 | C4 | Chat History Persistence | P1 | `TODO` | — |
 | C5 | Context Window Management | P1 | `TODO` | — |
@@ -81,4 +81,6 @@
 | Date | Agent/Tool | Branch | Action |
 |------|------------|--------|--------|
 | 2026-06-05 | claude-sonnet-4-6 (Opus agent) | claude/llm-server-roadmap-pr-COcKN | Created roadmap TODO from 6 OSS repos research |
+| 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented B3 Synthetic Data, B4 Guardrails, B5 NIM Pool; 30+ tests |
+| 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented A4 Task Queue, A5 Agent Bus, B2 SteerLM Steering; 35+ tests |
 | 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented B1 Nemotron Reward Scoring, C2 Function Calling, A3 Capability Registry; 35+ tests |
