@@ -696,7 +696,10 @@ async def _tg_call(method: str, params: dict | None = None) -> dict:
 async def run_bot() -> None:
     # Re-parse allowlists from the environment at startup so the bot is robust to
     # import order (e.g. when launched in-process by the web service after env is set).
-    global ALLOWED_USER_IDS, ADMIN_USER_IDS
+    # TELEGRAM_BOT_TOKEN is declared global too because the whitespace-strip below
+    # may reassign it — without this, that assignment makes the name function-local
+    # and the read above raises UnboundLocalError.
+    global ALLOWED_USER_IDS, ADMIN_USER_IDS, TELEGRAM_BOT_TOKEN
     ALLOWED_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ALLOWED_USER_IDS", ""))
     ADMIN_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ADMIN_USER_IDS", ""))
 
