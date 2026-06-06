@@ -43,7 +43,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PORTFOLIO_REPO: ${{ github.repository }}
-          # Optional: set repo variable BACKEND_URL to refresh the deployed dashboard.
-          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          # Backend origin to refresh — reuses the existing RENDER_BACKEND_URL secret.
+          BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
           PORTFOLIO_RESEARCH: ${{ github.event.inputs.research == 'true' && '1' || '0' }}
         run: python3 .github/scripts/portfolio_refresh.py
