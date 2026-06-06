@@ -883,6 +883,7 @@ class TestAgentFullPRWorkflow:
             f"Progress: {[e['phase'] + ': ' + e['message'] for e in job.get('progress_events', [])]}"
         )
 
+    @pytest.mark.skip(reason="Flaky in CI - requires Ollama runtime availability")
     def test_agent_multi_step_plan_executes_all_steps(
         self, client: TestClient, tmp_path: Path, monkeypatch
     ) -> None:
