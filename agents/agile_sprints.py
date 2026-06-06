@@ -31,6 +31,15 @@ class StoryStatus(Enum):
     DONE = "done"
 
 
+class SprintHealth(Enum):
+    """Qualitative health signal derived from sprint metrics."""
+
+    ON_TRACK = "on_track"
+    AT_RISK = "at_risk"
+    OFF_TRACK = "off_track"
+    COMPLETE = "complete"
+
+
 @dataclass
 class UserStory:
     """A user story with story points and status."""
@@ -78,6 +87,37 @@ class SprintMetrics:
             return self.completed_points >= self.total_points
         return self.burndown_rate <= self.average_velocity
 
+    @property
+    def health(self) -> "SprintHealth":
+        """Derive a qualitative health signal from the metrics.
+
+        - COMPLETE: all points done.
+        - ON_TRACK: required burndown rate is at or below historical velocity.
+        - AT_RISK: behind, but within ~25% of the needed pace (recoverable).
+        - OFF_TRACK: required pace materially exceeds capacity.
+        """
+        if self.total_points > 0 and self.completed_points >= self.total_points:
+            return SprintHealth.COMPLETE
+        if self.is_on_track:
+            return SprintHealth.ON_TRACK
+        if self.average_velocity > 0 and self.burndown_rate <= self.average_velocity * 1.25:
+            return SprintHealth.AT_RISK
+        return SprintHealth.OFF_TRACK
+
+
+@dataclass
+class Retrospective:
+    """Sprint retrospective notes and follow-up action items."""
+
+    went_well: List[str] = field(default_factory=list)
+    went_poorly: List[str] = field(default_factory=list)
+    action_items: List[str] = field(default_factory=list)
+
+    @property
+    def is_empty(self) -> bool:
+        """Whether the retrospective has any recorded content."""
+        return not (self.went_well or self.went_poorly or self.action_items)
+
 
 @dataclass
 class AgileSprint:
@@ -91,6 +131,9 @@ class AgileSprint:
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     _historical_velocity: List[int] = field(default_factory=list)
+    # Points committed at sprint start; lets us measure mid-sprint scope creep.
+    committed_points: Optional[int] = None
+    retrospective: Retrospective = field(default_factory=Retrospective)
 
     def add_story(self, story: UserStory) -> None:
         """Add a user story to the sprint."""
@@ -116,6 +159,8 @@ class AgileSprint:
         self.start_date = datetime.now(timezone.utc)
         from datetime import timedelta
         self.end_date = self.start_date + timedelta(days=duration_days)
+        # Snapshot the committed scope so scope_added can report creep later.
+        self.committed_points = sum(s.story_points for s in self._stories.values())
         for story in self._stories.values():
             if story.status == StoryStatus.BACKLOG:
                 story.status = StoryStatus.TODO
@@ -181,6 +226,28 @@ class AgileSprint:
     def story_count(self) -> int:
         """Number of stories in the sprint."""
         return len(self._stories)
+
+    @property
+    def scope_added(self) -> int:
+        """Story points added since the sprint started (scope creep).
+
+        Returns 0 before the sprint is started or when scope only shrank.
+        """
+        if self.committed_points is None:
+            return 0
+        return max(0, self.total_points - self.committed_points)
+
+    def add_retro_note(self, *, went_well: str = "", went_poorly: str = "") -> None:
+        """Record a retrospective observation (what went well / poorly)."""
+        if went_well:
+            self.retrospective.went_well.append(went_well)
+        if went_poorly:
+            self.retrospective.went_poorly.append(went_poorly)
+
+    def add_action_item(self, item: str) -> None:
+        """Record a follow-up action item from the retrospective."""
+        if item:
+            self.retrospective.action_items.append(item)
 
 
 @dataclass

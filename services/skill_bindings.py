@@ -444,6 +444,24 @@ class SkillBindings:
         ))
 
         self._register(RuntimeSkill(
+            skill_id="agentic-portfolio",
+            name="Agentic Portfolio Management",
+            description="Initiative-level portfolio management: WSJF prioritisation, capacity allocation, Now/Next/Later roadmapping, and sprint-progress roll-up on top of agentic-agile.",
+            category=SkillCategory.PLANNING,
+            safety=SkillSafety.SAFE,
+            inputs=[
+                SkillInput(name="action", type="str", description="Action: add_initiative, prioritize, allocate_capacity, roadmap, get_metrics"),
+                SkillInput(name="params", type="dict", description="Parameters for the action"),
+            ],
+            outputs=SkillOutput(type="dict", description="Initiative ranking, allocation, roadmap, or metrics"),
+            specialist_families=["portfolio", "product", "operations", "analytics"],
+            capabilities_added=["wsjf_prioritization", "capacity_allocation", "roadmapping"],
+            trigger_keywords=["portfolio", "initiative", "epic", "wsjf", "roadmap", "prioritization", "cost of delay", "capacity allocation"],
+            source="local",
+            source_path=".claude/skills/agentic-portfolio/SKILL.md",
+        ))
+
+        self._register(RuntimeSkill(
             skill_id="financial-analyst",
             name="Agentic CFO Financial Analyst",
             description="Autonomous financial analysis of AI infrastructure spend. Computes burn rate, runway, gross margin, and ROI-based budget reallocation.",
@@ -749,6 +767,30 @@ class SkillBindings:
 # SKILL EXECUTION IMPLEMENTATIONS
 # =============================================================================
 
+# Process-wide stores so stateful planning skills (agile sprints, portfolio
+# initiatives) accumulate across calls instead of resetting every invocation.
+_AGILE_MANAGER: Any = None
+_PORTFOLIO_MANAGER: Any = None
+
+
+def _get_agile_manager() -> Any:
+    """Lazily build and cache the shared AgileManager."""
+    global _AGILE_MANAGER
+    if _AGILE_MANAGER is None:
+        from agents.agile_sprints import AgileManager
+        _AGILE_MANAGER = AgileManager()
+    return _AGILE_MANAGER
+
+
+def _get_portfolio_manager() -> Any:
+    """Lazily build and cache the shared PortfolioManager."""
+    global _PORTFOLIO_MANAGER
+    if _PORTFOLIO_MANAGER is None:
+        from agents.portfolio import PortfolioManager
+        _PORTFOLIO_MANAGER = PortfolioManager()
+    return _PORTFOLIO_MANAGER
+
+
 def _execute_skill_impl(skill_id: str, params: dict[str, Any]) -> dict[str, Any]:
     """Execute a skill by delegating to the actual Python module.
 
@@ -804,17 +846,98 @@ def _execute_skill_impl(skill_id: str, params: dict[str, Any]) -> dict[str, Any]
             result["result"] = {"workflow_count": engine.workflow_count}
 
     elif skill_id == "agentic-agile":
-        from agents.agile_sprints import AgileManager
-        mgr = AgileManager()
+        from agents.agile_sprints import StoryStatus, UserStory
+        mgr = _get_agile_manager()
         action = params.get("action", "status")
+        p = params.get("params", {})
         if action == "create_sprint":
-            sprint_params = params.get("params", {})
-            sprint = mgr.create_sprint(sprint_params.get("name", "Sprint"), sprint_params.get("goal", ""))
+            sprint = mgr.create_sprint(p.get("name", "Sprint"), p.get("goal", ""))
             result["result"] = {"sprint_id": sprint.sprint_id, "name": sprint.name}
+        elif action == "add_story":
+            sprint = mgr.get_sprint(p.get("sprint_id", ""))
+            if sprint is None:
+                result["success"] = False
+                result["result"] = {"error": "sprint_not_found"}
+            else:
+                story = UserStory(
+                    story_id=p.get("story_id") or f"s{sprint.story_count + 1}",
+                    title=p.get("title", "Story"),
+                    story_points=int(p.get("story_points", 1)),
+                )
+                sprint.add_story(story)
+                result["result"] = {"sprint_id": sprint.sprint_id, "story_id": story.story_id, "total_points": sprint.total_points}
+        elif action == "start":
+            sprint = mgr.get_sprint(p.get("sprint_id", ""))
+            if sprint is None:
+                result["success"] = False
+                result["result"] = {"error": "sprint_not_found"}
+            else:
+                sprint.start(int(p.get("duration_days", 14)))
+                result["result"] = {"sprint_id": sprint.sprint_id, "status": sprint.status.value, "committed_points": sprint.committed_points}
         elif action == "get_metrics":
-            result["result"] = {"sprint_count": 0, "status": "no_active_sprints"}
+            sprint = mgr.get_sprint(p.get("sprint_id", ""))
+            if sprint is None:
+                result["result"] = {"sprint_count": mgr.sprint_count, "active": len(mgr.active_sprints())}
+            else:
+                m = sprint.get_metrics()
+                result["result"] = {
+                    "sprint_id": sprint.sprint_id,
+                    "total_points": m.total_points,
+                    "completed_points": m.completed_points,
+                    "completion_percentage": round(m.completion_percentage, 1),
+                    "health": m.health.value,
+                    "scope_added": sprint.scope_added,
+                }
+        elif action == "predict_velocity":
+            result["result"] = {"predicted_velocity": mgr.predicted_velocity()}
         else:
-            result["result"] = {"action": action, "status": "ok"}
+            result["result"] = {"action": action, "sprint_count": mgr.sprint_count, "status": "ok"}
+
+    elif skill_id == "agentic-portfolio":
+        mgr = _get_portfolio_manager()
+        action = params.get("action", "status")
+        p = params.get("params", {})
+        if action == "add_initiative":
+            init = mgr.add_initiative(
+                p.get("title", "Initiative"),
+                business_value=int(p.get("business_value", 1)),
+                time_criticality=int(p.get("time_criticality", 1)),
+                risk_reduction=int(p.get("risk_reduction", 1)),
+                job_size=int(p.get("job_size", 1)),
+                owner=p.get("owner"),
+            )
+            result["result"] = {"initiative_id": init.initiative_id, "title": init.title, "wsjf": round(init.wsjf, 3)}
+        elif action == "prioritize":
+            ranked = mgr.prioritized()
+            result["result"] = {
+                "ranked": [
+                    {"initiative_id": i.initiative_id, "title": i.title, "wsjf": round(i.wsjf, 3)}
+                    for i in ranked
+                ],
+                "count": len(ranked),
+            }
+        elif action == "allocate_capacity":
+            alloc = mgr.allocate_capacity(int(p.get("capacity", 0)))
+            result["result"] = {
+                "capacity": alloc.capacity,
+                "committed": [i.title for i in alloc.committed],
+                "deferred": [i.title for i in alloc.deferred],
+                "utilization": round(alloc.utilization, 3),
+            }
+        elif action == "roadmap":
+            roadmap = mgr.plan_roadmap(int(p.get("capacity_per_horizon", 0)))
+            result["result"] = {h: [i.title for i in items] for h, items in roadmap.items()}
+        elif action == "get_metrics":
+            m = mgr.metrics()
+            result["result"] = {
+                "total_initiatives": m.total_initiatives,
+                "active_initiatives": m.active_initiatives,
+                "total_cost_of_delay": m.total_cost_of_delay,
+                "average_wsjf": round(m.average_wsjf, 3),
+                "status_counts": m.status_counts,
+            }
+        else:
+            result["result"] = {"action": action, "initiative_count": mgr.initiative_count, "status": "ok"}
 
     elif skill_id == "memory-consolidation":
         from agents.memory_consolidation import DreamMemory, MemoryKind, PatternConsolidation
