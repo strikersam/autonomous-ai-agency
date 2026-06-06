@@ -2,7 +2,7 @@ name: Browser E2E — Playwright (desktop + mobile)
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main", "master"]
     paths-ignore: ["docs/context/**"]
   pull_request:
     branches: ["main", "master"]
