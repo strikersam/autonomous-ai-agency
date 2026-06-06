@@ -180,11 +180,8 @@ class TracerFactory:
             provider = otel_trace.get_tracer_provider()
             if hasattr(provider, "shutdown"):
                 provider.shutdown()
-        except Exception:
-            pass
-
-
-# ── Module-level singleton ─────────────────────────────────────────────────────
+        except Exception:  # nosec B110 — OTEL shutdown is best-effort
+            pass─
 
 _factory: TracerFactory | None = None
 
@@ -257,7 +254,7 @@ def span_context_from_request(request: Any) -> TraceContext | None:
                 span_id=parts[2],
                 is_sampled=parts[3] != "00",
             )
-    except Exception:
+    except Exception:  # nosec B110 — OTEL SDK import optional
         pass
 
     return None

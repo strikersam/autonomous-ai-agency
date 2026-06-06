@@ -298,7 +298,7 @@ class PriorityTaskQueue:
         for callback in self._subscribers.get(key, []):
             try:
                 await callback(self._tasks.get(task_id))
-            except Exception:
+            except Exception:  # nosec B110 — worker callback failures must not crash the queue
                 pass
 
 

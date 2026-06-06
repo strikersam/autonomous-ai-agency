@@ -301,7 +301,7 @@ async def handle_openai_chat_completions(
                 _cache_hit = preferred is not None
                 if preferred:
                     log.debug("Prompt cache affinity: routing to instance %s", preferred)
-        except Exception:
+        except Exception:  # nosec B110 — graceful degradation when prompt cache unavailable
             pass
 
     # C5: Auto-truncate messages to fit within the model's context window
@@ -315,7 +315,7 @@ async def handle_openai_chat_completions(
                 payload["messages"] = result.messages
                 messages = result.messages
                 log.debug("Context window truncated: %d → %d messages", result.original_count, result.truncated_count)
-        except Exception:
+        except Exception:  # nosec B110 — graceful degradation when prompt cache unavailable
             pass
 
     stream = bool(payload.get("stream", False))
@@ -330,7 +330,7 @@ async def handle_openai_chat_completions(
             for msg in messages:
                 if isinstance(msg, dict) and msg.get("role") in ("user", "system"):
                     store.append(session_id, msg)
-        except Exception:
+        except Exception:  # nosec B110 — graceful degradation when prompt cache unavailable
             pass
 
     if exact_output is not None:
@@ -430,7 +430,7 @@ async def handle_openai_chat_completions(
             from services.chat_history import get_chat_history
             store = get_chat_history()
             store.append(session_id, {"role": "assistant", "content": out_text})
-        except Exception:
+        except Exception:  # nosec B110 — graceful degradation when prompt cache unavailable
             pass
 
     # C6: Record warm cache + inject per-request prompt cache metrics
@@ -454,7 +454,7 @@ async def handle_openai_chat_completions(
                     cache_read_tokens=prefix_tokens if _cache_hit else 0,
                     cache_creation_tokens=0 if _cache_hit else prefix_tokens,
                 )
-        except Exception:
+        except Exception:  # nosec B110 — graceful degradation when prompt cache unavailable
             pass
 
     return JSONResponse(

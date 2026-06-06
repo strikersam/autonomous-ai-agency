@@ -204,7 +204,7 @@ class ContextWindowManager:
             for name, cap in reg.items():
                 if name.startswith(model.split(":")[0]):
                     return cap.context_window
-        except Exception:
+        except Exception:  # nosec B110 — fallthrough to default context window
             pass
 
         return self._default_context_window

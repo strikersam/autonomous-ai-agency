@@ -332,7 +332,7 @@ class NIMConnectionPool:
     def _backoff_delay(attempt: int) -> float:
         """Compute exponential backoff delay with jitter."""
         delay = min(_BACKOFF_MAX, _BACKOFF_BASE * (2 ** attempt))
-        jitter = random.uniform(0, delay * 0.5)
+        jitter = random.uniform(0, delay * 0.5)  # nosec B311 — jitter only, not for security
         return delay + jitter
 
 
