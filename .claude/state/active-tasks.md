@@ -23,7 +23,8 @@
 | # | Task | Status | PR / Branch | Notes | Updated |
 |---|------|--------|-------------|-------|---------|
 | 1 | Killer TODO Roadmap (docs only — 33-item backlog from 6 OSS repos) | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) | Draft PR created, CI running | 2026-06-05 |
-| 2 | Dynamic Session Planning Workflow (this task) | `IN_PROGRESS` | [#406](https://github.com/strikersam/local-llm-server/pull/406) | hooks + tracker + AGENTS.md update | 2026-06-05 |
+| 2 | Dynamic Session Planning Workflow | `DONE` | [#424](https://github.com/strikersam/local-llm-server/pull/424) | Merged to master — SessionStart hook, active-tasks.md, AGENTS.md | 2026-06-06 |
+| 3 | Eliminate duplicate CI runs (push: ["**"] + pull_request double-fire) | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) | ci.yml, e2e.yml, browser-e2e.yml narrowed to push: [main, master]; draft guards on e2e-mongodb + e2e-scanner-live | 2026-06-06 |
 
 ---
 
