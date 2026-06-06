@@ -65,6 +65,9 @@ logging.basicConfig(
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
 TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+# Telegram tokens MUST not contain any whitespace — a common copy-paste error
+# from BotFather. Strip all whitespace (not just leading/trailing) defensively.
+TELEGRAM_BOT_TOKEN = "".join(TELEGRAM_BOT_TOKEN.split())
 PROXY_BASE_URL: str = os.environ.get("PROXY_BASE_URL", "http://localhost:8000").rstrip("/")
 PROXY_ADMIN_SECRET: str = os.environ.get("ADMIN_SECRET", "").strip()
 PROXY_API_KEY: str = os.environ.get("TELEGRAM_PROXY_API_KEY", "").strip()
@@ -700,6 +703,15 @@ async def run_bot() -> None:
     if not TELEGRAM_BOT_TOKEN:
         log.error("TELEGRAM_BOT_TOKEN is not set. Set it in the environment and restart.")
         return
+    # Defensively strip any internal whitespace from the token (common copy-paste error).
+    safe_token = "".join(TELEGRAM_BOT_TOKEN.split())
+    if safe_token != TELEGRAM_BOT_TOKEN:
+        TELEGRAM_BOT_TOKEN = safe_token  # allow the global to be reassigned
+        log.warning(
+            "TELEGRAM_BOT_TOKEN contained whitespace — stripped to %d chars. "
+            "Fix the env var to avoid this warning.",
+            len(TELEGRAM_BOT_TOKEN),
+        )
     if not ALLOWED_USER_IDS:
         raw = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "")
         log.error(
