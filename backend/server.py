@@ -6473,6 +6473,10 @@ app.include_router(setup_router)
 app.include_router(activation_router)
 app.include_router(secrets_router)
 
+# Portfolio + Agile board API (powers the v5 PortfolioScreen)
+from agents.portfolio_api import portfolio_router
+app.include_router(portfolio_router)
+
 # Company Graph API
 from services.company_graph_store import get_company_graph_store
 import backend.company_api as company_api_module

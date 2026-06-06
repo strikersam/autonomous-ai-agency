@@ -57,6 +57,26 @@ auditable. Ties break on cost of delay (higher) then job size (smaller).
   shared `AgileManager` / `PortfolioManager` singletons so stateful planning skills
   accumulate across calls instead of resetting.
 
+## v5 UI surface
+
+`frontend/src/v5/screens/PortfolioScreen.jsx` (nav id `portfolio`, AGENCY section)
+renders the portfolio as a live board:
+
+- **Metrics strip** — initiatives, active, avg WSJF, total Cost of Delay, increment capacity.
+- **Now/Next/Later roadmap** — three capacity-bounded columns + a backlog overflow row.
+- **WSJF priority table** — BV / TC / RR → CoD → Job Size → WSJF score bars.
+- **Sprint health cards** — health pill, burndown %, scope-creep, days remaining.
+
+It reads a single payload from `GET /api/portfolio/board` (`agents/portfolio_api.py`),
+which composes `PortfolioManager` + `AgileManager`. The API holds an in-process
+`PortfolioService` singleton seeded with illustrative demo data (`POST /api/portfolio/seed`
+resets it), so the screen is populated immediately after deploy. This is a
+presentation surface, **not** a system of record — persistence is a future step.
+
+> Deploy note: the backend deploy (`deploy-backend.yml`) covers `agents/**`,
+> `services/**`, `backend/**`; the frontend deploy (`deploy-frontend.yml`) covers
+> `frontend/**`. This feature touches both, so both pipelines run on merge.
+
 ## Extension ideas (not yet built)
 
 - Persist managers to disk / the company graph instead of in-process singletons.

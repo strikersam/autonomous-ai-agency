@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { id:'agents',     label:'Agents',     icon:'Bot',            desc:'Autonomous agency team',  section:'AGENCY' },
   { id:'schedules',  label:'Schedules',  icon:'Calendar',       desc:'Autopilot jobs',          section:'AGENCY' },
   { id:'skills',      label:'Skills',      icon:'Zap',          desc:'Agentic commerce skills',  section:'AGENCY' },
+  { id:'portfolio',   label:'Portfolio',   icon:'Target',       desc:'WSJF roadmap & sprints',   section:'AGENCY' },
   { id:'intelligence',label:'Intelligence',icon:'TrendingUp',   desc:'Competitor & trend intel', section:'AGENCY' },
   { id:'knowledge',  label:'Knowledge',  icon:'BookOpen',       desc:'Docs, sources, activity', section:'AGENCY' },
   { id:'providers',  label:'Providers',  icon:'Layers',         desc:'Models, Ollama, MCP',     section:'INFRASTRUCTURE' },
@@ -24,7 +25,7 @@ const NAV_ITEMS = [
 ];
 
 const MOBILE_PRIMARY = ['dashboard', 'agents', 'tasks', 'doctor'];
-const MOBILE_MORE    = ['company', 'schedules', 'skills', 'intelligence', 'knowledge', 'providers', 'github', 'logs', 'onboarding', 'admin'];
+const MOBILE_MORE    = ['company', 'schedules', 'skills', 'portfolio', 'intelligence', 'knowledge', 'providers', 'github', 'logs', 'onboarding', 'admin'];
 
 function Icon({ name, size=18, style={} }) {
   const s = size;
@@ -37,6 +38,7 @@ function Icon({ name, size=18, style={} }) {
     BookOpen:        <><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></>,
     Zap:             <><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></>,
     TrendingUp:      <><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></>,
+    Target:          <><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></>,
     Layers:          <><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
     Activity:        <><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></>,
     Building2:       <><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></>,
