@@ -1,5 +1,7 @@
 from __future__ import annotations
 import os
+
+import pytest
 """
 End-to-end tests for the agent chat code-change flow.
 
