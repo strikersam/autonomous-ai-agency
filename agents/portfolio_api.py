@@ -1,27 +1,29 @@
 """Portfolio + Agile read API for the v5 dashboard.
 
 Serves a single rich "board" payload (WSJF ranking, Now/Next/Later roadmap,
-capacity allocation, portfolio metrics, and sprint-health roll-up) that powers
-the v5 PortfolioScreen, plus add/remove/seed mutations.
+capacity allocation, portfolio metrics, sprint-health roll-up, and signal
+provenance) that powers the v5 PortfolioScreen, plus refresh + manual mutations.
 
-State is an in-process singleton seeded with illustrative demo data so the
-screen renders immediately after deploy. This is a presentation surface over
-``agents/portfolio.py`` and ``agents/agile_sprints.py`` — not a system of record.
+The board is assembled **autonomously** by `agents/portfolio_intelligence.py`
+from real signals (roadmap backlog, bug log, open GitHub PRs/issues, research
+trends) — not demo data. Results are cached and rebuilt on a TTL or on demand;
+a scheduled GitHub Action (`portfolio-refresh.yml`) drives the regular cadence.
 
-Imports are kept minimal (no ``agents`` package __init__, no rbac) so the router
-can be unit-tested in isolation.
+Imports are kept minimal (no rbac) so the router can be unit-tested in isolation.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+import time
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from agents.agile_sprints import AgileManager, StoryStatus, UserStory
+from agents.agile_sprints import AgileManager
 from agents.portfolio import InitiativeStatus, PortfolioManager
+from agents.portfolio_intelligence import PortfolioIntelligence
 
 log = logging.getLogger("qwen-proxy")
 
@@ -29,11 +31,13 @@ portfolio_router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 # Default per-horizon roadmap capacity (job-size units ≈ one increment of work).
 DEFAULT_HORIZON_CAPACITY = 13
+# How long a built board stays fresh before the next /board rebuilds it.
+CACHE_TTL_SECONDS = 30 * 60
 
 
 # ── API I/O models ───────────────────────────────────────────────────────────
 class InitiativeIn(BaseModel):
-    """Request body for creating an initiative."""
+    """Request body for creating an initiative manually."""
 
     title: str = Field(..., min_length=1, max_length=140)
     business_value: int = Field(1, ge=0, le=100)
@@ -57,6 +61,8 @@ class InitiativeOut(BaseModel):
     wsjf: float
     status: str
     horizon: str
+    source: str
+    rationale: str
     owner: Optional[str] = None
     sprint_ids: List[str] = Field(default_factory=list)
 
@@ -105,66 +111,37 @@ class BoardOut(BaseModel):
     allocation: AllocationOut
     sprints: List[SprintHealthOut]
     horizon_capacity: int
+    sources: Dict[str, int] = Field(default_factory=dict)
+    generated_at: float = 0.0
 
 
 # ── In-process state ─────────────────────────────────────────────────────────
 class PortfolioService:
-    """Holds the portfolio + agile managers and builds the board payload."""
+    """Builds and caches the autonomous portfolio board from live signals."""
 
     def __init__(self) -> None:
-        self.portfolio = PortfolioManager()
+        self.intelligence = PortfolioIntelligence()
         self.agile = AgileManager()
-        self._seeded = False
+        self.portfolio: PortfolioManager = PortfolioManager()
+        self._built_at: float = 0.0
+        self._sources: Dict[str, int] = {}
 
-    # -- demo seed ------------------------------------------------------------
-    def seed(self, *, force: bool = False) -> None:
-        """Populate illustrative initiatives + linked sprints (idempotent)."""
-        if self._seeded and not force:
-            return
-        if force:
-            self.portfolio = PortfolioManager()
-            self.agile = AgileManager()
+    # -- intelligence build ---------------------------------------------------
+    def refresh(self, **kwargs) -> None:
+        """Re-sweep all signals and rebuild the portfolio."""
+        self.portfolio = self.intelligence.build(**kwargs)
+        self._sources = dict(self.intelligence.last_build)
+        self._built_at = time.time()
 
-        specs = [
-            ("Checkout v2 — one-page flow", 13, 8, 5, 8, "in_progress"),
-            ("Search relevance overhaul", 8, 5, 3, 13, "approved"),
-            ("Mobile app push notifications", 5, 8, 2, 5, "approved"),
-            ("GDPR data-retention compliance", 5, 5, 13, 8, "in_progress"),
-            ("Self-serve analytics dashboard", 8, 3, 2, 13, "proposed"),
-            ("Loyalty / rewards programme", 13, 2, 1, 21, "proposed"),
-            ("Internationalisation (i18n)", 3, 2, 2, 8, "proposed"),
-        ]
-        first_id: Optional[str] = None
-        for title, bv, tc, rr, js, status in specs:
-            init = self.portfolio.add_initiative(
-                title, business_value=bv, time_criticality=tc,
-                risk_reduction=rr, job_size=js,
-            )
-            try:
-                init.status = InitiativeStatus(status)
-            except ValueError:
-                pass
-            if first_id is None:
-                first_id = init.initiative_id
-
-        # A live sprint delivering the top initiative, with partial progress.
-        sprint = self.agile.create_sprint("Sprint 24", goal="Ship checkout v2 beta")
-        sprint.add_story(UserStory(story_id="s1", title="Address autofill", story_points=5))
-        sprint.add_story(UserStory(story_id="s2", title="Guest checkout", story_points=3))
-        sprint.add_story(UserStory(story_id="s3", title="Payment retry UX", story_points=5))
-        sprint.start(duration_days=14)
-        sprint.get_story("s1").status = StoryStatus.DONE
-        sprint.get_story("s2").status = StoryStatus.DONE
-        # Mid-sprint scope creep
-        sprint.add_story(UserStory(story_id="s4", title="Apple Pay", story_points=3))
-        if first_id:
-            self.portfolio.link_sprint(first_id, sprint.sprint_id)
-
-        self._seeded = True
+    def ensure_fresh(self) -> None:
+        """Build on first use or when the cached board has expired."""
+        if self._built_at == 0.0 or (time.time() - self._built_at) > CACHE_TTL_SECONDS:
+            self.refresh()
 
     # -- board ----------------------------------------------------------------
     def board(self, *, horizon_capacity: int = DEFAULT_HORIZON_CAPACITY) -> BoardOut:
-        """Assemble the full board payload."""
+        """Assemble the full board payload from the current portfolio."""
+        self.ensure_fresh()
         cap = max(1, horizon_capacity)
         ranked = self.portfolio.prioritized()
         roadmap_raw = self.portfolio.plan_roadmap(cap)
@@ -178,7 +155,7 @@ class PortfolioService:
         }
 
         sprints_out: List[SprintHealthOut] = []
-        for sprint in self.agile._sprints.values():  # noqa: SLF001 — internal demo store
+        for sprint in self.agile._sprints.values():  # noqa: SLF001 — internal store
             metrics = sprint.get_metrics()
             sprints_out.append(SprintHealthOut(
                 sprint_id=sprint.sprint_id,
@@ -212,6 +189,8 @@ class PortfolioService:
             ),
             sprints=sprints_out,
             horizon_capacity=cap,
+            sources=dict(self._sources),
+            generated_at=self._built_at,
         )
 
     @staticmethod
@@ -227,6 +206,8 @@ class PortfolioService:
             wsjf=round(i.wsjf, 3),
             status=i.status.value,
             horizon=i.horizon.value,
+            source=i.source,
+            rationale=i.rationale,
             owner=i.owner,
             sprint_ids=list(i.sprint_ids),
         )
@@ -236,25 +217,40 @@ _SERVICE: Optional[PortfolioService] = None
 
 
 def get_service() -> PortfolioService:
-    """Return the process-wide PortfolioService, seeding demo data on first use."""
+    """Return the process-wide PortfolioService (built lazily on first use)."""
     global _SERVICE
     if _SERVICE is None:
         _SERVICE = PortfolioService()
-        _SERVICE.seed()
     return _SERVICE
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 @portfolio_router.get("/board", response_model=BoardOut)
 async def get_board(horizon_capacity: int = DEFAULT_HORIZON_CAPACITY) -> BoardOut:
-    """Return the full portfolio board (ranking, roadmap, allocation, sprints)."""
+    """Return the full portfolio board (auto-built from live signals, cached)."""
     return get_service().board(horizon_capacity=horizon_capacity)
+
+
+@portfolio_router.post("/refresh", response_model=BoardOut)
+async def refresh_board() -> BoardOut:
+    """Force a re-sweep of all signals and return the rebuilt board."""
+    svc = get_service()
+    svc.refresh()
+    return svc.board()
+
+
+# Backward-compatible alias for the old demo-seed route — now rebuilds from signals.
+@portfolio_router.post("/seed", response_model=BoardOut)
+async def reseed() -> BoardOut:
+    """Deprecated alias for /refresh (the board is no longer demo-seeded)."""
+    return await refresh_board()
 
 
 @portfolio_router.post("/initiatives", response_model=InitiativeOut, status_code=201)
 async def add_initiative(body: InitiativeIn) -> InitiativeOut:
-    """Add an initiative to the portfolio."""
+    """Add a manual initiative on top of the auto-generated portfolio."""
     svc = get_service()
+    svc.ensure_fresh()
     init = svc.portfolio.add_initiative(
         body.title,
         business_value=body.business_value,
@@ -263,6 +259,8 @@ async def add_initiative(body: InitiativeIn) -> InitiativeOut:
         job_size=body.job_size,
         owner=body.owner,
     )
+    init.source = "manual"
+    init.rationale = "Added by a user"
     if body.status:
         try:
             init.status = InitiativeStatus(body.status)
@@ -275,15 +273,8 @@ async def add_initiative(body: InitiativeIn) -> InitiativeOut:
 async def remove_initiative(initiative_id: str) -> None:
     """Remove an initiative from the portfolio (no-op if it is already gone)."""
     svc = get_service()
+    svc.ensure_fresh()
     try:
         svc.portfolio.remove_initiative(initiative_id)
     except KeyError:
         pass
-
-
-@portfolio_router.post("/seed", response_model=BoardOut)
-async def reseed() -> BoardOut:
-    """Reset the portfolio to the illustrative demo data and return the board."""
-    svc = get_service()
-    svc.seed(force=True)
-    return svc.board()

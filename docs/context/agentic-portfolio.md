@@ -77,6 +77,32 @@ presentation surface, **not** a system of record — persistence is a future ste
 > `services/**`, `backend/**`; the frontend deploy (`deploy-frontend.yml`) covers
 > `frontend/**`. This feature touches both, so both pipelines run on merge.
 
+## Autonomous intelligence (`agents/portfolio_intelligence.py`)
+
+The board is **auto-built from real signals** — no demo data. `PortfolioIntelligence.build()`
+sweeps and WSJF-scores:
+
+| Signal | Source | Heuristic (BV, TC, RR, Size) | Status |
+|--------|--------|------------------------------|--------|
+| Roadmap P0 | `active-tasks.md` / `roadmap-killer-todos.md` | (13, 8, 3, est) | proposed/in-progress |
+| Roadmap P1 | same | (8, 3, 2, est) | proposed |
+| Open sprint task | `active-tasks.md` Sprint table | (8, 3, 2, est) | from status |
+| Open bug | Bug Log (`BUG_FOUND`) + GitHub `bug` issues | (5, 8, 8, 3) → high WSJF | approved |
+| Open PR | GitHub pulls (env token) | (8, 5, 3, est) | in_progress |
+| Research/trend | `agent/trend_watcher.py` | (relevance·13, 5, 2, est) | proposed |
+
+Job size is estimated from title keywords (`estimate_job_size` — architectural words → 13).
+Titles are de-duplicated across signals (keep higher WSJF). GitHub + trend access is lazy
+and **fails soft**: with no token / offline, the board still renders from the local backlog.
+Each `Initiative` carries `source` + `rationale` provenance, surfaced as badges in the UI.
+
+`portfolio_api.py` caches the built board for 30 min; `POST /api/portfolio/refresh` forces a
+re-sweep. The **`portfolio-refresh.yml`** Action (cron every 6h) runs the sweep in CI (with the
+Actions `GITHUB_TOKEN` for PR/issue access), publishes a WSJF digest, and pings
+`BACKEND_URL/api/portfolio/refresh` (set the `BACKEND_URL` repo variable) to refresh the live
+dashboard. Enable research signals via the workflow's `research=true` dispatch input or
+`PORTFOLIO_RESEARCH=1`.
+
 ## Extension ideas (not yet built)
 
 - Persist managers to disk / the company graph instead of in-process singletons.

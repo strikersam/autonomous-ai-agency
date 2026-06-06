@@ -26,6 +26,34 @@ const HORIZONS = [
   { id: 'later',label: 'Later',hint: 'On the radar',              color: '#c4b5fd' },
 ];
 
+// Provenance — where each auto-generated initiative came from.
+const SOURCE = {
+  bug:      { label: 'Bug',      icon: '🐞', color: '#ff6b7d' },
+  pr:       { label: 'Open PR',  icon: '🔀', color: '#46d9a4' },
+  roadmap:  { label: 'Roadmap',  icon: '🗺️', color: '#5da2ff' },
+  sprint:   { label: 'Sprint',   icon: '🏃', color: '#7c9dff' },
+  research: { label: 'Research', icon: '🔬', color: '#c4b5fd' },
+  manual:   { label: 'Manual',   icon: '✎',  color: '#a8b3c2' },
+};
+
+function SourceBadge({ source, title }) {
+  const s = SOURCE[source] || SOURCE.manual;
+  return (
+    <span title={title || ''} style={{ fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, color: s.color, background: `${s.color}14`, border: `1px solid ${s.color}30`, whiteSpace: 'nowrap' }}>
+      {s.icon} {s.label}
+    </span>
+  );
+}
+
+function timeAgo(ts) {
+  if (!ts) return 'never';
+  const secs = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+  if (secs < 90) return 'just now';
+  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
+  return `${Math.round(secs / 86400)}d ago`;
+}
+
 function StatChip({ label, value, accent = 'var(--accent)' }) {
   return (
     <div style={{ flex: '1 1 140px', minWidth: 130, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.09)' }}>
@@ -61,8 +89,11 @@ function InitiativeCard({ init }) {
   return (
     <div style={{ padding: '11px 13px', borderRadius: 13, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderLeft: `2px solid ${c}` }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', lineHeight: 1.35, marginBottom: 7 }}>{init.title}</div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <StatusPill status={init.status} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <SourceBadge source={init.source} title={init.rationale} />
+          <StatusPill status={init.status} />
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
           <span title="Job size (effort)">⏱ {init.job_size}</span>
           <span title="WSJF score" style={{ color: 'var(--accent)', fontWeight: 700 }}>WSJF {init.wsjf.toFixed(2)}</span>
@@ -113,9 +144,9 @@ export default function PortfolioScreen() {
 
   React.useEffect(() => { load(); }, [load]);
 
-  const reseed = async () => {
+  const refresh = async () => {
     setRefreshing(true);
-    try { const { data } = await api.seedPortfolio(); setBoard(data); setError(''); }
+    try { const { data } = await api.refreshPortfolio(); setBoard(data); setError(''); }
     catch { /* ignore */ }
     finally { setRefreshing(false); }
   };
@@ -147,14 +178,31 @@ export default function PortfolioScreen() {
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
         <div>
           <h1 style={{ fontSize: 26, fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1.1, marginBottom: 6 }}>Portfolio &amp; Roadmap</h1>
-          <p style={{ fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1.6, maxWidth: 620 }}>
-            Initiatives ranked by <strong style={{ color: 'var(--text-secondary)' }}>WSJF</strong> (Cost of Delay ÷ Job Size), allocated to <strong style={{ color: 'var(--text-secondary)' }}>Now / Next / Later</strong>, with live sprint health rolled up from agentic-agile.
+          <p style={{ fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1.6, maxWidth: 640 }}>
+            Initiatives <strong style={{ color: 'var(--text-secondary)' }}>auto-discovered</strong> from your roadmap backlog, open bugs, in-flight PRs and research trends — ranked by <strong style={{ color: 'var(--text-secondary)' }}>WSJF</strong> (Cost of Delay ÷ Job Size) and allocated to <strong style={{ color: 'var(--text-secondary)' }}>Now / Next / Later</strong>.
           </p>
         </div>
-        <button onClick={reseed} disabled={refreshing} style={{ ...btnStyle, opacity: refreshing ? 0.6 : 1 }}>
-          {refreshing ? 'Resetting…' : '↻ Reset demo'}
-        </button>
+        <div style={{ textAlign: 'right' }}>
+          <button onClick={refresh} disabled={refreshing} style={{ ...btnStyle, opacity: refreshing ? 0.6 : 1 }}>
+            {refreshing ? 'Researching…' : '↻ Refresh intelligence'}
+          </button>
+          <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginTop: 6 }}>updated {timeAgo(board.generated_at)}</div>
+        </div>
       </div>
+
+      {/* Sources legend — provenance of the auto-generated initiatives */}
+      {Object.keys(board.sources || {}).length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+          {Object.entries(board.sources).map(([src, n]) => {
+            const s = SOURCE[src] || SOURCE.manual;
+            return (
+              <span key={src} style={{ fontSize: 11, fontFamily: 'var(--font-mono)', padding: '4px 10px', borderRadius: 999, color: s.color, background: `${s.color}10`, border: `1px solid ${s.color}26` }}>
+                {s.icon} {n} from {s.label.toLowerCase()}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* Metrics strip */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 22 }}>
@@ -164,6 +212,15 @@ export default function PortfolioScreen() {
         <StatChip label="Total Cost of Delay" value={m.total_cost_of_delay} accent="#ffbd66" />
         <StatChip label="Increment capacity" value={`${alloc.committed_job_size}/${alloc.capacity}`} accent="#c4b5fd" />
       </div>
+
+      {ranked.length === 0 && (
+        <div style={{ padding: '28px 20px', borderRadius: 16, background: 'rgba(255,255,255,0.025)', border: '1px dashed rgba(255,255,255,0.12)', textAlign: 'center', marginBottom: 22 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>No initiatives discovered yet</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 460, margin: '0 auto' }}>
+            The portfolio auto-builds from your roadmap backlog, open bugs, in-flight PRs and research trends. Connect GitHub or add backlog items, then hit <strong style={{ color: 'var(--accent)' }}>Refresh intelligence</strong>.
+          </div>
+        </div>
+      )}
 
       {/* Roadmap board */}
       <SectionLabel>Roadmap — Now / Next / Later</SectionLabel>
@@ -209,8 +266,8 @@ export default function PortfolioScreen() {
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
-                {['#', 'Initiative', 'Status', 'BV', 'TC', 'RR', 'CoD', 'Size', 'WSJF'].map((h, i) => (
-                  <th key={h} style={{ ...thStyle, textAlign: i <= 1 ? 'left' : i === 8 ? 'left' : 'center' }}>{h}</th>
+                {['#', 'Initiative', 'Source', 'Status', 'BV', 'TC', 'RR', 'CoD', 'Size', 'WSJF'].map((h, i) => (
+                  <th key={h} style={{ ...thStyle, textAlign: i <= 1 ? 'left' : 'center' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -219,6 +276,7 @@ export default function PortfolioScreen() {
                 <tr key={i.initiative_id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <td style={{ ...tdStyle, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{idx + 1}</td>
                   <td style={{ ...tdStyle, color: '#fff', fontWeight: 600, textAlign: 'left' }}>{i.title}</td>
+                  <td style={tdStyle}><SourceBadge source={i.source} title={i.rationale} /></td>
                   <td style={tdStyle}><StatusPill status={i.status} /></td>
                   <td style={tdNum}>{i.business_value}</td>
                   <td style={tdNum}>{i.time_criticality}</td>

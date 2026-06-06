@@ -24,6 +24,8 @@
 |---|------|--------|-------------|-------|---------|
 | 1 | Killer TODO Roadmap (docs only — 33-item backlog from 6 OSS repos) | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) | Draft PR created, CI running | 2026-06-05 |
 | 2 | Dynamic Session Planning Workflow (this task) | `IN_PROGRESS` | [#406](https://github.com/strikersam/local-llm-server/pull/406) | hooks + tracker + AGENTS.md update | 2026-06-05 |
+| 3 | Agentic Portfolio Management (WSJF) + v5 Portfolio screen | `DONE` | #423, #426 | portfolio.py, agile health/retro, v5 board | 2026-06-06 |
+| 4 | Autonomous Portfolio Intelligence (signals → initiatives, 6h cron) | `IN_PROGRESS` | claude/portfolio-autonomous | portfolio_intelligence.py + refresh workflow + UI provenance | 2026-06-06 |
 
 ---
 
