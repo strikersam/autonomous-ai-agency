@@ -65,6 +65,19 @@ def test_parse_callback():
     assert tb._parse_callback("") == ("", None)
 
 
+def test_parse_user_ids_tolerant() -> None:
+    # plain, spaced, quoted, bracketed, semicolons, negative (group chats)
+    assert tb._parse_user_ids("8120976") == {8120976}
+    assert tb._parse_user_ids("123, 456") == {123, 456}
+    assert tb._parse_user_ids('"123"') == {123}
+    assert tb._parse_user_ids("[123 456]") == {123, 456}
+    assert tb._parse_user_ids("123;456") == {123, 456}
+    assert tb._parse_user_ids("-1001234567890") == {-1001234567890}
+    # usernames / empty → nothing
+    assert tb._parse_user_ids("@strikersam") == set()
+    assert tb._parse_user_ids("") == set()
+
+
 def test_model_keyboard_uses_index_callbacks():
     kb = tb._model_keyboard(["a/b", "c/d"])
     assert kb == [
