@@ -1,129 +1,251 @@
-# Implementation Prompt: Agentic Agile UI
+# Implementation Prompt: Unified Task Board + Portfolio UI
 
-## Context
+## Context & Problem
 
-`agents/agile_sprints.py` and `agents/portfolio.py` ship a fully-featured sprint/story
-management engine (SprintManager, WSJF prioritisation, velocity tracking, burndown,
-retrospectives) backed by the `agentic-agile` and `agentic-portfolio` skill bindings in
-`services/skill_bindings.py`. However there are **zero HTTP endpoints and zero frontend
-screens** — the only way to interact with these systems today is through the agent chat.
+The repo has three isolated work-management layers with no UI integration:
 
-The portfolio layer also has no REST surface despite `docs/context/agentic-portfolio.md`
-calling it out as an explicit "extension idea".
+| Layer | Backend | Frontend | Status |
+|-------|---------|----------|--------|
+| Task | `tasks/api.py` + `tasks/models.py` | `TaskBoardScreen.jsx` | **Partial** — kanban exists, rich interactions absent |
+| Agile | `agents/agile_sprints.py` | None | **Missing entirely** |
+| Portfolio | `agents/portfolio.py` | None | **Missing entirely** |
 
-This task wires both layers into the existing dashboard by adding:
-1. REST API endpoints in `backend/server.py`
-2. `AgileScreen.jsx` — sprint board, story kanban, velocity
-3. `PortfolioScreen.jsx` — WSJF roadmap, capacity, initiative list
-4. Nav entries in `AppShell.jsx`
+The current `TaskBoardScreen` is a basic kanban. The backend already has comments
+(threaded), approval checkpoints, execution logs, follow-up/escalate actions, and a
+rich task model — none of it is surfaced in the UI.
+
+The old v4 LLM relay had a multica-inspired task experience
+(https://github.com/multica-ai/multica): right-side detail panel, agent comment thread,
+"needs clarification" status with context threads, execution log, agent assignment with
+availability. That richness needs to come back.
+
+A naive approach would add `AgileScreen.jsx` and `PortfolioScreen.jsx` as separate
+screens — but this creates duplicate kanban boards, duplicate status models, and no
+linking between layers. Instead: **collapse the three layers into two unified screens.**
+
+---
+
+## Unified Architecture
+
+```
+Portfolio (strategic layer)          PortfolioScreen.jsx
+  └── Initiative (WSJF-ranked)          WSJF table, Now/Next/Later roadmap,
+        └── Sprint (linked)              capacity allocation, rollup from tasks
+              └── Tasks (count/progress)
+
+TaskBoard (execution layer)          TaskBoardScreen.jsx  ← UPGRADED
+  └── Task / UserStory (unified)        Rich kanban + right-side detail panel
+        sprint_id + story_points         Sprint-grouping view mode
+        agent comments                   Agent comment thread
+        execution_log                    Execution log accordion
+        approval checkpoints             Clarification + approval UI
+```
+
+**Key decisions:**
+- `UserStory` ≈ `Task` with `story_points` — **no separate story CRUD screen**.
+  Add `story_points` and `sprint_id` to the Task model; one kanban surface.
+- **No separate AgileScreen** — sprint management lives as a view-mode toggle in
+  TaskBoard ("Board" vs "Sprint" view). Velocity chart is a collapsible widget.
+- **PortfolioScreen** is the strategic layer only — it reads task/sprint data but
+  does not have its own task CRUD.
+- Add `needs_clarification` as a 7th task status alongside existing six.
+
+---
 
 ## Implementation Prompt
 
-You are implementing the Agentic Agile + Portfolio UI for the local-llm-server dashboard.
-The backend engine already exists — your job is to expose it via REST and build the React
-screens that consume it, following the exact patterns established by the existing v5 screens
-(see `DashboardScreen.jsx`, `TaskBoardScreen.jsx` for component conventions).
+You are upgrading the task management UI and adding portfolio management to the
+local-llm-server dashboard. Follow the patterns in `DashboardScreen.jsx` (Widget,
+useSafeData, skeleton loaders) and `TaskBoardScreen.jsx` (status columns, polling).
 
-### Backend conventions to follow
+### What exists and must NOT be broken
+- `TaskBoardScreen.jsx` — 6-column kanban with create-task modal, approve/retry buttons.
+  Extend it; do not rewrite from scratch.
+- `tasks/api.py` — 12 endpoints already wired. Use them; don't duplicate.
+- `agents/agile_sprints.py` / `agents/portfolio.py` — in-process singletons via
+  `_get_agile_manager()` / `_get_portfolio_manager()` in `services/skill_bindings.py`.
 
-- All routes go in `backend/server.py` under the `app` FastAPI instance
-- Auth: `Depends(require_auth)` on all write endpoints; GET endpoints may be open
-- Pydantic request/response models at the top of the file (or `backend/models/`)
-- Use `_get_agile_manager()` / `_get_portfolio_manager()` from `services/skill_bindings.py`
-  for the singleton managers (don't instantiate new ones)
-- Return consistent `{"ok": true, "data": ...}` or raise `HTTPException`
+### Backend additions needed
 
-### Frontend conventions to follow
+**Task model extensions** (`tasks/models.py` + migration if needed):
+- Add `story_points: Optional[int]` field (0 = not estimated)
+- Add `sprint_id: Optional[str]` field (links task to an AgileSprint)
+- Add `needs_clarification` to `TaskStatus` enum (between `blocked` and `in_review`)
 
-- File: `frontend/src/v5/screens/AgileScreen.jsx` and `PortfolioScreen.jsx`
-- Use the `Widget` / `useSafeData` / skeleton-loader pattern from `DashboardScreen.jsx`
-- Error boundaries via `ErrorBoundary` component
-- All fetch calls via `api.js` (`import api from '../api'`)
-- Story status chips: BACKLOG (grey) → TODO (blue) → IN_PROGRESS (yellow) → DONE (green)
-- Sprint health badge: ON_TRACK (green) / AT_RISK (amber) / OFF_TRACK (red) / COMPLETE (grey)
-- Nav entry in `AppShell.jsx` NAV_ITEMS — use the `Zap` icon for Agile, `Layers` for Portfolio
+**New task endpoint:**
+- `PATCH /api/tasks/{id}/clarify` — set status to needs_clarification + set blocked_reason
 
-### Key data relationships
+**Agile REST endpoints** (add to `backend/server.py`):
+- `GET  /api/agile/sprints` — list all sprints; for each sprint, include linked task IDs,
+  total_points, completed_points, health, days_remaining from AgileManager
+- `POST /api/agile/sprints` — create sprint `{name, goal}`
+- `POST /api/agile/sprints/{sprint_id}/start` — `{duration_days?}`
+- `POST /api/agile/sprints/{sprint_id}/complete` — returns SprintMetrics
+- `GET  /api/agile/velocity` — `{predicted_velocity, sprint_count, history[]}`
 
-```
-PortfolioManager                     AgileManager
-  └── Initiative (WSJF-ranked)         └── AgileSprint
-        └── linked sprint_ids                └── UserStory
-              └── progress rollup
-```
+**Portfolio REST endpoints** (add to `backend/server.py`):
+- `GET  /api/portfolio/initiatives` — WSJF-ranked; include linked sprint summaries
+- `POST /api/portfolio/initiatives` — `{title, business_value, time_criticality, risk_reduction, job_size, owner?}`
+- `DELETE /api/portfolio/initiatives/{initiative_id}`
+- `GET  /api/portfolio/roadmap` — Now/Next/Later lanes
+- `POST /api/portfolio/allocate` — `{capacity}` → CapacityAllocation
+- `GET  /api/portfolio/metrics` — PortfolioMetrics
+- `POST /api/portfolio/initiatives/{initiative_id}/link-sprint` — `{sprint_id}`
+
+### TaskBoardScreen upgrade
+
+Extend `frontend/src/v5/screens/TaskBoardScreen.jsx`:
+
+**1. Right-side detail panel** (slide in when a card is clicked, ~380px wide):
+- Full task title (editable inline)
+- Description (editable)
+- Status dropdown (all 7 statuses including needs_clarification)
+- Priority + task_type dropdowns
+- Story points picker (0/1/2/3/5/8/13 Fibonacci)
+- Sprint assignment dropdown (fetches `/api/agile/sprints`, shows sprint name + health)
+- Agent assignment (current agent_id, reassign dropdown)
+- **Comment thread** — renders `task.comments[]` as a conversation:
+  - Agent comments (grey background, agent avatar icon)
+  - Human comments (blue background, user avatar)
+  - Reply threading (indent reply_to chains)
+  - "Add comment" textarea + submit (POST `/api/tasks/{id}/comments`)
+- **Execution log accordion** — collapsible list of `task.execution_log[]` entries
+- **Approval checkpoints** — list of pending checkpoints with Approve/Reject buttons
+- **Actions row**: Follow-up (re-open with new message), Escalate, Request Clarification
+- Close panel with `Esc` or clicking outside
+
+**2. New "Needs Clarification" column** in the kanban (purple `#b57bee`), between
+Blocked and In Review. Shows tasks awaiting human input before agent resumes.
+
+**3. Sprint view mode toggle** (Board | Sprint buttons top-right):
+- **Board mode** (default): current status-column kanban
+- **Sprint mode**: group cards by sprint instead of status; sprint header shows name,
+  health badge (ON_TRACK/AT_RISK/OFF_TRACK), burndown %, days remaining;
+  "No sprint" group at bottom for unassigned tasks
+- Velocity widget: collapsible panel showing predicted velocity + last 5 sprints bar chart
+
+**4. Create-task modal enhancements**:
+- Add Story Points field (Fibonacci picker: ?, 1, 2, 3, 5, 8, 13)
+- Add Sprint dropdown (optional)
+- Add "Needs clarification" checkbox to create as clarification-needed immediately
+
+### PortfolioScreen (new file)
+
+Create `frontend/src/v5/screens/PortfolioScreen.jsx`:
+
+**Sections:**
+1. **Metrics strip** — total initiatives, in_progress count, avg WSJF, capacity utilisation %
+2. **WSJF initiative table** — columns: Title, CoD score, Job size, WSJF, Horizon badge
+   (NOW/NEXT/LATER/UNSCHEDULED), Status, Owner; click row to expand linked sprints with
+   progress bars
+3. **Roadmap swimlanes** — 3 horizontal lanes (Now / Next / Later); initiative cards with
+   WSJF score, health dot from linked sprint, task count. Drag-to-reorder optional (P2).
+4. **Capacity widget** — input: available capacity (SP); output: committed initiatives vs
+   deferred, utilisation bar
+5. **Add Initiative modal** — title, business_value, time_criticality, risk_reduction,
+   job_size, owner
+6. **Link Sprint** — inline dropdown on each initiative row to link an agile sprint
+
+### Navigation
+
+`AppShell.jsx` NAV_ITEMS additions:
+- Portfolio: id `'portfolio'`, icon `Layers`, label `"Portfolio"` — after TaskBoard
+- Remove any placeholder nav item for "Agile" — agile lives inside TaskBoard Sprint view
+
+---
 
 ## Prioritised TODO
 
-- [ ] **P0 — Backend: Agile API endpoints**
-  - [ ] `GET  /api/agile/sprints` → list all sprints with inline metrics
-  - [ ] `POST /api/agile/sprints` body: `{name, goal}` → create sprint
-  - [ ] `GET  /api/agile/sprints/{sprint_id}` → sprint detail + full story list + metrics
-  - [ ] `POST /api/agile/sprints/{sprint_id}/stories` body: `{title, description, story_points, assignee?}`
-  - [ ] `PATCH /api/agile/sprints/{sprint_id}/stories/{story_id}` body: `{status}` → update story status
-  - [ ] `POST /api/agile/sprints/{sprint_id}/start` body: `{duration_days?}` → start sprint
-  - [ ] `POST /api/agile/sprints/{sprint_id}/complete` → complete sprint, return SprintMetrics
-  - [ ] `GET  /api/agile/velocity` → `{predicted_velocity, sprint_count}`
-  - [ ] `POST /api/agile/sprints/{sprint_id}/retro` body: `{went_well, went_poorly, action_item?}`
+### P0 — Backend: Task model + status
+- [ ] Add `story_points: Optional[int]` and `sprint_id: Optional[str]` to Task model
+- [ ] Add `needs_clarification` to `TaskStatus` enum
+- [ ] `PATCH /api/tasks/{id}/clarify` endpoint
 
-- [ ] **P0 — Backend: Portfolio API endpoints**
-  - [ ] `GET  /api/portfolio/initiatives` → WSJF-ranked initiative list
-  - [ ] `POST /api/portfolio/initiatives` body: `{title, business_value, time_criticality, risk_reduction, job_size, owner?}`
-  - [ ] `DELETE /api/portfolio/initiatives/{initiative_id}`
-  - [ ] `GET  /api/portfolio/roadmap` → Now/Next/Later lanes (default capacity_per_horizon=5)
-  - [ ] `POST /api/portfolio/allocate` body: `{capacity}` → CapacityAllocation
-  - [ ] `GET  /api/portfolio/metrics` → PortfolioMetrics
-  - [ ] `POST /api/portfolio/initiatives/{initiative_id}/link-sprint` body: `{sprint_id}`
-  - [ ] `GET  /api/portfolio/rollup` → initiative progress with linked sprint data
+### P0 — Backend: Agile REST
+- [ ] `GET /api/agile/sprints` with linked task counts + metrics
+- [ ] `POST /api/agile/sprints`
+- [ ] `POST /api/agile/sprints/{id}/start`
+- [ ] `POST /api/agile/sprints/{id}/complete`
+- [ ] `GET /api/agile/velocity`
 
-- [ ] **P1 — Frontend: `AgileScreen.jsx`**
-  - [ ] Active sprints grid — each card shows name, goal, health badge, burndown %, days remaining
-  - [ ] Story kanban inside each sprint card (4 columns: BACKLOG / TODO / IN_PROGRESS / DONE)
-  - [ ] Click story to update status (inline dropdown or drag)
-  - [ ] "New Sprint" modal — name + goal inputs
-  - [ ] "Add Story" modal — title, points, assignee
-  - [ ] "Start Sprint" button (with duration selector) and "Complete Sprint" button
-  - [ ] Velocity widget — predicted velocity + completed sprint history sparkline
-  - [ ] Retrospective section (expandable) showing went_well / went_poorly / action items
+### P0 — Backend: Portfolio REST
+- [ ] `GET /api/portfolio/initiatives`
+- [ ] `POST /api/portfolio/initiatives`
+- [ ] `DELETE /api/portfolio/initiatives/{id}`
+- [ ] `GET /api/portfolio/roadmap`
+- [ ] `POST /api/portfolio/allocate`
+- [ ] `GET /api/portfolio/metrics`
+- [ ] `POST /api/portfolio/initiatives/{id}/link-sprint`
 
-- [ ] **P1 — Frontend: `PortfolioScreen.jsx`**
-  - [ ] WSJF ranked initiative table — title, CoD, job_size, WSJF score, horizon badge, status
-  - [ ] Now / Next / Later roadmap swimlanes (horizontal card rows per horizon)
-  - [ ] Capacity allocation widget — committed vs deferred pie/bar
-  - [ ] Metrics summary strip — total_initiatives, completed, in_progress, avg_wsjf
-  - [ ] "Add Initiative" modal
-  - [ ] Link sprint to initiative dropdown (if agile sprints exist)
+### P1 — Frontend: TaskBoard — detail panel
+- [ ] Slide-out detail panel component (click card → opens)
+- [ ] Comment thread render + "Add comment" form
+- [ ] Execution log accordion
+- [ ] Approval checkpoint list with Approve/Reject buttons
+- [ ] Inline status / priority / story_points / sprint_id / agent_id editing
+- [ ] Follow-up, Escalate, Request Clarification actions
 
-- [ ] **P1 — Nav wiring**
-  - [ ] Add `AgileScreen` to `NAV_ITEMS` in `AppShell.jsx` (id: `'agile'`, icon: Zap, label: "Agile")
-  - [ ] Add `PortfolioScreen` to `NAV_ITEMS` (id: `'portfolio'`, icon: Layers, label: "Portfolio")
-  - [ ] Register both screens in the screen router (wherever `TaskBoardScreen` is imported/switched)
+### P1 — Frontend: TaskBoard — sprint view
+- [ ] "Needs Clarification" kanban column (7th column, purple)
+- [ ] Board | Sprint toggle
+- [ ] Sprint-grouped card view with health badge + burndown %
+- [ ] Velocity widget (collapsible)
+- [ ] Story points + sprint in create-task modal
 
-- [ ] **P2 — Tests**
-  - [ ] `tests/test_agile_api.py` — endpoint smoke tests for create/list/start/complete flow
-  - [ ] `tests/test_portfolio_api.py` — add/prioritize/roadmap/allocate endpoint tests
+### P1 — Frontend: PortfolioScreen
+- [ ] Metrics strip
+- [ ] WSJF initiative table (expandable rows showing linked sprints)
+- [ ] Now / Next / Later swimlanes
+- [ ] Capacity allocation widget
+- [ ] Add Initiative modal
+- [ ] Nav entry in AppShell (`'portfolio'`, Layers icon)
 
-- [ ] **P2 — Changelog** — update `docs/changelog.md` under `[Unreleased]`
+### P2 — Tests + Changelog
+- [ ] `tests/test_agile_api.py`
+- [ ] `tests/test_portfolio_api.py`
+- [ ] `tests/test_task_clarification.py`
+- [ ] `docs/changelog.md` entry
 
-## Relevant files
+---
+
+## Duplicate eliminations
+
+| Was planned | Decision |
+|-------------|----------|
+| Separate `AgileScreen.jsx` | **Eliminated** — sprint management is a view-mode toggle inside TaskBoard |
+| UserStory CRUD screen | **Eliminated** — UserStory ≈ Task with story_points; one surface |
+| Separate story kanban | **Eliminated** — the upgraded TaskBoard IS the story board |
+| `POST /api/agile/sprints/{id}/stories` | **Replaced** — tasks link to sprints via `sprint_id`; no separate story objects |
+| Sprint retro endpoint | **Deferred** — retro is a P3 nice-to-have, not P0 |
+
+---
+
+## Key files
 
 | File | Role |
 |------|------|
-| `agents/agile_sprints.py` | AgileManager, AgileSprint, UserStory, SprintMetrics models |
-| `agents/portfolio.py` | PortfolioManager, Initiative, CapacityAllocation, PortfolioMetrics |
-| `services/skill_bindings.py` | Singleton accessors `_get_agile_manager()` / `_get_portfolio_manager()` |
-| `backend/server.py` | Add all new endpoints here |
-| `frontend/src/v5/screens/DashboardScreen.jsx` | Widget/useSafeData/skeleton pattern to copy |
-| `frontend/src/v5/screens/TaskBoardScreen.jsx` | Modal + status mutation pattern to copy |
-| `frontend/src/v5/AppShell.jsx` | NAV_ITEMS + screen router |
-| `frontend/src/v5/api.js` | axios instance — use for all fetch calls |
-| `tests/test_agile_sprints.py` | Existing tests — extend with API tests |
-| `tests/test_portfolio.py` | Existing tests — extend with API tests |
+| `frontend/src/v5/screens/TaskBoardScreen.jsx` | Extend (308 lines) — do not rewrite |
+| `frontend/src/v5/screens/PortfolioScreen.jsx` | Create new |
+| `frontend/src/v5/AppShell.jsx` | Add Portfolio nav entry |
+| `frontend/src/v5/api.js` | Add agile/portfolio fetch helpers |
+| `tasks/models.py` | Add story_points, sprint_id, needs_clarification status |
+| `tasks/api.py` | Add /clarify endpoint |
+| `backend/server.py` | Add all agile + portfolio endpoints |
+| `agents/agile_sprints.py` | Read-only — backend already complete |
+| `agents/portfolio.py` | Read-only — backend already complete |
+| `services/skill_bindings.py` | `_get_agile_manager()` / `_get_portfolio_manager()` singletons |
 
 ## Risk flags
 
-- **Singleton state is in-process only** — server restart wipes all sprints/initiatives.
-  Acceptable for now; persistence to DB is a follow-on (noted in `docs/context/agentic-portfolio.md`).
-- **Auth on GET endpoints** — portfolio/agile data is not sensitive, so GET routes can be
-  unauthenticated for dashboard convenience. Confirm this aligns with the project's auth model.
-- **Frontend bundle size** — adding two screens adds ~20–30KB to the React build. No concern.
-- **`require_auth` import** — verify the exact import path before adding to any new endpoint.
+- **`needs_clarification` status** — adding a new enum value to `TaskStatus` may
+  require a DB migration if tasks are persisted in MongoDB/SQLite with strict enum
+  validation. Check `tasks/models.py` for how status is stored.
+- **Singleton state** — agile/portfolio managers are in-process only; server restart
+  wipes sprint/initiative data. Flag this clearly in the UI (banner: "Sprint data is
+  in-memory — persisted tasks survive restart, sprint planning does not").
+- **TaskBoard size** — adding a detail panel + sprint view to an existing 308-line
+  file will push it past 700 lines. Consider extracting `TaskDetailPanel.jsx` as a
+  sibling component to keep the main file manageable.
+- **Auth** — `_get_agile_manager()` / `_get_portfolio_manager()` are process-wide
+  singletons with no per-user isolation. All dashboard users see the same sprint/
+  portfolio state. Acceptable for single-operator use; document this limitation.
