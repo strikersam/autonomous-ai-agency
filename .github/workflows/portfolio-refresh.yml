@@ -1,0 +1,49 @@
+name: Portfolio Refresh
+
+# Autonomous portfolio management: on a schedule, re-sweep real signals
+# (roadmap backlog, bug log, open PRs/issues, optional research trends) into
+# WSJF-ranked initiatives, publish a digest, and refresh the live dashboard.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours, aligned with agency-cycle
+  workflow_dispatch:
+    inputs:
+      research:
+        description: 'Include research/trend signals (slower)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: portfolio-refresh
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    name: Sweep signals & refresh board
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install minimal deps
+        run: pip install httpx --quiet
+
+      - name: Run portfolio intelligence sweep
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PORTFOLIO_REPO: ${{ github.repository }}
+          # Optional: set repo variable BACKEND_URL to refresh the deployed dashboard.
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          PORTFOLIO_RESEARCH: ${{ github.event.inputs.research == 'true' && '1' || '0' }}
+        run: python3 .github/scripts/portfolio_refresh.py

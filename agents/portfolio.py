@@ -63,6 +63,9 @@ class Initiative:
     owner: Optional[str] = None
     horizon: RoadmapHorizon = RoadmapHorizon.UNSCHEDULED
     sprint_ids: List[str] = field(default_factory=list)
+    # Provenance — where an auto-generated initiative came from and why it scored.
+    source: str = "manual"
+    rationale: str = ""
 
     def __post_init__(self) -> None:
         for name in ("business_value", "time_criticality", "risk_reduction"):
@@ -172,6 +175,11 @@ class PortfolioManager:
             job_size=job_size,
             owner=owner,
         )
+        self._initiatives[initiative.initiative_id] = initiative
+        return initiative
+
+    def register(self, initiative: Initiative) -> Initiative:
+        """Add a pre-built Initiative (e.g. from the intelligence layer)."""
         self._initiatives[initiative.initiative_id] = initiative
         return initiative
 

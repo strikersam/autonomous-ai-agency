@@ -420,7 +420,7 @@ export const getPortfolioBoard   = (horizonCapacity) =>
   API.get('/api/portfolio/board', { params: horizonCapacity ? { horizon_capacity: horizonCapacity } : {} });
 export const addPortfolioInitiative = (data)         => API.post('/api/portfolio/initiatives', data);
 export const removePortfolioInitiative = (id)        => API.delete(`/api/portfolio/initiatives/${encodeURIComponent(id)}`);
-export const seedPortfolio       = ()                => API.post('/api/portfolio/seed');
+export const refreshPortfolio    = ()                => API.post('/api/portfolio/refresh');
 
 // ── Quick Notes (iPhone Shortcut + FAB) ────────────────────────────────────
 export const createQuickNote = (data) => API.post('/v1/quick-notes', data);
