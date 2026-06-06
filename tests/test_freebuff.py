@@ -117,6 +117,45 @@ async def test_verify_api_key_skips_limiter_for_exempt_key(monkeypatch):
     assert called["limited"] is False  # exempt key bypassed the limiter
 
 
+def test_is_freebuff_unlimited_path(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.delenv("FREEBUFF_UNLIMITED", raising=False)  # default = unlimited
+    fb_req = SimpleNamespace(url=SimpleNamespace(path="/freebuff/run"))
+    chat_req = SimpleNamespace(url=SimpleNamespace(path="/v1/chat/completions"))
+    assert proxy._is_freebuff_unlimited(fb_req) is True
+    assert proxy._is_freebuff_unlimited(chat_req) is False
+    assert proxy._is_freebuff_unlimited(None) is False
+
+
+def test_freebuff_unlimited_can_be_disabled(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("FREEBUFF_UNLIMITED", "false")
+    fb_req = SimpleNamespace(url=SimpleNamespace(path="/freebuff/run"))
+    assert proxy._is_freebuff_unlimited(fb_req) is False
+
+
+async def test_verify_api_key_skips_limiter_on_freebuff_path(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.delenv("FREEBUFF_UNLIMITED", raising=False)
+    monkeypatch.delenv("FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS", raising=False)
+    rec = SimpleNamespace(email="u@x.com", department="eng", key_id="kid_normal")
+    monkeypatch.setattr(proxy.KEY_STORE, "lookup_plain_key", lambda k: rec)
+
+    called: dict = {"limited": False}
+
+    async def fake_check(api_key):
+        called["limited"] = True
+
+    monkeypatch.setattr(proxy, "check_rate_limit", fake_check)
+
+    req = SimpleNamespace(url=SimpleNamespace(path="/freebuff/run"))
+    await proxy.verify_api_key(request=req, authorization="Bearer secret", x_api_key=None)
+    assert called["limited"] is False  # FreeBuff path is unlimited even for a normal key
+
+
 async def test_verify_api_key_enforces_limiter_for_non_exempt_key(monkeypatch):
     from types import SimpleNamespace
 

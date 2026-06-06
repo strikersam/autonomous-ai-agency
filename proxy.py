@@ -204,6 +204,39 @@ def is_rate_limit_exempt(key_id: str | None) -> bool:
     return bool(exempt) and key_id in exempt
 
 
+def _is_freebuff_unlimited(request: Request | None) -> bool:
+    """True when this request targets a FreeBuff route and should skip rate limiting.
+
+    FreeBuff is the free-NVIDIA coding agent driven from the Telegram bot; the
+    whole point is an *unlimited* free coding agent, so its routes are exempt
+    from the per-key RPM limiter by default. Routes are still fully auth-gated
+    (a valid API key is required) and only ever run free NVIDIA models. Set
+    ``FREEBUFF_UNLIMITED=false`` to re-impose the limiter on FreeBuff routes.
+    """
+    if os.environ.get("FREEBUFF_UNLIMITED", "true").strip().lower() not in {"true", "1", "yes"}:
+        return False
+    try:
+        path = request.url.path if request is not None else ""
+    except Exception:
+        path = ""
+    return path.startswith("/freebuff")
+
+
+async def _enforce_rate_limit(request: Request | None, key: str, key_id: str | None) -> None:
+    """Apply the per-key RPM limiter unless this request is FreeBuff-exempt.
+
+    Exemptions (both keep the route auth-gated, only the limiter is skipped):
+      1. FreeBuff routes when ``FREEBUFF_UNLIMITED`` is on (default) — "unlimited".
+      2. Specific key_ids listed in ``FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS``.
+    """
+    if _is_freebuff_unlimited(request):
+        return
+    if is_rate_limit_exempt(key_id):
+        log.info("FreeBuff rate-limit exemption applied for key_id=%s", key_id)
+        return
+    await check_rate_limit(key)
+
+
 async def check_rate_limit(api_key: str) -> None:
     now = time.time()
     window = 60.0
@@ -253,13 +286,9 @@ async def verify_api_key(
 
     rec = KEY_STORE.lookup_plain_key(key)
     if rec:
-        # FreeBuff service keys may be exempted from rate limiting so phone-driven
-        # free-NVIDIA agent runs aren't throttled. The exemption is opt-in via env
-        # and scoped to specific key_ids only (default: none).
-        if is_rate_limit_exempt(rec.key_id):
-            log.info("FreeBuff rate-limit exemption applied for key_id=%s", rec.key_id)
-        else:
-            await check_rate_limit(key)
+        # FreeBuff routes are unlimited by default (free-NVIDIA agent via Telegram);
+        # specific key_ids may also be exempted. Everything else is rate-limited.
+        await _enforce_rate_limit(request, key, rec.key_id)
         return AuthContext(
             key=key,
             email=rec.email,
@@ -268,7 +297,7 @@ async def verify_api_key(
             source="store",
         )
     if key in VALID_API_KEYS:
-        await check_rate_limit(key)
+        await _enforce_rate_limit(request, key, None)
         return AuthContext(
             key=key,
             email="unknown",

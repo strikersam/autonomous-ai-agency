@@ -66,19 +66,28 @@ never pushed to protected branches directly — the runner isolates changes on a
 fresh feature branch and opens a PR (gated by `AGENT_AUTO_PR_ENABLED`). The repo
 target comes from `repo_url` or the `FREEBUFF_REPO_URL` env var.
 
-### Rate-limit exemption
+### Unlimited by default
 
-Phone-driven FreeBuff runs can be exempted from the per-key RPM limiter so a
-long agent session isn't throttled. This is **opt-in and narrowly scoped**:
+FreeBuff is meant to be an *unlimited* free coding agent, so the `/freebuff/*`
+routes **skip the per-key RPM limiter by default** (`proxy._is_freebuff_unlimited`).
+The routes are still fully auth-gated (a valid API key is required) and only ever
+run free NVIDIA models, so this doesn't open up paid endpoints. To re-impose the
+limiter on FreeBuff routes:
+
+```
+FREEBUFF_UNLIMITED=false
+```
+
+Separately, specific store-backed keys can be exempted from the limiter on **all**
+endpoints via an allowlist (e.g. for the Telegram bot's own key when it also calls
+`/agent/run` or chat):
 
 ```
 FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS=kid_telegrambot
 ```
 
-Only store-backed keys whose `key_id` is on this allowlist skip the limiter
-(`proxy.is_rate_limit_exempt`). The default is empty, so no key is exempt and
-all paid/general endpoints stay protected. Legacy keys (no `key_id`) are never
-exempt.
+This is opt-in (default empty). Legacy keys (no `key_id`) are never exempt, and
+all non-FreeBuff endpoints stay rate-limited as usual.
 
 ---
 
@@ -112,7 +121,8 @@ the per-user model list to stay within Telegram's 64-byte callback_data limit.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `FREEBUFF_MODELS` | (built-in list) | Comma-separated free model override. |
-| `FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS` | (empty) | key_ids exempt from rate limiting. |
+| `FREEBUFF_UNLIMITED` | `true` | When on, `/freebuff/*` routes skip the RPM limiter. |
+| `FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS` | (empty) | key_ids exempt from rate limiting everywhere. |
 | `FREEBUFF_REPO_URL` | (none) | Default repo for FreeBuff draft PRs. |
 | `NVIDIA_API_KEY` / `NVidiaApiKey` | (none) | Enables NVIDIA NIM routing. |
 | `AGENT_AUTO_PR_ENABLED` | off | Master switch for agent-initiated PRs. |
