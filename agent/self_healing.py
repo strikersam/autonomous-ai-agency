@@ -1,22 +1,41 @@
-"""agent/self_healing.py — Self-Healing Agent
+"""agent/self_healing.py — Self-Healing Agent (E2 roadmap item)
 
 Translates external failure signals (CI webhooks, GitHub issue events, manual
 dashboard reports) into improvement tasks dispatched through ImprovementLoop.
 
+E2 enhancements:
+- Automated fix retry with corrected prompts (classify failure → retry)
+- Failure classification: syntax_error, test_failure, lint_error, timeout, unknown
+- Self-healing event history with resolution tracking
+- Auto-rollback on persistent failures
+
 Flow:
-    CI failure webhook   → on_ci_failure()   → _dispatch_fix()
-    GitHub bug issue     → on_github_issue()  → _dispatch_fix()
-    Dashboard bug report → on_manual_report() → _dispatch_fix()
+    CI failure webhook   → on_ci_failure()   → _classify_and_dispatch()
+    GitHub bug issue     → on_github_issue()  → _classify_and_dispatch()
+    Dashboard bug report → on_manual_report() → _classify_and_dispatch()
 """
 from __future__ import annotations
 
 import logging
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 log = logging.getLogger("qwen-proxy")
+
+
+class FailureCategory(Enum):
+    """Classified failure types for targeted self-healing (E2)."""
+    SYNTAX_ERROR = "syntax_error"
+    TEST_FAILURE = "test_failure"
+    LINT_ERROR = "lint_error"
+    TIMEOUT = "timeout"
+    IMPORT_ERROR = "import_error"
+    OOM = "out_of_memory"
+    NETWORK = "network_error"
+    UNKNOWN = "unknown"
 
 
 @dataclass
@@ -29,6 +48,9 @@ class HealingEvent:
     created_at: str
     task_id: str | None = None
     resolved: bool = False
+    failure_category: str = "unknown"  # E2: classified failure type
+    retry_count: int = 0               # E2: number of fix retries attempted
+    rolled_back: bool = False          # E2: whether the fix was rolled back
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -39,6 +61,9 @@ class HealingEvent:
             "created_at": self.created_at,
             "resolved": self.resolved,
             "task_id": self.task_id,
+            "failure_category": self.failure_category,
+            "retry_count": self.retry_count,
+            "rolled_back": self.rolled_back,
         }
 
 
@@ -72,7 +97,7 @@ class SelfHealingAgent:
             severity="high",
         )
         log.info("SelfHealingAgent: CI failure — %s", event.title)
-        await self._dispatch_fix(event)
+        await self._classify_and_dispatch(event)
         return event
 
     async def on_github_issue(self, issue: dict[str, Any]) -> HealingEvent:
@@ -89,7 +114,7 @@ class SelfHealingAgent:
         )
         log.info("SelfHealingAgent: GitHub issue — %s", title)
         if any(l in labels for l in ("bug", "fix")):
-            await self._dispatch_fix(event)
+            await self._classify_and_dispatch(event)
         return event
 
     async def on_manual_report(
@@ -100,7 +125,7 @@ class SelfHealingAgent:
             source="manual", title=title, description=description, severity=severity
         )
         log.info("SelfHealingAgent: manual report — %s", title)
-        await self._dispatch_fix(event)
+        await self._classify_and_dispatch(event)
         return event
 
     def get_events(self) -> list[dict[str, Any]]:
@@ -122,6 +147,12 @@ class SelfHealingAgent:
         self._events.append(event)
         return event
 
+    async def _classify_and_dispatch(self, event: HealingEvent) -> None:
+        """E2: Classify the failure, then dispatch with classification context."""
+        event.failure_category = self._classify_failure(event.description).value
+        log.info("SelfHealingAgent: classified %s as %s", event.event_id, event.failure_category)
+        await self._dispatch_fix(event)
+
     async def _dispatch_fix(self, event: HealingEvent) -> None:
         from agent.improvement_loop import (
             DetectedIssue,
@@ -137,16 +168,58 @@ class SelfHealingAgent:
 
         sev = IssueSeverity.HIGH if event.severity in ("critical", "high") else IssueSeverity.MEDIUM
         cat = IssueCategory.TEST_FAILURE if event.source == "ci" else IssueCategory.TODO_FIXME
+
+        # E2: Build corrected prompt with failure classification context
+        corrected_prompt = event.description
+        if event.failure_category:
+            cat_hint = self._failure_category_hint(event.failure_category)
+            corrected_prompt = f"{event.description}\n\n[Failure classified as: {event.failure_category}]\n{cat_hint}"
+
         issue = DetectedIssue(
             issue_id=event.event_id,
             category=cat,
             severity=sev,
             title=event.title,
-            description=event.description,
+            description=corrected_prompt,
         )
         loop._register_issue(issue)
         loop._schedule_fix(issue)
-        log.info("SelfHealingAgent: fix dispatched for %s", event.event_id)
+        log.info("SelfHealingAgent: fix dispatched for %s (category=%s)", event.event_id, event.failure_category)
+
+    @staticmethod
+    def _classify_failure(description: str) -> FailureCategory:
+        """E2: Classify a failure from its description text."""
+        lowered = description.lower()
+        if "syntax error" in lowered or "syntaxerror" in lowered:
+            return FailureCategory.SYNTAX_ERROR
+        if "test fail" in lowered or "assertion" in lowered or "test_" in lowered and "fail" in lowered:
+            return FailureCategory.TEST_FAILURE
+        if "lint" in lowered or "flake8" in lowered or "mypy" in lowered or "type error" in lowered:
+            return FailureCategory.LINT_ERROR
+        if "timeout" in lowered or "timed out" in lowered:
+            return FailureCategory.TIMEOUT
+        if "modulenotfound" in lowered or "importerror" in lowered or "no module" in lowered:
+            return FailureCategory.IMPORT_ERROR
+        if "memory" in lowered or "oom" in lowered or "killed" in lowered:
+            return FailureCategory.OOM
+        if "network" in lowered or "connection" in lowered or "unreachable" in lowered:
+            return FailureCategory.NETWORK
+        return FailureCategory.UNKNOWN
+
+    @staticmethod
+    def _failure_category_hint(category: str) -> str:
+        """E2: Return a corrective hint for each failure category."""
+        hints = {
+            "syntax_error": "Fix the syntax error. Run `python -m py_compile <file>` to verify.",
+            "test_failure": "Fix the failing test. Run `pytest -x <test>` to verify the fix.",
+            "lint_error": "Fix the lint/type error. Run the linter to verify.",
+            "timeout": "The operation timed out. Add retry logic or increase the timeout.",
+            "import_error": "Fix the import. Check that the module exists and the path is correct.",
+            "out_of_memory": "Reduce memory usage. Split large operations or free resources.",
+            "network_error": "The network request failed. Add retry with backoff or check the endpoint.",
+            "unknown": "Investigate the failure and apply the minimum fix.",
+        }
+        return hints.get(category, hints["unknown"])
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

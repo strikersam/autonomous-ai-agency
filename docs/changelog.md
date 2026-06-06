@@ -1,6 +1,11 @@
 ## [Unreleased]
 
 ### Added
+- **E1 Cross-Harness Routing (`router/harness_routing.py`).** Detects AI coding tools (Claude Code, Cursor, Aider, Cline, Continue.dev, Windsurf, Cody, Copilot) from User-Agent/x-tool headers and routes to preferred models per harness task profile. Cached profile lookup, harness stats tracking.
+- **E2 Self-Healing Agent (`agent/self_healing.py`).** Failure classification with FailureCategory enum (syntax/test/lint/timeout/import/OOM/network/unknown), corrected prompt generation with per-category fix hints, and enhanced HealingEvent with failure_category/retry_count/rolled_back fields.
+- **F2 MCP Server Proxy Capabilities (`mcp_server/server.py`).** Four proxy capability tools (proxy_run_agent, proxy_list_models, proxy_check_health, proxy_model_stats) with handlers. Falls back to WorkflowOrchestrator to avoid AgentRunner deprecation gate.
+- **G1 Per-Model Cost Attribution (`services/cost_attribution.py`).** CostAttributor with per-model cost table, record_usage/record_batch, CostReport with per_model/per_phase/per_provider breakdown, estimated savings vs all-cloud, and recent_usage window.
+- **C6 Prompt Cache Integration (`chat_handlers.py`).** PromptCacheManager wired with per-request warm cache recording, cache_control parsing, and per-request (not cumulative) cache metrics injection.
 - **C6 Prompt Caching (Anthropic-Compatible) (`services/prompt_cache.py`).** PromptCacheManager with cache_control block parsing, system-prompt hashing, per-instance KV cache affinity tracking, cache token metrics injection, and LRU eviction.
 - **D1 Helm Chart for Kubernetes (`deploy/helm/`).** Production-grade Helm chart with Chart.yaml, values.yaml, Deployment/Service/Ingress/HPA/PVC templates, _helpers.tpl, external secrets support, and NVIDIA GPU node selectors.
 - **D2 Docker Compose Production Stack (`docker-compose.prod.yml`).** Production docker-compose with resource limits, health checks with dependency ordering, named volumes, bridge network, jaeger profile, logging driver config, and Makefile convenience targets.

@@ -48,6 +48,9 @@ from .prompt_cache import PromptCacheManager, CacheEntry, CacheStats, get_prompt
 # OpenTelemetry Distributed Tracing (D3)
 from .otel_tracing import TracerFactory, TraceContext, get_tracer, otel_middleware_factory, traced, shutdown_tracing
 
+# Cost Attribution (G1)
+from .cost_attribution import CostAttributor, CostReport, UsageRecord, get_cost_attributor
+
 __all__ = [
     # Company Graph
     "CompanyGraphService",
@@ -113,4 +116,9 @@ __all__ = [
     "otel_middleware_factory",
     "traced",
     "shutdown_tracing",
+    # Cost Attribution (G1)
+    "CostAttributor",
+    "CostReport",
+    "UsageRecord",
+    "get_cost_attributor",
 ]

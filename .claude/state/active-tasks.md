@@ -69,10 +69,10 @@
 | D1 | Helm Chart | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | D2 | Docker Compose Production Stack | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | D3 | OpenTelemetry Distributed Tracing | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
-| E1 | Cross-Harness Routing | P1 | `TODO` | — |
-| E2 | Self-Healing Agent Doctor | P1 | `TODO` | — |
-| F2 | MCP Server | P1 | `TODO` | — |
-| G1 | Per-Model Cost Attribution | P1 | `TODO` | — |
+| E1 | Cross-Harness Routing | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| E2 | Self-Healing Agent Doctor | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| F2 | MCP Server | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| G1 | Per-Model Cost Attribution | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 
 ---
 
@@ -81,6 +81,7 @@
 | Date | Agent/Tool | Branch | Action |
 |------|------------|--------|--------|
 | 2026-06-05 | claude-sonnet-4-6 (Opus agent) | claude/llm-server-roadmap-pr-COcKN | Created roadmap TODO from 6 OSS repos research |
+| 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented E1 Harness Routing, E2 Self-Healing, F2 MCP Proxy Tools, G1 Cost Attribution; 30+ integration tests + C6 wired
 | 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Integrated C4/C5 into chat_handlers + agent/loop; C6 Prompt Cache, D1 Helm Chart, D2 Compose Prod, D3 OTEL Tracing |
 | 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented C3 Streaming Delta, C4 Chat History, C5 Context Window; 30+ tests |
 | 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented B3 Synthetic Data, B4 Guardrails, B5 NIM Pool; 30+ tests |

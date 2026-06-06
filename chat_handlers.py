@@ -21,10 +21,11 @@ from router.health import invalidate_cache as _invalidate_health_cache
 
 log = logging.getLogger("qwen-proxy")
 
-# C4/C5 integration toggle — disabled by default so the proxy starts without
+# C4/C5/C6 integration toggle — disabled by default so the proxy starts without
 # requiring the chat_history and context_window modules.
 _CHAT_HISTORY_ENABLED = os.environ.get("CHAT_HISTORY_ENABLED", "false").strip().lower() in ("true", "1", "yes")
 _CONTEXT_WINDOW_ENABLED = os.environ.get("CONTEXT_WINDOW_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+_PROMPT_CACHE_ENABLED = os.environ.get("PROMPT_CACHE_ENABLED", "false").strip().lower() in ("true", "1", "yes")
 
 
 async def _post_with_fallback(
@@ -280,6 +281,29 @@ async def handle_openai_chat_completions(
     payload = _normalize_tool_choice(payload)
     messages = payload.get("messages")
 
+    # C6: Prompt cache — compute system hash for KV cache affinity routing
+    _cache_key: str = ""
+    _cache_hit: bool = False
+    _sys_hash: str = ""
+    if _PROMPT_CACHE_ENABLED and isinstance(messages, list):
+        try:
+            from services.prompt_cache import get_prompt_cache
+            cache = get_prompt_cache()
+            system_prompt = ""
+            for m in messages:
+                if isinstance(m, dict) and m.get("role") == "system":
+                    system_prompt = str(m.get("content", ""))
+                    break
+            if system_prompt:
+                _cache_key = cache.compute_cache_key(system_prompt, messages, model=model)
+                _sys_hash = cache.compute_system_hash(system_prompt, model=model)
+                preferred = cache.get_preferred_instance(_cache_key)
+                _cache_hit = preferred is not None
+                if preferred:
+                    log.debug("Prompt cache affinity: routing to instance %s", preferred)
+        except Exception:
+            pass
+
     # C5: Auto-truncate messages to fit within the model's context window
     if _CONTEXT_WINDOW_ENABLED and isinstance(messages, list):
         try:
@@ -406,6 +430,30 @@ async def handle_openai_chat_completions(
             from services.chat_history import get_chat_history
             store = get_chat_history()
             store.append(session_id, {"role": "assistant", "content": out_text})
+        except Exception:
+            pass
+
+    # C6: Record warm cache + inject per-request prompt cache metrics
+    if _PROMPT_CACHE_ENABLED and _cache_key and isinstance(messages, list):
+        try:
+            from services.prompt_cache import get_prompt_cache
+            cache = get_prompt_cache()
+            # Record this instance as warm for this prefix
+            prefix_tokens = sum(len(str(m.get("content", ""))) for m in messages[:2]) // 4
+            cache.record_warm(
+                "default",
+                _cache_key,
+                system_hash=_sys_hash,
+                model=model,
+                prefix_tokens=prefix_tokens,
+            )
+            # Inject per-request cache metrics (read = hit, creation = miss)
+            if isinstance(data, dict):
+                data = cache.inject_cache_metrics(
+                    data,
+                    cache_read_tokens=prefix_tokens if _cache_hit else 0,
+                    cache_creation_tokens=0 if _cache_hit else prefix_tokens,
+                )
         except Exception:
             pass
 
