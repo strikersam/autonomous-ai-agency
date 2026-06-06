@@ -49,8 +49,18 @@ jobs:
           python -m pytest --tb=no -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
           echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
-          FAILING=$(grep '^FAILED ' /tmp/test_baseline.txt | awk '{print $2}' | head -5 | tr '\n' ',' | sed 's/,$//')
+          FAILING=$(grep '^FAILED ' /tmp/test_baseline.txt | awk '{print $2}' | head -10 | tr '\n' ',' | sed 's/,$//')
           echo "failing=${FAILING}" >> "$GITHUB_OUTPUT"
+
+          # Capture short tracebacks for failing tests so the escalation issue
+          # includes actionable error messages (not just dots and F's).
+          if [ -n "$FAILING" ]; then
+            echo "$FAILING" | tr ',' '\n' | head -10 | \
+              xargs python -m pytest --tb=short -q --no-header 2>&1 | head -200 \
+              > /tmp/test_baseline_tb.txt || true
+          else
+            echo "(no failures)" > /tmp/test_baseline_tb.txt
+          fi
 
       - name: Scan for security issues (bandit)
         id: security
@@ -175,9 +185,20 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const baseline = fs.readFileSync('/tmp/test_baseline.txt', 'utf8');
+            // Summary line counts (dots+F's) — kept compact.
+            const baselineSummary = fs.readFileSync('/tmp/test_baseline.txt', 'utf8');
+            // Short tracebacks for the actual failures — the useful part.
+            const baselineTb = fs.existsSync('/tmp/test_baseline_tb.txt')
+              ? fs.readFileSync('/tmp/test_baseline_tb.txt', 'utf8') : '(not captured)';
             const postFix = fs.existsSync('/tmp/test_post.txt')
               ? fs.readFileSync('/tmp/test_post.txt', 'utf8') : 'No post-fix output';
+
+            // Extract FAILED lines for the title / summary section.
+            const failedLines = baselineSummary
+              .split('\n')
+              .filter(l => l.startsWith('FAILED '))
+              .slice(0, 10)
+              .join('\n') || '(see tracebacks below)';
 
             const { data: issues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo,
@@ -191,13 +212,17 @@ jobs:
               body: [
                 '## Agency Escalation: Tests remain failing after automated fix attempt',
                 '',
-                '**Baseline failures:**',
-                `\`\`\`\n${baseline.slice(0, 2000)}\n\`\`\``,
+                '**Failing tests:**',
+                `\`\`\`\n${failedLines}\n\`\`\``,
                 '',
-                '**Post-fix run:**',
-                `\`\`\`\n${postFix.slice(0, 2000)}\n\`\`\``,
+                '**Error details (short tracebacks):**',
+                `\`\`\`\n${baselineTb.slice(0, 3000)}\n\`\`\``,
+                '',
+                '**Post-fix run summary:**',
+                `\`\`\`\n${postFix.slice(0, 1000)}\n\`\`\``,
                 '',
                 '_Human review required. The Dev Agent could not resolve these automatically._',
+                '_Workflow: `.github/workflows/agency-cycle.yml`_',
               ].join('\n'),
               labels: ['bug', 'auto-detected', 'agency-escalation'],
             });
