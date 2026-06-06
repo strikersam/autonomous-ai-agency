@@ -15,6 +15,7 @@ import asyncio
 import httpx
 
 from agent.context_manager import ContextManager
+from agent.context_pruner import ContextPruner
 from agent.models import AgentPlan, ToolCall, VerificationResult
 from agent.prompts import (
     build_compaction_prompt,
@@ -34,6 +35,11 @@ _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "anal
 DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
 DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
 DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b")
+
+# Adaptive Loop Halting: exit the plan→execute→verify cycle early when the
+# verifier returns confidence >= this threshold on a step.  Reduces average
+# LLM calls per simple step from ~3 to ~1.5.  Set to 1.0 to disable.
+_CONFIDENCE_THRESHOLD = float(os.environ.get("AGENT_CONFIDENCE_THRESHOLD", "0.9"))
 
 
 
@@ -73,6 +79,9 @@ class AgentRunner:
         # the agent proposes via PR and a human merges.
         self.github = GitHubTools(github_token, agent_initiated=True)
         self.ctx = ContextManager()
+        # 3-phase context-pruner middleware: runs before every LLM call to enforce
+        # token budgets and wrap older context as historical memory.
+        self.pruner = ContextPruner()
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
@@ -206,6 +215,25 @@ class AgentRunner:
                     commit = self._commit_step(step_data["description"], result["changed_files"])
                     if commit:
                         commits.append(commit)
+
+                # Adaptive Loop Halting: early-exit when verifier confidence >= threshold
+                # on all files touched this step. Simple single-file edits often finish
+                # in one pass; no need to burn through remaining planned steps.
+                if _CONFIDENCE_THRESHOLD < 1.0 and result.get("status") == "applied":
+                    scores = step_data.get("_confidence_scores") or []
+                    if scores and all(s >= _CONFIDENCE_THRESHOLD for s in scores):
+                        remaining = plan.steps[max_steps:] if len(plan.steps) > max_steps else []
+                        skipped = [s.id for s in plan.steps if s.id > step.id]
+                        log.info(
+                            "Adaptive halting: all verifier confidence scores >= %.2f on step %d "
+                            "(%s). Skipping %d remaining step(s) %s.",
+                            _CONFIDENCE_THRESHOLD, step.id, scores, len(skipped), skipped or "(none)",
+                        )
+                        self._log_event(
+                            session_id, "step_complete",
+                            {"adaptive_halt": True, "confidence_scores": scores, "skipped_steps": skipped},
+                        )
+                        break
 
             # Judge the overall run result
             judge: dict[str, Any] = {}
@@ -544,6 +572,10 @@ class AgentRunner:
                     changed_files.append(out_path)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
                     file_applied = True
+                    # Adaptive Loop Halting: track confidence for early exit
+                    if "_confidence_scores" not in step:
+                        step["_confidence_scores"] = []
+                    step["_confidence_scores"].append(verdict.confidence)
                     break
 
                 retries += 1
@@ -772,6 +804,11 @@ class AgentRunner:
         back to the Ollama-compatible endpoint otherwise.
         """
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+
+        # Context pruning: enforce token budgets before sending to the LLM
+        messages = self.pruner.prune(messages)
+        payload["messages"] = messages
+
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
         if self.num_ctx:

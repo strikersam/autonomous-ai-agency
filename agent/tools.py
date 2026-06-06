@@ -83,9 +83,32 @@ class WorkspaceTools:
         target.write_text(content, encoding="utf-8")
         return {"path": str(target.relative_to(self.root)), "bytes": len(content.encode("utf-8"))}
 
+    _BINARY_HEADER_BYTES: frozenset[int] = frozenset({0x00, 0xFF, 0xFE, 0xFD})
+
     def apply_diff(self, path: str, new_content: str) -> dict[str, str]:
         target = self._resolve_path(path)
         old_content = target.read_text(encoding="utf-8") if target.exists() else ""
+
+        # Pre-apply validation
+        pre_issues = self._pre_diff_check(target, old_content, new_content)
+        if pre_issues:
+            return {
+                "path": str(target.relative_to(self.root)),
+                "diff": "",
+                "error": "; ".join(pre_issues),
+                "snapshot_saved": False,
+            }
+
+        # Save pre-edit snapshot for rollback
+        snapshot_path = target.with_suffix(target.suffix + ".pre_edit.bak")
+        snapshot_saved = False
+        if old_content:
+            try:
+                snapshot_path.write_text(old_content, encoding="utf-8")
+                snapshot_saved = True
+            except OSError:
+                pass
+
         diff = "\n".join(
             difflib.unified_diff(
                 old_content.splitlines(),
@@ -95,8 +118,80 @@ class WorkspaceTools:
                 lineterm="",
             )
         )
+        # If diff is empty (no actual changes), avoid a no-op write
+        if old_content.rstrip("\n") == new_content.rstrip("\n"):
+            return {
+                "path": str(target.relative_to(self.root)),
+                "diff": "(no changes)",
+                "snapshot_saved": False,
+            }
+
         self.write_file(path, new_content)
-        return {"path": str(target.relative_to(self.root)), "diff": diff}
+
+        # Post-apply validation
+        post_issues = self._post_diff_check(target)
+        if post_issues:
+            # Rollback on post-apply issues
+            if snapshot_saved and old_content:
+                try:
+                    target.write_text(old_content, encoding="utf-8")
+                except OSError:
+                    pass
+            return {
+                "path": str(target.relative_to(self.root)),
+                "diff": diff,
+                "error": "; ".join(post_issues),
+                "snapshot_saved": True,
+            }
+
+        # Clean up snapshot on success
+        if snapshot_saved:
+            try:
+                snapshot_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        return {"path": str(target.relative_to(self.root)), "diff": diff, "snapshot_saved": False}
+
+    def _pre_diff_check(self, target: Path, old_content: str, new_content: str) -> list[str]:
+        """Validate the diff candidate before applying it."""
+        issues: list[str] = []
+
+        # Check for binary files
+        if target.exists():
+            try:
+                raw = target.read_bytes()
+                if raw[:1] and raw[0] in self._BINARY_HEADER_BYTES:
+                    issues.append("Target appears to be a binary file — refusing to diff")
+            except OSError:
+                issues.append("Cannot read target file")
+
+        # Check for conflict markers (unresolved merge)
+        for marker in ("<<<<<<<", "=======", ">>>>>>>"):
+            if marker in new_content:
+                issues.append(f"Conflict marker '{marker}' found in new content")
+                break
+
+        # Check new content is not empty (delete intention should use explicit tool)
+        if not new_content.strip():
+            issues.append("New content is empty — use a delete operation instead")
+
+        return issues
+
+    def _post_diff_check(self, target: Path) -> list[str]:
+        """Validate the file after diff application."""
+        issues: list[str] = []
+        if not target.suffix == ".py":
+            return issues
+        try:
+            content = target.read_text(encoding="utf-8")
+            import ast as _ast
+            _ast.parse(content)
+        except SyntaxError as exc:
+            issues.append(f"Python syntax error after diff: {exc.msg} at line {exc.lineno}")
+        except OSError:
+            issues.append("Cannot read file after diff application")
+        return issues
 
     def recall_memory(
         self,
