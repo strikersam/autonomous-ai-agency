@@ -16,7 +16,7 @@ import httpx
 
 from agent.context_manager import ContextManager
 from agent.context_pruner import ContextPruner
-from agent.models import AgentPlan, SubAgentConfig, ToolCall, VerificationResult
+from agent.models import AgentPlan, ToolCall, VerificationResult
 from agent.prompts import (
     build_compaction_prompt,
     build_execution_prompt,
@@ -106,7 +106,7 @@ class AgentRunner:
         # Specialized sub-agent configurations (★2 roadmap item).
         # Keyed by role name ("file_picker", "planner", "editor", "reviewer").
         # When set, _spawn_subagent uses the configured per-role model.
-        self.sub_agents: dict[str, SubAgentConfig] = {}
+        self.sub_agents: dict[str, Any] = {}
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
@@ -130,7 +130,7 @@ class AgentRunner:
         self.department = department
         self.key_id = key_id
 
-    def configure_sub_agents(self, configs: list[SubAgentConfig]) -> None:
+    def configure_sub_agents(self, configs: list[dict[str, Any]]) -> None:
         """Set per-role sub-agent configurations for specialized routing (★2).
 
         When sub-agent configs are registered, ``_spawn_subagent`` and the

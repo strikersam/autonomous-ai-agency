@@ -2,7 +2,7 @@ name: E2E — Live server tests (no mocks)
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: ["**"]
     # Pure-docs context commits (auto-generated issue plans) don't need E2E.
     paths-ignore: ["docs/context/**"]
   pull_request:
@@ -115,7 +115,6 @@ jobs:
     name: Live scanner verification (non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       SCANNER_HEADLESS_RENDER: auto
       SCANNER_BUILTWITH_FALLBACK: auto
@@ -152,7 +151,6 @@ jobs:
   e2e-mongodb:
     name: End-to-end live server (MongoDB)
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     services:
       mongodb:
         image: mongo:7

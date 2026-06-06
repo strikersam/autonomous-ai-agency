@@ -63,96 +63,60 @@ def _nvidia_provider_chain() -> list[ProviderConfig]:
     ]
 
 
-def _ordered_provider_configs(local_ollama_base: str) -> list[tuple[str, str | None, str]]:
-    """Return (base_url, api_key_or_None, default_model) for every configured provider.
-
-    Ordered by priority — highest first.  Local Ollama is always appended as the
-    last resort so there is always at least one entry.  Callers iterate this list
-    and pass ``Authorization: Bearer <api_key>`` only when api_key is not None.
-    """
-    configs: list[tuple[str, str | None, str]] = []
-
-    nvidia_key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
-    if nvidia_key:
-        base = _normalize_nvidia_base_url(os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL)
-        model = os.environ.get("NVIDIA_DEFAULT_MODEL") or _NVIDIA_DEFAULT_MODEL
-        configs.append((base, nvidia_key, model))
-
-    zen_key = (os.environ.get("OPENCODE_ZEN_API_KEY") or "").strip()
-    if zen_key:
-        base = (os.environ.get("OPENCODE_ZEN_BASE_URL") or "https://gateway.opencode.ai/v1").rstrip("/")
-        configs.append((base, zen_key, "qwen3-coder-30b"))
-
-    deepseek_key = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
-    if deepseek_key:
-        base = (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").rstrip("/")
-        configs.append((base, deepseek_key, "deepseek-chat"))
-
-    groq_key = (os.environ.get("GROQ_API_KEY") or "").strip()
-    if groq_key:
-        configs.append(("https://api.groq.com/openai/v1", groq_key, "llama-3.3-70b-versatile"))
-
-    dashscope_key = (os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY") or "").strip()
-    if dashscope_key:
-        base = (os.environ.get("DASHSCOPE_BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1").rstrip("/")
-        configs.append((base, dashscope_key, "qwen-max"))
-
-    openrouter_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    if openrouter_key:
-        base = (os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").rstrip("/")
-        configs.append((base, openrouter_key, "mistralai/mixtral-8x7b-instruct"))
-
-    together_key = (os.environ.get("TOGETHER_API_KEY") or "").strip()
-    if together_key:
-        base = (os.environ.get("TOGETHER_BASE_URL") or "https://api.together.xyz/v1").rstrip("/")
-        configs.append((base, together_key, "mistralai/Mixtral-8x7B-Instruct-v0.1"))
-
-    mistral_key = (os.environ.get("MISTRAL_API_KEY") or "").strip()
-    if mistral_key:
-        configs.append(("https://api.mistral.ai/v1", mistral_key, "mistral-small-latest"))
-
-    google_key = (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY") or "").strip()
-    if google_key:
-        configs.append(("https://generativelanguage.googleapis.com/v1beta/openai", google_key, "gemini-1.5-flash"))
-
-    cf_token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
-    cf_account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
-    if cf_token and cf_account:
-        base = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/v1"
-        configs.append((base, cf_token, "@cf/meta/llama-3.1-8b-instruct"))
-
-    hf_key = (os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN") or "").strip()
-    if hf_key:
-        base = (os.environ.get("HF_BASE_URL") or "https://api-inference.huggingface.co/v1").rstrip("/")
-        configs.append((base, hf_key, "HuggingFaceH4/zephyr-7b-beta"))
-
-    zhipu_key = (os.environ.get("ZHIPU_API_KEY") or "").strip()
-    if zhipu_key:
-        configs.append(("https://open.bigmodel.cn/api/paas/v4", zhipu_key, "glm-4-flash"))
-
-    minimax_key = (os.environ.get("MINIMAX_API_KEY") or "").strip()
-    if minimax_key:
-        configs.append(("https://api.minimax.chat/v1", minimax_key, "abab6.5s-chat"))
-
-    # Local Ollama is always the last resort — no API key required.
-    configs.append((local_ollama_base.rstrip("/"), None, "qwen3-coder:30b"))
-
-    return configs
-
-
 def _best_cloud_primary_base(local_ollama_base: str) -> str:
     """Return the highest-priority available cloud LLM base URL.
 
-    Kept for backwards-compat.  New code should call ``_ordered_provider_configs()``.
+    Tries free cloud providers in priority order. Falls back to local Ollama
+    only when no cloud key is configured, keeping local out of the fallback
+    chain when a cloud alternative exists.
     """
-    configs = _ordered_provider_configs(local_ollama_base)
-    return configs[0][0] if configs else local_ollama_base
+    nvidia_key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+    if nvidia_key:
+        return _normalize_nvidia_base_url(os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL)
 
+    zen_key = os.environ.get("OPENCODE_ZEN_API_KEY")
+    if zen_key:
+        return (os.environ.get("OPENCODE_ZEN_BASE_URL") or "https://gateway.opencode.ai/v1").rstrip("/")
 
-def _is_auth_error(exc: BaseException) -> bool:
-    """Return True when the exception signals an authentication failure (HTTP 401)."""
-    msg = str(exc)
-    return "401" in msg or "Unauthorized" in msg or "authentication" in msg.lower()
+    if os.environ.get("DEEPSEEK_API_KEY"):
+        return (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").rstrip("/")
+
+    if os.environ.get("GROQ_API_KEY"):
+        return "https://api.groq.com/openai/v1"
+
+    if os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY"):
+        return (
+            os.environ.get("DASHSCOPE_BASE_URL")
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        ).rstrip("/")
+
+    if os.environ.get("OPENROUTER_API_KEY"):
+        return (os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").rstrip("/")
+
+    if os.environ.get("TOGETHER_API_KEY"):
+        return (os.environ.get("TOGETHER_BASE_URL") or "https://api.together.xyz/v1").rstrip("/")
+
+    if os.environ.get("MISTRAL_API_KEY"):
+        return "https://api.mistral.ai/v1"
+
+    if os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"):
+        return "https://generativelanguage.googleapis.com/v1beta/openai"
+
+    _cf_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    _cf_account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    if _cf_token and _cf_account:
+        return f"https://api.cloudflare.com/client/v4/accounts/{_cf_account}/ai/v1"
+
+    if os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN"):
+        return (os.environ.get("HF_BASE_URL") or "https://api-inference.huggingface.co/v1").rstrip("/")
+
+    if os.environ.get("ZHIPU_API_KEY"):
+        return "https://open.bigmodel.cn/api/paas/v4"
+
+    if os.environ.get("MINIMAX_API_KEY"):
+        return "https://api.minimax.chat/v1"
+
+    return local_ollama_base
 
 
 class InternalAgentAdapter(RuntimeAdapter):
@@ -328,10 +292,13 @@ class InternalAgentAdapter(RuntimeAdapter):
                 - execution_time_ms and metadata (includes the raw agent result, changed_files, agent_comment, and task status/review info when applicable).
         
         Raises:
-            RuntimeExecutionError: If all configured providers fail.
+            RuntimeExecutionError: If the AgentRunner fails during execution.
         """
-        import logging as _logging
-        _log = _logging.getLogger("qwen-proxy")
+        nvidia_chain = _nvidia_provider_chain()
+
+        # Pick the best available cloud primary — keeps local Ollama out of the
+        # fallback chain whenever any free cloud key is configured.
+        primary_base = _best_cloud_primary_base(self._ollama_base)
 
         # --- Worktree isolation -------------------------------------------
         # Each task executes in its own git worktree (or a temp dir copy if
@@ -343,87 +310,50 @@ class InternalAgentAdapter(RuntimeAdapter):
         )
         # ------------------------------------------------------------------
 
+        runner = AgentRunner(
+            ollama_base=primary_base,
+            workspace_root=worktree_path,
+            github_token=spec.context.get("github_token"),
+            email=spec.context.get("user_email"),
+            department=spec.context.get("department"),
+            key_id=spec.context.get("key_id"),
+            repo_url=spec.context.get("repo_url"),
+            base_branch=spec.context.get("base_branch", "main"),
+        )
+
         started = time.perf_counter()
-        auto_commit = bool(spec.context.get("auto_commit", False))
-        max_steps = int(spec.context.get("max_steps", 30))
 
-        # Build an ordered list of providers to try.  Each entry is
-        # (base_url, api_key_or_None, default_model).  We pass the API key as
-        # an Authorization header so the runner actually authenticates.
-        providers = _ordered_provider_configs(self._ollama_base)
+        try:
+            # Resolve model: prefer spec → Nvidia default → leave None (auto)
+            model = spec.model_preference
+            if not model and nvidia_chain:
+                model = nvidia_chain[0].default_model
 
-        last_exc: Exception | None = None
-        used_provider_label = "ollama"
-        result: dict | None = None
+            # auto_commit can be requested via task context; defaults off so the
+            # agent writes files but lets the user review before committing.
+            auto_commit = bool(spec.context.get("auto_commit", False))
 
-        for base_url, api_key, default_model in providers:
-            model = spec.model_preference or default_model
-            auth_headers: dict[str, str] = (
-                {"Authorization": f"Bearer {api_key}"} if api_key else {}
-            )
-
-            runner = AgentRunner(
-                ollama_base=base_url,
-                workspace_root=worktree_path,
-                provider_headers=auth_headers,
-                github_token=spec.context.get("github_token"),
-                email=spec.context.get("user_email"),
+            # NOTE: the orchestrator bypass is intentionally NOT set here. This
+            # adapter is also reachable via the direct `/runtimes/{id}/execute` API
+            # (runtimes/api.py), and that path must stay gated so direct callers
+            # cannot skip workflow approval. The bypass is instead set by the
+            # *sanctioned* background caller (TaskExecutionCoordinator.execute) and
+            # by the CEO Agency cycle, both of which are autonomous, gate-aware
+            # execution paths.
+            result = await runner.run(
+                instruction=spec.instruction,
+                history=list(spec.context.get("conversation", [])),
+                requested_model=model,
+                auto_commit=auto_commit,
+                max_steps=int(spec.context.get("max_steps", 30)),
+                user_id=str(spec.context.get("owner_id") or ""),
                 department=spec.context.get("department"),
                 key_id=spec.context.get("key_id"),
-                repo_url=spec.context.get("repo_url"),
-                base_branch=spec.context.get("base_branch", "main"),
+                session_id=spec.context.get("session_id"),
             )
-
-            try:
-                # NOTE: the orchestrator bypass is intentionally NOT set here.
-                # See original comment — direct callers via /runtimes/{id}/execute
-                # must stay gated; only sanctioned coordinators set the bypass.
-                result = await runner.run(
-                    instruction=spec.instruction,
-                    history=list(spec.context.get("conversation", [])),
-                    requested_model=model,
-                    auto_commit=auto_commit,
-                    max_steps=max_steps,
-                    user_id=str(spec.context.get("owner_id") or ""),
-                    department=spec.context.get("department"),
-                    key_id=spec.context.get("key_id"),
-                    session_id=spec.context.get("session_id"),
-                )
-                # Success — record which provider we used.
-                used_provider_label = "nvidia-nim" if "nvidia" in base_url else (
-                    "ollama" if api_key is None else base_url.split("//")[-1].split("/")[0]
-                )
-                break
-            except Exception as exc:
-                last_exc = exc
-                if _is_auth_error(exc):
-                    # 401 from this provider — skip immediately to the next one.
-                    _log.warning(
-                        "Provider %s returned auth error (401) — skipping to next provider. "
-                        "Check that the API key is valid: %s",
-                        base_url,
-                        exc,
-                    )
-                    continue
-                # Non-auth error (model unavailable, timeout, etc.) — also try
-                # the next provider so a single flaky cloud endpoint doesn't
-                # block the whole task.
-                _log.warning(
-                    "Provider %s failed (%s) — trying next provider",
-                    base_url,
-                    exc,
-                )
-                continue
-
-        if result is None:
+        except Exception as exc:
             self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
-            tried = [p[0] for p in providers]
-            raise RuntimeExecutionError(
-                self.RUNTIME_ID,
-                f"All {len(tried)} provider(s) failed. Last error: {last_exc}. "
-                f"Tried: {tried}",
-                spec.task_id,
-            ) from last_exc
+            raise RuntimeExecutionError(self.RUNTIME_ID, str(exc), spec.task_id) from exc
 
         # Collect every file that was actually written to disk across all steps.
         changed_files: list[str] = []
@@ -459,7 +389,7 @@ class InternalAgentAdapter(RuntimeAdapter):
         # Clean up the isolated worktree once the agent is done.
         self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
 
-        provider_label = used_provider_label
+        provider_label = "nvidia-nim" if nvidia_chain else "ollama"
         return TaskResult(
             runtime_id=self.RUNTIME_ID,
             task_id=spec.task_id,

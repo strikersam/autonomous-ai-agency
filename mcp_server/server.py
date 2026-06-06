@@ -1,9 +1,6 @@
-"""mcp_server/server.py — MCP (Model Context Protocol) server (F2 roadmap item).
+"""mcp_server/server.py — MCP (Model Context Protocol) server.
 
 Exposes workspace and GitHub tools via JSON-RPC 2.0 over HTTP.
-
-F2 enhancements: proxy capability tools so AI coding tools can orchestrate
-  the proxy as an MCP tool — run agent tasks, query models, check health.
 
 Endpoints:
   GET  /health             — liveness probe
@@ -14,12 +11,19 @@ MCP methods implemented:
   tools/list               — list all available tools with input schemas
   tools/call               — call a tool by name with arguments
 
-Tools exposed:
-  (Workspace) clone_repo, read_file, write_file, list_files, search_code,
-              run_command, git_status, git_diff, git_create_branch,
-              git_commit, git_push, delete_workspace
-  (Proxy F2)  proxy_run_agent, proxy_list_models, proxy_check_health,
-              proxy_model_stats
+Tools exposed (heavy lifting, runs in Docker container):
+  clone_repo               — git clone a GitHub repo into an isolated workspace
+  read_file                — read a file from a workspace
+  write_file               — write/overwrite a file in a workspace
+  list_files               — list files in a workspace
+  search_code              — grep-style search across workspace files
+  run_command              — execute a shell command in the workspace
+  git_status               — git status --short
+  git_diff                 — git diff HEAD
+  git_create_branch        — git checkout -b <branch>
+  git_commit               — stage + commit changes
+  git_push                 — push to remote
+  delete_workspace         — tear down the workspace directory
 """
 from __future__ import annotations
 
@@ -203,46 +207,6 @@ _TOOLS: list[dict[str, Any]] = [
             "required": ["workspace_id"],
         },
     },
-    # ── F2: Proxy capability tools ────────────────────────────────────────
-    {
-        "name": "proxy_run_agent",
-        "description": "Run an agent task on the proxy and return the result. The proxy orchestrates the plan→execute→verify loop.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "instruction": {"type": "string", "description": "Task description for the agent"},
-                "model": {"type": "string", "description": "Model to use (defaults to qwen3-coder:30b)"},
-                "max_steps": {"type": "integer", "default": 10, "description": "Maximum execution steps"},
-            },
-            "required": ["instruction"],
-        },
-    },
-    {
-        "name": "proxy_list_models",
-        "description": "List all available models registered in the proxy's routing table.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "proxy_check_health",
-        "description": "Check the health of the proxy and its dependencies (Ollama, MongoDB, etc.).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "proxy_model_stats",
-        "description": "Return per-model cost attribution and usage statistics.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "model": {"type": "string", "description": "Specific model to query (optional, all if omitted)"},
-            },
-        },
-    },
 ]
 
 _TOOL_MAP = {t["name"]: t for t in _TOOLS}
@@ -307,98 +271,6 @@ async def _handle_tool(name: str, arguments: dict[str, Any]) -> Any:
     if name == "delete_workspace":
         ws.delete()
         return {"deleted": True, "workspace_id": ws_id}
-
-    # ── F2: Proxy capability tools ──────────────────────────────────────
-    if name == "proxy_run_agent":
-        instruction = str(arguments.get("instruction", ""))
-        model = str(arguments.get("model", "qwen3-coder:30b"))
-        max_steps = int(arguments.get("max_steps", 10))
-        try:
-            import os as _os
-            # Use WorkflowOrchestrator to avoid AgentRunner deprecation gate
-            try:
-                from services.workflow_orchestrator import (
-                    WorkflowOrchestrator,
-                    ExecutionRequest,
-                )
-                wfo = WorkflowOrchestrator()
-                req = ExecutionRequest(
-                    request=instruction,
-                    auto_approve=True,
-                    max_steps=max_steps,
-                )
-                wf_run = await wfo.execute(req)
-                result = {
-                    "goal": instruction[:200],
-                    "summary": wf_run.summary.summary if wf_run.summary else "",
-                    "applied_steps": len([s for s in (wf_run.plan.steps if wf_run.plan else []) if getattr(s, "id", 0) > 0]),
-                    "changed_files": wf_run.execution.changed_files if wf_run.execution else [],
-                }
-            except Exception:
-                # Fallback to AgentRunner if orchestrator unavailable
-                from agent.loop import AgentRunner
-                runner = AgentRunner(
-                    ollama_base=_os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
-                    workspace_root=_os.getcwd(),
-                )
-                result = await runner.run(
-                    instruction=instruction,
-                    history=[],
-                    requested_model=model,
-                    auto_commit=False,
-                    max_steps=max_steps,
-                )
-            return {
-                "goal": result.get("goal", ""),
-                "summary": result.get("summary", ""),
-                "applied_steps": sum(1 for s in result.get("steps", []) if s.get("status") == "applied"),
-                "changed_files": result.get("steps", []),
-            }
-        except Exception as exc:
-            return {"error": f"Agent execution failed: {exc}"}
-
-    if name == "proxy_list_models":
-        try:
-            from router.registry import get_registry
-            reg = get_registry()
-            return {
-                "models": [
-                    {
-                        "name": cap.name,
-                        "type": cap.type,
-                        "context_window": cap.context_window,
-                        "cost_tier": cap.cost_tier,
-                        "strengths": cap.strengths,
-                    }
-                    for cap in reg.values()
-                ]
-            }
-        except Exception as exc:
-            return {"error": f"Model listing failed: {exc}"}
-
-    if name == "proxy_check_health":
-        try:
-            from router.health import check_all_providers
-            provider_health = await check_all_providers()
-            return {
-                "status": "ok" if all(provider_health.values()) else "degraded",
-                "providers": provider_health,
-            }
-        except Exception as exc:
-            return {"error": f"Health check failed: {exc}"}
-
-    if name == "proxy_model_stats":
-        try:
-            from services.cost_attribution import get_cost_attributor
-            attr = get_cost_attributor()
-            report = attr.generate_report()
-            target_model = arguments.get("model", "")
-            if target_model:
-                per_model = [m for m in report.per_model if m["model"] == target_model]
-                return {"model": per_model[0] if per_model else None}
-            return report.as_dict()
-        except Exception as exc:
-            return {"error": f"Cost stats failed: {exc}"}
 
     raise ValueError(f"Unknown tool: {name!r}")
 

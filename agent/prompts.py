@@ -182,6 +182,6 @@ def build_verification_prompt(
 ) -> list[dict[str, str]]:
     syntax = "\n".join(f"- {issue}" for issue in syntax_issues) or "(none)"
     return [
-        {"role": "system", "content": "Check syntax and logic. Return ONLY JSON: { \"status\": \"pass | fail\", \"issues\": [], \"confidence\": 0.0-1.0 }\n\nconfidence: how sure you are the change is correct and complete (0=guess, 1.0=certain). Send high confidence (>=0.9) only when the code compiles, looks idiomatic, and handles edge cases."},
+        {"role": "system", "content": "Check syntax and logic. Return ONLY JSON: { \"status\": \"pass | fail\", \"issues\": [] }"},
         {"role": "user", "content": f"Goal: {goal}\nStep: {json.dumps(step)}\nFile: {target_file}\nSyntax issues: {syntax}\nNew content: {new_content[:10000]}"},
     ]

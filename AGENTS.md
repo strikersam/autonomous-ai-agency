@@ -6,38 +6,6 @@
 
 ---
 
-## MANDATORY: Dynamic Planning Workflow (All Tools — Claude, Codex, Cursor, Aider, etc.)
-
-**Every non-trivial agentic session MUST follow this sequence before writing any code.**
-The full workflow detail lives in `.claude/skills/session-planning/SKILL.md`.
-
-```
-STEP 1  READ   → AGENTS.md + CLAUDE.md + graphify-out/GRAPH_REPORT.md + .claude/state/active-tasks.md
-STEP 2  ORIENT → Understand task from issue/message/branch context
-STEP 3  SKILLS → Load relevant .claude/skills/ for this task type
-STEP 4  RESEARCH → If novel, read OSS reference projects (cite sources in plan)
-STEP 5  PLAN   → Write implementation plan (files, steps, risks, acceptance criteria)
-STEP 6  TRACK  → Add tasks to .claude/state/active-tasks.md as TODO rows
-STEP 7  PR     → Create DRAFT GitHub PR with plan as body + TODO checklist (BEFORE coding)
-STEP 8  CONFIRM → Ask user "Shall I proceed?" — DO NOT write code until confirmed
-STEP 9  EXECUTE → Implement step-by-step; update active-tasks.md status live:
-                   start → IN_PROGRESS | bug found → BUG_FOUND | fixed → BUG_FIXED | done → DONE
-STEP 10 CLOSE  → Update active-tasks.md + docs/changelog.md + .claude/state/NEXT_ACTION.md
-```
-
-### Task Tracker Location
-`.claude/state/active-tasks.md` — update continuously during execution.
-Log every bug found and fixed. Never delete rows. Append re-attempts.
-
-### When to Skip Planning (trivial tasks only)
-- Single-line typo/doc fix with no logic change
-- Updating changelog or comment text only
-- Reverting a known bad commit
-
-**Everything else requires Steps 1–8 first.**
-
----
-
 ## Repository Purpose
 
 `local-llm-server` (Agency Core v5) is a **self-hosted, OpenAI-compatible AI proxy and multi-agent platform** that:

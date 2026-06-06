@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import re
-import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -20,12 +19,6 @@ from router import get_router
 from router.health import invalidate_cache as _invalidate_health_cache
 
 log = logging.getLogger("qwen-proxy")
-
-# C4/C5/C6 integration toggle — disabled by default so the proxy starts without
-# requiring the chat_history and context_window modules.
-_CHAT_HISTORY_ENABLED = os.environ.get("CHAT_HISTORY_ENABLED", "false").strip().lower() in ("true", "1", "yes")
-_CONTEXT_WINDOW_ENABLED = os.environ.get("CONTEXT_WINDOW_ENABLED", "false").strip().lower() in ("true", "1", "yes")
-_PROMPT_CACHE_ENABLED = os.environ.get("PROMPT_CACHE_ENABLED", "false").strip().lower() in ("true", "1", "yes")
 
 
 async def _post_with_fallback(
@@ -278,60 +271,9 @@ async def handle_openai_chat_completions(
 
     payload = _inject_default_system_prompt(payload)
     payload = _apply_chat_defaults(payload)
-    payload = _normalize_tool_choice(payload)
     messages = payload.get("messages")
-
-    # C6: Prompt cache — compute system hash for KV cache affinity routing
-    _cache_key: str = ""
-    _cache_hit: bool = False
-    _sys_hash: str = ""
-    if _PROMPT_CACHE_ENABLED and isinstance(messages, list):
-        try:
-            from services.prompt_cache import get_prompt_cache
-            cache = get_prompt_cache()
-            system_prompt = ""
-            for m in messages:
-                if isinstance(m, dict) and m.get("role") == "system":
-                    system_prompt = str(m.get("content", ""))
-                    break
-            if system_prompt:
-                _cache_key = cache.compute_cache_key(system_prompt, messages, model=model)
-                _sys_hash = cache.compute_system_hash(system_prompt, model=model)
-                preferred = cache.get_preferred_instance(_cache_key)
-                _cache_hit = preferred is not None
-                if preferred:
-                    log.debug("Prompt cache affinity: routing to instance %s", preferred)
-        except Exception:  # nosec B110 - graceful degradation when optional module unavailable
-            pass
-
-    # C5: Auto-truncate messages to fit within the model's context window
-    if _CONTEXT_WINDOW_ENABLED and isinstance(messages, list):
-        try:
-            from services.context_window import get_context_window_manager
-            mgr = get_context_window_manager()
-            if mgr.needs_truncation(messages, model=model):
-                result = mgr.truncate(messages, model=model)
-                payload = dict(payload)
-                payload["messages"] = result.messages
-                messages = result.messages
-                log.debug("Context window truncated: %d → %d messages", result.original_count, result.truncated_count)
-        except Exception:  # nosec B110 - graceful degradation when optional module unavailable
-            pass
-
     stream = bool(payload.get("stream", False))
     exact_output = _extract_exact_output(messages)
-
-    # C4: Persist user messages to chat history before LLM call
-    session_id = request.headers.get("x-session-id") or payload.get("session_id")
-    if _CHAT_HISTORY_ENABLED and session_id and isinstance(messages, list):
-        try:
-            from services.chat_history import get_chat_history
-            store = get_chat_history()
-            for msg in messages:
-                if isinstance(msg, dict) and msg.get("role") in ("user", "system"):
-                    store.append(session_id, msg)
-        except Exception:  # nosec B110 - graceful degradation when optional module unavailable
-            pass
 
     if exact_output is not None:
         usage_completion_tokens = max(len(exact_output) // 4, 1) if exact_output else 0
@@ -381,82 +323,8 @@ async def handle_openai_chat_completions(
     else:
         return JSONResponse(content=resp.text, status_code=resp.status_code)
 
-    # Structured output validation: if the request had a response_format,
-    # validate the output is valid JSON and retry once on failure.
-    if _has_response_format(payload):
-        schema = None
-        rf = payload.get("response_format", {})
-        if isinstance(rf, dict) and rf.get("type") == "json_schema":
-            js = rf.get("json_schema", {})
-            if isinstance(js, dict):
-                schema = js.get("schema")
-        out_text, pt, ct = _openai_usage_from_response(data)
-        is_valid, cleaned = _validate_json_response(out_text or "", schema)
-        if not is_valid:
-            log.warning("Structured output validation failed: %s — retrying once", cleaned[:200])
-            # Retry: re-send with a stronger JSON instruction
-            retry_payload = dict(payload)
-            msgs = list(retry_payload.get("messages") or [])
-            msgs.append({"role": "user", "content": "Your last response was not valid JSON. Return ONLY a valid JSON object. No prose, no markdown, no explanations."})
-            retry_payload["messages"] = msgs
-            retry_body = json.dumps(retry_payload).encode("utf-8")
-            retry_resp = await _post_with_fallback(target_url, retry_body, headers, routing.fallback_chain)
-            if retry_resp.headers.get("content-type", "").startswith("application/json"):
-                data = retry_resp.json()
-                retry_text, rpt, rct = _openai_usage_from_response(data)
-                re_valid, re_cleaned = _validate_json_response(retry_text or "", schema)
-                if re_valid:
-                    # Replace the original response content with cleaned JSON
-                    if isinstance(data, dict):
-                        choices = data.get("choices")
-                        if isinstance(choices, list) and choices:
-                            msg = choices[0].get("message")
-                            if isinstance(msg, dict):
-                                msg["content"] = re_cleaned
-                    out_text = re_cleaned
-                    pt = (pt or 0) + (rpt or 0)
-                    ct = (ct or 0) + (rct or 0)
-                else:
-                    log.warning("Structured output retry also failed: %s", re_cleaned[:200])
-            else:
-                log.warning("Structured output retry returned non-JSON response")
-
     out_text, pt, ct = _openai_usage_from_response(data)
     await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
-
-    # C4: Persist assistant response to chat history
-    if _CHAT_HISTORY_ENABLED and session_id and out_text:
-        try:
-            from services.chat_history import get_chat_history
-            store = get_chat_history()
-            store.append(session_id, {"role": "assistant", "content": out_text})
-        except Exception:  # nosec B110 - graceful degradation when optional module unavailable
-            pass
-
-    # C6: Record warm cache + inject per-request prompt cache metrics
-    if _PROMPT_CACHE_ENABLED and _cache_key and isinstance(messages, list):
-        try:
-            from services.prompt_cache import get_prompt_cache
-            cache = get_prompt_cache()
-            # Record this instance as warm for this prefix
-            prefix_tokens = sum(len(str(m.get("content", ""))) for m in messages[:2]) // 4
-            cache.record_warm(
-                "default",
-                _cache_key,
-                system_hash=_sys_hash,
-                model=model,
-                prefix_tokens=prefix_tokens,
-            )
-            # Inject per-request cache metrics (read = hit, creation = miss)
-            if isinstance(data, dict):
-                data = cache.inject_cache_metrics(
-                    data,
-                    cache_read_tokens=prefix_tokens if _cache_hit else 0,
-                    cache_creation_tokens=0 if _cache_hit else prefix_tokens,
-                )
-        except Exception:  # nosec B110 - graceful degradation when optional module unavailable
-            pass
-
     return JSONResponse(
         content=data,
         status_code=resp.status_code,
@@ -467,26 +335,20 @@ async def handle_openai_chat_completions(
 def _openai_usage_from_response(data: Any) -> tuple[str, int, int]:
     out_text = ""
     if isinstance(data, dict):
+        if _STRIP_THINK_TAGS:
+            choices = data.get("choices")
+            if isinstance(choices, list):
+                for choice in choices:
+                    if not isinstance(choice, dict):
+                        continue
+                    msg = choice.get("message")
+                    if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                        msg["content"] = _strip_think_blocks(msg["content"])
         choices = data.get("choices") or []
         if choices and isinstance(choices[0], dict):
             msg = choices[0].get("message") or {}
             if isinstance(msg, dict) and isinstance(msg.get("content"), str):
-                content = msg["content"]
-                # Extract <think> content into reasoning_content BEFORE stripping (★3)
-                think_match = re.search(r"<think>([\s\S]*?)(?:</think>|$)", content, re.IGNORECASE)
-                if think_match and "reasoning_content" not in msg:
-                    reasoning = think_match.group(1).strip()
-                    msg["reasoning_content"] = reasoning
-                out_text = content
-            else:
-                out_text = ""
-        if _STRIP_THINK_TAGS:
-            for choice in (choices or []):
-                if not isinstance(choice, dict):
-                    continue
-                msg = choice.get("message")
-                if isinstance(msg, dict) and isinstance(msg.get("content"), str):
-                    msg["content"] = _strip_think_blocks(msg["content"])
+                out_text = msg["content"]
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         pt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
         ct = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
@@ -837,263 +699,12 @@ def _normalize_response_format(payload: dict) -> dict:
             return payload
         out = {k: v for k, v in payload.items() if k != "response_format"}
         out["format"] = js["schema"]
-        # Inject JSON-mode system instruction for local models
-        out = _inject_json_instruction(out, js.get("name", "json_schema"))
         return out
 
     if fmt_type == "json_object":
         out = {k: v for k, v in payload.items() if k != "response_format"}
         out["format"] = "json"
-        out = _inject_json_instruction(out, "json_object")
         return out
 
     # Unknown / text / etc — pass through unchanged
     return payload
-
-
-def _inject_json_instruction(payload: dict, schema_name: str = "json") -> dict:
-    """Inject a JSON-mode instruction into the system prompt for local models.
-
-    Ollama's ``format: "json"`` constrains structure but doesn't tell the model
-    to produce valid JSON — this instruction bridges the gap.
-    """
-    messages = payload.get("messages")
-    if not isinstance(messages, list) or not messages:
-        return payload
-
-    json_hint = (
-        f"You must respond with a valid JSON object matching the {schema_name} schema. "
-        "No prose, no markdown code fences, no explanations — ONLY the JSON object."
-    )
-
-    copied = dict(payload)
-    copied_messages = list(messages)
-
-    # Append hint to existing system message or inject new one
-    if copied_messages and copied_messages[0].get("role") == "system":
-        existing = str(copied_messages[0].get("content", ""))
-        copied_messages[0] = {"role": "system", "content": f"{existing}\n\n{json_hint}"}
-    else:
-        copied_messages.insert(0, {"role": "system", "content": json_hint})
-
-    copied["messages"] = copied_messages
-    return copied
-
-
-def _validate_json_response(response_text: str, schema: dict | None = None) -> tuple[bool, str]:
-    """Validate that LLM output is valid JSON.
-
-    Args:
-        response_text: Raw text from the LLM.
-        schema: Optional JSON Schema dict for ``jsonschema`` validation.
-
-    Returns:
-        ``(is_valid, error_message_or_cleaned_json)`` tuple.
-    """
-    import re as _re
-    import json as _json
-
-    # Try direct parse first
-    try:
-        parsed = _json.loads(response_text.strip())
-        if isinstance(parsed, dict):
-            if schema:
-                try:
-                    import jsonschema
-                    jsonschema.validate(parsed, schema)
-                except ImportError:
-                    log.debug("jsonschema not installed — skipping schema validation")
-                except jsonschema.ValidationError as exc:
-                    return False, f"JSON schema validation failed: {exc.message}"
-            return True, _json.dumps(parsed)
-        return False, f"Expected JSON object, got {type(parsed).__name__}"
-    except (_json.JSONDecodeError, ValueError):
-        pass
-
-    # Try extracting JSON from markdown fences
-    fence = _re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?```", response_text)
-    if fence:
-        try:
-            parsed = _json.loads(fence.group(1).strip())
-            if isinstance(parsed, dict):
-                return True, _json.dumps(parsed)
-        except (_json.JSONDecodeError, ValueError):
-            pass
-
-    # Try extracting JSON object with regex
-    obj_match = _re.search(r"\{[\s\S]*\}", response_text)
-    if obj_match:
-        try:
-            parsed = _json.loads(obj_match.group(0))
-            if isinstance(parsed, dict):
-                return True, _json.dumps(parsed)
-        except (_json.JSONDecodeError, ValueError):
-            pass
-
-    return False, "Response is not valid JSON"
-
-
-def _has_response_format(payload: dict) -> bool:
-    """Check if the request payload has a ``response_format`` or ``format`` field."""
-    rf = payload.get("response_format")
-    fmt = payload.get("format")
-    return isinstance(rf, dict) or isinstance(fmt, (str, dict))
-
-
-# ---------------------------------------------------------------------------
-# Function Calling / Tool Use (C2 roadmap item)
-# ---------------------------------------------------------------------------
-
-def _parse_tool_calls_from_response(response_text: str) -> list[dict[str, Any]]:
-    """Parse OpenAI tool_calls from a model response.
-
-    Handles:
-    - Direct JSON tool_calls arrays embedded in the text
-    - Function-call format: ``<function_name>(<json_args>)``
-    - Markdown code-fenced JSON
-
-    Returns a list of OpenAI-format tool_call dicts suitable for
-    injecting into the response ``choices[0].message.tool_calls``.
-    """
-    import re as _re
-
-    # Try parsing as direct JSON array of tool_calls
-    try:
-        parsed = json.loads(response_text.strip())
-        if isinstance(parsed, list):
-            calls = []
-            for item in parsed:
-                if isinstance(item, dict) and "name" in item:
-                    calls.append({
-                        "id": f"call_{uuid.uuid4().hex[:12]}",
-                        "type": "function",
-                        "function": {
-                            "name": item.get("name", ""),
-                            "arguments": json.dumps(item.get("arguments", item.get("args", {}))),
-                        },
-                    })
-            if calls:
-                return calls
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    # Try extracting JSON from markdown fences
-    fence = _re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?```", response_text)
-    if fence:
-        try:
-            parsed = json.loads(fence.group(1).strip())
-            if isinstance(parsed, list):
-                return _parse_tool_calls_from_response(json.dumps(parsed))
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    # Try function-call format: tool_name({...})
-    func_match = _re.findall(
-        r'(\w+)\((\{[^}]*\})\)',
-        response_text,
-    )
-    if func_match:
-        calls = []
-        for name, args_str in func_match:
-            try:
-                args = json.loads(args_str)
-            except (json.JSONDecodeError, ValueError):
-                args = {"raw": args_str}
-            calls.append({
-                "id": f"call_{uuid.uuid4().hex[:12]}",
-                "type": "function",
-                "function": {
-                    "name": name.strip(),
-                    "arguments": json.dumps(args),
-                },
-            })
-        return calls
-
-    return []
-
-
-def _normalize_tool_choice(payload: dict, model: str = "") -> dict:
-    """Normalize the ``tool_choice`` parameter for the upstream backend.
-
-    OpenAI supports:
-    - ``"none"`` — model does not call any tool
-    - ``"auto"`` — model decides whether to call a tool
-    - ``"required"`` — model must call a tool
-    - ``{"type": "function", "function": {"name": "..."}}`` — force a specific tool
-
-    For Ollama/local models that don't support ``tool_choice`` natively,
-    we translate it into a system-prompt instruction so the model still
-    honours the intent.
-    """
-    tc = payload.get("tool_choice")
-    if tc is None:
-        return payload
-
-    # Cloud models: forward tool_choice as-is (return a copy to avoid
-    # mutating the caller's dict)
-    if "/" in (model or ""):
-        return dict(payload)
-
-    # Local models: inject tool_choice as a system instruction
-    copied = dict(payload)
-    instruction = ""
-
-    if isinstance(tc, str):
-        if tc == "none":
-            instruction = "Do NOT call any tools. Respond with a text message only."
-        elif tc == "required":
-            instruction = "You MUST call a tool. Select the most appropriate tool and call it immediately."
-        elif tc == "auto":
-            instruction = "You may call a tool if needed."
-    elif isinstance(tc, dict):
-        fn = tc.get("function", {})
-        name = fn.get("name", "")
-        if name:
-            instruction = f"You MUST call the tool '{name}'. Do not respond with anything else."
-
-    if instruction:
-        msgs = list(copied.get("messages") or [])
-        if msgs and msgs[0].get("role") == "system":
-            msgs[0] = {"role": "system", "content": f"{msgs[0].get('content', '')}\n\n{instruction}"}
-        else:
-            msgs.insert(0, {"role": "system", "content": instruction})
-        copied["messages"] = msgs
-
-    # Remove tool_choice from payload for Ollama compat
-    copied.pop("tool_choice", None)
-    return copied
-
-
-def _inject_tool_results_as_messages(
-    original_payload: dict,
-    response_data: dict,
-    tool_results: list[dict[str, str]],
-) -> dict:
-    """Inject tool call results as follow-up messages for multi-turn execution.
-
-    When the model returns a tool call, we execute it and add the result
-    as a new message so the model can continue reasoning.
-    """
-    copied = dict(original_payload)
-    msgs = list(copied.get("messages") or [])
-
-    # Add assistant message with tool calls
-    choices = response_data.get("choices", [])
-    if choices:
-        assistant_msg = {
-            "role": "assistant",
-            "content": choices[0].get("message", {}).get("content") or None,
-            "tool_calls": choices[0].get("message", {}).get("tool_calls", []),
-        }
-        msgs.append(assistant_msg)
-
-    # Add tool result messages
-    for result in tool_results:
-        msgs.append({
-            "role": "tool",
-            "tool_call_id": result.get("id", ""),
-            "content": result.get("result", ""),
-        })
-
-    copied["messages"] = msgs
-    return copied

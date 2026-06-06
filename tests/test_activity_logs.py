@@ -5,7 +5,7 @@ import os
 
 import backend.server as server
 
-_ADMIN_PASSWORD = server.ADMIN_PASSWORD
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
 
 def _auth_headers(client) -> dict[str, str]:

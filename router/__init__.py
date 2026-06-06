@@ -15,26 +15,4 @@ Public API::
 
 from router.model_router import RoutingDecision, ModelRouter, get_router, reset_router
 
-# E1 Harness Routing
-from router.harness_routing import (
-    Harness,
-    HarnessProfile,
-    detect_harness,
-    route_for_harness,
-    harness_context_limit,
-    harness_stats,
-)
-
-__all__ = [
-    "RoutingDecision",
-    "ModelRouter",
-    "get_router",
-    "reset_router",
-    # E1
-    "Harness",
-    "HarnessProfile",
-    "detect_harness",
-    "route_for_harness",
-    "harness_context_limit",
-    "harness_stats",
-]
+__all__ = ["RoutingDecision", "ModelRouter", "get_router", "reset_router"]

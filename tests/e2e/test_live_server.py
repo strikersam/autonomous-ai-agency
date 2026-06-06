@@ -13,7 +13,7 @@ Usage (CI):
 Usage (local):
     RELAY_BASE_URL=http://localhost:8000 \\
     ADMIN_EMAIL=admin@llmrelay.local \\
-    ADMIN_PASSWORD=<your-admin-password> \\
+    ADMIN_PASSWORD=WikiAdmin2026! \\
     python tests/e2e/test_live_server.py
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ except ImportError:
 
 BASE = os.environ.get("RELAY_BASE_URL", "http://localhost:8000").rstrip("/")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
 
 PASS = "\033[32m✓\033[0m"
 FAIL = "\033[31m✗\033[0m"
