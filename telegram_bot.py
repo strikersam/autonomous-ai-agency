@@ -72,12 +72,21 @@ PROXY_API_KEY: str = os.environ.get("TELEGRAM_PROXY_API_KEY", "").strip()
 _raw_allowed = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()
 _raw_admins = os.environ.get("TELEGRAM_ADMIN_USER_IDS", "").strip()
 
-ALLOWED_USER_IDS: set[int] = {
-    int(x.strip()) for x in _raw_allowed.split(",") if x.strip().lstrip("-").isdigit()
-}
-ADMIN_USER_IDS: set[int] = {
-    int(x.strip()) for x in _raw_admins.split(",") if x.strip().lstrip("-").isdigit()
-}
+
+def _parse_user_ids(raw: str) -> set[int]:
+    """Extract numeric Telegram user IDs from a raw env value, tolerantly.
+
+    Accepts comma/space/semicolon separators and ignores wrapping quotes,
+    brackets, or stray characters (e.g. ``"123, 456"``, ``[123 456]``,
+    ``@name`` is dropped — usernames are not valid IDs). Uses a digit regex so
+    common copy-paste mistakes still work.
+    """
+    import re as _re
+    return {int(m) for m in _re.findall(r"-?\d+", raw or "")}
+
+
+ALLOWED_USER_IDS: set[int] = _parse_user_ids(_raw_allowed)
+ADMIN_USER_IDS: set[int] = _parse_user_ids(_raw_admins)
 
 APPROVAL_TIMEOUT_SECONDS = 30
 MAX_COMMANDS_PER_MINUTE = 5
@@ -664,13 +673,23 @@ async def _tg_call(method: str, params: dict | None = None) -> dict:
 
 
 async def run_bot() -> None:
+    # Re-parse allowlists from the environment at startup so the bot is robust to
+    # import order (e.g. when launched in-process by the web service after env is set).
+    global ALLOWED_USER_IDS, ADMIN_USER_IDS
+    ALLOWED_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ALLOWED_USER_IDS", ""))
+    ADMIN_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ADMIN_USER_IDS", ""))
+
     if not TELEGRAM_BOT_TOKEN:
         log.error("TELEGRAM_BOT_TOKEN is not set. Set it in the environment and restart.")
         return
     if not ALLOWED_USER_IDS:
+        raw = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "")
+        preview = (raw[:24] + "…") if len(raw) > 25 else raw
         log.error(
-            "TELEGRAM_ALLOWED_USER_IDS is empty or unparsable (must be comma-separated "
-            "numeric user IDs from @userinfobot). No one can use the bot."
+            "TELEGRAM_ALLOWED_USER_IDS produced no numeric IDs (got %r, len=%d). "
+            "Use the NUMERIC id from @userinfobot (e.g. 8120976), comma-separated — "
+            "not your @username, and without quotes. No one can use the bot.",
+            preview, len(raw),
         )
         return
 
