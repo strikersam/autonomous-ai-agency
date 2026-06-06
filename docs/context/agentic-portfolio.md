@@ -99,9 +99,10 @@ Each `Initiative` carries `source` + `rationale` provenance, surfaced as badges 
 `portfolio_api.py` caches the built board for 30 min; `POST /api/portfolio/refresh` forces a
 re-sweep. The **`portfolio-refresh.yml`** Action (cron every 6h) runs the sweep in CI (with the
 Actions `GITHUB_TOKEN` for PR/issue access), publishes a WSJF digest, and pings
-`BACKEND_URL/api/portfolio/refresh` (set the `BACKEND_URL` repo variable) to refresh the live
-dashboard. Enable research signals via the workflow's `research=true` dispatch input or
-`PORTFOLIO_RESEARCH=1`.
+`<backend>/api/portfolio/refresh` (the backend origin is read from the existing
+`RENDER_BACKEND_URL` secret) to refresh the live dashboard. The deployed backend reads open
+PRs/bug issues from its own `GH_PAT`/`GITHUB_TOKEN` env. Enable research signals via the
+workflow's `research=true` dispatch input or `PORTFOLIO_RESEARCH=1`.
 
 ## Extension ideas (not yet built)
 
