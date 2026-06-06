@@ -86,6 +86,8 @@ MAX_COMMANDS_PER_MINUTE = 5
 _pending_approvals: dict[int, dict] = {}
 # In-memory rate limiter: user_id → [timestamps]
 _rate_buckets: dict[int, list[float]] = defaultdict(list)
+# In-memory FreeBuff session state: user_id → {task, models, model}
+_freebuff_state: dict[int, dict] = {}
 
 
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
@@ -234,6 +236,202 @@ async def _send_message(bot_token: str, chat_id: int, text: str, parse_mode: str
         )
 
 
+async def _send_keyboard(
+    bot_token: str, chat_id: int, text: str, keyboard: list[list[dict]], parse_mode: str = "Markdown"
+) -> None:
+    """Send a message with an inline keyboard (list of button rows)."""
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode,
+        "reply_markup": {"inline_keyboard": keyboard},
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json=payload,
+        )
+
+
+async def _edit_message(
+    bot_token: str,
+    chat_id: int,
+    message_id: int,
+    text: str,
+    keyboard: list[list[dict]] | None = None,
+    parse_mode: str = "Markdown",
+) -> None:
+    """Edit an existing message's text and (optionally) its inline keyboard."""
+    payload: dict = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": parse_mode,
+    }
+    if keyboard is not None:
+        payload["reply_markup"] = {"inline_keyboard": keyboard}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(
+            f"https://api.telegram.org/bot{bot_token}/editMessageText",
+            json=payload,
+        )
+
+
+async def _answer_callback(bot_token: str, callback_id: str, text: str = "") -> None:
+    """Acknowledge a callback query so Telegram stops the button's loading spinner."""
+    payload = {"callback_query_id": callback_id}
+    if text:
+        payload["text"] = text
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(
+            f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
+            json=payload,
+        )
+
+
+# ─── FreeBuff (free-NVIDIA coding agent) ────────────────────────────────────────
+
+def _parse_callback(data: str) -> tuple[str, str | None]:
+    """Parse callback_data of the form ``fb:<action>[:<arg>]``.
+
+    Returns ``(action, arg)``; ``arg`` is None when absent. Non-FreeBuff data
+    yields ``("", None)``.
+    """
+    if not data or not data.startswith("fb:"):
+        return "", None
+    parts = data.split(":", 2)
+    action = parts[1] if len(parts) > 1 else ""
+    arg = parts[2] if len(parts) > 2 else None
+    return action, arg
+
+
+def _model_keyboard(models: list[str]) -> list[list[dict]]:
+    """Build an inline keyboard mapping each free model to ``fb:model:<idx>``.
+
+    Model IDs (e.g. ``nvidia/nemotron-3-super-120b-a12b``) can exceed Telegram's
+    64-byte callback_data limit, so we send the index and resolve it server-side
+    from the per-user stored model list.
+    """
+    return [[{"text": m, "callback_data": f"fb:model:{i}"}] for i, m in enumerate(models)]
+
+
+def _review_keyboard() -> list[list[dict]]:
+    """Accept / reject keyboard shown after a FreeBuff plan is generated."""
+    return [[
+        {"text": "✅ Accept & run", "callback_data": "fb:accept"},
+        {"text": "❌ Reject", "callback_data": "fb:reject"},
+    ]]
+
+
+async def cmd_freebuff(user_id: int, chat_id: int, bot_token: str, task: str) -> None:
+    """Start a FreeBuff flow: fetch free models and present a picker keyboard."""
+    if not _is_admin(user_id):
+        await _send_message(bot_token, chat_id, "Permission denied. Admin only.")
+        return
+    if not task:
+        await _send_message(bot_token, chat_id, "Usage: /freebuff <task description>")
+        return
+    try:
+        data = await _proxy_get("/freebuff/models", use_admin=False)
+        models = data.get("models", [])
+    except Exception as exc:
+        await _send_message(bot_token, chat_id, f"Could not load FreeBuff models: {exc}")
+        return
+    if not models:
+        await _send_message(bot_token, chat_id, "No free models available.")
+        return
+    _freebuff_state[user_id] = {"task": task, "models": models, "model": None}
+    await _send_keyboard(
+        bot_token,
+        chat_id,
+        f"*FreeBuff task:* `{task[:200]}`\n\nPick a free NVIDIA model:",
+        _model_keyboard(models),
+    )
+
+
+async def _process_callback(bot_token: str, callback: dict) -> None:
+    """Handle an inline-button press for the FreeBuff accept/reject/model flow."""
+    callback_id = callback.get("id", "")
+    user_id = callback.get("from", {}).get("id", 0)
+    message = callback.get("message", {}) or {}
+    chat_id = message.get("chat", {}).get("id", 0)
+    message_id = message.get("message_id", 0)
+    data = callback.get("data", "")
+
+    if not _is_allowed(user_id) or not _is_admin(user_id):
+        await _answer_callback(bot_token, callback_id, "Not allowed.")
+        return
+
+    action, arg = _parse_callback(data)
+    if not action:
+        await _answer_callback(bot_token, callback_id)
+        return
+
+    state = _freebuff_state.get(user_id)
+    if not state:
+        await _answer_callback(bot_token, callback_id, "Session expired. Start with /freebuff.")
+        return
+
+    if action == "model":
+        models = state.get("models", [])
+        try:
+            model = models[int(arg)]
+        except (TypeError, ValueError, IndexError):
+            await _answer_callback(bot_token, callback_id, "Invalid model.")
+            return
+        state["model"] = model
+        await _answer_callback(bot_token, callback_id, f"Planning with {model}…")
+        await _edit_message(bot_token, chat_id, message_id, f"Generating plan with `{model}`…")
+        try:
+            result = await _proxy_post(
+                "/freebuff/plan",
+                {"instruction": state["task"], "model": model},
+                use_admin=False,
+            )
+            plan = result.get("plan", {})
+            steps = plan.get("steps", [])
+            lines = [f"*Plan* (`{model}`)", f"_{plan.get('goal', state['task'])[:300]}_", ""]
+            for i, step in enumerate(steps[:10], start=1):
+                lines.append(f"{i}. {str(step.get('description', ''))[:160]}")
+            await _edit_message(bot_token, chat_id, message_id, "\n".join(lines), _review_keyboard())
+        except Exception as exc:
+            await _edit_message(bot_token, chat_id, message_id, f"Plan failed: {exc}")
+        return
+
+    if action == "reject":
+        _freebuff_state.pop(user_id, None)
+        await _answer_callback(bot_token, callback_id, "Rejected.")
+        await _edit_message(bot_token, chat_id, message_id, "❌ FreeBuff task rejected.")
+        return
+
+    if action == "accept":
+        model = state.get("model")
+        if not model:
+            await _answer_callback(bot_token, callback_id, "Pick a model first.")
+            return
+        await _answer_callback(bot_token, callback_id, "Running…")
+        await _edit_message(bot_token, chat_id, message_id, f"Running FreeBuff with `{model}`… (this may take a while)")
+        try:
+            result = await _proxy_post(
+                "/freebuff/run",
+                {"instruction": state["task"], "model": model, "auto_commit": True, "open_pr": True},
+                use_admin=False,
+            )
+            summary = result.get("result", {}).get("summary", str(result))
+            pr_url = (result.get("result", {}) or {}).get("pr_url")
+            text = f"*FreeBuff result* (`{model}`)\n```\n{summary[:3000]}\n```"
+            if pr_url:
+                text += f"\n\nPR: {pr_url}"
+            await _edit_message(bot_token, chat_id, message_id, text)
+        except Exception as exc:
+            await _edit_message(bot_token, chat_id, message_id, f"FreeBuff run failed: {exc}")
+        finally:
+            _freebuff_state.pop(user_id, None)
+        return
+
+    await _answer_callback(bot_token, callback_id)
+
+
 async def _process_update(bot_token: str, update: dict) -> None:
     message = update.get("message") or update.get("edited_message")
     if not message:
@@ -290,6 +488,7 @@ async def _process_update(bot_token: str, update: dict) -> None:
             "\n*Admin only:*\n"
             "/start|stop|restart <svc> — control ollama|proxy|tunnel|stack\n"
             "/agent <task> — run agent task (requires confirmation)\n"
+            "/freebuff <task> — free-NVIDIA coding agent (pick model, review, accept)\n"
             "/keylist — list API keys\n"
         )
 
@@ -312,6 +511,11 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
     elif cmd == "/keylist":
         response = await cmd_keylist(user_id)
+
+    elif cmd == "/freebuff":
+        task = " ".join(parts[1:]) if len(parts) > 1 else ""
+        await cmd_freebuff(user_id, chat_id, bot_token, task)
+        return
 
     elif cmd == "/agent":
         if not _is_admin(user_id):
@@ -352,7 +556,11 @@ async def run_bot() -> None:
             async with httpx.AsyncClient(timeout=35.0) as client:
                 r = await client.get(
                     f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates",
-                    params={"offset": offset, "timeout": 30, "allowed_updates": ["message"]},
+                    params={
+                        "offset": offset,
+                        "timeout": 30,
+                        "allowed_updates": ["message", "callback_query"],
+                    },
                 )
             data = r.json()
             if not data.get("ok"):
@@ -363,7 +571,10 @@ async def run_bot() -> None:
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
                 try:
-                    await _process_update(TELEGRAM_BOT_TOKEN, update)
+                    if update.get("callback_query"):
+                        await _process_callback(TELEGRAM_BOT_TOKEN, update["callback_query"])
+                    else:
+                        await _process_update(TELEGRAM_BOT_TOKEN, update)
                 except Exception as exc:
                     log.exception("Error processing update %d: %s", update.get("update_id"), exc)
 

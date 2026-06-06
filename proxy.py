@@ -43,7 +43,7 @@ from agent.browser import BrowserSession
 from agent.commit_tracker import CommitAttribution, CommitTracker
 from agent.context import ContextCompressor
 from agent.coordinator import AgentCoordinator, WorkerSpec
-from agent.loop import AgentRunner
+from agent.loop import AgentRunner, FreeBuffAgent
 from agent.memory import SessionMemory
 from agent.models import AgentRunRequest, AgentSessionCreateRequest
 from agent.permissions import AdaptivePermissions
@@ -178,6 +178,32 @@ _rate_bucket_keys: set[str] = set()
 _RATE_BUCKET_MAX_KEYS = 10_000
 _rate_lock = asyncio.Lock()
 
+
+def _rate_limit_exempt_key_ids() -> set[str]:
+    """Key IDs explicitly exempted from rate limiting (read fresh from env).
+
+    Configured via ``FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS`` (comma-separated). This
+    is intentionally narrow: it exempts the Telegram-driven FreeBuff service key
+    so phone-driven free-NVIDIA agent runs aren't throttled by the per-key RPM
+    limiter. Default empty → no key is exempt, so paid/general endpoints stay
+    protected.
+    """
+    raw = os.environ.get("FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS", "")
+    return {x.strip() for x in raw.split(",") if x.strip()}
+
+
+def is_rate_limit_exempt(key_id: str | None) -> bool:
+    """True when this key is on the FreeBuff rate-limit exemption allowlist.
+
+    Only store-backed keys (which carry a stable ``key_id``) can be exempted;
+    legacy keys with no ``key_id`` are never exempt.
+    """
+    if not key_id:
+        return False
+    exempt = _rate_limit_exempt_key_ids()
+    return bool(exempt) and key_id in exempt
+
+
 async def check_rate_limit(api_key: str) -> None:
     now = time.time()
     window = 60.0
@@ -227,7 +253,13 @@ async def verify_api_key(
 
     rec = KEY_STORE.lookup_plain_key(key)
     if rec:
-        await check_rate_limit(key)
+        # FreeBuff service keys may be exempted from rate limiting so phone-driven
+        # free-NVIDIA agent runs aren't throttled. The exemption is opt-in via env
+        # and scoped to specific key_ids only (default: none).
+        if is_rate_limit_exempt(rec.key_id):
+            log.info("FreeBuff rate-limit exemption applied for key_id=%s", rec.key_id)
+        else:
+            await check_rate_limit(key)
         return AuthContext(
             key=key,
             email=rec.email,
@@ -744,6 +776,111 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
         result=result,
     )
     return {"session": updated, "result": result}
+
+
+# ─── FreeBuff: free-NVIDIA coding agent (Telegram phone control) ────────────────
+
+class FreeBuffRunRequest(BaseModel):
+    """Request body for FreeBuff plan/run endpoints.
+
+    ``model`` must be one of the free NVIDIA NIM models (see GET /freebuff/models);
+    anything else is coerced to a free model by ``FreeBuffAgent.resolve_model``.
+    """
+    instruction: str = Field(..., min_length=1, max_length=8000)
+    model: str | None = Field(default=None, max_length=128)
+    auto_commit: bool = False
+    open_pr: bool = False
+    repo_url: str | None = Field(default=None, max_length=512)
+    max_steps: int = Field(default=10, ge=1, le=20)
+
+
+@app.get("/freebuff/models")
+async def freebuff_models(auth: AuthContext = Depends(verify_api_key)):
+    """List the free NVIDIA NIM models FreeBuff can route to (for model pickers)."""
+    return {"models": FreeBuffAgent.available_models()}
+
+
+@app.post("/freebuff/plan")
+async def freebuff_plan(body: FreeBuffRunRequest, auth: AuthContext = Depends(verify_api_key)):
+    """Generate a read-only plan with the chosen free model — no files written.
+
+    The Telegram bot shows this plan with Accept/Reject buttons before any code
+    is changed. Planning never touches the filesystem, so it is safe to preview.
+    """
+    agent = FreeBuffAgent(
+        model=body.model,
+        github_token=_GITHUB_TOKEN,
+        email=auth.email,
+        department=auth.department,
+        key_id=auth.key_id,
+    )
+    try:
+        plan = await agent.plan(
+            instruction=body.instruction,
+            history=[],
+            requested_model=body.model,
+            max_steps=body.max_steps,
+            user_id=auth.email,
+            memory_store=USER_MEMORY,
+        )
+    except Exception:
+        log.exception("FreeBuff plan failed")  # nosec B506 — intentional error logging
+        raise HTTPException(status_code=502, detail="FreeBuff planning failed. Check server logs.")
+    return {"model": agent.resolve_model(body.model), "plan": plan.model_dump()}
+
+
+@app.post("/freebuff/run")
+async def freebuff_run(body: FreeBuffRunRequest, auth: AuthContext = Depends(verify_api_key)):
+    """Execute a FreeBuff task with the chosen free model (optionally commit + PR).
+
+    Mirrors /agent/run but pins routing to free NVIDIA models. When ``open_pr`` is
+    set and a repo URL is available the runner's existing auto-push/PR path opens
+    a PR (still gated by ``AGENT_AUTO_PR_ENABLED``); commits and PRs are never made
+    to protected branches directly.
+    """
+    temp = AGENT_SESSIONS.create(title=f"FreeBuff run for {auth.email}")
+    AGENT_SESSIONS.append_message(temp.session_id, "user", body.instruction)
+    history = [item.model_dump() for item in (AGENT_SESSIONS.get(temp.session_id) or temp).history]
+    repo_url = body.repo_url or os.environ.get("FREEBUFF_REPO_URL") if body.open_pr else None
+    agent = FreeBuffAgent(
+        model=body.model,
+        github_token=_GITHUB_TOKEN,
+        session_store=AGENT_SESSIONS,
+        email=auth.email,
+        department=auth.department,
+        key_id=auth.key_id,
+        repo_url=repo_url,
+    )
+    try:
+        result = await agent.run(
+            instruction=body.instruction,
+            history=history,
+            requested_model=body.model,
+            auto_commit=body.auto_commit or body.open_pr,
+            max_steps=body.max_steps,
+            user_id=auth.email,
+            department=auth.department,
+            key_id=auth.key_id,
+            memory_store=USER_MEMORY,
+            session_id=temp.session_id,
+        )
+    except Exception:
+        log.exception("FreeBuff run failed")  # nosec B506 — intentional error logging
+        result = {
+            "goal": body.instruction,
+            "plan": None,
+            "steps": [],
+            "commits": [],
+            "summary": "FreeBuff run failed. Check server logs for details.",
+            "status": "failed",
+        }
+    AGENT_SESSIONS.append_message(temp.session_id, "assistant", result["summary"])
+    updated = AGENT_SESSIONS.update_result(
+        temp.session_id,
+        plan=result.get("plan") or {"goal": body.instruction, "steps": []},
+        result=result,
+    )
+    return {"session": updated, "result": result, "model": agent.resolve_model(body.model)}
 
 
 @app.post("/agent/sessions/{session_id}/rollback-last-commit")
