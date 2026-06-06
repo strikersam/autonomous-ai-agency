@@ -42,6 +42,12 @@ from .chat_history import ChatHistoryStore, get_chat_history
 # Context Window Management (C5)
 from .context_window import ContextWindowManager, TruncationStrategy, TruncationResult, get_context_window_manager
 
+# Prompt Caching (C6)
+from .prompt_cache import PromptCacheManager, CacheEntry, CacheStats, get_prompt_cache
+
+# OpenTelemetry Distributed Tracing (D3)
+from .otel_tracing import TracerFactory, TraceContext, get_tracer, otel_middleware_factory, traced, shutdown_tracing
+
 __all__ = [
     # Company Graph
     "CompanyGraphService",
@@ -95,4 +101,16 @@ __all__ = [
     "TruncationStrategy",
     "TruncationResult",
     "get_context_window_manager",
+    # Prompt Caching (C6)
+    "PromptCacheManager",
+    "CacheEntry",
+    "CacheStats",
+    "get_prompt_cache",
+    # OpenTelemetry (D3)
+    "TracerFactory",
+    "TraceContext",
+    "get_tracer",
+    "otel_middleware_factory",
+    "traced",
+    "shutdown_tracing",
 ]

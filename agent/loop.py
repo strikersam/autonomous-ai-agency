@@ -42,6 +42,10 @@ DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b
 # Set NEMOTRON_REWARD_ENABLED=false to disable and always use the LLM verifier.
 _REWARD_ENABLED = os.environ.get("NEMOTRON_REWARD_ENABLED", "auto").strip().lower() not in ("false", "0", "no", "off")
 
+# C4/C5 integration toggle for chat history and context window management
+_AGENT_CHAT_HISTORY_ENABLED = os.environ.get("AGENT_CHAT_HISTORY_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+_AGENT_CONTEXT_WINDOW_ENABLED = os.environ.get("AGENT_CONTEXT_WINDOW_ENABLED", "true").strip().lower() in ("true", "1", "yes")
+
 # Adaptive Loop Halting: exit the plan→execute→verify cycle early when the
 # verifier returns confidence >= this threshold on a step.  Reduces average
 # LLM calls per simple step from ~3 to ~1.5.  Set to 1.0 to disable.
@@ -214,6 +218,15 @@ class AgentRunner:
 
             self._log_event(session_id, "user_message", {"instruction": instruction})
 
+            # C4: Persist the user instruction and history to chat history
+            if _AGENT_CHAT_HISTORY_ENABLED and session_id:
+                try:
+                    from services.chat_history import get_chat_history
+                    store = get_chat_history()
+                    store.append(session_id, {"role": "user", "content": instruction[:2000]})
+                except Exception:
+                    pass
+
             plan = await self._generate_plan(
                 instruction, effective_history, requested_model, max_steps, user_id, memory_store
             )
@@ -355,6 +368,15 @@ class AgentRunner:
 
             summary = self._build_summary(plan.goal, step_results, commits, pr_url)
             self._log_event(session_id, "assistant_message", {"summary": summary})
+
+            # C4: Persist the agent response summary to chat history
+            if _AGENT_CHAT_HISTORY_ENABLED and session_id and summary:
+                try:
+                    from services.chat_history import get_chat_history
+                    store = get_chat_history()
+                    store.append(session_id, {"role": "assistant", "content": summary[:2000]})
+                except Exception:
+                    pass
 
             # Update auth context if passed in run()
             if user_id:
@@ -931,6 +953,19 @@ class AgentRunner:
         # Context pruning: enforce token budgets before sending to the LLM
         messages = self.pruner.prune(messages)
         payload["messages"] = messages
+
+        # C5: Auto-truncate messages to fit within the model's context window
+        if _AGENT_CONTEXT_WINDOW_ENABLED and isinstance(messages, list) and len(messages) > 4:
+            try:
+                from services.context_window import get_context_window_manager
+                mgr = get_context_window_manager()
+                if mgr.needs_truncation(messages, model=model):
+                    result = mgr.truncate(messages, model=model)
+                    payload["messages"] = result.messages
+                    log.debug("Agent context window truncated: %d → %d messages (model=%s)",
+                             result.original_count, result.truncated_count, model)
+            except Exception:
+                pass
 
         # Reasoning token budget (★3): inject thinking_token_budget for supported models
         _budget_key = os.environ.get("AGENT_REASONING_BUDGET", _REASONING_BUDGET_DEFAULT).strip().lower()

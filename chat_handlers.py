@@ -21,6 +21,11 @@ from router.health import invalidate_cache as _invalidate_health_cache
 
 log = logging.getLogger("qwen-proxy")
 
+# C4/C5 integration toggle — disabled by default so the proxy starts without
+# requiring the chat_history and context_window modules.
+_CHAT_HISTORY_ENABLED = os.environ.get("CHAT_HISTORY_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+_CONTEXT_WINDOW_ENABLED = os.environ.get("CONTEXT_WINDOW_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+
 
 async def _post_with_fallback(
     url: str,
@@ -274,8 +279,35 @@ async def handle_openai_chat_completions(
     payload = _apply_chat_defaults(payload)
     payload = _normalize_tool_choice(payload)
     messages = payload.get("messages")
+
+    # C5: Auto-truncate messages to fit within the model's context window
+    if _CONTEXT_WINDOW_ENABLED and isinstance(messages, list):
+        try:
+            from services.context_window import get_context_window_manager
+            mgr = get_context_window_manager()
+            if mgr.needs_truncation(messages, model=model):
+                result = mgr.truncate(messages, model=model)
+                payload = dict(payload)
+                payload["messages"] = result.messages
+                messages = result.messages
+                log.debug("Context window truncated: %d → %d messages", result.original_count, result.truncated_count)
+        except Exception:
+            pass
+
     stream = bool(payload.get("stream", False))
     exact_output = _extract_exact_output(messages)
+
+    # C4: Persist user messages to chat history before LLM call
+    session_id = request.headers.get("x-session-id") or payload.get("session_id")
+    if _CHAT_HISTORY_ENABLED and session_id and isinstance(messages, list):
+        try:
+            from services.chat_history import get_chat_history
+            store = get_chat_history()
+            for msg in messages:
+                if isinstance(msg, dict) and msg.get("role") in ("user", "system"):
+                    store.append(session_id, msg)
+        except Exception:
+            pass
 
     if exact_output is not None:
         usage_completion_tokens = max(len(exact_output) // 4, 1) if exact_output else 0
@@ -367,6 +399,16 @@ async def handle_openai_chat_completions(
 
     out_text, pt, ct = _openai_usage_from_response(data)
     await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
+
+    # C4: Persist assistant response to chat history
+    if _CHAT_HISTORY_ENABLED and session_id and out_text:
+        try:
+            from services.chat_history import get_chat_history
+            store = get_chat_history()
+            store.append(session_id, {"role": "assistant", "content": out_text})
+        except Exception:
+            pass
+
     return JSONResponse(
         content=data,
         status_code=resp.status_code,
@@ -922,7 +964,7 @@ def _parse_tool_calls_from_response(response_text: str) -> list[dict[str, Any]]:
     return []
 
 
-def _normalize_tool_choice(payload: dict) -> dict:
+def _normalize_tool_choice(payload: dict, model: str = "") -> dict:
     """Normalize the ``tool_choice`` parameter for the upstream backend.
 
     OpenAI supports:
@@ -941,7 +983,7 @@ def _normalize_tool_choice(payload: dict) -> dict:
 
     # Cloud models: forward tool_choice as-is (return a copy to avoid
     # mutating the caller's dict)
-    if "/" in model:
+    if "/" in (model or ""):
         return dict(payload)
 
     # Local models: inject tool_choice as a system instruction

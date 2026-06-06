@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "local-llm-server.fullname" . }}
+  labels:
+    {{- include "local-llm-server.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "local-llm-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "local-llm-server.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "local-llm-server.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: proxy
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- if .Values.secrets.externalSecretName }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.externalSecretName }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: keys
+              mountPath: /keys
+            {{- if .Values.persistence.data.enabled }}
+            - name: data
+              mountPath: /app/.data
+            {{- end }}
+            {{- if .Values.persistence.state.enabled }}
+            - name: state
+              mountPath: /app/.claude/state
+            {{- end }}
+            {{- if .Values.persistence.workspace.enabled }}
+            - name: workspace
+              mountPath: /workspace
+            {{- end }}
+      volumes:
+        - name: keys
+          persistentVolumeClaim:
+            claimName: {{ include "local-llm-server.fullname" . }}-keys
+        {{- if .Values.persistence.data.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "local-llm-server.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.persistence.state.enabled }}
+        - name: state
+          persistentVolumeClaim:
+            claimName: {{ include "local-llm-server.fullname" . }}-state
+        {{- end }}
+        {{- if .Values.persistence.workspace.enabled }}
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ include "local-llm-server.fullname" . }}-workspace
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

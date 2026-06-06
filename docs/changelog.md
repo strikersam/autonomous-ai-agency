@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Added
+- **C6 Prompt Caching (Anthropic-Compatible) (`services/prompt_cache.py`).** PromptCacheManager with cache_control block parsing, system-prompt hashing, per-instance KV cache affinity tracking, cache token metrics injection, and LRU eviction.
+- **D1 Helm Chart for Kubernetes (`deploy/helm/`).** Production-grade Helm chart with Chart.yaml, values.yaml, Deployment/Service/Ingress/HPA/PVC templates, _helpers.tpl, external secrets support, and NVIDIA GPU node selectors.
+- **D2 Docker Compose Production Stack (`docker-compose.prod.yml`).** Production docker-compose with resource limits, health checks with dependency ordering, named volumes, bridge network, jaeger profile, logging driver config, and Makefile convenience targets.
+- **D3 OpenTelemetry Distributed Tracing (`services/otel_tracing.py`).** TracerFactory with lazy OTEL SDK init, NoOp fallbacks, W3C trace context parsing, FastAPI middleware factory, `@traced` async decorator, Langfuse trace ID correlation, and OTLP gRPC exporter.
+- **C4 Chat History Integration.** ChatHistoryStore wired into `chat_handlers.py` and `agent/loop.py` behind `CHAT_HISTORY_ENABLED`/`AGENT_CHAT_HISTORY_ENABLED` toggles — auto-persists user+assistant messages per session_id.
+- **C5 Context Window Integration.** ContextWindowManager wired into `chat_handlers.py` and `agent/loop.py` behind `CONTEXT_WINDOW_ENABLED`/`AGENT_CONTEXT_WINDOW_ENABLED` toggles — auto-truncates messages to fit model context limits before LLM calls.
 - **C3 Streaming Delta Reconstruction (`services/streaming_delta.py`).** StreamingDeltaReconstructor buffers raw SSE chunks, applies async post-processing hooks, and re-emits as properly-formed SSE deltas (direct async generator, no queue deadlock). DeltaChunk/ReconstructResult dataclasses. create_streaming_reconstructor factory with optional guardrails/steering hooks.
 - **C4 Chat History Persistence + Retrieval (`services/chat_history.py`).** SQLite-backed ChatHistoryStore with session CRUD, message append/get/update, history trimming (oldest-first), export/import, session limit enforcement, WAL mode, and foreign keys.
 - **C5 Context Window Management + Smart Truncation (`services/context_window.py`).** ContextWindowManager with per-model context limits from router registry, sliding_window/head_tail/smart_compact strategies, O(n) incremental token estimation, tiktoken fallback, and TruncationResult with compression ratio.

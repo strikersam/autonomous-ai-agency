@@ -65,10 +65,10 @@
 | C3 | Streaming Delta Reconstruction | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | C4 | Chat History Persistence | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | C5 | Context Window Management | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
-| C6 | Prompt Caching | P1 | `TODO` | — |
-| D1 | Helm Chart | P1 | `TODO` | — |
-| D2 | Docker Compose Production Stack | P1 | `TODO` | — |
-| D3 | OpenTelemetry Distributed Tracing | P1 | `TODO` | — |
+| C6 | Prompt Caching | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| D1 | Helm Chart | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| D2 | Docker Compose Production Stack | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
+| D3 | OpenTelemetry Distributed Tracing | P1 | `DONE` | [#406](https://github.com/strikersam/local-llm-server/pull/406) |
 | E1 | Cross-Harness Routing | P1 | `TODO` | — |
 | E2 | Self-Healing Agent Doctor | P1 | `TODO` | — |
 | F2 | MCP Server | P1 | `TODO` | — |
@@ -81,6 +81,7 @@
 | Date | Agent/Tool | Branch | Action |
 |------|------------|--------|--------|
 | 2026-06-05 | claude-sonnet-4-6 (Opus agent) | claude/llm-server-roadmap-pr-COcKN | Created roadmap TODO from 6 OSS repos research |
+| 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Integrated C4/C5 into chat_handlers + agent/loop; C6 Prompt Cache, D1 Helm Chart, D2 Compose Prod, D3 OTEL Tracing |
 | 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented C3 Streaming Delta, C4 Chat History, C5 Context Window; 30+ tests |
 | 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented B3 Synthetic Data, B4 Guardrails, B5 NIM Pool; 30+ tests |
 | 2026-06-06 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Implemented A4 Task Queue, A5 Agent Bus, B2 SteerLM Steering; 35+ tests |
