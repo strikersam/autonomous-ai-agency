@@ -591,7 +591,14 @@ async def _process_update(bot_token: str, update: dict) -> None:
     elif cmd in ("/start", "/stop", "/restart"):
         action = cmd[1:]
         target = parts[1].lower() if len(parts) > 1 else ""
-        if not target:
+        if cmd == "/start" and not target:
+            # Bare /start is the Telegram "begin" tap — greet + show help.
+            response = (
+                "👋 *FreeBuff bot online.*\n"
+                "Send `/freebuff <task>` to edit the repo (pick a model → review → accept).\n"
+                "Use /help for all commands."
+            )
+        elif not target:
             response = f"Usage: {cmd} <ollama|proxy|tunnel|stack>"
         else:
             response = await cmd_control(user_id, action, target)
@@ -627,15 +634,48 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
 # ─── Long-poll main loop ───────────────────────────────────────────────────────
 
+async def _tg_call(method: str, params: dict | None = None) -> dict:
+    """Call a Telegram Bot API method and return the parsed JSON (best-effort)."""
+    try:
+        async with httpx.AsyncClient(timeout=35.0) as client:
+            r = await client.get(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}",
+                params=params or {},
+            )
+        return r.json()
+    except Exception as exc:  # network / decode errors shouldn't crash startup
+        return {"ok": False, "description": f"request failed: {exc}"}
+
+
 async def run_bot() -> None:
     if not TELEGRAM_BOT_TOKEN:
-        log.error("TELEGRAM_BOT_TOKEN is not set. Set it in .env and restart.")
+        log.error("TELEGRAM_BOT_TOKEN is not set. Set it in the environment and restart.")
         return
     if not ALLOWED_USER_IDS:
-        log.error("TELEGRAM_ALLOWED_USER_IDS is empty. No one can use the bot.")
+        log.error(
+            "TELEGRAM_ALLOWED_USER_IDS is empty or unparsable (must be comma-separated "
+            "numeric user IDs from @userinfobot). No one can use the bot."
+        )
         return
 
-    log.info("Bot starting. Allowed users: %s  Admin users: %s", ALLOWED_USER_IDS, ADMIN_USER_IDS)
+    # Verify the token and identify the bot — surfaces a bad token immediately
+    # in the logs instead of silently failing to receive messages.
+    me = await _tg_call("getMe")
+    if not me.get("ok"):
+        log.error("Telegram getMe failed (%s). Check TELEGRAM_BOT_TOKEN.", me.get("description"))
+        return
+    bot_username = me.get("result", {}).get("username", "?")
+    log.info(
+        "Bot @%s online. Allowed users: %s  Admin users: %s",
+        bot_username, ALLOWED_USER_IDS, ADMIN_USER_IDS,
+    )
+
+    # If this bot was previously set up with a webhook (or is being "reused"),
+    # getUpdates is rejected with HTTP 409 until the webhook is removed. Clear it
+    # so long-polling works for the reused bot.
+    dw = await _tg_call("deleteWebhook")
+    log.info("Cleared any existing webhook (deleteWebhook ok=%s).", dw.get("ok"))
+
     offset = 0
 
     while True:
@@ -651,7 +691,16 @@ async def run_bot() -> None:
                 )
             data = r.json()
             if not data.get("ok"):
-                log.error("getUpdates error: %s", data)
+                desc = str(data.get("description", ""))
+                if data.get("error_code") == 409 or "conflict" in desc.lower() or "webhook" in desc.lower():
+                    log.error(
+                        "getUpdates conflict: %s — another process/instance is polling "
+                        "this bot token, or a webhook is set. Stop the other bot that uses "
+                        "this token. Re-clearing webhook and retrying.", desc,
+                    )
+                    await _tg_call("deleteWebhook")
+                else:
+                    log.error("getUpdates error: %s", data)
                 await asyncio.sleep(5)
                 continue
 
