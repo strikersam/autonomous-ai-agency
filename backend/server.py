@@ -1306,12 +1306,45 @@ CORS_ORIGINS = [
 # ─── Social Login (GitHub & Google) ───────────────────────────────────────────
 
 
+async def _store_login_state(state: str, provider: str) -> None:
+    """Persist an OAuth *login* state server-side in the shared oauth_states store.
+
+    Session cookies do NOT reliably survive the OAuth round-trip in this
+    deployment: the frontend is on Cloudflare while the backend is on Render,
+    and Render's free tier rotates the in-process SESSION_SECRET on every cold
+    start (when JWT_SECRET is unset). A server-side state row — the same
+    mechanism the GitHub repo-connect flow already uses — is provider- and
+    instance-agnostic. The collection has a 10-minute TTL index, so stale rows
+    are dropped automatically.
+    """
+    await get_db().oauth_states.insert_one(
+        {
+            "state": state,
+            "flow_type": "login",
+            "provider": provider,
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+
+
+def _valid_login_state(doc: Optional[dict], provider: str) -> bool:
+    """Return True if a fetched oauth_states doc is a valid, unexpired login state."""
+    if not doc or doc.get("flow_type") != "login" or doc.get("provider") != provider:
+        return False
+    created = doc.get("created_at")
+    if isinstance(created, datetime):
+        # Defensive expiry check for backends without a TTL index (e.g. SQLite).
+        if (datetime.now(timezone.utc) - created).total_seconds() > 600:
+            return False
+    return True
+
+
 @app.get("/api/auth/github/login")
 async def github_login(request: Request):
     if not GITHUB_CLIENT_ID:
         raise HTTPException(status_code=503, detail="GitHub login not configured")
     state = secrets.token_urlsafe(32)
-    request.session["github_oauth_state"] = state
+    await _store_login_state(state, "github")
     redirect_uri = (
         f"{OAUTH_REDIRECT_BASE}/api/auth/github/callback"
         if OAUTH_REDIRECT_BASE
@@ -1407,9 +1440,12 @@ async def github_callback(request: Request, code: str = None, state: str = None)
         )
         return _oauth_popup_html(True, login=login)
 
-    # Login flow: state was stored in the session by /api/auth/github/login
-    if state != request.session.pop("github_oauth_state", None):
+    # Login flow: state was stored server-side in oauth_states by
+    # /api/auth/github/login (state_doc was already fetched above).
+    if not _valid_login_state(state_doc, provider="github"):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    # State validated — consume it so it cannot be replayed.
+    await get_db().oauth_states.delete_one({"state": state})
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -1695,7 +1731,7 @@ async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google login not configured")
     state = secrets.token_urlsafe(32)
-    request.session["google_oauth_state"] = state
+    await _store_login_state(state, "google")
     # Use OAUTH_REDIRECT_BASE so the redirect_uri matches what is registered in Google Console.
     # Falls back to url_for only in local dev where no proxy is involved.
     redirect_uri = (
@@ -1715,8 +1751,12 @@ async def google_login(request: Request):
 async def google_callback(request: Request, code: str = None, state: str = None):
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
-    if state != request.session.pop("google_oauth_state", None):
+    # State was stored server-side in oauth_states by /api/auth/google/login.
+    state_doc = await get_db().oauth_states.find_one({"state": state})
+    if not _valid_login_state(state_doc, provider="google"):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    # State validated — consume it so it cannot be replayed.
+    await get_db().oauth_states.delete_one({"state": state})
 
     # redirect_uri must be identical to the one used in /api/auth/google/login
     redirect_uri = (
