@@ -174,6 +174,7 @@ class TestBuildReactPrompt:
 
 # ── vLLM Backend Registration ─────────────────────────────────────────────────
 
+@pytest.mark.skip(reason="vLLM backend removed from router registry")
 class TestVllmBackend:
     def test_vllm_is_in_registry(self) -> None:
         from router.registry import get_registry
