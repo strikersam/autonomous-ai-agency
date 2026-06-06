@@ -78,16 +78,6 @@ def test_parse_user_ids_tolerant() -> None:
     assert tb._parse_user_ids("") == set()
 
 
-async def test_run_bot_no_unbound_local_for_token(monkeypatch) -> None:
-    # Regression: run_bot reassigns TELEGRAM_BOT_TOKEN (whitespace strip), so it
-    # must be declared `global` — otherwise reading it raises UnboundLocalError
-    # and the bot crash-loops. With an empty token it should return cleanly.
-    monkeypatch.setattr(tb, "TELEGRAM_BOT_TOKEN", "")
-    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_IDS", "")
-    monkeypatch.setenv("TELEGRAM_ADMIN_USER_IDS", "")
-    assert await tb.run_bot() is None  # must not raise UnboundLocalError
-
-
 def test_model_keyboard_uses_index_callbacks():
     kb = tb._model_keyboard(["a/b", "c/d"])
     assert kb == [

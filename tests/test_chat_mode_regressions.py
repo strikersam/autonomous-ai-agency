@@ -15,7 +15,7 @@ from provider_router import ProviderAttempt, ProviderConfig, ProviderResult
 
 
 
-_ADMIN_PASSWORD = server.ADMIN_PASSWORD
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
 def _auth_headers(client) -> dict[str, str]:
     login = client.post(
         "/api/auth/login",

@@ -15,6 +15,7 @@ import asyncio
 import httpx
 
 from agent.context_manager import ContextManager
+from agent.context_pruner import ContextPruner
 from agent.models import AgentPlan, ToolCall, VerificationResult
 from agent.prompts import (
     build_compaction_prompt,
@@ -23,6 +24,7 @@ from agent.prompts import (
     build_tool_prompt,
     build_verification_prompt,
 )
+from agent.react_loop import ReactScratchpad
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
@@ -34,6 +36,31 @@ _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "anal
 DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
 DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
 DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b")
+
+# Nemotron Reward Model toggle (B1).  When NVIDIA_API_KEY is set, the reward
+# model scores step outputs as a cheaper/faster alternative to the LLM verifier.
+# Set NEMOTRON_REWARD_ENABLED=false to disable and always use the LLM verifier.
+_REWARD_ENABLED = os.environ.get("NEMOTRON_REWARD_ENABLED", "auto").strip().lower() not in ("false", "0", "no", "off")
+
+# C4/C5 integration toggle for chat history and context window management
+_AGENT_CHAT_HISTORY_ENABLED = os.environ.get("AGENT_CHAT_HISTORY_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+_AGENT_CONTEXT_WINDOW_ENABLED = os.environ.get("AGENT_CONTEXT_WINDOW_ENABLED", "true").strip().lower() in ("true", "1", "yes")
+
+# Adaptive Loop Halting: exit the plan→execute→verify cycle early when the
+# verifier returns confidence >= this threshold on a step.  Reduces average
+# LLM calls per simple step from ~3 to ~1.5.  Set to 1.0 to disable.
+_CONFIDENCE_THRESHOLD = float(os.environ.get("AGENT_CONFIDENCE_THRESHOLD", "0.9"))
+
+# Reasoning token budget (★3 roadmap item).  Controls thinking/reasoning depth
+# for models that support it (DeepSeek-R1, Qwen3-Coder, Nemotron NIM, vLLM).
+# low=512, medium=2048, high=8192, max=unbounded (default: high).
+_REASONING_BUDGET_MAP: dict[str, int] = {
+    "low": 512,
+    "medium": 2048,
+    "high": 8192,
+    "max": -1,
+}
+_REASONING_BUDGET_DEFAULT = os.environ.get("AGENT_REASONING_BUDGET", "high").strip().lower()
 
 
 
@@ -73,10 +100,25 @@ class AgentRunner:
         # the agent proposes via PR and a human merges.
         self.github = GitHubTools(github_token, agent_initiated=True)
         self.ctx = ContextManager()
+        # 3-phase context-pruner middleware: runs before every LLM call to enforce
+        # token budgets and wrap older context as historical memory.
+        self.pruner = ContextPruner()
+        # Specialized sub-agent configurations (★2 roadmap item).
+        # Keyed by role name ("file_picker", "planner", "editor", "reviewer").
+        # When set, _spawn_subagent uses the configured per-role model.
+        self.sub_agents: dict[str, Any] = {}
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
         self._session_store = session_store
+        # Nemotron reward scorer (B1): quick quality check before LLM verifier.
+        # Lazily initialised on first use so it doesn't break in envs without httpx.
+        self._reward_scorer: Any = None
+        # Capability registry (A3): dynamic tool dispatch replacing hardcoded
+        # if/elif chains with registry-based lookup.
+        self._tool_registry: Any = None
+        # Steering injector (B2): quality-biased generation via SteerLM tokens.
+        self._steering: Any = None
         # MCP client — injected after construction when an MCP sidecar is
         # available.  None means fall back to local WorkspaceTools for all ops.
         self._mcp = None
@@ -87,6 +129,17 @@ class AgentRunner:
         self.email = email
         self.department = department
         self.key_id = key_id
+
+    def configure_sub_agents(self, configs: list[dict[str, Any]]) -> None:
+        """Set per-role sub-agent configurations for specialized routing (★2).
+
+        When sub-agent configs are registered, ``_spawn_subagent`` and the
+        tool-call loop use the configured per-role model instead of the default
+        executor/verifier — enabling the File Picker → Planner → Editor →
+        Reviewer pattern where each role is routed to the cheapest capable model.
+        """
+        self.sub_agents = {c.role: c for c in configs}
+        log.debug("configured %d specialized sub-agent(s): %s", len(configs), list(self.sub_agents.keys()))
 
     async def plan(
         self,
@@ -165,10 +218,26 @@ class AgentRunner:
 
             self._log_event(session_id, "user_message", {"instruction": instruction})
 
+            # C4: Persist the user instruction and history to chat history
+            if _AGENT_CHAT_HISTORY_ENABLED and session_id:
+                try:
+                    from services.chat_history import get_chat_history
+                    store = get_chat_history()
+                    store.append(session_id, {"role": "user", "content": instruction[:2000]})
+                except Exception:
+                    pass
+
             plan = await self._generate_plan(
                 instruction, effective_history, requested_model, max_steps, user_id, memory_store
             )
             self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
+
+            # A5: Publish plan creation event on the inter-agent message bus
+            try:
+                from services.agent_bus import get_agent_bus
+                await get_agent_bus().publish("agent.planned", {"goal": plan.goal, "steps": len(plan.steps)})
+            except Exception:
+                pass
 
             step_results: list[dict[str, Any]] = []
             commits: list[str] = []
@@ -206,6 +275,36 @@ class AgentRunner:
                     commit = self._commit_step(step_data["description"], result["changed_files"])
                     if commit:
                         commits.append(commit)
+
+                # Adaptive Loop Halting: early-exit when verifier confidence >= threshold
+                # on all files touched this step. Simple single-file edits often finish
+                # in one pass; no need to burn through remaining planned steps.
+                if _CONFIDENCE_THRESHOLD < 1.0 and result.get("status") == "applied":
+                    scores = step_data.get("_confidence_scores") or []
+                    if scores and all(s >= _CONFIDENCE_THRESHOLD for s in scores):
+                        remaining = plan.steps[max_steps:] if len(plan.steps) > max_steps else []
+                        skipped = [s.id for s in plan.steps if s.id > step.id]
+                        log.info(
+                            "Adaptive halting: all verifier confidence scores >= %.2f on step %d "
+                            "(%s). Skipping %d remaining step(s) %s.",
+                            _CONFIDENCE_THRESHOLD, step.id, scores, len(skipped), skipped or "(none)",
+                        )
+                        self._log_event(
+                            session_id, "step_complete",
+                            {"adaptive_halt": True, "confidence_scores": scores, "skipped_steps": skipped},
+                        )
+                        break
+
+            # A5: Publish run complete event on the inter-agent message bus
+            try:
+                from services.agent_bus import get_agent_bus
+                await get_agent_bus().publish("agent.completed", {
+                    "goal": plan.goal,
+                    "applied": sum(1 for s in step_results if s.get("status") == "applied"),
+                    "total_steps": len(step_results),
+                })
+            except Exception:
+                pass
 
             # Judge the overall run result
             judge: dict[str, Any] = {}
@@ -269,6 +368,15 @@ class AgentRunner:
 
             summary = self._build_summary(plan.goal, step_results, commits, pr_url)
             self._log_event(session_id, "assistant_message", {"summary": summary})
+
+            # C4: Persist the agent response summary to chat history
+            if _AGENT_CHAT_HISTORY_ENABLED and session_id and summary:
+                try:
+                    from services.chat_history import get_chat_history
+                    store = get_chat_history()
+                    store.append(session_id, {"role": "assistant", "content": summary[:2000]})
+                except Exception:
+                    pass
 
             # Update auth context if passed in run()
             if user_id:
@@ -386,6 +494,10 @@ class AgentRunner:
         executor_model = executor_decision.resolved_model if not requested_model else requested_model
         if not executor_model:
             executor_model = DEFAULT_EXECUTOR_MODEL
+        # Consult sub-agent configs for per-phase model selection (★2)
+        editor_cfg = self.sub_agents.get("editor")
+        if editor_cfg and editor_cfg.model:
+            executor_model = editor_cfg.model
 
         verifier_decision = get_router().route(
             requested_model=requested_model,
@@ -394,11 +506,18 @@ class AgentRunner:
         verifier_model = verifier_decision.resolved_model if not requested_model else requested_model
         if not verifier_model:
             verifier_model = DEFAULT_VERIFIER_MODEL
+        # Consult sub-agent configs for verifier role (★2)
+        reviewer_cfg = self.sub_agents.get("reviewer")
+        if reviewer_cfg and reviewer_cfg.model:
+            verifier_model = reviewer_cfg.model
 
         log.debug(
             "agent execute: executor=%s verifier=%s",
             executor_model, verifier_model,
         )
+
+        # ReAct scratchpad: accumulates reasoning trace across tool calls (A2)
+        scratchpad = ReactScratchpad()
 
         for remaining in range(15, 0, -1):
             try:
@@ -406,24 +525,33 @@ class AgentRunner:
                 # keep the tool-selection prompt lean.  Recent observations are
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
-                tool_call = await self._chat_json(
-                    executor_model,
-                    build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining),
-                )
+                tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                # Inject ReAct scratchpad trace into the system message so the
+                # model can see its own reasoning across tool calls (A2)
+                scratchpad_ctx = scratchpad.to_prompt_context()
+                if scratchpad_ctx and tool_messages:
+                    sys_content = str(tool_messages[0].get("content", ""))
+                    tool_messages[0]["content"] = f"{sys_content}\n\n{scratchpad_ctx}"
+                tool_call = await self._chat_json(executor_model, tool_messages)
                 call = ToolCall.model_validate(tool_call)
             except Exception as exc:
                 observations.append({"tool": "error", "result": f"tool selection failed: {exc}"})
                 continue
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
+                scratchpad.record_thought(call.args.get("reason", "step complete"))
                 break
             if call.tool == "spawn_subagent":
                 sub_result = await self._spawn_subagent(**call.args)
                 observations.append({"tool": "spawn_subagent", "result": sub_result.get("summary", str(sub_result))})
                 context_items.append({"tool": "spawn_subagent", "result": sub_result})
+                scratchpad.record_action("spawn_subagent", call.args)
+                scratchpad.record_observation(sub_result.get("summary", "subagent completed"))
                 continue
+            scratchpad.record_action(call.tool, call.args)
             self._log_event(session_id, "tool_call", {"tool": call.tool, "args": call.args})
             result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
+            scratchpad.record_observation(result)
             self._log_event(session_id, "tool_result", {"tool": call.tool, "result": str(result)[:500]})
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
@@ -509,41 +637,76 @@ class AgentRunner:
                 new_content = self._clean_generated_file_content(new_content)
                 syntax_issues = self._local_syntax_check(out_path, new_content)
                 syntax_issues.extend(self._local_safety_check(out_path, new_content))
-                try:
-                    verification = await self._chat_json(
-                        verifier_model,
-                        build_verification_prompt(
-                            goal=goal,
-                            step=step,
-                            target_file=out_path,
-                            original_content=original_content,
-                            new_content=new_content,
-                            syntax_issues=syntax_issues,
-                        ),
+
+                # ── B1: Nemotron Reward Model fast-path scoring ────────────
+                # Before calling the expensive LLM verifier, try the reward
+                # model for a quick quality score.  If the score is high enough
+                # (>= _REWARD_PASS_THRESHOLD), skip the LLM verifier entirely.
+                # Falls back to LLM verifier when reward model is unavailable.
+                reward_score: float | None = None
+                if _REWARD_ENABLED and not syntax_issues:
+                    scorer = self._get_reward_scorer()
+                    if scorer and scorer.is_available:
+                        try:
+                            reward_result = await scorer.score(
+                                prompt=f"{goal}\nStep: {step.get('description', '')}\nFile: {out_path}",
+                                response=new_content[:8000],
+                            )
+                            reward_score = reward_result.score
+                            self._log_event(
+                                session_id, "step_complete",
+                                {"reward_score": reward_score, "reward_model_used": reward_result.model_used},
+                            )
+                        except Exception as exc:
+                            log.debug("Reward scoring failed (falling back to LLM verifier): %s", exc)
+
+                # If reward score is high enough, skip the LLM verifier
+                if reward_score is not None and reward_score >= float(os.environ.get("NEMOTRON_REWARD_PASS_THRESHOLD", "0.7")):
+                    log.info(
+                        "Reward model score %.2f >= threshold — skipping LLM verifier for %s",
+                        reward_score, out_path,
                     )
-                    verdict = VerificationResult.model_validate(verification)
-                except Exception as verif_exc:
-                    retries += 1
-                    feedback_issues = syntax_issues + [f"verifier_output_invalid: {verif_exc}"]
-                    # StopIteration (exhausted mock iterator) or persistent format failure → fail immediately
-                    is_exhausted = isinstance(verif_exc, (StopIteration, RuntimeError)) and "StopIteration" in str(verif_exc)
-                    if retries > 2 or is_exhausted:
-                        return {
-                            "step_id": step["id"],
-                            "description": step["description"],
-                            "status": "failed",
-                            "failure_phase": "verification",
-                            "issues": feedback_issues,
-                            "changed_files": changed_files,
-                            "observations": observations,
-                            "models": {"executor": executor_model, "verifier": verifier_model},
-                        }
-                    continue
+                    verdict = VerificationResult(status="pass", issues=[], confidence=reward_score)
+                else:
+                    try:
+                        verification = await self._chat_json(
+                            verifier_model,
+                            build_verification_prompt(
+                                goal=goal,
+                                step=step,
+                                target_file=out_path,
+                                original_content=original_content,
+                                new_content=new_content,
+                                syntax_issues=syntax_issues,
+                            ),
+                        )
+                        verdict = VerificationResult.model_validate(verification)
+                    except Exception as verif_exc:
+                        retries += 1
+                        feedback_issues = syntax_issues + [f"verifier_output_invalid: {verif_exc}"]
+                        # StopIteration (exhausted mock iterator) or persistent format failure → fail immediately
+                        is_exhausted = isinstance(verif_exc, (StopIteration, RuntimeError)) and "StopIteration" in str(verif_exc)
+                        if retries > 2 or is_exhausted:
+                            return {
+                                "step_id": step["id"],
+                                "description": step["description"],
+                                "status": "failed",
+                                "failure_phase": "verification",
+                                "issues": feedback_issues,
+                                "changed_files": changed_files,
+                                "observations": observations,
+                                "models": {"executor": executor_model, "verifier": verifier_model},
+                            }
+                        continue
                 if verdict.status == "pass" and not syntax_issues:
                     diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
                     file_applied = True
+                    # Adaptive Loop Halting: track confidence for early exit
+                    if "_confidence_scores" not in step:
+                        step["_confidence_scores"] = []
+                    step["_confidence_scores"].append(verdict.confidence)
                     break
 
                 retries += 1
@@ -630,14 +793,28 @@ class AgentRunner:
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
     ) -> Any:
+        # ── A3: Capability Registry dynamic dispatch ─────────────────────────
+        # Try the tool registry first for dynamically registered tools.
+        # Falls back to the hardcoded if/elif chain for legacy tools.
+        tr = self._get_tool_registry()
+        if tr is not None:
+            tool_def = tr.get(tool)
+            if tool_def is not None:
+                try:
+                    result = tool_def.handler(**args)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    return result
+                except Exception as exc:
+                    log.debug("Capability registry tool %r failed: %s", tool, exc)
+                    return f"[tool error via registry: {exc}]"
+
+        # Legacy hardcoded dispatch (fallback)
         if tool == "read_file":
             return self.tools.read_file(str(args.get("path", "")))
         if tool == "head_file":
-            # JIT retrieval: read only the first N lines so the context window
-            # stays lean during the inspection phase.
             return self.tools.head_file(str(args.get("path", "")), int(args.get("lines", 50)))
         if tool == "file_index":
-            # Lightweight index tier: always-loaded, ~150 chars per entry.
             return self.tools.file_index(str(args.get("path", ".")), int(args.get("max_entries", 100)))
         if tool == "list_files":
             return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
@@ -772,6 +949,47 @@ class AgentRunner:
         back to the Ollama-compatible endpoint otherwise.
         """
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+
+        # Context pruning: enforce token budgets before sending to the LLM
+        messages = self.pruner.prune(messages)
+        payload["messages"] = messages
+
+        # C5: Auto-truncate messages to fit within the model's context window
+        if _AGENT_CONTEXT_WINDOW_ENABLED and isinstance(messages, list) and len(messages) > 4:
+            try:
+                from services.context_window import get_context_window_manager
+                mgr = get_context_window_manager()
+                if mgr.needs_truncation(messages, model=model):
+                    result = mgr.truncate(messages, model=model)
+                    payload["messages"] = result.messages
+                    log.debug("Agent context window truncated: %d → %d messages (model=%s)",
+                             result.original_count, result.truncated_count, model)
+            except Exception:
+                pass
+
+        # Reasoning token budget (★3): inject thinking_token_budget for supported models
+        _budget_key = os.environ.get("AGENT_REASONING_BUDGET", _REASONING_BUDGET_DEFAULT).strip().lower()
+        _budget_tokens = _REASONING_BUDGET_MAP.get(_budget_key)
+        if _budget_tokens is not None and _budget_tokens > 0:
+            payload["thinking_token_budget"] = _budget_tokens
+
+        # SteerLM steering injection (B2): inject quality-biasing instruction
+        # Only inject for execution-phase calls; planning/verification use
+        # their own prompt structures that shouldn't be steered.
+        steering = self._get_steering()
+        if steering is not None and steering.enabled:
+            try:
+                from router.steering import steering_for_task
+                # Use code_generation steering by default for execution calls.
+                # Callers can override by setting _steering_labels on the runner.
+                labels = getattr(self, "_steering_labels", None) or steering_for_task("code_generation")
+                payload["messages"] = steering.inject(
+                    messages=payload["messages"],
+                    labels=labels,
+                )
+            except Exception:
+                pass
+
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
         if self.num_ctx:
@@ -1067,6 +1285,41 @@ class AgentRunner:
 
         return issues
 
+    # ── Reward scorer accessor (B1) ─────────────────────────────────────────
+
+    def _get_reward_scorer(self) -> Any:
+        if self._reward_scorer is None:
+            try:
+                from services.reward_scorer import get_reward_scorer
+                self._reward_scorer = get_reward_scorer()
+            except Exception as exc:
+                log.debug("Could not load reward scorer: %s", exc)
+                self._reward_scorer = False  # sentinel: tried and failed
+        return self._reward_scorer if self._reward_scorer is not False else None
+
+    # ── Capability registry accessor (A3) ───────────────────────────────────
+
+    def _get_tool_registry(self) -> Any:
+        if self._tool_registry is None:
+            try:
+                from agent.capability_registry import get_tool_registry
+                self._tool_registry = get_tool_registry()
+            except Exception as exc:
+                log.debug("Could not load tool registry: %s", exc)
+                self._tool_registry = False
+        return self._tool_registry if self._tool_registry is not False else None
+
+    def _get_steering(self) -> Any:
+        """Lazy accessor for the SteerLM steering injector (B2)."""
+        if self._steering is None:
+            try:
+                from router.steering import get_steering_injector
+                self._steering = get_steering_injector()
+            except Exception as exc:
+                log.debug("Could not load steering injector: %s", exc)
+                self._steering = False
+        return self._steering if self._steering is not False else None
+
     def _safe_read(self, path: str) -> str:
         try:
             return self.tools.read_file(path, max_chars=200000)
@@ -1121,9 +1374,16 @@ class AgentRunner:
         *,
         instruction: str,
         max_steps: int = 3,
+        role: str = "",
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Spawn a child AgentRunner for a delegated sub-task."""
+        """Spawn a child AgentRunner for a delegated sub-task.
+
+        When sub-agent configs are registered (★2), the child runner inherits
+        the per-role model and tool allowlist.  The ``role`` kwarg selects the
+        config (e.g. ``"file_picker"``, ``"editor"``); when empty or unmatched
+        the child uses the parent's default model.
+        """
         if not instruction or not instruction.strip():
             return {"error": "spawn_subagent requires a non-empty instruction"}
         sub = AgentRunner(
@@ -1133,12 +1393,20 @@ class AgentRunner:
             provider_temperature=self.provider_temperature,
             session_store=self._session_store,
         )
+        # Apply per-role sub-agent config if available
+        cfg = self.sub_agents.get(role) if role else None
+        if cfg:
+            sub.configure_sub_agents([cfg])
+            override_model = cfg.model or None
+            log.debug("spawn_subagent role=%s model=%s", role, override_model or "(inherit)")
+        else:
+            override_model = None
         return await sub.run(
             instruction=instruction,
             history=[],
-            requested_model=None,
+            requested_model=override_model,
             auto_commit=False,
-            max_steps=int(max_steps),
+            max_steps=int(max_steps) if not cfg else min(int(max_steps), cfg.max_steps),
         )
 
     async def _auto_push_and_pr(self, commits: list[str], session_id: str | None, goal: str = "") -> str | None:
