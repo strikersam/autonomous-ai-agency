@@ -76,6 +76,37 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Auto-resolved escalation issues on passing CI.** `continuous-improvement.yml` now runs on every push to master (in addition to the daily cron), and both `continuous-improvement.yml` and `agency-cycle.yml` now auto-close any open `CI: Failing Tests` or `Agency: Cannot Fix Tests` issues when tests pass — no more stale escalation issues hanging open after fixes are merged.
+- **`ADMIN_PASSWORD` is now sourced exclusively from the `ADMIN_PASSWORD` environment variable.**
+  Removed all hardcoded `"WikiAdmin2026!"` literals from every test file and CI workflow.
+  `backend/server.py` remains the single canonical fallback; all test files now derive the
+  password from `server.ADMIN_PASSWORD` (unit tests) or `os.environ.get("ADMIN_PASSWORD")`
+  (live-server/e2e tests). CI workflows use `secrets.CI_ADMIN_PASSWORD` only — no hardcoded
+  fallback. Changing the env var on Render/CI now propagates to every code path automatically.
+- **Runtime 401 auth errors no longer stall tasks for 10 re-queue cycles.**
+  `InternalAgentAdapter.execute()` now iterates an ordered provider chain
+  (NVIDIA → DeepSeek → Groq → DashScope → OpenRouter → Together → Mistral →
+  Gemini → Cloudflare → HuggingFace → ZhiPu → MiniMax → local Ollama) and
+  passes the correct `Authorization: Bearer <key>` header for each cloud
+  provider — the header was previously omitted, causing every NVIDIA request
+  to fail with 401. On 401 or any other provider error the adapter
+  immediately skips to the next provider; only after exhausting the entire
+  chain does it raise `RuntimeExecutionError`. Introduced
+  `_ordered_provider_configs()` (replaces `_best_cloud_primary_base()` in the
+  execution path) and `_is_auth_error()` helpers.
+- **Agency escalation issues now include actionable error details.**
+  `agency-cycle.yml` previously created GitHub issues containing only raw
+  pytest dot/F output (no test names, no error messages). The workflow now
+  runs a second `pytest --tb=short` pass on the failing tests and includes the
+  short tracebacks in the issue body alongside the list of `FAILED` test IDs.
+- **`TaskDispatcher` reconciler no longer crashes on startup.**
+  `TaskExecutionCoordinator` was missing the `_active_task_ids` attribute that
+  `TaskDispatcher._reconcile()` required. Added the set to `__init__` and
+  converted `_claim_task` / `_release_task` from `@staticmethod` to instance
+  methods that keep it up to date, so the reconciler correctly skips tasks
+  that are actively executing rather than treating them as stranded.
+
 ### Added
 - **Killer TODO Roadmap — 33-item implementation backlog from 6 leading OSS projects (`docs/roadmap-killer-todos.md`).** Comprehensive roadmap derived from deep analysis of hermes-agent, agentic-os, Nemotron, OpenMythos, codebuff, and companyhelm — cross-referenced against the current codebase. 33 items organized across 8 sections (A-H) plus 7 highest-ROI TOP items. Each item scoped to be implementable without architectural rewrites, with priority (P0-P3), source project reference, and specific files to create/modify. The TOP 7 highest-ROI items are: 3-Phase Context-Pruner Middleware, Specialized Sub-Agents, Reasoning Token Budget, Skill/Procedural Memory, Sandboxed Agent Execution, Cost Analytics + FTS5 Memory, and Adaptive Loop Halting.
 - **Dynamic Session Planning Workflow — mandatory 10-step process in AGENTS.md.** Every non-trivial agentic session across all AI tools (Claude Code, Codex, Cursor, Aider, etc.) must follow READ→ORIENT→SKILLS→RESEARCH→PLAN→TRACK→PR→CONFIRM→EXECUTE→CLOSE before writing code. Backed by `.claude/state/active-tasks.md` (living task tracker with TODO/IN_PROGRESS/DONE/BLOCKED/BUG_FOUND/BUG_FIXED statuses) that all agents update continuously.
@@ -105,6 +136,7 @@
 - **FreeBuff Telegram bot can run inside the web service (free-tier single-service deploy).** `backend/server.py` now optionally launches the bot in-process on startup (`RUN_TELEGRAM_BOT=true` + `TELEGRAM_BOT_TOKEN`), so one Render service hosts both the API and the phone-control bot. The embedded agent run sets a scoped orchestrator bypass so it works even though the web service runs in `orchestrator` mode (the same mechanism `TaskExecutionCoordinator` uses). A `BOT_KEEPALIVE` self-ping (to `RENDER_EXTERNAL_URL/api/ping` every 10 min) keeps the free instance awake since the bot's outbound long-poll doesn't. `Dockerfile.backend` now ships `telegram_bot.py`; `render.yaml` wires the bot env onto the web service. Docs: `docs/deploy/freebuff-telegram-bot.md` (Option A0).
 
 ### Fixed
+- **FreeBuff Telegram bot crash-looped with `UnboundLocalError: TELEGRAM_BOT_TOKEN`.** A later whitespace-strip reassigns `TELEGRAM_BOT_TOKEN` inside `run_bot()`, which (without a `global` declaration) made the name function-local, so the earlier read raised `UnboundLocalError` and the bot restarted every 30s. Added `TELEGRAM_BOT_TOKEN` to the `global` statement in `run_bot()`. Regression test `test_run_bot_no_unbound_local_for_token`.
 - **FreeBuff Telegram bot rejected valid allowlists (`TELEGRAM_ALLOWED_USER_IDS is empty or unparsable`).** The parser only accepted bare digit tokens, so a quoted (`"123"`), bracketed (`[123, 456]`), or otherwise-decorated value parsed to an empty set and nobody could use the bot. Now uses a tolerant digit-regex parser (`_parse_user_ids`) handling comma/space/semicolon separators, quotes, brackets, and negative (group) IDs; usernames still correctly rejected. `run_bot()` re-parses the allowlists from the environment at startup (robust to import order when launched in-process by the web service) and the error now logs a redacted preview of the offending value plus the exact expected format.
 - **FreeBuff Telegram bot worker crashed on startup (`ModuleNotFoundError: telegram_bot`).** The Render/Docker entrypoint `python scripts/run_freebuff_bot.py` put `scripts/` on `sys.path[0]` (not the repo root), so `from telegram_bot import run_bot` failed and the worker exited immediately — no bot, effectively no useful logs. Fixed by inserting the repo root into `sys.path` in the launcher and setting `PYTHONPATH=/app` in `Dockerfile.telegram`. The launcher now reliably reaches `run_bot()` regardless of working directory.
 - **FreeBuff Telegram bot received no messages when reusing an existing bot.** If the bot token had previously been configured with a webhook (or another instance was polling it), Telegram rejects `getUpdates` with HTTP 409 and the worker silently received nothing — so `/freebuff` got no response. `run_bot()` now verifies the token via `getMe` (logs the bot @username), calls `deleteWebhook` on startup, and on a 409/conflict logs a clear actionable message and re-clears the webhook before retrying. Bare `/start` now greets + shows help instead of being treated as a service-control command. The GitHub token for embedded runs reads `GITHUB_TOKEN` **or** `GH_PAT` (either works).

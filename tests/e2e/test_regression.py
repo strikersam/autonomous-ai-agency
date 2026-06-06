@@ -33,7 +33,7 @@ except ImportError:
 
 BASE_URL = os.environ.get("RELAY_BASE_URL", "http://localhost:8001").rstrip("/")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105 — test credential only
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 ARTIFACT_DIR = os.environ.get("E2E_ARTIFACT_DIR", "/tmp/e2e-artifacts")
 
 # ─── Viewports ────────────────────────────────────────────────────────────────

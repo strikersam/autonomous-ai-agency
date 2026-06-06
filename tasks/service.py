@@ -406,6 +406,10 @@ class TaskExecutionCoordinator:
         self.execution_timeout_s = execution_timeout_s or float(
             os.environ.get("TASK_EXECUTION_TIMEOUT_SEC", "150")
         )
+        # Tracks task IDs currently executing in this process.  Used by the
+        # TaskDispatcher reconciler to avoid re-queueing tasks that are just
+        # running slowly (as opposed to truly stranded from a prior crash).
+        self._active_task_ids: set[str] = set()
 
     async def execute(self, task_id: str) -> Task:
         if not await self._claim_task(task_id):
@@ -574,12 +578,14 @@ class TaskExecutionCoordinator:
             await self._release_task(task_id)
         return task
 
-    @staticmethod
-    async def _claim_task(task_id: str) -> bool:
-        return await _shared_claim(f"task:active:{task_id}", ttl=3600)
+    async def _claim_task(self, task_id: str) -> bool:
+        acquired = await _shared_claim(f"task:active:{task_id}", ttl=3600)
+        if acquired:
+            self._active_task_ids.add(task_id)
+        return acquired
 
-    @staticmethod
-    async def _release_task(task_id: str) -> None:
+    async def _release_task(self, task_id: str) -> None:
+        self._active_task_ids.discard(task_id)
         await _shared_release(f"task:active:{task_id}")
 
     async def _resolve_agent(self, task: Task) -> AgentDefinition | None:
