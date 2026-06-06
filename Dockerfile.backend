@@ -55,6 +55,7 @@ COPY version.py version.py
 COPY activation.py activation.py
 COPY activation_api.py activation_api.py
 COPY infra_cost.py infra_cost.py
+COPY telegram_bot.py telegram_bot.py
 COPY models/ models/
 COPY services/ services/
 # The built SPA from stage 1 (backend/server.py `_FRONTEND_BUILD` serves it at

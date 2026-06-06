@@ -1253,6 +1253,83 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
+async def _telegram_bot_supervisor() -> None:
+    """Run the FreeBuff Telegram bot, restarting it on unexpected exit."""
+    import asyncio as _asyncio
+
+    from telegram_bot import run_bot
+    while True:
+        try:
+            await run_bot()
+            log.warning("Telegram bot exited (likely misconfig); retrying in 30s.")
+        except _asyncio.CancelledError:
+            raise
+        except Exception as exc:  # never let the bot kill the web process
+            log.exception("Telegram bot crashed: %s — restarting in 30s", exc)
+        await _asyncio.sleep(30)
+
+
+async def _keepalive_self_ping() -> None:
+    """Ping our own public URL so a free-tier web service doesn't sleep.
+
+    Render free web services sleep after ~15 min without *inbound* traffic; the
+    bot's outbound long-poll does not count. Pinging RENDER_EXTERNAL_URL keeps
+    the service awake so the bot keeps receiving. Opt out with BOT_KEEPALIVE=false.
+    """
+    import asyncio as _asyncio
+
+    base = (os.environ.get("RENDER_EXTERNAL_URL") or os.environ.get("SELF_BOOTSTRAP_URL") or "").rstrip("/")
+    if not base:
+        return
+    url = f"{base}/api/ping"
+    import httpx as _httpx
+    while True:
+        await _asyncio.sleep(600)  # every 10 minutes
+        try:
+            async with _httpx.AsyncClient(timeout=20.0) as client:
+                await client.get(url)
+        except _asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.debug("keepalive self-ping failed (non-fatal): %s", exc)
+
+
+def _start_in_web_bot_tasks() -> list:
+    """Start the Telegram bot (and keep-alive) inside the web process when enabled.
+
+    Enabled when TELEGRAM_BOT_TOKEN is set and RUN_TELEGRAM_BOT is truthy
+    (default true). Returns the created asyncio tasks so the caller can cancel
+    them on shutdown.
+    """
+    import asyncio as _asyncio
+
+    tasks: list = []
+    if not os.environ.get("TELEGRAM_BOT_TOKEN"):
+        return tasks
+    if os.environ.get("RUN_TELEGRAM_BOT", "true").strip().lower() not in {"1", "true", "yes"}:
+        log.info("RUN_TELEGRAM_BOT is disabled — not starting the in-web Telegram bot.")
+        return tasks
+
+    # FreeBuff embedded defaults so the bot runs the agent in-process (no proxy)
+    # and opens draft PRs. Only set when the operator hasn't overridden them.
+    os.environ.setdefault("FREEBUFF_EMBEDDED", "true")
+    os.environ.setdefault("AGENT_AUTO_PR_ENABLED", "true")
+    os.environ.setdefault("FREEBUFF_BASE_BRANCH", "master")
+    os.environ.setdefault("FREEBUFF_REPO_URL", "https://github.com/strikersam/local-llm-server")
+
+    try:
+        tasks.append(_asyncio.create_task(_telegram_bot_supervisor()))
+        log.info("FreeBuff Telegram bot starting inside web process (embedded mode).")
+    except Exception as exc:
+        log.warning("Could not start in-web Telegram bot: %s", exc)
+        return tasks
+
+    if os.environ.get("BOT_KEEPALIVE", "true").strip().lower() in {"1", "true", "yes"}:
+        tasks.append(_asyncio.create_task(_keepalive_self_ping()))
+
+    return tasks
+
+
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
     from services.background import start_background_services, run_background_in_web
@@ -1280,8 +1357,14 @@ async def lifespan(app_: "FastAPI"):
             "(expected: dedicated worker process is running)"
         )
 
+    # FreeBuff Telegram bot — optionally run inside this web process so a single
+    # free-tier service can host both the API and the phone-control bot.
+    extra_tasks = _start_in_web_bot_tasks()
+
     yield
 
+    for _t in extra_tasks:
+        _t.cancel()
     if bg is not None:
         await bg.stop()
 

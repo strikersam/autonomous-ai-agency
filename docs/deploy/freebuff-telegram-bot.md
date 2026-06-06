@@ -10,7 +10,45 @@ single self-contained worker — no proxy server, no MongoDB, no public port
 
 ---
 
-## Option A — Render (recommended, free tier)
+## Option A0 — Run inside your existing web service (free tier: ONE service)
+
+If you can only run a single Render service, host the bot **inside** the
+`local-llm-server` web service. On startup the app launches the bot in-process
+(embedded mode) when a token is present.
+
+On the **`local-llm-server`** service, set these env vars:
+
+| Variable | Value |
+|----------|-------|
+| `RUN_TELEGRAM_BOT` | `true` |
+| `TELEGRAM_BOT_TOKEN` | BotFather token |
+| `TELEGRAM_ALLOWED_USER_IDS` | your numeric user ID |
+| `TELEGRAM_ADMIN_USER_IDS` | your numeric user ID |
+| `NVIDIA_API_KEY` | your `nvapi-...` key |
+| `GH_PAT` (or `GITHUB_TOKEN`) | token with `repo` scope |
+
+Defaulted automatically (override if needed): `FREEBUFF_EMBEDDED=true`,
+`AGENT_AUTO_PR_ENABLED=true`, `FREEBUFF_REPO_URL`, `FREEBUFF_BASE_BRANCH=master`,
+`BOT_KEEPALIVE=true`.
+
+Then redeploy and watch the **`local-llm-server`** logs for:
+```
+FreeBuff Telegram bot starting inside web process (embedded mode).
+Bot @<yourbot> online. Allowed users: {…} Admin users: {…}
+Cleared any existing webhook (deleteWebhook ok=True).
+```
+
+Notes:
+- The web service runs in **orchestrator** mode; FreeBuff runs are allowed via a
+  scoped, per-run bypass (the same mechanism the task coordinator uses).
+- Free web services **sleep after ~15 min of no inbound traffic**, and the bot's
+  outbound long-poll does not keep it awake. `BOT_KEEPALIVE=true` makes the app
+  self-ping `RENDER_EXTERNAL_URL/api/ping` every 10 min so it stays up. (You can
+  also point an external uptime pinger at `…/api/ping`.)
+
+---
+
+## Option A — Dedicated Render worker (if you can run a second service)
 
 `render.yaml` already defines the worker `freebuff-telegram-bot`
 (`Dockerfile.telegram`). Render workers don't sleep, so the bot stays responsive.
