@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Added
+- **C3 Streaming Delta Reconstruction (`services/streaming_delta.py`).** StreamingDeltaReconstructor buffers raw SSE chunks, applies async post-processing hooks, and re-emits as properly-formed SSE deltas (direct async generator, no queue deadlock). DeltaChunk/ReconstructResult dataclasses. create_streaming_reconstructor factory with optional guardrails/steering hooks.
+- **C4 Chat History Persistence + Retrieval (`services/chat_history.py`).** SQLite-backed ChatHistoryStore with session CRUD, message append/get/update, history trimming (oldest-first), export/import, session limit enforcement, WAL mode, and foreign keys.
+- **C5 Context Window Management + Smart Truncation (`services/context_window.py`).** ContextWindowManager with per-model context limits from router registry, sliding_window/head_tail/smart_compact strategies, O(n) incremental token estimation, tiktoken fallback, and TruncationResult with compression ratio.
 - **B3 Synthetic Training Data Pipeline (`services/synthetic_data.py`).** Auto-generates Alpaca/ShareGPT-format fine-tuning data from agent session traces with reward_score filtering, per-session caps, and JSONL/JSON export. Exported from `services/__init__.py`.
 - **B4 Safety Guardrails (`services/guardrails.py`).** Configurable guardrail engine with regex-based topic filtering, jailbreak detection (first-pass filter), PII output scanning, and YAML/JSON rule configuration. GuardResult model with blocked/warned flags and statistics.
 - **B5 NIM Connection Pool + Circuit Breaker (`services/nim_pool.py`).** Persistent httpx.AsyncClient pool with state-machine circuit breaker (CLOSED/OPEN/HALF_OPEN), exponential backoff with jitter, provider-scoped circuit tracking, and CircuitBreakerOpenError. Replaces ad-hoc per-request httpx clients.

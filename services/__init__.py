@@ -33,6 +33,15 @@ from .guardrails import GuardrailEngine, GuardResult, get_guardrails
 # NIM Connection Pool (B5)
 from .nim_pool import NIMConnectionPool, ProviderCircuit, CircuitState, CircuitBreakerOpenError, get_nim_pool
 
+# Streaming Delta Reconstruction (C3)
+from .streaming_delta import StreamingDeltaReconstructor, DeltaChunk, ReconstructResult, create_streaming_reconstructor
+
+# Chat History Persistence (C4)
+from .chat_history import ChatHistoryStore, get_chat_history
+
+# Context Window Management (C5)
+from .context_window import ContextWindowManager, TruncationStrategy, TruncationResult, get_context_window_manager
+
 __all__ = [
     # Company Graph
     "CompanyGraphService",
@@ -73,4 +82,17 @@ __all__ = [
     "CircuitState",
     "CircuitBreakerOpenError",
     "get_nim_pool",
+    # Streaming Delta Reconstruction (C3)
+    "StreamingDeltaReconstructor",
+    "DeltaChunk",
+    "ReconstructResult",
+    "create_streaming_reconstructor",
+    # Chat History Persistence (C4)
+    "ChatHistoryStore",
+    "get_chat_history",
+    # Context Window Management (C5)
+    "ContextWindowManager",
+    "TruncationStrategy",
+    "TruncationResult",
+    "get_context_window_manager",
 ]
