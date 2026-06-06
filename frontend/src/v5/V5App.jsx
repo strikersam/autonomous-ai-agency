@@ -7,6 +7,7 @@ import TaskBoardScreen from './screens/TaskBoardScreen';
 import AgentsScreen from './screens/AgentsScreen';
 import SchedulesScreen from './screens/SchedulesScreen';
 import SkillsScreen from './screens/SkillsScreen';
+import PortfolioScreen from './screens/PortfolioScreen';
 import IntelligenceScreen from './screens/IntelligenceScreen';
 import KnowledgeScreen from './screens/KnowledgeScreen';
 import ProvidersScreen from './screens/ProvidersScreen';
@@ -67,6 +68,7 @@ export default function V5App() {
     agents:       <AgentsScreen onNavigateToChat={() => go('chat')} onNavigateToTasks={() => go('tasks')} />,
     schedules:    <SchedulesScreen />,
     skills:       <SkillsScreen />,
+    portfolio:    <PortfolioScreen />,
     intelligence: <IntelligenceScreen onNavigate={go} />,
     knowledge:    <KnowledgeScreen />,
     providers:    <ProvidersScreen />,
