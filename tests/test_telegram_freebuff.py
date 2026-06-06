@@ -78,7 +78,7 @@ def test_parse_user_ids_tolerant() -> None:
     assert tb._parse_user_ids("") == set()
 
 
-async def test_run_bot_no_unbound_local_for_token(monkeypatch):
+async def test_run_bot_no_unbound_local_for_token(monkeypatch) -> None:
     # Regression: run_bot reassigns TELEGRAM_BOT_TOKEN (whitespace strip), so it
     # must be declared `global` — otherwise reading it raises UnboundLocalError
     # and the bot crash-loops. With an empty token it should return cleanly.
