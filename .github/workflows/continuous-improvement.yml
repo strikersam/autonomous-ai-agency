@@ -1,6 +1,8 @@
 name: Continuous Improvement
 
 on:
+  push:
+    branches: [master]    # auto-run on every merge so resolved issues close immediately
   schedule:
     - cron: '0 9 * * *'   # daily at 09:00 UTC
   workflow_dispatch:
@@ -208,8 +210,9 @@ jobs:
               state: 'open',
               per_page: 10,
             });
+            const STALE_PREFIXES = ['CI: Failing Tests', 'Agency: Cannot Fix Tests', 'Agency:'];
             for (const issue of issues) {
-              if (issue.title.startsWith('CI: Failing Tests') && !issue.pull_request) {
+              if (!issue.pull_request && STALE_PREFIXES.some(p => issue.title.startsWith(p))) {
                 await github.rest.issues.update({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -221,7 +224,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issue.number,
-                  body: `All tests are passing as of ${new Date().toISOString().split('T')[0]}. Closing automatically.`,
+                  body: `All tests are passing as of ${new Date().toISOString().split('T')[0]}. Closing automatically — fixes are now on master.`,
                 });
                 core.info(`Closed issue #${issue.number}`);
               }

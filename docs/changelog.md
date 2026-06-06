@@ -29,6 +29,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **Auto-resolved escalation issues on passing CI.** `continuous-improvement.yml` now runs on every push to master (in addition to the daily cron), and both `continuous-improvement.yml` and `agency-cycle.yml` now auto-close any open `CI: Failing Tests` or `Agency: Cannot Fix Tests` issues when tests pass — no more stale escalation issues hanging open after fixes are merged.
 - **`ADMIN_PASSWORD` is now sourced exclusively from the `ADMIN_PASSWORD` environment variable.**
   Removed all hardcoded `"WikiAdmin2026!"` literals from every test file and CI workflow.
   `backend/server.py` remains the single canonical fallback; all test files now derive the
