@@ -45,6 +45,12 @@
   pytest dot/F output (no test names, no error messages). The workflow now
   runs a second `pytest --tb=short` pass on the failing tests and includes the
   short tracebacks in the issue body alongside the list of `FAILED` test IDs.
+- **`TaskDispatcher` reconciler no longer crashes on startup.**
+  `TaskExecutionCoordinator` was missing the `_active_task_ids` attribute that
+  `TaskDispatcher._reconcile()` required. Added the set to `__init__` and
+  converted `_claim_task` / `_release_task` from `@staticmethod` to instance
+  methods that keep it up to date, so the reconciler correctly skips tasks
+  that are actively executing rather than treating them as stranded.
 
 ### Added
 - **Autonomous portfolio intelligence (`agents/portfolio_intelligence.py`).** The Portfolio board no longer uses demo data — initiatives are auto-discovered from **real signals** and scored with WSJF heuristics: roadmap backlog + open sprint tasks (parsed from `.claude/state/active-tasks.md` / `docs/roadmap-killer-todos.md`, P0/P1 → Cost of Delay), the **bug log** (open rows → urgent, de-risking initiatives), **open GitHub PRs/issues** labelled `bug` (via the platform env token — PRs become `IN_PROGRESS`), and **research trends** (`agent/trend_watcher.py`, relevance → business value; best-effort, fails soft offline). Each initiative carries `source` + `rationale` provenance (new fields on `Initiative`), and titles are de-duplicated across signals keeping the higher-WSJF entry. A scheduled GitHub Action **`portfolio-refresh.yml`** (every 6h, `.github/scripts/portfolio_refresh.py`) re-sweeps signals, publishes a WSJF digest to the job summary, and pings the deployed backend (`POST /api/portfolio/refresh`) so the live dashboard re-builds. 13 tests in `tests/test_portfolio_intelligence.py`.
