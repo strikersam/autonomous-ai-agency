@@ -28,7 +28,8 @@
 | 4 | Autonomous Portfolio Intelligence (signals → initiatives, 6h cron) | `DONE` | [#427](https://github.com/strikersam/local-llm-server/pull/427) | portfolio_intelligence.py + refresh workflow + UI provenance | 2026-06-06 |
 | 5 | Fix social login (Google & GitHub OAuth) | `DONE` | `claude/social-login-google-github-BBGoT` | 3 bugs fixed in backend/server.py — see bug log #4-6 | 2026-06-06 |
 | 6 | Portfolio refresh workflow → reuse RENDER_BACKEND_URL secret | `IN_PROGRESS` | claude/portfolio-refresh-backend-url | point cron ping at existing secret | 2026-06-06 |
-| 7 | FreeBuff agent (free NVIDIA models) + Telegram phone control (#416) | `DONE` | [#417](https://github.com/strikersam/local-llm-server/pull/417) / `claude/pr-417-lfFFu` | FreeBuffAgent + /freebuff/* endpoints + Telegram inline buttons + rate-limit exemption; tests + docs | 2026-06-06 |
+| 7 | FreeBuff agent (free NVIDIA models) + Telegram phone control (#416) | `DONE` | [#431](https://github.com/strikersam/local-llm-server/pull/431) merged | FreeBuffAgent + /freebuff/* endpoints + Telegram inline buttons + unlimited rate limit; tests + docs | 2026-06-06 |
+| 8 | FreeBuff always-on Telegram bot (24×7 Render/Docker, embedded mode) | `IN_PROGRESS` | `claude/freebuff-telegram-deploy` | embedded in-process agent + launcher + Dockerfile.telegram + render worker + deploy docs | 2026-06-06 |
 
 ---
 
