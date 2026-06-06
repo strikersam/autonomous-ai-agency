@@ -366,6 +366,7 @@ class TestAgentLoopMCPIntegration:
         from agent.loop import AgentRunner
         runner = AgentRunner.__new__(AgentRunner)
         runner._mcp = mcp_client
+        runner._tool_registry = None
         from agent.tools import WorkspaceTools
         runner.tools = MagicMock(spec=WorkspaceTools)
         runner.tools.root = Path("fake-workspace")
