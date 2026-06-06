@@ -228,6 +228,33 @@ services:
       - key: RUN_BACKGROUND_IN_WEB
         value: "true"
 
+      # ================================================================
+      # FREEBUFF TELEGRAM BOT — run inside this web service (free tier:
+      # one service hosts both the API and the phone-control bot).
+      # Set the *sync:false* secrets in the dashboard. RUN_TELEGRAM_BOT
+      # gates startup; BOT_KEEPALIVE self-pings RENDER_EXTERNAL_URL so the
+      # free instance does not sleep (the bot's long-poll alone won't keep
+      # it awake). See docs/deploy/freebuff-telegram-bot.md.
+      # ================================================================
+      - key: RUN_TELEGRAM_BOT
+        value: "true"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALLOWED_USER_IDS
+        sync: false
+      - key: TELEGRAM_ADMIN_USER_IDS
+        sync: false
+      - key: FREEBUFF_EMBEDDED
+        value: "true"
+      - key: AGENT_AUTO_PR_ENABLED
+        value: "true"
+      - key: FREEBUFF_REPO_URL
+        value: "https://github.com/strikersam/local-llm-server"
+      - key: FREEBUFF_BASE_BRANCH
+        value: "master"
+      - key: BOT_KEEPALIVE
+        value: "true"
+
   # ── Always-on Worker (24×7 task execution + CEO loop) ─────────────────────
   # A separate worker service so task execution continues even when the web
   # service is sleeping on the free tier.  Switch the web service
@@ -294,3 +321,51 @@ services:
         sync: false
       - key: REDIS_URL
         sync: false
+
+  # ── FreeBuff Telegram bot (24×7 phone control of repo edits) ──────────────
+  # Always-on worker that long-polls Telegram and runs the FreeBuff agent
+  # in-process (embedded mode): clones the repo, edits it on free NVIDIA NIM
+  # models, and opens a draft PR. No web port — works behind any network.
+  # Set the *sync:false* secrets in the Render dashboard before first deploy.
+  - type: worker
+    name: freebuff-telegram-bot
+    env: docker
+    dockerfilePath: ./Dockerfile.telegram
+    plan: free
+    envVars:
+      # Telegram (from @BotFather and @userinfobot)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALLOWED_USER_IDS
+        sync: false
+      - key: TELEGRAM_ADMIN_USER_IDS
+        sync: false
+      # FreeBuff embedded-mode config
+      - key: FREEBUFF_EMBEDDED
+        value: "true"
+      - key: AGENCY_WORKFLOW_MODE
+        value: "legacy"
+      - key: AGENT_AUTO_PR_ENABLED
+        value: "true"
+      - key: FREEBUFF_REPO_URL
+        value: "https://github.com/strikersam/local-llm-server"
+      - key: FREEBUFF_BASE_BRANCH
+        value: "master"
+      # Optional: override the free-model list (comma-separated)
+      - key: FREEBUFF_MODELS
+        sync: false
+      # NVIDIA NIM (free) — powers the agent
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: NVIDIA_BASE_URL
+        value: "https://integrate.api.nvidia.com"
+      # GitHub token — used to clone, push branches and open draft PRs
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GH_PAT
+        sync: false
+      # Commit identity for agent commits
+      - key: GIT_AUTHOR_NAME
+        value: "FreeBuff Bot"
+      - key: GIT_AUTHOR_EMAIL
+        value: "freebuff-bot@users.noreply.github.com"

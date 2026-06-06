@@ -1253,6 +1253,83 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
+async def _telegram_bot_supervisor() -> None:
+    """Run the FreeBuff Telegram bot, restarting it on unexpected exit."""
+    import asyncio as _asyncio
+
+    from telegram_bot import run_bot
+    while True:
+        try:
+            await run_bot()
+            log.warning("Telegram bot exited (likely misconfig); retrying in 30s.")
+        except _asyncio.CancelledError:
+            raise
+        except Exception as exc:  # never let the bot kill the web process
+            log.exception("Telegram bot crashed: %s — restarting in 30s", exc)
+        await _asyncio.sleep(30)
+
+
+async def _keepalive_self_ping() -> None:
+    """Ping our own public URL so a free-tier web service doesn't sleep.
+
+    Render free web services sleep after ~15 min without *inbound* traffic; the
+    bot's outbound long-poll does not count. Pinging RENDER_EXTERNAL_URL keeps
+    the service awake so the bot keeps receiving. Opt out with BOT_KEEPALIVE=false.
+    """
+    import asyncio as _asyncio
+
+    base = (os.environ.get("RENDER_EXTERNAL_URL") or os.environ.get("SELF_BOOTSTRAP_URL") or "").rstrip("/")
+    if not base:
+        return
+    url = f"{base}/api/ping"
+    import httpx as _httpx
+    while True:
+        await _asyncio.sleep(600)  # every 10 minutes
+        try:
+            async with _httpx.AsyncClient(timeout=20.0) as client:
+                await client.get(url)
+        except _asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.debug("keepalive self-ping failed (non-fatal): %s", exc)
+
+
+def _start_in_web_bot_tasks() -> list:
+    """Start the Telegram bot (and keep-alive) inside the web process when enabled.
+
+    Enabled when TELEGRAM_BOT_TOKEN is set and RUN_TELEGRAM_BOT is truthy
+    (default true). Returns the created asyncio tasks so the caller can cancel
+    them on shutdown.
+    """
+    import asyncio as _asyncio
+
+    tasks: list = []
+    if not os.environ.get("TELEGRAM_BOT_TOKEN"):
+        return tasks
+    if os.environ.get("RUN_TELEGRAM_BOT", "true").strip().lower() not in {"1", "true", "yes"}:
+        log.info("RUN_TELEGRAM_BOT is disabled — not starting the in-web Telegram bot.")
+        return tasks
+
+    # FreeBuff embedded defaults so the bot runs the agent in-process (no proxy)
+    # and opens draft PRs. Only set when the operator hasn't overridden them.
+    os.environ.setdefault("FREEBUFF_EMBEDDED", "true")
+    os.environ.setdefault("AGENT_AUTO_PR_ENABLED", "true")
+    os.environ.setdefault("FREEBUFF_BASE_BRANCH", "master")
+    os.environ.setdefault("FREEBUFF_REPO_URL", "https://github.com/strikersam/local-llm-server")
+
+    try:
+        tasks.append(_asyncio.create_task(_telegram_bot_supervisor()))
+        log.info("FreeBuff Telegram bot starting inside web process (embedded mode).")
+    except Exception as exc:
+        log.warning("Could not start in-web Telegram bot: %s", exc)
+        return tasks
+
+    if os.environ.get("BOT_KEEPALIVE", "true").strip().lower() in {"1", "true", "yes"}:
+        tasks.append(_asyncio.create_task(_keepalive_self_ping()))
+
+    return tasks
+
+
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
     from services.background import start_background_services, run_background_in_web
@@ -1280,8 +1357,14 @@ async def lifespan(app_: "FastAPI"):
             "(expected: dedicated worker process is running)"
         )
 
+    # FreeBuff Telegram bot — optionally run inside this web process so a single
+    # free-tier service can host both the API and the phone-control bot.
+    extra_tasks = _start_in_web_bot_tasks()
+
     yield
 
+    for _t in extra_tasks:
+        _t.cancel()
     if bg is not None:
         await bg.stop()
 
@@ -1306,12 +1389,50 @@ CORS_ORIGINS = [
 # ─── Social Login (GitHub & Google) ───────────────────────────────────────────
 
 
+async def _store_login_state(state: str, provider: str) -> None:
+    """Persist an OAuth *login* state server-side in the shared oauth_states store.
+
+    Session cookies do NOT reliably survive the OAuth round-trip in this
+    deployment: the frontend is on Cloudflare while the backend is on Render,
+    and Render's free tier rotates the in-process SESSION_SECRET on every cold
+    start (when JWT_SECRET is unset). A server-side state row — the same
+    mechanism the GitHub repo-connect flow already uses — is provider- and
+    instance-agnostic. The collection has a 10-minute TTL index, so stale rows
+    are dropped automatically.
+    """
+    await get_db().oauth_states.insert_one(
+        {
+            "state": state,
+            "flow_type": "login",
+            "provider": provider,
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+
+
+def _valid_login_state(doc: Optional[dict], provider: str) -> bool:
+    """Return True if a fetched oauth_states doc is a valid, unexpired login state."""
+    if not doc or doc.get("flow_type") != "login" or doc.get("provider") != provider:
+        return False
+    created = doc.get("created_at")
+    if isinstance(created, datetime):
+        # MongoDB (motor) returns naive UTC datetimes by default, so normalise to
+        # tz-aware before comparing — otherwise "offset-naive vs offset-aware"
+        # raises TypeError and the callback 500s after the state check passes.
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        # Defensive expiry check for backends without a TTL index (e.g. SQLite).
+        if (datetime.now(timezone.utc) - created).total_seconds() > 600:
+            return False
+    return True
+
+
 @app.get("/api/auth/github/login")
 async def github_login(request: Request):
     if not GITHUB_CLIENT_ID:
         raise HTTPException(status_code=503, detail="GitHub login not configured")
     state = secrets.token_urlsafe(32)
-    request.session["github_oauth_state"] = state
+    await _store_login_state(state, "github")
     redirect_uri = (
         f"{OAUTH_REDIRECT_BASE}/api/auth/github/callback"
         if OAUTH_REDIRECT_BASE
@@ -1407,9 +1528,12 @@ async def github_callback(request: Request, code: str = None, state: str = None)
         )
         return _oauth_popup_html(True, login=login)
 
-    # Login flow: state was stored in the session by /api/auth/github/login
-    if state != request.session.pop("github_oauth_state", None):
+    # Login flow: state was stored server-side in oauth_states by
+    # /api/auth/github/login (state_doc was already fetched above).
+    if not _valid_login_state(state_doc, provider="github"):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    # State validated — consume it so it cannot be replayed.
+    await get_db().oauth_states.delete_one({"state": state})
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -1695,7 +1819,7 @@ async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google login not configured")
     state = secrets.token_urlsafe(32)
-    request.session["google_oauth_state"] = state
+    await _store_login_state(state, "google")
     # Use OAUTH_REDIRECT_BASE so the redirect_uri matches what is registered in Google Console.
     # Falls back to url_for only in local dev where no proxy is involved.
     redirect_uri = (
@@ -1715,8 +1839,12 @@ async def google_login(request: Request):
 async def google_callback(request: Request, code: str = None, state: str = None):
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
-    if state != request.session.pop("google_oauth_state", None):
+    # State was stored server-side in oauth_states by /api/auth/google/login.
+    state_doc = await get_db().oauth_states.find_one({"state": state})
+    if not _valid_login_state(state_doc, provider="google"):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    # State validated — consume it so it cannot be replayed.
+    await get_db().oauth_states.delete_one({"state": state})
 
     # redirect_uri must be identical to the one used in /api/auth/google/login
     redirect_uri = (
