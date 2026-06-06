@@ -24,6 +24,14 @@ from __future__ import annotations
 import logging
 import os
 import subprocess  # nosec B404 — constant git argv, list form (no shell)
+import sys
+
+# Ensure the repo root is importable when launched as ``python scripts/run_freebuff_bot.py``
+# (Python puts the script's own dir, scripts/, on sys.path[0] — not the repo root —
+# so ``import telegram_bot`` would otherwise fail with ModuleNotFoundError).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 log = logging.getLogger("freebuff-bot-launcher")
 
