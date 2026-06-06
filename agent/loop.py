@@ -113,6 +113,8 @@ class AgentRunner:
         # Capability registry (A3): dynamic tool dispatch replacing hardcoded
         # if/elif chains with registry-based lookup.
         self._tool_registry: Any = None
+        # Steering injector (B2): quality-biased generation via SteerLM tokens.
+        self._steering: Any = None
         # MCP client — injected after construction when an MCP sidecar is
         # available.  None means fall back to local WorkspaceTools for all ops.
         self._mcp = None
@@ -217,6 +219,13 @@ class AgentRunner:
             )
             self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
+            # A5: Publish plan creation event on the inter-agent message bus
+            try:
+                from services.agent_bus import get_agent_bus
+                await get_agent_bus().publish("agent.planned", {"goal": plan.goal, "steps": len(plan.steps)})
+            except Exception:
+                pass
+
             step_results: list[dict[str, Any]] = []
             commits: list[str] = []
 
@@ -272,6 +281,17 @@ class AgentRunner:
                             {"adaptive_halt": True, "confidence_scores": scores, "skipped_steps": skipped},
                         )
                         break
+
+            # A5: Publish run complete event on the inter-agent message bus
+            try:
+                from services.agent_bus import get_agent_bus
+                await get_agent_bus().publish("agent.completed", {
+                    "goal": plan.goal,
+                    "applied": sum(1 for s in step_results if s.get("status") == "applied"),
+                    "total_steps": len(step_results),
+                })
+            except Exception:
+                pass
 
             # Judge the overall run result
             judge: dict[str, Any] = {}
@@ -918,6 +938,23 @@ class AgentRunner:
         if _budget_tokens is not None and _budget_tokens > 0:
             payload["thinking_token_budget"] = _budget_tokens
 
+        # SteerLM steering injection (B2): inject quality-biasing instruction
+        # Only inject for execution-phase calls; planning/verification use
+        # their own prompt structures that shouldn't be steered.
+        steering = self._get_steering()
+        if steering is not None and steering.enabled:
+            try:
+                from router.steering import steering_for_task
+                # Use code_generation steering by default for execution calls.
+                # Callers can override by setting _steering_labels on the runner.
+                labels = getattr(self, "_steering_labels", None) or steering_for_task("code_generation")
+                payload["messages"] = steering.inject(
+                    messages=payload["messages"],
+                    labels=labels,
+                )
+            except Exception:
+                pass
+
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
         if self.num_ctx:
@@ -1236,6 +1273,17 @@ class AgentRunner:
                 log.debug("Could not load tool registry: %s", exc)
                 self._tool_registry = False
         return self._tool_registry if self._tool_registry is not False else None
+
+    def _get_steering(self) -> Any:
+        """Lazy accessor for the SteerLM steering injector (B2)."""
+        if self._steering is None:
+            try:
+                from router.steering import get_steering_injector
+                self._steering = get_steering_injector()
+            except Exception as exc:
+                log.debug("Could not load steering injector: %s", exc)
+                self._steering = False
+        return self._steering if self._steering is not False else None
 
     def _safe_read(self, path: str) -> str:
         try:
