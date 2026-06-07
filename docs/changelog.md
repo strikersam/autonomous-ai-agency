@@ -1,6 +1,7 @@
 - **Onboarding UX, logs, chat, admin fixes.** *Onboarding:* clickable breadcrumbs, restart button, Done back button. *Logs:* expandable messages (click to expand). *Chat:* ModelPicker two-step provider→model, mutual dropdown exclusion, repo URL input for code tasks. *Admin:* Companies tab with delete cleanup. *Backend:* DELETE /api/company/{id} endpoint.
 
 - **Agency Core v5 hardening — Phases 1-4 (SkillBindings, WorkflowOrchestrator, Doctor route split, Dashboard resilience).**
+- **Durable agent checkpointing (`agent/checkpoint.py`).** New `CheckpointStore` with save/restore/list/delete operations for crash-recovery. `checkpoint_agent_state()` snapshots AgentRunner state (goal, plan steps, tool call history, scratchpad) at key lifecycle points. `restore_agent_state()` returns structured resume data. File-backed persistence under `.data/checkpoints/`. 13 tests in `tests/test_checkpoint.py`.
 
   *Phase 1 — Skill Wiring:* `services/skill_bindings.py` with 28 typed runtime skills (7 production, 19 gated);
   `models/company_graph.py` now stores `bound_skills` on Specialist; specialist auto-binding + `get_bound_skills()`;
