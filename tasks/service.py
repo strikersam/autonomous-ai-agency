@@ -251,6 +251,7 @@ class TaskWorkflowService:
                 message=f"Task reset for retry by {actor}",
                 pending_agent_run=True,
             )
+        task.auto_retry_count = 0  # human retry resets the auto-retry counter
         task.error_message = None
         return task
 

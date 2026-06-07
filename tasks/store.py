@@ -172,6 +172,23 @@ class TaskStore:
             docs = docs[:limit]
         return [Task.model_validate(d) for d in docs]
 
+    async def list_blocked(self, *, limit: int = 50) -> list[Task]:
+        """Return BLOCKED tasks that are candidates for auto-retry."""
+        if self._mode == "mongo":
+            cursor = self._collection.find(
+                {"status": TaskStatus.BLOCKED.value},
+                {"_id": 0},
+            ).sort("updated_at", 1).limit(limit)
+            docs = await cursor.to_list(length=limit)
+        else:
+            docs = [
+                value for value in self._mem.values()
+                if value.get("status") == TaskStatus.BLOCKED.value
+            ]
+            docs.sort(key=lambda d: d.get("updated_at", d.get("created_at", 0)))
+            docs = docs[:limit]
+        return [Task.model_validate(d) for d in docs]
+
     async def count_by_agent(
         self,
         *,

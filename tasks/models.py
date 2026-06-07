@@ -139,6 +139,11 @@ class Task(BaseModel):
     result: str | None = None
     error_message: str | None = None
 
+    # Auto-retry tracking: number of times the dispatcher auto-retried this
+    # task after it went BLOCKED.  Reset to 0 on a successful manual retry or
+    # when the task completes successfully.
+    auto_retry_count: int = 0
+
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, v: list[str]) -> list[str]:
