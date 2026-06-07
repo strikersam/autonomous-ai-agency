@@ -43,14 +43,26 @@ jobs:
           git config user.email "agency-bot@local-llm-server"
           git config user.name "Agency Bot"
 
-      - name: Run pytest baseline
+      - name: Run pytest baseline (short tracebacks)
         id: baseline
         run: |
-          python -m pytest --tb=no -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
+          python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
           echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
           FAILING=$(grep '^FAILED ' /tmp/test_baseline.txt | awk '{print $2}' | head -5 | tr '\n' ',' | sed 's/,$//')
           echo "failing=${FAILING}" >> "$GITHUB_OUTPUT"
+
+      - name: Capture per-test failure details (full tracebacks)
+        if: steps.baseline.outputs.exit_code != '0'
+        id: failure_details
+        run: |
+          echo "${{ steps.baseline.outputs.failing }}" | tr ',' '\n' | head -5 | while read test_id; do
+            [ -z "$test_id" ] && continue
+            echo "=== FAILURE: ${test_id} ===" >> /tmp/test_failure_details.txt
+            python -m pytest "${test_id}" --tb=long -q --no-header 2>&1 | tail -40 >> /tmp/test_failure_details.txt || true
+            echo "" >> /tmp/test_failure_details.txt
+          done
+          echo "captured=true" >> "$GITHUB_OUTPUT"
 
       - name: Scan for security issues (bandit)
         id: security
@@ -129,11 +141,11 @@ jobs:
             echo "Claude CLI not available — skipping automated fix"
           fi
 
-      - name: Run tests after fix attempt
+      - name: Run tests after fix attempt (short tracebacks)
         if: steps.baseline.outputs.exit_code != '0'
         id: post_fix
         run: |
-          python -m pytest --tb=no -q --no-header 2>&1 | tee /tmp/test_post.txt || true
+          python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_post.txt || true
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Commit & push fixes
@@ -178,6 +190,8 @@ jobs:
             const baseline = fs.readFileSync('/tmp/test_baseline.txt', 'utf8');
             const postFix = fs.existsSync('/tmp/test_post.txt')
               ? fs.readFileSync('/tmp/test_post.txt', 'utf8') : 'No post-fix output';
+            const failureDetails = fs.existsSync('/tmp/test_failure_details.txt')
+              ? fs.readFileSync('/tmp/test_failure_details.txt', 'utf8') : '';
 
             const { data: issues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo,
@@ -185,19 +199,37 @@ jobs:
             });
             if (issues.some(i => i.title.includes('Agency: Cannot Fix Tests'))) return;
 
+            const failing = '${{ steps.baseline.outputs.failing }}'.split(',').filter(Boolean).map(t => `- \`${t}\``).join('\n') || '_(see output below)_';
+
+            const body = [
+              '## Agency Escalation: Tests remain failing after automated fix attempt',
+              '',
+              '### Failing tests',
+              failing,
+              '',
+              '### Detailed failure tracebacks',
+              failureDetails
+                ? '<details><summary>Per-test full tracebacks (click to expand)</summary>\n\n```\n' + failureDetails.slice(0, 8000) + '\n```\n</details>'
+                : '_No per-test tracebacks captured_',
+              '',
+              '### Baseline run (--tb=short)',
+              '<details><summary>Baseline output (click to expand)</summary>\n\n```\n' + baseline.slice(0, 4000) + '\n```\n</details>',
+              '',
+              '### Post-fix run (--tb=short)',
+              '<details><summary>Post-fix output (click to expand)</summary>\n\n```\n' + postFix.slice(0, 4000) + '\n```\n</details>',
+              '',
+              '### Action required',
+              '- Review the per-test tracebacks above to understand the root cause',
+              '- Run `pytest -x --tb=long` locally on each failing test',
+              '- Fix the implementation, not the test expectations',
+              '- Never skip or mock tests to hide failures',
+              '',
+              '_Auto-escalated by the [agency-cycle](.github/workflows/agency-cycle.yml) workflow — human review required._',
+            ].join('\n');
+
             await github.rest.issues.create({
               owner: context.repo.owner, repo: context.repo.repo,
               title: `Agency: Cannot Fix Tests — ${new Date().toISOString().split('T')[0]}`,
-              body: [
-                '## Agency Escalation: Tests remain failing after automated fix attempt',
-                '',
-                '**Baseline failures:**',
-                `\`\`\`\n${baseline.slice(0, 2000)}\n\`\`\``,
-                '',
-                '**Post-fix run:**',
-                `\`\`\`\n${postFix.slice(0, 2000)}\n\`\`\``,
-                '',
-                '_Human review required. The Dev Agent could not resolve these automatically._',
-              ].join('\n'),
+              body,
               labels: ['bug', 'auto-detected', 'agency-escalation'],
             });
