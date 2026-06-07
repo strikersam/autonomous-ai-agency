@@ -19,7 +19,7 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001")
 
 # Test credentials - use environment variables if set (CI/Local) or fallbacks
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 
 @pytest.mark.skip(reason="Flaky event loop in CI")

@@ -19,7 +19,6 @@ from datetime import datetime, timedelta, timezone
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only")
 os.environ.setdefault("ADMIN_EMAIL", "admin@test.local")
-os.environ.setdefault("ADMIN_PASSWORD", "TestPassword1!")
 
 from backend.server import _valid_login_state  # noqa: E402
 
