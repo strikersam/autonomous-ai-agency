@@ -7,7 +7,7 @@ and the README version badge. ``tests/test_version_consistency.py`` guards again
 
 from __future__ import annotations
 
-__version__ = "5.0.1"
+__version__ = "5.0.0"
 
 APP_NAME = "Agency Core"
 APP_TAGLINE = "Autonomous AI Platform"
