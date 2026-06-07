@@ -56,22 +56,9 @@ jobs:
       - name: Redact secrets from test output
         if: steps.baseline.outputs.exit_code != '0'
         run: |
-          # Strip GitHub tokens, API keys, and passwords from test output
-          # before it reaches any GitHub issue (defense in depth)
-          for f in /tmp/test_baseline.txt /tmp/test_failure_details.txt; do
-            [ -f "$f" ] || continue
-            sed -i'' \
-              -e 's/ghp_[A-Za-z0-9_]{36,}/[REDACTED: GitHub token]/g' \
-              -e 's/gho_[A-Za-z0-9_]{36,}/[REDACTED: GitHub OAuth token]/g' \
-              -e 's/github_pat_[A-Za-z0-9_]{22,}/[REDACTED: GitHub PAT]/g' \
-              -e 's/sk-[A-Za-z0-9]{32,}/[REDACTED: API key]/g' \
-              -e 's/AKIA[0-9A-Z]{16}/[REDACTED: AWS key]/g' \
-              -e 's/nvapi-[A-Za-z0-9_]{40,}/[REDACTED: NVIDIA key]/g' \
-              -e 's/jwt[-_=][A-Za-z0-9+/=]{32,}/[REDACTED: JWT]/g' \
-              "$f" || true
-          done
+          chmod +x .github/scripts/redact_secrets.sh
+          .github/scripts/redact_secrets.sh /tmp/test_baseline.txt /tmp/test_failure_details.txt
           echo "redacted=true" >> "$GITHUB_OUTPUT"
-          echo "Output sanitised before GitHub issue posting"
 
       - name: Capture per-test failure details (full tracebacks)
         if: steps.baseline.outputs.exit_code != '0'
@@ -87,17 +74,7 @@ jobs:
 
           # Re-redact after per-test capture (narrower pytest runs may reveal
           # different secrets than the baseline suite run)
-          if [ -f /tmp/test_failure_details.txt ]; then
-            sed -i'' \
-              -e 's/ghp_[A-Za-z0-9_]{36,}/[REDACTED: GitHub token]/g' \
-              -e 's/gho_[A-Za-z0-9_]{36,}/[REDACTED: GitHub OAuth token]/g' \
-              -e 's/github_pat_[A-Za-z0-9_]{22,}/[REDACTED: GitHub PAT]/g' \
-              -e 's/sk-[A-Za-z0-9]{32,}/[REDACTED: API key]/g' \
-              -e 's/AKIA[0-9A-Z]{16}/[REDACTED: AWS key]/g' \
-              -e 's/nvapi-[A-Za-z0-9_]{40,}/[REDACTED: NVIDIA key]/g' \
-              -e 's/jwt[-_=][A-Za-z0-9+/=]{32,}/[REDACTED: JWT]/g' \
-              /tmp/test_failure_details.txt || true
-          fi
+          .github/scripts/redact_secrets.sh /tmp/test_failure_details.txt
 
       - name: Classify failures via SelfHealingAgent
         if: steps.baseline.outputs.exit_code != '0'
