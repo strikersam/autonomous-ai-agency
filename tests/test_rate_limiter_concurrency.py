@@ -5,8 +5,8 @@ from proxy import check_rate_limit, _rate_buckets, _rate_lock, RATE_LIMIT_RPM
 
 @pytest.mark.asyncio
 async def test_rate_limiter_concurrency():
-    # Clear buckets
-    with _rate_lock:
+    # Clear buckets — _rate_lock is now asyncio.Lock(), must use async context manager
+    async with _rate_lock:
         _rate_buckets.clear()
 
     api_key = "test_concurrency_key"
@@ -14,12 +14,12 @@ async def test_rate_limiter_concurrency():
 
     async def call_limit():
         try:
-            check_rate_limit(api_key)
+            await check_rate_limit(api_key)
             return None
         except HTTPException as e:
             return e
 
-    tasks = [asyncio.to_thread(check_rate_limit, api_key) for _ in range(num_requests)]
+    tasks = [call_limit() for _ in range(num_requests)]
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
 

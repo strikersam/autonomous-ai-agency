@@ -20,7 +20,7 @@ triggers:
 references:
   - docs/architecture/overview.md
   - docs/adrs/
-  - CLAUDE.md (Codebase Map)
+  - CLAUDE.md
 ---
 
 # Skill: modularity-review

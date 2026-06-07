@@ -3,8 +3,11 @@ name: E2E — Live server tests (no mocks)
 on:
   push:
     branches: ["**"]
+    # Pure-docs context commits (auto-generated issue plans) don't need E2E.
+    paths-ignore: ["docs/context/**"]
   pull_request:
     branches: ["main", "master"]
+    paths-ignore: ["docs/context/**"]
 
 # Least-privilege token — this job only reads the repo; it writes nothing to
 # GitHub (no deployments, no packages, no issues). Satisfies CodeQL rule
@@ -20,25 +23,13 @@ jobs:
   e2e:
     name: End-to-end live server
     runs-on: ubuntu-latest
-
-    services:
-      mongodb:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 15
-
+    # Skip on draft PRs (e.g. auto-generated context plans).
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      # Server configuration — these are CI-only, not production secrets
-      MONGO_URL: mongodb://localhost:27017
-      DB_NAME: llm_relay_e2e
+      STORAGE_BACKEND: sqlite
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
-      ADMIN_PASSWORD: E2EAdmin2026!
+      ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-e2e-admin-do-not-use-in-production' }}
       SECRET_KEY: e2e-ci-secret-do-not-use-in-production
       OLLAMA_BASE: http://localhost:11434
       LANGFUSE_SECRET_KEY: ""
@@ -62,14 +53,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt httpx
-
-      - name: Wait for MongoDB
-        run: |
-          for i in {1..30}; do
-            nc -z localhost 27017 && echo "✓ MongoDB ready" && exit 0
-            echo "Waiting for MongoDB... ($i/30)"; sleep 2
-          done
-          echo "::error::MongoDB did not become reachable"; exit 1
 
       - name: Start local-llm-server (background)
         run: |
@@ -112,6 +95,150 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-server-log
+          path: /tmp/server.log
+          retention-days: 7
+
+      - name: Stop server
+        if: always()
+        run: kill "$SERVER_PID" 2>/dev/null || true
+
+  # LIVE scanner verification against the real internet (gucci.com et al.),
+  # WITH a real Chromium binary so the headless / BuiltWith-fallback tiers
+  # actually run. This is the only place the scanner is tested end-to-end on
+  # bot-protected sites; the unit tests stub the network. It is intentionally
+  # NON-BLOCKING (continue-on-error) because it depends on third-party site
+  # availability and live bot-protection state — a flaky external site must
+  # never block a merge. The job still surfaces the real outcome in its log,
+  # and the tests assert the honest invariants (no crash, no fabricated
+  # challenge-vendor-only detection) rather than a specific platform.
+  e2e-scanner-live:
+    name: Live scanner verification (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      SCANNER_HEADLESS_RENDER: auto
+      SCANNER_BUILTWITH_FALLBACK: auto
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install playwright pytest pytest-asyncio
+          python -m playwright install --with-deps chromium
+
+      - name: Run live scanner integration tests
+        run: pytest -m integration tests/test_scanner_live.py -v -s
+
+      - name: Post-deploy-style verification report
+        if: always()
+        run: python scripts/verify_scanner_live.py || true
+
+  # Same live suite, but against a real MongoDB — so backend-specific bugs
+  # (e.g. the Mongo-only create-company 500) surface in e2e, not just in
+  # production. Kept as a separate job so the original "End-to-end live server"
+  # check name is unchanged.
+  e2e-mongodb:
+    name: End-to-end live server (MongoDB)
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      STORAGE_BACKEND: mongodb
+      MONGO_URL: mongodb://localhost:27017
+      DB_NAME: e2e_mongodb
+      KEYS_FILE: e2e-keys.json
+      ADMIN_EMAIL: admin@llmrelay.local
+      ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-e2e-admin-do-not-use-in-production' }}
+      SECRET_KEY: e2e-ci-secret-do-not-use-in-production
+      OLLAMA_BASE: http://localhost:11434
+      LANGFUSE_SECRET_KEY: ""
+      LANGFUSE_PUBLIC_KEY: ""
+      LANGFUSE_HOST: ""
+      ROUTER_HEALTH_CHECK_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt httpx
+
+      - name: Wait for MongoDB
+        run: |
+          for i in {1..30}; do
+            if nc -z localhost 27017; then echo "✓ MongoDB reachable"; exit 0; fi
+            echo "Waiting for MongoDB… ($i/30)"; sleep 2
+          done
+          echo "::error::MongoDB did not become reachable"; exit 1
+
+      - name: Start local-llm-server (background)
+        run: |
+          uvicorn backend.server:app --host 0.0.0.0 --port 8000 \
+            > /tmp/server.log 2>&1 &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for server health
+        run: |
+          for i in {1..30}; do
+            STATUS=$(curl -sf http://localhost:8000/api/health \
+              -o /dev/null -w "%{http_code}" 2>/dev/null || echo 000)
+            [ "$STATUS" = "200" ] && echo "✓ Server ready (attempt $i)" && exit 0
+            echo "Waiting for server... ($i/30, last_status=$STATUS)"; sleep 2
+          done
+          echo "::error::Server did not become healthy"; cat /tmp/server.log; exit 1
+
+      - name: Generate E2E API key
+        run: |
+          export E2E_KEY_OUTPUT_FILE=/tmp/e2e_api_key.txt
+          python scripts/e2e_generate_key.py \
+            --keys-file "$KEYS_FILE" \
+            --email ci@llmrelay.local \
+            --department ci
+          KEY=$(cat /tmp/e2e_api_key.txt)
+          rm -f /tmp/e2e_api_key.txt
+          echo "::add-mask::$KEY"
+          echo "E2E_API_KEY=$KEY" >> "$GITHUB_ENV"
+          echo "✓ API key generated and masked"
+
+      - name: Run E2E test suite
+        env:
+          RELAY_BASE_URL: http://localhost:8000
+        run: python tests/e2e/test_live_server.py
+
+      - name: Upload server log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-server-log-mongodb
           path: /tmp/server.log
           retention-days: 7
 

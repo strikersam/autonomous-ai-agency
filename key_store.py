@@ -110,7 +110,11 @@ class KeyStore:
 
     def lookup_plain_key(self, plain_key: str) -> KeyRecord | None:
         self._maybe_reload()
-        h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()
+        # CodeQL: py/weak-cryptographic-hash — SHA-256 is appropriate for API key
+        # lookup (not password storage). Keys are 256-bit random tokens with
+        # 128-bit entropy, making preimage attacks infeasible. The hash is used
+        # as a key identifier, not a password verifier.
+        h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()  # nosec B303 — SHA-256 for API key lookup
         with self._lock:
             return self._by_hash.get(h)
 
@@ -124,7 +128,8 @@ class KeyStore:
     ) -> KeyRecord:
         if self._path is None:
             raise RuntimeError("KEYS_FILE is not set; cannot persist keys")
-        h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()
+        # CodeQL: py/weak-cryptographic-hash — same rationale as lookup_plain_key.
+        h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()  # nosec B303 — SHA-256 for API key lookup
         created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         rec = KeyRecord(key_id=key_id, email=email, department=department, created=created)
         with self._lock:
@@ -189,8 +194,9 @@ class KeyStore:
             if not rec or old_h is None:
                 return None
             del self._by_hash[old_h]
-            plain_key = "test-key-" + secrets.token_urlsafe(32)
-            new_h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()
+            plain_key = "llms-" + secrets.token_urlsafe(32)
+            # CodeQL: py/weak-cryptographic-hash — same rationale as lookup_plain_key.
+            new_h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()  # nosec B303
             kept = KeyRecord(key_id=rec.key_id, email=rec.email, department=rec.department, created=rec.created)
             self._by_hash[new_h] = kept
             self._save_unlocked()
@@ -233,6 +239,6 @@ def load_key_store() -> KeyStore:
 def issue_new_api_key(store: KeyStore, email: str, department: str) -> tuple[str, KeyRecord]:
     """Generate a new plaintext API key, persist hash + metadata, return (plain_key, record)."""
     key_id = "kid_" + secrets.token_hex(6)
-    plain_key = "test-key-" + secrets.token_urlsafe(32)
+    plain_key = "llms-" + secrets.token_urlsafe(32)
     rec = store.add_key(plain_key=plain_key, email=email, department=department, key_id=key_id)
     return plain_key, rec

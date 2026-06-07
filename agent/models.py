@@ -110,6 +110,7 @@ class ToolCall(BaseModel):
 class VerificationResult(BaseModel):
     status: Literal["pass", "fail"]
     issues: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @field_validator("issues", mode="before")
     @classmethod
@@ -172,3 +173,24 @@ class AgentSession(BaseModel):
 class ResumeRequest(BaseModel):
     action: Literal["approve", "clarify", "cancel"]
     input: Optional[str] = None
+
+
+class SubAgentConfig(BaseModel):
+    """Declarative configuration for a specialized sub-agent role.
+
+    Each sub-agent gets its own model, tool allowlist, and instruction prompt
+    so the orchestrator can route to the cheapest capable model per phase.
+
+    Fields:
+        role:       Logical role name ("file_picker", "planner", "editor", "reviewer").
+        model:      Ollama model name to use for this role (e.g. "qwen3-coder:7b").
+        tool_names: Allowlist of tools this sub-agent may call (empty = all tools).
+        instruction: Custom system prompt for this role (overrides the default).
+        max_steps:   Max execution steps for this sub-agent (default: 5).
+    """
+
+    role: str = Field(..., min_length=1, max_length=64)
+    model: str = Field(default="", description="Ollama model for this role; empty = inherit from parent")
+    tool_names: list[str] = Field(default_factory=list, description="Allowlist of tools; empty = all tools")
+    instruction: str = Field(default="", description="Custom system prompt; empty = use role default")
+    max_steps: int = Field(default=5, ge=1, le=50)

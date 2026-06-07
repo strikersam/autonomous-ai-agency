@@ -152,7 +152,7 @@ class ProviderManager:
         if nvidia_key:
             nvidia_base = (
                 os.environ.get("NVIDIA_BASE_URL")
-                or "https://integrate.api.nvidia.com/v1"
+                or "https://integrate.api.nvidia.com"
             ).rstrip("/")
             seeded.append(
                 {

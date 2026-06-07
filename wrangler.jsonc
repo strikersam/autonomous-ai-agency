@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "local-llm-server",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-05-27",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true
+  },
+  // The React SPA is built by the CI/CD workflow (GitHub Actions) before wrangler runs.
+  // No build.command here — the workflow handles: npm install + npm run build + _redirects cleanup.
+  "assets": {
+    "directory": "frontend/build",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // Force backend paths through the Worker first. Without this, SPA not_found_handling
+    // serves index.html for navigation requests to these paths instead of proxying them.
+    "run_worker_first": ["/api/*", "/runtimes/*"]
+  }
+}

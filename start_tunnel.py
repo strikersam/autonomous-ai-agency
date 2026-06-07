@@ -26,14 +26,14 @@ def check_services():
         # Check proxy
         response = httpx.get("http://localhost:8000/health", timeout=2)
         proxy_ok = response.status_code == 200
-    except:
+    except Exception:
         proxy_ok = False
 
     try:
         # Check Ollama
         response = httpx.get("http://localhost:11434/api/tags", timeout=2)
         ollama_ok = response.status_code == 200
-    except:
+    except Exception:
         ollama_ok = False
 
     return proxy_ok, ollama_ok

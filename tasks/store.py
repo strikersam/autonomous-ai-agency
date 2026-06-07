@@ -6,6 +6,7 @@ system degrades gracefully during development.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 from typing import Any
@@ -190,7 +191,10 @@ class TaskStore:
                 {"$match": match},
                 {"$group": {"_id": "$agent_id", "count": {"$sum": 1}}},
             ]
-            rows = await self._collection.aggregate(pipeline).to_list(length=1000)
+            cursor = self._collection.aggregate(pipeline)
+            if inspect.isawaitable(cursor):
+                cursor = await cursor
+            rows = await cursor.to_list(length=1000)
             return {
                 str(row.get("_id")): int(row.get("count") or 0)
                 for row in rows
@@ -216,7 +220,10 @@ class TaskStore:
                 {"$match": {"owner_id": owner_id}},
                 {"$group": {"_id": "$status", "count": {"$sum": 1}}},
             ]
-            result = await self._collection.aggregate(pipeline).to_list(length=20)
+            cursor = self._collection.aggregate(pipeline)
+            if inspect.isawaitable(cursor):
+                cursor = await cursor
+            result = await cursor.to_list(length=20)
             return {r["_id"]: r["count"] for r in result}
         else:
             counts: dict[str, int] = {}

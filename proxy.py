@@ -43,7 +43,7 @@ from agent.browser import BrowserSession
 from agent.commit_tracker import CommitAttribution, CommitTracker
 from agent.context import ContextCompressor
 from agent.coordinator import AgentCoordinator, WorkerSpec
-from agent.loop import AgentRunner
+from agent.loop import AgentRunner, FreeBuffAgent
 from agent.memory import SessionMemory
 from agent.models import AgentRunRequest, AgentSessionCreateRequest
 from agent.permissions import AdaptivePermissions
@@ -57,6 +57,7 @@ from agent.token_budget import BudgetExceededError, TokenBudget
 from agent.user_memory import UserMemoryStore
 from agent.voice import VoiceCommandInterface
 from agent.watchdog import ResourceWatchdog
+from agent.quick_note import QuickNoteQueue, set_quick_note_queue, start_processor
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from handlers.anthropic_compat import handle_anthropic_messages
 from key_store import issue_new_api_key, load_key_store
@@ -135,6 +136,19 @@ if ADMIN_SECRET and ADMIN_SECRET in WEAK_ADMIN_SECRETS:
     )
     sys.exit(1)
 
+if ADMIN_SECRET and len(ADMIN_SECRET) < 32:
+    log.error(
+        "Refusing to start: ADMIN_SECRET must be at least 32 characters. "
+        "Generate a strong secret: python -c \"import secrets; print(secrets.token_urlsafe(32))\"",
+    )
+    sys.exit(1)
+
+if "*" in CORS_ORIGINS:
+    log.warning(
+        "⚠  CORS_ORIGINS is set to '*' (allow all). "
+        "Set CORS_ORIGINS to your specific frontend origin(s) in production.",
+    )
+
 if ADMIN_SECRET and not KEY_STORE.is_configured():
     log.warning(
         "ADMIN_SECRET is set but KEYS_FILE is not — POST /admin/keys will return 503 until KEYS_FILE is configured.",
@@ -160,25 +174,83 @@ class AuthContext:
 # ─── Rate limiter (in-memory, per key) ─────────────────────────────────────────
 
 _rate_buckets: dict[str, list[float]] = defaultdict(list)
-_rate_bucket_keys: list[str] = []
+_rate_bucket_keys: set[str] = set()
 _RATE_BUCKET_MAX_KEYS = 10_000
-_rate_lock = threading.Lock()
+_rate_lock = asyncio.Lock()
 
-def check_rate_limit(api_key: str) -> None:
+
+def _rate_limit_exempt_key_ids() -> set[str]:
+    """Key IDs explicitly exempted from rate limiting (read fresh from env).
+
+    Configured via ``FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS`` (comma-separated). This
+    is intentionally narrow: it exempts the Telegram-driven FreeBuff service key
+    so phone-driven free-NVIDIA agent runs aren't throttled by the per-key RPM
+    limiter. Default empty → no key is exempt, so paid/general endpoints stay
+    protected.
+    """
+    raw = os.environ.get("FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS", "")
+    return {x.strip() for x in raw.split(",") if x.strip()}
+
+
+def is_rate_limit_exempt(key_id: str | None) -> bool:
+    """True when this key is on the FreeBuff rate-limit exemption allowlist.
+
+    Only store-backed keys (which carry a stable ``key_id``) can be exempted;
+    legacy keys with no ``key_id`` are never exempt.
+    """
+    if not key_id:
+        return False
+    exempt = _rate_limit_exempt_key_ids()
+    return bool(exempt) and key_id in exempt
+
+
+def _is_freebuff_unlimited(request: Request | None) -> bool:
+    """True when this request targets a FreeBuff route and should skip rate limiting.
+
+    FreeBuff is the free-NVIDIA coding agent driven from the Telegram bot; the
+    whole point is an *unlimited* free coding agent, so its routes are exempt
+    from the per-key RPM limiter by default. Routes are still fully auth-gated
+    (a valid API key is required) and only ever run free NVIDIA models. Set
+    ``FREEBUFF_UNLIMITED=false`` to re-impose the limiter on FreeBuff routes.
+    """
+    if os.environ.get("FREEBUFF_UNLIMITED", "true").strip().lower() not in {"true", "1", "yes"}:
+        return False
+    try:
+        path = request.url.path if request is not None else ""
+    except Exception:
+        path = ""
+    return path.startswith("/freebuff")
+
+
+async def _enforce_rate_limit(request: Request | None, key: str, key_id: str | None) -> None:
+    """Apply the per-key RPM limiter unless this request is FreeBuff-exempt.
+
+    Exemptions (both keep the route auth-gated, only the limiter is skipped):
+      1. FreeBuff routes when ``FREEBUFF_UNLIMITED`` is on (default) — "unlimited".
+      2. Specific key_ids listed in ``FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS``.
+    """
+    if _is_freebuff_unlimited(request):
+        return
+    if is_rate_limit_exempt(key_id):
+        log.info("FreeBuff rate-limit exemption applied for key_id=%s", key_id)
+        return
+    await check_rate_limit(key)
+
+
+async def check_rate_limit(api_key: str) -> None:
     now = time.time()
     window = 60.0
-    with _rate_lock:
+    async with _rate_lock:
         # Evict keys that have had no activity in the last window to prevent unbounded growth
         if len(_rate_bucket_keys) >= _RATE_BUCKET_MAX_KEYS:
-            stale = [k for k in list(_rate_bucket_keys) if not _rate_buckets.get(k)]
+            stale = {
+                k for k in _rate_bucket_keys
+                if not _rate_buckets.get(k) or all(now - t >= window for t in _rate_buckets[k])
+            }
             for k in stale:
                 _rate_buckets.pop(k, None)
-                try:
-                    _rate_bucket_keys.remove(k)
-                except ValueError:
-                    pass
-        if api_key not in _rate_buckets:
-            _rate_bucket_keys.append(api_key)
+                _rate_bucket_keys.discard(k)
+        _rate_bucket_keys.add(api_key)
         bucket = _rate_buckets[api_key]
         # Drop entries outside the 1-minute window
         _rate_buckets[api_key] = [t for t in bucket if now - t < window]
@@ -191,7 +263,7 @@ def check_rate_limit(api_key: str) -> None:
 
 # ─── Auth dependency ────────────────────────────────────────────────────────────
 
-def verify_api_key(
+async def verify_api_key(
     request: Request,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
@@ -214,7 +286,9 @@ def verify_api_key(
 
     rec = KEY_STORE.lookup_plain_key(key)
     if rec:
-        check_rate_limit(key)
+        # FreeBuff routes are unlimited by default (free-NVIDIA agent via Telegram);
+        # specific key_ids may also be exempted. Everything else is rate-limited.
+        await _enforce_rate_limit(request, key, rec.key_id)
         return AuthContext(
             key=key,
             email=rec.email,
@@ -223,7 +297,7 @@ def verify_api_key(
             source="store",
         )
     if key in VALID_API_KEYS:
-        check_rate_limit(key)
+        await _enforce_rate_limit(request, key, None)
         return AuthContext(
             key=key,
             email="unknown",
@@ -323,7 +397,7 @@ class ProviderRouter:
 PROVIDER_ROUTER = ProviderRouter()
 AGENT_SESSIONS = AgentSessionStore()
 USER_MEMORY = UserMemoryStore()
-_GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or None
+_GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or None
 AGENT_RUNNER = AgentRunner(
     ollama_base=OLLAMA_BASE,
     workspace_root=Path(__file__).resolve().parent,
@@ -347,7 +421,18 @@ SCHEDULER         = AgentScheduler()
 BACKGROUND_AGENT  = BackgroundAgent()
 COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
 BROWSER_SESSION   = BrowserSession()
+QUICK_NOTE_QUEUE  = QuickNoteQueue()
 BACKGROUND_AGENT.start()
+set_quick_note_queue(QUICK_NOTE_QUEUE)
+start_processor(QUICK_NOTE_QUEUE)
+try:
+    from agent.agency import Agency, set_agency
+    _AGENCY = Agency()
+    set_agency(_AGENCY)
+    _AGENCY.start()
+    log.info("CEO Agency started — tick=%dm", _AGENCY._tick // 60)
+except Exception as exc:
+    log.error("CEO Agency failed to start: %s", exc)
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
@@ -536,7 +621,8 @@ async def _health_response() -> JSONResponse:
             r = await client.get(f"{OLLAMA_BASE}/api/tags")
             models = [m["name"] for m in r.json().get("models", [])]
     except Exception as e:
-        return JSONResponse({"status": "ollama_down", "error": str(e)}, status_code=503)
+        log.error("Ollama health check failed: %s", e)
+        return JSONResponse({"status": "ollama_down", "error": "Ollama unreachable"}, status_code=503)
     return JSONResponse({"status": "ok", "ollama": OLLAMA_BASE, "models": models})
 
 
@@ -634,7 +720,7 @@ async def run_agent_task(
             session_id=session_id,
         )
     except Exception:
-        log.exception("Agent run failed")
+        log.exception("Agent run failed")  # nosec B506 — intentional error logging for debugging agents
         result = {
             "goal": body.instruction,
             "plan": None,
@@ -703,7 +789,7 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
             session_id=temp.session_id,
         )
     except Exception:
-        log.exception("Agent one-off run failed")
+        log.exception("Agent one-off run failed")  # nosec B506 — intentional error logging for debugging agents
         result = {
             "goal": body.instruction,
             "plan": None,
@@ -719,6 +805,111 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
         result=result,
     )
     return {"session": updated, "result": result}
+
+
+# ─── FreeBuff: free-NVIDIA coding agent (Telegram phone control) ────────────────
+
+class FreeBuffRunRequest(BaseModel):
+    """Request body for FreeBuff plan/run endpoints.
+
+    ``model`` must be one of the free NVIDIA NIM models (see GET /freebuff/models);
+    anything else is coerced to a free model by ``FreeBuffAgent.resolve_model``.
+    """
+    instruction: str = Field(..., min_length=1, max_length=8000)
+    model: str | None = Field(default=None, max_length=128)
+    auto_commit: bool = False
+    open_pr: bool = False
+    repo_url: str | None = Field(default=None, max_length=512)
+    max_steps: int = Field(default=10, ge=1, le=20)
+
+
+@app.get("/freebuff/models")
+async def freebuff_models(auth: AuthContext = Depends(verify_api_key)):
+    """List the free NVIDIA NIM models FreeBuff can route to (for model pickers)."""
+    return {"models": FreeBuffAgent.available_models()}
+
+
+@app.post("/freebuff/plan")
+async def freebuff_plan(body: FreeBuffRunRequest, auth: AuthContext = Depends(verify_api_key)):
+    """Generate a read-only plan with the chosen free model — no files written.
+
+    The Telegram bot shows this plan with Accept/Reject buttons before any code
+    is changed. Planning never touches the filesystem, so it is safe to preview.
+    """
+    agent = FreeBuffAgent(
+        model=body.model,
+        github_token=_GITHUB_TOKEN,
+        email=auth.email,
+        department=auth.department,
+        key_id=auth.key_id,
+    )
+    try:
+        plan = await agent.plan(
+            instruction=body.instruction,
+            history=[],
+            requested_model=body.model,
+            max_steps=body.max_steps,
+            user_id=auth.email,
+            memory_store=USER_MEMORY,
+        )
+    except Exception:
+        log.exception("FreeBuff plan failed")  # nosec B506 — intentional error logging
+        raise HTTPException(status_code=502, detail="FreeBuff planning failed. Check server logs.")
+    return {"model": agent.resolve_model(body.model), "plan": plan.model_dump()}
+
+
+@app.post("/freebuff/run")
+async def freebuff_run(body: FreeBuffRunRequest, auth: AuthContext = Depends(verify_api_key)):
+    """Execute a FreeBuff task with the chosen free model (optionally commit + PR).
+
+    Mirrors /agent/run but pins routing to free NVIDIA models. When ``open_pr`` is
+    set and a repo URL is available the runner's existing auto-push/PR path opens
+    a PR (still gated by ``AGENT_AUTO_PR_ENABLED``); commits and PRs are never made
+    to protected branches directly.
+    """
+    temp = AGENT_SESSIONS.create(title=f"FreeBuff run for {auth.email}")
+    AGENT_SESSIONS.append_message(temp.session_id, "user", body.instruction)
+    history = [item.model_dump() for item in (AGENT_SESSIONS.get(temp.session_id) or temp).history]
+    repo_url = body.repo_url or os.environ.get("FREEBUFF_REPO_URL") if body.open_pr else None
+    agent = FreeBuffAgent(
+        model=body.model,
+        github_token=_GITHUB_TOKEN,
+        session_store=AGENT_SESSIONS,
+        email=auth.email,
+        department=auth.department,
+        key_id=auth.key_id,
+        repo_url=repo_url,
+    )
+    try:
+        result = await agent.run(
+            instruction=body.instruction,
+            history=history,
+            requested_model=body.model,
+            auto_commit=body.auto_commit or body.open_pr,
+            max_steps=body.max_steps,
+            user_id=auth.email,
+            department=auth.department,
+            key_id=auth.key_id,
+            memory_store=USER_MEMORY,
+            session_id=temp.session_id,
+        )
+    except Exception:
+        log.exception("FreeBuff run failed")  # nosec B506 — intentional error logging
+        result = {
+            "goal": body.instruction,
+            "plan": None,
+            "steps": [],
+            "commits": [],
+            "summary": "FreeBuff run failed. Check server logs for details.",
+            "status": "failed",
+        }
+    AGENT_SESSIONS.append_message(temp.session_id, "assistant", result["summary"])
+    updated = AGENT_SESSIONS.update_result(
+        temp.session_id,
+        plan=result.get("plan") or {"goal": body.instruction, "steps": []},
+        result=result,
+    )
+    return {"session": updated, "result": result, "model": agent.resolve_model(body.model)}
 
 
 @app.post("/agent/sessions/{session_id}/rollback-last-commit")
@@ -744,11 +935,11 @@ async def rollback_agent_commit(session_id: str, auth: AuthContext = Depends(ver
             capture_output=True,
             text=True,
         )
-    except subprocess.CalledProcessError as exc:
+    except subprocess.CalledProcessError:
         raise HTTPException(
             status_code=500,
-            detail=(exc.stderr or exc.stdout or "git revert failed").strip(),
-        ) from exc
+            detail="git revert failed. Check server logs for details.",
+        )
     AGENT_SESSIONS.append_message(session_id, "system", f"Rolled back commit {target}")
     return {"status": "ok", "reverted_commit": target, "git_output": proc.stdout.strip()}
 
@@ -1107,6 +1298,48 @@ async def scaffolding_apply(body: ScaffoldRequest, auth: AuthContext = Depends(v
     return result.as_dict()
 
 
+# ─── Skill Registry Refresh ───────────────────────────────────────────────
+
+class SkillsRefreshRequest(BaseModel):
+    force: bool = Field(default=False, description="Bypass 1-hour TTL and force-refresh")
+
+
+@app.post("/agent/skills/refresh")
+async def skills_refresh(
+    body: SkillsRefreshRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Manually trigger a skill registry refresh from all GitHub registries.
+
+    Use force=true to bypass the 1-hour TTL and always hit the GitHub API.
+    Returns the count of new skills added.
+    """
+    try:
+        from agent.skill_registry import get_skill_registry_safe
+        sr = get_skill_registry_safe()
+        if sr is None:
+            return JSONResponse(
+                {"error": "SkillRegistry not initialised"},
+                status_code=503,
+            )
+        if body.force:
+            added = await sr.refresh_remote_force()
+        else:
+            added = await sr.refresh_remote()
+        return {
+            "ok": True,
+            "added": added,
+            "total": len(sr.list()),
+            "forced": body.force,
+        }
+    except Exception:
+        log.exception("Skill registry refresh failed")
+        return JSONResponse(
+            {"error": "Skill registry refresh failed"},
+            status_code=500,
+        )
+
+
 # ─── Skill Library ────────────────────────────────────────────────────────────
 
 class MpcSkillRequest(BaseModel):
@@ -1420,6 +1653,127 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
     return {"object": "list", "data": local_entries + registry_only + alias_entries}
 
 
+# ─── Quick Notes API (/v1/quick-notes) ────────────────────────────────────────
+# iPhone Shortcut → POST /v1/quick-notes → queue → processor → git push
+# Also creates GitHub issues when GitHub token is configured so the
+# process-quick-note workflow can pick them up for full implement→PR→merge.
+
+class QuickNoteRequest(BaseModel):
+    url: str = Field(..., min_length=5, max_length=4000)
+    instruction: str = Field(default="", max_length=2000)
+
+
+@app.post("/v1/quick-notes")
+async def quick_notes_submit(
+    body: QuickNoteRequest,
+    request: Request,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Submit a quick-note URL or instruction from iPhone Shortcut or FAB.
+
+    When GitHub is configured (GH_TOKEN or GITHUB_TOKEN env var), creates a
+    GitHub issue with the quick-note label so the process-quick-note workflow
+    picks it up.  Otherwise queues it in the local QuickNoteQueue.
+    """
+    url = body.url.strip()
+    instruction = body.instruction.strip()
+
+    # Try GitHub issue creation first (process-quick-note workflow picks these up)
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN", "")
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "")
+
+    title = f"quick-note: {url[:80]}"
+    issue_body_parts = [url]
+    if instruction:
+        issue_body_parts.append(f"\nTask: {instruction}")
+    issue_body = "\n".join(issue_body_parts)
+
+    if gh_token and gh_repo:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"https://api.github.com/repos/{gh_repo}/issues",
+                    json={
+                        "title": title,
+                        "body": issue_body,
+                        "labels": ["quick-note"],
+                    },
+                    headers={
+                        "Authorization": f"Bearer {gh_token}",
+                        "Accept": "application/vnd.github+json",
+                    },
+                )
+            if resp.status_code == 201:
+                issue_data = resp.json()
+                issue_number = issue_data["number"]
+                log.info(
+                    "Quick-note → GitHub issue #%d created: %s",
+                    issue_number, url,
+                )
+                return {
+                    "status": "created",
+                    "channel": "github",
+                    "issue_number": issue_number,
+                    "issue_url": issue_data.get("html_url", ""),
+                }
+            else:
+                log.warning(
+                    "Quick-note GitHub issue creation failed (%d): %s",
+                    resp.status_code, resp.text[:200],
+                )
+        except Exception as exc:
+            log.warning("Quick-note GitHub issue creation error: %s", exc)
+
+    # Fallback: queue locally
+    note = QUICK_NOTE_QUEUE.add(url)
+    log.info("Quick-note queued locally: %s → %s", note.note_id, url)
+    return {
+        "status": "queued",
+        "channel": "local",
+        "note_id": note.note_id,
+        "hint": (
+            "GitHub not configured — set GH_TOKEN / GH_PAT to enable the full "
+            "implement→PR→review→merge pipeline."
+        ),
+    }
+
+
+@app.get("/v1/quick-notes")
+async def quick_notes_list(auth: AuthContext = Depends(verify_api_key)):
+    """List queued quick-notes (local queue only)."""
+    notes = QUICK_NOTE_QUEUE.list_all()
+    return {"notes": [n.as_dict() for n in notes], "count": len(notes)}
+
+
+# ─── Agency Status ───────────────────────────────────────────────────────────
+
+@app.get("/agent/agency/status")
+async def agency_status(auth: AuthContext = Depends(verify_api_key)):
+    """Get CEO Agency status for the AlertsBell and Doctor dashboards."""
+    try:
+        from agent.agency import get_agency
+        agency = get_agency()
+        if agency is None:
+            return {"running": False, "reason": "Agency not initialised"}
+        status = agency.get_status()
+        # Add recent directives as alerts
+        alerts: list[dict] = []
+        for d in agency._directives[-10:]:
+            alerts.append({
+                "id": d.directive_id,
+                "title": d.title,
+                "role": d.role.value,
+                "status": d.status,
+                "issued_at": d.issued_at,
+                "priority": d.priority,
+            })
+        status["alerts"] = alerts
+        return status
+    except Exception:
+        log.exception("Agency status check failed")
+        return {"running": False, "error": "Agency status unavailable"}
+
+
 # ─── Features API router ─────────────────────────────────────────────────────
 app.include_router(features_router)
 
@@ -1515,7 +1869,7 @@ async def agent_chat(body: AgentChatRequest, auth: AuthContext = Depends(verify_
             session_id=session_id,
         )
     except Exception:
-        log.exception("Agent chat run failed")
+        log.exception("Agent chat run failed")  # nosec B506 — intentional error logging for debugging agents
         result = {
             "goal": body.instruction,
             "plan": None,

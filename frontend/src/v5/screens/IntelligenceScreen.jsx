@@ -1,22 +1,10 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
-
+import * as api from '../../api';
+import { COMPANY_ID_KEY } from './CompanyScreen';
 
 // intelligence.jsx — Commerce Intelligence
-// Competitor monitoring + web trend scanning with live AI analysis via window.claude
-
-const DEFAULT_COMPETITORS = [
-  { id:'c-1', name:'Pretty Little Thing', url:'https://prettylittlething.com', industry:'Fashion / D2C', tracked:['pricing','campaigns','new-arrivals'], lastScan:'2h ago', status:'active' },
-  { id:'c-2', name:'ASOS',                url:'https://asos.com',              industry:'Fashion / Marketplace', tracked:['pricing','features'],          lastScan:'6h ago', status:'active' },
-];
-
-const DEFAULT_KEYWORDS = [
-  { id:'k-1', keyword:'headless commerce 2025',   category:'Tech Trends',     tracked:true },
-  { id:'k-2', keyword:'AI personalisation ecommerce', category:'AI & Commerce', tracked:true },
-  { id:'k-3', keyword:'cart abandonment best practices', category:'Conversion',  tracked:true },
-  { id:'k-4', keyword:'Shopify vs competitors 2025',    category:'Market Intel', tracked:true },
-  { id:'k-5', keyword:'ecommerce loyalty programs',     category:'Retention',   tracked:true },
-];
+// Competitor monitoring + trend scanning with live AI analysis via /api/chat/send
 
 const TRACK_OPTIONS = ['pricing','campaigns','new-arrivals','features','tech-stack','seo','social'];
 const trackColors   = { pricing:'#ffbd66', campaigns:'#ff6b7d', 'new-arrivals':'#46d9a4', features:'#5da2ff', 'tech-stack':'#c4b5fd', seo:'#7c9dff', social:'#f97316' };
@@ -41,7 +29,7 @@ function TipBubble({ label, children }) {
 }
 
 // ── AI Analysis Panel ─────────────────────────────────────────────────────────
-function AIInsightsPanel({ company, competitors, keywords }) {
+function AIInsightsPanel({ company, competitors, keywords, onNavigate }) {
   const [analysis,  setAnalysis]  = React.useState('');
   const [loading,   setLoading]   = React.useState(false);
   const [error,     setError]     = React.useState('');
@@ -65,11 +53,14 @@ Provide a concise, actionable intelligence briefing covering:
 
 Keep it sharp, practical, and under 300 words. No fluff. Write in plain English for a non-technical founder.`;
 
-      const result = await window.claude.complete(prompt);
+      const { data } = await api.chatSend(prompt, null, null, null, null, false);
+      const result = data?.response || '';
+      if (!result) throw new Error('No response from AI.');
       setAnalysis(result);
       setGenerated(true);
     } catch (e) {
-      setError('Could not generate analysis. Check your connection and try again.');
+      const errMsg = e?.response?.data?.detail ? api.fmtErr(e.response.data.detail) : (e?.message || 'Unknown error');
+      setError('Could not generate analysis: ' + errMsg);
     } finally {
       setLoading(false);
     }
@@ -124,7 +115,7 @@ Keep it sharp, practical, and under 300 words. No fluff. Write in plain English 
           <div style={{ fontSize:13, color:'var(--text-secondary)', lineHeight:1.8, whiteSpace:'pre-wrap' }}>{analysis}</div>
           <div style={{ marginTop:10, fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', display:'flex', justifyContent:'space-between' }}>
             <span>Generated just now · Claude AI</span>
-            <span>Apply to <a href="#" style={{ color:'var(--accent)' }}>Schedules</a> or <a href="#" style={{ color:'var(--accent)' }}>Tasks</a></span>
+            <span>Apply to <a href="#" onClick={e=>{e.preventDefault(); onNavigate && onNavigate('schedules');}} style={{ color:'var(--accent)', cursor:'pointer' }}>Schedules</a> or <a href="#" onClick={e=>{e.preventDefault(); onNavigate && onNavigate('tasks');}} style={{ color:'var(--accent)', cursor:'pointer' }}>Tasks</a></span>
           </div>
         </div>
       )}
@@ -235,19 +226,60 @@ function KeywordRow({ kw, onToggle, onRemove }) {
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-function IntelligenceScreen() {
-  const [competitors, setCompetitors] = React.useState(DEFAULT_COMPETITORS);
-  const [keywords,    setKeywords]    = React.useState(DEFAULT_KEYWORDS);
+function IntelligenceScreen({ onNavigate }) {
+  const [competitors, setCompetitors] = React.useState([]);
+  const [keywords,    setKeywords]    = React.useState([]);
+  const [companyName, setCompanyName] = React.useState('Your Store');
   const [showAddComp, setShowAddComp] = React.useState(false);
   const [newKw,       setNewKw]       = React.useState('');
   const [newKwCat,    setNewKwCat]    = React.useState('Tech Trends');
   const [tab,         setTab]         = React.useState('briefing');
+  const companyId = React.useMemo(() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } }, []);
 
-  const removeComp   = id => setCompetitors(p => p.filter(c => c.id !== id));
-  const toggleTrack  = (cid, opt) => setCompetitors(p => p.map(c => c.id===cid ? {...c, tracked: c.tracked.includes(opt) ? c.tracked.filter(x=>x!==opt) : [...c.tracked,opt]} : c));
-  const toggleKw     = id => setKeywords(p => p.map(k => k.id===id ? {...k,tracked:!k.tracked} : k));
-  const removeKw     = id => setKeywords(p => p.filter(k => k.id !== id));
-  const addKw        = () => { if(newKw.trim()){ setKeywords(p=>[...p,{id:`k-${Date.now()}`,keyword:newKw.trim(),category:newKwCat,tracked:true}]); setNewKw(''); }};
+  // Storage helpers — backend when company exists, localStorage fallback
+  const save = React.useCallback(async (comps, kws) => {
+    try {
+      localStorage.setItem('intel_competitors', JSON.stringify(comps));
+      localStorage.setItem('intel_keywords',    JSON.stringify(kws));
+      if (companyId) {
+        await api.updateCompany ? api.updateCompany(companyId, { intelligence_competitors: comps, intelligence_keywords: kws })
+                                : Promise.resolve();
+      }
+    } catch { /* non-critical */ }
+  }, [companyId]);
+
+  // Load on mount
+  React.useEffect(() => {
+    const loadData = async () => {
+      // Try backend first
+      if (companyId) {
+        try {
+          const { data } = await api.getCompany(companyId);
+          const co = data.company || data;
+          if (co.name) setCompanyName(co.name);
+          if (Array.isArray(co.intelligence_competitors) && co.intelligence_competitors.length > 0) {
+            setCompetitors(co.intelligence_competitors);
+            setKeywords(co.intelligence_keywords || []);
+            return;
+          }
+        } catch { /* fall through to localStorage */ }
+      }
+      // localStorage fallback
+      try {
+        const comps = JSON.parse(localStorage.getItem('intel_competitors') || '[]');
+        const kws   = JSON.parse(localStorage.getItem('intel_keywords')    || '[]');
+        if (comps.length) setCompetitors(comps);
+        if (kws.length)   setKeywords(kws);
+      } catch { /* ignore */ }
+    };
+    loadData();
+  }, [companyId]);
+
+  const removeComp   = id => { const next = competitors.filter(c => c.id !== id); setCompetitors(next); save(next, keywords); };
+  const toggleTrack  = (cid, opt) => { const next = competitors.map(c => c.id===cid ? {...c, tracked: c.tracked.includes(opt) ? c.tracked.filter(x=>x!==opt) : [...c.tracked,opt]} : c); setCompetitors(next); save(next, keywords); };
+  const toggleKw     = id => { const next = keywords.map(k => k.id===id ? {...k,tracked:!k.tracked} : k); setKeywords(next); save(competitors, next); };
+  const removeKw     = id => { const next = keywords.filter(k => k.id !== id); setKeywords(next); save(competitors, next); };
+  const addKw        = () => { if(newKw.trim()){ const next = [...keywords, {id:`k-${Date.now()}`,keyword:newKw.trim(),category:newKwCat,tracked:true}]; setKeywords(next); save(competitors, next); setNewKw(''); }};
 
   return (
     <div style={{ padding:'20px 16px 48px', maxWidth:960, margin:'0 auto' }}>
@@ -270,7 +302,7 @@ function IntelligenceScreen() {
 
       {tab === 'briefing' && (
         <div style={{ animation:'fadeSlideUp 0.3s ease-out' }}>
-          <AIInsightsPanel company="Acme Store" competitors={competitors} keywords={keywords}/>
+          <AIInsightsPanel company={companyName} competitors={competitors} keywords={keywords} onNavigate={onNavigate}/>
 
           {/* What to do with insights */}
           <div style={{ padding:'14px 16px', borderRadius:16, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
@@ -282,7 +314,7 @@ function IntelligenceScreen() {
                 { icon:'✅', label:'Create a task', desc:'Turn a specific recommendation into a tracked task for your team.', screen:'tasks', color:'#c4b5fd' },
                 { icon:'💬', label:'Ask an agent', desc:'Open chat and paste the insight — an agent will plan the response.', screen:'chat', color:'#ffbd66' },
               ].map(a => (
-                <div key={a.label} style={{ padding:'11px 13px', borderRadius:13, background:`${a.color}07`, border:`1px solid ${a.color}20`, cursor:'pointer', transition:'all 0.15s' }}
+                <div key={a.label} onClick={() => onNavigate && onNavigate(a.screen)} style={{ padding:'11px 13px', borderRadius:13, background:`${a.color}07`, border:`1px solid ${a.color}20`, cursor:'pointer', transition:'all 0.15s' }}
                   onMouseEnter={e=>{e.currentTarget.style.background=`${a.color}12`;}}
                   onMouseLeave={e=>{e.currentTarget.style.background=`${a.color}07`;}}>
                   <div style={{ fontSize:16, marginBottom:5 }}>{a.icon}</div>

@@ -3,17 +3,26 @@ name: CI
 on:
   push:
     branches: ["**"]
+    # Pure-docs context commits (auto-generated issue plans) don't need CI.
+    paths-ignore: ["docs/context/**"]
   pull_request:
     branches: ["main", "master"]
+    paths-ignore: ["docs/context/**"]
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # Skip CI on draft PRs (e.g. auto-generated context plans). Runs on push
+    # and once a PR is marked ready for review.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
 
     services:
       mongodb:
@@ -81,7 +90,7 @@ jobs:
           # Provide stub env vars so modules that read env at import time don't error
           API_KEYS: "ci-test-key"
           ADMIN_EMAIL: "admin@llmrelay.local"
-          ADMIN_PASSWORD: "WikiAdmin2026!"
+          ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-test-admin-password-do-not-use' }}
           SECRET_KEY: "ci-test-secret-do-not-use"
           OLLAMA_BASE: "http://localhost:11434"
           LANGFUSE_SECRET_KEY: ""
@@ -91,7 +100,7 @@ jobs:
           MONGO_URL: "mongodb://localhost:27017"
           DB_NAME: "llm_wiki_dashboard_ci"
         run: |
-    pytest -x -v --tb=short --timeout=120 --ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py
+          pytest -x -v --tb=short --timeout=120 --ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py
 
       - name: Upload test results
         if: failure()

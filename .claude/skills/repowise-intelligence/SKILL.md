@@ -9,8 +9,8 @@ triggers:
   - "get code context"
   - "analyze repository"
 references:
-  - .claude/skills/prompt-library/SKILL.md
-  - .claude/skills/system-prompt-audit/SKILL.md
+  - .claude/skills/graphify/SKILL.md
+  - CLAUDE.md
 ---
 
 # Skill: repowise-intelligence
@@ -116,7 +116,7 @@ risk = get_risk(changed_files=["proxy.py"])
 ## Related Skills
 - `dependency-audit`: Reviews and validates dependencies (complements graph intelligence)
 - `docs-sync`: Keeps documentation current (complements documentation intelligence)
-- `system-prompt-audit`: Audits prompts for consistency and safety
+- `graphify`: Knowledge-graph token optimisation (complements graph intelligence)
 - `repo-memory-updater`: Keeps CLAUDE.md and .claude/state/ in sync
 
 ## Acceptance Checks

@@ -1,27 +1,17 @@
-/* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
+/* eslint-disable jsx-a11y/anchor-is-valid -- ported design prototype; hardened when wired to live data */
 import React from 'react';
-
+import { useSafeData } from '../hooks/useSafeData';
+import * as api from '../../api';
 
 // agents.jsx — Agent Roster V5.0
-// Onboarding-provisioned agents clearly labelled. Create new agents. Runtime selector.
 
-// ── Resolve top-priority model from providers config ──────────────────────────
-function resolveAgentModel(hint) {
-  try {
-    const cfg = window.__getProviderConfig ? window.__getProviderConfig() : {};
-    const all = window.__getAllProviders   ? window.__getAllProviders()   : [];
-    const sorted = [...all].sort((a,b) => (cfg[a.id]?.priority ?? a.defaultPriority) - (cfg[b.id]?.priority ?? b.defaultPriority));
-    const top = sorted.find(p => cfg[p.id]?.enabled !== false);
-    return top ? (cfg[top.id]?.model || top.defaultModel) : hint;
-  } catch { return hint; }
-}
-function resolveAgentProvider() {
-  try {
-    const cfg = window.__getProviderConfig ? window.__getProviderConfig() : {};
-    const all = window.__getAllProviders   ? window.__getAllProviders()   : [];
-    const sorted = [...all].sort((a,b) => (cfg[a.id]?.priority ?? a.defaultPriority) - (cfg[b.id]?.priority ?? b.defaultPriority));
-    return sorted.find(p => cfg[p.id]?.enabled !== false) || sorted[0];
-  } catch { return null; }
+function relTime(iso) {
+  if (!iso) return '—';
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
 }
 
 // ── Runtime catalogue (from README) ──────────────────────────────────────────
@@ -35,27 +25,13 @@ const RUNTIMES = [
 ];
 const RUNTIME_TIER_COLOR = { recommended:'#46d9a4', code:'#5da2ff', reasoning:'#c4b5fd', execution:'#ffbd66', external:'var(--text-muted)' };
 
-// ── CEO cycle data ────────────────────────────────────────────────────────────
-const CEO_CYCLE = {
-  lastRun:'14 min ago', nextRun:'1 min', status:'idle',
-  lastDirectives:[
-    { to:'Dev Agent',      action:'Fix 3 failing pytest tests',     status:'completed', ago:'14m' },
-    { to:'Security Agent', action:'Run bandit scan on auth/',        status:'running',   ago:'8m' },
-    { to:'Release Agent',  action:'Audit changelog for v5.0',        status:'queued',    ago:'14m' },
-  ],
-};
-
-// ── Default roster (mix of built-in + onboarding-provisioned) ────────────────
-const DEFAULT_AGENTS = [
-  { id:'ceo',       name:'CEO Agent',       role:'Orchestrator',   icon:'◎', color:'#c4b5fd', status:'idle',    runtime:'hermes',    model:'nemotron-3-super-120b', specializations:['orchestration','assessment','directives'],    origin:'builtin',  currentTask:null,           tasksWeek:28, avgMs:3200,  lastRun:'14m ago', costPolicy:'local_first', desc:'Runs every 15 min. Reads improvement state, issues directives.' },
-  { id:'dev',       name:'Dev Agent',       role:'Engineer',       icon:'⚙', color:'#5da2ff', status:'active',  runtime:'opencode',  model:'qwen3-coder:30b',       specializations:['code_generation','repo_editing','test_fixing'], origin:'builtin',  currentTask:'Migrate DB schema to v3', tasksWeek:41, avgMs:18400, lastRun:'14m ago', costPolicy:'local_first', desc:'Fixes tests, applies code patches, opens PRs.' },
-  { id:'security',  name:'Security Agent',  role:'Security',       icon:'🔒',color:'#ffbd66', status:'running', runtime:'hermes',    model:'qwen3-coder:7b',        specializations:['sast','cve_audit','secret_detection'],           origin:'builtin',  currentTask:'Bandit scan — auth module', tasksWeek:7, avgMs:9100, lastRun:'8m ago',  costPolicy:'local_only', desc:'Remediates bandit/CVE/secret findings. Runs weekly + on directive.' },
-  { id:'reviewer',  name:'Reviewer Agent',  role:'Code Review',    icon:'◈', color:'#46d9a4', status:'idle',    runtime:'goose',     model:'deepseek-r1:32b',       specializations:['code_review','reasoning','council_review'],       origin:'builtin',  currentTask:null,           tasksWeek:4,  avgMs:24000, lastRun:'3h ago',  costPolicy:'local_first', desc:'Council review every 4th CEO cycle.' },
-  { id:'release',   name:'Release Agent',   role:'Release Mgmt',   icon:'◉', color:'#7c9dff', status:'active',  runtime:'hermes',    model:'qwen3-coder:7b',        specializations:['changelog','version_bump','readiness_check'],     origin:'builtin',  currentTask:'Changelog audit — v5.0', tasksWeek:3, avgMs:11200, lastRun:'45m ago', costPolicy:'local_only', desc:'Weekly readiness check, changelog, and version bumping.' },
-  // Onboarding-provisioned specialists
-  { id:'commerce',  name:'Commerce Agent',  role:'Shopify Specialist',icon:'🛍',color:'#46d9a4',status:'active', runtime:'opencode', model:'qwen3-coder:30b',        specializations:['shopify','checkout','inventory','conversion'],    origin:'onboarding',currentTask:'Audit checkout conversion rate', tasksWeek:12, avgMs:14200, lastRun:'20m ago', costPolicy:'local_first', desc:'Shopify checkout, inventory, and conversion optimisation.' },
-  { id:'content',   name:'Content Agent',   role:'CMS Specialist',  icon:'📄',color:'#c4b5fd', status:'idle',   runtime:'hermes',   model:'gemini-2.0-flash',       specializations:['contentful','seo','publishing','assets'],         origin:'onboarding',currentTask:null,           tasksWeek:6,  avgMs:8100,  lastRun:'2h ago',  costPolicy:'local_first', desc:'Contentful publishing, SEO, and asset management.' },
-  { id:'analytics', name:'Analytics Agent', role:'GA4 Specialist',  icon:'📊',color:'#5da2ff', status:'idle',   runtime:'hermes',   model:'nemotron-3-super-120b',  specializations:['gtm','ga4','tracking','dashboards'],              origin:'onboarding',currentTask:null,           tasksWeek:3,  avgMs:5400,  lastRun:'4h ago',  costPolicy:'local_first', desc:'GTM/GA4 tracking, event schemas, and dashboard setup.' },
+// ── Built-in agent definitions (static catalog — these are real system agents) ─
+const BUILTIN_AGENT_DEFS = [
+  { id:'ceo',      name:'CEO Agent',      role:'Orchestrator',  icon:'◎', color:'#c4b5fd', runtime:'hermes',   model:'—', specializations:['orchestration','assessment','directives'],    costPolicy:'local_first', desc:'Orchestrates the agency cycle — reads improvement state and issues directives to specialist agents.' },
+  { id:'dev',      name:'Dev Agent',      role:'Engineer',      icon:'⚙', color:'#5da2ff', runtime:'opencode', model:'—', specializations:['code_generation','repo_editing','test_fixing'], costPolicy:'local_first', desc:'Fixes tests, applies code patches, opens PRs.' },
+  { id:'security', name:'Security Agent', role:'Security',      icon:'🔒',color:'#ffbd66', runtime:'hermes',   model:'—', specializations:['sast','cve_audit','secret_detection'],           costPolicy:'local_only',  desc:'Remediates bandit/CVE/secret findings. Runs on directive.' },
+  { id:'reviewer', name:'Reviewer Agent', role:'Code Review',   icon:'◈', color:'#46d9a4', runtime:'hermes',   model:'—', specializations:['code_review','reasoning','council_review'],       costPolicy:'local_first', desc:'Performs council review on significant changes.' },
+  { id:'release',  name:'Release Agent',  role:'Release Mgmt',  icon:'◉', color:'#7c9dff', runtime:'hermes',   model:'—', specializations:['changelog','version_bump','readiness_check'],     costPolicy:'local_only',  desc:'Weekly readiness check, changelog, and version bumping.' },
 ];
 
 // ── Pipeline modes ────────────────────────────────────────────────────────────
@@ -74,9 +50,7 @@ function statusCfg(s) {
 }
 
 // ── CEO cycle panel ───────────────────────────────────────────────────────────
-function CEOCyclePanel({ cycle }) {
-  const [running, setRunning] = React.useState(false);
-  const run = () => { setRunning(true); setTimeout(()=>setRunning(false), 2500); };
+function CEOCyclePanel({ directives, loading }) {
   return (
     <div style={{ borderRadius:20, padding:'16px 18px', background:'linear-gradient(135deg,rgba(196,181,253,0.08),rgba(10,12,15,0.95) 60%)', border:'1px solid rgba(196,181,253,0.18)', marginBottom:18 }}>
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', marginBottom:12 }}>
@@ -84,22 +58,23 @@ function CEOCyclePanel({ cycle }) {
           <div style={{ width:30, height:30, borderRadius:9, background:'rgba(196,181,253,0.15)', border:'1px solid rgba(196,181,253,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>◎</div>
           <div>
             <div style={{ fontSize:14, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>CEO Agent</div>
-            <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'#c4b5fd' }}>Orchestrator · every 15 min · Last: {cycle.lastRun} · Next: {cycle.nextRun}</div>
+            <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'#c4b5fd' }}>Orchestrator · recent activity from backend</div>
           </div>
         </div>
-        <button onClick={run} disabled={running} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:999, fontSize:11, fontWeight:700, cursor:'pointer', background:'rgba(196,181,253,0.12)', border:'1px solid rgba(196,181,253,0.28)', color:running?'var(--text-muted)':'#c4b5fd', transition:'all 0.2s ease', whiteSpace:'nowrap' }}>
-          {running ? <><div style={{ width:10,height:10,border:'2px solid rgba(196,181,253,0.2)',borderTopColor:'#c4b5fd',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>Running…</> : '↺ Run cycle now'}
-        </button>
       </div>
+      {loading && <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>Loading activity…</div>}
+      {!loading && directives.length === 0 && (
+        <div style={{ fontSize:12, color:'var(--text-muted)', padding:'8px 0' }}>No recent agent activity logged. Activity will appear here once agents run tasks.</div>
+      )}
       <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-        {cycle.lastDirectives.map((d,i) => {
-          const sc = statusCfg(d.status==='completed'?'active':d.status);
+        {directives.map((d,i) => {
+          const sc = statusCfg('active');
           return (
             <div key={i} style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 10px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
-              <span style={{ width:5, height:5, borderRadius:'50%', background:sc.color, flexShrink:0, animation:sc.pulse?'pulse 2s infinite':'none' }}/>
+              <span style={{ width:5, height:5, borderRadius:'50%', background:sc.color, flexShrink:0 }}/>
               <span style={{ fontSize:12, color:'var(--text-secondary)', flex:1 }}>{d.action}</span>
               <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'rgba(196,181,253,0.7)', flexShrink:0 }}>→ {d.to}</span>
-              <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', color:sc.color, padding:'1px 6px', borderRadius:5, background:sc.bg, flexShrink:0 }}>{d.status==='completed'?'done':d.status}</span>
+              <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', color:'var(--text-muted)', padding:'1px 6px', borderRadius:5, background:'rgba(255,255,255,0.05)', flexShrink:0 }}>{d.ago}</span>
             </div>
           );
         })}
@@ -157,24 +132,41 @@ function PipelinePanel() {
 }
 
 // ── New agent form ────────────────────────────────────────────────────────────
-function NewAgentForm({ onAdd, onClose }) {
+function NewAgentForm({ onCreate, onClose }) {
   const [name, setName]           = React.useState('');
   const [role, setRole]           = React.useState('');
   const [runtime, setRuntime]     = React.useState('hermes');
-  const [costPolicy, setCostPolicy] = React.useState('local_first');
+  const [costPolicy]                = React.useState('local_first');
   const [specs, setSpecs]         = React.useState([]);
   const [prompt, setPrompt]       = React.useState('');
+  const [busy, setBusy]           = React.useState(false);
+  const [error, setError]         = React.useState(null);
   const ALL_SPECS = ['code_generation','repo_editing','code_review','sast','reasoning','scheduled','shopify','contentful','seo','ga4','support'];
 
-  const submit = () => {
-    if (!name.trim()) return;
-    onAdd({
-      id:`agent-${Date.now()}`, name:name.trim(), role:role||'General', icon:'◎', color:'#5da2ff',
-      status:'idle', runtime, model:resolveAgentModel('qwen3-coder:30b'),
-      specializations:specs, origin:'custom', currentTask:null,
-      tasksWeek:0, avgMs:0, lastRun:'never', costPolicy, desc:prompt||`Custom agent: ${name}`,
-    });
-    onClose();
+  const submit = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true); setError(null);
+    try {
+      // Persist to the backend agent store (POST /api/agents/). Field names match
+      // AgentCreateRequest (agents/store.py): name, role, description, model,
+      // system_prompt, preferred_runtime, task_specializations, cost_policy, tags.
+      await onCreate({
+        name: name.trim(),
+        role: role || 'General',
+        description: prompt || `Custom agent: ${name.trim()}`,
+        model: '',
+        system_prompt: prompt || '',
+        preferred_runtime: runtime,
+        task_specializations: specs,
+        cost_policy: costPolicy,
+        tags: ['custom'],
+      });
+      onClose();
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      setError(detail ? api.fmtErr(detail) : (e?.message || 'Failed to create agent.'));
+      setBusy(false);
+    }
   };
 
   return (
@@ -227,20 +219,18 @@ function NewAgentForm({ onAdd, onClose }) {
           onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
       </div>
 
+      {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
       <div style={{ display:'flex', gap:8 }}>
-        <button onClick={submit} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:'pointer' }}>+ Create Agent</button>
-        <button onClick={onClose} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+        <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Creating…' : '+ Create Agent'}</button>
+        <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
       </div>
     </div>
   );
 }
 
 // ── Agent card ────────────────────────────────────────────────────────────────
-function AgentCard({ agent, onChat }) {
+function AgentCard({ agent, onChat, onRun }) {
   const sc = statusCfg(agent.status);
-  const resolvedModel   = resolveAgentModel(agent.model);
-  const topProvider     = resolveAgentProvider();
-  const modelChanged    = resolvedModel !== agent.model;
   const originConfig    = {
     builtin:    { color:'#5da2ff',  label:'Built-in',    desc:'Core agency agent' },
     onboarding: { color:'#46d9a4',  label:'Provisioned', desc:'Created from onboarding discovery' },
@@ -312,15 +302,21 @@ function AgentCard({ agent, onChat }) {
       {/* Runtime + model */}
       <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:10 }}>
         <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:rt?RUNTIME_TIER_COLOR[rt.tier]:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)', textTransform:'uppercase', letterSpacing:'0.09em' }}>⚙ {agent.runtime}</span>
-        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:modelChanged?'#46d9a4':'var(--text-muted)', background:modelChanged?'rgba(70,217,164,0.08)':'rgba(255,255,255,0.05)', border:`1px solid ${modelChanged?'rgba(70,217,164,0.20)':'rgba(255,255,255,0.09)'}`, maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textTransform:'uppercase', letterSpacing:'0.09em' }}>◈ {resolvedModel}{modelChanged?' ↑':''}</span>
-        {topProvider && modelChanged && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:topProvider.color||'var(--accent)', background:`${topProvider.color||'#fff'}10`, border:`1px solid ${topProvider.color||'#fff'}22`, textTransform:'uppercase', letterSpacing:'0.09em' }}>via {topProvider.name}</span>}
+        {agent.model && agent.model !== '—' && (
+          <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)', maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textTransform:'uppercase', letterSpacing:'0.09em' }}>◈ {agent.model}</span>
+        )}
       </div>
 
-      <button onClick={() => onChat && onChat(agent)} style={{ width:'100%', padding:'8px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:`${agent.color}10`, border:`1px solid ${agent.color}22`, color:agent.color, transition:'all 0.15s ease' }}
-        onMouseEnter={e=>e.currentTarget.style.background=`${agent.color}20`}
-        onMouseLeave={e=>e.currentTarget.style.background=`${agent.color}10`}>
-        → Chat with {agent.name.split(' ')[0]}
-      </button>
+      <div style={{ display:'flex', gap:8 }}>
+        <button onClick={() => onRun && onRun(agent)} style={{ flex:1, padding:'8px', borderRadius:10, fontSize:12, fontWeight:800, cursor:'pointer', background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', border:'none', transition:'all 0.15s ease' }}>
+          ▶ Run task
+        </button>
+        <button onClick={() => onChat && onChat(agent)} style={{ flex:1, padding:'8px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:`${agent.color}10`, border:`1px solid ${agent.color}22`, color:agent.color, transition:'all 0.15s ease' }}
+          onMouseEnter={e=>e.currentTarget.style.background=`${agent.color}20`}
+          onMouseLeave={e=>e.currentTarget.style.background=`${agent.color}10`}>
+          → Chat
+        </button>
+      </div>
     </div>
   );
 }
@@ -347,20 +343,264 @@ function RuntimesBar() {
   );
 }
 
+// ── Run-task modal ────────────────────────────────────────────────────────────
+// Dispatches a task to the autonomous agent pipeline via the real chat API
+// (agent_mode=true → HTTP 202 { job_id }) and streams the job to completion.
+// ── Run-task modal ─────────────────────────────────────────────────────────────────────
+// Creates a tracked task in the Tasks board, then dispatches it through the
+// task pipeline (POST /api/tasks → POST /api/tasks/{id}/run). The task appears
+// in both the Agents screen (live execution) and the Tasks board (persistent).
+function RunTaskModal({ agent, onClose, onViewInTasks }) {
+  const [task, setTask]     = React.useState('');
+  const [status, setStatus] = React.useState('idle'); // idle | starting | running | done | error
+  const [phase, setPhase]   = React.useState(null);
+  const [result, setResult] = React.useState(null);
+  const [error, setError]   = React.useState(null);
+  const [taskId, setTaskId] = React.useState(null);
+  const mounted = React.useRef(true);
+  React.useEffect(() => () => { mounted.current = false; }, []);
+
+  const poll = async (tid) => {
+    setPhase('queued');
+    for (let i = 0; i < 240; i++) {
+      await new Promise(r => setTimeout(r, 1500));
+      if (!mounted.current) return;
+      let snap;
+      try { const { data } = await api.getTask(tid); snap = data.task || data; }
+      catch { if (mounted.current) { setStatus('error'); setError('Lost connection — the task may still be running on the server.'); } return; }
+      if (!mounted.current) return;
+      const st = snap?.status;
+      setPhase(st || 'in_progress');
+      if (st === 'done') {
+        setStatus('done');
+        setResult(snap?.result || snap?.error_message || 'Task completed.');
+        return;
+      }
+      if (st === 'failed') {
+        setStatus('error');
+        setError(snap?.error_message || 'Task execution failed.');
+        return;
+      }
+    }
+    if (mounted.current) { setStatus('error'); setError('Task exceeded 6 min timeout — check the Tasks board for its status.'); }
+  };
+
+  const run = async () => {
+    if (!task.trim() || status === 'starting' || status === 'running') return;
+    setStatus('starting'); setError(null); setResult(null); setPhase(null);
+    try {
+      // 1. Create a persistent task in the Tasks board
+      const taskPayload = {
+        title: task.trim().substring(0, 80),
+        description: task.trim(),
+        prompt: task.trim(),
+        agent_id: agent.id,
+        runtime_id: agent.runtime || 'hermes',
+        priority: 'medium',
+        task_type: agent.specializations?.[0]?.replace(/_/g, ' ') || 'general',
+        tags: [agent.id, agent.origin || 'builtin'],
+      };
+      const { data: taskData } = await api.createTask(taskPayload);
+      if (!mounted.current) return;
+      const tid = taskData?.task?.task_id;
+      if (!tid) throw new Error('Task created but no ID returned');
+      setTaskId(tid);
+
+      // 2. Trigger execution via the task pipeline
+      await api.runTask(tid);
+      if (!mounted.current) return;
+      setStatus('running');
+
+      // 3. Poll for completion
+      await poll(tid);
+    } catch (e) {
+      if (!mounted.current) return;
+      const detail = e?.response?.data?.detail;
+      setStatus('error');
+      setError(detail ? api.fmtErr(detail) : (e?.message || 'Failed to start the task.'));
+    }
+  };
+
+  const busy = status === 'starting' || status === 'running';
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:2000, background:'rgba(2,3,4,0.7)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:560, maxHeight:'88vh', overflowY:'auto', borderRadius:18, border:'1px solid rgba(93,162,255,0.20)', background:'var(--bg-surface)', padding:'20px' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+          <div style={{ fontSize:15, fontWeight:800, color:'#fff' }}>Run a task · {agent.name}</div>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', fontSize:20, cursor:'pointer' }}>×</button>
+        </div>
+        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Creates a tracked task in the <strong style={{ color:'var(--text-tertiary)' }}>Tasks board</strong>, then dispatches it through the <strong style={{ color:'var(--text-tertiary)' }}>{agent.name}</strong> pipeline. Monitor progress here or find the full lifecycle in Tasks.</div>
+        <textarea value={task} onChange={e=>setTask(e.target.value)} disabled={busy} placeholder="Describe the task…  e.g. 'Audit the checkout flow for SEO regressions and open a PR'" rows={4}
+          style={{ width:'100%', padding:'10px 12px', borderRadius:10, resize:'vertical', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', marginBottom:12 }}/>
+        {busy && (
+          <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.16)', fontSize:12, color:'var(--text-secondary)', display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ width:7, height:7, borderRadius:'50%', background:'var(--accent)', animation:'pulse 1.4s infinite' }}/>
+            {status === 'starting' ? 'Creating task…' : `Running · ${phase || 'in_progress'}…`}
+          </div>
+        )}
+        {taskId && status === 'running' && (
+          <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.14)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+            <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)' }}>
+              Task #{taskId} · <span style={{ color:'var(--text-muted)' }}>running in Tasks board</span>
+            </span>
+            {onViewInTasks && (
+              <button onClick={onViewInTasks} style={{
+                fontSize:10, fontFamily:'var(--font-mono)', fontWeight:700,
+                padding:'4px 10px', borderRadius:7, cursor:'pointer',
+                background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.28)',
+                color:'var(--accent)', letterSpacing:'0.08em', textTransform:'uppercase',
+              }}>View in Tasks →</button>
+            )}
+          </div>
+        )}
+        {status === 'done' && result && (
+          <div style={{ marginBottom:12, padding:'12px', borderRadius:10, background:'rgba(70,217,164,0.07)', border:'1px solid rgba(70,217,164,0.20)', fontSize:13, color:'var(--text-secondary)', whiteSpace:'pre-wrap', lineHeight:1.55 }}>
+            <div style={{ marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:6 }}>
+              <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--success)', letterSpacing:'0.08em', textTransform:'uppercase' }}>✓ Completed</span>
+              <div style={{ display:'flex', gap:5 }}>
+                <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:'#5da2ff', background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.20)', textTransform:'uppercase', letterSpacing:'0.08em' }}>{agent.name}</span>
+                {taskId && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)', textTransform:'uppercase', letterSpacing:'0.08em' }}>Task #{taskId}</span>}
+              </div>
+            </div>
+            {result}
+          </div>
+        )}
+        {(error || (status === 'error')) && (
+          <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+            <span style={{ fontSize:12, color:'#ff6b7d' }}>{error || 'Task execution failed.'}</span>
+            {taskId && onViewInTasks && (
+              <button onClick={onViewInTasks} style={{
+                fontSize:10, fontFamily:'var(--font-mono)', fontWeight:700,
+                padding:'4px 10px', borderRadius:7, cursor:'pointer',
+                background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)',
+                color:'#ff6b7d', letterSpacing:'0.08em', textTransform:'uppercase',
+              }}>View in Tasks →</button>
+            )}
+          </div>
+        )}
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={run} disabled={busy || !task.trim()} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:(busy||!task.trim())?0.6:1 }}>{busy ? 'Running…' : '▶ Run task'}</button>
+          <button onClick={onClose} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Map a backend agent record (AgentDefinition) to the card view-model.
+function mapBackendAgent(a, agentTaskStats = {}) {
+  const id = a.agent_id || a.id;
+  const builtin = BUILTIN_AGENT_DEFS.find(b => b.id === id || b.name.toLowerCase() === (a.name || '').toLowerCase());
+  const tags = a.tags || [];
+  const origin = (tags.includes('onboarding') || tags.includes('specialist')) ? 'onboarding'
+               : builtin ? 'builtin' : 'custom';
+  return {
+    id,
+    name: a.name || 'Agent',
+    role: a.role || 'Agent',
+    icon: builtin?.icon || '◎',
+    color: builtin?.color || '#5da2ff',
+    status: a.status || 'idle',
+    currentTask: null,
+    runtime: a.preferred_runtime || a.runtime_id || 'hermes',
+    model: a.model || '—',
+    specializations: a.task_specializations || [],
+    origin,
+    tasksWeek: agentTaskStats.weekTotal || a.use_count || 0,
+    avgMs: agentTaskStats.avgMs || 0,
+    lastRun: a.last_used_at ? relTime(a.last_used_at) : '—',
+    costPolicy: a.cost_policy || 'local_first',
+    desc: a.description || builtin?.desc || '',
+  };
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────────
-function AgentsScreen({ onNavigateToChat }) {
-  const [agents, setAgents]     = React.useState(DEFAULT_AGENTS);
-  const [showForm, setShowForm] = React.useState(false);
-  const [filter, setFilter]     = React.useState('all');
+function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
+  const [showForm, setShowForm]         = React.useState(false);
+  const [filter, setFilter]             = React.useState('all');
+  const [runAgent, setRunAgent]         = React.useState(null);
 
-  const builtIn     = agents.filter(a => a.origin==='builtin' && a.id!=='ceo');
-  const provisioned = agents.filter(a => a.origin==='onboarding');
-  const custom      = agents.filter(a => a.origin==='custom');
-  const activeCount = agents.filter(a => a.status!=='idle').length;
+  const [data, states, refetch] = useSafeData(null, {
+    activity:  '/api/activity?limit=30',
+    providers: '/api/providers',
+    agents:    '/api/agents/',
+    taskCounts: '/api/tasks/counts',
+  }, { refreshMs: 30000 });
 
-  const filtered = filter==='all' ? agents.filter(a=>a.id!=='ceo')
-                 : filter==='provisioned' ? provisioned
-                 : filter==='builtin' ? builtIn
+  // Derive last-run hints from activity feed per built-in agent name keyword
+  const agentLastRun = React.useMemo(() => {
+    const logs = data.activity?.logs || data.activity?.events || data.activity?.activity || [];
+    const map = {};
+    logs.forEach(log => {
+      const text = ((log.message || '') + ' ' + (log.event_type || '')).toLowerCase();
+      BUILTIN_AGENT_DEFS.forEach(a => {
+        if (!map[a.id] && (text.includes(a.id) || text.includes(a.name.split(' ')[0].toLowerCase()))) {
+          map[a.id] = relTime(log.created_at || log.timestamp);
+        }
+      });
+    });
+    return map;
+  }, [data.activity]);
+
+  // Wire real task counts per agent from /api/tasks/counts
+  const agentTaskStats = React.useMemo(() => {
+    const counts = data.taskCounts?.counts || {};
+    return {
+      weekDone:   counts.done_this_week   || 0,
+      weekTodo:   counts.todo_this_week   || 0,
+      weekTotal:  (counts.done_this_week  || 0) + (counts.in_progress_this_week || 0),
+      avgMs:      counts.avg_task_ms      || 0,
+      total:      counts.total            || 0,
+    };
+  }, [data.taskCounts]);
+
+  // Derive CEO directive list from recent activity
+  const ceoCycleData = React.useMemo(() => {
+    const logs = data.activity?.logs || data.activity?.events || data.activity?.activity || [];
+    return logs
+      .filter(l => {
+        const t = ((l.event_type || '') + ' ' + (l.message || '')).toLowerCase();
+        return t.includes('agent') || t.includes('task') || t.includes('job');
+      })
+      .slice(0, 5)
+      .map(l => ({
+        to: (l.event_type || 'System').replace(/_/g, ' '),
+        action: l.message || l.event_type || 'Activity',
+        ago: relTime(l.created_at || l.timestamp),
+      }));
+  }, [data.activity]);
+
+  // Real roster from the backend agent store (GET /api/agents/) merged with the
+  // built-in catalog. Built-ins are shown only when the backend doesn't already
+  // return an equivalent agent (matched by id or name).
+  const backendAgents = React.useMemo(() => {
+    const list = data.agents?.agents || (Array.isArray(data.agents) ? data.agents : []);
+    return list.map(a => mapBackendAgent(a, agentTaskStats));
+  }, [data.agents, agentTaskStats]);
+
+  const agents = React.useMemo(() => {
+    const seenIds   = new Set(backendAgents.map(a => a.id));
+    const seenNames = new Set(backendAgents.map(a => (a.name || '').toLowerCase()));
+    const builtins = BUILTIN_AGENT_DEFS
+      .filter(b => !seenIds.has(b.id) && !seenNames.has(b.name.toLowerCase()))
+      .map(a => ({ ...a, status:'idle', currentTask:null, tasksWeek: agentTaskStats.weekTotal || 0, avgMs: agentTaskStats.avgMs || 0, lastRun: agentLastRun[a.id] || '—', origin:'builtin' }));
+    return [...builtins, ...backendAgents];
+  }, [backendAgents, agentLastRun, agentTaskStats]);
+
+  // Navigate to Tasks board
+  const handleViewTasks = () => onNavigateToTasks && onNavigateToTasks();
+
+  const handleCreate = async (payload) => {
+    await api.createAgent(payload);
+    refetch();
+  };
+
+  const builtIn  = agents.filter(a => a.origin === 'builtin' && a.id !== 'ceo');
+  const custom   = agents.filter(a => a.origin === 'custom' || a.origin === 'onboarding');
+
+  const filtered = filter === 'all'     ? agents.filter(a => a.id !== 'ceo')
+                 : filter === 'builtin' ? builtIn
                  : custom;
 
   return (
@@ -369,46 +609,51 @@ function AgentsScreen({ onNavigateToChat }) {
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:18 }}>
         <div>
           <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Agent Roster</h1>
-          <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:480 }}>CEO + built-in specialists + agents provisioned from your onboarding discovery. All use your configured model priority.</p>
+          <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:480 }}>Built-in specialist agents + any custom agents you create. Complete onboarding to provision company-specific specialists.</p>
         </div>
-        <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
-          <div style={{ padding:'8px 14px', borderRadius:12, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.09)', textAlign:'center' }}>
-            <div style={{ fontSize:20, fontWeight:800, color:'#46d9a4', letterSpacing:'-0.03em' }}>{activeCount}</div>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em' }}>Active now</div>
-          </div>
-          <button onClick={() => setShowForm(true)} style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 20px', borderRadius:999, fontSize:13, fontWeight:800, cursor:'pointer', background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', border:'none', boxShadow:'0 6px 20px rgba(93,162,255,0.22)' }}>+ New agent</button>
-        </div>
+        <button onClick={() => setShowForm(true)} style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 20px', borderRadius:999, fontSize:13, fontWeight:800, cursor:'pointer', background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', border:'none', boxShadow:'0 6px 20px rgba(93,162,255,0.22)' }}>+ New agent</button>
       </div>
 
-      <CEOCyclePanel cycle={CEO_CYCLE}/>
+      <CEOCyclePanel directives={ceoCycleData} loading={states.activity?.loading}/>
       <PipelinePanel/>
       <RuntimesBar/>
 
-      {showForm && <NewAgentForm onAdd={a => { setAgents(p=>[...p,a]); setShowForm(false); }} onClose={() => setShowForm(false)}/>}
+      {showForm && <NewAgentForm onCreate={handleCreate} onClose={() => setShowForm(false)}/>}
+      {runAgent && <RunTaskModal agent={runAgent} onClose={() => setRunAgent(null)} onViewInTasks={handleViewTasks}/>}
+
+      {states.agents?.error && (
+        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', marginBottom:12, fontSize:12, color:'#ff6b7d' }}>
+          Couldn't load the live agent roster ({states.agents.error}). Showing the built-in catalog only.
+        </div>
+      )}
 
       {/* Filter tabs */}
       <div style={{ display:'flex', gap:6, marginBottom:14, flexWrap:'wrap' }}>
         {[
-          { id:'all',         label:`All (${agents.filter(a=>a.id!=='ceo').length})` },
-          { id:'builtin',     label:`Built-in (${builtIn.length})` },
-          { id:'provisioned', label:`From onboarding (${provisioned.length})` },
-          { id:'custom',      label:`Custom (${custom.length})` },
+          { id:'all',     label:`All (${agents.filter(a=>a.id!=='ceo').length})` },
+          { id:'builtin', label:`Built-in (${builtIn.length})` },
+          { id:'custom',  label:`Custom (${custom.length})` },
         ].map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)} style={{ padding:'5px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer', background:filter===f.id?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${filter===f.id?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:filter===f.id?'#fff':'var(--text-muted)', transition:'all 0.15s' }}>{f.label}</button>
         ))}
       </div>
 
-      {/* Onboarding callout for provisioned agents */}
-      {(filter==='all'||filter==='provisioned') && provisioned.length > 0 && (
-        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(70,217,164,0.05)', border:'1px solid rgba(70,217,164,0.15)', marginBottom:12, fontSize:12, color:'#46d9a4', lineHeight:1.5 }}>
-          ✦ {provisioned.length} specialists were auto-provisioned during company onboarding (acme-store.com). They know your Shopify, Contentful, and GA4 stack.
+      {/* Honest callout: provisioned specialists need onboarding */}
+      {(filter === 'all' || filter === 'builtin') && (
+        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.05)', border:'1px solid rgba(93,162,255,0.12)', marginBottom:12, fontSize:12, color:'var(--text-muted)', lineHeight:1.5 }}>
+          Company-specific specialists (Commerce, Content, Analytics…) appear here after you complete the Onboarding flow for your site.
         </div>
       )}
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:14 }}>
         {filtered.map(agent => (
-          <AgentCard key={agent.id} agent={agent} onChat={() => onNavigateToChat && onNavigateToChat(agent)}/>
+          <AgentCard key={agent.id} agent={agent} onChat={() => onNavigateToChat && onNavigateToChat(agent)} onRun={() => setRunAgent(agent)}/>
         ))}
+        {filtered.length === 0 && (
+          <div style={{ gridColumn:'1/-1', padding:'32px 0', textAlign:'center', fontSize:13, color:'var(--text-muted)' }}>
+            No agents yet. Create one using the button above.
+          </div>
+        )}
       </div>
     </div>
   );

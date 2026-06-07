@@ -241,6 +241,26 @@ class TaskSpec:
     tool_allowlist: list[str] | None = None  # None = all tools allowed
 
 
+def task_wants_browser(spec: TaskSpec) -> bool:
+    """Return True if the task spec indicates a need for web/browser access.
+
+    Used by runtime adapters (Hermes, Goose, Aider) to decide whether to
+    route the task through the Kimi bridge, which provides browser-capable
+    LLM access via kimi.com."""
+    task_type = (spec.task_type or "").lower()
+    if "web" in task_type or "browse" in task_type:
+        return True
+    ctx = spec.context or {}
+    if ctx.get("web_browse") or ctx.get("requires_browser"):
+        return True
+    if spec.tool_allowlist and any(
+        "browser" in t.lower() or "web" in t.lower()
+        for t in spec.tool_allowlist
+    ):
+        return True
+    return False
+
+
 # ── Abstract base ─────────────────────────────────────────────────────────────
 
 class RuntimeAdapter(abc.ABC):

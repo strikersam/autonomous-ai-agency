@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from textwrap import dedent
 from urllib.parse import urlparse
@@ -17,10 +18,11 @@ import requests
 OWNER = "strikersam"
 REPO = "local-llm-server"
 API = f"https://api.github.com/repos/{OWNER}/{REPO}"
+log = logging.getLogger("qwen-proxy")
 
 
 def _headers() -> dict[str, str]:
-    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_PAT") or os.getenv("GH_TOKEN")
     h = {"Accept": "application/vnd.github+json"}
     if token:
         h["Authorization"] = f"Bearer {token}"
@@ -38,10 +40,10 @@ def _fetch_open_issues() -> list[dict]:
             timeout=30,
         )
         res.raise_for_status()
-        batch = [item for item in res.json() if "pull_request" not in item]
-        if not batch:
+        payload = res.json()
+        if not payload:
             break
-        issues.extend(batch)
+        issues.extend(item for item in payload if "pull_request" not in item)
         page += 1
     return issues
 
@@ -98,21 +100,31 @@ def _comment_body(issue: dict) -> str:
 
 
 def _has_existing_context(issue_number: int) -> bool:
-    res = requests.get(f"{API}/issues/{issue_number}/comments", headers=_headers(), timeout=30)
-    res.raise_for_status()
-    for c in res.json():
-        if "## LLM Implementation Context (auto-added)" in c.get("body", ""):
-            return True
-    return False
+    page = 1
+    while True:
+        res = requests.get(
+            f"{API}/issues/{issue_number}/comments",
+            params={"per_page": 100, "page": page},
+            headers=_headers(),
+            timeout=30,
+        )
+        res.raise_for_status()
+        comments = res.json()
+        if not comments:
+            return False
+        for comment in comments:
+            if "## LLM Implementation Context (auto-added)" in comment.get("body", ""):
+                return True
+        page += 1
 
 
 def _post_comment(issue_number: int, body: str, dry_run: bool) -> None:
     if dry_run:
-        print(f"[dry-run] would comment on #{issue_number}")
+        log.info("[dry-run] would comment on #%s", issue_number)
         return
     res = requests.post(f"{API}/issues/{issue_number}/comments", headers=_headers(), json={"body": body}, timeout=30)
     res.raise_for_status()
-    print(f"commented on #{issue_number}: {res.json().get('html_url')}")
+    log.info("commented on #%s: %s", issue_number, res.json().get("html_url"))
 
 
 def main() -> int:
@@ -120,16 +132,18 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    if not args.dry_run and not (os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")):
-        raise SystemExit("GITHUB_TOKEN or GH_TOKEN is required unless --dry-run is used")
+    if not args.dry_run and not (os.getenv("GITHUB_TOKEN") or os.getenv("GH_PAT") or os.getenv("GH_TOKEN")):
+        raise SystemExit("GITHUB_TOKEN / GH_PAT / GH_TOKEN is required unless --dry-run is used")
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     issues = [issue for issue in _fetch_open_issues() if _is_quick_note(issue)]
-    print(f"found {len(issues)} quick-note issue(s)")
+    log.info("found %s quick-note issue(s)", len(issues))
 
     for issue in issues:
         n = issue["number"]
         if _has_existing_context(n):
-            print(f"skip #{n}: context already present")
+            log.info("skip #%s: context already present", n)
             continue
         _post_comment(n, _comment_body(issue), args.dry_run)
 

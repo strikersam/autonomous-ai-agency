@@ -16,6 +16,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.test-venv/
 .pytest_cache/
 .cache/
 
@@ -39,13 +40,15 @@ dist/
 test_reports/
 scratch/verification/report.md
 
-# Graphify knowledge graph — only GRAPH_REPORT.md is portable; all others are machine-specific
+# Graphify knowledge graph — all output files are machine-specific, do not track
 graphify-out/graph.json
 graphify-out/.graphify_labels.json
 graphify-out/graph.html
 graphify-out/cache/
 graphify-out/.graphify_root
 graphify-out/manifest.json
+graphify-out/.rebuild.lock
+graphify-out/GRAPH_REPORT.md
 
 # Temporary / backup files
 *.bak
@@ -86,3 +89,8 @@ render-env-vars.txt
 .activation_keypair.json
 .onboarding_state.json
 .activation_audit.jsonl
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example

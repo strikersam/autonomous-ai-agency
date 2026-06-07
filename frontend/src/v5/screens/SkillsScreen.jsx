@@ -1,5 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import * as api from '../../api';
 
 
 // skills.jsx — Agentic Skills & Workflow Builder
@@ -260,25 +261,99 @@ function WorkflowVisual() {
 }
 
 function SkillsScreen() {
-  const [skills, setSkills]   = React.useState(COMMERCE_SKILLS);
-  const [filter, setFilter]   = React.useState('all');
-  const [search, setSearch]   = React.useState('');
+  const [skills,      setSkills]      = React.useState(COMMERCE_SKILLS);
+  const [liveSkills,  setLiveSkills]  = React.useState(null);   // null = loading
+  const [recommended, setRecommended] = React.useState([]);
+  const [techStack,   setTechStack]   = React.useState([]);
+  const [wfTypes,     setWfTypes]     = React.useState([]);
+  const [refreshing,  setRefreshing]  = React.useState(false);
+  const [filter,      setFilter]      = React.useState('all');
+  const [search,      setSearch]      = React.useState('');
+  const [tab,         setTab]         = React.useState('catalogue'); // 'catalogue' | 'recommended' | 'registry'
+  const userPickedTab = React.useRef(false); // becomes true once the user clicks a tab
+  const [companyId,   setCompanyId]   = React.useState(null);
 
-  const toggle = (id) => setSkills(p => p.map(s => s.id===id ? {...s, enabled:!s.enabled} : s));
+  // Resolve current company ID from the companies list.
+  // listCompanies() is NOT a single-company API — admins get every company and
+  // a normal user can own several — so only auto-select when there is exactly
+  // one company. With multiple, leave it unset (the user picks) rather than
+  // silently loading recommendations for an arbitrary tenant.
+  React.useEffect(() => {
+    const resolve = async () => {
+      try {
+        const { data } = await api.listCompanies();
+        const companies = data.companies || [];
+        if (companies.length === 1) {
+          setCompanyId(companies[0].id);
+        }
+      } catch { /* silent */ }
+    };
+    resolve();
+  }, []);
 
+  // Load auto-recommendations and registry skills from company skill APIs
+  React.useEffect(() => {
+    const load = async () => {
+      // Load recommended skills from company skill API
+      try {
+        const { data } = companyId
+          ? await api.autoRecommendCompanySkills(companyId)
+          : await api.autoRecommendCompanySkills();
+        const recs = data.recommendations || [];
+        setRecommended(recs);
+        setTechStack(data.tech_stack || []);
+        if (data.workflow_types) setWfTypes(data.workflow_types);
+        // Domain-aware default: if we have real recommendations and the user hasn't
+        // manually chosen a tab, show them instead of the commerce demo catalogue.
+        if (!userPickedTab.current && recs.length > 0) setTab('recommended');
+      } catch { /* non-critical */ }
+      // Load registry skills from company skill API
+      try {
+        const { data } = await api.listCompanySkills();
+        if ((data.skills || []).length > 0) setLiveSkills(data.skills);
+      } catch { /* non-critical */ }
+    };
+    load();
+  }, [companyId]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const { data } = await api.listCompanySkills();
+      setLiveSkills(data.skills || []);
+      const recPromise = companyId
+        ? api.autoRecommendCompanySkills(companyId)
+        : api.autoRecommendCompanySkills();
+      const { data: rec } = await recPromise;
+      setRecommended(rec.recommendations || []);
+    } catch { /* ignore */ }
+    finally { setRefreshing(false); }
+  };
+
+  // Persist toggle to localStorage (backend skills are read-only registry entries)
+  const [enabled, setEnabled] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('skills_enabled') || '{}'); } catch { return {}; }
+  });
+  const toggle = (id) => {
+    const next = { ...enabled, [id]: !enabled[id] };
+    setEnabled(next);
+    localStorage.setItem('skills_enabled', JSON.stringify(next));
+  };
+
+  const effectiveSkills = skills.map(s => ({ ...s, enabled: enabled[s.id] !== undefined ? enabled[s.id] : s.enabled }));
   const categories = ['all', ...new Set(COMMERCE_SKILLS.map(s => s.category))];
-  const filtered = skills.filter(s => {
+  const filtered = effectiveSkills.filter(s => {
     const matchesCat    = filter==='all' || s.category===filter;
     const matchesSearch = !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.tagline.toLowerCase().includes(search.toLowerCase());
     return matchesCat && matchesSearch;
   });
 
-  const enabledCount = skills.filter(s=>s.enabled).length;
+  const enabledCount = effectiveSkills.filter(s=>s.enabled).length;
 
   return (
     <div style={{ padding:'20px 16px 48px', maxWidth:960, margin:'0 auto' }}>
       {/* Header with plain-language intro */}
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Agentic Commerce</div>
+      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Agentic Commerce · Preview</div>
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:14 }}>
         <div>
           <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:6 }}>
@@ -290,36 +365,124 @@ function SkillsScreen() {
         </div>
         <div style={{ padding:'10px 16px', borderRadius:14, background:'rgba(70,217,164,0.06)', border:'1px solid rgba(70,217,164,0.15)', textAlign:'center' }}>
           <div style={{ fontSize:22, fontWeight:800, color:'#46d9a4', letterSpacing:'-0.03em' }}>{enabledCount}</div>
-          <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em' }}>Active skills</div>
+          <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em' }}>Toggled on</div>
         </div>
+      </div>
+
+      {/* Honest preview notice — templates are illustrative; registry comes from the backend */}
+      <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 }}>
+        <strong style={{ color:'var(--accent)' }}>Catalogue Preview.</strong> The commerce skill templates below are <strong>demo illustrations</strong> — toggling is session-only. The <strong>Recommended</strong> and <strong>Registry</strong> tabs call live backend APIs (<code>/api/company/skills</code>) and reflect real specialist skill bindings.
+      </div>
+
+      {/* Tab switcher — without this the Recommended/Registry (live, domain-aware)
+          skills were unreachable and users only ever saw the commerce demo catalogue. */}
+      <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+        {[
+          { id:'recommended', label:'Recommended' },
+          { id:'registry', label:'Registry' },
+          { id:'catalogue', label:'Catalogue (demo)' },
+        ].map(t => (
+          <button key={t.id} onClick={()=>{ userPickedTab.current = true; setTab(t.id); }} style={{
+            padding:'6px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer',
+            fontFamily:'var(--font-mono)', letterSpacing:'0.04em',
+            background: tab===t.id ? 'rgba(93,162,255,0.14)' : 'rgba(255,255,255,0.04)',
+            border:`1px solid ${tab===t.id ? 'rgba(93,162,255,0.40)' : 'rgba(255,255,255,0.12)'}`,
+            color: tab===t.id ? '#fff' : 'var(--text-secondary)', transition:'all 0.15s',
+          }}>{t.label}</button>
+        ))}
       </div>
 
       {/* How it works visual */}
       <WorkflowVisual/>
 
-      {/* Filter + search */}
-      <div style={{ display:'flex', gap:8, marginTop:18, marginBottom:14, flexWrap:'wrap', alignItems:'center' }}>
-        <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-          {categories.map(cat => {
-            const c = CATEGORY_COLORS[cat] || 'var(--text-muted)';
-            return (
-              <button key={cat} onClick={()=>setFilter(cat)} style={{
-                padding:'5px 13px', borderRadius:999, fontSize:11, fontWeight:600, cursor:'pointer',
-                background:filter===cat?'rgba(93,162,255,0.12)':'rgba(255,255,255,0.04)',
-                border:`1px solid ${filter===cat?'rgba(93,162,255,0.32)':'rgba(255,255,255,0.09)'}`,
-                color:filter===cat?'#fff':'var(--text-muted)', textTransform:'capitalize', transition:'all 0.15s',
-              }}>{cat==='all'?'All skills':cat}</button>
-            );
-          })}
+      {/* Recommended tab */}
+      {tab === 'recommended' && (
+        <div style={{ marginBottom:16 }}>
+          {recommended.length === 0 ? (
+            <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>
+              No scan data yet — run a website or repo scan in Company Graph to get personalised skill recommendations.
+            </div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              {recommended.map(skill => (
+                <div key={skill.skill_id} style={{ padding:'14px 16px', borderRadius:16, background:'rgba(93,162,255,0.04)', border:'1px solid rgba(93,162,255,0.15)' }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#fff', marginBottom:3 }}>{skill.name}</div>
+                      <div style={{ fontSize:12, color:'var(--text-secondary)', lineHeight:1.5, marginBottom:5 }}>{skill.description}</div>
+                      <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                        {(skill.reasons || []).map(r => (
+                          <span key={r} style={{ fontSize:10, padding:'2px 7px', borderRadius:999, background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.18)', color:'#46d9a4', fontFamily:'var(--font-mono)' }}>{r}</span>
+                        ))}
+                        <span style={{ fontSize:10, padding:'2px 7px', borderRadius:999, background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.18)', color:'var(--accent)', fontFamily:'var(--font-mono)' }}>score: {skill.score}</span>
+                      </div>
+                    </div>
+                    {skill.url && (
+                      <a href={skill.url} target="_blank" rel="noreferrer" style={{ padding:'6px 12px', borderRadius:10, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)', color:'var(--accent)', fontSize:11, textDecoration:'none', whiteSpace:'nowrap' }}>View →</a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search skills…"
-          style={{ flex:1, minWidth:140, padding:'7px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' }}
-          onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
-      </div>
+      )}
 
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))', gap:14 }}>
-        {filtered.map(skill => <SkillCard key={skill.id} skill={skill} onToggle={toggle} onConfigure={()=>{}}/>)}
-      </div>
+      {/* Registry tab */}
+      {tab === 'registry' && (
+        <div style={{ marginBottom:16 }}>
+          {!liveSkills ? (
+            <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>Click "Refresh registry" to fetch skills from GitHub registries.</div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {liveSkills.map(skill => (
+                <div key={skill.skill_id} style={{ padding:'12px 14px', borderRadius:14, background:'rgba(255,255,255,0.025)', border:'1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#fff', marginBottom:2 }}>{skill.name}</div>
+                      <div style={{ fontSize:11, color:'var(--text-tertiary)', lineHeight:1.5, marginBottom:4 }}>{skill.description}</div>
+                      <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(255,255,255,0.05)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.09em' }}>{skill.source}</span>
+                        {(skill.tech_relevance || []).slice(0,3).map(t => (
+                          <span key={t} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(93,162,255,0.06)', color:'var(--accent)', border:'1px solid rgba(93,162,255,0.15)' }}>{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                    {skill.url && (
+                      <a href={skill.url} target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--accent)', textDecoration:'none', flexShrink:0, paddingTop:2 }}>→</a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Filter + search — only shown for catalogue tab */}
+      {tab === 'catalogue' && <>
+        <div style={{ display:'flex', gap:8, marginTop:18, marginBottom:14, flexWrap:'wrap', alignItems:'center' }}>
+          <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+            {categories.map(cat => {
+              const c = CATEGORY_COLORS[cat] || 'var(--text-muted)';
+              return (
+                <button key={cat} onClick={()=>setFilter(cat)} style={{
+                  padding:'5px 13px', borderRadius:999, fontSize:11, fontWeight:600, cursor:'pointer',
+                  background:filter===cat?'rgba(93,162,255,0.12)':'rgba(255,255,255,0.04)',
+                  border:`1px solid ${filter===cat?'rgba(93,162,255,0.32)':'rgba(255,255,255,0.09)'}`,
+                  color:filter===cat?'#fff':'var(--text-muted)', textTransform:'capitalize', transition:'all 0.15s',
+                }}>{cat==='all'?'All skills':cat}</button>
+              );
+            })}
+          </div>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search skills…"
+            style={{ flex:1, minWidth:140, padding:'7px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' }}
+            onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))', gap:14 }}>
+          {filtered.map(skill => <SkillCard key={skill.id} skill={skill} onToggle={toggle} onConfigure={()=>{}}/>)}
+        </div>
+      </>}
     </div>
   );
 }

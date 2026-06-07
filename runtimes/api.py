@@ -33,7 +33,13 @@ from runtimes.base import (
 )
 from rbac import require_authenticated
 from runtimes.manager import get_runtime_manager
-from runtimes.control import start_runtime, stop_runtime, start_all_runtimes, stop_all_runtimes
+from runtimes.control import (
+    start_runtime,
+    stop_runtime,
+    start_all_runtimes,
+    stop_all_runtimes,
+    RUNTIME_CONTAINERS,
+)
 
 log = logging.getLogger("qwen-proxy")
 
@@ -237,8 +243,10 @@ async def run_task_on_runtime(
         raise HTTPException(status_code=412, detail=exc.report.as_dict()) from exc
     except RuntimeUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except RuntimeExecutionError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except RuntimeExecutionError:
+        # Log internally for debugging; return sanitized message to caller
+        log.exception("Runtime execution error for %s", runtime_id)
+        raise HTTPException(status_code=500, detail="Internal server error during task execution")
 
 
 # ── Runtime Lifecycle Control ─────────────────────────────────────────────────
@@ -324,6 +332,79 @@ async def start_all() -> dict:
     return result
 
 
+@runtime_router.post("/wake-company-runtimes")
+async def wake_company_runtimes(
+    company_id: str = "",
+) -> dict:
+    """Wake all agent runtimes for a company (or all companies if no company_id).
+
+    Uses CompanyAgencyService to resolve which runtimes are needed for the
+    company's provisioned specialists, then starts them via Docker or local
+    subprocess fallback.
+
+    Returns per-runtime start results with Docker container names.
+    """
+    try:
+        from services.company_agency import get_company_agency_service
+        agency = get_company_agency_service()
+
+        if company_id:
+            result = await agency.start_all_company_runtimes(company_id)
+        else:
+            # Wake all runtimes across all companies — go through the agency
+            # service so response shape is consistent.
+            result = await agency.start_all_company_runtimes("")
+            # If agency returns empty (no companies), fall back to generic start-all
+            if not result or not result.get("runtimes"):
+                raw = await start_all_runtimes()
+                enriched = _enrich_runtimes(raw.get("runtimes", {}))
+                return {
+                    "mode": "all-runtimes",
+                    "runtimes": enriched,
+                    "started": sum(1 for v in enriched.values()
+                                   if v.get("status") in ("started", "already_running",
+                                                           "remote_managed", "always_available")),
+                    "failed": sum(1 for v in enriched.values()
+                                  if v.get("status") not in ("started", "already_running",
+                                                               "remote_managed", "always_available")),
+                    "message": "Started all registered runtime containers",
+                }
+
+        # Enrich with Docker container names and compose service names
+        enriched = _enrich_runtimes(result.get("runtimes", {}))
+
+        return {
+            "mode": "company-runtimes",
+            "company_id": company_id,
+            "runtimes": enriched,
+            "started": result.get("started", 0),
+            "failed": result.get("failed", 0),
+            "message": (
+                f"Woke {result.get('started', 0)} runtime(s) for company {company_id}"
+                if result.get("started") else
+                f"No runtimes needed for company {company_id}"
+            ),
+        }
+    except ImportError as exc:
+        log.warning("CompanyAgencyService not available: %s", exc)
+        # Fall back to starting all runtimes generically
+        result = await start_all_runtimes()
+        return {
+            "mode": "fallback-all-runtimes",
+            "runtimes": result.get("runtimes", {}),
+            "message": (
+                "CompanyAgencyService not available — started all registered "
+                "runtime containers instead"
+            ),
+        }
+    except Exception as exc:
+        log.exception("wake-company-runtimes failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to wake company runtimes: {exc}",
+        ) from exc
+
+
 @runtime_router.post("/stop-all")
 async def stop_all() -> dict:
     """Stop all runtime containers.
@@ -353,3 +434,17 @@ async def stop_all() -> dict:
         result["partial"] = True
         log.warning("stop-all: %d runtime(s) failed: %s", len(errors), errors)
     return result
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _enrich_runtimes(runtimes: dict) -> dict:
+    """Add Docker container and compose service names to runtime results."""
+    enriched = {}
+    for rt_id, rt_result in (runtimes or {}).items():
+        enriched[rt_id] = {
+            **rt_result,
+            "docker_container": RUNTIME_CONTAINERS.get(rt_id, rt_id),
+            "docker_compose_service": RUNTIME_CONTAINERS.get(rt_id, rt_id),
+        }
+    return enriched

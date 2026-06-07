@@ -9,9 +9,21 @@ These tests simulate each provider being configured (fake keys) and assert:
 """
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import pytest
 
 from provider_router import ProviderRouter, provider_access_tier
+
+
+def _url_has_host(url: str, *hosts: str) -> bool:
+    """Check if url hostname matches expected domain (exact or subdomain)."""
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or parsed.path or url).lower()
+    except Exception:
+        hostname = url.lower()
+    return any(hostname == h or hostname.endswith('.' + h) for h in hosts)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -63,7 +75,7 @@ def test_opencode_zen_discovery(monkeypatch):
     assert p is not None
     assert p.type == "openai-compatible"
     assert p.priority == 5
-    assert "opencode.ai" in p.base_url
+    assert _url_has_host(p.base_url, "opencode.ai")
 
 
 def test_opencode_zen_custom_base(monkeypatch):
@@ -80,7 +92,7 @@ def test_deepseek_discovery(monkeypatch):
     p = _get(r, "deepseek")
     assert p is not None
     assert p.priority == 20
-    assert "deepseek.com" in p.base_url
+    assert _url_has_host(p.base_url, "deepseek.com")
     assert p.default_model == "deepseek-chat"
 
 
@@ -97,7 +109,7 @@ def test_groq_discovery(monkeypatch):
     p = _get(r, "groq")
     assert p is not None
     assert p.priority == 25
-    assert "groq.com" in p.base_url
+    assert _url_has_host(p.base_url, "groq.com")
     assert "llama" in p.default_model.lower()
 
 
@@ -108,7 +120,7 @@ def test_sambanova_discovery(monkeypatch):
     p = _get(r, "sambanova")
     assert p is not None
     assert p.priority == 27
-    assert "sambanova.ai" in p.base_url
+    assert _url_has_host(p.base_url, "sambanova.ai")
 
 
 # ── Cerebras ──────────────────────────────────────────────────────────────────
@@ -118,7 +130,7 @@ def test_cerebras_discovery(monkeypatch):
     p = _get(r, "cerebras")
     assert p is not None
     assert p.priority == 28
-    assert "cerebras.ai" in p.base_url
+    assert _url_has_host(p.base_url, "cerebras.ai")
 
 
 # ── Qwen / DashScope ──────────────────────────────────────────────────────────
@@ -128,7 +140,7 @@ def test_qwen_dashscope_discovery(monkeypatch):
     p = _get(r, "qwen-dashscope")
     assert p is not None
     assert p.priority == 30
-    assert "dashscope" in p.base_url or "aliyuncs" in p.base_url
+    assert _url_has_host(p.base_url, "aliyuncs.com") or _url_has_host(p.base_url, "dashscope.aliyuncs.com")
 
 
 def test_qwen_alt_key(monkeypatch):
@@ -143,7 +155,7 @@ def test_together_discovery(monkeypatch):
     p = _get(r, "together-free")
     assert p is not None
     assert p.priority == 35
-    assert "together" in p.base_url
+    assert _url_has_host(p.base_url, "together.xyz")
 
 
 # ── Mistral ───────────────────────────────────────────────────────────────────
@@ -153,7 +165,7 @@ def test_mistral_discovery(monkeypatch):
     p = _get(r, "mistral")
     assert p is not None
     assert p.priority == 38
-    assert "mistral.ai" in p.base_url
+    assert _url_has_host(p.base_url, "mistral.ai")
 
 
 # ── Google Gemini ─────────────────────────────────────────────────────────────
@@ -163,7 +175,7 @@ def test_gemini_discovery_google_key(monkeypatch):
     p = _get(r, "google-gemini-free")
     assert p is not None
     assert p.priority == 39
-    assert "googleapis.com" in p.base_url
+    assert _url_has_host(p.base_url, "googleapis.com")
     assert "gemini" in p.default_model
 
 
@@ -179,7 +191,7 @@ def test_openrouter_discovery(monkeypatch):
     p = _get(r, "openrouter")
     assert p is not None
     assert p.priority == 40
-    assert "openrouter.ai" in p.base_url
+    assert _url_has_host(p.base_url, "openrouter.ai")
 
 
 def test_openrouter_no_base_url_required(monkeypatch):
@@ -194,7 +206,7 @@ def test_hf_token_discovery(monkeypatch):
     p = _get(r, "huggingface")
     assert p is not None
     assert p.priority == 45
-    assert "huggingface.co" in p.base_url
+    assert _url_has_host(p.base_url, "huggingface.co")
 
 
 def test_hf_alt_token(monkeypatch):
@@ -209,7 +221,7 @@ def test_zhipu_discovery(monkeypatch):
     p = _get(r, "zhipu")
     assert p is not None
     assert p.priority == 46
-    assert "bigmodel.cn" in p.base_url
+    assert _url_has_host(p.base_url, "bigmodel.cn")
 
 
 # ── MiniMax ───────────────────────────────────────────────────────────────────
@@ -219,7 +231,7 @@ def test_minimax_discovery(monkeypatch):
     p = _get(r, "minimax")
     assert p is not None
     assert p.priority == 47
-    assert "minimax.chat" in p.base_url
+    assert _url_has_host(p.base_url, "minimax.chat")
 
 
 # ── Anthropic direct ─────────────────────────────────────────────────────────
@@ -230,7 +242,7 @@ def test_anthropic_discovery(monkeypatch):
     assert p is not None
     assert p.type == "anthropic"
     assert p.priority == 50
-    assert "anthropic.com" in p.base_url
+    assert _url_has_host(p.base_url, "anthropic.com")
 
 
 def test_anthropic_no_base_url_required(monkeypatch):
@@ -246,7 +258,7 @@ def test_bedrock_discovery(monkeypatch):
     assert p is not None
     assert p.type == "bedrock"
     assert p.priority == 15
-    assert "bedrock-runtime" in p.base_url
+    assert _url_has_host(p.base_url, "amazonaws.com")
     assert p.default_model == "us.anthropic.claude-opus-4-6-v1"
 
 

@@ -5,11 +5,11 @@ name: Process Quick Note
 # See docs/architecture/agency-core-audit-2026-05-22.md. Re-enable by restoring the
 # `schedule:` and `push:` blocks below.
 on:
-  # schedule:
-  #   - cron: '0 */4 * * *'   (QUARANTINED)
-  # push:
-  #   branches: [master]
-  #   paths: ['.github/workflows/.trigger-quick-note']   (QUARANTINED)
+  schedule:
+    - cron: '0 */4 * * *'
+  push:
+    branches: [master]
+    paths: ['.github/workflows/.trigger-quick-note']
   workflow_dispatch:
     inputs:
       issue_number:
@@ -39,15 +39,16 @@ jobs:
       # ── 1. Checkout ───────────────────────────────────────────────────────
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
       # ── 2. Find next pending issue ─────────────────────────────────────────
       - name: Find next pending quick-note issue
         id: pick
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           ISSUE_NUMBER_OVERRIDE: ${{ github.event.inputs.issue_number }}
+          REPO: ${{ github.repository }}
         run: |
           if [ -n "$ISSUE_NUMBER_OVERRIDE" ]; then
             NUM="$ISSUE_NUMBER_OVERRIDE"
@@ -55,7 +56,7 @@ jobs:
           else
             # Oldest open quick-note that has not exhausted retries
             NUM=$(gh issue list \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --state open \
               --search "quick-note: in:title -label:quick-note:exhausted" \
               --json number \
@@ -75,11 +76,13 @@ jobs:
         id: issue
         if: steps.pick.outputs.found == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          PICK_NUM: ${{ steps.pick.outputs.number }}
         run: |
-          NUM="${{ steps.pick.outputs.number }}"
+          NUM="$PICK_NUM"
           BODY=$(gh issue view "$NUM" \
-            --repo "${{ github.repository }}" --json body -q .body)
+            --repo "$REPO" --json body -q .body)
 
           # Extract first https:// URL from body
           URL=$(echo "$BODY" | grep -oE 'https?://[^[:space:]>)]+' | head -1)
@@ -92,7 +95,7 @@ jobs:
 
           # Read retry count from labels (label format: retry:N)
           RETRY=$(gh issue view "$NUM" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --json labels \
             -q '.labels[].name' \
             | grep -oE 'retry:[0-9]+' \
@@ -100,6 +103,7 @@ jobs:
             | head -1 || echo "0")
           [ -z "$RETRY" ] && RETRY=0
 
+          # Use env vars instead of inlined expressions for security (prevents code injection)
           echo "number=$NUM"       >> "$GITHUB_OUTPUT"
           echo "url=$URL"          >> "$GITHUB_OUTPUT"
           echo "task=$TASK"        >> "$GITHUB_OUTPUT"
@@ -110,16 +114,20 @@ jobs:
       - name: Comment — processing started
         if: steps.pick.outputs.found == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_RETRY: ${{ steps.issue.outputs.retry }}
+          ISSUE_URL: ${{ steps.issue.outputs.url }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
-          RETRY="${{ steps.issue.outputs.retry }}"
+          RETRY="$ISSUE_RETRY"
           if [ "$RETRY" -gt 0 ]; then
-            MSG="🔄 Retry #${RETRY} — processing \`${{ steps.issue.outputs.url }}\`"
+            MSG="🔄 Retry #${RETRY} — processing \`$ISSUE_URL\`"
           else
-            MSG="⏳ Processing started — fetching \`${{ steps.issue.outputs.url }}\`"
+            MSG="⏳ Processing started — fetching \`$ISSUE_URL\`"
           fi
-          gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" --body "$MSG"
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" --body "$MSG"
 
       # ── 5. Python + Node setup ─────────────────────────────────────────────
       - uses: actions/setup-python@v5
@@ -141,12 +149,15 @@ jobs:
         id: fetch
         if: steps.pick.outputs.found == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_URL: ${{ steps.issue.outputs.url }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
-          URL="${{ steps.issue.outputs.url }}"
+          URL="$ISSUE_URL"
           if [ -z "$URL" ]; then
-            gh issue comment "${{ steps.issue.outputs.number }}" \
-              --repo "${{ github.repository }}" \
+            gh issue comment "$ISSUE_NUM" \
+              --repo "$REPO" \
               --body "$(cat <<'MSG'
           ❌ No URL found in the issue body.
 
@@ -165,8 +176,8 @@ jobs:
           if [ ! -f /tmp/note_content.txt ] || [ ! -s /tmp/note_content.txt ]; then
             printf 'Source URL: %s\n\n[URL content unavailable — fetch exited %s.]\nImplement features based on the task description and your knowledge of the topic at %s.\n' \
               "${URL}" "${FETCH_EXIT}" "${URL}" > /tmp/note_content.txt
-            gh issue comment "${{ steps.issue.outputs.number }}" \
-              --repo "${{ github.repository }}" \
+            gh issue comment "$ISSUE_NUM" \
+              --repo "$REPO" \
               --body "⚠️ Could not fetch \`${URL}\` (fetch exit ${FETCH_EXIT}). Proceeding with task description only." \
               2>/dev/null || true
           fi
@@ -175,20 +186,36 @@ jobs:
           echo "fetch_chars=$CHARS" >> "$GITHUB_OUTPUT"
           echo "Fetched $CHARS chars"
 
-      # ── 7. Create feature branch ───────────────────────────────────────────
-      - name: Create feature branch
+      # ── 7. Create / reuse feature branch ─────────────────────────────────────
+      # If a context branch was already created by the issue-context-generator
+      # workflow (claude/context-issue-N), reuse it so implementation commits
+      # land on the existing draft PR rather than opening a second PR.
+      - name: Create or reuse feature branch
         id: branch
         if: steps.pick.outputs.found == 'true' && steps.fetch.outputs.fetch_chars != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          REPO: ${{ github.repository }}
         run: |
-          BRANCH="quick-note/issue-${{ steps.issue.outputs.number }}"
           git config user.email "claude-actions@github.com"
           git config user.name "Claude Actions [bot]"
 
-          # Clean up any stale branch
-          git push origin --delete "$BRANCH" 2>/dev/null || true
-          git checkout -b "$BRANCH"
+          CONTEXT_BRANCH="claude/context-issue-${ISSUE_NUM}"
+          IMPL_BRANCH="quick-note/issue-${ISSUE_NUM}"
 
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          # Check if a context branch (from issue-context-generator) already exists
+          if git ls-remote --exit-code origin "refs/heads/${CONTEXT_BRANCH}" 2>/dev/null; then
+            echo "Reusing existing context branch: $CONTEXT_BRANCH"
+            git fetch origin "$CONTEXT_BRANCH"
+            git checkout -b "$CONTEXT_BRANCH" "origin/$CONTEXT_BRANCH"
+            echo "branch=$CONTEXT_BRANCH" >> "$GITHUB_OUTPUT"
+          else
+            # Fall back to a fresh implementation branch
+            git push origin --delete "$IMPL_BRANCH" 2>/dev/null || true
+            git checkout -b "$IMPL_BRANCH"
+            echo "branch=$IMPL_BRANCH" >> "$GITHUB_OUTPUT"
+          fi
 
       # ── 8. Implement features with Claude ──────────────────────────────────
       - name: Implement features (Claude agentic loop)
@@ -197,11 +224,14 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          ISSUE_URL: ${{ steps.issue.outputs.url }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          ISSUE_TASK: ${{ steps.issue.outputs.task }}
         run: |
           python3 .github/scripts/implement_agent.py \
-            "${{ steps.issue.outputs.url }}" \
-            "${{ steps.issue.outputs.number }}" \
-            "${{ steps.issue.outputs.task }}" \
+            "$ISSUE_URL" \
+            "$ISSUE_NUM" \
+            "$ISSUE_TASK" \
             2>&1 | tee /tmp/impl_output.txt
 
           if [ -f /tmp/impl_result.json ]; then
@@ -226,6 +256,9 @@ jobs:
       - name: Commit and push
         id: commit
         if: steps.implement.outputs.success == 'True'
+        env:
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
           git add -A
           if git diff --staged --quiet; then
@@ -240,11 +273,11 @@ jobs:
           except Exception:
               print('')
           " 2>/dev/null || echo "")
-            git commit -m "feat(quick-note): implement issue #${{ steps.issue.outputs.number }}
+            git commit -m "feat(quick-note): implement issue #${ISSUE_NUM}
 
           $SUMMARY"
-            git push --force-with-lease -u origin "${{ steps.branch.outputs.branch }}" \
-              || git push --force -u origin "${{ steps.branch.outputs.branch }}"
+            git push --force-with-lease -u origin "$BRANCH" \
+              || git push --force -u origin "$BRANCH"
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -258,7 +291,9 @@ jobs:
           steps.tests.outputs.passed == 'true' &&
           steps.commit.outputs.changed == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
           IMPL_SUMMARY=$(python3 -c "
           import json
@@ -269,8 +304,8 @@ jobs:
               print('')
           " 2>/dev/null || echo "")
 
-          gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" \
             --body "$(cat <<MSG
           ✅ Done — no code changes needed.
 
@@ -279,8 +314,8 @@ jobs:
           **Agent summary:** $IMPL_SUMMARY
           MSG
           )"
-          gh issue close "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+          gh issue close "$ISSUE_NUM" \
+            --repo "$REPO" \
             --reason completed
 
       # ── 11. Create pull request ────────────────────────────────────────────
@@ -288,7 +323,12 @@ jobs:
         id: pr
         if: steps.commit.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          ISSUE_URL: ${{ steps.issue.outputs.url }}
+          ISSUE_TASK: ${{ steps.issue.outputs.task }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
           echo "${GH_TOKEN}" | gh auth login --with-token
           IMPL_SUMMARY=$(python3 -c "
@@ -299,13 +339,12 @@ jobs:
           except Exception:
               print('(see diff)')
           " 2>/dev/null || echo "(see diff)")
-
           PR_BODY="$(cat <<PRBODY
           ## Summary
-          Closes #${{ steps.issue.outputs.number }}
+          Closes #$ISSUE_NUM
 
-          **Source URL:** ${{ steps.issue.outputs.url }}
-          **Task:** ${{ steps.issue.outputs.task }}
+          **Source URL:** $ISSUE_URL
+          **Task:** $ISSUE_TASK
 
           ### What was implemented
           $IMPL_SUMMARY
@@ -315,21 +354,35 @@ jobs:
           PRBODY
           )"
 
-          PR_URL=$(gh pr create \
-            --repo "${{ github.repository }}" \
-            --title "feat: implement quick-note issue #${{ steps.issue.outputs.number }}" \
-            --body "$PR_BODY" \
-            --base master \
-            --head "${{ steps.branch.outputs.branch }}" 2>&1) || {
-            # gh pr create may fail if a PR already exists for this branch; recover it
-            echo "WARN: gh pr create failed ($PR_URL) — checking for existing PR on branch"
-            PR_URL=$(gh pr list \
-              --repo "${{ github.repository }}" \
-              --head "${{ steps.branch.outputs.branch }}" \
-              --state open \
-              --json url \
-              --jq '.[0].url' 2>/dev/null || echo "")
-          }
+          # Check for an existing draft PR on this branch (created by issue-context-generator)
+          EXISTING_PR=$(gh pr list \
+            --repo "$REPO" \
+            --head "$BRANCH" \
+            --state open \
+            --json url,number,isDraft \
+            --jq '.[0]' 2>/dev/null || echo "")
+
+          if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
+            echo "Found existing PR on branch $BRANCH — reusing it"
+            PR_URL=$(echo "$EXISTING_PR" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['url'])")
+          else
+            # Create a new DRAFT PR — draft prevents CodeRabbit/Copilot reviews until ready
+            PR_URL=$(gh pr create \
+              --repo "$REPO" \
+              --title "feat: implement quick-note issue #$ISSUE_NUM" \
+              --body "$PR_BODY" \
+              --base master \
+              --head "$BRANCH" \
+              --draft 2>&1) || {
+              echo "WARN: gh pr create failed ($PR_URL) — checking for existing PR"
+              PR_URL=$(gh pr list \
+                --repo "$REPO" \
+                --head "$BRANCH" \
+                --state open \
+                --json url \
+                --jq '.[0].url' 2>/dev/null || echo "")
+            }
+          fi
 
           PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
           echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
@@ -353,11 +406,12 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
           python3 .github/scripts/apply_review.py \
-            "${{ steps.pr.outputs.pr_number }}" \
+            "$PR_NUMBER" \
             2>&1 | tee /tmp/review_apply_output.txt
 
           if [ -f /tmp/review_apply_result.json ]; then
@@ -372,30 +426,34 @@ jobs:
       - name: Commit and push review fixes
         id: review_push
         if: steps.review_apply.outputs.applied == 'True'
+        env:
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
           git add -A
           if git diff --staged --quiet; then
             echo "No staged changes after review application."
           else
-            git commit -m "fix(quick-note): apply review feedback for issue #${{ steps.issue.outputs.number }}"
-            git push --force-with-lease -u origin "${{ steps.branch.outputs.branch }}" \
-              || git push --force -u origin "${{ steps.branch.outputs.branch }}"
-            echo "Review fixes pushed to ${{ steps.branch.outputs.branch }}"
+            git commit -m "fix(quick-note): apply review feedback for issue #${ISSUE_NUM}"
+            git push --force-with-lease -u origin "$BRANCH" \
+              || git push --force -u origin "$BRANCH"
+            echo "Review fixes pushed to $BRANCH"
           fi
 
       # ── 12. Council review ─────────────────────────────────────────────────
       - name: Council review (Security / Correctness / Performance / Maintainability)
         id: review
         if: steps.pr.outputs.pr_number != ''
-        # continue-on-error so a crash here never blocks merge or issue-close.
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
           python3 .github/scripts/review_agent.py \
-            "${{ steps.pr.outputs.pr_number }}" \
+            "$PR_NUMBER" \
             2>&1 | tee /tmp/review_output.txt
 
           if [ -f /tmp/review_result.json ]; then
@@ -406,8 +464,8 @@ jobs:
           echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
 
           REVIEW_BODY=$(tail -60 /tmp/review_output.txt)
-          gh pr comment "${{ steps.pr.outputs.pr_number }}" \
-            --repo "${{ github.repository }}" \
+          gh pr comment "$PR_NUMBER" \
+            --repo "$REPO" \
             --body "## Council Review
 
           \`\`\`
@@ -425,23 +483,30 @@ jobs:
            steps.review.outputs.verdict == 'WARN'  ||
            steps.review.outputs.verdict == '')
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
-          gh pr merge "${{ steps.pr.outputs.pr_number }}" \
-            --repo "${{ github.repository }}" \
+          gh pr merge "$PR_NUMBER" \
+            --repo "$REPO" \
             --squash \
             --delete-branch \
             --admin \
-            --subject "feat: implement quick-note issue #${{ steps.issue.outputs.number }}"
+            --subject "feat: implement quick-note issue #$ISSUE_NUM"
           echo "merged=true" >> "$GITHUB_OUTPUT"
-          echo "Merged and deleted branch for PR #${{ steps.pr.outputs.pr_number }}"
+          echo "Merged and deleted branch for PR #$PR_NUMBER"
 
       # ── 14. Close issue on success ─────────────────────────────────────────
       - name: Close issue — success
         id: close_success
         if: steps.merge.outputs.merged == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          REVIEW_APPLIED: ${{ steps.review_apply.outputs.applied }}
+          REVIEW_VERDICT: ${{ steps.review.outputs.verdict }}
         run: |
           IMPL_SUMMARY=$(python3 -c "
           import json
@@ -452,25 +517,24 @@ jobs:
               print('')
           " 2>/dev/null || echo "")
 
-          REVIEW_APPLIED="${{ steps.review_apply.outputs.applied }}"
           REVIEW_NOTE=""
           if [ "$REVIEW_APPLIED" = "True" ]; then
             REVIEW_NOTE=$'\n\n**Review feedback was applied by the NVIDIA NIM agent before merge.**'
           fi
 
-          gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" \
             --body "$(cat <<MSG
-          ✅ Done — PR #${{ steps.pr.outputs.pr_number }} merged into master (branch deleted).
+          ✅ Done — PR #$PR_NUMBER merged into master (branch deleted).
 
           ### What was implemented
           $IMPL_SUMMARY
           $REVIEW_NOTE
-          **Council verdict:** ${{ steps.review.outputs.verdict }}
+          **Council verdict:** $REVIEW_VERDICT
           MSG
           )"
-          gh issue close "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+          gh issue close "$ISSUE_NUM" \
+            --repo "$REPO" \
             --reason completed
 
       # ── 15. Leave PR open when council returns FAIL ────────────────────────
@@ -479,12 +543,15 @@ jobs:
           steps.pr.outputs.pr_number != '' &&
           steps.review.outputs.verdict == 'FAIL'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
-          gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" \
             --body "$(cat <<MSG
-          ⚠️ Council review returned **FAIL** — PR #${{ steps.pr.outputs.pr_number }} needs human review before merging.
+          ⚠️ Council review returned **FAIL** — PR #$PR_NUMBER needs human review before merging.
 
           Please review and merge (or close) the PR manually.
           MSG
@@ -498,14 +565,18 @@ jobs:
           steps.merge.outcome != 'success' &&
           steps.review.outputs.verdict != 'FAIL'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          REVIEW_VERDICT: ${{ steps.review.outputs.verdict }}
         run: |
-          gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" \
             --body "$(cat <<MSG
-          ⚠️ PR #${{ steps.pr.outputs.pr_number }} created (council: **${{ steps.review.outputs.verdict }}**) but auto-merge failed.
+          ⚠️ PR #$PR_NUMBER created (council: **$REVIEW_VERDICT**) but auto-merge failed.
 
-          Please merge PR #${{ steps.pr.outputs.pr_number }} manually to close this issue.
+          Please merge PR #$PR_NUMBER manually to close this issue.
           MSG
           )" 2>/dev/null || true
 
@@ -539,28 +610,31 @@ jobs:
           steps.pr.outputs.pr_number == '' &&
           (failure() || steps.implement.outputs.success != 'True')
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_RETRY: ${{ steps.issue.outputs.retry }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
-          RETRY="${{ steps.issue.outputs.retry }}"
+          RETRY="$ISSUE_RETRY"
           NEW_RETRY=$((RETRY + 1))
           MAX_RETRIES=3
-          ISSUE="${{ steps.issue.outputs.number }}"
+          ISSUE="$ISSUE_NUM"
 
           # Remove old retry label (best-effort)
           gh issue edit "$ISSUE" \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --remove-label "retry:${RETRY}" 2>/dev/null || true
 
           if [ "$NEW_RETRY" -ge "$MAX_RETRIES" ]; then
             # Exhausted — label and leave open for human
             gh label create "quick-note:exhausted" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --color "b60205" --description "Retries exhausted" 2>/dev/null || true
             gh issue edit "$ISSUE" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --add-label "quick-note:exhausted" 2>/dev/null || true
             gh issue comment "$ISSUE" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --body "$(cat <<MSG
           ❌ Failed after ${MAX_RETRIES} attempts — manual intervention required.
 
@@ -573,16 +647,16 @@ jobs:
           else
             # Create retry label if it doesn't exist
             gh label create "retry:${NEW_RETRY}" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --color "e4e669" \
               --description "Auto-retry attempt ${NEW_RETRY}" 2>/dev/null || true
             gh issue edit "$ISSUE" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --add-label "retry:${NEW_RETRY}" 2>/dev/null || true
             gh issue reopen "$ISSUE" \
-              --repo "${{ github.repository }}" 2>/dev/null || true
+              --repo "$REPO" 2>/dev/null || true
             gh issue comment "$ISSUE" \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --body "$(cat <<MSG
           ⚠️ Attempt ${RETRY} failed — reopening for automatic retry (${NEW_RETRY}/${MAX_RETRIES}).
 

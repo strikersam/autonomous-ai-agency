@@ -31,9 +31,12 @@ def workspace_path(ws_id: str) -> Path:
 
 def _safe_path(root: Path, rel: str) -> Path:
     """Resolve rel against root, reject path traversal."""
-    target = (root / rel).resolve()
+    # Resolve both root and target to the same canonical form (follows macOS
+    # /var → /private/var symlinks) so relative_to() never mismatches.
+    resolved_root = root.resolve()
+    target = (resolved_root / rel).resolve()
     try:
-        target.relative_to(root.resolve())
+        target.relative_to(resolved_root)
     except ValueError:
         raise ValueError(f"Path traversal rejected: {rel!r}")
     return target
@@ -70,6 +73,11 @@ class Workspace:
         _validate_workspace_id(ws_id)
         self.ws_id = ws_id
         self.root = workspace_path(ws_id)
+
+    @property
+    def _resolved_root(self) -> Path:
+        """Canonical root path (follows macOS /var → /private/var symlinks)."""
+        return self.root.resolve()
 
     def exists(self) -> bool:
         return self.root.is_dir()
@@ -128,7 +136,7 @@ class Workspace:
                 raise ValueError("paths must be None (stage all) or a non-empty list of file paths")
             for p in paths:
                 safe = _safe_path(self.root, p)
-                rc, _, err = await _run("git", "add", str(safe.relative_to(self.root)), cwd=self.root)
+                rc, _, err = await _run("git", "add", str(safe.relative_to(self._resolved_root)), cwd=self.root)
                 if rc != 0:
                     raise RuntimeError(f"git add failed for {p!r}: {err.strip()}")
         else:
@@ -191,16 +199,21 @@ class Workspace:
             sub = "."
         base = _safe_path(self.root, sub)
         results = []
+        resolved_root = self.root.resolve()
         for p in base.rglob("*"):
             if p.is_file() and ".git" not in p.parts:
-                results.append(str(p.relative_to(self.root)))
+                resolved_root = self.root.resolve()
+                try:
+                    results.append(str(p.resolve().relative_to(resolved_root)))
+                except ValueError:
+                    continue  # symlink points outside workspace
             if len(results) >= limit:
                 break
         return sorted(results)
 
     def search_code(self, query: str, limit: int = 30) -> list[dict[str, Any]]:
         results = []
-        for path in self.root.rglob("*"):
+        for path in self._resolved_root.rglob("*"):
             if not path.is_file() or ".git" in path.parts:
                 continue
             try:
@@ -210,7 +223,7 @@ class Workspace:
             for i, line in enumerate(text.splitlines(), 1):
                 if query.lower() in line.lower():
                     results.append({
-                        "file": str(path.relative_to(self.root)),
+                        "file": str(path.relative_to(self._resolved_root)),
                         "line": i,
                         "text": line.rstrip(),
                     })

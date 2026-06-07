@@ -19,6 +19,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from bson import ObjectId
 import re
+import secrets
 
 # =============================================================================
 # ENUMS AND LITERALS
@@ -47,7 +48,10 @@ SpecialistFamily = Literal[
     "engineering", "qa", "docs", "analytics", "ecommerce",
     "operations", "agile", "portfolio", "security", "devops",
     "data", "ml", "frontend", "backend", "fullstack", "mobile",
-    "cloud", "infra", "architecture", "product", "design", "ux"
+    "cloud", "infra", "architecture", "product", "design", "ux",
+    # Business / domain specialists (Agency Core v5 — full domain coverage)
+    "seo", "content", "marketing", "merchandising", "pim", "oms",
+    "dam", "crm", "support", "trading", "research", "platform"
 ]
 
 # Workflow phases (aligned with CRISPY workflow)
@@ -759,6 +763,11 @@ class Specialist(BaseModel):
         default_factory=list,
         description="System types this specialist can work with"
     )
+    # Skill bindings
+    bound_skills: List[str] = Field(
+        default_factory=list,
+        description="Skill IDs bound to this specialist (from services/skill_bindings.py)"
+    )
     # Company-specific configuration
     company_id: str | None = Field(
         default=None,
@@ -1013,6 +1022,11 @@ class Company(BaseModel):
         default="",
         description="Company tagline or slogan"
     )
+    priorities: List[str] = Field(
+        default_factory=list,
+        description="Strategic priorities / goals captured during onboarding "
+        "(surfaced on the company page and used to seed agent work)"
+    )
     founded_year: int | None = Field(
         default=None,
         description="Year the company was founded"
@@ -1085,7 +1099,13 @@ class Company(BaseModel):
         default=True,
         description="Whether this company is active"
     )
-    onboarding_status: Literal["not_started", "scanning", "detected", "configured", "complete"] = Field(
+    onboarding_status: Literal[
+        # Granular scan states
+        "not_started", "scanning", "detected", "configured",
+        # Lifecycle states written by OnboardingService.start_onboarding
+        "in_progress", "paused", "failed", "cancelled",
+        "complete",
+    ] = Field(
         default="not_started",
         description="Current onboarding status"
     )
@@ -1522,7 +1542,7 @@ class RepoScanRequest(BaseModel):
 
 class OnboardingProgress(BaseModel):
     """Tracks the onboarding progress for a company."""
-    model_config = {"frozen": True, "extra": "forbid"}
+    model_config = {"frozen": False, "extra": "forbid"}
     
     company_id: str = Field(
         ...,
@@ -1547,7 +1567,7 @@ class OnboardingProgress(BaseModel):
         default=0.0,
         description="Progress percentage"
     )
-    status: Literal["not_started", "in_progress", "paused", "completed", "failed"] = Field(
+    status: Literal["not_started", "in_progress", "paused", "completed", "failed", "cancelled"] = Field(
         default="not_started",
         description="Overall onboarding status"
     )
@@ -1597,6 +1617,10 @@ class SpecialistProvisionRequest(BaseModel):
         default_factory=list,
         description="Specific capabilities to configure"
     )
+    tools: List[str] = Field(
+        default_factory=list,
+        description="Specific tools to configure (auto-derived from family if empty)"
+    )
     system_types: List[SystemType] = Field(
         default_factory=list,
         description="System types this specialist should handle"
@@ -1608,6 +1632,10 @@ class SpecialistProvisionRequest(BaseModel):
     runtime: Literal["internal_agent", "claude_code", "goose", "aider", "hermes", "opencode", "custom"] | None = Field(
         default=None,
         description="Preferred runtime for this specialist"
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Specialist-specific configuration"
     )
     auto_provision: bool = Field(
         default=True,
@@ -1663,7 +1691,7 @@ class SpecialistProvisionResult(BaseModel):
 
 class RepoScanResult(BaseModel):
     """Result of a repository scan with detected stack and systems."""
-    model_config = {"extra": "ignore"}
+    model_config = {"extra": "allow"}
 
     scan_id: str = Field(default_factory=lambda: secrets.token_hex(8), description="Unique scan identifier")
     repo_url: str = Field(..., description="Repository URL that was scanned")
@@ -1674,6 +1702,13 @@ class RepoScanResult(BaseModel):
     files_scanned: int = Field(default=0, description="Number of files scanned")
     errors: List[str] = Field(default_factory=list, description="Any errors encountered")
     started_at: Optional[datetime] = Field(default=None, description="When scan started")
+    completed_at: Optional[datetime] = Field(default=None, description="When scan completed")
+    default_branch: Optional[str] = Field(default=None, description="Default branch name")
+    is_private: bool = Field(default=False, description="Whether the repo is private")
+    stars: int = Field(default=0, description="Number of stars")
+    forks: int = Field(default=0, description="Number of forks")
+    open_issues: int = Field(default=0, description="Number of open issues")
+    language: Optional[str] = Field(default=None, description="Primary language")
 
 class WorkflowExecutionRequest(BaseModel):
     """Request to execute a workflow."""
@@ -1814,6 +1849,10 @@ class CompanyCreateRequest(BaseModel):
         default="",
         description="Company description"
     )
+    tagline: str = Field(
+        default="",
+        description="Company tagline"
+    )
     owner_id: str | None = Field(
         default=None,
         description="User ID of the company owner"
@@ -1851,6 +1890,14 @@ class CompanyUpdateRequest(BaseModel):
     employee_count: int | None = Field(
         default=None,
         description="Approximate number of employees"
+    )
+    intelligence_competitors: list[dict] | None = Field(
+        default=None,
+        description="Competitor tracking data from Intelligence screen"
+    )
+    intelligence_keywords: list[dict] | None = Field(
+        default=None,
+        description="Trend keywords from Intelligence screen"
     )
     revenue_range: str | None = Field(
         default=None,
@@ -1890,6 +1937,10 @@ class CompanyResponse(BaseModel):
         ...,
         description="The company"
     )
+    graph: Optional[Any] = Field(
+        default=None,
+        description="Company graph"
+    )
     message: str = Field(
         default="",
         description="Status message"
@@ -1903,6 +1954,14 @@ class CompanyGraphResponse(BaseModel):
     graph: CompanyGraph = Field(
         ...,
         description="The company graph"
+    )
+    company_id: str = Field(
+        default="",
+        description="Company ID"
+    )
+    completeness_score: float = Field(
+        default=0.0,
+        description="Graph completeness score (0.0-1.0)"
     )
     message: str = Field(
         default="",
@@ -1925,6 +1984,14 @@ class SpecialistListResponse(BaseModel):
     total: int = Field(
         default=0,
         description="Total number of specialists"
+    )
+    limit: int = Field(
+        default=100,
+        description="Page limit"
+    )
+    offset: int = Field(
+        default=0,
+        description="Page offset"
     )
     message: str = Field(
         default="",

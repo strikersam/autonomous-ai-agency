@@ -94,6 +94,18 @@ class RuntimeManager:
         """Return the active routing policy as a plain dict."""
         return self._router.policy.as_dict()
 
+    def update_policy(self, **kwargs: Any) -> None:
+        """Update the routing policy in-place."""
+        self._router.update_policy(**kwargs)
+
+    def health_summary(self) -> list[dict]:
+        """Return health status for all registered runtimes."""
+        return self._health.all_health()
+
+    def get_decision_log(self, limit: int = 100) -> list[dict]:
+        """Return routing decision audit log (newest first)."""
+        return self._router.get_decision_log(limit)
+
     async def get_runtime_health(self, runtime_id: str) -> dict | None:
         circuit = self._health._circuits.get(runtime_id)
         if circuit:
@@ -168,7 +180,17 @@ def _build_default_manager() -> RuntimeManager:
         mgr.register(DockerAgentAdapter())
         log.info("RuntimeManager: DockerAgentAdapter registered")
 
-    if _env_flag("RUNTIME_HERMES_ENABLED"):
+    # ── Tier 1-3 specialist runtimes (Hermes, Goose, Aider) ───────────────────
+    # These are registered ON BY DEFAULT so the agency can use them whenever their
+    # CLI/sidecar is present. Each adapter self-reports availability=False (via
+    # shutil.which / connection probe) when its tool is absent, so an unavailable
+    # runtime is simply skipped by the router and falls back to internal_agent —
+    # never a crash. Set RUNTIME_EXTERNAL_DISABLED=true to register none of them
+    # (e.g. on a constrained host where the health-poll overhead is unwanted), or
+    # set RUNTIME_<NAME>_ENABLED=false to disable an individual one.
+    _external_default_on = not _env_flag("RUNTIME_EXTERNAL_DISABLED")
+
+    if _env_flag("RUNTIME_HERMES_ENABLED", default=_external_default_on):
         from runtimes.adapters.hermes import HermesAdapter
         mgr.register(HermesAdapter())
         log.info("RuntimeManager: HermesAdapter registered")
@@ -178,7 +200,7 @@ def _build_default_manager() -> RuntimeManager:
         mgr.register(OpenCodeAdapter())
         log.info("RuntimeManager: OpenCodeAdapter registered")
 
-    if _env_flag("RUNTIME_GOOSE_ENABLED"):
+    if _env_flag("RUNTIME_GOOSE_ENABLED", default=_external_default_on):
         from runtimes.adapters.goose import GooseAdapter
         mgr.register(GooseAdapter())
         log.info("RuntimeManager: GooseAdapter registered")
@@ -188,7 +210,7 @@ def _build_default_manager() -> RuntimeManager:
         mgr.register(ClaudeCodeAdapter())
         log.info("RuntimeManager: ClaudeCodeAdapter registered")
 
-    if _env_flag("RUNTIME_AIDER_ENABLED"):
+    if _env_flag("RUNTIME_AIDER_ENABLED", default=_external_default_on):
         from runtimes.adapters.aider import AiderAdapter
         mgr.register(AiderAdapter())
         log.info("RuntimeManager: AiderAdapter registered")

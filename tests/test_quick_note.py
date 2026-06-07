@@ -109,15 +109,31 @@ def test_process_note_success(tmp_path: Path) -> None:
 
 
 def test_process_note_marks_failed_on_fetch_error(tmp_path: Path) -> None:
+    """On first failure the note is re-queued for retry (status=pending, retry_count=1).
+    After exhausting max_retries it is finally marked as 'failed'."""
     q = QuickNoteQueue(queue_file=tmp_path / "q.json")
     note = q.add("https://example.com")
     note = q.next_pending()
 
+    # First failure: re-queued as pending (retry 1/3)
     with patch("agent.quick_note._fetch_text", side_effect=RuntimeError("timeout")):
-        process_note(note, q, repo_root=tmp_path)
+        process_note(note, q, repo_root=tmp_path, max_retries=3)
 
-    assert q.list_all()[0].status == "failed"
-    assert "timeout" in q.list_all()[0].error
+    requeued = q.list_all()[0]
+    assert requeued.status == "pending", f"Expected re-queue on first failure, got {requeued.status}"
+    assert requeued.retry_count == 1
+    assert "Retry 1/3" in (requeued.error or "")
+
+    # Simulate exhausting retries by calling process_note 3 more times
+    with patch("agent.quick_note._fetch_text", side_effect=RuntimeError("timeout")):
+        for _ in range(3):
+            note2 = q.next_pending()
+            if note2:
+                process_note(note2, q, repo_root=tmp_path, max_retries=3)
+
+    failed = q.list_all()[0]
+    assert failed.status == "failed"
+    assert "Exhausted 3 retries" in failed.error
 
 
 def test_process_note_no_commit_when_nothing_changed(tmp_path: Path) -> None:

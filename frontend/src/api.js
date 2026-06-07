@@ -41,7 +41,7 @@ export function setBackendUrl(url) {
   API.defaults.baseURL = cleaned;
 }
 
-const API = axios.create({
+export const API = axios.create({
   baseURL: getBackendUrl(),
   headers: { 'Content-Type': 'application/json' },
 });
@@ -59,32 +59,73 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, try refreshing the token once
+// On network errors (CORS, connection refused, DNS failure), self-heal the
+// backend URL.  Only clears the stored URL on specific connectivity errors
+// (ECONNREFUSED, CORS, ERR_NETWORK) — NOT on transient timeouts or flaky DNS.
 let isRefreshing = false;
+let refreshQueue = [];
 API.interceptors.response.use(
   (res) => res,
   async (error) => {
-    const orig = error.config;
+    const orig = error.config || {};
+
+    // ── Self-heal on CORS / connection-refused errors ──────────────────────
+    if (!error.response && !orig._corsHeal && !orig.url?.startsWith('http')) {
+      const msg = (error.message || '').toLowerCase();
+      const isConnectionError = (
+        error.code === 'ERR_NETWORK' ||
+        msg.includes('network error') ||
+        msg.includes('cors') ||
+        msg.includes('econnrefused') ||
+        msg.includes('connection refused')
+      );
+      if (isConnectionError && localStorage.getItem('backend_url')) {
+        orig._corsHeal = true;
+        localStorage.removeItem('backend_url');
+        API.defaults.baseURL = getDefaultBackendUrl();
+        orig.baseURL = getDefaultBackendUrl();
+        return API(orig);
+      }
+    }
+
     if (error.response?.status === 401 && !orig._retry && !orig.url?.includes('/auth/')) {
       orig._retry = true;
       const refresh = localStorage.getItem('refresh_token');
-      if (refresh && !isRefreshing) {
-        isRefreshing = true;
-        try {
-          const { data } = await axios.post(
-            getApiUrl('/api/auth/refresh'),
-            { refresh_token: refresh },
-          );
-          localStorage.setItem('access_token', data.access_token);
-          orig.headers.Authorization = `Bearer ${data.access_token}`;
+      if (!refresh) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        window.location.href = getPublicPath('/login');
+        return Promise.reject(error);
+      }
+      if (isRefreshing) {
+        // Queue this request to retry after the in-flight refresh completes
+        return new Promise((resolve, reject) => {
+          refreshQueue.push({ resolve, reject });
+        }).then((token) => {
+          orig.headers.Authorization = `Bearer ${token}`;
           return API(orig);
-        } catch {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
-          window.location.href = getPublicPath('/login');
-        } finally {
-          isRefreshing = false;
-        }
+        });
+      }
+      isRefreshing = true;
+      try {
+        const { data } = await axios.post(
+          getApiUrl('/api/auth/refresh'),
+          { refresh_token: refresh },
+        );
+        localStorage.setItem('access_token', data.access_token);
+        orig.headers.Authorization = `Bearer ${data.access_token}`;
+        // Flush queued requests with the new token
+        refreshQueue.forEach(({ resolve }) => resolve(data.access_token));
+        refreshQueue = [];
+        return API(orig);
+      } catch {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        refreshQueue.forEach(({ reject }) => reject(error));
+        refreshQueue = [];
+        window.location.href = getPublicPath('/login');
+      } finally {
+        isRefreshing = false;
       }
     }
     return Promise.reject(error);
@@ -94,7 +135,12 @@ API.interceptors.response.use(
 export function fmtErr(detail) {
   if (detail == null) return 'Something went wrong.';
   if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) return detail.map(e => e?.msg || JSON.stringify(e)).join(' ');
+  if (detail.message) return detail.message;
+  if (Array.isArray(detail)) return detail.map(e => {
+    const field = Array.isArray(e?.loc) ? e.loc[e.loc.length - 1] : null;
+    const msg = e?.msg || JSON.stringify(e);
+    return field && field !== 'body' ? `${field}: ${msg}` : msg;
+  }).join('; ');
   return detail?.msg || String(detail);
 }
 
@@ -120,7 +166,7 @@ export const logout = () => {
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
-export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false) =>
+export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false, context = null, repoUrl = null, repoRef = null) =>
   API.post('/api/chat/send', {
     content,
     session_id: sessionId,
@@ -129,6 +175,9 @@ export const chatSend = (content, sessionId, model, providerId, temperature, age
     temperature: temperature ?? null,
     agent_mode: agentMode,
     allow_commercial_fallback_once: allowCommercialFallbackOnce,
+    ...(context ? { context } : {}),
+    ...(repoUrl ? { repo_url: repoUrl } : {}),
+    ...(repoRef ? { repo_ref: repoRef } : {}),
   });
 export const getAgentChatJob = (jobId) => API.get(`/api/chat/agent-jobs/${jobId}`);
 export const cancelAgentChatJob = (jobId) => API.post(`/api/chat/agent-jobs/${jobId}/cancel`);
@@ -230,6 +279,15 @@ export const approveTaskCheckpoint = (id, data) => API.post(`/api/tasks/${id}/ap
 export const getTaskCounts = () => API.get('/api/tasks/counts');
 export const getDueSoonTasks = (withinHours = 24) =>
   API.get('/api/tasks/due-soon', { params: { within_hours: withinHours } });
+export const followUpTask = (id, data) => API.post(`/api/tasks/${id}/follow-up`, data);
+export const clarifyTask = (id, data) => API.patch(`/api/tasks/${id}/clarify`, data);
+
+// ── Agile sprints ─────────────────────────────────────────────────────────────
+export const fetchSprints = () => API.get('/api/agile/sprints');
+export const createSprint = (data) => API.post('/api/agile/sprints', data);
+export const startSprint = (id, data = {}) => API.post(`/api/agile/sprints/${id}/start`, data);
+export const completeSprint = (id) => API.post(`/api/agile/sprints/${id}/complete`);
+export const fetchVelocity = () => API.get('/api/agile/velocity');
 
 // ── Agents (v3) ───────────────────────────────────────────────────────────────
 export const listAgents = () => API.get('/api/agents/');
@@ -260,6 +318,13 @@ export const deleteSecret = (id) => API.delete(`/api/secrets/${id}`);
 export const listUsers = () => API.get('/api/activation/users');
 export const changeUserRole = (userId, role) =>
   API.post(`/api/activation/users/${userId}/role`, { role });
+export const setUserOnboarding = (userId, allowed) =>
+  API.put(`/api/activation/users/${userId}/onboarding`, { allowed });
+
+// ── API keys (admin) ──────────────────────────────────────────────────────────
+export const listApiKeys = () => API.get('/api/keys');
+export const createApiKey = (data) => API.post('/api/keys', data);
+export const deleteApiKey = (keyId) => API.delete(`/api/keys/${keyId}`);
 
 // ── Setup wizard (v3.1) ───────────────────────────────────────────────────────
 export const getSetupState = () => API.get('/api/setup/state');
@@ -312,4 +377,64 @@ export const pullFolder = (folder) => API.post(`/api/sync/pull/${folder}`);
 export const listSyncConflicts = () => API.get('/api/sync/conflicts');
 export const resolveConflict = (id) => API.post(`/api/sync/conflicts/${id}/resolve`);
 
+// ── Company Graph & Onboarding (v5.0) ─────────────────────────────────────────
+export const listCompanies = (params = {}) => API.get('/api/company', { params });
+export const createCompany = (data) => API.post('/api/company', data);
+export const getCompany = (id) => API.get(`/api/company/${id}`);
+export const updateCompany = (id, data) => API.patch(`/api/company/${id}`, data);
+export const getCompanyGraph = (id) => API.get(`/api/company/${id}/graph`);
+export const syncCompanyGraph = (id) => API.post(`/api/company/${id}/graph/sync`);
+export const scanWebsite = (id, url) => API.post(`/api/company/${id}/scan/website`, { website_url: url });
+export const scanRepo = (id, url) => API.post(`/api/company/${id}/scan/repo`, { repo_url: url });
+export const listSpecialists = (id) => API.get(`/api/company/${id}/specialists`);
+export const provisionSpecialist = (id, data) => API.post(`/api/company/${id}/specialists`, data);
+export const matchSpecialists = (id, systems) => API.post(`/api/company/${id}/specialists/match`, systems);
+export const getOnboardingProgress = (id) => API.get(`/api/company/${id}/onboarding`);
+export const startOnboarding = (id, data) => API.post(`/api/company/${id}/onboarding/start`, data);
+export const pauseOnboarding = (id) => API.post(`/api/company/${id}/onboarding/pause`);
+export const resumeOnboarding = (id) => API.post(`/api/company/${id}/onboarding/resume`);
+export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/cancel`);
+export const deleteCompany = (id) => API.delete(`/api/company/${id}`);
+export const getPublicDoctorReport = () => API.get('/api/company/doctor/public');
+
+// Wake company runtimes (Docker containers)
+export const wakeCompanyRuntimes = (companyId = '') =>
+  API.post('/runtimes/wake-company-runtimes', null, { params: companyId ? { company_id: companyId } : {} });
+
 export default API;
+
+// MCP Servers
+export const listMcpServers   = ()         => API.get('/api/mcp/servers');
+export const createMcpServer  = (data)     => API.post('/api/mcp/servers', data);
+export const updateMcpServer  = (id, data) => API.patch(`/api/mcp/servers/${id}`, data);
+export const deleteMcpServer  = (id)       => API.delete(`/api/mcp/servers/${id}`);
+
+// Skills Registry
+export const listSkills           = (params = {})  => API.get('/api/skills', { params });
+export const refreshSkills        = ()              => API.post('/api/skills/refresh');
+export const recommendSkills      = (data)          => API.post('/api/skills/recommend', data);
+export const autoRecommendSkills  = (params = {})   => API.get('/api/skills/recommend/auto', { params });
+export const getSkill             = (skillId)       => API.get(`/api/skills/${encodeURIComponent(skillId)}`);
+
+// Company Skills (v5 SkillBindings)
+export const listCompanySkills    = (params = {})   => API.get('/api/company/skills', { params });
+export const autoRecommendCompanySkills = (companyId) =>
+  API.get('/api/company/skills/recommend/auto', { params: { company_id: companyId } });
+export const getCompanySkill      = (skillId)       => API.get(`/api/company/skills/${encodeURIComponent(skillId)}`);
+export const getSpecialistSkills  = (companyId, specialistId) =>
+  API.get(`/api/company/${companyId}/specialists/${specialistId}/skills`);
+
+// ── Portfolio + Agile board (v5.0) ────────────────────────────────────────────
+export const getPortfolioBoard   = (horizonCapacity) =>
+  API.get('/api/portfolio/board', { params: horizonCapacity ? { horizon_capacity: horizonCapacity } : {} });
+export const addPortfolioInitiative = (data)         => API.post('/api/portfolio/initiatives', data);
+export const removePortfolioInitiative = (id)        => API.delete(`/api/portfolio/initiatives/${encodeURIComponent(id)}`);
+export const refreshPortfolio    = ()                => API.post('/api/portfolio/refresh');
+
+// ── Quick Notes (iPhone Shortcut + FAB) ────────────────────────────────────
+export const createQuickNote = (data) => API.post('/v1/quick-notes', data);
+export const listQuickNotes = () => API.get('/v1/quick-notes');
+
+// ── Agency Status ───────────────────────────────────────────────────────────
+export const getAgencyStatus = () => API.get('/agent/agency/status');
+

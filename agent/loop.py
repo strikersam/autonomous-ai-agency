@@ -6,6 +6,8 @@ import logging
 import os
 import re
 import subprocess
+import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,7 @@ import asyncio
 import httpx
 
 from agent.context_manager import ContextManager
+from agent.context_pruner import ContextPruner
 from agent.models import AgentPlan, ToolCall, VerificationResult
 from agent.prompts import (
     build_compaction_prompt,
@@ -22,10 +25,18 @@ from agent.prompts import (
     build_tool_prompt,
     build_verification_prompt,
 )
+from agent.react_loop import ReactScratchpad
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
 from router import get_router
+
+# Durable agent checkpointing — soft import so the runner works even without the module
+try:
+    from agent.checkpoint import checkpoint_agent_state
+except ImportError:
+    checkpoint_agent_state = None  # type: ignore[assignment]
+    log.debug("agent/checkpoint.py not available — checkpointing disabled")
 
 log = logging.getLogger("qwen-agent")
 _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "analyze"})
@@ -33,6 +44,31 @@ _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "anal
 DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
 DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
 DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b")
+
+# Nemotron Reward Model toggle (B1).  When NVIDIA_API_KEY is set, the reward
+# model scores step outputs as a cheaper/faster alternative to the LLM verifier.
+# Set NEMOTRON_REWARD_ENABLED=false to disable and always use the LLM verifier.
+_REWARD_ENABLED = os.environ.get("NEMOTRON_REWARD_ENABLED", "auto").strip().lower() not in ("false", "0", "no", "off")
+
+# C4/C5 integration toggle for chat history and context window management
+_AGENT_CHAT_HISTORY_ENABLED = os.environ.get("AGENT_CHAT_HISTORY_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+_AGENT_CONTEXT_WINDOW_ENABLED = os.environ.get("AGENT_CONTEXT_WINDOW_ENABLED", "true").strip().lower() in ("true", "1", "yes")
+
+# Adaptive Loop Halting: exit the plan→execute→verify cycle early when the
+# verifier returns confidence >= this threshold on a step.  Reduces average
+# LLM calls per simple step from ~3 to ~1.5.  Set to 1.0 to disable.
+_CONFIDENCE_THRESHOLD = float(os.environ.get("AGENT_CONFIDENCE_THRESHOLD", "0.9"))
+
+# Reasoning token budget (★3 roadmap item).  Controls thinking/reasoning depth
+# for models that support it (DeepSeek-R1, Qwen3-Coder, Nemotron NIM, vLLM).
+# low=512, medium=2048, high=8192, max=unbounded (default: high).
+_REASONING_BUDGET_MAP: dict[str, int] = {
+    "low": 512,
+    "medium": 2048,
+    "high": 8192,
+    "max": -1,
+}
+_REASONING_BUDGET_DEFAULT = os.environ.get("AGENT_REASONING_BUDGET", "high").strip().lower()
 
 
 
@@ -55,6 +91,8 @@ class AgentRunner:
         key_id: str | None = None,
         num_ctx: int | None = None,
         keep_alive: str | None = None,
+        repo_url: str | None = None,
+        base_branch: str = "main",
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -65,19 +103,51 @@ class AgentRunner:
         self.keep_alive = keep_alive
         self.tools = WorkspaceTools(workspace_root)
         from agent.github_tools import GitHubTools
-        self.github = GitHubTools(github_token)
+        # agent_initiated=True activates the autonomy gate for everything this agent
+        # does on GitHub: no commits/pushes to protected branches and no PR merges —
+        # the agent proposes via PR and a human merges.
+        self.github = GitHubTools(github_token, agent_initiated=True)
         self.ctx = ContextManager()
+        # 3-phase context-pruner middleware: runs before every LLM call to enforce
+        # token budgets and wrap older context as historical memory.
+        self.pruner = ContextPruner()
+        # Specialized sub-agent configurations (★2 roadmap item).
+        # Keyed by role name ("file_picker", "planner", "editor", "reviewer").
+        # When set, _spawn_subagent uses the configured per-role model.
+        self.sub_agents: dict[str, Any] = {}
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
         self._session_store = session_store
+        # Nemotron reward scorer (B1): quick quality check before LLM verifier.
+        # Lazily initialised on first use so it doesn't break in envs without httpx.
+        self._reward_scorer: Any = None
+        # Capability registry (A3): dynamic tool dispatch replacing hardcoded
+        # if/elif chains with registry-based lookup.
+        self._tool_registry: Any = None
+        # Steering injector (B2): quality-biased generation via SteerLM tokens.
+        self._steering: Any = None
         # MCP client — injected after construction when an MCP sidecar is
         # available.  None means fall back to local WorkspaceTools for all ops.
         self._mcp = None
+        # Repository context for auto-push + PR (Direct Chat / managed agents)
+        self.repo_url = repo_url
+        self.base_branch = base_branch
         # Legacy auth storage (prefer passing to run())
         self.email = email
         self.department = department
         self.key_id = key_id
+
+    def configure_sub_agents(self, configs: list[dict[str, Any]]) -> None:
+        """Set per-role sub-agent configurations for specialized routing (★2).
+
+        When sub-agent configs are registered, ``_spawn_subagent`` and the
+        tool-call loop use the configured per-role model instead of the default
+        executor/verifier — enabling the File Picker → Planner → Editor →
+        Reviewer pattern where each role is routed to the cheapest capable model.
+        """
+        self.sub_agents = {c.role: c for c in configs}
+        log.debug("configured %d specialized sub-agent(s): %s", len(configs), list(self.sub_agents.keys()))
 
     async def plan(
         self,
@@ -124,9 +194,27 @@ class AgentRunner:
     ) -> dict[str, Any]:
         # ``metadata`` is accepted for forward-compatibility (callers like
         # direct_chat.py may pass it) but is not consumed by the core loop.
+
+        # ── DEPRECATION: AgentRunner.run() bypasses WorkflowOrchestrator ──
+        # All execution should route through WorkflowOrchestrator.execute().
+        # Set AGENCY_WORKFLOW_MODE=orchestrator to enforce the golden path.
+        from services.workflow_orchestrator import emit_deprecation, is_legacy_mode
+        if not is_legacy_mode():
+            raise RuntimeError(
+                "AgentRunner.run() is blocked in orchestrator mode. "
+                "Use WorkflowOrchestrator.execute() instead. "
+                "Set AGENCY_WORKFLOW_MODE=legacy to bypass (deprecated)."
+            )
+        emit_deprecation("AgentRunner.run()")
+
         # Store current session_id for use by helper methods that need to
         # write into the durable session event log (e.g., tool_call/tool_result).
         self._current_session_id = session_id
+        # Initialised before the try block so the finally handler can safely
+        # reference them even when an exception occurs before assignment.
+        plan: Any = None
+        step_results: list[dict[str, Any]] = []
+        commits: list[str] = []
         # Keep the current session marker for the duration of the run so
         # helper methods like _run_tool can write durable events to the
         # correct session. Ensure it is cleared on exit.
@@ -143,13 +231,43 @@ class AgentRunner:
 
             self._log_event(session_id, "user_message", {"instruction": instruction})
 
+            # C4: Persist the user instruction and history to chat history
+            if _AGENT_CHAT_HISTORY_ENABLED and session_id:
+                try:
+                    from services.chat_history import get_chat_history
+                    store = get_chat_history()
+                    store.append(session_id, {"role": "user", "content": instruction[:2000]})
+                except Exception:
+                    pass
+
             plan = await self._generate_plan(
                 instruction, effective_history, requested_model, max_steps, user_id, memory_store
             )
             self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
-            step_results: list[dict[str, Any]] = []
-            commits: list[str] = []
+            # ── Durable checkpoint: snapshot agent state after planning ──
+            if session_id and checkpoint_agent_state is not None:
+                try:
+                    checkpoint_agent_state(
+                        session_id=session_id,
+                        step_index=0,
+                        goal=plan.goal,
+                        plan_steps=[s.model_dump() for s in plan.steps],
+                        completed_steps=[],
+                        tool_call_history=[],
+                        scratchpad_raw=str(plan.goal),
+                    )
+                except Exception:
+                    log.debug("Checkpoint after plan failed (non-fatal)", exc_info=True)
+
+            # A5: Publish plan creation event on the inter-agent message bus
+            try:
+                from services.agent_bus import get_agent_bus
+                await get_agent_bus().publish("agent.planned", {"goal": plan.goal, "steps": len(plan.steps)})
+            except Exception:
+                pass
+
+
 
             # Warn about risky steps before executing
             for step in plan.steps[:max_steps]:
@@ -180,10 +298,59 @@ class AgentRunner:
                 condensed = ContextManager.condense_step_result(result)
                 self._log_event(session_id, "step_complete", condensed)
                 step_results.append(result)
+
+                # ── Durable checkpoint: snapshot after each step ──
+                if session_id and checkpoint_agent_state is not None:
+                    try:
+                        error_raw = result.get("issues")
+                        error_str = "; ".join(error_raw) if isinstance(error_raw, list) else str(error_raw) if error_raw else None
+                        checkpoint_agent_state(
+                            session_id=session_id,
+                            step_index=step.id,
+                            goal=plan.goal,
+                            plan_steps=[s.model_dump() for s in plan.steps],
+                            completed_steps=[s["id"] for s in step_results if isinstance(s, dict) and s.get("status") == "applied"],
+                            tool_call_history=result.get("observations", []),
+                            scratchpad_raw=str(condensed.get("description", "")),
+                            error_info=error_str,
+                        )
+                    except Exception:
+                        log.debug("Checkpoint after step failed (non-fatal)", exc_info=True)
+
                 if auto_commit and result["status"] == "applied" and result["changed_files"]:
                     commit = self._commit_step(step_data["description"], result["changed_files"])
                     if commit:
                         commits.append(commit)
+
+                # Adaptive Loop Halting: early-exit when verifier confidence >= threshold
+                # on all files touched this step. Simple single-file edits often finish
+                # in one pass; no need to burn through remaining planned steps.
+                if _CONFIDENCE_THRESHOLD < 1.0 and result.get("status") == "applied":
+                    scores = step_data.get("_confidence_scores") or []
+                    if scores and all(s >= _CONFIDENCE_THRESHOLD for s in scores):
+                        remaining = plan.steps[max_steps:] if len(plan.steps) > max_steps else []
+                        skipped = [s.id for s in plan.steps if s.id > step.id]
+                        log.info(
+                            "Adaptive halting: all verifier confidence scores >= %.2f on step %d "
+                            "(%s). Skipping %d remaining step(s) %s.",
+                            _CONFIDENCE_THRESHOLD, step.id, scores, len(skipped), skipped or "(none)",
+                        )
+                        self._log_event(
+                            session_id, "step_complete",
+                            {"adaptive_halt": True, "confidence_scores": scores, "skipped_steps": skipped},
+                        )
+                        break
+
+            # A5: Publish run complete event on the inter-agent message bus
+            try:
+                from services.agent_bus import get_agent_bus
+                await get_agent_bus().publish("agent.completed", {
+                    "goal": plan.goal,
+                    "applied": sum(1 for s in step_results if s.get("status") == "applied"),
+                    "total_steps": len(step_results),
+                })
+            except Exception:
+                pass
 
             # Judge the overall run result
             judge: dict[str, Any] = {}
@@ -229,8 +396,33 @@ class AgentRunner:
                         "failure_phase": "judge",
                     }
 
-            summary = self._build_summary(plan.goal, step_results, commits)
+            # Push and open a PR when auto_commit produced local commits and we have
+            # a GitHub repo URL to target. Gated behind AGENT_AUTO_PR_ENABLED (default
+            # off) so this new agent-initiated GitHub write path is opt-in and has a
+            # rollout kill switch.
+            pr_url: str | None = None
+            if (
+                auto_commit
+                and commits
+                and self.repo_url
+                and os.environ.get("AGENT_AUTO_PR_ENABLED", "").strip().lower()
+                in {"true", "1", "yes"}
+            ):
+                pr_url = await self._auto_push_and_pr(
+                    commits, self._current_session_id, plan.goal
+                )
+
+            summary = self._build_summary(plan.goal, step_results, commits, pr_url)
             self._log_event(session_id, "assistant_message", {"summary": summary})
+
+            # C4: Persist the agent response summary to chat history
+            if _AGENT_CHAT_HISTORY_ENABLED and session_id and summary:
+                try:
+                    from services.chat_history import get_chat_history
+                    store = get_chat_history()
+                    store.append(session_id, {"role": "assistant", "content": summary[:2000]})
+                except Exception:
+                    pass
 
             # Update auth context if passed in run()
             if user_id:
@@ -247,8 +439,29 @@ class AgentRunner:
                 "commits": commits,
                 "summary": summary,
                 "judge": judge,
+                "pr_url": pr_url,
             }
         finally:
+            # ── Durable checkpoint: snapshot on error for crash-recovery ──
+            if self._current_session_id and checkpoint_agent_state is not None:
+                try:
+                    exc_type, exc_value, _ = sys.exc_info()
+                    if exc_type is not None:
+                        plan_steps_list = [s.model_dump() for s in plan.steps] if plan is not None and hasattr(plan, "steps") and plan.steps else []
+                        step_index = plan_steps_list[-1]["id"] if plan_steps_list else 0
+                        goal_str = plan.goal if plan is not None and hasattr(plan, "goal") else instruction
+                        completed = [s["id"] for s in step_results if isinstance(s, dict) and s.get("status") == "applied"]
+                        checkpoint_agent_state(
+                            session_id=self._current_session_id,
+                            step_index=step_index,
+                            goal=goal_str,
+                            plan_steps=plan_steps_list,
+                            completed_steps=completed,
+                            tool_call_history=[],
+                            error_info=str(exc_value) if exc_value else "AgentRunner exception",
+                        )
+                except Exception:
+                    log.debug("Error checkpoint failed (non-fatal)", exc_info=True)
             # Clear the ephemeral session marker to avoid accidental cross-session writes
             self._current_session_id = None
 
@@ -347,6 +560,10 @@ class AgentRunner:
         executor_model = executor_decision.resolved_model if not requested_model else requested_model
         if not executor_model:
             executor_model = DEFAULT_EXECUTOR_MODEL
+        # Consult sub-agent configs for per-phase model selection (★2)
+        editor_cfg = self.sub_agents.get("editor")
+        if editor_cfg and editor_cfg.model:
+            executor_model = editor_cfg.model
 
         verifier_decision = get_router().route(
             requested_model=requested_model,
@@ -355,11 +572,18 @@ class AgentRunner:
         verifier_model = verifier_decision.resolved_model if not requested_model else requested_model
         if not verifier_model:
             verifier_model = DEFAULT_VERIFIER_MODEL
+        # Consult sub-agent configs for verifier role (★2)
+        reviewer_cfg = self.sub_agents.get("reviewer")
+        if reviewer_cfg and reviewer_cfg.model:
+            verifier_model = reviewer_cfg.model
 
         log.debug(
             "agent execute: executor=%s verifier=%s",
             executor_model, verifier_model,
         )
+
+        # ReAct scratchpad: accumulates reasoning trace across tool calls (A2)
+        scratchpad = ReactScratchpad()
 
         for remaining in range(15, 0, -1):
             try:
@@ -367,24 +591,33 @@ class AgentRunner:
                 # keep the tool-selection prompt lean.  Recent observations are
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
-                tool_call = await self._chat_json(
-                    executor_model,
-                    build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining),
-                )
+                tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                # Inject ReAct scratchpad trace into the system message so the
+                # model can see its own reasoning across tool calls (A2)
+                scratchpad_ctx = scratchpad.to_prompt_context()
+                if scratchpad_ctx and tool_messages:
+                    sys_content = str(tool_messages[0].get("content", ""))
+                    tool_messages[0]["content"] = f"{sys_content}\n\n{scratchpad_ctx}"
+                tool_call = await self._chat_json(executor_model, tool_messages)
                 call = ToolCall.model_validate(tool_call)
             except Exception as exc:
                 observations.append({"tool": "error", "result": f"tool selection failed: {exc}"})
                 continue
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
+                scratchpad.record_thought(call.args.get("reason", "step complete"))
                 break
             if call.tool == "spawn_subagent":
                 sub_result = await self._spawn_subagent(**call.args)
                 observations.append({"tool": "spawn_subagent", "result": sub_result.get("summary", str(sub_result))})
                 context_items.append({"tool": "spawn_subagent", "result": sub_result})
+                scratchpad.record_action("spawn_subagent", call.args)
+                scratchpad.record_observation(sub_result.get("summary", "subagent completed"))
                 continue
+            scratchpad.record_action(call.tool, call.args)
             self._log_event(session_id, "tool_call", {"tool": call.tool, "args": call.args})
             result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
+            scratchpad.record_observation(result)
             self._log_event(session_id, "tool_result", {"tool": call.tool, "result": str(result)[:500]})
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
@@ -470,41 +703,76 @@ class AgentRunner:
                 new_content = self._clean_generated_file_content(new_content)
                 syntax_issues = self._local_syntax_check(out_path, new_content)
                 syntax_issues.extend(self._local_safety_check(out_path, new_content))
-                try:
-                    verification = await self._chat_json(
-                        verifier_model,
-                        build_verification_prompt(
-                            goal=goal,
-                            step=step,
-                            target_file=out_path,
-                            original_content=original_content,
-                            new_content=new_content,
-                            syntax_issues=syntax_issues,
-                        ),
+
+                # ── B1: Nemotron Reward Model fast-path scoring ────────────
+                # Before calling the expensive LLM verifier, try the reward
+                # model for a quick quality score.  If the score is high enough
+                # (>= _REWARD_PASS_THRESHOLD), skip the LLM verifier entirely.
+                # Falls back to LLM verifier when reward model is unavailable.
+                reward_score: float | None = None
+                if _REWARD_ENABLED and not syntax_issues:
+                    scorer = self._get_reward_scorer()
+                    if scorer and scorer.is_available:
+                        try:
+                            reward_result = await scorer.score(
+                                prompt=f"{goal}\nStep: {step.get('description', '')}\nFile: {out_path}",
+                                response=new_content[:8000],
+                            )
+                            reward_score = reward_result.score
+                            self._log_event(
+                                session_id, "step_complete",
+                                {"reward_score": reward_score, "reward_model_used": reward_result.model_used},
+                            )
+                        except Exception as exc:
+                            log.debug("Reward scoring failed (falling back to LLM verifier): %s", exc)
+
+                # If reward score is high enough, skip the LLM verifier
+                if reward_score is not None and reward_score >= float(os.environ.get("NEMOTRON_REWARD_PASS_THRESHOLD", "0.7")):
+                    log.info(
+                        "Reward model score %.2f >= threshold — skipping LLM verifier for %s",
+                        reward_score, out_path,
                     )
-                    verdict = VerificationResult.model_validate(verification)
-                except Exception as verif_exc:
-                    retries += 1
-                    feedback_issues = syntax_issues + [f"verifier_output_invalid: {verif_exc}"]
-                    # StopIteration (exhausted mock iterator) or persistent format failure → fail immediately
-                    is_exhausted = isinstance(verif_exc, (StopIteration, RuntimeError)) and "StopIteration" in str(verif_exc)
-                    if retries > 2 or is_exhausted:
-                        return {
-                            "step_id": step["id"],
-                            "description": step["description"],
-                            "status": "failed",
-                            "failure_phase": "verification",
-                            "issues": feedback_issues,
-                            "changed_files": changed_files,
-                            "observations": observations,
-                            "models": {"executor": executor_model, "verifier": verifier_model},
-                        }
-                    continue
+                    verdict = VerificationResult(status="pass", issues=[], confidence=reward_score)
+                else:
+                    try:
+                        verification = await self._chat_json(
+                            verifier_model,
+                            build_verification_prompt(
+                                goal=goal,
+                                step=step,
+                                target_file=out_path,
+                                original_content=original_content,
+                                new_content=new_content,
+                                syntax_issues=syntax_issues,
+                            ),
+                        )
+                        verdict = VerificationResult.model_validate(verification)
+                    except Exception as verif_exc:
+                        retries += 1
+                        feedback_issues = syntax_issues + [f"verifier_output_invalid: {verif_exc}"]
+                        # StopIteration (exhausted mock iterator) or persistent format failure → fail immediately
+                        is_exhausted = isinstance(verif_exc, (StopIteration, RuntimeError)) and "StopIteration" in str(verif_exc)
+                        if retries > 2 or is_exhausted:
+                            return {
+                                "step_id": step["id"],
+                                "description": step["description"],
+                                "status": "failed",
+                                "failure_phase": "verification",
+                                "issues": feedback_issues,
+                                "changed_files": changed_files,
+                                "observations": observations,
+                                "models": {"executor": executor_model, "verifier": verifier_model},
+                            }
+                        continue
                 if verdict.status == "pass" and not syntax_issues:
                     diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
                     file_applied = True
+                    # Adaptive Loop Halting: track confidence for early exit
+                    if "_confidence_scores" not in step:
+                        step["_confidence_scores"] = []
+                    step["_confidence_scores"].append(verdict.confidence)
                     break
 
                 retries += 1
@@ -591,14 +859,28 @@ class AgentRunner:
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
     ) -> Any:
+        # ── A3: Capability Registry dynamic dispatch ─────────────────────────
+        # Try the tool registry first for dynamically registered tools.
+        # Falls back to the hardcoded if/elif chain for legacy tools.
+        tr = self._get_tool_registry()
+        if tr is not None:
+            tool_def = tr.get(tool)
+            if tool_def is not None:
+                try:
+                    result = tool_def.handler(**args)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    return result
+                except Exception as exc:
+                    log.debug("Capability registry tool %r failed: %s", tool, exc)
+                    return f"[tool error via registry: {exc}]"
+
+        # Legacy hardcoded dispatch (fallback)
         if tool == "read_file":
             return self.tools.read_file(str(args.get("path", "")))
         if tool == "head_file":
-            # JIT retrieval: read only the first N lines so the context window
-            # stays lean during the inspection phase.
             return self.tools.head_file(str(args.get("path", "")), int(args.get("lines", 50)))
         if tool == "file_index":
-            # Lightweight index tier: always-loaded, ~150 chars per entry.
             return self.tools.file_index(str(args.get("path", ".")), int(args.get("max_entries", 100)))
         if tool == "list_files":
             return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
@@ -733,6 +1015,47 @@ class AgentRunner:
         back to the Ollama-compatible endpoint otherwise.
         """
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+
+        # Context pruning: enforce token budgets before sending to the LLM
+        messages = self.pruner.prune(messages)
+        payload["messages"] = messages
+
+        # C5: Auto-truncate messages to fit within the model's context window
+        if _AGENT_CONTEXT_WINDOW_ENABLED and isinstance(messages, list) and len(messages) > 4:
+            try:
+                from services.context_window import get_context_window_manager
+                mgr = get_context_window_manager()
+                if mgr.needs_truncation(messages, model=model):
+                    result = mgr.truncate(messages, model=model)
+                    payload["messages"] = result.messages
+                    log.debug("Agent context window truncated: %d → %d messages (model=%s)",
+                             result.original_count, result.truncated_count, model)
+            except Exception:
+                pass
+
+        # Reasoning token budget (★3): inject thinking_token_budget for supported models
+        _budget_key = os.environ.get("AGENT_REASONING_BUDGET", _REASONING_BUDGET_DEFAULT).strip().lower()
+        _budget_tokens = _REASONING_BUDGET_MAP.get(_budget_key)
+        if _budget_tokens is not None and _budget_tokens > 0:
+            payload["thinking_token_budget"] = _budget_tokens
+
+        # SteerLM steering injection (B2): inject quality-biasing instruction
+        # Only inject for execution-phase calls; planning/verification use
+        # their own prompt structures that shouldn't be steered.
+        steering = self._get_steering()
+        if steering is not None and steering.enabled:
+            try:
+                from router.steering import steering_for_task
+                # Use code_generation steering by default for execution calls.
+                # Callers can override by setting _steering_labels on the runner.
+                labels = getattr(self, "_steering_labels", None) or steering_for_task("code_generation")
+                payload["messages"] = steering.inject(
+                    messages=payload["messages"],
+                    labels=labels,
+                )
+            except Exception:
+                pass
+
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
         if self.num_ctx:
@@ -868,8 +1191,12 @@ class AgentRunner:
         # Fallback: call Ollama-compatible endpoint
         headers = {"Content-Type": "application/json", **self.provider_headers}
         start = time.perf_counter()
+        # Build the chat URL defensively: use _openai_url to prevent double /v1
+        # when ollama_base already ends with /v1 (e.g. Nvidia NIM).
+        from provider_router import _openai_url
+        chat_url = _openai_url(self.ollama_base, "/chat/completions")
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(f"{self.ollama_base}/v1/chat/completions", json=payload, headers=headers)
+            resp = await client.post(chat_url, json=payload, headers=headers)
         duration_ms = int((time.perf_counter() - start) * 1000)
         resp.raise_for_status()
         data = resp.json()
@@ -1024,6 +1351,41 @@ class AgentRunner:
 
         return issues
 
+    # ── Reward scorer accessor (B1) ─────────────────────────────────────────
+
+    def _get_reward_scorer(self) -> Any:
+        if self._reward_scorer is None:
+            try:
+                from services.reward_scorer import get_reward_scorer
+                self._reward_scorer = get_reward_scorer()
+            except Exception as exc:
+                log.debug("Could not load reward scorer: %s", exc)
+                self._reward_scorer = False  # sentinel: tried and failed
+        return self._reward_scorer if self._reward_scorer is not False else None
+
+    # ── Capability registry accessor (A3) ───────────────────────────────────
+
+    def _get_tool_registry(self) -> Any:
+        if self._tool_registry is None:
+            try:
+                from agent.capability_registry import get_tool_registry
+                self._tool_registry = get_tool_registry()
+            except Exception as exc:
+                log.debug("Could not load tool registry: %s", exc)
+                self._tool_registry = False
+        return self._tool_registry if self._tool_registry is not False else None
+
+    def _get_steering(self) -> Any:
+        """Lazy accessor for the SteerLM steering injector (B2)."""
+        if self._steering is None:
+            try:
+                from router.steering import get_steering_injector
+                self._steering = get_steering_injector()
+            except Exception as exc:
+                log.debug("Could not load steering injector: %s", exc)
+                self._steering = False
+        return self._steering if self._steering is not False else None
+
     def _safe_read(self, path: str) -> str:
         try:
             return self.tools.read_file(path, max_chars=200000)
@@ -1032,15 +1394,15 @@ class AgentRunner:
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
         try:
-            subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)
-            subprocess.run(
+            subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)  # nosec B603,B607 - constant git argv, list form (no shell)
+            subprocess.run(  # nosec B603,B607 - constant git argv, list form (no shell)
                 ["git", "commit", "-m", f"agent: {description}"],
                 cwd=self.tools.root,
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            proc = subprocess.run(
+            proc = subprocess.run(  # nosec B603,B607 - constant git argv, list form (no shell)
                 ["git", "rev-parse", "HEAD"],
                 cwd=self.tools.root,
                 check=True,
@@ -1078,9 +1440,16 @@ class AgentRunner:
         *,
         instruction: str,
         max_steps: int = 3,
+        role: str = "",
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Spawn a child AgentRunner for a delegated sub-task."""
+        """Spawn a child AgentRunner for a delegated sub-task.
+
+        When sub-agent configs are registered (★2), the child runner inherits
+        the per-role model and tool allowlist.  The ``role`` kwarg selects the
+        config (e.g. ``"file_picker"``, ``"editor"``); when empty or unmatched
+        the child uses the parent's default model.
+        """
         if not instruction or not instruction.strip():
             return {"error": "spawn_subagent requires a non-empty instruction"}
         sub = AgentRunner(
@@ -1090,15 +1459,109 @@ class AgentRunner:
             provider_temperature=self.provider_temperature,
             session_store=self._session_store,
         )
+        # Apply per-role sub-agent config if available
+        cfg = self.sub_agents.get(role) if role else None
+        if cfg:
+            sub.configure_sub_agents([cfg])
+            override_model = cfg.model or None
+            log.debug("spawn_subagent role=%s model=%s", role, override_model or "(inherit)")
+        else:
+            override_model = None
         return await sub.run(
             instruction=instruction,
             history=[],
-            requested_model=None,
+            requested_model=override_model,
             auto_commit=False,
-            max_steps=int(max_steps),
+            max_steps=int(max_steps) if not cfg else min(int(max_steps), cfg.max_steps),
         )
 
-    def _build_summary(self, goal: str, step_results: list[dict[str, Any]], commits: list[str]) -> str:
+    async def _auto_push_and_pr(self, commits: list[str], session_id: str | None, goal: str = "") -> str | None:
+        """Push commits and open a PR on GitHub. Returns the PR URL or None.
+
+        Only activates when repo_url points to a GitHub repository and the
+        runner has a valid GitHub token.  Protected branches (main/master) are
+        never pushed to directly — we create a feature branch, push that, and
+        open a PR for the user to review.
+        """
+        if not self.repo_url or not self.github.token:
+            return None
+
+        import re as _re
+        from agent.github_tools import LocalWorkspace
+
+        # Accept dotted repo names (e.g. service.api), an optional .git suffix, and
+        # extra path/query segments after owner/repo.
+        match = _re.search(
+            r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/#?]+?)(?:\.git)?(?:[/?#]|$)",
+            self.repo_url,
+        )
+        if not match:
+            log.debug("repo_url %r does not match github.com pattern — skipping auto-PR", self.repo_url)
+            return None
+
+        owner, repo = match.group("owner"), match.group("repo")
+
+        try:
+            ws = LocalWorkspace(owner, repo, self.github.token)
+            # Force the workspace path to the runner's actual working directory
+            # (which may be a worktree or temp copy, not WORKSPACE_BASE_DIR).
+            ws.path = Path(self.tools.root)
+
+            if not ws.exists():
+                log.debug("Workspace %s is not a git repo — skipping auto-PR", self.tools.root)
+                return None
+
+            current_branch = await ws.current_branch()
+            base_branch = self.base_branch
+
+            # Never push directly to a protected branch OR to the PR base branch —
+            # opening a PR with head == base is rejected by GitHub. Isolate the agent's
+            # changes on a fresh feature branch in those cases.
+            if current_branch == base_branch or current_branch in ("main", "master"):
+                push_branch = f"agent/task-{uuid.uuid4().hex[:8]}"
+                await ws.create_branch(push_branch, current_branch)
+                self._log_event(session_id, "step_start", {"description": f"Created branch {push_branch}"})
+            else:
+                push_branch = current_branch
+
+            # Push with token-scrubbing (LocalWorkspace.push handles try/finally).
+            await ws.push(branch=push_branch, agent_initiated=True)
+            self._log_event(session_id, "step_start", {"description": f"Pushed branch {push_branch}"})
+
+            # Derive a meaningful PR title from the task goal or first commit.
+            pr_title = goal or (commits[0] if commits else "Agent auto-commit")
+            # Strip commit hash if goal wasn't available and we fell through.
+            if not goal and len(pr_title) == 40 and pr_title.isalnum():
+                pr_title = f"Agent changes ({pr_title[:7]})"
+            # Cap title length for GitHub (256 char limit, leave slack).
+            pr_title = pr_title[:200]
+
+            pr_body = "🤖 Automated PR created by AI Agent.\n\n### Commits\n" + "\n".join(
+                f"- `{c[:7]}`" for c in commits
+            )
+
+            pr_result = await self.github.open_pull_request(
+                owner=owner,
+                repo=repo,
+                title=pr_title,
+                head=push_branch,
+                base=base_branch,
+                body=pr_body,
+                agent_initiated=True,
+            )
+            pr_url = pr_result.get("html_url") or ""
+            self._log_event(session_id, "assistant_message", {
+                "summary": f"Opened PR: {pr_url}",
+                "pr_url": pr_url,
+            })
+            log.info("Auto-PR opened: %s", pr_url)
+            return pr_url
+
+        except Exception as exc:
+            log.warning("Auto-push/PR failed (non-fatal): %s", exc)
+            return None
+
+    def _build_summary(self, goal: str, step_results: list[dict[str, Any]], commits: list[str], pr_url: str | None = None) -> str:
         applied = sum(1 for step in step_results if step.get("status") == "applied")
         failed = [step for step in step_results if step.get("status") == "failed"]
         parts = [f"Goal: {goal}", f"Applied steps: {applied}/{len(step_results)}"]
@@ -1106,4 +1569,142 @@ class AgentRunner:
             parts.append(f"Failed steps: {len(failed)}")
         if commits:
             parts.append(f"Commits: {len(commits)}")
+        if pr_url:
+            parts.append(f"PR: {pr_url}")
         return " | ".join(parts)
+
+
+# ── FreeBuff: self-hosted Codebuff-style agent on free NVIDIA NIM models ───────
+
+# Curated set of free NVIDIA NIM model IDs FreeBuff is allowed to route to.
+# Overridable via FREEBUFF_MODELS (comma-separated) for new-model rollouts.
+_DEFAULT_FREE_NVIDIA_MODELS: tuple[str, ...] = (
+    "nvidia/nemotron-3-super-120b-a12b",
+    "qwen/qwen2.5-coder-32b-instruct",
+    "meta/llama-3.3-70b-instruct",
+    "meta/llama-3.1-8b-instruct",
+    "deepseek-ai/deepseek-r1",
+)
+
+# NVIDIA NIM is OpenAI-compatible and lives behind /v1; the runner's _chat_text
+# uses _openai_url() so this base must NOT double the /v1 segment.
+NVIDIA_NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+
+
+def free_nvidia_models() -> list[str]:
+    """Return the curated list of free NVIDIA NIM models FreeBuff may use."""
+    raw = os.environ.get("FREEBUFF_MODELS", "").strip()
+    if raw:
+        models = [m.strip() for m in raw.split(",") if m.strip()]
+        if models:
+            return models
+    return list(_DEFAULT_FREE_NVIDIA_MODELS)
+
+
+def _nvidia_api_key() -> str | None:
+    return os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
+
+
+class FreeBuffAgent(AgentRunner):
+    """Codebuff-style coding agent pinned to free NVIDIA NIM models.
+
+    FreeBuff is a self-hosted take on Codebuff's "Free Buff": a cloud coding
+    agent that runs on free models. It reuses the full ``AgentRunner`` plan →
+    execute → verify loop but constrains model selection to the curated free
+    NVIDIA NIM set (see :meth:`available_models`) so it never routes to a paid
+    endpoint. It is designed to be driven from a phone via the Telegram bot:
+    pick a model, review the plan, then accept (commit + draft PR) or reject.
+
+    When ``NVIDIA_API_KEY`` is configured the runner is pinned to the NVIDIA NIM
+    base URL with the key in the Authorization header. With no key set it falls
+    back to a local OpenAI-compatible base so construction never fails (tests /
+    local-only deployments).
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        ollama_base: str | None = None,
+        provider_headers: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        api_key = _nvidia_api_key()
+        base = ollama_base
+        headers = dict(provider_headers or {})
+        if api_key:
+            base = base or NVIDIA_NIM_BASE_URL
+            headers.setdefault("Authorization", f"Bearer {api_key}")
+        base = base or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
+        super().__init__(ollama_base=base, provider_headers=headers or None, **kwargs)
+        # Selected free model for this session (coerced to a valid free model).
+        self.model = self.resolve_model(model)
+
+    @classmethod
+    def available_models(cls) -> list[str]:
+        """List the free NVIDIA NIM models a user may pick (e.g. via Telegram)."""
+        return free_nvidia_models()
+
+    @classmethod
+    def is_free_model(cls, model: str | None) -> bool:
+        """True when *model* is in the curated free NVIDIA NIM set."""
+        return bool(model) and model in free_nvidia_models()
+
+    def resolve_model(self, requested: str | None) -> str:
+        """Coerce *requested* to a free NVIDIA model.
+
+        Returns *requested* when it is already a free model; otherwise falls
+        back to the currently-selected model (if any) or the first free model.
+        Never returns a paid/non-free model — that is the whole point of FreeBuff.
+        """
+        models = free_nvidia_models()
+        if requested and requested in models:
+            return requested
+        if requested:
+            log.warning(
+                "FreeBuff: %r is not a free NVIDIA model — using %s instead",
+                requested, (getattr(self, "model", None) or models[0]),
+            )
+        return getattr(self, "model", None) or models[0]
+
+    async def plan(  # type: ignore[override]
+        self,
+        *,
+        instruction: str,
+        history: list[dict[str, str]] | None = None,
+        requested_model: str | None = None,
+        max_steps: int = 30,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentPlan:
+        return await super().plan(
+            instruction=instruction,
+            history=history or [],
+            requested_model=self.resolve_model(requested_model),
+            max_steps=max_steps,
+            user_id=user_id,
+            memory_store=memory_store,
+            session_id=session_id,
+            metadata=metadata,
+        )
+
+    async def run(  # type: ignore[override]
+        self,
+        *,
+        instruction: str,
+        history: list[dict[str, str]] | None = None,
+        requested_model: str | None = None,
+        auto_commit: bool = False,
+        max_steps: int = 10,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return await super().run(
+            instruction=instruction,
+            history=history or [],
+            requested_model=self.resolve_model(requested_model),
+            auto_commit=auto_commit,
+            max_steps=max_steps,
+            **kwargs,
+        )

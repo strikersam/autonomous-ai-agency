@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAuth } from '../AuthContext';
 import { AppShell } from './AppShell';
 import ChatScreen from './screens/ChatScreen';
 import DashboardScreen from './screens/DashboardScreen';
@@ -6,9 +7,11 @@ import TaskBoardScreen from './screens/TaskBoardScreen';
 import AgentsScreen from './screens/AgentsScreen';
 import SchedulesScreen from './screens/SchedulesScreen';
 import SkillsScreen from './screens/SkillsScreen';
+import PortfolioScreen from './screens/PortfolioScreen';
 import IntelligenceScreen from './screens/IntelligenceScreen';
 import KnowledgeScreen from './screens/KnowledgeScreen';
 import ProvidersScreen from './screens/ProvidersScreen';
+import GitHubScreen from './screens/GitHubScreen';
 import LogsScreen from './screens/LogsScreen';
 import CompanyScreen from './screens/CompanyScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
@@ -54,23 +57,26 @@ function AdminLocked() {
 
 export default function V5App() {
   const [screen, setScreen] = React.useState('chat');
-  const isAdmin = true;
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const agentRunning = true;
   const go = (s) => setScreen(s);
   const screens = {
-    chat:         <ChatScreen chatState="idle" />,
+    chat:         <ChatScreen />,
     dashboard:    <DashboardScreen dashboardState="healthy" />,
     tasks:        <TaskBoardScreen />,
-    agents:       <AgentsScreen onNavigateToChat={() => go('chat')} />,
+    agents:       <AgentsScreen onNavigateToChat={() => go('chat')} onNavigateToTasks={() => go('tasks')} />,
     schedules:    <SchedulesScreen />,
     skills:       <SkillsScreen />,
-    intelligence: <IntelligenceScreen />,
+    portfolio:    <PortfolioScreen />,
+    intelligence: <IntelligenceScreen onNavigate={go} />,
     knowledge:    <KnowledgeScreen />,
     providers:    <ProvidersScreen />,
+    github:       <GitHubScreen />,
     logs:         <LogsScreen />,
     company:      <CompanyScreen />,
     onboarding:   <OnboardingScreen onComplete={() => go('company')} isAdmin={isAdmin} />,
-    doctor:       <DoctorScreen />,
+    doctor:       <DoctorScreen onNavigate={go} />,
     admin:        isAdmin ? <AdminScreen /> : <AdminLocked />,
   };
   return (

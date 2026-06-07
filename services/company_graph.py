@@ -14,6 +14,8 @@ Usage:
 """
 
 from __future__ import annotations
+
+from urllib.parse import urlparse
 from typing import Any, List, Optional, Dict, Tuple
 from datetime import datetime
 import logging
@@ -222,17 +224,39 @@ class CompanyGraphService:
         log.info(f"Created company graph: {created.id} for company {company_id}")
         return created
 
-    async def get_company_graph(self, company_id: str) -> CompanyGraph | None:
+    async def get_company_graph(
+        self,
+        company_id: str,
+        include_detected_systems: bool = True,
+        include_specialists: bool = True,
+        include_workflows: bool = True,
+    ) -> CompanyGraph | None:
         """
         Get the company graph for a company.
-        
+
         Args:
             company_id: Company ID
-            
+            include_detected_systems: Include detected systems (the store always
+                assembles the full graph; the flag is accepted for API parity).
+            include_specialists: Include specialists (see above).
+            include_workflows: Include workflows (see above).
+
         Returns:
             CompanyGraph instance or None if not found
         """
         return await self.store.get_company_graph(company_id)
+
+    async def calculate_graph_completeness(self, company_id: str) -> float:
+        """Compute the completeness score (0.0–1.0) for a company's graph.
+
+        Loads the graph and delegates to the in-memory scorer. Returns 0.0 when
+        the company has no graph yet (rather than raising), so the graph
+        endpoint never 500s on a freshly-created company.
+        """
+        graph = await self.store.get_company_graph(company_id)
+        if not graph:
+            return 0.0
+        return self._calculate_completeness_score(graph)
 
     async def update_company_graph(self, graph: CompanyGraph) -> CompanyGraph:
         """
@@ -371,12 +395,11 @@ class CompanyGraphService:
         
         website = Website(
             url=url,
-            company_id=company_id,
             is_primary=is_primary,
             **kwargs
         )
-        created = await self.store.create_website(website)
-        
+        created = await self.store.create_website(website, company_id)
+
         # Update company
         company = await self.store.get_company(company_id)
         if company:
@@ -388,6 +411,50 @@ class CompanyGraphService:
         
         log.info(f"Added website: {created.id} ({created.url}) to company {company_id}")
         return created
+
+    async def add_workflow(
+        self,
+        company_id: str,
+        name: str,
+        phases: List[str],
+        description: str = "",
+        triggers: List[str] = [],
+        **kwargs
+    ) -> Workflow:
+        """
+        Add a workflow to a company's graph.
+        
+        Args:
+            company_id: Company ID
+            name: Name of the workflow
+            phases: List of workflow phases
+            description: Description of the workflow
+            triggers: List of workflow triggers
+            **kwargs: Additional fields
+            
+        Returns:
+            Created Workflow instance
+        """
+        workflow = Workflow(
+            company_id=company_id,
+            name=name,
+            description=description,
+            phases=phases,
+            triggers=triggers,
+            **kwargs
+        )
+        
+        # If MongoDB is active, persist within the company_graphs collection
+        if self.store.backend == "mongodb":
+            graph = await self.store.get_company_graph(company_id)
+            if graph:
+                workflows = list(graph.workflows)
+                workflows.append(workflow)
+                graph = graph.model_copy(update={"workflows": workflows})
+                await self.store.update_company_graph(graph)
+                
+        log.info(f"Added workflow: {workflow.name} to company {company_id}")
+        return workflow
 
     async def get_website(self, website_id: str) -> Website | None:
         """Get a website by ID."""
@@ -452,8 +519,10 @@ class CompanyGraphService:
             name = name[:-4]
         full_name = url
         
-        if 'github.com' in url:
-            parts = url.replace('https://github.com/', '').replace('.git', '').split('/')
+        parsed_url = urlparse(url)
+        if parsed_url.hostname == 'github.com':
+            path = parsed_url.path.strip('/').replace('.git', '')
+            parts = path.split('/')
             if len(parts) >= 2:
                 full_name = f"{parts[0]}/{parts[1]}"
                 name = parts[1]

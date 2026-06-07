@@ -1,0 +1,403 @@
+name: Bulk Issue Context Generator
+
+# Processes ALL open issues that don't already have a context draft PR.
+# For each eligible issue:
+#   generate prompt + TODO → branch → commit context doc → DRAFT PR → close issue
+#
+# Run this manually to backfill all existing issues, or after bulk imports.
+# New issues going forward are handled automatically by issue-context-generator.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — list issues but do NOT create PRs or close issues"
+        required: false
+        type: boolean
+        default: false
+      skip_labels:
+        description: "Comma-separated labels to skip (default: quick-note:exhausted,agency-escalation)"
+        required: false
+        type: string
+        default: "quick-note:exhausted,agency-escalation"
+      max_issues:
+        description: "Max issues to process (0 = all)"
+        required: false
+        type: string
+        default: "20"
+      issue_numbers:
+        description: "Comma-separated issue numbers to target (blank = auto-discover all open). Bypasses skip-label and existing-branch filters."
+        required: false
+        type: string
+        default: ""
+      regenerate:
+        description: "Regenerate context for issues that already have a branch/PR — updates the existing PR in place (no new PR, issue state untouched)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: bulk-issue-context
+  cancel-in-progress: false
+
+jobs:
+  bulk-process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.email "claude-actions@github.com"
+          git config user.name "Claude Actions [bot]"
+
+      # ── 2. Python setup ──────────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install openai requests anthropic --quiet
+
+      # ── 3. Fetch all open issues ─────────────────────────────────────────────
+      - name: Fetch open issues
+        id: issues
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          SKIP_LABELS: ${{ github.event.inputs.skip_labels }}
+          SKIP_CSV: ${{ github.event.inputs.skip_labels }}
+          MAX_ISSUES: ${{ github.event.inputs.max_issues }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          ISSUE_NUMBERS: ${{ github.event.inputs.issue_numbers }}
+          REGENERATE: ${{ github.event.inputs.regenerate }}
+        run: |
+          SKIP_CSV="${SKIP_CSV:-${SKIP_LABELS:-quick-note:exhausted,agency-escalation}}"
+
+          # When explicit issue numbers are given, fetch each one (any state, so
+          # closed issues can be regenerated). Otherwise list all open issues.
+          if [ -n "$ISSUE_NUMBERS" ]; then
+            echo "Targeting explicit issues: $ISSUE_NUMBERS"
+            echo "[]" > /tmp/all_issues.json
+            IFS=',' read -ra NUMS <<< "$ISSUE_NUMBERS"
+            python3 -c "import json; json.dump([], open('/tmp/all_issues.json','w'))"
+            for n in "${NUMS[@]}"; do
+              n=$(echo "$n" | tr -d ' ')
+              [ -z "$n" ] && continue
+              gh issue view "$n" --repo "$REPO" \
+                --json number,title,body,labels > "/tmp/issue_${n}.json" 2>/dev/null || continue
+              python3 -c "
+          import json
+          all_issues = json.load(open('/tmp/all_issues.json'))
+          all_issues.append(json.load(open('/tmp/issue_${n}.json')))
+          json.dump(all_issues, open('/tmp/all_issues.json','w'))
+          "
+            done
+          else
+            gh issue list \
+              --repo "$REPO" \
+              --state open \
+              --limit 200 \
+              --json number,title,body,labels \
+              > /tmp/all_issues.json
+          fi
+
+          # Filter: apply skip-labels and existing-branch checks, unless an
+          # explicit issue list or regenerate mode bypasses them.
+          python3 - <<'PYEOF'
+          import json, os, subprocess
+
+          with open('/tmp/all_issues.json') as f:
+              issues = json.load(f)
+
+          skip_labels = set(x.strip() for x in os.environ.get('SKIP_CSV', '').split(',') if x.strip())
+          max_n = int(os.environ.get('MAX_ISSUES', '20') or '20')
+          dry_run = os.environ.get('DRY_RUN', 'false').lower() == 'true'
+          explicit = bool(os.environ.get('ISSUE_NUMBERS', '').strip())
+          regenerate = os.environ.get('REGENERATE', 'false').lower() == 'true'
+
+          def branch_exists(name):
+              return subprocess.run(
+                  ['git', 'ls-remote', '--exit-code', 'origin', f'refs/heads/{name}'],
+                  capture_output=True
+              ).returncode == 0
+
+          eligible = []
+          for issue in issues:
+              num = issue['number']
+              labels = {l['name'] for l in issue.get('labels', [])}
+
+              # Explicit targeting bypasses skip-label filtering entirely.
+              if not explicit and (labels & skip_labels):
+                  print(f"  SKIP #{num} (labels: {labels & skip_labels})")
+                  continue
+
+              ctx_branch = f"claude/context-issue-{num}"
+              impl_branch = f"quick-note/issue-{num}"
+              has_branch = branch_exists(ctx_branch) or branch_exists(impl_branch)
+
+              if has_branch and not regenerate and not explicit:
+                  print(f"  SKIP #{num} — branch already exists (use regenerate=true to update)")
+                  continue
+
+              # Mark whether this is an in-place regeneration of an existing branch.
+              issue['_regenerate'] = bool(has_branch and (regenerate or explicit))
+              eligible.append(issue)
+
+          if max_n > 0:
+              eligible = eligible[:max_n]
+
+          mode = "REGENERATE" if (regenerate or explicit) else "CREATE"
+          print(f"\nEligible issues ({len(eligible)}) — mode: {mode}:")
+          for i in eligible:
+              tag = " [regen]" if i.get('_regenerate') else ""
+              print(f"  #{i['number']}: {i['title'][:60]}{tag}")
+
+          with open('/tmp/eligible_issues.json', 'w') as f:
+              json.dump(eligible, f, indent=2)
+
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f"ELIGIBLE_COUNT={len(eligible)}\n")
+              f.write(f"DRY_RUN_MODE={'true' if dry_run else 'false'}\n")
+          PYEOF
+
+          echo "Eligible issue count: $ELIGIBLE_COUNT"
+
+      # ── 4. Process each eligible issue ───────────────────────────────────────
+      - name: Process all eligible issues
+        if: env.ELIGIBLE_COUNT != '0' && env.DRY_RUN_MODE == 'false'
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Copy the scripts to /tmp BEFORE any git branch switches.
+          # git checkout master removes them (they only live on the feature
+          # branch), so we need stable paths for the whole loop.
+          cp .github/scripts/generate_context.py /tmp/generate_context.py
+          cp .github/scripts/fetch_url.py /tmp/fetch_url.py
+          export REPO_ROOT_PATH="$(pwd)"
+          export FETCH_URL_SCRIPT="/tmp/fetch_url.py"
+
+          python3 - <<'PYEOF'
+          import json, os, re, subprocess, sys, time
+          from pathlib import Path
+
+          issues = json.load(open('/tmp/eligible_issues.json'))
+          repo = os.environ['REPO']
+          gh_token = os.environ['GH_TOKEN']
+          repo_root = os.environ.get('REPO_ROOT_PATH', os.getcwd())
+          results = []
+
+          def run(cmd, **kw):
+              return subprocess.run(cmd, **kw, text=True, capture_output=True)
+
+          for issue in issues:
+              num = str(issue['number'])
+              title = issue['title']
+              body = issue.get('body') or ''
+              labels = json.dumps(issue.get('labels', []))
+              branch = f"claude/context-issue-{num}"
+
+              print(f"\n{'='*60}")
+              print(f"Processing issue #{num}: {title[:60]}")
+              print(f"{'='*60}")
+
+              # ── Generate context ──────────────────────────────────────────
+              # Use /tmp copy of script so it survives git branch switches,
+              # and pass REPO_ROOT so CLAUDE.md / graphify paths still resolve.
+              env = dict(os.environ)
+              env.update({
+                  'ISSUE_NUMBER': num,
+                  'ISSUE_TITLE': title,
+                  'ISSUE_BODY': body[:4000],
+                  'ISSUE_LABELS': labels,
+                  'REPO_ROOT': repo_root,
+              })
+              try:
+                  r = subprocess.run(
+                      ['python3', '/tmp/generate_context.py', num],
+                      env=env, text=True, capture_output=False, timeout=300
+                  )
+                  gen_ok = r.returncode == 0 and Path('/tmp/context_result.json').exists()
+              except subprocess.TimeoutExpired:
+                  print(f"  ✗ Context generation timed out for #{num} (>300s) — skipping")
+                  results.append({'number': num, 'status': 'context_timeout'})
+                  continue
+              if not gen_ok:
+                  print(f"  ✗ Context generation failed for #{num}")
+                  results.append({'number': num, 'status': 'context_failed'})
+                  continue
+
+              result = json.load(open('/tmp/context_result.json'))
+              pr_description = result.get('pr_description', '')
+              context_doc = result.get('context_doc', pr_description)
+              # Context PRs only add docs/context/*.md, so they must carry a
+              # `docs:` title — the changelog-check gate exempts docs:/chore:/etc
+              # prefixes. Strip any feat:/fix: prefix the LLM emitted, then force docs:.
+              raw_title = result.get('title', f'{title[:55]} (#{num})')
+              clean_title = re.sub(
+                  r'^(feat|fix|refactor|chore|docs|style|ci|test|perf|build)(\([^)]*\))?:\s*',
+                  '', raw_title,
+              )
+              pr_title = f"docs: {clean_title}"[:70]
+              is_regen = bool(issue.get('_regenerate'))
+
+              # ── Prepare branch ────────────────────────────────────────────
+              # Regenerate mode updates the EXISTING branch in place (preserves
+              # the open draft PR + its number). Create mode starts fresh from
+              # master. generate_context.py is in /tmp so branch switches are safe.
+              run(['git', 'checkout', 'master'])
+              if is_regen:
+                  fetched = run(['git', 'fetch', 'origin', branch])
+                  if fetched.returncode == 0:
+                      run(['git', 'checkout', '-B', branch, f'origin/{branch}'])
+                  else:
+                      # Branch vanished — fall back to creating it fresh.
+                      is_regen = False
+                      run(['git', 'checkout', '-b', branch])
+              else:
+                  run(['git', 'push', 'origin', '--delete', branch], check=False)
+                  run(['git', 'checkout', '-b', branch])
+
+              # ── Write context doc ─────────────────────────────────────────
+              Path('docs/context').mkdir(parents=True, exist_ok=True)
+              Path(f'docs/context/issue-{num}.md').write_text(context_doc)
+
+              run(['git', 'add', '-A'])
+              diff = run(['git', 'diff', '--staged', '--quiet'])
+              verb = 'regenerate' if is_regen else 'generate'
+              if diff.returncode != 0:
+                  run(['git', 'commit', '-m', f'docs(context): {verb} plan for issue #{num}'])
+                  push = run(['git', 'push', '-u', 'origin', branch])
+                  if push.returncode != 0:
+                      print(f"  ✗ Push failed for #{num}: {push.stderr}")
+                      results.append({'number': num, 'status': 'push_failed'})
+                      continue
+              elif not is_regen:
+                  # New branch with no diff — push an empty commit so a PR can open.
+                  run(['git', 'commit', '--allow-empty', '-m', f'docs(context): init plan branch for #{num}'])
+                  run(['git', 'push', '-u', 'origin', branch])
+              else:
+                  print(f"  • #{num}: regenerated context identical to existing — no change")
+
+              # ── Regenerate: update existing PR body in place ───────────────
+              if is_regen:
+                  existing = subprocess.run(
+                      ['gh', 'pr', 'list', '--repo', repo, '--head', branch,
+                       '--state', 'open', '--json', 'url,number', '--jq', '.[0]'],
+                      capture_output=True, text=True
+                  )
+                  pr_url = ''
+                  if existing.stdout.strip():
+                      pr_obj = json.loads(existing.stdout)
+                      pr_url = pr_obj.get('url', '')
+                  if pr_url:
+                      # Refresh title + body on the existing draft PR.
+                      subprocess.run(
+                          ['gh', 'pr', 'edit', pr_url, '--repo', repo,
+                           '--title', pr_title[:70], '--body', pr_description],
+                          capture_output=True, text=True
+                      )
+                      pr_num = pr_url.rstrip('/').split('/')[-1]
+                      print(f"  ✓ Updated existing draft PR #{pr_num} in place: {pr_url}")
+                      results.append({'number': num, 'status': 'regenerated', 'pr': pr_url})
+                      time.sleep(3)
+                      continue
+                  # No open PR found — fall through to create one.
+                  print(f"  • #{num}: no open PR on branch — creating a fresh draft PR")
+
+              # ── Create draft PR ───────────────────────────────────────────
+              pr = subprocess.run(
+                  ['gh', 'pr', 'create',
+                   '--repo', repo,
+                   '--title', pr_title[:70],
+                   '--body', pr_description,
+                   '--base', 'master',
+                   '--head', branch,
+                   '--draft'],
+                  capture_output=True, text=True
+              )
+              if pr.returncode != 0:
+                  # Try to recover existing PR
+                  existing = subprocess.run(
+                      ['gh', 'pr', 'list', '--repo', repo, '--head', branch,
+                       '--state', 'open', '--json', 'url', '--jq', '.[0].url'],
+                      capture_output=True, text=True
+                  )
+                  pr_url = existing.stdout.strip()
+                  if not pr_url:
+                      print(f"  ✗ PR creation failed for #{num}: {pr.stderr}")
+                      results.append({'number': num, 'status': 'pr_failed'})
+                      continue
+              else:
+                  pr_url = pr.stdout.strip()
+
+              pr_num = pr_url.rstrip('/').split('/')[-1]
+              print(f"  ✓ Draft PR #{pr_num}: {pr_url}")
+
+              # ── Comment on and close issue (only for newly-created PRs) ────
+              comment_body = (
+                  f"🧠 **Context generated** — Draft PR #{pr_num} created with implementation prompt and TODO list.\n\n"
+                  f"**Draft PR:** {pr_url}\n\n"
+                  f"PR is in **draft** status (no code-review bots). "
+                  f"Trigger _Process Quick Note_ or open Claude Code on branch `{branch}` to implement."
+              )
+              subprocess.run(
+                  ['gh', 'issue', 'comment', num, '--repo', repo, '--body', comment_body],
+                  capture_output=True
+              )
+              subprocess.run(
+                  ['gh', 'issue', 'close', num, '--repo', repo, '--reason', 'completed'],
+                  capture_output=True
+              )
+
+              results.append({'number': num, 'status': 'done', 'pr': pr_url})
+              print(f"  ✓ Issue #{num} closed.")
+
+              # Be gentle with API rate limits
+              time.sleep(3)
+
+          print(f"\n\n{'='*60}")
+          print("SUMMARY:")
+          for r in results:
+              status = r['status']
+              pr = r.get('pr', '')
+              print(f"  #{r['number']}: {status} {pr}")
+
+          done = [r for r in results if r['status'] == 'done']
+          failed = [r for r in results if r['status'] != 'done']
+          print(f"\n  ✓ Done: {len(done)}  ✗ Failed: {len(failed)}")
+          PYEOF
+
+      # ── 5. Dry-run summary ────────────────────────────────────────────────────
+      - name: Dry run — list eligible issues (no changes made)
+        if: env.DRY_RUN_MODE == 'true'
+        run: |
+          echo "=== DRY RUN MODE — no PRs created, no issues closed ==="
+          echo ""
+          python3 -c "
+          import json
+          issues = json.load(open('/tmp/eligible_issues.json'))
+          print(f'Would process {len(issues)} issues:')
+          for i in issues:
+              print(f\"  #{i['number']}: {i['title'][:70]}\")
+          "
+
+      # ── 6. No issues to process ───────────────────────────────────────────────
+      - name: Nothing to process
+        if: env.ELIGIBLE_COUNT == '0'
+        run: echo "No eligible open issues found — all issues already have context branches or are excluded."

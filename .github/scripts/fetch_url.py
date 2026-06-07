@@ -43,11 +43,39 @@ def fetch(url: str, timeout: int = 30) -> tuple[str | None, str, object]:
 
 
 def strip_html(html: str) -> str:
-    text = re.sub(
-        r"<(script|style|nav|footer|header)[^>]*>.*?</(script|style|nav|footer|header)>",
-        " ", html, flags=re.DOTALL | re.IGNORECASE,
-    )
-    text = re.sub(r"<[^>]+>", " ", text)
+    # Use an HTML parser for tag stripping instead of regex to avoid ReDoS
+    try:
+        from html.parser import HTMLParser
+        class _TagStripper(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self._parts = []
+                self._skip_tags = {"script", "style", "nav", "footer", "header"}
+                self._skip_depth = 0
+                self._skip_tag = None
+            def handle_starttag(self, tag, attrs):
+                if tag in self._skip_tags:
+                    self._skip_depth += 1
+                    self._skip_tag = tag
+                else:
+                    self._parts.append(" ")
+            def handle_endtag(self, tag):
+                if self._skip_tag == tag and self._skip_depth > 0:
+                    self._skip_depth -= 1
+                    if self._skip_depth == 0:
+                        self._skip_tag = None
+                else:
+                    self._parts.append(" ")
+            def handle_data(self, data):
+                if self._skip_depth == 0:
+                    self._parts.append(data)
+            def get_text(self):
+                return "".join(self._parts)
+        stripper = _TagStripper()
+        stripper.feed(html)
+        text = stripper.get_text()
+    except Exception:
+        text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"[ \t]+", " ", text)
     return "\n".join(ln.strip() for ln in text.splitlines() if ln.strip())
 

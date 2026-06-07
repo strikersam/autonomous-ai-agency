@@ -20,22 +20,32 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001")
 
 # Test credentials from test_credentials.md
 ADMIN_EMAIL = "admin@llmrelay.local"
-ADMIN_PASSWORD = "WikiAdmin2026!"
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]  # required — no hardcoded fallback
 
 
-def _server_reachable(url: str, timeout: float = 1.0) -> bool:
-    """Return True if we can open a TCP connection to the backend server."""
+def _server_reachable_and_authenticated(url: str, timeout: float = 1.0) -> bool:
+    """Return True only when TCP reaches the backend AND credentials actually authenticate."""
     try:
         parsed = urlparse(url)
         host = parsed.hostname or "localhost"
         port = parsed.port or (443 if parsed.scheme == "https" else 8001)
         with socket.create_connection((host, port), timeout=timeout):
-            return True
+            pass
+        # Verify credentials actually work — avoid false-positive _LIVE=True
+        # when backend is up but credentials don't match.
+        response = requests.post(
+            f"{url}/api/auth/login",
+            timeout=2,
+            json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+        )
+        return response.status_code == 200
     except OSError:
+        return False
+    except Exception:
         return False
 
 
-_LIVE = _server_reachable(BASE_URL)
+_LIVE = _server_reachable_and_authenticated(BASE_URL)
 
 # Skip the entire module when no live backend is available (e.g. CI without a
 # running server).  Using pytestmark at module level applies the marker to every

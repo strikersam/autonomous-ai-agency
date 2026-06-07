@@ -14,10 +14,28 @@ and any test decorated with ``@pytest.mark.requires_db`` will be skipped.
 The ``client`` fixture connects to the real database — it does not patch
 ``get_db()``.  Mocking at the ``get_db()`` level (for unit tests) is the
 responsibility of individual tests, not the shared fixture.
+
+Admin password
+--------------
+Set ``ADMIN_PASSWORD`` in Render environment variables (single source of truth).
+For local development the conftest sets a session-stable default so tests pass
+without manual env-var configuration.  Individual test files MUST NOT hardcode
+a fallback — read ``os.environ["ADMIN_PASSWORD"]`` directly.
 """
 from __future__ import annotations
 
 import os
+import secrets
+
+# ── Single source of truth for admin password ────────────────────────────────
+# MUST run before ANY import that touches backend.server (which reads
+# ADMIN_PASSWORD at module level).  Set via Render env var; conftest provides
+# a session-stable random fallback for local dev.
+
+if not os.environ.get("ADMIN_PASSWORD"):
+    os.environ["ADMIN_PASSWORD"] = "test-" + secrets.token_hex(20)
+
+# ── Now safe to import backend modules that read ADMIN_PASSWORD ──────────────
 
 import pytest
 from fastapi.testclient import TestClient
@@ -43,6 +61,29 @@ def pytest_collection_modifyitems(
     for item in items:
         if "requires_db" in item.keywords:
             item.add_marker(skip_db)
+
+
+
+# ─── Legacy workflow mode for tests (Phase 2 deprecation guard) ──────────
+# By default, ALL tests run in legacy mode so AgentRunner.run(),
+# Agency.run_cycle(), MultiAgentSwarm.run() etc. work without patching
+# every test individually.  Tests that need orchestrator mode explicitly
+# override via monkeypatch.setattr + importlib.reload.
+
+import pytest  # noqa: E402 — re-import for fixture decorator clarity
+
+
+@pytest.fixture(autouse=True)
+def _set_legacy_workflow_mode(monkeypatch):
+    """Default all tests to legacy workflow mode (Phase 2 compatibility).
+
+    Only patches WORKFLOW_MODE so ``is_legacy_mode()`` returns True naturally.
+    Tests that need orchestrator mode can override via
+    ``monkeypatch.setattr("...WORKFLOW_MODE", "orchestrator")``.
+    """
+    monkeypatch.setattr(
+        "services.workflow_orchestrator.WORKFLOW_MODE", "legacy"
+    )
 
 
 # ─── fixtures ─────────────────────────────────────────────────────────────────

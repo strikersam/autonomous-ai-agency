@@ -11,7 +11,7 @@ triggers:
   - any bug fix
 references:
   - tests/
-  - CLAUDE.md (Testing Expectations section)
+  - CLAUDE.md
 ---
 
 # Skill: test-first-executor

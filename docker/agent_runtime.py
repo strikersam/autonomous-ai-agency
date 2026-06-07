@@ -10,11 +10,14 @@ Each runtime (hermes, opencode, goose, aider) is a FastAPI service that:
 from __future__ import annotations
 
 import os
+import logging
 import time
 
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+log = logging.getLogger("agent-runtime")
 
 app = FastAPI(title="Agent Runtime")
 
@@ -26,6 +29,8 @@ OLLAMA_FALLBACK_BASE = os.environ.get(
 )
 # Free cloud providers — tried in priority order before local Ollama
 _NVIDIA_KEY = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+# NOTE: keep /v1 in the base URL — _chat_with_openai_compat appends /chat/completions
+# directly without injecting /v1, so the base must already contain /v1.
 _NVIDIA_BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
 _NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct")
 
@@ -198,7 +203,7 @@ async def health():
             "status": "degraded",
             "runtime": RUNTIME_NAME,
             "provider": "ollama",
-            "backend": str(e),
+            "backend": "Ollama connection error",
         }
 
 
@@ -223,7 +228,7 @@ async def list_models():
                 ],
             }
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Ollama unavailable: {e}")
+        raise HTTPException(status_code=503, detail="Ollama unavailable")
 
 
 def _candidate_ollama_bases() -> list[str]:
@@ -381,10 +386,11 @@ async def run_task(req: RuntimeTaskRequest):
         )
         TASK_RESULTS[req.task_id] = result
         return result
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=503, detail=f"Backend error: {e}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="Backend unavailable")
+    except Exception:
+        log.exception("Task execution failed for %s", req.task_id)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/tasks/{task_id}")
@@ -418,10 +424,11 @@ async def run_instruction(req: RuntimeRunRequest):
             "success": True,
         }
         return result
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=503, detail=f"Backend error: {e}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="Backend unavailable")
+    except Exception:
+        log.exception("Run instruction failed for %s", req.task_id)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/v1/chat/completions")
@@ -456,10 +463,11 @@ async def chat_completions(req: ChatRequest):
                 "total_tokens": 0,
             },
         }
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=503, detail=f"Backend error: {e}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="Backend unavailable")
+    except Exception:
+        log.exception("Chat completion failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 if __name__ == "__main__":

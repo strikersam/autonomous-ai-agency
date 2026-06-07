@@ -8,7 +8,8 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def setup_database_moks(monkeypatch):  # noqa: PT004
+def setup_database_moks():  # noqa: PT004
+    # Legacy workflow mode is set globally by conftest.py
     pass
 
 

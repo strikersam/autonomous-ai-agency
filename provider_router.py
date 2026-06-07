@@ -15,45 +15,46 @@ import httpx
 log = logging.getLogger("llm-provider-router")
 
 # ── Cross-request provider cooldowns ──────────────────────────────────────────
-# These are module-level so cooldown state persists across ProviderRouter
-# instances within the same process.
-_provider_cooldowns: dict[str, float] = {}
+# Delegated to services.shared_state (in-memory by default, Redis when REDIS_URL
+# is set) so cooldown state survives across web/worker process boundaries.
 _DEFAULT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_COOLDOWN_SECONDS", "30"))
 _AUTH_FAILURE_COOLDOWN_SECONDS: int = 300  # bad API key — don't retry for 5 min
 _CONN_FAILURE_COOLDOWN_SECONDS: int = 15  # network hiccup — retry sooner
 
 
-def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
+async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
     """Put provider_id on cooldown for *cooldown_seconds* (default: PROVIDER_COOLDOWN_SECONDS)."""
+    from services.shared_state import cooldown_set
+
     secs = (
         cooldown_seconds if cooldown_seconds is not None else _DEFAULT_COOLDOWN_SECONDS
     )
-    _provider_cooldowns[provider_id] = time.time() + secs
+    await cooldown_set(f"provider:{provider_id}", secs)
     log.warning("Provider %s placed on cooldown for %ds", provider_id, secs)
 
 
-def is_provider_on_cooldown(provider_id: str) -> bool:
+async def is_provider_on_cooldown(provider_id: str) -> bool:
     """Return True if provider_id is currently on cooldown."""
-    until = _provider_cooldowns.get(provider_id)
-    if until is None:
-        return False
-    if time.time() >= until:
-        _provider_cooldowns.pop(provider_id, None)
-        return False
-    return True
+    from services.shared_state import cooldown_get
+
+    return await cooldown_get(f"provider:{provider_id}")
 
 
 def get_cooldown_state() -> dict[str, float]:
     """Return a snapshot of active cooldowns {provider_id: expiry_unix_timestamp}."""
-    now = time.time()
-    return {
-        pid: until for pid, until in list(_provider_cooldowns.items()) if until > now
-    }
+    # The shared_state backend is async; synchronously return an empty snapshot.
+    # Real cooldown state is queried via is_provider_on_cooldown().
+    return {}
 
 
-def clear_cooldowns() -> None:
-    """Clear all cooldown entries (useful for testing)."""
-    _provider_cooldowns.clear()
+async def clear_cooldowns() -> None:
+    """Clear all cooldown entries (useful for testing).
+
+    Delegates to shared_state.cooldown_clear() which handles both the in-memory
+    and Redis backends.
+    """
+    from services.shared_state import cooldown_clear
+    await cooldown_clear()
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,9 @@ class CommercialFallbackRequiredError(RuntimeError):
 
 def _openai_url(base_url: str, path: str) -> str:
     base = base_url.strip().rstrip("/")
+    # Prevent double /v1 when base already ends with /v1
+    if base.endswith("/v1"):
+        return f"{base}{path}"
     parsed = urlparse(base)
     if parsed.path and parsed.path != "/":
         return f"{base}{path}"
@@ -185,6 +189,9 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "google-gemini-free",
     "cloudflare-ai",
     "opencode-zen",
+    # Kimi (Moonshot) reached via a no-API-key web bridge — classified FREE so the
+    # routing policy permits it without triggering paid-escalation refusal.
+    "kimi-web-bridge",
 }
 # Nvidia NIM is free-tier — treated as highest-priority free cloud provider
 _NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
@@ -212,6 +219,22 @@ _KNOWN_FREE_HOSTS = (
     "api.cloudflare.com",
 )
 _KNOWN_NVIDIA_HOSTS = ("integrate.api.nvidia.com",)
+
+
+def _normalize_nvidia_base_url(url: str) -> str:
+    """Normalize NVIDIA base URLs to avoid double /v1 when openai_compat_url appends it.
+
+    The NVIDIA API lives at ``https://integrate.api.nvidia.com/v1/chat/completions``.
+    Some config sources set ``NVIDIA_BASE_URL`` to the full ``/v1`` path; others
+    set it to just the host.  The ``_openai_url`` helper always appends ``/v1``
+    when ``parsed.path`` is ``/`` (empty), so a pre-existing ``/v1`` would become
+    ``/v1/v1/chat/completions``.  This normalization strips any trailing ``/v1``
+    so the downstream URL builder adds exactly one.
+    """
+    stripped = (url or '').strip().rstrip('/')
+    if stripped.endswith('/v1'):
+        stripped = stripped[:-3]
+    return stripped
 
 # Prefixes that identify AWS Bedrock model IDs / inference profile IDs.
 # Requests using these model IDs are routed exclusively to the bedrock provider
@@ -336,9 +359,9 @@ class ProviderRouter:
             or ""
         ).strip()
         if nvidia_key:
-            nvidia_base = (
+            nvidia_base = _normalize_nvidia_base_url(
                 os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
-            ).rstrip("/")
+            )
             providers.append(
                 ProviderConfig(
                     provider_id="nvidia-nim",
@@ -659,6 +682,24 @@ class ProviderRouter:
                 )
             )
 
+        # ── Free Kimi (Moonshot) web bridge — no paid API key required ──
+        # Added near the end so it joins the chain whenever KIMI_BRIDGE_ENABLED is
+        # set. Classified free (see _FREE_CLOUD_PROVIDER_IDS) so the routing policy
+        # uses it before any paid escalation. This is what lets internal_agent /
+        # Hermes actually produce code without a paid provider.
+        try:
+            from providers.kimi_bridge import kimi_bridge_provider_config
+
+            _kimi_cfg = kimi_bridge_provider_config()
+            if _kimi_cfg is not None:
+                providers.append(_kimi_cfg)
+        except Exception as _kimi_err:  # pragma: no cover - defensive
+            import logging as _logging
+
+            _logging.getLogger("qwen-proxy").warning(
+                "Kimi bridge provider not added: %s", _kimi_err, exc_info=True
+            )
+
         return cls(sorted(providers, key=provider_sort_key))
 
     @classmethod
@@ -772,11 +813,11 @@ class ProviderRouter:
                     await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
         if last_status in (401, 403):
-            mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
+            await mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
         elif last_was_conn_error:
-            mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
+            await mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
         else:
-            mark_provider_failed(provider.provider_id)
+            await mark_provider_failed(provider.provider_id)
         return None
 
     async def chat_completion(
@@ -801,11 +842,10 @@ class ProviderRouter:
         _bedrock_only = bool(original_model and _is_bedrock_model_id(original_model))
 
         for provider in self.providers:
-            if is_provider_on_cooldown(provider.provider_id):
+            if await is_provider_on_cooldown(provider.provider_id):
                 log.info(
-                    "Skipping provider %s (on cooldown, expires %.0fs from now)",
+                    "Skipping provider %s (on cooldown)",
                     provider.provider_id,
-                    _provider_cooldowns.get(provider.provider_id, 0) - time.time(),
                 )
                 skipped_on_cooldown.append((provider, first_eligible))
                 continue

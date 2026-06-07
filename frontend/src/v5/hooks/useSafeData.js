@@ -3,30 +3,12 @@
  *
  * A single failing API endpoint never blanks the whole screen.
  * Each fetch slot gets its own loading / error / data state.
- *
- * Usage:
- *   const [data, states, reload] = useSafeData(API, {
- *     doctor:   '/api/doctor',
- *     runtimes: '/runtimes/list',
- *   });
- *   // data.doctor   → response JSON (or null on error)
- *   // states.doctor → { loading, error }
- *   // reload()      → re-runs all fetches
- *
- * Options (third arg):
- *   refreshMs  — auto-refresh interval ms (0 = off, default 0)
- *   transform  — per-key transform fn map: { key: rawJson => transformed }
- *   auth       — if true (default), sends Authorization: Bearer <token>
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-
-const _TOKEN_KEY = 'auth_token';
-function _getToken() {
-  try { return localStorage.getItem(_TOKEN_KEY) || ''; } catch { return ''; }
-}
+import { API } from '../../api';
 
 export function useSafeData(baseUrl, endpoints = {}, options = {}) {
-  const { refreshMs = 0, transform = {}, auth = true } = options;
+  const { refreshMs = 0, transform = {} } = options;
   const keys = Object.keys(endpoints);
 
   const [data, setData]     = useState(() => Object.fromEntries(keys.map(k => [k, null])));
@@ -36,6 +18,10 @@ export function useSafeData(baseUrl, endpoints = {}, options = {}) {
   const timerRef   = useRef(null);
   const mountedRef = useRef(true);
 
+  // An explicit baseUrl (string) overrides per request; otherwise the shared
+  // API client resolves the backend URL itself (localStorage → env → origin).
+  const baseOverride = baseUrl || undefined;
+
   // Stable key so fetchAll is only recreated when baseUrl or endpoint set changes.
   const endpointKey = keys.map(k => `${k}:${endpoints[k]}`).join(',');
 
@@ -43,14 +29,10 @@ export function useSafeData(baseUrl, endpoints = {}, options = {}) {
     if (!mountedRef.current) return;
     setStates(prev => Object.fromEntries(keys.map(k => [k, { loading: true, error: prev[k]?.error || null }])));
 
-    const token = auth ? _getToken() : '';
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
+    // Route through the shared axios instance so requests inherit the Bearer
+    // token and the 401 → refresh-token retry flow from api.js interceptors.
     const results = await Promise.allSettled(
-      keys.map(k =>
-        fetch(`${baseUrl}${endpoints[k]}`, { headers })
-          .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
-      )
+      keys.map(k => API.get(endpoints[k], baseOverride ? { baseURL: baseOverride } : {}).then(r => r.data))
     );
 
     if (!mountedRef.current) return;
@@ -63,14 +45,20 @@ export function useSafeData(baseUrl, endpoints = {}, options = {}) {
         nextData[k]   = transform[k] ? transform[k](res.value) : res.value;
         nextStates[k] = { loading: false, error: null };
       } else {
+        const e = res.reason;
         nextData[k]   = null;
-        nextStates[k] = { loading: false, error: res.reason?.message || 'Request failed' };
+        nextStates[k] = {
+          loading: false,
+          error: e?.response
+            ? `${e.response.status} ${e.response.statusText || ''}`.trim()
+            : (e?.message || 'Request failed'),
+        };
       }
     });
     setData(nextData);
     setStates(nextStates);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseUrl, endpointKey, auth]);
+  }, [baseOverride, endpointKey]);
 
   useEffect(() => {
     mountedRef.current = true;

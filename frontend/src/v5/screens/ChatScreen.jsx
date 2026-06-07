@@ -1,15 +1,26 @@
-/* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
+/* eslint-disable no-unused-vars -- some agent metadata fields are kept for future wiring */
 import React from 'react';
+import * as api from '../../api';
 
 
 // chat.jsx — V5.0 Chat with history sidebar, agent picker, context assignment
+//
+// Wired to the real backend:
+//   POST /api/chat/send         → direct chat (agent_mode=false) returns { session_id, response }
+//                                 agent mode (agent_mode=true) returns 202 { job_id } to poll
+//   GET  /api/chat/agent-jobs/:id → AgentJobSnapshot { status, phase, progress_events, result, error }
+//   GET  /api/chat/sessions     → { sessions: [...] } for the history sidebar
+//   GET  /api/chat/sessions/:id → full session with messages[]
 
 const CHAT_PHASES = [
-  { id:'planning',  label:'Planning',  icon:'◎', color:'#7c9dff' },
-  { id:'editing',   label:'Editing',   icon:'⊕', color:'#5da2ff' },
-  { id:'testing',   label:'Testing',   icon:'⊙', color:'#46d9a4' },
-  { id:'verifying', label:'Verifying', icon:'◈', color:'#ffbd66' },
-  { id:'pr',        label:'PR open',   icon:'◉', color:'#46d9a4' },
+  { id:'planning',     label:'Planning',     color:'#7c9dff' },
+  { id:'editing',      label:'Editing',      color:'#5da2ff' },
+  { id:'execution',    label:'Executing',    color:'#5da2ff' },
+  { id:'testing',      label:'Testing',      color:'#46d9a4' },
+  { id:'verifying',    label:'Verifying',    color:'#ffbd66' },
+  { id:'verification', label:'Verifying',    color:'#ffbd66' },
+  { id:'resuming',     label:'Resuming',     color:'#c4b5fd' },
+  { id:'pr',           label:'PR open',      color:'#46d9a4' },
 ];
 
 const AVAILABLE_AGENTS = [
@@ -23,44 +34,56 @@ const AVAILABLE_AGENTS = [
   { id:'analytics', name:'Analytics Agent',icon:'📊', color:'#5da2ff', desc:'GA4, GTM, dashboards' },
 ];
 
-const CONTEXT_CHIPS_DEFAULT = [
-  { id:'co-1', label:'acme-corp', icon:'🏢', type:'company' },
-  { id:'co-2', label:'main',      icon:'⎇', type:'branch' },
-  { id:'co-3', label:'sprint-42', icon:'◈', type:'task' },
-];
-
-const CHAT_HISTORY = [
-  { id:'h-1', title:'Fix checkout null-pointer',       preview:'Done. PR #1842 opened.', ts:'2m ago',  agent:'dev',      screen:'final' },
-  { id:'h-2', title:'Security scan auth module',        preview:'Bandit clean. 0 issues.', ts:'8m ago',  agent:'security', screen:'final' },
-  { id:'h-3', title:'Explain agent pipeline modes',     preview:'Here is how each mode works…', ts:'1h ago',  agent:'ceo',      screen:'final' },
-  { id:'h-4', title:'Contentful publishing workflow',   preview:'I can automate that for you.', ts:'3h ago',  agent:'content',  screen:'final' },
-  { id:'h-5', title:'Cart abandonment analysis',        preview:'Based on your GA4 data…', ts:'1d ago',  agent:'analytics',screen:'final' },
-  { id:'h-6', title:'Dependency audit v5.0',            preview:'14 safe upgrades found.', ts:'3d ago',  agent:'release',  screen:'final' },
-];
-
 const SUGGESTIONS = [
-  'Fix the failing tests and open a PR',
-  'Review the last 5 agent decisions',
-  'What\'s blocking the current sprint?',
-  'Scan for security issues in the auth module',
-  'Run the weekly dependency audit',
+  'Explain how the agent pipeline modes work',
+  'What does the model router decide between?',
+  'Summarise the repo architecture',
+  'How do I add a new provider?',
+  'Draft a changelog entry for the last change',
 ];
 
-const SAMPLE_RESULT = {
-  summary:'Fixed 3 failing tests in `cart/checkout.test.ts` by correcting a null-check on the discount coupon field. All 47 suite tests now pass.',
-  diff:['- if (coupon.code) {', '+ if (coupon && coupon.code) {'],
-  pr:{ title:'fix: null-check coupon in checkout', url:'#pr-1842', number:'#1842', branch:'fix/checkout-null-coupon' },
-  testRun:{ passed:47, failed:0, duration:'4.2s' },
-};
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function relTime(iso) {
+  if (!iso) return '';
+  const t = typeof iso === 'number' ? iso : Date.parse(iso);
+  if (!t || Number.isNaN(t)) return '';
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function AgentPicker({ selected, onSelect }) {
+function AgentPicker({ selected, onSelect, onOpen, forceClose }) {
   const [open, setOpen] = React.useState(false);
   const ag = AVAILABLE_AGENTS.find(a => a.id === selected) || AVAILABLE_AGENTS[0];
+  const btnRef = React.useRef(null);
+  // Viewport-aware placement so the menu is never clipped off-screen.
+  const [placement, setPlacement] = React.useState({ up: true, maxH: 360 });
+  // Close when another dropdown opens
+  React.useEffect(() => { if (forceClose) setOpen(false); }, [forceClose]);
+  const toggle = () => { setOpen(o => {
+    const next = !o;
+    if (next) {
+      const r = btnRef.current?.getBoundingClientRect();
+      if (r) {
+        const below = window.innerHeight - r.bottom;
+        const above = r.top;
+        const up = above >= below;
+        setPlacement({ up, maxH: Math.max(180, Math.min(360, (up ? above : below) - 16)) });
+      }
+      if (onOpen) onOpen();
+    }
+    return next;
+  }); };
   return (
     <div style={{ position:'relative' }}>
-      <button onClick={()=>setOpen(o=>!o)} style={{
+      <button ref={btnRef} onClick={toggle} style={{
         display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
         borderRadius:999, border:`1px solid ${open?'rgba(93,162,255,0.40)':'rgba(255,255,255,0.12)'}`,
         background:open?'rgba(93,162,255,0.10)':'rgba(255,255,255,0.04)',
@@ -75,9 +98,10 @@ function AgentPicker({ selected, onSelect }) {
         <>
           <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={()=>setOpen(false)}/>
           <div style={{
-            position:'absolute', bottom:'calc(100% + 6px)', left:0, zIndex:50,
+            position:'absolute', left:0, zIndex:50,
+            ...(placement.up ? { bottom:'calc(100% + 6px)' } : { top:'calc(100% + 6px)' }),
             background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
-            borderRadius:16, padding:8, minWidth:240,
+            borderRadius:16, padding:8, minWidth:240, maxHeight:placement.maxH, overflowY:'auto',
             boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
           }}>
             <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Chat with</div>
@@ -104,6 +128,38 @@ function AgentPicker({ selected, onSelect }) {
   );
 }
 
+// ── Repo URL quick-add input ──────────────────────────────────────────────
+function RepoUrlInput({ onAdd }) {
+  const [open, setOpen] = React.useState(false);
+  const [url, setUrl] = React.useState('');
+  const handleAdd = () => {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    onAdd(trimmed);
+    setUrl('');
+    setOpen(false);
+  };
+  if (!open) return (
+    <button onClick={() => setOpen(true)} title="Add repo URL for code tasks" style={{
+      display:'inline-flex', alignItems:'center', gap:3, padding:'2px 7px', borderRadius:999,
+      background:'rgba(255,255,255,0.04)', border:'1px dashed rgba(255,255,255,0.15)',
+      cursor:'pointer', fontSize:10, color:'var(--text-muted)', fontFamily:'var(--font-mono)', flexShrink:0,
+    }}>
+      <span>+</span><span>repo</span>
+    </button>
+  );
+  return (
+    <div style={{ display:'inline-flex', alignItems:'center', gap:4, flexShrink:0 }}>
+      <input value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key==='Enter') handleAdd(); if (e.key==='Escape') setOpen(false); }}
+        placeholder="github.com/org/repo"
+        autoFocus
+        style={{ width:160, padding:'3px 8px', borderRadius:8, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(93,162,255,0.30)', color:'#fff', fontSize:10, fontFamily:'var(--font-mono)', outline:'none' }}/>
+      <button onClick={handleAdd} style={{ padding:'2px 6px', borderRadius:6, background:'rgba(93,162,255,0.15)', border:'1px solid rgba(93,162,255,0.30)', color:'var(--accent)', fontSize:10, cursor:'pointer', fontFamily:'var(--font-mono)' }}>✓</button>
+      <button onClick={() => setOpen(false)} style={{ padding:'0 4px', background:'none', border:'none', color:'var(--text-muted)', fontSize:10, cursor:'pointer' }}>✕</button>
+    </div>
+  );
+}
+
 function ContextChip({ chip, onRemove }) {
   return (
     <div style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 8px 4px 10px', borderRadius:999, border:'1px solid rgba(255,255,255,0.10)', background:'rgba(255,255,255,0.04)', fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-tertiary)' }}>
@@ -114,47 +170,28 @@ function ContextChip({ chip, onRemove }) {
   );
 }
 
-function AgentProgressPanel({ phase, elapsed }) {
-  const phaseObj = CHAT_PHASES.find(p=>p.id===phase)||CHAT_PHASES[0];
-  const phaseIdx = CHAT_PHASES.findIndex(p=>p.id===phase);
-  const progress = ((phaseIdx+1)/CHAT_PHASES.length)*100;
-  const events = [
-    { time:'0s',  text:'Checked out branch fix/checkout-null-coupon', ok:true },
-    { time:'2s',  text:'Ran pytest cart/ — 3 failures found',          ok:true },
-    { time:'8s',  text:'Identified root cause in checkout.test.ts:142',ok:true },
-    { time:'12s', text:'Applied null-check fix to CartService.discount',ok:phaseIdx>1 },
-    { time:'18s', text:'Re-running test suite…',                       ok:false, pending:phaseIdx<=2 },
-  ];
+// Live agent-job progress, driven by the real progress_events stream.
+function AgentProgressPanel({ phase, elapsed, events = [], agent }) {
+  const phaseObj = CHAT_PHASES.find(p => p.id === phase);
+  const label = phaseObj ? phaseObj.label : (phase ? phase.charAt(0).toUpperCase() + phase.slice(1) : 'Working');
+  const color = phaseObj ? phaseObj.color : '#7c9dff';
   return (
-    <div style={{ margin:'8px 0', padding:'12px 14px', borderRadius:14, border:'1px solid rgba(93,162,255,0.15)', background:'rgba(93,162,255,0.04)', animation:'fadeSlideUp 0.3s ease-out' }}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+    <div style={{ margin:'8px 0', padding:'12px 14px', borderRadius:14, border:'1px solid rgba(93,162,255,0.15)', background:'rgba(93,162,255,0.04)', animation:'fadeSlideUp 0.3s ease-out', maxWidth:'84%' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
         <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-          <div style={{ width:7, height:7, borderRadius:'50%', background:phaseObj.color, animation:'pulse 1.5s infinite' }}/>
-          <span style={{ fontSize:12, fontWeight:600, color:'#fff' }}>{phaseObj.label}</span>
+          <div style={{ width:7, height:7, borderRadius:'50%', background:color, animation:'pulse 1.5s infinite' }}/>
+          <span style={{ fontSize:12, fontWeight:600, color:'#fff' }}>{label}</span>
         </div>
         <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{elapsed}s</span>
       </div>
-      <div style={{ height:3, borderRadius:999, background:'rgba(255,255,255,0.08)', marginBottom:10 }}>
-        <div style={{ height:'100%', borderRadius:999, background:`linear-gradient(90deg,var(--accent),${phaseObj.color})`, width:`${progress}%`, transition:'width 0.6s ease' }}/>
-      </div>
-      <div style={{ display:'flex', alignItems:'center', gap:4, flexWrap:'wrap', marginBottom:10 }}>
-        {CHAT_PHASES.map((p,i)=>{
-          const done=i<phaseIdx; const active=i===phaseIdx;
-          return <React.Fragment key={p.id}>
-            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:done?'#46d9a4':active?p.color:'var(--text-muted)', padding:'2px 7px', borderRadius:5, background:active?`${p.color}12`:'transparent', border:active?`1px solid ${p.color}30`:'1px solid transparent' }}>
-              {done?'✓ ':''}{p.label}
-            </span>
-            {i<CHAT_PHASES.length-1 && <span style={{ color:'rgba(255,255,255,0.15)', fontSize:10 }}>›</span>}
-          </React.Fragment>;
-        })}
-      </div>
       <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-        {events.map((ev,i)=>(
-          <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:7, opacity:ev.pending?0.4:1 }}>
-            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', width:22, flexShrink:0 }}>{ev.time}</span>
-            <span style={{ fontSize:11, color:'var(--text-tertiary)', flex:1 }}>{ev.text}</span>
-            {ev.ok&&!ev.pending && <span style={{ fontSize:10, color:'#46d9a4' }}>✓</span>}
-            {ev.pending && <span style={{ fontSize:10, color:'var(--text-muted)', animation:'blink 1.2s infinite' }}>…</span>}
+        {events.length === 0 && (
+          <div style={{ fontSize:11, color:'var(--text-muted)', fontFamily:'var(--font-mono)' }}>Agent started — waiting for the first update…</div>
+        )}
+        {events.map((ev, i) => (
+          <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
+            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:color, width:64, flexShrink:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ev.phase || '·'}</span>
+            <span style={{ fontSize:11, color:'var(--text-tertiary)', flex:1, lineHeight:1.5 }}>{ev.message || ''}</span>
           </div>
         ))}
       </div>
@@ -162,36 +199,23 @@ function AgentProgressPanel({ phase, elapsed }) {
   );
 }
 
-function FinalResultCard({ result }) {
-  return (
-    <div style={{ margin:'8px 0', display:'flex', flexDirection:'column', gap:10, animation:'fadeSlideUp 0.4s ease-out' }}>
-      <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(70,217,164,0.06)', border:'1px solid rgba(70,217,164,0.15)' }}>
-        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'#46d9a4', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:6 }}>Summary</div>
-        <div style={{ fontSize:13, color:'var(--text-secondary)', lineHeight:1.6 }}>{result.summary}</div>
-      </div>
-      <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
-        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:8 }}>Diff</div>
-        <div style={{ fontFamily:'var(--font-mono)', fontSize:12, display:'flex', flexDirection:'column', gap:2 }}>
-          {result.diff.map((line,i)=>(
-            <div key={i} style={{ padding:'2px 8px', borderRadius:4, background:line.startsWith('+')?'rgba(70,217,164,0.10)':'rgba(255,107,125,0.10)', color:line.startsWith('+')?'#46d9a4':'#ff6b7d' }}>{line}</div>
-          ))}
-        </div>
-      </div>
-      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-        <a href="#" style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'8px 14px', borderRadius:10, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)', fontSize:12, fontWeight:600, color:'var(--accent)', textDecoration:'none' }}>
-          ⤷ PR {result.pr.number} — {result.pr.title}
-        </a>
-        <div style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'8px 14px', borderRadius:10, background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.18)', fontSize:12, color:'#46d9a4' }}>
-          ✓ {result.testRun.passed} tests · {result.testRun.duration}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MessageBubble({ msg, agentPhase, agentElapsed }) {
+function MessageBubble({ msg }) {
   const isUser = msg.role === 'user';
   const ag = AVAILABLE_AGENTS.find(a => a.id === msg.agent) || AVAILABLE_AGENTS[1];
+  if (msg.isError) {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', marginBottom:18, animation:'fadeSlideUp 0.28s ease-out' }}>
+        <div style={{
+          maxWidth:'84%', padding:'12px 16px', borderRadius:'4px 16px 16px 16px',
+          background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.25)',
+          fontSize:13, color:'#ff9aa6', lineHeight:1.6,
+        }}>
+          <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'#ff6b7d', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:5 }}>Error</div>
+          {msg.content}
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:isUser?'flex-end':'flex-start', marginBottom:18, animation:'fadeSlideUp 0.28s ease-out' }}>
       {!isUser && (
@@ -206,11 +230,10 @@ function MessageBubble({ msg, agentPhase, agentElapsed }) {
         background:isUser?'linear-gradient(135deg,rgba(93,162,255,0.18),rgba(93,162,255,0.10))':'rgba(255,255,255,0.04)',
         border:`1px solid ${isUser?'rgba(93,162,255,0.22)':'rgba(255,255,255,0.08)'}`,
         fontSize:14, color:isUser?'var(--text-primary)':'var(--text-secondary)', lineHeight:1.65,
+        whiteSpace:'pre-wrap', wordBreak:'break-word',
       }}>
         {msg.content}
       </div>
-      {msg.phase && <AgentProgressPanel phase={agentPhase||msg.phase} elapsed={agentElapsed||14}/>}
-      {msg.isFinal && msg.result && <FinalResultCard result={msg.result}/>}
     </div>
   );
 }
@@ -223,7 +246,7 @@ function EmptyState({ onSuggest }) {
           <span style={{ fontSize:22 }}>◎</span>
         </div>
         <div style={{ fontSize:20, fontWeight:800, color:'#fff', letterSpacing:'-0.03em', marginBottom:8 }}>How can I help?</div>
-        <div style={{ fontSize:14, color:'var(--text-tertiary)', maxWidth:360, lineHeight:1.6 }}>Fix bugs, run tests, open PRs, monitor campaigns, or answer any question about your stack.</div>
+        <div style={{ fontSize:14, color:'var(--text-tertiary)', maxWidth:360, lineHeight:1.6 }}>Ask a question about your stack, or switch on a specific agent (⚙ Dev, 🔒 Security…) to run a real task.</div>
       </div>
       <div style={{ display:'flex', flexDirection:'column', gap:7, width:'100%', maxWidth:400 }}>
         {SUGGESTIONS.map((s,i)=>(
@@ -239,7 +262,7 @@ function EmptyState({ onSuggest }) {
 }
 
 // ── History sidebar ───────────────────────────────────────────────────────────
-function HistorySidebar({ activeId, onSelect, onClose }) {
+function HistorySidebar({ sessions, loading, activeId, onSelect, onClose }) {
   return (
     <div style={{
       width:'min(280px, 85vw)', height:'100%', borderRight:'1px solid rgba(255,255,255,0.08)',
@@ -254,11 +277,17 @@ function HistorySidebar({ activeId, onSelect, onClose }) {
       </button>
       <div style={{ flex:1, overflowY:'auto', padding:'10px 8px' }} className="scrollbar-hide">
         <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'2px 8px 6px' }}>Recent</div>
-        {CHAT_HISTORY.map(h => {
-          const ag = AVAILABLE_AGENTS.find(a=>a.id===h.agent)||AVAILABLE_AGENTS[1];
-          const active = activeId === h.id;
+        {loading && (
+          <div style={{ fontSize:11, color:'var(--text-muted)', padding:'8px 10px', fontFamily:'var(--font-mono)' }}>Loading…</div>
+        )}
+        {!loading && sessions.length === 0 && (
+          <div style={{ fontSize:11, color:'var(--text-muted)', padding:'8px 10px', lineHeight:1.5 }}>No conversations yet. Send a message to start one.</div>
+        )}
+        {!loading && sessions.map((s) => {
+          const id = s._id || s.id;
+          const active = activeId === id;
           return (
-            <button key={h.id} onClick={()=>{ onSelect(h); onClose(); }} style={{
+            <button key={id} onClick={()=>{ onSelect(s); onClose(); }} style={{
               display:'block', width:'100%', padding:'9px 10px', borderRadius:11, textAlign:'left', cursor:'pointer',
               background:active?'rgba(93,162,255,0.10)':'transparent',
               border:`1px solid ${active?'rgba(93,162,255,0.22)':'transparent'}`,
@@ -267,11 +296,11 @@ function HistorySidebar({ activeId, onSelect, onClose }) {
             onMouseEnter={e=>{if(!active){e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.08)';}}}
             onMouseLeave={e=>{if(!active){e.currentTarget.style.background='transparent';e.currentTarget.style.borderColor='transparent';}}}>
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
-                <span style={{ fontSize:12 }}>{ag.icon}</span>
-                <span style={{ fontSize:12, fontWeight:600, color:active?'#fff':'var(--text-secondary)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{h.title}</span>
-                <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0 }}>{h.ts}</span>
+                <span style={{ fontSize:12 }}>◎</span>
+                <span style={{ fontSize:12, fontWeight:600, color:active?'#fff':'var(--text-secondary)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.title || 'Untitled chat'}</span>
+                <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0 }}>{relTime(s.updated_at || s.created_at)}</span>
               </div>
-              <div style={{ fontSize:11, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingLeft:18 }}>{h.preview}</div>
+              {s.model && <div style={{ fontSize:11, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingLeft:18 }}>{s.model}</div>}
             </button>
           );
         })}
@@ -281,61 +310,275 @@ function HistorySidebar({ activeId, onSelect, onClose }) {
 }
 
 // ── Main ChatScreen ───────────────────────────────────────────────────────────
-function ChatScreen({ chatState }) {
-  const [input,      setInput]     = React.useState('');
-  const [messages,   setMessages]  = React.useState([]);
-  const [sending,    setSending]   = React.useState(false);
-  const [agentPhase, setPhase]     = React.useState(null);
-  const [elapsed,    setElapsed]   = React.useState(0);
-  const [agent,      setAgent]     = React.useState('auto');
-  const [chips,      setChips]     = React.useState(CONTEXT_CHIPS_DEFAULT);
-  const [showHistory,setShowHistory] = React.useState(false);
-  const [activeChat, setActiveChat]  = React.useState(null);
-  const messagesEndRef = React.useRef(null);
-  const textareaRef    = React.useRef(null);
-
-  const currentAgent = AVAILABLE_AGENTS.find(a=>a.id===agent)||AVAILABLE_AGENTS[1];
+function ModelPicker({ selected, onSelect, onOpen, forceClose }) {
+  const [open, setOpen] = React.useState(false);
+  const [providers, setProviders] = React.useState([]);
+  const [models, setModels] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [selProvider, setSelProvider] = React.useState(selected?.provider || null);
+  const btnRef = React.useRef(null);
+  // Viewport-aware placement so the menu never gets clipped off-screen (it used to
+  // always open downward and get cut off near the bottom of the screen).
+  const [placement, setPlacement] = React.useState({ up: false, maxH: 360 });
+  // Close when another dropdown opens
+  React.useEffect(() => { if (forceClose) setOpen(false); }, [forceClose]);
+  // Reset selProvider when dropdown opens to prevent stale state
+  const toggle = () => {
+    setOpen(o => {
+      const next = !o;
+      if (next) {
+        setSelProvider(selected?.provider || null);
+        const r = btnRef.current?.getBoundingClientRect();
+        if (r) {
+          const below = window.innerHeight - r.bottom;
+          const above = r.top;
+          const up = below < 340 && above > below;
+          setPlacement({ up, maxH: Math.max(180, Math.min(360, (up ? above : below) - 16)) });
+        }
+        if (onOpen) onOpen();
+      }
+      return next;
+    });
+  };
 
   React.useEffect(() => {
-    if (chatState === 'idle')      { setMessages([{ role:'assistant', agent:'auto', content:'Good morning. I\'m monitoring 3 scheduled jobs and 2 open tasks. Nothing needs attention right now.\n\nWhat would you like to work on?' }]); }
-    else if (chatState === 'executing') {
-      setMessages([
-        { role:'user', content:'Fix the failing checkout tests in the cart module and open a PR when done.' },
-        { role:'assistant', agent:'dev', content:'On it. I\'ll run the failing tests, identify the root cause, apply the fix, and open a PR once the suite is green.', phase:'planning' }
-      ]);
-      setPhase('editing'); setSending(true); setElapsed(14);
+    let alive = true;
+    api.listProviders().then(({ data }) => {
+      if (!alive) return;
+      const list = data?.providers || [];
+      setProviders(list.filter(p => p.status === 'configured' || p.is_default));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  React.useEffect(() => {
+    if (!selProvider) { setModels([]); return; }
+    let alive = true;
+    setLoading(true);
+    api.listProviderModels(selProvider).then(({ data }) => {
+      if (!alive) return;
+      setModels(data?.models || []);
+    }).catch(() => { if (alive) setModels([]); }).finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [selProvider]);
+
+  const currentLabel = selected?.model ? `${selected.model.split('/').pop()} (${selected.provider || 'auto'})` : 'Auto-select';
+
+  return (
+    <div style={{ position:'relative' }}>
+      <button ref={btnRef} onClick={toggle} style={{
+        display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
+        borderRadius:999, border:`1px solid ${open ? 'rgba(93,162,255,0.40)' : 'rgba(255,255,255,0.12)'}`,
+        background: open ? 'rgba(93,162,255,0.10)' : 'rgba(255,255,255,0.04)',
+        cursor:'pointer', transition:'all 0.15s', fontSize:11, color:'var(--text-secondary)',
+        fontFamily:'var(--font-mono)', letterSpacing:'0.08em', whiteSpace:'nowrap',
+      }}>
+        <span style={{ fontSize:13 }}>🤖</span>
+        <span>{currentLabel}</span>
+        <span style={{ fontSize:9, color:'var(--text-muted)' }}>▾</span>
+      </button>
+      {open && (
+        <>
+          <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setOpen(false)} />
+          <div style={{
+            position:'absolute', left:0, zIndex:50,
+            ...(placement.up ? { bottom:'calc(100% + 6px)' } : { top:'calc(100% + 6px)' }),
+            background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
+            borderRadius:16, padding:8, minWidth:280, maxHeight:placement.maxH, overflowY:'auto',
+            boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
+          }}>
+            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Model & Provider</div>
+            <button onClick={() => { onSelect(null); setSelProvider(null); setOpen(false); }} style={{
+              display:'flex', alignItems:'center', gap:9, width:'100%', padding:'8px 10px',
+              borderRadius:10, border:'none', background: !selected?.model ? 'rgba(93,162,255,0.10)' : 'transparent',
+              cursor:'pointer', textAlign:'left',
+            }}>
+              <span style={{ fontSize:13 }}>◎</span>
+              <div style={{ fontSize:12, fontWeight:600, color: !selected?.model ? '#fff' : 'var(--text-secondary)' }}>Auto-select (backend picks best model)</div>
+            </button>
+            <div style={{ height:1, background:'rgba(255,255,255,0.08)', margin:'6px 0' }} />
+            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.08em', padding:'4px 10px 6px' }}>Provider</div>
+            {providers.map(p => (
+              <button key={p.provider_id} onClick={() => { setSelProvider(p.provider_id); }} style={{
+                display:'flex', alignItems:'center', gap:8, width:'100%', padding:'7px 10px',
+                borderRadius:8, border:'none',
+                background: selProvider === p.provider_id ? 'rgba(93,162,255,0.10)' : 'transparent',
+                cursor:'pointer', textAlign:'left', fontSize:12, color: selProvider === p.provider_id ? '#fff' : 'var(--text-secondary)',
+              }}>
+                <span style={{ fontSize:13 }}>{selProvider === p.provider_id ? '▼' : '▸'}</span>
+                <span>{p.name || p.provider_id}</span>
+              </button>
+            ))}
+            {selProvider && (
+              <>
+                <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'4px 10px' }} />
+                <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.08em', padding:'2px 10px 6px' }}>Models for {providers.find(p=>p.provider_id===selProvider)?.name || selProvider}</div>
+                {loading && <div style={{ padding:'6px 16px', fontSize:11, color:'var(--text-muted)' }}>Loading models…</div>}
+                {!loading && models.length === 0 && (
+                  <button onClick={() => { onSelect({ provider: selProvider, model: '' }); setOpen(false); }} style={{
+                    display:'block', width:'100%', padding:'7px 10px 7px 20px', borderRadius:8, border:'none',
+                    background: selected?.provider === selProvider && !selected?.model ? 'rgba(93,162,255,0.10)' : 'transparent',
+                    cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
+                    color: selected?.provider === selProvider && !selected?.model ? '#fff' : 'var(--text-tertiary)',
+                  }}>Default model</button>
+                )}
+                {!loading && models.slice(0, 10).map(m => (
+                  <button key={m} onClick={() => { onSelect({ provider: selProvider, model: m }); setOpen(false); }} style={{
+                    display:'block', width:'100%', padding:'6px 10px 6px 20px', borderRadius:8, border:'none',
+                    background: selected?.model === m && selected?.provider === selProvider ? 'rgba(93,162,255,0.10)' : 'transparent',
+                    cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
+                    color: selected?.model === m && selected?.provider === selProvider ? '#fff' : 'var(--text-tertiary)',
+                  }}>{m}</button>
+                ))}
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ChatScreen() {
+  const [input,       setInput]        = React.useState('');
+  const [messages,    setMessages]     = React.useState([]);
+  const [sending,     setSending]      = React.useState(false);
+  const [agentPhase,  setPhase]        = React.useState(null);
+  const [elapsed,     setElapsed]      = React.useState(0);
+  const [progressEvents, setProgressEvents] = React.useState([]);
+  const [agent,       setAgent]        = React.useState('auto');
+  const [agentMode,   setAgentMode]    = React.useState(false);
+  const [selectedModel, setSelectedModel] = React.useState(null); // { provider, model } or null
+  const [chips,       setChips]        = React.useState([]);
+  const [showHistory, setShowHistory]  = React.useState(false);
+  const [sessions,    setSessions]     = React.useState([]);
+  const [historyLoading, setHistoryLoading] = React.useState(false);
+  const [sessionId,   setSessionId]    = React.useState(null);
+  const [openDropdown, setOpenDropdown] = React.useState(null); // 'agent' | 'model' | null
+  const messagesEndRef = React.useRef(null);
+  const textareaRef    = React.useRef(null);
+  const mountedRef     = React.useRef(true);
+
+  // Load context chips from localStorage (company, wiki, sources, repo)
+  React.useEffect(() => {
+    const initial = [];
+    try {
+      const companyId = localStorage.getItem('v5_company_id');
+      const companyName = localStorage.getItem('v5_company_name');
+      if (companyId && companyName) initial.push({ id:'company', icon:'🏢', label:companyName });
+      const savedRepoUrl = localStorage.getItem('v5_chat_repo_url');
+      if (savedRepoUrl) initial.push({ id:'repo', icon:'📁', label: savedRepoUrl.replace(/^https?:\/\//i,'').replace(/^github\.com\//,'').replace(/^gitlab\.com\//,'').replace(/^bitbucket\.org\//,''), _rawUrl: savedRepoUrl });
+    } catch { /* ignore */ }
+    setChips(initial);
+  }, []);
+
+  const currentAgent = AVAILABLE_AGENTS.find(a=>a.id===agent)||AVAILABLE_AGENTS[1];
+  // Picking a specific (non-auto) agent implies agent mode; "Auto-select" leaves
+  // the explicit toggle in charge so the backend can auto-route the task.
+  const selectAgent = (id) => { setAgent(id); if (id !== 'auto') setAgentMode(true); };
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const loadSessions = React.useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const { data } = await api.listSessions();
+      if (mountedRef.current) setSessions(Array.isArray(data?.sessions) ? data.sessions : []);
+    } catch {
+      if (mountedRef.current) setSessions([]);
+    } finally {
+      if (mountedRef.current) setHistoryLoading(false);
     }
-    else if (chatState === 'final') {
-      setMessages([
-        { role:'user', content:'Fix the failing checkout tests in the cart module and open a PR when done.' },
-        { role:'assistant', agent:'dev', content:'Done. Here\'s what happened:', isFinal:true, result:SAMPLE_RESULT }
-      ]);
-    }
-  }, [chatState]);
+  }, []);
+
+  React.useEffect(() => { loadSessions(); }, [loadSessions]);
 
   React.useEffect(() => {
     if (messagesEndRef.current) {
       const el = messagesEndRef.current;
       el.parentElement.scrollTop = el.parentElement.scrollHeight;
     }
-  }, [messages, sending]);
+  }, [messages, sending, progressEvents]);
 
-  const handleSend = () => {
-    if (!input.trim() || sending) return;
-    const text = input.trim(); setInput('');
-    const selectedAg = agent === 'auto' ? 'dev' : agent;
-    setMessages(prev => [...prev, { role:'user', content:text }]);
-    setSending(true); setPhase('planning'); setElapsed(0);
-    const phases = ['planning','editing','testing','verifying','pr'];
-    let i = 0;
-    const timer = setInterval(() => {
-      i++;
-      if (i < phases.length) { setPhase(phases[i]); setElapsed(i*8); }
-      else {
-        clearInterval(timer); setSending(false); setPhase(null);
-        setMessages(prev => [...prev, { role:'assistant', agent:selectedAg, content:'Done. Here\'s what happened:', isFinal:true, result:SAMPLE_RESULT }]);
+  // Poll a queued/running agent job until it reaches a terminal state.
+  const pollAgentJob = async (jobId, selectedAg) => {
+    const start = Date.now();
+    const MAX_ATTEMPTS = 240; // ~6 min ceiling at 1.5s/poll
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (!mountedRef.current) return;
+      let snap;
+      try {
+        const { data } = await api.getAgentChatJob(jobId);
+        snap = data;
+      } catch (err) {
+        if (!mountedRef.current) return;
+        setSending(false); setPhase(null);
+        setMessages((prev) => [...prev, { role:'assistant', agent:selectedAg, content:'Lost connection to the agent job. It may still be running on the server.', isError:true }]);
+        return;
       }
-    }, 1800);
+      if (!mountedRef.current) return;
+      setPhase(snap.phase || 'running');
+      setElapsed(Math.round((Date.now() - start) / 1000));
+      setProgressEvents(Array.isArray(snap.progress_events) ? snap.progress_events : []);
+      if (['succeeded', 'failed', 'cancelled'].includes(snap.status)) {
+        setSending(false); setPhase(null); setProgressEvents([]);
+        if (snap.status === 'succeeded') {
+          setMessages((prev) => [...prev, { role:'assistant', agent:selectedAg, content: snap.result?.response || 'The agent finished but returned no message.' }]);
+        } else if (snap.status === 'cancelled') {
+          setMessages((prev) => [...prev, { role:'assistant', agent:selectedAg, content:'Agent job was cancelled.', isError:true }]);
+        } else {
+          setMessages((prev) => [...prev, { role:'assistant', agent:selectedAg, content: snap.error?.message || 'The agent job failed.', isError:true }]);
+        }
+        loadSessions();
+        return;
+      }
+    }
+    if (!mountedRef.current) return;
+    setSending(false); setPhase(null); setProgressEvents([]);
+    setMessages((prev) => [...prev, { role:'assistant', agent:selectedAg, content:'The agent job is taking longer than expected. Check the Tasks/Agents view for its status.', isError:true }]);
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || sending) return;
+    const text = input.trim();
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    const selectedAg = agent === 'auto' ? 'dev' : agent;
+    setMessages((prev) => [...prev, { role:'user', content:text }]);
+    setSending(true);
+    setProgressEvents([]);
+    setElapsed(0);
+    setPhase(agentMode ? 'planning' : null);
+    try {
+      // Build context payload from active chips (company, wiki, sources, repo)
+      const repoChip = chips.find(c => c.id === 'repo');
+      const repoUrl = repoChip?._rawUrl || (localStorage.getItem('v5_chat_repo_url') || null);
+      const contextPayload = chips.length > 0 ? {
+        company_id: localStorage.getItem('v5_company_id') || null,
+        company_name: chips.find(c => c.id === 'company')?.label || localStorage.getItem('v5_company_name') || null,
+        context_labels: chips.map(c => c.label),
+      } : null;
+      const { data } = await api.chatSend(text, sessionId, selectedModel?.model || null, selectedModel?.provider || null, null, agentMode, false, contextPayload, repoUrl);
+      if (!mountedRef.current) return;
+      if (data?.session_id) setSessionId(data.session_id);
+      if (data?.job_id) {
+        // Agent Mode: backend queued a job (HTTP 202). Poll for progress + result.
+        await pollAgentJob(data.job_id, selectedAg);
+      } else {
+        // Direct chat: response is returned inline.
+        setSending(false); setPhase(null);
+        setMessages((prev) => [...prev, { role:'assistant', agent:selectedAg, content: data?.response || 'No response.' }]);
+        loadSessions();
+      }
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setSending(false); setPhase(null); setProgressEvents([]);
+      setMessages((prev) => [...prev, { role:'assistant', agent:selectedAg, content: (api.fmtErr(err?.response?.data?.detail) || err?.message || 'Something went wrong.'), isError:true }]);
+    }
   };
 
   const handleKey = e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
@@ -345,20 +588,40 @@ function ChatScreen({ chatState }) {
     textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight,160)+'px';
   };
 
-  const loadHistoryChat = (h) => {
-    if (!h) { setMessages([]); setActiveChat(null); return; }
-    setActiveChat(h.id);
-    setMessages([
-      { role:'user', content:h.title },
-      { role:'assistant', agent:h.agent, content:h.preview + '\n\n(This is a previous conversation. You can continue from here or start a new chat.)', isFinal:h.screen==='final', result:h.screen==='final'?SAMPLE_RESULT:undefined }
-    ]);
+  const loadHistoryChat = async (s) => {
+    if (sending) return;
+    if (!s) { setMessages([]); setSessionId(null); return; }
+    const id = s._id || s.id;
+    setSessionId(id);
+    setMessages([]);
+    try {
+      const { data } = await api.getSession(id);
+      if (!mountedRef.current) return;
+      const msgs = (Array.isArray(data?.messages) ? data.messages : [])
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+          agent: m.role === 'assistant' ? (agent === 'auto' ? 'dev' : agent) : undefined,
+        }));
+      setMessages(msgs);
+    } catch {
+      if (!mountedRef.current) return;
+      setMessages([{ role:'assistant', content:'Could not load this conversation.', isError:true }]);
+    }
   };
 
   return (
     <div style={{ display:'flex', height:'100%', background:'var(--bg-base)' }}>
       {/* History sidebar */}
       {showHistory && (
-        <HistorySidebar activeId={activeChat} onSelect={loadHistoryChat} onClose={()=>setShowHistory(false)}/>
+        <HistorySidebar
+          sessions={sessions}
+          loading={historyLoading}
+          activeId={sessionId}
+          onSelect={loadHistoryChat}
+          onClose={()=>setShowHistory(false)}
+        />
       )}
 
       <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
@@ -377,42 +640,67 @@ function ChatScreen({ chatState }) {
           <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
           {/* Agent picker */}
-          <AgentPicker selected={agent} onSelect={setAgent}/>
+          <AgentPicker selected={agent} onSelect={selectAgent} onOpen={() => setOpenDropdown('agent')} forceClose={openDropdown === 'model'}/>
+
+          <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
+
+          {/* Model picker */}
+          <ModelPicker selected={selectedModel} onSelect={setSelectedModel} onOpen={() => setOpenDropdown('model')} forceClose={openDropdown === 'agent'}/>
+
+          <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
+
+          {/* Agent Mode toggle — explicit ON/OFF for running real tasks */}
+          <button onClick={()=>setAgentMode(o=>!o)} title={agentMode ? 'Agent Mode is ON — messages run as real tasks' : 'Agent Mode is OFF — direct chat'} style={{
+            display:'flex', alignItems:'center', gap:7, padding:'5px 11px', borderRadius:999, flexShrink:0, cursor:'pointer', transition:'all 0.15s',
+            background:agentMode?'rgba(70,217,164,0.12)':'rgba(255,255,255,0.04)',
+            border:`1px solid ${agentMode?'rgba(70,217,164,0.35)':'rgba(255,255,255,0.10)'}`,
+            color:agentMode?'var(--success)':'var(--text-muted)', fontSize:11, fontFamily:'var(--font-mono)', letterSpacing:'0.08em',
+          }}>
+            <span style={{ width:26, height:15, borderRadius:999, padding:2, background:agentMode?'var(--success)':'rgba(255,255,255,0.12)', display:'flex', alignItems:'center', justifyContent:agentMode?'flex-end':'flex-start', transition:'all 0.2s' }}>
+              <span style={{ width:11, height:11, borderRadius:'50%', background:'#fff' }}/>
+            </span>
+            <span>Agent Mode {agentMode ? 'ON' : 'OFF'}</span>
+          </button>
 
           <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
           {/* Context chips */}
           <div style={{ display:'flex', alignItems:'center', gap:5, overflowX:'auto', flex:1 }} className="scrollbar-hide">
             <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0 }}>Context:</span>
-            {chips.map(chip => <ContextChip key={chip.id} chip={chip} onRemove={id=>setChips(p=>p.filter(c=>c.id!==id))}/>)}
-            <button onClick={()=>{
-              const labels = ['sprint-43','PR-1843','v5.1-release','staging','cve-2025'];
-              const icons  = ['◈','⎇','◉','🌐','🔒'];
-              const i = chips.length % labels.length;
-              setChips(p=>[...p,{id:'c-'+Date.now(),label:labels[i],icon:icons[i],type:'context'}]);
-            }} style={{ display:'inline-flex', alignItems:'center', gap:3, padding:'4px 8px', borderRadius:999, border:'1px dashed rgba(255,255,255,0.12)', background:'transparent', fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', cursor:'pointer', flexShrink:0 }}>
-              + Add
-            </button>
+            {chips.map(chip => <ContextChip key={chip.id} chip={chip} onRemove={id=>{
+              setChips(p=>p.filter(c=>c.id!==id));
+              if (id === 'repo') { try { localStorage.removeItem('v5_chat_repo_url'); } catch {} }
+            }}/>)}
+            {chips.length === 0 && <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0 }}>none</span>}
+            {/* Repo URL quick-add input */}
+            <RepoUrlInput onAdd={(repoUrl) => {
+              try { localStorage.setItem('v5_chat_repo_url', repoUrl); } catch {}
+              const shortLabel = repoUrl.replace(/^https?:\/\//i, '').replace(/^github\.com\//, '').replace(/^gitlab\.com\//, '').replace(/^bitbucket\.org\//, '');
+              setChips(p => [...p.filter(c => c.id !== 'repo'), { id:'repo', icon:'📁', label: shortLabel, _rawUrl: repoUrl }]);
+            }}/>
           </div>
         </div>
 
         {/* Agent context tip */}
-        {agent !== 'auto' && (
+        {agentMode && (
           <div style={{ margin:'8px 14px 0', padding:'7px 12px', borderRadius:10, background:`${currentAgent.color}08`, border:`1px solid ${currentAgent.color}20`, fontSize:12, color:'var(--text-tertiary)', display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ fontSize:14 }}>{currentAgent.icon}</span>
-            <span>Chatting directly with <strong style={{ color:'#fff' }}>{currentAgent.name}</strong> — {currentAgent.desc}. <button style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent)', fontSize:12 }} onClick={()=>setAgent('auto')}>Switch to Auto →</button></span>
+            <span style={{ fontSize:14 }}>{agent === 'auto' ? '◎' : currentAgent.icon}</span>
+            <span>Agent Mode <strong style={{ color:'var(--success)' }}>ON</strong> — <strong style={{ color:'#fff' }}>{agent === 'auto' ? 'the best agent' : currentAgent.name}</strong> will plan and run a real task. <button style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent)', fontSize:12 }} onClick={()=>setAgentMode(false)}>Switch to direct chat →</button></span>
           </div>
         )}
 
         {/* Messages */}
         <div style={{ flex:1, overflowY:'auto', padding:'18px 16px 8px' }} className="scrollbar-hide">
-          {messages.length === 0
+          {messages.length === 0 && !sending
             ? <EmptyState onSuggest={t=>{setInput(t); textareaRef.current?.focus();}}/>
             : <>
               {messages.map((msg,i)=>(
-                <MessageBubble key={i} msg={msg} agentPhase={agentPhase} agentElapsed={elapsed}/>
+                <MessageBubble key={i} msg={msg}/>
               ))}
-              {sending && (
+              {sending && agentPhase && (
+                <AgentProgressPanel phase={agentPhase} elapsed={elapsed} events={progressEvents} agent={currentAgent}/>
+              )}
+              {sending && !agentPhase && (
                 <div style={{ display:'flex', alignItems:'flex-start', gap:8, marginBottom:18, animation:'fadeSlideUp 0.2s ease-out' }}>
                   <div style={{ width:20, height:20, borderRadius:7, background:`${currentAgent.color}20`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, flexShrink:0, marginTop:4 }}>{currentAgent.icon}</div>
                   <div style={{ padding:'10px 14px', borderRadius:'4px 16px 16px 16px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)' }}>
@@ -433,7 +721,7 @@ function ChatScreen({ chatState }) {
             <textarea ref={textareaRef} value={input}
               onChange={e=>{setInput(e.target.value);adjustTextarea();}}
               onKeyDown={handleKey}
-              placeholder={agent==='auto' ? 'Ask anything — I\'ll pick the right agent…' : `Ask ${currentAgent.name} anything…`}
+              placeholder={!agentMode ? 'Ask anything…' : (agent==='auto' ? 'Describe a task to run…' : `Tell ${currentAgent.name} what to do…`)}
               rows={1}
               style={{ flex:1, background:'transparent', border:'none', outline:'none', resize:'none', fontSize:14, color:'var(--text-primary)', fontFamily:'var(--font-main)', lineHeight:1.6, minHeight:24, padding:0, overflow:'hidden' }}/>
             <button onClick={handleSend} disabled={!input.trim()||sending} style={{ width:34, height:34, borderRadius:10, flexShrink:0, background:input.trim()&&!sending?'var(--accent)':'rgba(255,255,255,0.08)', border:'none', cursor:input.trim()&&!sending?'pointer':'not-allowed', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.2s', boxShadow:input.trim()&&!sending?'0 4px 12px rgba(93,162,255,0.25)':'none' }}>
@@ -445,7 +733,7 @@ function ChatScreen({ chatState }) {
           </div>
           <div style={{ display:'flex', justifyContent:'space-between', marginTop:6 }}>
             <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>
-              {agent === 'auto' ? 'Agent selected automatically · you can override above' : `Direct chat with ${currentAgent.name} · context: ${chips.map(c=>c.label).join(', ') || 'none'}`}
+              {!agentMode ? 'Direct chat · toggle Agent Mode to run a real task' : `Agent Mode · ${agent === 'auto' ? 'auto-select' : currentAgent.name}`}
             </span>
             <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>⌘↵</span>
           </div>

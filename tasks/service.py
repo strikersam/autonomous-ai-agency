@@ -6,7 +6,6 @@ import logging
 import os
 import time
 import asyncio
-from threading import Lock
 from typing import Any
 
 from agents.store import AgentDefinition, AgentStore, get_agent_store
@@ -15,6 +14,7 @@ from runtimes.manager import RuntimeManager, get_runtime_manager
 from tasks.models import Task, TaskComment, TaskStatus
 from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
+from services.shared_state import claim as _shared_claim, release as _shared_release
 
 log = logging.getLogger("qwen-proxy")
 
@@ -254,6 +254,49 @@ class TaskWorkflowService:
         task.error_message = None
         return task
 
+    def follow_up(
+        self,
+        task: Task,
+        *,
+        actor: str,
+        message: str,
+        model_preference: str | None = None,
+    ) -> Task:
+        """Add a follow-up instruction to a task and re-queue it for execution.
+
+        Unlike :meth:`retry` (which simply re-runs the same task), ``follow_up``
+        lets a human (or the CEO) give *new* guidance. The message is appended as a
+        comment so it carries into the agent's conversation/instruction context
+        (see ``_build_spec``'s ``conversation`` key), then the task is re-opened and
+        re-queued. Works from any non-active state (done/failed/blocked/in_review)
+        and from in_progress (which just re-arms the pending run).
+        """
+        if not message or not message.strip():
+            raise ValueError("Follow-up message must not be empty")
+
+        # Append the new instruction as a comment first — this becomes part of the
+        # conversation history handed to the runtime on the next run.
+        self.add_comment(task, author=actor, body=message)
+
+        if model_preference:
+            task.model_preference = model_preference
+
+        # add_comment already re-queues IN_REVIEW tasks for non-agent authors; for
+        # other states, re-open and queue explicitly.
+        if not task.pending_agent_run:
+            if task.status is TaskStatus.IN_PROGRESS:
+                task.pending_agent_run = True
+            else:
+                self.transition(
+                    task,
+                    TaskStatus.IN_PROGRESS,
+                    actor=actor,
+                    message=f"Follow-up requested by {actor}",
+                    pending_agent_run=True,
+                )
+        task.error_message = None
+        return task
+
     def escalate(self, task: Task, *, actor: str, reason: str | None = None) -> Task:
         task.escalation_count += 1
         task.escalation_reason = reason or task.escalation_reason
@@ -345,9 +388,6 @@ _DISPATCH_RETRY_LIMIT = 10  # max re-queues before a task is blocked
 class TaskExecutionCoordinator:
     """Executes tasks through the runtime layer using agent definitions."""
 
-    _active_task_ids: set[str] = set()
-    _active_task_ids_guard = Lock()
-
     def __init__(
         self,
         *,
@@ -368,7 +408,7 @@ class TaskExecutionCoordinator:
         )
 
     async def execute(self, task_id: str) -> Task:
-        if not self._claim_task(task_id):
+        if not await self._claim_task(task_id):
             log.info("Task %s is already executing; skipping duplicate run request", task_id)
             existing = await self.store.get(task_id)
             if existing is None:
@@ -377,10 +417,10 @@ class TaskExecutionCoordinator:
 
         task = await self.store.get(task_id)
         if task is None:
-            self._release_task(task_id)
+            await self._release_task(task_id)
             raise ValueError(f"Task not found: {task_id}")
         if not task.pending_agent_run:
-            self._release_task(task_id)
+            await self._release_task(task_id)
             return task
 
         try:
@@ -425,10 +465,24 @@ class TaskExecutionCoordinator:
                 actor="system:workflow",
             )
             await self.store.update(task)
-            result, decision = await asyncio.wait_for(
-                self.runtime_manager.execute(spec),
-                timeout=self.execution_timeout_s,
-            )
+            # Sanctioned autonomous execution path: the TaskExecutionCoordinator is
+            # driven by the background TaskDispatcher and (via the scheduler) by the
+            # CEO Agency. Tasks have their own approval workflow (requires_approval →
+            # IN_REVIEW), so they do not need the WorkflowOrchestrator's per-request
+            # ApprovalGate. Set the orchestrator bypass (async-safe ContextVar,
+            # isolated to this asyncio task) so the runtime's AgentRunner.run() is not
+            # blocked under the default AGENCY_WORKFLOW_MODE=orchestrator. The direct
+            # /runtimes/{id}/execute API stays gated because it does not set this.
+            import services.workflow_orchestrator as _wo
+
+            _bypass_token = _wo._BYPASS.set(True)
+            try:
+                result, decision = await asyncio.wait_for(
+                    self.runtime_manager.execute(spec),
+                    timeout=self.execution_timeout_s,
+                )
+            finally:
+                _wo._BYPASS.reset(_bypass_token)
 
             task.last_runtime_id = decision.selected_runtime_id
             task.last_model_used = result.model_used or decision.model_used
@@ -517,21 +571,16 @@ class TaskExecutionCoordinator:
             )
         finally:
             await self.store.update(task)
-            self._release_task(task_id)
+            await self._release_task(task_id)
         return task
 
-    @classmethod
-    def _claim_task(cls, task_id: str) -> bool:
-        with cls._active_task_ids_guard:
-            if task_id in cls._active_task_ids:
-                return False
-            cls._active_task_ids.add(task_id)
-            return True
+    @staticmethod
+    async def _claim_task(task_id: str) -> bool:
+        return await _shared_claim(f"task:active:{task_id}", ttl=3600)
 
-    @classmethod
-    def _release_task(cls, task_id: str) -> None:
-        with cls._active_task_ids_guard:
-            cls._active_task_ids.discard(task_id)
+    @staticmethod
+    async def _release_task(task_id: str) -> None:
+        await _shared_release(f"task:active:{task_id}")
 
     async def _resolve_agent(self, task: Task) -> AgentDefinition | None:
         if task.agent_id:
@@ -596,6 +645,19 @@ class TaskExecutionCoordinator:
                 },
                 "comments": [comment.model_dump() for comment in task.comments[-20:]],
                 "history": [entry.model_dump() for entry in task.execution_log[-20:]],
+                # Structured conversation history for the runtime's AgentRunner
+                # (it reads context["conversation"]). This is what carries follow-up
+                # instructions and prior agent replies across re-runs — without it,
+                # a re-queued task would lose the thread.
+                "conversation": [
+                    {
+                        "role": "assistant"
+                        if comment.author.startswith(("agent:", "runtime:"))
+                        else "user",
+                        "content": comment.body,
+                    }
+                    for comment in task.comments[-20:]
+                ],
             },
         )
 

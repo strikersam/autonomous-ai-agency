@@ -12,14 +12,10 @@ name: CI Failure Auto-Fix
 #   - Fix is applied with `git apply` against the current master checkout
 #   - Patches >200 lines open an issue instead of auto-applying
 
-# QUARANTINED 2026-05-22: auto-trigger disabled pending Agency Core stabilization.
-# See docs/architecture/agency-core-audit-2026-05-22.md. This workflow auto-committed
-# AI-generated patches to branches and was a major source of unverified churn.
-# Re-enable by restoring the `workflow_run:` block below.
 on:
-  # workflow_run:
-  #   workflows: ["CI"]
-  #   types: [completed]   (QUARANTINED)
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
   workflow_dispatch: {}
 
 jobs:
@@ -53,7 +49,7 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
 
       - name: Configure git identity
         run: |
@@ -77,7 +73,7 @@ jobs:
 
       - name: Download CI job logs via GitHub API
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           # Fetch logs for the failing run — reads metadata only, no code exec
           gh api \
@@ -158,7 +154,7 @@ jobs:
           """).strip()
 
           payload = {
-              "model": "claude-sonnet-4-6",
+              "model": "claude-sonnet-4-20250514",
               "max_tokens": 4096,
               "messages": [{"role": "user", "content": prompt}],
           }
@@ -175,7 +171,17 @@ jobs:
           with urllib.request.urlopen(req, timeout=120) as resp:
               body = json.loads(resp.read())
 
-          diff_text = body["content"][0]["text"].strip()
+          # Handle both streaming and non-streaming response formats
+          if "content" in body and isinstance(body["content"], list):
+              diff_text = "".join(
+                  block.get("text", "") for block in body["content"]
+                  if block.get("type") == "text"
+              ).strip()
+          elif "choices" in body:
+              diff_text = body["choices"][0]["message"]["content"].strip()
+          else:
+              diff_text = body.get("completion", "").strip()
+
           pathlib.Path("/tmp/autofix.patch").write_text(diff_text)
           print(f"Claude response ({len(diff_text)} chars):\n{diff_text[:300]}")
           PYEOF
@@ -233,7 +239,7 @@ https://claude.ai/code/session_01P3kGiygjALr4jwpetb8AXz"
       - name: Open issue when fix is too complex or verification fails
         if: steps.apply.outputs.status != 'ok'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           STATUS: ${{ steps.apply.outputs.status }}
         run: |
           # Use env vars — no ${{ }} expression inside run:

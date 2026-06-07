@@ -11,6 +11,10 @@ services:
         sync: false
       - key: DB_NAME
         value: llm_wiki_dashboard
+      # Storage backend: sqlite (zero-dependency, Render free tier safe)
+      # or mongo when Atlas is provisioned.
+      - key: STORAGE_BACKEND
+        value: "sqlite"
 
       # JWT / Auth
       - key: JWT_SECRET
@@ -27,7 +31,7 @@ services:
       - key: NVIDIA_API_KEY
         sync: false
       - key: NVIDIA_BASE_URL
-        value: "https://integrate.api.nvidia.com/v1"
+        value: "https://integrate.api.nvidia.com"
       - key: NVIDIA_DEFAULT_MODEL
         value: "nvidia/nemotron-3-super-120b-a12b"
 
@@ -175,3 +179,193 @@ services:
         value: /tmp/mcp-workspaces
       - key: GITHUB_TOKEN
         sync: false
+      - key: GH_PAT
+        sync: false
+
+      # ================================================================
+      # WORKFLOW / AGENCY — golden-path execution backbone
+      # orchestrator = full 11-phase golden path (default); legacy = old paths
+      # ================================================================
+      - key: AGENCY_WORKFLOW_MODE
+        value: "orchestrator"
+
+      # ================================================================
+      # SELF-BOOTSTRAP — platform registers itself as a company on startup
+      # ================================================================
+      - key: SELF_BOOTSTRAP_ENABLED
+        value: "true"
+      - key: SELF_BOOTSTRAP_URL
+        value: "https://local-llm-server.onrender.com"
+      - key: SELF_BOOTSTRAP_REPO
+        value: "https://github.com/strikersam/local-llm-server"
+
+      # ================================================================
+      # KIMI (MOONSHOT) WEB BRIDGE — free Kimi access without an API key.
+      # Point KIMI_BRIDGE_URL at any OpenAI-compatible bridge (e.g. a
+      # Cloudflare Worker that proxies kimi.com). Disabled by default.
+      # To enable: set KIMI_BRIDGE_ENABLED=true and KIMI_BRIDGE_URL.
+      # ================================================================
+      - key: KIMI_BRIDGE_ENABLED
+        value: "false"
+      - key: KIMI_BRIDGE_URL
+        sync: false
+      - key: KIMI_BRIDGE_MODEL
+        value: "kimi-k2.6"
+      - key: KIMI_BRIDGE_PRIORITY
+        value: "5"
+
+      # ================================================================
+      # AUTONOMY GATE — protected branches agents may never write to.
+      # Comma-separated; defaults to main,master.
+      # ================================================================
+      - key: AUTONOMY_PROTECTED_BRANCHES
+        value: "main,master"
+
+      # ================================================================
+      # WORKER — set to "false" once the worker service below is running
+      # so background tasks are not double-processed.
+      # ================================================================
+      - key: RUN_BACKGROUND_IN_WEB
+        value: "true"
+
+      # ================================================================
+      # FREEBUFF TELEGRAM BOT — run inside this web service (free tier:
+      # one service hosts both the API and the phone-control bot).
+      # Set the *sync:false* secrets in the dashboard. RUN_TELEGRAM_BOT
+      # gates startup; BOT_KEEPALIVE self-pings RENDER_EXTERNAL_URL so the
+      # free instance does not sleep (the bot's long-poll alone won't keep
+      # it awake). See docs/deploy/freebuff-telegram-bot.md.
+      # ================================================================
+      - key: RUN_TELEGRAM_BOT
+        value: "true"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALLOWED_USER_IDS
+        sync: false
+      - key: TELEGRAM_ADMIN_USER_IDS
+        sync: false
+      - key: FREEBUFF_EMBEDDED
+        value: "true"
+      - key: AGENT_AUTO_PR_ENABLED
+        value: "true"
+      - key: FREEBUFF_REPO_URL
+        value: "https://github.com/strikersam/local-llm-server"
+      - key: FREEBUFF_BASE_BRANCH
+        value: "master"
+      - key: BOT_KEEPALIVE
+        value: "true"
+
+  # ── Always-on Worker (24×7 task execution + CEO loop) ─────────────────────
+  # A separate worker service so task execution continues even when the web
+  # service is sleeping on the free tier.  Switch the web service
+  # RUN_BACKGROUND_IN_WEB to "false" once this worker is active and healthy.
+  - type: worker
+    name: local-llm-server-worker
+    env: docker
+    dockerfilePath: ./Dockerfile.backend
+    plan: free
+    startCommand: python worker_main.py
+    envVars:
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        value: llm_wiki_dashboard
+      - key: STORAGE_BACKEND
+        value: "sqlite"
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: local-llm-server
+          envVarKey: JWT_SECRET
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: NVIDIA_BASE_URL
+        value: "https://integrate.api.nvidia.com"
+      - key: NVIDIA_DEFAULT_MODEL
+        value: "nvidia/nemotron-3-super-120b-a12b"
+      - key: AGENT_PLANNER_MODEL
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: AGENT_EXECUTOR_MODEL
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: AGENT_VERIFIER_MODEL
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: AGENT_JUDGE_MODEL
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: LLM_PROVIDER
+        value: "nvidia-nim"
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: "us-east-1"
+      - key: BEDROCK_MODEL_ID
+        value: "us.anthropic.claude-opus-4-6-v1"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GH_PAT
+        sync: false
+      - key: SELF_BOOTSTRAP_ENABLED
+        value: "false"
+      - key: AGENCY_WORKFLOW_MODE
+        value: "orchestrator"
+      - key: AUTONOMY_PROTECTED_BRANCHES
+        value: "main,master"
+      - key: RUNTIME_DEFAULT
+        value: "internal_agent"
+      - key: KIMI_BRIDGE_ENABLED
+        value: "false"
+      - key: KIMI_BRIDGE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+
+  # ── FreeBuff Telegram bot (24×7 phone control of repo edits) ──────────────
+  # Always-on worker that long-polls Telegram and runs the FreeBuff agent
+  # in-process (embedded mode): clones the repo, edits it on free NVIDIA NIM
+  # models, and opens a draft PR. No web port — works behind any network.
+  # Set the *sync:false* secrets in the Render dashboard before first deploy.
+  - type: worker
+    name: freebuff-telegram-bot
+    env: docker
+    dockerfilePath: ./Dockerfile.telegram
+    plan: free
+    envVars:
+      # Telegram (from @BotFather and @userinfobot)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALLOWED_USER_IDS
+        sync: false
+      - key: TELEGRAM_ADMIN_USER_IDS
+        sync: false
+      # FreeBuff embedded-mode config
+      - key: FREEBUFF_EMBEDDED
+        value: "true"
+      - key: AGENCY_WORKFLOW_MODE
+        value: "legacy"
+      - key: AGENT_AUTO_PR_ENABLED
+        value: "true"
+      - key: FREEBUFF_REPO_URL
+        value: "https://github.com/strikersam/local-llm-server"
+      - key: FREEBUFF_BASE_BRANCH
+        value: "master"
+      # Optional: override the free-model list (comma-separated)
+      - key: FREEBUFF_MODELS
+        sync: false
+      # NVIDIA NIM (free) — powers the agent
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: NVIDIA_BASE_URL
+        value: "https://integrate.api.nvidia.com"
+      # GitHub token — used to clone, push branches and open draft PRs
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GH_PAT
+        sync: false
+      # Commit identity for agent commits
+      - key: GIT_AUTHOR_NAME
+        value: "FreeBuff Bot"
+      - key: GIT_AUTHOR_EMAIL
+        value: "freebuff-bot@users.noreply.github.com"

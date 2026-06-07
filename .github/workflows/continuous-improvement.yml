@@ -1,10 +1,8 @@
 name: Continuous Improvement
 
-# QUARANTINED 2026-05-22: auto-trigger disabled pending Agency Core stabilization.
-# See docs/architecture/agency-core-audit-2026-05-22.md. Re-enable by restoring `schedule:`.
 on:
-  # schedule:
-  #   - cron: '0 9 * * *'   # daily at 09:00 UTC  (QUARANTINED)
+  schedule:
+    - cron: '0 9 * * *'   # daily at 09:00 UTC
   workflow_dispatch:
     inputs:
       scan_type:

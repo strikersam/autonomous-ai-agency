@@ -54,7 +54,8 @@ scripts/              Automation scripts including ai_runner.py watchdog
 ```bash
 # Development
 source .venv/bin/activate
-uvicorn proxy:app --reload --port 8000     # Start proxy
+uvicorn backend.server:app --reload --port 8001     # Start main backend (login, dashboard, wiki, company graph, agents)
+uvicorn proxy:app --reload --port 8000               # Start API-key-gated Ollama proxy (for Claude Code, Cursor, etc.)
 
 # Tests — ALWAYS run before committing
 pytest -x                                  # Fast fail

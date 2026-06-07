@@ -11,9 +11,9 @@ triggers:
   - process restart during an AI coding session
   - "what was I doing?"
 references:
-  - .Codex/state/agent-state.json
-  - .Codex/state/NEXT_ACTION.md
-  - .Codex/state/checkpoint.jsonl
+  - .claude/state/agent-state.json
+  - .claude/state/NEXT_ACTION.md
+  - .claude/state/checkpoint.jsonl
   - docs/runbooks/auto-resume.md
   - scripts/ai_runner.py
 ---
@@ -34,13 +34,13 @@ Use this skill immediately after:
 
 ```bash
 # Human-readable next action
-cat .Codex/state/NEXT_ACTION.md
+cat .claude/state/NEXT_ACTION.md
 
 # Machine-readable full state
-cat .Codex/state/agent-state.json
+cat .claude/state/agent-state.json
 
 # Ordered log of completed steps
-cat .Codex/state/checkpoint.jsonl
+cat .claude/state/checkpoint.jsonl
 ```
 
 Or use the AI runner:
@@ -81,13 +81,13 @@ If tests fail after resuming:
 ### Step 5 — Continue from `next_step`
 
 Execute only the steps that are NOT in `completed_steps`.
-After each sub-step completes, append to `.Codex/state/checkpoint.jsonl`:
+After each sub-step completes, append to `.claude/state/checkpoint.jsonl`:
 
 ```json
 {"ts":"<ISO8601>","step":"<step-id>","status":"done","detail":"<what was done>"}
 ```
 
-And update `.Codex/state/agent-state.json`:
+And update `.claude/state/agent-state.json`:
 - Move the step from plan to `completed_steps`
 - Update `next_step` to the following step
 - Update `last_updated`

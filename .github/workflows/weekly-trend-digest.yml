@@ -1,10 +1,8 @@
 name: Weekly AI Trend Digest
 
-# QUARANTINED 2026-05-22: auto-trigger disabled pending Agency Core stabilization.
-# See docs/architecture/agency-core-audit-2026-05-22.md. Re-enable by restoring `schedule:`.
 on:
-  # schedule:
-  #   - cron: '0 8 * * 1'   # Every Monday 08:00 UTC  (QUARANTINED)
+  schedule:
+    - cron: '0 8 * * 1'   # Every Monday 08:00 UTC
   workflow_dispatch: {}
 
 jobs:

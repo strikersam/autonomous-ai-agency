@@ -18,7 +18,7 @@ jobs:
         env:
           BRANCH: ${{ github.event.pull_request.head.ref }}
           REPO:   ${{ github.repository }}
-          TOKEN:  ${{ secrets.GITHUB_TOKEN }}
+          TOKEN:  ${{ secrets.GH_PAT }}
         run: |
           # Never delete master or gh-pages
           if [[ "$BRANCH" == "master" || "$BRANCH" == "gh-pages" ]]; then

@@ -9,18 +9,67 @@ from provider_router import (
     CommercialFallbackRequiredError,
     ProviderConfig,
     ProviderRouter,
+    _normalize_nvidia_base_url,
+    _openai_url,
     clear_cooldowns,
     extract_openai_text,
     is_commercial_provider,
 )
 
 
+
+# ── NVIDIA URL normalization tests (issue #363, item #8) ────────────────────
+
+def test_normalize_nvidia_base_url_strips_trailing_v1():
+    assert _normalize_nvidia_base_url("https://integrate.api.nvidia.com/v1") == "https://integrate.api.nvidia.com"
+
+
+def test_normalize_nvidia_base_url_strips_trailing_v1_with_slash():
+    assert _normalize_nvidia_base_url("https://integrate.api.nvidia.com/v1/") == "https://integrate.api.nvidia.com"
+
+
+def test_normalize_nvidia_base_url_no_v1_unchanged():
+    assert _normalize_nvidia_base_url("https://integrate.api.nvidia.com") == "https://integrate.api.nvidia.com"
+
+
+def test_normalize_nvidia_base_url_strips_whitespace_and_v1():
+    assert _normalize_nvidia_base_url("  https://integrate.api.nvidia.com/v1  ") == "https://integrate.api.nvidia.com"
+
+
+def test_normalize_nvidia_base_url_empty_string():
+    assert _normalize_nvidia_base_url("") == ""
+
+
+def test_normalize_nvidia_base_url_none_fallback():
+    assert _normalize_nvidia_base_url(None) == ""
+
+
+def test_openai_url_with_v1_base_does_not_double():
+    assert _openai_url("https://integrate.api.nvidia.com/v1", "/chat/completions") == "https://integrate.api.nvidia.com/v1/chat/completions"
+
+
+def test_openai_url_without_v1_adds_v1():
+    assert _openai_url("https://integrate.api.nvidia.com", "/chat/completions") == "https://integrate.api.nvidia.com/v1/chat/completions"
+
+
+def test_openai_url_with_custom_path_does_not_add_v1():
+    assert _openai_url("https://api.example.com/v1beta/openai", "/chat/completions") == "https://api.example.com/v1beta/openai/chat/completions"
+
+
+def test_openai_url_models_endpoint_with_v1_base():
+    assert _openai_url("https://integrate.api.nvidia.com/v1", "/models") == "https://integrate.api.nvidia.com/v1/models"
+
+
+def test_openai_url_strips_trailing_slash():
+    assert _openai_url("https://example.com/", "/chat/completions") == "https://example.com/v1/chat/completions"
+
+
 @pytest.fixture(autouse=True)
-def reset_provider_cooldowns():
+async def reset_provider_cooldowns():
     """Clear module-level cooldown state before every test so tests don't bleed into each other."""
-    clear_cooldowns()
+    await clear_cooldowns()
     yield
-    clear_cooldowns()
+    await clear_cooldowns()
 
 
 @pytest.mark.anyio

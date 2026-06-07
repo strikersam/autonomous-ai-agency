@@ -15,9 +15,11 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any, Optional, Dict, List, Tuple, Union, Literal
 
 import bcrypt
+import html
 import httpx
 import jwt
 
@@ -64,9 +66,7 @@ from runtimes.api import runtime_router
 from router import get_router as _get_model_router
 from runtimes.manager import get_runtime_manager
 from schedules import schedules_router
-from tasks.automation import TaskAutomationService
 from tasks.api import task_router
-from tasks.dispatcher import TaskDispatcher
 from tasks.store import TaskStore, get_task_store, set_task_store
 from setup import setup_router
 from activation_api import activation_router
@@ -81,6 +81,12 @@ log = logging.getLogger("llm-wiki")
 
 
 _ERROR_LOG_BUFFER: deque[dict[str, object]] = deque(maxlen=250)
+
+# Always-on in-memory activity feed. Mongo-backed activity_log is the durable
+# store, but it is silently skipped when no DB is available (e.g. SQLite / Render
+# without Mongo) — which is why the alerts bell always showed zero. log_activity()
+# now also writes here so business events surface regardless of the DB backend.
+_ACTIVITY_BUFFER: deque[dict[str, object]] = deque(maxlen=250)
 
 
 class _InMemoryErrorLogHandler(logging.Handler):
@@ -126,9 +132,12 @@ JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("V3_ADMIN_EMAIL") or os.environ.get(
     "ADMIN_EMAIL", "admin@llmrelay.local"
 )
-ADMIN_PASSWORD = os.environ.get("V3_ADMIN_PASSWORD") or os.environ.get(
-    "ADMIN_PASSWORD", "WikiAdmin2026!"
-)
+ADMIN_PASSWORD = os.environ.get("V3_ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
+if not ADMIN_PASSWORD:
+    raise RuntimeError(
+        "ADMIN_PASSWORD must be set in the Render environment variables. "
+        "Set ADMIN_PASSWORD (or V3_ADMIN_PASSWORD) and restart the server."
+    )
 OLLAMA_BASE = (
     os.environ.get("OLLAMA_BASE_URL")
     or os.environ.get("OLLAMA_BASE")
@@ -833,6 +842,13 @@ GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
 # https://my-backend.onrender.com/api/github/oauth/callback
 GITHUB_CALLBACK_URL = os.environ.get("GITHUB_CALLBACK_URL", "")
 
+# Imported early so /api/skills/discover can reference the registries list
+try:
+    from agent.skill_registry import GITHUB_REGISTRIES
+except ImportError:
+    log.warning("Could not import GITHUB_REGISTRIES — skill discover endpoint will show no registries")
+    GITHUB_REGISTRIES = []  # type: ignore[assignment]
+
 # ─── Model Catalog ────────────────────────────────────────────────────────────────
 # Best-in-class models per provider, tagged by role and tier.
 # role: planner = strong reasoning; executor = instruction-following/coding; verifier = critical eval
@@ -1131,6 +1147,10 @@ GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", JWT_SECRET)
+# Base URL of this server — used for OAuth callback URIs.
+# Must match exactly what is registered in GitHub/Google OAuth App settings.
+# Example: https://myserver.com  (no trailing slash)
+OAUTH_REDIRECT_BASE = os.environ.get("OAUTH_REDIRECT_BASE", "").rstrip("/")
 
 # ─── Auth Helpers ───────────────────────────────────────────────────────────────
 
@@ -1236,12 +1256,89 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
+async def _telegram_bot_supervisor() -> None:
+    """Run the FreeBuff Telegram bot, restarting it on unexpected exit."""
+    import asyncio as _asyncio
+
+    from telegram_bot import run_bot
+    while True:
+        try:
+            await run_bot()
+            log.warning("Telegram bot exited (likely misconfig); retrying in 30s.")
+        except _asyncio.CancelledError:
+            raise
+        except Exception as exc:  # never let the bot kill the web process
+            log.exception("Telegram bot crashed: %s — restarting in 30s", exc)
+        await _asyncio.sleep(30)
+
+
+async def _keepalive_self_ping() -> None:
+    """Ping our own public URL so a free-tier web service doesn't sleep.
+
+    Render free web services sleep after ~15 min without *inbound* traffic; the
+    bot's outbound long-poll does not count. Pinging RENDER_EXTERNAL_URL keeps
+    the service awake so the bot keeps receiving. Opt out with BOT_KEEPALIVE=false.
+    """
+    import asyncio as _asyncio
+
+    base = (os.environ.get("RENDER_EXTERNAL_URL") or os.environ.get("SELF_BOOTSTRAP_URL") or "").rstrip("/")
+    if not base:
+        return
+    url = f"{base}/api/ping"
+    import httpx as _httpx
+    while True:
+        await _asyncio.sleep(600)  # every 10 minutes
+        try:
+            async with _httpx.AsyncClient(timeout=20.0) as client:
+                await client.get(url)
+        except _asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.debug("keepalive self-ping failed (non-fatal): %s", exc)
+
+
+def _start_in_web_bot_tasks() -> list:
+    """Start the Telegram bot (and keep-alive) inside the web process when enabled.
+
+    Enabled when TELEGRAM_BOT_TOKEN is set and RUN_TELEGRAM_BOT is truthy
+    (default true). Returns the created asyncio tasks so the caller can cancel
+    them on shutdown.
+    """
+    import asyncio as _asyncio
+
+    tasks: list = []
+    if not os.environ.get("TELEGRAM_BOT_TOKEN"):
+        return tasks
+    if os.environ.get("RUN_TELEGRAM_BOT", "true").strip().lower() not in {"1", "true", "yes"}:
+        log.info("RUN_TELEGRAM_BOT is disabled — not starting the in-web Telegram bot.")
+        return tasks
+
+    # FreeBuff embedded defaults so the bot runs the agent in-process (no proxy)
+    # and opens draft PRs. Only set when the operator hasn't overridden them.
+    os.environ.setdefault("FREEBUFF_EMBEDDED", "true")
+    os.environ.setdefault("AGENT_AUTO_PR_ENABLED", "true")
+    os.environ.setdefault("FREEBUFF_BASE_BRANCH", "master")
+    os.environ.setdefault("FREEBUFF_REPO_URL", "https://github.com/strikersam/local-llm-server")
+
+    try:
+        tasks.append(_asyncio.create_task(_telegram_bot_supervisor()))
+        log.info("FreeBuff Telegram bot starting inside web process (embedded mode).")
+    except Exception as exc:
+        log.warning("Could not start in-web Telegram bot: %s", exc)
+        return tasks
+
+    if os.environ.get("BOT_KEEPALIVE", "true").strip().lower() in {"1", "true", "yes"}:
+        tasks.append(_asyncio.create_task(_keepalive_self_ping()))
+
+    return tasks
+
+
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
-    dispatcher: Optional[TaskDispatcher] = None
-    dispatcher_task: Optional[asyncio.Task] = None
-    task_automation: Optional[TaskAutomationService] = None
-    runtime_manager = get_runtime_manager()
+    from services.background import start_background_services, run_background_in_web
+
+    from services.background import BackgroundServices
+    bg: Optional[BackgroundServices] = None
     try:
         await ensure_bootstrap()
         log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
@@ -1250,32 +1347,29 @@ async def lifespan(app_: "FastAPI"):
         log.info(
             "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
         )
-    task_automation = TaskAutomationService(store=get_task_store())
-    SCHEDULER.set_on_fire(task_automation.handle_scheduled_job)
-    log.info("Scheduler automation wired to task workflow")
-    await runtime_manager.start()
-    log.info(
-        "RuntimeManager started (%d runtimes registered)",
-        len(runtime_manager._registry.ids()),
-    )
-    dispatcher = TaskDispatcher(
-        workspace_root=str(ROOT_DIR),
-        poll_interval_s=10.0,
-    )
-    dispatcher_task = asyncio.create_task(dispatcher.run_forever())
-    log.info("Task dispatcher started in background")
+
+    if run_background_in_web():
+        bg = await start_background_services(
+            workspace_root=ROOT_DIR,
+            task_store=get_task_store(),
+            scheduler=SCHEDULER,
+        )
+    else:
+        log.info(
+            "RUN_BACKGROUND_IN_WEB=false — background services skipped "
+            "(expected: dedicated worker process is running)"
+        )
+
+    # FreeBuff Telegram bot — optionally run inside this web process so a single
+    # free-tier service can host both the API and the phone-control bot.
+    extra_tasks = _start_in_web_bot_tasks()
+
     yield
-    if dispatcher is not None:
-        dispatcher.stop()
-    if dispatcher_task is not None:
-        dispatcher_task.cancel()
-        try:
-            await dispatcher_task
-        except asyncio.CancelledError:
-            pass
-        log.info("Task dispatcher stopped")
-    await runtime_manager.stop()
-    log.info("RuntimeManager stopped")
+
+    for _t in extra_tasks:
+        _t.cancel()
+    if bg is not None:
+        await bg.stop()
 
 
 app = FastAPI(title=f"{APP_LABEL} — {APP_TAGLINE}", version=__version__, lifespan=lifespan)
@@ -1298,15 +1392,59 @@ CORS_ORIGINS = [
 # ─── Social Login (GitHub & Google) ───────────────────────────────────────────
 
 
+async def _store_login_state(state: str, provider: str) -> None:
+    """Persist an OAuth *login* state server-side in the shared oauth_states store.
+
+    Session cookies do NOT reliably survive the OAuth round-trip in this
+    deployment: the frontend is on Cloudflare while the backend is on Render,
+    and Render's free tier rotates the in-process SESSION_SECRET on every cold
+    start (when JWT_SECRET is unset). A server-side state row — the same
+    mechanism the GitHub repo-connect flow already uses — is provider- and
+    instance-agnostic. The collection has a 10-minute TTL index, so stale rows
+    are dropped automatically.
+    """
+    await get_db().oauth_states.insert_one(
+        {
+            "state": state,
+            "flow_type": "login",
+            "provider": provider,
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+
+
+def _valid_login_state(doc: Optional[dict], provider: str) -> bool:
+    """Return True if a fetched oauth_states doc is a valid, unexpired login state."""
+    if not doc or doc.get("flow_type") != "login" or doc.get("provider") != provider:
+        return False
+    created = doc.get("created_at")
+    if isinstance(created, datetime):
+        # MongoDB (motor) returns naive UTC datetimes by default, so normalise to
+        # tz-aware before comparing — otherwise "offset-naive vs offset-aware"
+        # raises TypeError and the callback 500s after the state check passes.
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        # Defensive expiry check for backends without a TTL index (e.g. SQLite).
+        if (datetime.now(timezone.utc) - created).total_seconds() > 600:
+            return False
+    return True
+
+
 @app.get("/api/auth/github/login")
 async def github_login(request: Request):
     if not GITHUB_CLIENT_ID:
         raise HTTPException(status_code=503, detail="GitHub login not configured")
     state = secrets.token_urlsafe(32)
-    request.session["oauth_state"] = state
+    await _store_login_state(state, "github")
+    redirect_uri = (
+        f"{OAUTH_REDIRECT_BASE}/api/auth/github/callback"
+        if OAUTH_REDIRECT_BASE
+        else str(request.url_for("github_callback"))
+    )
     url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}&state={state}&scope=user:email"
+        f"&redirect_uri={redirect_uri}"
     )
     return RedirectResponse(url)
 
@@ -1393,106 +1531,116 @@ async def github_callback(request: Request, code: str = None, state: str = None)
         )
         return _oauth_popup_html(True, login=login)
 
-    # Login flow: state was stored in the session by /api/auth/github/login
-    if state != request.session.pop("oauth_state", None):
+    # Login flow: state was stored server-side in oauth_states by
+    # /api/auth/github/login (state_doc was already fetched above).
+    if not _valid_login_state(state_doc, provider="github"):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    # State validated — consume it so it cannot be replayed.
+    await get_db().oauth_states.delete_one({"state": state})
 
-    async with httpx.AsyncClient() as client:
-        # 1. Exchange code for token
-        resp = await client.post(
-            "https://github.com/login/oauth/access_token",
-            data={
-                "client_id": GITHUB_CLIENT_ID,
-                "client_secret": GITHUB_CLIENT_SECRET,
-                "code": code,
-            },
-            headers={"Accept": "application/json"},
-        )
-        resp.raise_for_status()
-        token_data = resp.json()
-        access_token = token_data.get("access_token")
-        if not access_token:
-            raise HTTPException(status_code=400, detail="GitHub token exchange failed")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # 1. Exchange code for token
+            resp = await client.post(
+                "https://github.com/login/oauth/access_token",
+                data={
+                    "client_id": GITHUB_CLIENT_ID,
+                    "client_secret": GITHUB_CLIENT_SECRET,
+                    "code": code,
+                },
+                headers={"Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            token_data = resp.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                err = token_data.get("error_description") or token_data.get("error") or "No token returned"
+                raise HTTPException(status_code=400, detail=f"GitHub token exchange failed: {err}")
 
-        # 2. Get user info
-        user_resp = await client.get(
-            "https://api.github.com/user",
-            headers={"Authorization": f"token {access_token}"},
-        )
-        user_resp.raise_for_status()
-        gh_user = user_resp.json()
-
-        # 3. Get email (GitHub might not return it in the main user object)
-        email = gh_user.get("email")
-        if not email:
-            email_resp = await client.get(
-                "https://api.github.com/user/emails",
+            # 2. Get user info
+            user_resp = await client.get(
+                "https://api.github.com/user",
                 headers={"Authorization": f"token {access_token}"},
             )
-            email_resp.raise_for_status()
-            emails = email_resp.json()
-            # Find primary verified email
-            primary = next(
-                (e for e in emails if e.get("primary") and e.get("verified")), None
-            )
-            email = (
-                primary.get("email")
-                if primary
-                else (emails[0].get("email") if emails else None)
-            )
+            user_resp.raise_for_status()
+            gh_user = user_resp.json()
 
-        if not email:
-            raise HTTPException(
-                status_code=400, detail="Could not retrieve email from GitHub"
-            )
+            # 3. Get email (GitHub might not return it in the main user object)
+            email = gh_user.get("email")
+            if not email:
+                email_resp = await client.get(
+                    "https://api.github.com/user/emails",
+                    headers={"Authorization": f"token {access_token}"},
+                )
+                email_resp.raise_for_status()
+                emails = email_resp.json()
+                # Find primary verified email
+                primary = next(
+                    (e for e in emails if e.get("primary") and e.get("verified")), None
+                )
+                email = (
+                    primary.get("email")
+                    if primary
+                    else (emails[0].get("email") if emails else None)
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("GitHub OAuth login error: %s", exc)
+        raise HTTPException(status_code=502, detail="GitHub OAuth request failed")
 
-        # 4. Find or create user
-        user = await get_db().users.find_one({"email": email.lower()})
-        uid_str = str(gh_user["id"])
-        now = datetime.now(timezone.utc).isoformat()
-
-        if not user:
-            # Automatic registration
-            new_user = {
-                "email": email.lower(),
-                "name": gh_user.get("name") or gh_user.get("login"),
-                "avatar_url": gh_user.get("avatar_url"),
-                "provider": "github",
-                "provider_user_id": uid_str,
-                "role": "user",
-                "created_at": now,
-                "last_login": now,
-            }
-            result = await get_db().users.insert_one(new_user)
-            user_id = str(result.inserted_id)
-            await log_activity(
-                "auth", f"New user {email} registered via GitHub", user_id=user_id
-            )
-        else:
-            # Update existing user with social info if missing or just update last_login
-            user_id = str(user["_id"])
-            await get_db().users.update_one(
-                {"_id": user["_id"]},
-                {
-                    "$set": {
-                        "last_login": now,
-                        "provider": user.get("provider", "github"),
-                        "provider_user_id": user.get("provider_user_id", uid_str),
-                        "avatar_url": user.get("avatar_url")
-                        or gh_user.get("avatar_url"),
-                    }
-                },
-            )
-            await log_activity(
-                "auth", f"User {email} logged in via GitHub", user_id=user_id
-            )
-
-        # 5. Generate tokens and redirect to frontend
-        access = create_access_token(user_id, email)
-        refresh = create_refresh_token(user_id)
-        return RedirectResponse(
-            f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+    if not email:
+        raise HTTPException(
+            status_code=400, detail="Could not retrieve email from GitHub"
         )
+
+    # 4. Find or create user
+    user = await get_db().users.find_one({"email": email.lower()})
+    uid_str = str(gh_user["id"])
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not user:
+        # Automatic registration
+        new_user = {
+            "email": email.lower(),
+            "name": gh_user.get("name") or gh_user.get("login"),
+            "avatar_url": gh_user.get("avatar_url"),
+            "provider": "github",
+            "provider_user_id": uid_str,
+            "role": "user",
+            "created_at": now,
+            "last_login": now,
+        }
+        result = await get_db().users.insert_one(new_user)
+        user_id = str(result.inserted_id)
+        await log_activity(
+            "auth", f"New user {email} registered via GitHub", user_id=user_id
+        )
+    else:
+        # Update existing user with social info if missing or just update last_login
+        user_id = str(user["_id"])
+        await get_db().users.update_one(
+            {"_id": user["_id"]},
+            {
+                "$set": {
+                    "last_login": now,
+                    "provider": user.get("provider", "github"),
+                    "provider_user_id": user.get("provider_user_id", uid_str),
+                    "avatar_url": user.get("avatar_url")
+                    or gh_user.get("avatar_url"),
+                }
+            },
+        )
+        await log_activity(
+            "auth", f"User {email} logged in via GitHub", user_id=user_id
+        )
+
+    # 5. Generate tokens and redirect to frontend
+    access = create_access_token(user_id, email)
+    refresh = create_refresh_token(user_id)
+    return RedirectResponse(
+        f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+    )
 
 
 @app.get("/api/auth/github/repo-access")
@@ -1591,8 +1739,13 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
 @app.get("/api/github/repos")
 async def github_list_repos(user: dict = Depends(get_current_user)):
     token = user.get("github_repo_token")
+    # Also check github_settings collection (set by popup OAuth flow)
     if not token:
-        return {"repos": [], "authorized": False}
+        doc = await get_db().github_settings.find_one({"user_id": user["_id"]})
+        if doc:
+            token = doc.get("token")
+    if not token:
+        return {"repos": [], "authorized": False, "message": "No GitHub token connected. Go to GitHub screen to connect one."}
 
     async with httpx.AsyncClient() as client:
         try:
@@ -1622,8 +1775,8 @@ async def github_list_repos(user: dict = Depends(get_current_user)):
                 ],
                 "authorized": True,
             }
-        except Exception as e:
-            return {"repos": [], "authorized": True, "error": str(e)}
+        except Exception:
+            return {"repos": [], "authorized": True, "error": "Failed to fetch repositories"}
 
 
 class AuthorizeReposBody(BaseModel):
@@ -1669,11 +1822,14 @@ async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google login not configured")
     state = secrets.token_urlsafe(32)
-    request.session["oauth_state"] = state
-    # Simplified redirect URI - in production this must match exactly what is in Google Console
-    redirect_uri = f"{request.url_for('google_callback')}"
-    # Ensure it's using the correct scheme (handled by middleware usually, but explicit is safer for some proxies)
-    # However, for simplicity we rely on FastAPI's url_for.
+    await _store_login_state(state, "google")
+    # Use OAUTH_REDIRECT_BASE so the redirect_uri matches what is registered in Google Console.
+    # Falls back to url_for only in local dev where no proxy is involved.
+    redirect_uri = (
+        f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback"
+        if OAUTH_REDIRECT_BASE
+        else str(request.url_for("google_callback"))
+    )
     url = (
         f"https://accounts.google.com/o/oauth2/v2/auth"
         f"?client_id={GOOGLE_CLIENT_ID}&response_type=code&scope=openid%20email%20profile"
@@ -1686,92 +1842,102 @@ async def google_login(request: Request):
 async def google_callback(request: Request, code: str = None, state: str = None):
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
-    if state != request.session.pop("oauth_state", None):
+    # State was stored server-side in oauth_states by /api/auth/google/login.
+    state_doc = await get_db().oauth_states.find_one({"state": state})
+    if not _valid_login_state(state_doc, provider="google"):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    # State validated — consume it so it cannot be replayed.
+    await get_db().oauth_states.delete_one({"state": state})
 
-    async with httpx.AsyncClient() as client:
-        # 1. Exchange code for token
-        redirect_uri = f"{request.url_for('google_callback')}"
-        resp = await client.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "code": code,
-                "grant_type": "authorization_code",
-                "redirect_uri": redirect_uri,
-            },
-        )
-        resp.raise_for_status()
-        token_data = resp.json()
-        access_token = token_data.get("access_token")
-        if not access_token:
-            raise HTTPException(status_code=400, detail="Google token exchange failed")
+    # redirect_uri must be identical to the one used in /api/auth/google/login
+    redirect_uri = (
+        f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback"
+        if OAUTH_REDIRECT_BASE
+        else str(request.url_for("google_callback"))
+    )
 
-        # 2. Get user info
-        user_resp = await client.get(
-            "https://www.googleapis.com/oauth2/v3/userinfo",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        user_resp.raise_for_status()
-        g_user = user_resp.json()
-
-        email = g_user.get("email")
-        if not email:
-            raise HTTPException(
-                status_code=400, detail="Could not retrieve email from Google"
-            )
-
-        # 3. Find or create user
-        user = await get_db().users.find_one({"email": email.lower()})
-        uid_str = str(g_user.get("sub"))
-        now = datetime.now(timezone.utc).isoformat()
-
-        if not user:
-            new_user = {
-                "email": email.lower(),
-                "name": g_user.get("name"),
-                "avatar_url": g_user.get("picture"),
-                "provider": "google",
-                "provider_user_id": uid_str,
-                "role": "user",
-                "created_at": now,
-                "last_login": now,
-            }
-            result = await get_db().users.insert_one(new_user)
-            user_id = str(result.inserted_id)
-            try:
-                await log_activity(
-                    "auth", f"New user {email} registered via Google", user_id=user_id
-                )
-            except NameError:
-                pass
-        else:
-            user_id = str(user["_id"])
-            await get_db().users.update_one(
-                {"_id": user["_id"]},
-                {
-                    "$set": {
-                        "last_login": now,
-                        "provider": user.get("provider", "google"),
-                        "provider_user_id": user.get("provider_user_id", uid_str),
-                        "avatar_url": user.get("avatar_url") or g_user.get("picture"),
-                    }
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # 1. Exchange code for token
+            resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
                 },
             )
-            try:
-                await log_activity(
-                    "auth", f"User {email} logged in via Google", user_id=user_id
-                )
-            except NameError:
-                pass
+            resp.raise_for_status()
+            token_data = resp.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                raise HTTPException(status_code=400, detail="Google token exchange failed")
 
-        # 4. Generate tokens and redirect to frontend
-        access = create_access_token(user_id, email)
-        refresh = create_refresh_token(user_id)
-        return RedirectResponse(
-            f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+            # 2. Get user info
+            user_resp = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            user_resp.raise_for_status()
+            g_user = user_resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("Google OAuth login error: %s", exc)
+        raise HTTPException(status_code=502, detail="Google OAuth request failed")
+
+    email = g_user.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=400, detail="Could not retrieve email from Google"
         )
+
+    # 3. Find or create user
+    user = await get_db().users.find_one({"email": email.lower()})
+    uid_str = str(g_user.get("sub"))
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not user:
+        new_user = {
+            "email": email.lower(),
+            "name": g_user.get("name"),
+            "avatar_url": g_user.get("picture"),
+            "provider": "google",
+            "provider_user_id": uid_str,
+            "role": "user",
+            "created_at": now,
+            "last_login": now,
+        }
+        result = await get_db().users.insert_one(new_user)
+        user_id = str(result.inserted_id)
+        await log_activity(
+            "auth", f"New user {email} registered via Google", user_id=user_id
+        )
+    else:
+        user_id = str(user["_id"])
+        await get_db().users.update_one(
+            {"_id": user["_id"]},
+            {
+                "$set": {
+                    "last_login": now,
+                    "provider": user.get("provider", "google"),
+                    "provider_user_id": user.get("provider_user_id", uid_str),
+                    "avatar_url": user.get("avatar_url") or g_user.get("picture"),
+                }
+            },
+        )
+        await log_activity(
+            "auth", f"User {email} logged in via Google", user_id=user_id
+        )
+
+    # 4. Generate tokens and redirect to frontend
+    access = create_access_token(user_id, email)
+    refresh = create_refresh_token(user_id)
+    return RedirectResponse(
+        f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+    )
 
 
 app.add_middleware(
@@ -2020,8 +2186,8 @@ async def seed_default_providers():
         os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or ""
     ).strip()
     _nvidia_base = (
-        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
-    ).rstrip("/")
+        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
+    ).rstrip("/").removesuffix("/v1")
     _nvidia_model = (
         os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
     )
@@ -2146,6 +2312,25 @@ async def seed_default_providers():
             "is_default": LLM_PROVIDER == "moonshot",
             "priority": 10,
             "status": "configured" if MOONSHOT_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "kimi-web-bridge",
+            "name": "Kimi Web Bridge (free, no API key)",
+            "type": "openai-compatible",
+            "base_url": os.environ.get("KIMI_BRIDGE_URL", "http://localhost:8011/v1"),
+            "api_key": os.environ.get("KIMI_BRIDGE_TOKEN", "")
+            if os.environ.get("KIMI_BRIDGE_ENABLED", "").strip().lower()
+            in {"true", "1", "yes"}
+            else "",
+            "default_model": os.environ.get("KIMI_BRIDGE_MODEL", "kimi-k2.6"),
+            "is_default": False,
+            # Free tier — preferred over paid escalation when enabled.
+            "priority": int(os.environ.get("KIMI_BRIDGE_PRIORITY", "5") or "5"),
+            "tier": "free_cloud",
+            "status": "configured"
+            if os.environ.get("KIMI_BRIDGE_ENABLED", "").strip().lower()
+            in {"true", "1", "yes"}
+            else "unconfigured",
         },
         {
             "provider_id": "anthropic-universal",
@@ -2726,6 +2911,7 @@ async def _run_agent_loop(
     provider_chain: Optional[List[ProviderConfig]] = None,
     allow_commercial_fallback: bool = True,
     workspace_root: Optional[Union[str, Path]] = None,
+    context: Optional[Dict] = None,
 ) -> str:
     try:
         from agent.loop import AgentRunner
@@ -2786,21 +2972,32 @@ async def _run_agent_loop(
         f"GITHUB STATUS: {github_status}\n\n"
         + (f"{auto_skill_guidance}\n\n" if auto_skill_guidance else "")
         + f"WIKI INDEX (current pages):\n{wiki_index}\n\n"
+        + ("USER CONTEXT:\n" + "\n".join(f"  {k}: {v}" for k, v in context.items()) + "\n\n" if context else "")
         + f"TASK: {instruction}"
     )
 
     try:
         if session_id:
             _append_agent_session_message(session_id, "user", instruction)
-        result = await runner.run(
-            instruction=agent_instruction,
-            history=session_messages,
-            requested_model=requested_model,
-            auto_commit=True,
-            max_steps=8,
-            memory_store=UserMemoryStore(),
-            session_id=session_id,
-        )
+        # Live Agent Mode is a deliberate, user-invoked execution path. Set the
+        # orchestrator bypass token so the AgentRunner.run() deprecation guard
+        # (active under the default AGENCY_WORKFLOW_MODE=orchestrator) doesn't
+        # block it — the guard exists to catch *unintended* parallel callers,
+        # not the explicit chat Agent Mode toggle.
+        import services.workflow_orchestrator as _wo
+        _bypass_token = _wo._BYPASS.set(True)
+        try:
+            result = await runner.run(
+                instruction=agent_instruction,
+                history=session_messages,
+                requested_model=requested_model,
+                auto_commit=True,
+                max_steps=8,
+                memory_store=UserMemoryStore(),
+                session_id=session_id,
+            )
+        finally:
+            _wo._BYPASS.reset(_bypass_token)
         if session_id:
             AGENT_EVENT_STORE.update_result(
                 session_id,
@@ -2821,7 +3018,12 @@ async def _run_agent_loop(
             return await _agent_provider_failure_response(instruction, exc)
         return (
             f"⚠️ Agent error: {exc}\n\n"
-            "If this persists, check the server logs for details."
+            "**Troubleshooting:**\n"
+            "• Verify your configured provider is reachable and has valid credentials (Providers → Test).\n"
+            "• If using Ollama, ensure it is running (`ollama serve`) and the model is pulled.\n"
+            "• If using NVIDIA NIM, verify your NVIDIA_API_KEY is valid and has credits remaining.\n"
+            "• For GitHub operations, connect a token at Settings → GitHub.\n"
+            "• Check the server logs for the full traceback.\n"
         )
 
 
@@ -2831,18 +3033,19 @@ async def _run_agent_loop(
 async def log_activity(
     category: str, message: str, user_id: str = None, meta: dict = None
 ):
+    entry = {
+        "category": category,
+        "message": message,
+        "user_id": user_id,
+        "meta": meta or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Always record to the in-memory feed so the alerts bell works even without a DB.
+    _ACTIVITY_BUFFER.appendleft(dict(entry))
     try:
-        await get_db().activity_log.insert_one(
-            {
-                "category": category,
-                "message": message,
-                "user_id": user_id,
-                "meta": meta or {},
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        await get_db().activity_log.insert_one(dict(entry))
     except Exception as exc:
-        log.debug("Activity log skipped (DB unavailable): %s", exc)
+        log.warning("Activity log DB write skipped (DB unavailable): %s", exc)
 
 
 # ─── Auth Endpoints ─────────────────────────────────────────────────────────────
@@ -2979,8 +3182,8 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
     if not key:
         return None
     base = (
-        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
-    ).rstrip("/")
+        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
+    ).rstrip("/").removesuffix("/v1")
     model = (
         os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
     )
@@ -3172,6 +3375,7 @@ class ChatMessage(BaseModel):
         False  # When True, forces multi-agent orchestration regardless of complexity
     )
     allow_commercial_fallback_once: bool = False
+    context: Optional[Dict] = None  # Company/repo/systems context from frontend chips
 
 
 _DIRECT_CHAT_PROVIDER_TIMEOUT_SEC = 20.0
@@ -3537,6 +3741,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 provider_chain=router.providers[1:],
                 allow_commercial_fallback=policy["allow_commercial_fallback"],
                 workspace_root=workspace_root,
+                context=body.context,
             )
             heartbeat("verification", f"Judge model: {role_models['judge']}")
             await _persist_agent_chat_response(
@@ -4234,6 +4439,10 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
             logs.append(entry)
     except Exception as exc:
         log.debug("Activity query unavailable: %s", exc)
+    # Merge the always-on in-memory feeds so alerts work without a DB and reflect
+    # recent business events (task failures, quick-notes, onboarding, etc.).
+    if _ACTIVITY_BUFFER:
+        logs.extend(list(_ACTIVITY_BUFFER)[:limit])
     if _ERROR_LOG_BUFFER:
         logs.extend(list(_ERROR_LOG_BUFFER)[:limit])
     logs.sort(
@@ -4242,7 +4451,21 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
         ),
         reverse=True,
     )
-    logs = logs[:limit]
+    # De-duplicate entries that exist in both Mongo and the in-memory buffer
+    # (same event written to both by log_activity).
+    deduped: list = []
+    seen: set = set()
+    for entry in logs:
+        key = (
+            str(entry.get("created_at") or entry.get("timestamp") or ""),
+            str(entry.get("message") or ""),
+            str(entry.get("category") or entry.get("level") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(entry)
+    logs = deduped[:limit]
     return {"logs": logs, "events": logs, "activity": logs}
 
 
@@ -4406,7 +4629,7 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
         await get_db().providers.update_one(
             {"provider_id": provider_id}, {"$set": {"status": "error"}}
         )
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": "Provider test failed. Check API key and base URL in Providers settings."}
 
 
 @app.get("/api/providers/{provider_id}/models")
@@ -4536,6 +4759,257 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Delete failed: {e}")
 
+
+
+
+
+
+# ─── Skills Registry & Recommendations ──────────────────────────────────────────
+# Exposes the dynamic skill registry over HTTP so the frontend and agents can
+# discover, search, and get context-aware recommendations.
+
+try:
+    from agent.skill_registry import SkillRegistry as _SkillRegistry, set_skill_registry
+    _SKILL_REGISTRY = _SkillRegistry(
+        github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_ACCESS_TOKEN")
+    )
+    set_skill_registry(_SKILL_REGISTRY)
+except Exception as _sr_err:
+    log.warning("Could not initialise SkillRegistry: %s", _sr_err)
+    _SKILL_REGISTRY = None  # type: ignore[assignment]
+
+
+@app.get("/api/skills")
+async def list_skills(
+    source: str | None = None,
+    query: str | None = None,
+    limit: int = 50,
+    user: dict = Depends(get_current_user),
+):
+    """List all indexed skills, optionally filtered by source and/or query."""
+    if _SKILL_REGISTRY is None:
+        return {"skills": [], "total": 0}
+    skills = _SKILL_REGISTRY.search(query) if query else _SKILL_REGISTRY.list(source=source)
+    return {"skills": [s.as_dict() for s in skills[:limit]], "total": len(skills)}
+
+
+@app.get("/api/skills/discover")
+async def discover_remote_skills(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Preview what skills are available from remote GitHub registries without adding them."""
+    if _SKILL_REGISTRY is None:
+        return {"registries": [], "total": 0}
+    await _SKILL_REGISTRY.refresh_remote()
+    registries = {}
+    for reg in GITHUB_REGISTRIES:
+        rid = reg["id"]
+        registries[rid] = {"id": rid, "owner": reg["owner"], "repo": reg["repo"],
+                           "structure": reg.get("structure", "subdirs"), "skill_count": 0, "skills": []}
+    for skill in _SKILL_REGISTRY.list():
+        if skill.source.startswith("github:") and skill.registry_id in registries:
+            registries[skill.registry_id]["skill_count"] += 1
+            registries[skill.registry_id]["skills"].append({
+                "skill_id": skill.skill_id, "name": skill.name,
+                "description": (skill.description or "")[:120],
+                "tags": skill.tags[:5], "tech_relevance": skill.tech_relevance[:5], "url": skill.url})
+    result = sorted(registries.values(), key=lambda r: r["skill_count"], reverse=True)
+    return {"registries": result, "total": sum(r["skill_count"] for r in result)}
+
+
+@app.post("/api/skills/refresh")
+async def refresh_skills(user: dict = Depends(get_current_user)):
+    """Trigger a remote registry refresh (fetches from GitHub registries)."""
+    if _SKILL_REGISTRY is None:
+        return {"ok": False, "message": "SkillRegistry not available"}
+    added = await _SKILL_REGISTRY.refresh_remote()
+    total = len(_SKILL_REGISTRY.list())
+    return {"ok": True, "new_skills": added, "total": total}
+
+
+class SkillRecommendRequest(BaseModel):
+    tech_stack: list[str] = []
+    workflow_types: list[str] = []
+    query: str | None = None
+    limit: int = 10
+
+
+@app.post("/api/skills/recommend")
+async def recommend_skills(body: SkillRecommendRequest, user: dict = Depends(get_current_user)):
+    """
+    Return context-aware skill recommendations.
+    Pass tech_stack (from scanner) and/or workflow_types (from active workflows)
+    to get ranked, reason-annotated results.
+    """
+    if _SKILL_REGISTRY is None:
+        return {"recommendations": []}
+    recs = _SKILL_REGISTRY.recommend(
+        tech_stack=body.tech_stack,
+        workflow_types=body.workflow_types,
+        query=body.query,
+        limit=body.limit,
+    )
+    return {"recommendations": recs}
+
+
+@app.get("/api/skills/recommend/auto")
+async def auto_recommend_skills(
+    company_id: str | None = None,
+    limit: int = 10,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Auto-recommend skills by reading the company's scan results and active
+    workflows from the database — no client-side params needed.
+    """
+    if _SKILL_REGISTRY is None:
+        return {"recommendations": [], "tech_stack": [], "workflow_types": []}
+
+    tech_stack: list[str] = []
+    workflow_types: list[str] = []
+    uid = str(user.get("_id", user.get("id", "")))
+
+    # Resolve company_id — use provided or fall back to user's only company
+    cid = company_id
+    if not cid:
+        co = await get_db().companies.find_one({"user_id": uid})
+        if co:
+            cid = str(co["_id"])
+
+    if cid:
+        from bson import ObjectId as _ObjId
+        try:
+            co_doc = await get_db().companies.find_one({"_id": _ObjId(cid), "user_id": uid})
+            if co_doc:
+                # Pull tech stack from latest scan
+                scan = await get_db().website_scans.find_one(
+                    {"company_id": cid, "status": "success"},
+                    sort=[("completed_at", -1)],
+                )
+                if scan:
+                    detected = scan.get("detected_systems") or {}
+                    for cat in ("frameworks", "cms", "databases", "payment", "analytics", "hosting"):
+                        tech_stack.extend(detected.get(cat, []))
+                    tech_stack.extend(scan.get("technologies", []))
+                # Repo scan
+                repo_scan = await get_db().repo_scans.find_one(
+                    {"company_id": cid},
+                    sort=[("completed_at", -1)],
+                )
+                if repo_scan:
+                    inferred = repo_scan.get("inferred_stack") or {}
+                    for cat in ("frameworks", "languages", "databases"):
+                        tech_stack.extend(inferred.get(cat, []))
+                # Active workflows
+                async for wf in get_db().workflows.find(
+                    {"company_id": cid, "is_active": True}
+                ):
+                    name = (wf.get("name") or "").lower()
+                    triggers = wf.get("triggers") or []
+                    workflow_types.append(name)
+                    workflow_types.extend(triggers)
+        except Exception as exc:
+            log.debug("auto_recommend: error reading company data: %s", exc)
+
+    tech_stack = list(dict.fromkeys(t for t in tech_stack if t))[:20]
+    workflow_types = list(dict.fromkeys(w for w in workflow_types if w))[:10]
+
+    recs = _SKILL_REGISTRY.recommend(
+        tech_stack=tech_stack,
+        workflow_types=workflow_types,
+        limit=limit,
+    )
+    return {
+        "recommendations": recs,
+        "tech_stack": tech_stack,
+        "workflow_types": workflow_types,
+    }
+
+
+@app.get("/api/skills/{skill_id:path}")
+async def get_skill(skill_id: str, user: dict = Depends(get_current_user)):
+    """Return full details for one skill by ID."""
+    if _SKILL_REGISTRY is None:
+        raise HTTPException(status_code=503, detail="SkillRegistry not available")
+    skill = _SKILL_REGISTRY.get(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {**skill.as_dict(), "content": skill.raw_content}
+
+# ─── MCP Server Configuration ───────────────────────────────────────────────────
+# Stores user-configured MCP server records in the database.
+# Status is *not* polled server-side (MCP servers run on the user's machine);
+# the frontend sets status when it attempts a connection test.
+
+class McpServerBody(BaseModel):
+    name: str
+    cmd: str
+    desc: str = ""
+    status: str = "idle"
+    tools: int = 0
+
+
+@app.get("/api/mcp/servers")
+async def list_mcp_servers(user: dict = Depends(get_current_user)):
+    """Return all MCP server configurations for this user."""
+    uid = str(user.get("_id", user.get("id", "")))
+    servers: list[dict] = []
+    async for s in get_db().mcp_servers.find({"user_id": uid}).sort("created_at", 1):
+        s["id"] = str(s.pop("_id"))
+        servers.append(s)
+    return {"servers": servers}
+
+
+@app.post("/api/mcp/servers")
+async def create_mcp_server(body: McpServerBody, user: dict = Depends(get_current_user)):
+    """Add a new MCP server configuration."""
+    uid = str(user.get("_id", user.get("id", "")))
+    doc = {
+        "user_id": uid,
+        "name": body.name,
+        "cmd": body.cmd,
+        "desc": body.desc,
+        "status": body.status,
+        "tools": body.tools,
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await get_db().mcp_servers.insert_one(doc)
+    doc["id"] = str(result.inserted_id)
+    doc.pop("_id", None)
+    return doc
+
+
+@app.patch("/api/mcp/servers/{server_id}")
+async def update_mcp_server(server_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """Update status/tools/name on an MCP server."""
+    uid = str(user.get("_id", user.get("id", "")))
+    from bson import ObjectId as _ObjId
+    try:
+        oid = _ObjId(server_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid server ID")
+    allowed = {k: v for k, v in body.items() if k in ("name", "cmd", "desc", "status", "tools")}
+    if not allowed:
+        raise HTTPException(status_code=400, detail="No updatable fields provided")
+    result = await get_db().mcp_servers.update_one(
+        {"_id": oid, "user_id": uid}, {"$set": allowed}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return {"ok": True}
+
+
+@app.delete("/api/mcp/servers/{server_id}")
+async def delete_mcp_server(server_id: str, user: dict = Depends(get_current_user)):
+    """Remove an MCP server configuration."""
+    uid = str(user.get("_id", user.get("id", "")))
+    from bson import ObjectId as _ObjId
+    try:
+        oid = _ObjId(server_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid server ID")
+    result = await get_db().mcp_servers.delete_one({"_id": oid, "user_id": uid})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return {"ok": True}
 
 # ─── API Keys Management ───────────────────────────────────────────────────────
 
@@ -4826,6 +5300,38 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
     return {"summary_24h": summary, "recent_traces": recent}
 
 
+
+
+@app.get("/api/observability/traces")
+async def observability_traces(
+    limit: int = 50,
+    offset: int = 0,
+    user: dict = Depends(get_current_user),
+):
+    """Return paginated LLM traces from the local_metrics collection.
+
+    Each trace includes model, provider, token counts, latency, and timestamp.
+    Falls back to an empty list when Langfuse is not configured (local-only mode).
+    """
+    traces: list[dict] = []
+    try:
+        cursor = (
+            get_db()
+            .local_metrics.find({})
+            .sort("timestamp", -1)
+            .skip(offset)
+            .limit(max(1, min(limit, 200)))
+        )
+        async for m in cursor:
+            m["_id"] = str(m["_id"])
+            if hasattr(m.get("timestamp"), "isoformat"):
+                m["timestamp"] = m["timestamp"].isoformat()
+            traces.append(m)
+    except Exception as exc:
+        log.warning("observability_traces: DB query failed: %s", exc)
+
+    return {"traces": traces, "offset": offset, "limit": limit, "total": len(traces)}
+
 # ─── System / Platform Info ─────────────────────────────────────────────────────
 
 
@@ -4840,6 +5346,27 @@ async def platform_info(user: dict = Depends(get_current_user)):
         "langfuse_url": LANGFUSE_BASE,
         "ollama_base": OLLAMA_BASE,
         "github_repo": "https://github.com/strikersam/local-llm-server",
+    }
+
+
+@app.get("/api/ping")
+async def ping() -> dict[str, object]:
+    """Lightweight liveness probe — no external I/O."""
+    return {"status": "ok", "pong": True}
+
+
+@app.get("/api/status")
+async def system_status(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Authenticated system status summary for the Doctor screen."""
+    try:
+        await get_db().command("ping")
+        storage_ok = True
+    except Exception:
+        storage_ok = False
+    return {
+        "status": "ok" if storage_ok else "degraded",
+        "storage": storage_ok,
+        "provider": LLM_PROVIDER,
     }
 
 
@@ -4877,6 +5404,129 @@ async def health():
         "ollama_relevant": ollama_relevant,
         "provider": LLM_PROVIDER,
     }
+
+
+# ─── Quick Notes (FAB + iPhone Shortcut) ────────────────────────────────────────
+# Mirrors the proxy.py /v1/quick-notes endpoints so the dashboard FAB can
+# reach them via REACT_APP_BACKEND_URL (backend server), not the proxy port.
+
+try:
+    from agent.quick_note import QuickNoteQueue as _QuickNoteQueue
+    _QUICK_NOTE_QUEUE: _QuickNoteQueue | None = _QuickNoteQueue()
+except Exception:
+    _QUICK_NOTE_QUEUE = None
+
+
+class _QuickNoteBody(BaseModel):
+    url: str = Field(default="", max_length=2000)
+    instruction: str = Field(default="", max_length=2000)
+
+
+@app.post("/v1/quick-notes")
+async def quick_notes_submit(
+    body: _QuickNoteBody,
+    user: dict = Depends(get_current_user),
+) -> dict[str, object]:
+    """Submit a quick-note URL or instruction from the dashboard FAB."""
+    url = body.url.strip()
+    instruction = body.instruction.strip()
+
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN", "")
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "")
+
+    title = f"quick-note: {url[:80]}" if url else f"quick-note: {instruction[:80]}"
+    issue_body = url
+    if instruction:
+        issue_body += f"\nTask: {instruction}"
+
+    # Always turn the quick-note into a real Task so the agency actually picks it up.
+    # Previously notes were only filed as a GitHub issue or parked in a local queue
+    # processed by a `claude` CLI that isn't present in production — so they "stayed
+    # there forever". Creating a Task routes the note through the working dispatcher →
+    # agents (which propose a PR), which is what the operator actually wants.
+    quick_note_task_id = None
+    try:
+        from tasks.service import TaskWorkflowService
+        from tasks.models import Task as _QNTask
+
+        owner_id = str(
+            user.get("_id") or user.get("id") or user.get("sub")
+            or user.get("email") or "system"
+        )
+        note_instruction = instruction or (
+            f"Review this resource and take any useful action for the company/repo, "
+            f"then open a PR with your proposal: {url}" if url else ""
+        )
+        if note_instruction:
+            _qn_wf = TaskWorkflowService(store=get_task_store())
+            _qn_task = _QNTask(
+                owner_id=owner_id,
+                title=title[:512],
+                description=issue_body[:32000],
+                prompt=note_instruction[:32000],
+                task_type="quick_note",
+                tags=["quick-note"],
+                source="quick-note",
+            )
+            await _qn_wf.create_task(_qn_task, actor=f"user:{owner_id}")
+            quick_note_task_id = _qn_task.task_id
+            log.info("Quick-note converted to task %s", quick_note_task_id)
+            await log_activity(
+                "quick_note",
+                f"Quick-note queued for the agency as task {quick_note_task_id}: {title[:80]}",
+                user_id=owner_id,
+                meta={"task_id": quick_note_task_id},
+            )
+    except Exception:
+        log.exception("Quick-note → task conversion failed")
+
+    if gh_token and gh_repo and url:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"https://api.github.com/repos/{gh_repo}/issues",
+                    json={"title": title, "body": issue_body, "labels": ["quick-note"]},
+                    headers={
+                        "Authorization": f"Bearer {gh_token}",
+                        "Accept": "application/vnd.github+json",
+                    },
+                )
+            if resp.status_code == 201:
+                issue_data = resp.json()
+                return {
+                    "status": "created",
+                    "channel": "github",
+                    "issue_number": issue_data["number"],
+                    "issue_url": issue_data.get("html_url", ""),
+                    "task_id": quick_note_task_id,
+                }
+            log.warning("Quick-note GitHub issue creation failed (%d)", resp.status_code)
+        except Exception:
+            log.exception("Quick-note GitHub issue creation error")
+
+    if _QUICK_NOTE_QUEUE is not None:
+        note = _QUICK_NOTE_QUEUE.add(url or instruction)
+        return {
+            "status": "queued",
+            "channel": "local",
+            "note_id": note.note_id,
+            "task_id": quick_note_task_id,
+        }
+    return {
+        "status": "queued",
+        "channel": "local",
+        "note_id": None,
+        "task_id": quick_note_task_id,
+    }
+
+
+@app.get("/v1/quick-notes")
+async def quick_notes_list(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """List queued quick-notes."""
+    if _QUICK_NOTE_QUEUE is None:
+        return {"notes": [], "count": 0}
+    notes = _QUICK_NOTE_QUEUE.list_all()
+    return {"notes": [n.as_dict() for n in notes], "count": len(notes)}
 
 
 # ─── GitHub Integration ─────────────────────────────────────────────────────────
@@ -4945,10 +5595,11 @@ def _oauth_popup_html(
         payload = json.dumps({"type": "github_oauth", "success": True, "login": login})
         body = "<p style='font-family:monospace;padding:2rem'>GitHub connected! Closing…</p>"
     else:
+        escaped = html.escape(error_msg)
         payload = json.dumps(
-            {"type": "github_oauth", "success": False, "error": error_msg}
+            {"type": "github_oauth", "success": False, "error": escaped}
         )
-        body = f"<p style='font-family:monospace;padding:2rem;color:red'>Error: {error_msg}</p>"
+        body = f"<p style='font-family:monospace;padding:2rem;color:red'>Error: {escaped}</p>"
     # Use the known frontend origin so the browser only delivers the message there,
     # not to arbitrary openers (prevents cross-origin message interception).
     target_origin = json.dumps(frontend_url)
@@ -5537,7 +6188,12 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     from agent.doctor import DirectChatDoctor
     import datetime
 
-    github_token = user.get("github_token") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    github_token = (
+        (user or {}).get("github_repo_token")
+        or os.environ.get("GH_PAT") 
+        or os.environ.get("GH_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+    )
     doctor = DirectChatDoctor(github_token=github_token)
 
     checks: list[_DoctorCheck] = []
@@ -5656,6 +6312,315 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     )
 
 
+@app.get("/api/doctor/public", response_model=_DoctorReport)
+async def get_public_doctor() -> _DoctorReport:
+    """Public Doctor endpoint — no authentication required.
+
+    Returns system-level diagnostics only (git, storage, provider health).
+    No user-specific checks (GitHub token, workspace, repo access).
+    """
+    import datetime
+    import shutil
+
+    checks: list[_DoctorCheck] = []
+
+    # 1. Git binary
+    git_ok = bool(shutil.which("git"))
+    checks.append(_DoctorCheck(
+        id="git_binary",
+        category="Setup",
+        label="Git binary",
+        status="pass" if git_ok else "fail",
+        detail="git found on PATH" if git_ok else "git not found on PATH",
+        explanation="Install git for repository operations" if not git_ok else None,
+    ))
+
+    # 2. Storage backend
+    try:
+        from db import get_store
+        store = get_store()
+        count = await store.count_companies() if hasattr(store, 'count_companies') else 0
+        checks.append(_DoctorCheck(
+            id="storage",
+            category="Storage",
+            label="Storage backend",
+            status="pass",
+            detail=f"Connected ({count} companies)",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="storage",
+            category="Storage",
+            label="Storage backend",
+            status="fail",
+            detail=f"Unavailable: {exc}",
+        ))
+
+    # 3. Provider health (Ollama reachability)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+            r = await client.get(f"{OLLAMA_BASE}/api/tags")
+            ollama_ok = r.status_code == 200
+    except Exception:
+        ollama_ok = False
+    checks.append(_DoctorCheck(
+        id="ollama",
+        category="Provider",
+        label="Ollama provider",
+        status="pass" if ollama_ok else "warn",
+        detail="Ollama reachable" if ollama_ok else "Ollama unreachable — start with ollama serve",
+        explanation="Ollama is the local LLM engine. Ensure it is running." if not ollama_ok else None,
+    ))
+
+    # 4. Runtime health
+    try:
+        mgr = get_runtime_manager()
+        runtimes = mgr.list_runtimes()
+        running = sum(1 for rt in runtimes if rt.get("available", False))
+        checks.append(_DoctorCheck(
+            id="runtimes",
+            category="Runtime",
+            label="Agent runtimes",
+            status="pass" if running > 0 else "warn",
+            detail=f"{running}/{len(runtimes)} runtimes available" if runtimes else "No runtimes registered",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="runtimes",
+            category="Runtime",
+            label="Agent runtimes",
+            status="warn",
+            detail=f"Could not query: {exc}",
+        ))
+
+    # 5. Feature gate status
+    workflow_mode = os.environ.get("AGENCY_WORKFLOW_MODE", "orchestrator")
+    checks.append(_DoctorCheck(
+        id="workflow_mode",
+        category="Feature",
+        label="Workflow mode",
+        status="pass" if workflow_mode == "orchestrator" else "warn",
+        detail=f"Golden path enforced ({workflow_mode})" if workflow_mode == "orchestrator" else f"Legacy mode ({workflow_mode})",
+        explanation="Set AGENCY_WORKFLOW_MODE=orchestrator for the production-grade golden path." if workflow_mode != "orchestrator" else None,
+    ))
+
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+    ready = fail_count == 0
+    summary = f"{pass_count}/{len(checks)} checks passing — {'healthy' if ready else 'action required'}"
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
+@app.get("/api/doctor/diagnostics", response_model=_DoctorReport)
+async def get_doctor_diagnostics(
+    user: dict = Depends(get_current_user),
+) -> _DoctorReport:
+    """Authenticated Doctor endpoint — full diagnostics.
+
+    Returns all system-level checks plus user-specific diagnostics:
+    GitHub token, workspace integrity, company graph health.
+    Requires authentication.
+    """
+    from agent.doctor import DirectChatDoctor
+    import datetime
+
+    # User-specific diagnostics: use ONLY the caller's own GitHub token, never
+    # the server-wide env fallback — otherwise a user with no GitHub connection
+    # would falsely report healthy against the host's token.
+    github_token = user.get("github_repo_token")
+    doctor = DirectChatDoctor(github_token=github_token)
+
+    checks: list[_DoctorCheck] = []
+
+    # 1. Preflight (GitHub token, git binary, repo access)
+    try:
+        preflight = await doctor.check_all()
+        if not preflight.issues:
+            checks.append(_DoctorCheck(
+                id="preflight",
+                category="Setup",
+                label="Git & GitHub setup",
+                status="pass",
+                detail="git found, GitHub token valid, repo accessible",
+            ))
+        else:
+            for issue in preflight.issues:
+                checks.append(_DoctorCheck(
+                    id=issue.code,
+                    category="Setup",
+                    label=issue.message[:80],
+                    status="fail",
+                    detail=issue.message,
+                    explanation=issue.fix_hint,
+                ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="preflight_error",
+            category="Setup",
+            label="Preflight checks",
+            status="warn",
+            detail=f"Could not run: {exc}",
+        ))
+
+    # 2. Company graph integrity
+    try:
+        # Use the same resolver as company creation so a user whose companies
+        # are owned by `_id` (not email) is matched correctly.
+        user_id = _wfo_resolve_user_id(user)
+        store = get_company_graph_store()
+        # list_companies returns a plain List[Company] (not a (list, total) tuple).
+        companies = await store.list_companies(owner_id=user_id, limit=10)
+        checks.append(_DoctorCheck(
+            id="company_graph",
+            category="Company",
+            label="Company Graph",
+            status="pass" if companies else "warn",
+            detail=f"{len(companies)} company(s) onboarded" if companies else "No companies onboarded yet",
+            explanation="Create a company via the Onboarding flow to start using the platform." if not companies else None,
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="company_graph",
+            category="Company",
+            label="Company Graph",
+            status="warn",
+            detail=f"Could not query: {exc}",
+        ))
+
+    # 3. Workspace integrity
+    workspace_root = os.environ.get("WORKSPACE_ROOT", str(ROOT_DIR))
+    workspace_exists = Path(workspace_root).exists()
+    checks.append(_DoctorCheck(
+        id="workspace",
+        category="Workspace",
+        label="Workspace",
+        status="pass" if workspace_exists else "fail",
+        detail=f"Workspace at {workspace_root}" if workspace_exists else f"Workspace not found: {workspace_root}",
+    ))
+
+    # 4. Skill library health
+    try:
+        from agent.skills import SkillLibrary
+        lib = SkillLibrary()
+        skill_count = len(lib.list())
+        checks.append(_DoctorCheck(
+            id="skills",
+            category="Skills",
+            label="Skill Library",
+            status="pass" if skill_count > 0 else "warn",
+            detail=f"{skill_count} skills loaded",
+        ))
+    except Exception:
+        checks.append(_DoctorCheck(
+            id="skills",
+            category="Skills",
+            label="Skill Library",
+            status="warn",
+            detail="Skill library unavailable",
+        ))
+
+    # 4b. Skill registry ("skills repos") connectivity — this is what the operator
+    # means by "skills repo connected": the GitHub-backed SkillRegistry that pulls
+    # skills from the configured registries (anthropics/skills, this repo, etc.).
+    try:
+        from agent.skill_registry import (
+            GITHUB_REGISTRIES,
+            get_skill_registry_safe,
+        )
+
+        registry = get_skill_registry_safe()
+        if registry is None:
+            checks.append(_DoctorCheck(
+                id="skill_registry",
+                category="Skills",
+                label="Skills Repos",
+                status="fail",
+                detail="Skill registry not initialised — skills repos are not connected.",
+                explanation="Set GITHUB_TOKEN so the server can fetch the configured "
+                "skill registries, then restart. Local .claude/skills still load without it.",
+            ))
+        else:
+            all_skills = registry.list()
+            local_n = sum(1 for s in all_skills if s.source == "local")
+            remote_sources = {
+                s.source for s in all_skills if s.source.startswith("github:")
+            }
+            n_registries = len(GITHUB_REGISTRIES)
+            if remote_sources:
+                checks.append(_DoctorCheck(
+                    id="skill_registry",
+                    category="Skills",
+                    label="Skills Repos",
+                    status="pass",
+                    detail=f"Connected: {len(remote_sources)}/{n_registries} skill "
+                    f"repos, {len(all_skills)} skills ({local_n} local).",
+                ))
+            else:
+                checks.append(_DoctorCheck(
+                    id="skill_registry",
+                    category="Skills",
+                    label="Skills Repos",
+                    status="warn",
+                    detail=f"{local_n} local skills loaded; {n_registries} remote skill "
+                    "repos configured but none fetched yet.",
+                    explanation="Remote skill repos load asynchronously and need network "
+                    "(and GITHUB_TOKEN to avoid rate limits). They will appear after the "
+                    "first refresh.",
+                ))
+    except Exception as exc:
+        log.exception("Skill registry check failed")
+        checks.append(_DoctorCheck(
+            id="skill_registry",
+            category="Skills",
+            label="Skills Repos",
+            status="warn",
+            detail="Skill registry check failed",
+        ))
+
+    # 5. Workflow orchestrator status
+    try:
+        from services.workflow_orchestrator import get_workflow_orchestrator
+        orchestrator = get_workflow_orchestrator()
+        # Scope run visibility to the caller (admins see all) so diagnostics
+        # never leak other tenants' recent activity.
+        owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+        runs = orchestrator.list_runs(limit=5, owner_id=owner_id)
+        checks.append(_DoctorCheck(
+            id="orchestrator",
+            category="Workflow",
+            label="Workflow Orchestrator",
+            status="pass",
+            detail=f"Active ({len(runs)} recent runs)",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="orchestrator",
+            category="Workflow",
+            label="Workflow Orchestrator",
+            status="warn",
+            detail=f"Not available: {exc}",
+        ))
+
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+    ready = fail_count == 0
+    summary = f"{pass_count}/{len(checks)} checks passing — {'healthy' if ready else 'action required'}"
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
+
 # ─── Feature Routers ────────────────────────────────────────────────────────────
 app.include_router(agent_router)
 app.include_router(runtime_router)
@@ -5665,9 +6630,125 @@ app.include_router(setup_router)
 app.include_router(activation_router)
 app.include_router(secrets_router)
 
+# Portfolio + Agile board API (powers the v5 PortfolioScreen)
+from agents.portfolio_api import portfolio_router
+app.include_router(portfolio_router)
+
+try:
+    from agents.agile_api import agile_router
+    app.include_router(agile_router)
+except Exception as _agile_err:
+    log.warning("Agile API not mounted: %s", _agile_err)
+
 # Company Graph API
+from services.company_graph_store import get_company_graph_store
 import backend.company_api as company_api_module
 app.include_router(company_api_module.router)
+
+# Workflow Orchestrator API --- canonical execution backbone
+from services.workflow_orchestrator import (
+    ExecutionRequest,
+    get_workflow_orchestrator,
+)
+
+
+from backend.company_api import _resolve_user_id as _wfo_resolve_user_id
+from backend.company_api import _is_admin as _wfo_is_admin
+from backend.company_api import get_company_access as _wfo_company_access
+
+
+def _wfo_owned_run_or_404(orchestrator, run_id: str, user: dict):
+    """Fetch a run, enforcing per-user ownership (admins bypass).
+
+    Returns 404 — not 403 — when a non-admin requests a run they don't own,
+    so run IDs can't be enumerated across tenants (IDOR-safe).
+    """
+    run = orchestrator.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    if not _wfo_is_admin(user):
+        if run.user_id != _wfo_resolve_user_id(user):
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return run
+
+
+@app.post("/api/workflow/orchestrator/execute")
+async def workflow_orchestrator_execute(
+    body: ExecutionRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Execute work through the 11-phase golden path."""
+    orchestrator = get_workflow_orchestrator()
+    is_admin = _wfo_is_admin(user)
+
+    # If a company is targeted, the caller must have access to it — otherwise a
+    # user could run/approve a workflow against another tenant's company and read
+    # its graph snapshot back via bound_context (cross-tenant leak).
+    if body.company_id:
+        await _wfo_company_access(body.company_id, user)
+
+    # auto_approve bypasses the HITL ApprovalGate and is for trusted/internal
+    # callers only.  Never honor it from a non-admin, user-facing request.
+    if not is_admin:
+        body.auto_approve = False
+
+    # Stamp the run with a stable, auth-method-agnostic owner id so it can be
+    # scoped on list/get/approve.  Same resolver as the company endpoints.
+    body.user_id = _wfo_resolve_user_id(user)
+    # Execution must act with the CALLER's GitHub permissions, never the
+    # server-wide service-account token.
+    body.github_token = user.get("github_repo_token")
+    run = await orchestrator.execute(body)
+    return {"status": run.status, "run": run.as_dict()}
+
+
+@app.post("/api/workflow/orchestrator/approve/{run_id}")
+async def workflow_orchestrator_approve(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Approve a run paused at the ApprovalGate and resume execution."""
+    orchestrator = get_workflow_orchestrator()
+    # Ownership check first — a user may only approve their own runs (admin: any).
+    _wfo_owned_run_or_404(orchestrator, run_id, user)
+    # Attribute the approval to the authenticated user — never an arbitrary
+    # client-supplied string (audit-log integrity).
+    approved_by = _wfo_resolve_user_id(user)
+    try:
+        run = await orchestrator.approve_and_resume(run_id, approved_by=approved_by)
+        return {"status": run.status, "run": run.as_dict()}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.get("/api/workflow/orchestrator/runs")
+async def workflow_orchestrator_list_runs(
+    limit: int = 50,
+    user: dict = Depends(get_current_user),
+):
+    """List recent workflow orchestrator runs.
+
+    Non-admin users see only their own runs; admins see every run.
+    """
+    orchestrator = get_workflow_orchestrator()
+    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+    return {
+        "runs": orchestrator.list_runs(limit=limit, owner_id=owner_id),
+        "scoped_to_user": owner_id is not None,
+    }
+
+
+@app.get("/api/workflow/orchestrator/runs/{run_id}")
+async def workflow_orchestrator_get_run(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Get a single workflow orchestrator run by ID (owner or admin only)."""
+    orchestrator = get_workflow_orchestrator()
+    run = _wfo_owned_run_or_404(orchestrator, run_id, user)
+    return {"run": run.as_dict()}
 
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.
@@ -5685,6 +6766,21 @@ except Exception as _mcp_err:
 
 # ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
+
+_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
+
+if _FRONTEND_BUILD.exists():
+    app.mount(
+        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
+    )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        index = _FRONTEND_BUILD / "index.html"
+        if index.exists():
+            return HTMLResponse(index.read_text())
+        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
+
 
 _FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
 

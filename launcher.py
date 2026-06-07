@@ -41,7 +41,7 @@ class ServiceManager:
             import httpx
             response = httpx.get("http://localhost:8000/health", timeout=2)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
     def check_ollama(self):
@@ -49,7 +49,7 @@ class ServiceManager:
             import httpx
             response = httpx.get("http://localhost:11434/api/tags", timeout=2)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
     def start_proxy(self):
@@ -80,8 +80,8 @@ class ServiceManager:
             self.status["proxy"] = "starting"
             return True
 
-        except Exception as e:
-            self.status["proxy"] = f"error: {str(e)}"
+        except Exception:
+            self.status["proxy"] = "error: failed to start proxy"
             return False
 
     def start_tunnel(self):
@@ -117,8 +117,8 @@ class ServiceManager:
 
             return True
 
-        except Exception as e:
-            self.status["tunnel"] = f"error: {str(e)}"
+        except Exception:
+            self.status["tunnel"] = "error: failed to start tunnel"
             return False
 
     def stop_proxy(self):

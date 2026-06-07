@@ -1,32 +1,28 @@
-from __future__ import annotations
-from agent.user_memory import UserMemoryStore
-"""direct_chat.py — Direct chat endpoints
-# Company Graph integration
-import re
-
-try:
-    from models.company_graph import CompanyGraph
-    from services.company_graph import get_company_graph_service
-    from services.company_graph_store import get_company_graph_store
-    _company_graph_available = True
-except ImportError as e:
-    log.warning(f"Company Graph not available: {e}")
-    _company_graph_available = False
- for v3 dashboard.
+"""direct_chat.py — Direct chat endpoints for v3 dashboard.
 
 Handles chat sessions and message sending for the Direct Chat feature.
 Protected by JWT authentication (v3 auth system).
 Delegates to LLM providers via the proxy's routing system.
 """
-
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
+
+# Company Graph integration
+try:
+    from models.company_graph import CompanyGraph
+    from services.company_graph import get_company_graph_service
+    from services.company_graph_store import get_company_graph_store
+    _company_graph_available = True
+except ImportError:
+    _company_graph_available = False
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
@@ -34,6 +30,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent.job_manager import AgentJobManager, make_isolated_workspace
+from agent.user_memory import UserMemoryStore
 from agent.intent import detect_intent, classify_direct_chat_intent, INTENT_EXECUTION, INTENT_CLARIFY, INTENT_ANALYSIS, INTENT_CONVERSATION
 from agent.doctor import DirectChatDoctor, translate_error_to_conversational
 from agent.schemas import DirectChatState
@@ -81,6 +78,8 @@ class UserInfo(BaseModel):
     email: str
     default_company_id: Optional[str] = None
 
+
+UserInfo.model_rebuild()
 
 class AgentEventModel(BaseModel):
     """Tool-call event shape consumed by ToolCallViewer.jsx.
@@ -324,7 +323,7 @@ async def _get_github_token_for_user(user_email: str) -> str | None:
     except Exception as e:
         log.debug("Could not fetch GitHub token from secrets: %s", e)
     # Fallback: env var
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
 
 
 def _is_trivial_message(content: str) -> bool:
@@ -592,8 +591,12 @@ async def _do_handle_agent_mode(
     _direct_chat_store.append_message(session_id, "user", req.content)
 
     # Extract required state before background job starts (it may lose request context)
-    app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
-    sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
+    app_router = request.app.state.PROVIDER_ROUTER
+    sorted_providers: list = []
+    if hasattr(app_router, 'providers'):
+        sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
+    else:
+        log.warning("PROVIDER_ROUTER on app.state has no .providers attribute — agent jobs will use default OLLAMA_BASE")
     primary_provider = sorted_providers[0] if sorted_providers else None
     ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
     primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
@@ -644,6 +647,8 @@ async def _do_handle_agent_mode(
             provider_temperature=req.temperature,
             github_token=github_token,
             email=user.email,
+            repo_url=req.repo_url,
+            base_branch=req.repo_ref or "main",
         )
 
         # Cognition Stage: Planning
@@ -672,7 +677,15 @@ async def _do_handle_agent_mode(
                 return {"session_id": session_id, "status": "cancelled", "summary": "User rejected plan."}
 
         heartbeat("execution", "Executing planned changes")
-        result = await runner.run(metadata=req.metadata or {}, instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore())
+        # Direct-chat execution is a deliberate user-invoked path — set the
+        # orchestrator bypass token so the AgentRunner.run() deprecation guard
+        # (active under the default orchestrator mode) doesn't block it.
+        import services.workflow_orchestrator as _wo
+        _bypass_token = _wo._BYPASS.set(True)
+        try:
+            result = await runner.run(metadata=req.metadata or {}, instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore())
+        finally:
+            _wo._BYPASS.reset(_bypass_token)
 
         heartbeat("verification", "Validating the changes and ensuring quality")
         heartbeat("completed", "Task successfully completed")

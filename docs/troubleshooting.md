@@ -36,6 +36,30 @@ Get-Content logs\proxy.log -Tail 50
 
 ## Startup Issues
 
+### Server starts but backend doesn't respond on port 8000
+
+**Symptom:** `curl http://localhost:8000/health` returns the proxy health check but `/api/auth/login` returns 401 "Missing API key".
+
+**Cause:** You're running `uvicorn proxy:app` (the API-key-gated proxy), but the main backend is at `backend.server:app`.
+
+**Fix:** Start the correct server:
+```bash
+uvicorn backend.server:app --host 0.0.0.0 --port 8001
+```
+
+`proxy.py` is the API-key-gated proxy that sits in front of Ollama — it does **not** serve the login, dashboard, wiki, or company graph endpoints. The main backend application is `backend/server.py` (runs on port 8001, with the frontend React dev server proxying to it).
+
+### Frontend dev server fails to start (Node 22+)
+
+**Symptom:** `npm start` in `frontend/` exits with `Invalid configuration object. Webpack has been initialized using a configuration object that does not match the API schema` mentioning `onAfterSetupMiddleware`.
+
+**Cause:** `react-scripts@5.0.1` bundles a version of `webpack-dev-server` that removed the `onAfterSetupMiddleware` option in newer releases.
+
+**Fix:** Use the pre-built frontend from `frontend/build/` which is served automatically by the backend's static file mount. Or build the frontend manually:
+```bash
+cd frontend && npx react-scripts build
+```
+
 ### Proxy fails to start
 
 **Symptom:** `.\start_server.ps1` completes but `curl http://localhost:8000/health` returns "connection refused"
@@ -274,6 +298,40 @@ The bot calls the proxy's admin API. Check:
 - The proxy is running: `curl http://localhost:8000/health`
 
 ---
+
+## Runtime & Onboarding Issues
+
+### Runtime endpoints return 500 errors (decisions, health, policy)
+
+**Symptom:** `GET /runtimes/decisions`, `GET /runtimes/health`, or `PUT /runtimes/policy` return HTTP 500 with `AttributeError: 'RuntimeManager' object has no attribute`.
+
+**Fix:** This was a bug fixed in the latest release. Ensure you're running the latest `runtimes/manager.py` which has the three missing delegate methods (`get_decision_log`, `update_policy`, `health_summary`). Update by pulling the latest code:
+```bash
+git pull origin master
+```
+
+### Onboarding endpoints crash with 500
+
+**Symptom:** `POST /api/company/{id}/onboarding/start` or `/pause`/`/resume` return HTTP 500 with `NameError: name 'get_onboarding_service' is not defined`.
+
+**Fix:** This was a missing import in `backend/company_api.py`. Fixed by adding `get_onboarding_service` to the import statement. Update by pulling the latest code:
+```bash
+git pull origin master
+```
+
+### Website scan returns "No systems detected" for JS-rendered sites
+
+**Symptom:** Scanning sites like gucci.com returns no detected technologies.
+
+**Cause:** These sites are JS-rendered behind bot protection — a plain HTTP fetch gets an empty SPA shell. The scanner needs Playwright + headless Chromium installed.
+
+**Fix:** Install Playwright with Chromium:
+```bash
+pip install playwright
+playwright install --with-deps chromium
+```
+
+In Docker, this is handled automatically — the `Dockerfile` includes `RUN playwright install --with-deps chromium`.
 
 ## Agent API Issues
 

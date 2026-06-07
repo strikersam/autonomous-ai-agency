@@ -89,6 +89,57 @@ class DetectedIssue:
         ]
         return "\n".join(parts)
 
+    def to_github_issue_body(self, *, full_traceback: str = "", git_context: str = "") -> str:
+        """Build a rich, structured GitHub issue body with actionable context.
+
+        Unlike the plain to_instruction(), this method produces a detailed
+        issue body suitable for human/agent triage, including per-test
+        tracebacks, git blame hints, and fix suggestions.
+        """
+        sections = [
+            f"## Auto-Detected Issue: {self.title}",
+            "",
+            f"**Category:** `{self.category.value}`",
+            f"**Severity:** `{self.severity.value}`",
+            f"**Detected at:** {self.detected_at}",
+            "",
+        ]
+        if self.file_path:
+            sections.append(f"**File:** `{self.file_path}`")
+        if self.line_number:
+            sections.append(f"**Line:** {self.line_number}")
+        sections.append("")
+
+        if full_traceback:
+            sections.append("### Failure Traceback")
+            sections.append("```")
+            sections.append(full_traceback[:8000])
+            sections.append("```")
+            sections.append("")
+
+        sections.append("### Description")
+        sections.append(self.description)
+        sections.append("")
+
+        if self.file_path:
+            sections.append("### Suggested Investigation")
+            sections.append(f"1. Read `{self.file_path}` to understand the failing code")
+            sections.append(f"2. Run `pytest -x --tb=long {self.file_path}` to reproduce the failure")
+            sections.append("3. Fix the implementation, not the test expectations")
+            sections.append("4. Never skip or mock tests to hide failures")
+            sections.append("5. Update `docs/changelog.md` under `[Unreleased] ### Fixed`")
+            sections.append("")
+
+        if git_context:
+            sections.append("### Recent Changes to Affected Files")
+            sections.append("```")
+            sections.append(git_context[:2000])
+            sections.append("```")
+            sections.append("")
+
+        sections.append("_Auto-detected by the ImprovementLoop scanner._")
+        return "\n".join(sections)
+
 
 @dataclass
 class ImprovementLoopState:
@@ -207,8 +258,8 @@ class ImprovementLoop:
 
     def _scan_test_failures(self) -> list[DetectedIssue]:
         try:
-            result = subprocess.run(
-                ["python", "-m", "pytest", "--tb=no", "-q", "--no-header"],
+            result = subprocess.run(  # nosec
+                ["python", "-m", "pytest", "--tb=short", "-q", "--no-header"],
                 capture_output=True,
                 text=True,
                 cwd=str(self._repo_root),
@@ -232,20 +283,66 @@ class ImprovementLoop:
             with self._lock:
                 self._state.failing_tests = failing[:20]
 
-            return [
-                DetectedIssue(
+            issues: list[DetectedIssue] = []
+            for test in failing[:5]:
+                test_file = test.split("::")[0] if "::" in test else None
+
+                # Capture per-test full traceback for rich context
+                full_traceback = ""
+                git_context = ""
+                try:
+                    tb_result = subprocess.run(  # nosec
+                        ["python", "-m", "pytest", test, "--tb=long", "-q", "--no-header"],
+                        capture_output=True,
+                        text=True,
+                        cwd=str(self._repo_root),
+                        timeout=60,
+                    )
+                    full_traceback = (tb_result.stdout + tb_result.stderr)[:8000]
+                except Exception:
+                    log.debug("Could not capture per-test traceback for %s", test)
+
+                # Capture git log for the test file to help identify recent regressions
+                if test_file:
+                    try:
+                        git_log = subprocess.run(  # nosec
+                            ["git", "log", "--oneline", "-5", "--", test_file],
+                            capture_output=True,
+                            text=True,
+                            cwd=str(self._repo_root),
+                            timeout=10,
+                        )
+                        if git_log.returncode == 0 and git_log.stdout.strip():
+                            git_context = git_log.stdout.strip()
+                    except Exception:
+                        log.debug("Could not capture git log for %s", test_file)
+
+                description_parts = [
+                    f"The test `{test}` is currently failing.",
+                    "",
+                ]
+                if full_traceback:
+                    description_parts.append(
+                        f"**Full traceback:**\n```\n{full_traceback}\n```"
+                    )
+                else:
+                    description_parts.append(
+                        f"**Suite output:**\n```\n{output[:2000]}\n```"
+                    )
+                if git_context:
+                    description_parts.append(
+                        f"\n**Recent commits touching this file:**\n```\n{git_context}\n```"
+                    )
+
+                issues.append(DetectedIssue(
                     issue_id="tf_" + secrets.token_hex(4),
                     category=IssueCategory.TEST_FAILURE,
                     severity=IssueSeverity.HIGH,
                     title=f"Failing test: {test}",
-                    description=(
-                        f"The test `{test}` is currently failing.\n"
-                        f"Output:\n```\n{output[:1000]}\n```"
-                    ),
-                    file_path=test.split("::")[0] if "::" in test else None,
-                )
-                for test in failing[:5]
-            ]
+                    description="\n".join(description_parts),
+                    file_path=test_file,
+                ))
+            return issues
         except subprocess.TimeoutExpired:
             log.warning("ImprovementLoop: pytest timed out")
         except Exception as exc:
@@ -254,7 +351,7 @@ class ImprovementLoop:
 
     def _scan_todo_fixme(self) -> list[DetectedIssue]:
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec
                 ["grep", "-rn", "--include=*.py", "-E", r"FIXME|TODO.?FIX|HACK.?URGENT", "."],
                 capture_output=True,
                 text=True,

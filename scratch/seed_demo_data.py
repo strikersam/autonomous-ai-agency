@@ -2,10 +2,13 @@
 """Seed demo agents, tasks, and wiki pages so the dashboard screenshots tell a story."""
 import asyncio
 import json
+import os
 import sys
 import urllib.request
 
 BASE = "http://localhost:8001"
+ADMIN_EMAIL = "admin@llmrelay.local"
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]  # required — set before running
 
 
 def req(method, path, body=None, token=None):
@@ -25,7 +28,7 @@ def req(method, path, body=None, token=None):
 
 
 def login():
-    s, body = req("POST", "/api/auth/login", {"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"})
+    s, body = req("POST", "/api/auth/login", {"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     assert s == 200, body
     return body["access_token"]
 
