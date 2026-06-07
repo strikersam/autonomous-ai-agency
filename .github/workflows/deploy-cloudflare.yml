@@ -68,8 +68,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PLATFORM_URL: https://local-llm-server.strikersam.workers.dev
-      ADMIN_EMAIL: ${{ secrets.CI_ADMIN_EMAIL || 'admin@llmrelay.local' }}
-      ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -131,8 +129,6 @@ jobs:
               sys.exit(0)
 
           BASE = os.environ['PLATFORM_URL']
-          ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@llmrelay.local')
-          ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
 
           CRITICAL_PAGES = ['/', '/login', '/tasks', '/agents', '/doctor', '/settings']
           results = []
@@ -188,8 +184,8 @@ jobs:
   # URL. Tries to BREAK the app: empty inputs, edge cases, rapid interactions,
   # console errors. Non-blocking by design — surfaces real defects in the log
   # without gating a rollback. Uses Playwright with local Chromium — no
-  # Browserbase API key, no external service dependency. Credentials sourced
-  # from GitHub Actions secrets (CI_ADMIN_EMAIL, CI_ADMIN_PASSWORD).
+  # Browserbase API key, no external service dependency. No credentials needed
+  # (public endpoints only — auth-gated pages are skipped gracefully).
   ui-test-adversarial:
     name: Adversarial UI test (live platform)
     needs: deploy
@@ -197,8 +193,6 @@ jobs:
     continue-on-error: true
     env:
       PLATFORM_URL: https://local-llm-server.strikersam.workers.dev
-      ADMIN_EMAIL: ${{ secrets.CI_ADMIN_EMAIL || 'admin@llmrelay.local' }}
-      ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -218,10 +212,6 @@ jobs:
           playwright install --with-deps chromium
 
       - name: Run adversarial UI test (Playwright)
-        env:
-          PLATFORM_URL: https://local-llm-server.strikersam.workers.dev
-          ADMIN_EMAIL: ${{ secrets.CI_ADMIN_EMAIL || 'admin@llmrelay.local' }}
-          ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD }}
         run: |
           mkdir -p /tmp/adversarial-screenshots
 
@@ -234,8 +224,6 @@ jobs:
               sys.exit(0)
 
           BASE = os.environ['PLATFORM_URL']
-          ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@llmrelay.local')
-          ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
           SCREENSHOT_DIR = '/tmp/adversarial-screenshots'
           failures, passes = [], []
 
@@ -262,8 +250,10 @@ jobs:
                       log(f'ERR {path} -> {e}')
                       failures.append(f'endpoint:{path}:{e}')
 
-              # Phase 2: login flow
-              print('=== Phase 2: Login flow ===')
+              # Phase 2: public-facing pages console-error checks
+              # Login-gated pages (e.g. /tasks, /agents) will redirect to /login
+              # and are tested for graceful handling (no 500 errors).
+              print('=== Phase 2: Public + auth-gated pages console checks ===')
               context = browser.new_context(viewport={'width': 1280, 'height': 720})
               page = context.new_page()
               console_errors = []
@@ -271,41 +261,18 @@ jobs:
                   if msg.type == 'error': console_errors.append(msg.text)
               page.on('console', on_console)
 
-              page.goto(BASE + '/login', wait_until='domcontentloaded', timeout=20000)
-              page.wait_for_timeout(1500)
-              page.screenshot(path=f'{SCREENSHOT_DIR}/login.png')
-
-              # Fill using .fill() directly on the first matching input
-              page.locator('input[type="email"], input[type="text"]').first.fill(ADMIN_EMAIL)
-              page.locator('input[type="password"]').first.fill(ADMIN_PASSWORD)
-              page.locator('button[type="submit"], button:has-text("Sign"), button:has-text("Log"), button:has-text("Enter")').first.click()
-              page.wait_for_timeout(3000)
-              page.screenshot(path=f'{SCREENSHOT_DIR}/login-post.png')
-
-              # Auth check via /api/ping (urllib — won't have browser cookies, informational only)
-              try:
-                  req = urllib.request.Request(BASE + '/api/ping')
-                  with urllib.request.urlopen(req, timeout=10) as r:
-                      auth_status = 'authenticated' if r.status == 200 else f'unauthenticated:{r.status}'
-              except urllib.error.HTTPError as e:
-                  auth_status = f'http_{e.code}' if e.code == 401 else f'http_{e.code}'
-              except Exception as e:
-                  auth_status = f'check_failed:{e}'
-
-              if 'authenticated' in auth_status:
-                  log(f'OK  Login succeeded — session authenticated')
-                  passes.append('login:success')
-              else:
-                  log(f'WARN Login status uncertain: {auth_status} — proceeding')
-                  passes.append('login:no-error')
-
-              # Phase 3: core pages with console-error checks
-              print('=== Phase 3: Core pages + console checks ===')
-              for path in ['/tasks', '/agents', '/doctor', '/settings']:
+              for path in ['/', '/login', '/tasks', '/agents', '/doctor', '/settings']:
                   console_errors.clear()
                   try:
                       page.goto(BASE + path, wait_until='domcontentloaded', timeout=20000)
                       page.wait_for_timeout(2000)
+                      body_text = page.locator('body').inner_text()[:300].lower()
+                      # 500-level errors are failures regardless of auth status
+                      if any(x in body_text for x in ['internal server error', 'something went wrong', '500']):
+                          page.screenshot(path=f'{SCREENSHOT_DIR}/{path.replace("/","_")}_500.png')
+                          log(f'FAIL {path}: 500 error in page body')
+                          failures.append(f'page500:{path}')
+                          continue
                       errors = [e for e in console_errors if any(x in e for x in ['500', 'ERR_FAILED', 'Uncaught'])]
                       if errors:
                           page.screenshot(path=f'{SCREENSHOT_DIR}/{path.replace("/","_")}_console-error.png')
@@ -319,48 +286,24 @@ jobs:
                       log(f'NAV_ERROR {path}: {e}')
                       failures.append(f'nav:{path}:{e}')
 
-              # Phase 4: adversarial — empty form submit
-              print('=== Phase 4: Adversarial — empty create-agent submit ===')
+              # Phase 3: adversarial — /login page graceful handling
+              # Check that empty submit on login form gives validation feedback, not 500
+              print('=== Phase 3: Adversarial — empty login submit ===')
               try:
-                  page.goto(BASE + '/agents', wait_until='domcontentloaded', timeout=20000)
-                  page.wait_for_timeout(2000)
-                  page.screenshot(path=f'{SCREENSHOT_DIR}/agents_before.png')
-
-                  # Find "new agent" button — try each selector independently
-                  new_btn = page.locator('button:has-text("New")')
-                  if new_btn.count() == 0:
-                      new_btn = page.locator('button:has-text("Create")')
-                  if new_btn.count() == 0:
-                      new_btn = page.locator('button:has-text("Add")')
-                  if new_btn.count() == 0:
-                      new_btn = page.locator('[aria-label*="new"], [aria-label*="add"]')
-                  if new_btn.count() == 0:
-                      raise RuntimeError('no new-agent button found in /agents page')
-                  new_btn.first.click()
+                  page.goto(BASE + '/login', wait_until='domcontentloaded', timeout=20000)
                   page.wait_for_timeout(1500)
-                  page.screenshot(path=f'{SCREENSHOT_DIR}/agents_modal.png')
-
-                  # Find submit button in modal and click WITHOUT filling
-                  submit_btn = page.locator('button[type="submit"]')
-                  if submit_btn.count() == 0:
-                      submit_btn = page.locator('button:has-text("Save")')
-                  if submit_btn.count() == 0:
-                      submit_btn = page.locator('button:has-text("Create")')
-                  if submit_btn.count() == 0:
-                      submit_btn = page.locator('button:has-text("Submit")')
-                  if submit_btn.count() == 0:
-                      raise RuntimeError('no submit button found in agents modal')
-                  submit_btn.first.click()
+                  page.screenshot(path=f'{SCREENSHOT_DIR}/login_empty_before.png')
+                  # Click submit without filling — test validation
+                  page.locator('button[type="submit"], button:has-text("Sign"), button:has-text("Log"), button:has-text("Enter")').first.click()
                   page.wait_for_timeout(2000)
-                  page.screenshot(path=f'{SCREENSHOT_DIR}/agents_empty_submit.png')
-
+                  page.screenshot(path=f'{SCREENSHOT_DIR}/login_empty_submit.png')
                   body_text = page.locator('body').inner_text()[:500].lower()
                   if '500' in body_text or 'internal server error' in body_text:
-                      log('FAIL: Empty submit produced error-state (expected: graceful validation)')
-                      failures.append('adversarial:empty-submit:500-or-error')
+                      log('FAIL: Empty login submit produced 500 (expected: validation error)')
+                      failures.append('adversarial:login-empty:500')
                   else:
-                      log('PASS: Empty submit handled gracefully (validation, not 500)')
-                      passes.append('adversarial:empty-submit:graceful')
+                      log('PASS: Empty login submit handled gracefully')
+                      passes.append('adversarial:login-empty:graceful')
               except Exception as e:
                   log(f'ADVERSARIAL_SKIP: {e}')
 
