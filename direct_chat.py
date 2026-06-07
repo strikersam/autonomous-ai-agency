@@ -1,16 +1,19 @@
-from __future__ import annotations
-from agent.user_memory import UserMemoryStore
 """direct_chat.py — Direct chat endpoints for v3 dashboard.
 
 Handles chat sessions and message sending for the Direct Chat feature.
 Protected by JWT authentication (v3 auth system).
 Delegates to LLM providers via the proxy's routing system.
 """
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import os
 import re
+import uuid
+from pathlib import Path
+from typing import Annotated, Any, Optional
 
 # Company Graph integration
 try:
@@ -20,10 +23,6 @@ try:
     _company_graph_available = True
 except ImportError:
     _company_graph_available = False
-import os
-import uuid
-from pathlib import Path
-from typing import Annotated, Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
@@ -31,6 +30,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent.job_manager import AgentJobManager, make_isolated_workspace
+from agent.user_memory import UserMemoryStore
 from agent.intent import detect_intent, classify_direct_chat_intent, INTENT_EXECUTION, INTENT_CLARIFY, INTENT_ANALYSIS, INTENT_CONVERSATION
 from agent.doctor import DirectChatDoctor, translate_error_to_conversational
 from agent.schemas import DirectChatState
