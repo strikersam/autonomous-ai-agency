@@ -188,6 +188,7 @@
   role value, updates MongoDB, and emits an audit event.
 
 ### Changed
+- **`deploy-cloudflare.yml` — now triggers on every push to master (post-PR-merge).** Added `branches: [master]` to the push trigger so the Cloudflare Workers deploy runs automatically after every merged PR. The existing `concurrency: cloudflare-deploy` group with `cancel-in-progress: true` handles rapid merges safely. This is the CI equivalent of `git pull origin master && wrangler deploy`.
 - **`portfolio-refresh.yml`** — the 6-hourly refresh cron now reads the backend origin from the existing `RENDER_BACKEND_URL` secret (was a new `BACKEND_URL` repo variable), so no extra config is needed to ping the deployed dashboard.
 - **`process-quick-note.yml`** — PR creation now uses `--draft` (suppresses CodeRabbit/Copilot auto-reviews on implementation PRs). Branch creation detects and reuses an existing `claude/context-issue-N` branch so implementation commits land on the pre-built draft PR instead of opening a duplicate.
 - **CI no longer runs on draft PRs or docs-only context commits.** `paths-ignore: ["docs/context/**"]` added to the push/pull_request triggers of `ci.yml`, `e2e.yml`, `browser-e2e.yml`, `security-gate.yml`, `changelog-check.yml`, `security-scan.yml`, plus `if: github.event.pull_request.draft == false` job guards on `ci.yml`, `e2e.yml`, `browser-e2e.yml`, `security-gate.yml`, `changelog-check.yml`. Draft status only stops review bots, not GitHub Actions — these guards stop auto-generated context draft PRs from triggering the full CI suite.
