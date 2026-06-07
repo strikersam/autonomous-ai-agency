@@ -9,15 +9,8 @@
   "observability": {
     "enabled": true
   },
-  // Build the React app, then serve it. The app is served at the origin root and
-  // talks to /api on the same origin (proxied to Render by worker/index.js), so no
-  // REACT_APP_BACKEND_URL is set — frontend/src/api.js falls back to window.location.origin.
-  "build": {
-    // Strip CRA's `_redirects` (/* /index.html 200): Cloudflare Workers Assets rejects
-    // it as an infinite loop, and `not_found_handling: single-page-application` below
-    // already provides SPA fallback.
-    "command": "cd frontend && npm install --legacy-peer-deps && CI=false PUBLIC_URL=/ REACT_APP_BACKEND_URL= npm run build && rm -f build/_redirects"
-  },
+  // The React SPA is built by the CI/CD workflow (GitHub Actions) before wrangler runs.
+  // No build.command here — the workflow handles: npm install + npm run build + _redirects cleanup.
   "assets": {
     "directory": "frontend/build",
     "binding": "ASSETS",
