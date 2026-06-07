@@ -279,6 +279,15 @@ export const approveTaskCheckpoint = (id, data) => API.post(`/api/tasks/${id}/ap
 export const getTaskCounts = () => API.get('/api/tasks/counts');
 export const getDueSoonTasks = (withinHours = 24) =>
   API.get('/api/tasks/due-soon', { params: { within_hours: withinHours } });
+export const followUpTask = (id, data) => API.post(`/api/tasks/${id}/follow-up`, data);
+export const clarifyTask = (id, data) => API.patch(`/api/tasks/${id}/clarify`, data);
+
+// ── Agile sprints ─────────────────────────────────────────────────────────────
+export const fetchSprints = () => API.get('/api/agile/sprints');
+export const createSprint = (data) => API.post('/api/agile/sprints', data);
+export const startSprint = (id, data = {}) => API.post(`/api/agile/sprints/${id}/start`, data);
+export const completeSprint = (id) => API.post(`/api/agile/sprints/${id}/complete`);
+export const fetchVelocity = () => API.get('/api/agile/velocity');
 
 // ── Agents (v3) ───────────────────────────────────────────────────────────────
 export const listAgents = () => API.get('/api/agents/');
