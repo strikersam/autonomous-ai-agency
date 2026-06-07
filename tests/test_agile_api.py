@@ -1,19 +1,16 @@
 """Tests for /api/agile/* endpoints."""
 from __future__ import annotations
 
+import os
+
 import pytest
-from fastapi.testclient import TestClient
-
-
-@pytest.fixture()
-def client(backend_app):
-    return TestClient(backend_app)
 
 
 @pytest.fixture()
 def auth_headers(client):
     """Get auth headers for an admin user."""
-    resp = client.post("/api/auth/login", json={"email": "admin@test.local", "password": "testpass"})
+    admin_password = os.environ.get("ADMIN_PASSWORD", "")
+    resp = client.post("/api/auth/login", json={"email": "admin@test.local", "password": admin_password})
     if resp.status_code == 200:
         token = resp.json().get("access_token") or resp.json().get("token")
         if token:
