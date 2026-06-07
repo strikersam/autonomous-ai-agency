@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,13 @@ from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
 from router import get_router
+
+# Durable agent checkpointing — soft import so the runner works even without the module
+try:
+    from agent.checkpoint import checkpoint_agent_state
+except ImportError:
+    checkpoint_agent_state = None  # type: ignore[assignment]
+    log.debug("agent/checkpoint.py not available — checkpointing disabled")
 
 log = logging.getLogger("qwen-agent")
 _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "analyze"})
@@ -202,6 +210,11 @@ class AgentRunner:
         # Store current session_id for use by helper methods that need to
         # write into the durable session event log (e.g., tool_call/tool_result).
         self._current_session_id = session_id
+        # Initialised before the try block so the finally handler can safely
+        # reference them even when an exception occurs before assignment.
+        plan: Any = None
+        step_results: list[dict[str, Any]] = []
+        commits: list[str] = []
         # Keep the current session marker for the duration of the run so
         # helper methods like _run_tool can write durable events to the
         # correct session. Ensure it is cleared on exit.
@@ -232,6 +245,21 @@ class AgentRunner:
             )
             self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
+            # ── Durable checkpoint: snapshot agent state after planning ──
+            if session_id and checkpoint_agent_state is not None:
+                try:
+                    checkpoint_agent_state(
+                        session_id=session_id,
+                        step_index=0,
+                        goal=plan.goal,
+                        plan_steps=[s.model_dump() for s in plan.steps],
+                        completed_steps=[],
+                        tool_call_history=[],
+                        scratchpad_raw=str(plan.goal),
+                    )
+                except Exception:
+                    log.debug("Checkpoint after plan failed (non-fatal)", exc_info=True)
+
             # A5: Publish plan creation event on the inter-agent message bus
             try:
                 from services.agent_bus import get_agent_bus
@@ -239,8 +267,7 @@ class AgentRunner:
             except Exception:
                 pass
 
-            step_results: list[dict[str, Any]] = []
-            commits: list[str] = []
+
 
             # Warn about risky steps before executing
             for step in plan.steps[:max_steps]:
@@ -271,6 +298,25 @@ class AgentRunner:
                 condensed = ContextManager.condense_step_result(result)
                 self._log_event(session_id, "step_complete", condensed)
                 step_results.append(result)
+
+                # ── Durable checkpoint: snapshot after each step ──
+                if session_id and checkpoint_agent_state is not None:
+                    try:
+                        error_raw = result.get("issues")
+                        error_str = "; ".join(error_raw) if isinstance(error_raw, list) else str(error_raw) if error_raw else None
+                        checkpoint_agent_state(
+                            session_id=session_id,
+                            step_index=step.id,
+                            goal=plan.goal,
+                            plan_steps=[s.model_dump() for s in plan.steps],
+                            completed_steps=[s["id"] for s in step_results if isinstance(s, dict) and s.get("status") == "applied"],
+                            tool_call_history=result.get("observations", []),
+                            scratchpad_raw=str(condensed.get("description", "")),
+                            error_info=error_str,
+                        )
+                    except Exception:
+                        log.debug("Checkpoint after step failed (non-fatal)", exc_info=True)
+
                 if auto_commit and result["status"] == "applied" and result["changed_files"]:
                     commit = self._commit_step(step_data["description"], result["changed_files"])
                     if commit:
@@ -396,6 +442,26 @@ class AgentRunner:
                 "pr_url": pr_url,
             }
         finally:
+            # ── Durable checkpoint: snapshot on error for crash-recovery ──
+            if self._current_session_id and checkpoint_agent_state is not None:
+                try:
+                    exc_type, exc_value, _ = sys.exc_info()
+                    if exc_type is not None:
+                        plan_steps_list = [s.model_dump() for s in plan.steps] if plan is not None and hasattr(plan, "steps") and plan.steps else []
+                        step_index = plan_steps_list[-1]["id"] if plan_steps_list else 0
+                        goal_str = plan.goal if plan is not None and hasattr(plan, "goal") else instruction
+                        completed = [s["id"] for s in step_results if isinstance(s, dict) and s.get("status") == "applied"]
+                        checkpoint_agent_state(
+                            session_id=self._current_session_id,
+                            step_index=step_index,
+                            goal=goal_str,
+                            plan_steps=plan_steps_list,
+                            completed_steps=completed,
+                            tool_call_history=[],
+                            error_info=str(exc_value) if exc_value else "AgentRunner exception",
+                        )
+                except Exception:
+                    log.debug("Error checkpoint failed (non-fatal)", exc_info=True)
             # Clear the ephemeral session marker to avoid accidental cross-session writes
             self._current_session_id = None
 

@@ -2,6 +2,8 @@
 
 - **Agency Core v5 hardening — Phases 1-4 (SkillBindings, WorkflowOrchestrator, Doctor route split, Dashboard resilience).**
 - **Durable agent checkpointing (`agent/checkpoint.py`).** New `CheckpointStore` with save/restore/list/delete operations for crash-recovery. `checkpoint_agent_state()` snapshots AgentRunner state (goal, plan steps, tool call history, scratchpad) at key lifecycle points. `restore_agent_state()` returns structured resume data. File-backed persistence under `.data/checkpoints/`. 13 tests in `tests/test_checkpoint.py`.
+- **Checkpointing integrated into AgentRunner lifecycle (`agent/loop.py`).** `checkpoint_agent_state()` called at 3 lifecycle points: after plan generation, after each step execution, and in the finally block on errors for crash-recovery. Soft import (non-fatal if `agent/checkpoint.py` is missing). Pre-initialised `plan`/`step_results`/`commits` before the try block for safe finally access.
+- **Schema.org JSON-LD structured data** added to `index.html` (`SoftwareApplication`), `docs/index.html` (`TechArticle`), and `frontend/public/index.html` (`WebApplication`) for improved SEO and search-engine discoverability of the Agency Core v5 platform.
 
   *Phase 1 — Skill Wiring:* `services/skill_bindings.py` with 28 typed runtime skills (7 production, 19 gated);
   `models/company_graph.py` now stores `bound_skills` on Specialist; specialist auto-binding + `get_bound_skills()`;
