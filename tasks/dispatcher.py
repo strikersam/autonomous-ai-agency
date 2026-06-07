@@ -7,6 +7,7 @@ import logging
 import os
 import time
 
+from tasks.models import TaskStatus
 from tasks.service import TaskExecutionCoordinator
 from tasks.store import TaskStore, get_task_store
 
@@ -18,6 +19,17 @@ _QUEUE_DEPTH_LOG_EVERY = 12  # ~1 min at 5 s poll interval
 # How often (in polls) to run the stranded-task reconciler.
 # Default: every 60 polls ≈ 5 minutes at 5 s poll interval.
 _RECONCILE_EVERY = int(os.environ.get("TASK_RECONCILE_EVERY_POLLS", "60"))
+
+# How often (in polls) to run the blocked-task auto-retry.
+# Default: every 30 polls ≈ 2.5 minutes at 5 s poll interval.
+_AUTO_RETRY_BLOCKED_EVERY = int(os.environ.get("TASK_AUTO_RETRY_BLOCKED_EVERY_POLLS", "30"))    # A BLOCKED task must have been blocked for at least this many seconds
+# before the dispatcher will auto-retry it.  Prevents hammering a task that
+# was just blocked moments ago.
+_BLOCKED_COOLDOWN_S = float(os.environ.get("TASK_BLOCKED_COOLDOWN_SEC", "300"))  # 5 min default
+
+# Maximum number of times the dispatcher will auto-retry a BLOCKED task.
+# Beyond this limit the task stays BLOCKED until a human intervenes.
+_AUTO_RETRY_MAX = int(os.environ.get("TASK_AUTO_RETRY_MAX", "5"))
 
 # A task is "stranded" if it has been IN_PROGRESS without completing for this
 # many seconds.  Default is 2× the coordinator's default execution timeout (150 s).
@@ -104,6 +116,10 @@ class TaskDispatcher:
         if _RECONCILE_EVERY > 0 and self._poll_count % _RECONCILE_EVERY == 0:
             await self._reconcile()
 
+        # Periodic auto-retry of BLOCKED tasks that have cooled down.
+        if _AUTO_RETRY_BLOCKED_EVERY > 0 and self._poll_count % _AUTO_RETRY_BLOCKED_EVERY == 0:
+            await self._auto_retry_blocked()
+
         tasks = await self.store.list_pending(limit=self.max_concurrency)
 
         # Emit periodic queue-depth diagnostic
@@ -148,6 +164,71 @@ class TaskDispatcher:
         else:
             log.info("TaskDispatcher: executing task %s", task_id)
         await self.coordinator.execute(task_id)
+
+    async def _auto_retry_blocked(self) -> None:
+        """Re-queue BLOCKED tasks that have cooled down and are ready for retry."""
+        import time as _time
+
+        try:
+            blocked_tasks = await self.store.list_blocked(limit=self.max_concurrency)
+            if not blocked_tasks:
+                return
+
+            now = _time.time()
+            retried = 0
+            for task in blocked_tasks:
+                # Skip tasks that haven't cooled down yet
+                if task.updated_at and (now - task.updated_at) < _BLOCKED_COOLDOWN_S:
+                    continue
+                # Respect the auto-retry limit to prevent infinite retry loops
+                if task.auto_retry_count >= _AUTO_RETRY_MAX:
+                    log.debug(
+                        "TaskDispatcher: task %s hit auto-retry limit (%d), leaving blocked",
+                        task.task_id, task.auto_retry_count,
+                    )
+                    continue
+                # Use the TaskWorkflowService.retry() to safely transition the task
+                # back to IN_PROGRESS.  After retry() transitions the status and sets
+                # pending_agent_run=True, we reset it to False so the task is not
+                # picked up again in the same poll cycle — it waits for the next
+                # _poll_and_execute() loop iteration after the sleep interval.
+                try:
+                    self.coordinator.workflow.retry(task, actor="system:auto-retry")
+                    # After retry(), the task is IN_PROGRESS with pending_agent_run=True.
+                    # For the dispatcher to pick it up on the NEXT poll cycle (not the
+                    # same cycle), put it back in TODO state so list_pending() sees it.
+                    # This gives the runtime ~5s+ to recover between retry attempts.
+                    task.status = TaskStatus.TODO
+                    task.auto_retry_count += 1
+                    task.add_log(
+                        f"Auto-retry #{task.auto_retry_count} triggered by dispatcher",
+                        level="info",
+                        event_type="auto_retry",
+                        actor="system:auto-retry",
+                        task_status=TaskStatus.TODO,
+                    )
+                    await self.store.update(task)
+                    retried += 1
+                    log.info(
+                        "TaskDispatcher auto-retry: re-queued blocked task %s "
+                        "(attempt #%d, was blocked since %s)",
+                        task.task_id,
+                        task.auto_retry_count,
+                        _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime(task.updated_at or now)),
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "TaskDispatcher auto-retry: failed to re-queue task %s: %s",
+                        task.task_id, exc,
+                    )
+
+            if retried:
+                log.info(
+                    "TaskDispatcher auto-retry: re-queued %d blocked task(s)",
+                    retried,
+                )
+        except Exception as exc:  # pragma: no cover
+            log.error("TaskDispatcher auto-retry error: %s", exc, exc_info=True)
 
     def stop(self) -> None:
         self._stop = True
