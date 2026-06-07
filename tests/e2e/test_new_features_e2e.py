@@ -33,7 +33,7 @@ except ImportError:
 
 BASE_URL = os.environ.get("RELAY_BASE_URL", "http://localhost:8001").rstrip("/")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")  # nosec B105
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]  # nosec B105
 API_KEY = os.environ.get("TEST_API_KEY", "")
 
 DESKTOP = {"width": 1280, "height": 720, "name": "desktop"}

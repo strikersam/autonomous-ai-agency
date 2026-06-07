@@ -132,9 +132,12 @@ JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("V3_ADMIN_EMAIL") or os.environ.get(
     "ADMIN_EMAIL", "admin@llmrelay.local"
 )
-ADMIN_PASSWORD = os.environ.get("V3_ADMIN_PASSWORD") or os.environ.get(
-    "ADMIN_PASSWORD", "WikiAdmin2026!"
-)
+ADMIN_PASSWORD = os.environ.get("V3_ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
+if not ADMIN_PASSWORD:
+    raise RuntimeError(
+        "ADMIN_PASSWORD must be set in the Render environment variables. "
+        "Set ADMIN_PASSWORD (or V3_ADMIN_PASSWORD) and restart the server."
+    )
 OLLAMA_BASE = (
     os.environ.get("OLLAMA_BASE_URL")
     or os.environ.get("OLLAMA_BASE")

@@ -22,7 +22,7 @@ from backend.server import app
 # generates an ephemeral ADMIN_PASSWORD per run); fall back to the historical
 # dev defaults for local runs.
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────

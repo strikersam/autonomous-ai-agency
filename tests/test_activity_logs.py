@@ -5,7 +5,7 @@ import os
 
 import backend.server as server
 
-_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+_ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]  # nosec B105 — test credential only
 
 
 def _auth_headers(client) -> dict[str, str]:

@@ -13,7 +13,6 @@ import pytest
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only")
 os.environ.setdefault("ADMIN_EMAIL", "admin@test.local")
-os.environ.setdefault("ADMIN_PASSWORD", "TestPassword1!")
 
 from backend.server import (  # noqa: E402
     AGENT_ROLE_MODELS,
