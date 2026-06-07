@@ -368,22 +368,26 @@ Agency Core runs entirely on hardware you control. There is no cloud relay, no u
 
 ## The V5 Control Plane — every screen
 
+The dashboard has 16 fully-wired screens, all backed by live API endpoints:
+
 | Screen | What it does |
 |---|---|
-| **Dashboard** | Live health of all agents, recent activity, system metrics |
-| **Chat** | Conversational interface to the CEO agent; full persistent history |
-| **Task Board** | Kanban: queued → planning → executing → review → awaiting approval → done |
+| **Dashboard** | Live health of all agents, recent activity, system metrics at a glance |
+| **Chat** | Conversational interface to the CEO agent; persistent history, ModelPicker, code-task repo URL |
+| **Task Board** | Kanban: queued → planning → executing → review → awaiting approval → done; sprint metrics + burndown |
 | **Agents** | All specialists: capabilities, current load, runtime, model, task stats |
-| **Providers** | Connected LLM providers (Ollama, Bedrock, Nvidia NIM) with health + cost |
-| **Runtimes** | Execution substrates: internal loop, Docker agents, external harnesses |
-| **Knowledge** | Internal wiki — maintained by agents from code, docs, and decisions |
-| **Schedules** | Recurring agent tasks; pause, resume, trigger, view run history |
-| **Skills** | The skill library — what each specialist can call and when |
-| **Intelligence** | Routing policy editor — model, cost tier, and task-type rules |
-| **Logs** | Every LLM call: tokens, latency, provider, cost, decision context |
-| **Company** | Organisation profile, tech stack, knowledge graph seed |
-| **Admin** | Users, roles, instance activation, audit log, onboarding controls |
-| **Doctor** | Live self-diagnostics — one-click Fix buttons per failing check |
+| **Company** | Organisation profile, tech stack detection, knowledge graph seed, system status badges |
+| **GitHub** | Connected repos, PR management, issue tracking, repo scanner with authenticated API access |
+| **Skills** | The skill library — dynamic registry with local + remote GitHub discovery, auto-recommendations per tech stack |
+| **Intelligence** | Routing policy editor — model, cost tier, task-type rules; competitor/keyword tracking |
+| **Portfolio** | WSJF-prioritized initiatives with Now/Next/Later roadmap, source-provenance badges, sprint-health rollup |
+| **Doctor** | Live self-diagnostics — per-check pass/warn/fail scores, one-click Fix buttons, auto-refresh every 60s |
+| **Logs** | Every LLM call: tokens, latency, provider, cost, decision context; expandable messages |
+| **Admin** | Users, roles, instance activation, audit log, company management with delete cleanup |
+| **Onboarding** | Company setup wizard — URL scan → AI questions → specialist provisioning → 24x7 schedules |
+| **Providers** | Connected LLM providers (Ollama, Bedrock, Nvidia NIM, 17 clouds) with health + cost; MCP server CRUD |
+| **Schedules** | Recurring agent tasks; pause, resume, trigger, view run history; signal-driven instructions |
+| **Runtimes** | Execution substrates: internal loop, Docker agents, external harnesses; Wake All Runtimes one-click |
 
 ---
 
