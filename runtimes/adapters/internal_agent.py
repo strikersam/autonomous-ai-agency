@@ -310,9 +310,32 @@ class InternalAgentAdapter(RuntimeAdapter):
         )
         # ------------------------------------------------------------------
 
+        # Build auth headers for the active cloud provider.
+        # _best_cloud_primary_base() returns a URL; we match it back to the
+        # provider key so the AgentRunner can authenticate correctly.
+        provider_headers: dict[str, str] = {}
+        nvidia_key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+        normalized_primary = primary_base.rstrip("/")
+        nvidia_normalized = _normalize_nvidia_base_url(os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL).rstrip("/")
+        if nvidia_key and normalized_primary == nvidia_normalized:
+            provider_headers = {"Authorization": f"Bearer {nvidia_key}"}
+        elif os.environ.get("DEEPSEEK_API_KEY") and "deepseek" in normalized_primary:
+            provider_headers = {"Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"}
+        elif os.environ.get("GROQ_API_KEY") and "groq" in normalized_primary:
+            provider_headers = {"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"}
+        elif os.environ.get("OPENROUTER_API_KEY") and "openrouter" in normalized_primary:
+            provider_headers = {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}
+        elif os.environ.get("TOGETHER_API_KEY") and "together" in normalized_primary:
+            provider_headers = {"Authorization": f"Bearer {os.environ['TOGETHER_API_KEY']}"}
+        elif os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY"):
+            dash_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY") or ""
+            if dash_key and "dashscope" in normalized_primary:
+                provider_headers = {"Authorization": f"Bearer {dash_key}"}
+
         runner = AgentRunner(
             ollama_base=primary_base,
             workspace_root=worktree_path,
+            provider_headers=provider_headers or None,
             github_token=spec.context.get("github_token"),
             email=spec.context.get("user_email"),
             department=spec.context.get("department"),
