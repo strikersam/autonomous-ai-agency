@@ -5,6 +5,10 @@
 # The backend uses SQLite (no MongoDB needed) and the pre-built frontend.
 # Playwright runs Chromium in headless mode.
 #
+# Prerequisites: ADMIN_PASSWORD must be set in the host environment:
+#   export ADMIN_PASSWORD=$(cat ~/.llm-relay-secret)
+#   # or from your .env.prod: export ADMIN_PASSWORD=$(grep ADMIN_PASSWORD .env.prod | cut -d= -f2)
+#
 # Two test suites available:
 #   - test_browser.py: page load + console error checks (lightweight)
 #   - test_regression.py: full CRUD + interaction regression (comprehensive)
