@@ -167,14 +167,12 @@ class TaskDispatcher:
 
     async def _auto_retry_blocked(self) -> None:
         """Re-queue BLOCKED tasks that have cooled down and are ready for retry."""
-        import time as _time
-
         try:
             blocked_tasks = await self.store.list_blocked(limit=self.max_concurrency)
             if not blocked_tasks:
                 return
 
-            now = _time.time()
+            now = time.time()
             retried = 0
             for task in blocked_tasks:
                 # Skip tasks that haven't cooled down yet
@@ -214,7 +212,7 @@ class TaskDispatcher:
                         "(attempt #%d, was blocked since %s)",
                         task.task_id,
                         task.auto_retry_count,
-                        _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime(task.updated_at or now)),
+                        time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(task.updated_at or now)),
                     )
                 except Exception as exc:
                     log.warning(
