@@ -172,6 +172,7 @@ function LoginScreen() {
             <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
               <label style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.5)', letterSpacing:'0.06em', textTransform:'uppercase' }}>Email</label>
               <input
+                id="email" name="email"
                 type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="you@yourcompany.com" autoComplete="email" autoFocus
                 style={{ width:'100%', padding:'11px 14px', borderRadius:12, fontSize:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', outline:'none' }}
@@ -182,6 +183,7 @@ function LoginScreen() {
             <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
               <label style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.5)', letterSpacing:'0.06em', textTransform:'uppercase' }}>Password</label>
               <input
+                id="password" name="password"
                 type="password" value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••" autoComplete="current-password"
                 style={{ width:'100%', padding:'11px 14px', borderRadius:12, fontSize:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', outline:'none' }}
