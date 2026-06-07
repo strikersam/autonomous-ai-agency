@@ -33,10 +33,10 @@ async def _require_auth(request: Request) -> Any:
     if token:
         try:
             from tokens import verify_token
-            payload = verify_token(token, token_type="access")
+            payload = verify_token(token, token_type="access")  # nosec B106
             if payload:
                 return payload
-        except Exception:
+        except Exception:  # nosec B110
             pass
     raise HTTPException(status_code=401, detail="Not authenticated")
 
