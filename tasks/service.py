@@ -388,6 +388,9 @@ _DISPATCH_RETRY_LIMIT = 10  # max re-queues before a task is blocked
 class TaskExecutionCoordinator:
     """Executes tasks through the runtime layer using agent definitions."""
 
+    # Shared lock key prefix used by _claim_task / _release_task.
+    _CLAIM_PREFIX = "task:active:"
+
     def __init__(
         self,
         *,
@@ -406,14 +409,25 @@ class TaskExecutionCoordinator:
         self.execution_timeout_s = execution_timeout_s or float(
             os.environ.get("TASK_EXECUTION_TIMEOUT_SEC", "150")
         )
+        # In-memory set of task_ids currently being executed by this coordinator
+        # instance.  Used by TaskDispatcher._reconcile() to determine which tasks
+        # are active so stranded-task recovery skips them.
+        self._active_task_ids: set[str] = set()
 
     async def execute(self, task_id: str) -> Task:
-        if not await self._claim_task(task_id):
+        claimed = await self._claim_task(task_id)
+        if not claimed:
+            # Either we already hold the lock or another process does — either way
+            # skip this duplicate dispatch attempt.
             log.info("Task %s is already executing; skipping duplicate run request", task_id)
             existing = await self.store.get(task_id)
             if existing is None:
                 raise ValueError(f"Task not found: {task_id}")
             return existing
+
+        # Track this task as active on this coordinator instance so the reconciler
+        # knows to exclude it from stranded-task recovery.
+        self._active_task_ids.add(task_id)
 
         task = await self.store.get(task_id)
         if task is None:
@@ -572,6 +586,7 @@ class TaskExecutionCoordinator:
         finally:
             await self.store.update(task)
             await self._release_task(task_id)
+            self._active_task_ids.discard(task_id)
         return task
 
     @staticmethod

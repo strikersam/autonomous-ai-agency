@@ -531,6 +531,43 @@ async def _do_handle_agent_mode(
     _token_res = _get_github_token_for_user(user.email)
     github_token = await _token_res if inspect.isawaitable(_token_res) else _token_res
 
+    # plan_only is a synchronous (non-background) path — planning is fast enough
+    # to return directly without the background-job machinery. No job is created.
+    if req.metadata and req.metadata.get("plan_only"):
+        app_router = request.app.state.PROVIDER_ROUTER
+        sorted_providers = sorted(app_router.providers, key=lambda p: p.priority) if hasattr(app_router, "providers") else []
+        primary_provider = sorted_providers[0] if sorted_providers else None
+        ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
+        primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
+        _direct_chat_store.append_message(session_id, "user", req.content)
+        from agent.loop import AgentRunner
+        runner = AgentRunner(
+            ollama_base=ollama_base,
+            workspace_root=str(make_isolated_workspace(_agent_workspace_root, session_id, f"plan_{session_id}")),
+            provider_headers=primary_headers,
+            provider_temperature=req.temperature,
+            github_token=github_token,
+            email=user.email,
+            repo_url=req.repo_url,
+            base_branch=req.repo_ref or "main",
+        )
+        plan = await runner.plan(
+            instruction=req.content, history=history, requested_model=req.model,
+            max_steps=30, user_id=user.id, session_id=session_id,
+            memory_store=UserMemoryStore(), metadata=req.metadata,
+        )
+        assistant_plan = getattr(plan, "summary", None) or getattr(plan, "goal", None) or str(plan)
+        _direct_chat_store.append_message(session_id, "assistant", assistant_plan)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "session_id": session_id,
+                "response": assistant_plan,
+                "status": "planned",
+                "state": DirectChatState.COMPLETED,
+            },
+        )
+
     # Preflight Doctor (cached)
     session = _direct_chat_store.get(session_id)
     preflight_passed = session.metadata.get("preflight_passed") if session and session.metadata else False
@@ -567,8 +604,6 @@ async def _do_handle_agent_mode(
     runtime_mgr = get_runtime_manager()
     task_type = "repo_editing" if intent == INTENT_EXECUTION else "code_review"
     primary_runtime, _ = runtime_mgr.select_runtime(task_type)
-    # We prefer the internal agent for Direct Chat due to its rich interactive features
-    # but we'll respect the selected adapter if it's a specialized one.
     adapter = primary_runtime or InternalAgentAdapter(config={"workspace_root": str(workspace_root)})
     spec = TaskSpec(
         task_id=job.job_id,
@@ -593,7 +628,7 @@ async def _do_handle_agent_mode(
     # Extract required state before background job starts (it may lose request context)
     app_router = request.app.state.PROVIDER_ROUTER
     sorted_providers: list = []
-    if hasattr(app_router, 'providers'):
+    if hasattr(app_router, "providers"):
         sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
     else:
         log.warning("PROVIDER_ROUTER on app.state has no .providers attribute — agent jobs will use default OLLAMA_BASE")
@@ -602,13 +637,13 @@ async def _do_handle_agent_mode(
     primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
 
     # Interactive Gating Helper
-    async def wait_for_resume(job_id: str, session_id: str):
+    async def wait_for_resume(job_id: str, s_id: str):
         """Wait for the user to resume the job via the resume endpoint."""
         while True:
-            _s = _direct_chat_store.get(session_id)
+            _s = _direct_chat_store.get(s_id)
             if _s and _s.resume_payload:
                 payload = _s.resume_payload
-                _direct_chat_store.update_resume_payload(session_id, None)
+                _direct_chat_store.update_resume_payload(s_id, None)
                 return payload
             await asyncio.sleep(1.0)
 
@@ -625,7 +660,6 @@ async def _do_handle_agent_mode(
         from agent.loop import AgentRunner
 
         _spec = spec
-        # If we selected a specialized external runtime, delegate to its execute() method
         if adapter.RUNTIME_ID != "internal_agent":
             heartbeat("execution", f"Dispatching task to specialized runtime: {adapter.RUNTIME_ID}")
             try:
@@ -637,7 +671,6 @@ async def _do_handle_agent_mode(
                 heartbeat("failed", str(e))
                 return {"session_id": session_id, "error": str(e)}
 
-        # Otherwise, proceed with the rich Internal Agent cognition flow
         heartbeat("planning", "Analyzing repository and creating an execution plan")
 
         runner = AgentRunner(
@@ -651,22 +684,12 @@ async def _do_handle_agent_mode(
             base_branch=req.repo_ref or "main",
         )
 
-        # Cognition Stage: Planning
-        # We use the runner to plan, which is compatible with most task types
         plan = await runner.plan(
             instruction=req.content, history=history, requested_model=req.model,
             max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore(),
             metadata=req.metadata
         )
 
-        # If caller asked for plan-only, return the plan summary and stop here
-        if req.metadata and req.metadata.get("plan_only"):
-            assistant_plan = getattr(plan, "summary", None) or getattr(plan, "goal", None) or str(plan)
-            _direct_chat_store.append_message(session_id, "assistant", assistant_plan)
-            heartbeat("completed", "Plan generated")
-            return {"session_id": session_id, "response": assistant_plan, "status": "planned"}
-
-        # Check for risky plans that need approval OR explicit require_approval flag
         requires_approval = getattr(plan, "requires_risky_review", False) or (req.metadata and req.metadata.get("require_approval"))
         if requires_approval:
             heartbeat("needs_approval", f"I've created a plan, but it involves sensitive changes that need your approval. Goal: {getattr(plan,'goal', '')}")
@@ -677,9 +700,6 @@ async def _do_handle_agent_mode(
                 return {"session_id": session_id, "status": "cancelled", "summary": "User rejected plan."}
 
         heartbeat("execution", "Executing planned changes")
-        # Direct-chat execution is a deliberate user-invoked path — set the
-        # orchestrator bypass token so the AgentRunner.run() deprecation guard
-        # (active under the default orchestrator mode) doesn't block it.
         import services.workflow_orchestrator as _wo
         _bypass_token = _wo._BYPASS.set(True)
         try:

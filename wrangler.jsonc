@@ -17,6 +17,6 @@
     "not_found_handling": "single-page-application",
     // Force backend paths through the Worker first. Without this, SPA not_found_handling
     // serves index.html for navigation requests to these paths instead of proxying them.
-    "run_worker_first": ["/api/*", "/runtimes/*"]
+    "run_worker_first": ["/api/*", "/v1/*", "/runtimes/*"]
   }
 }

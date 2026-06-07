@@ -122,6 +122,13 @@ class CompanyGraphStore:
         else:
             return await self._sqlite_store.list_companies(owner_id, limit, offset, search)
 
+    async def count_companies(self) -> int:
+        """Count total companies in the store."""
+        if self.backend == "mongodb":
+            return await self._mongodb_store.count_companies()
+        else:
+            return await self._sqlite_store.count_companies()
+
     # =========================================================================
     # COMPANY GRAPH OPERATIONS
     # =========================================================================
@@ -506,6 +513,11 @@ class MongoDBStore:
         async for doc in cursor:
             companies.append(self._prepare_result(doc, Company))
         return companies
+
+    async def count_companies(self) -> int:
+        """Count total companies in MongoDB."""
+        db = self._get_db()
+        return await db.companies.count_documents({})
 
     # Company Graph Operations
     async def create_company_graph(self, graph: CompanyGraph) -> CompanyGraph:
@@ -1181,6 +1193,13 @@ class SQLiteStore:
         async for row in cursor:
             companies.append(self._prepare_result(row, Company))
         return companies
+
+    async def count_companies(self) -> int:
+        """Count total companies in SQLite."""
+        conn = await self._get_connection()
+        cursor = await conn.execute("SELECT COUNT(*) FROM companies")
+        row = await cursor.fetchone()
+        return row[0] if row else 0
 
     # Website Operations
     @staticmethod
