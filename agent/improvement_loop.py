@@ -258,7 +258,7 @@ class ImprovementLoop:
 
     def _scan_test_failures(self) -> list[DetectedIssue]:
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec
                 ["python", "-m", "pytest", "--tb=short", "-q", "--no-header"],
                 capture_output=True,
                 text=True,
@@ -291,7 +291,7 @@ class ImprovementLoop:
                 full_traceback = ""
                 git_context = ""
                 try:
-                    tb_result = subprocess.run(
+                    tb_result = subprocess.run(  # nosec
                         ["python", "-m", "pytest", test, "--tb=long", "-q", "--no-header"],
                         capture_output=True,
                         text=True,
@@ -305,7 +305,7 @@ class ImprovementLoop:
                 # Capture git log for the test file to help identify recent regressions
                 if test_file:
                     try:
-                        git_log = subprocess.run(
+                        git_log = subprocess.run(  # nosec
                             ["git", "log", "--oneline", "-5", "--", test_file],
                             capture_output=True,
                             text=True,
@@ -351,7 +351,7 @@ class ImprovementLoop:
 
     def _scan_todo_fixme(self) -> list[DetectedIssue]:
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec
                 ["grep", "-rn", "--include=*.py", "-E", r"FIXME|TODO.?FIX|HACK.?URGENT", "."],
                 capture_output=True,
                 text=True,
