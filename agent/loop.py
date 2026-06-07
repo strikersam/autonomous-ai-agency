@@ -1438,7 +1438,7 @@ class AgentRunner:
     async def _spawn_subagent(
         self,
         *,
-        instruction: str,
+        instruction: str = None,  # type: ignore[assignment]
         max_steps: int = 3,
         role: str = "",
         **kwargs: Any,
@@ -1449,7 +1449,13 @@ class AgentRunner:
         the per-role model and tool allowlist.  The ``role`` kwarg selects the
         config (e.g. ``"file_picker"``, ``"editor"``); when empty or unmatched
         the child uses the parent's default model.
+
+        The executor model may emit ``command``, ``task``, or ``text`` as the
+        instruction field name instead of ``instruction`` — all three are
+        accepted as aliases.
         """
+        if not instruction:
+            instruction = kwargs.pop("command", None) or kwargs.pop("task", None) or kwargs.pop("text", None) or ""
         if not instruction or not instruction.strip():
             return {"error": "spawn_subagent requires a non-empty instruction"}
         sub = AgentRunner(
