@@ -2,12 +2,16 @@
 
 Provides serialisable snapshots of AgentRunner state so long-running
 sessions can survive process restarts and resume from the last checkpoint.
+
+Feature-gated by ``AGENT_CHECKPOINT_ENABLED`` (default: true).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -15,6 +19,10 @@ from typing import Any
 log = logging.getLogger("qwen-proxy")
 
 DEFAULT_CHECKPOINT_DIR = ".data/checkpoints"
+
+# Session IDs must be alphanumeric with hyphens/underscores only —
+# prevents path-traversal via "../" or other directory escape sequences.
+_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-]*$")
 
 
 @dataclass
@@ -75,7 +83,16 @@ class CheckpointStore:
         )
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _validate_session_id(session_id: str) -> None:
+        if not _SESSION_ID_RE.match(session_id):
+            raise ValueError(
+                f"Invalid session_id: {session_id!r}. "
+                "Must be alphanumeric with optional hyphens/underscores."
+            )
+
     def _session_dir(self, session_id: str) -> Path:
+        self._validate_session_id(session_id)
         d = self._base_dir / session_id
         d.mkdir(parents=True, exist_ok=True)
         return d
@@ -122,6 +139,7 @@ class CheckpointStore:
 
     def delete_session(self, session_id: str) -> None:
         """Remove all checkpoints for a session."""
+        self._validate_session_id(session_id)
         import shutil
 
         sd = self._base_dir / session_id
@@ -141,6 +159,13 @@ def _get_checkpoint_store() -> CheckpointStore:
     return _store
 
 
+def _checkpointing_enabled() -> bool:
+    """Check whether durable checkpointing is enabled via env var."""
+    return os.environ.get("AGENT_CHECKPOINT_ENABLED", "true").strip().lower() in (
+        "true", "1", "yes", "on"
+    )
+
+
 def checkpoint_agent_state(
     session_id: str,
     step_index: int,
@@ -155,7 +180,17 @@ def checkpoint_agent_state(
 
     Called at key lifecycle points (step boundaries, errors) so the session
     can be restored after a crash.
+
+    This function is intentionally synchronous — it is called from lifecycle
+    hooks that may run in either sync or async contexts.  Callers in async
+    contexts should wrap it with ``asyncio.to_thread`` if needed.
+
+    No-op when ``AGENT_CHECKPOINT_ENABLED`` is false.
     """
+    if not _checkpointing_enabled():
+        log.debug("Checkpointing disabled — skipping save for session %s", session_id)
+        return Checkpoint(session_id=session_id, step_index=step_index, goal=goal)
+
     store = _get_checkpoint_store()
     cp = Checkpoint(
         session_id=session_id,
@@ -175,8 +210,12 @@ async def restore_agent_state(session_id: str) -> dict[str, Any] | None:
     """Restore the latest checkpoint for a session.
 
     Returns a dict with the checkpointed state suitable for resuming an
-    AgentRunner session, or None if no checkpoint exists.
+    AgentRunner session, or None if no checkpoint exists or checkpointing
+    is disabled.
     """
+    if not _checkpointing_enabled():
+        return None
+
     import asyncio
     store = _get_checkpoint_store()
     cp = await asyncio.to_thread(store.load_latest, session_id)
@@ -196,7 +235,13 @@ async def restore_agent_state(session_id: str) -> dict[str, Any] | None:
 
 
 async def cleanup_checkpoints(session_id: str) -> None:
-    """Remove all checkpoints for a session (called on successful completion)."""
+    """Remove all checkpoints for a session (called on successful completion).
+
+    No-op when checkpointing is disabled.
+    """
+    if not _checkpointing_enabled():
+        return
+
     import asyncio
     store = _get_checkpoint_store()
     await asyncio.to_thread(store.delete_session, session_id)

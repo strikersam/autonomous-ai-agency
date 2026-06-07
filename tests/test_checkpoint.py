@@ -108,6 +108,28 @@ class TestCheckpointStore:
 
         assert store.load_latest("sess_bad") is None
 
+    def test_rejects_path_traversal_session_id(self, tmp_path: Path) -> None:
+        store = CheckpointStore(base_dir=tmp_path)
+        with pytest.raises(ValueError, match="Invalid session_id"):
+            store._validate_session_id("../etc/passwd")
+        with pytest.raises(ValueError, match="Invalid session_id"):
+            store._validate_session_id("sess/../../malicious")
+        with pytest.raises(ValueError, match="Invalid session_id"):
+            store._validate_session_id("/absolute/path")
+
+    def test_accepts_valid_session_ids(self, tmp_path: Path) -> None:
+        store = CheckpointStore(base_dir=tmp_path)
+        # These should not raise
+        store._validate_session_id("sess_abc_123")
+        store._validate_session_id("my-session")
+        store._validate_session_id("abc")
+        store._validate_session_id("A1_b2-C3")
+
+    def test_rejects_empty_session_id(self, tmp_path: Path) -> None:
+        store = CheckpointStore(base_dir=tmp_path)
+        with pytest.raises(ValueError, match="Invalid session_id"):
+            store._validate_session_id("")
+
 
 class TestAsyncCheckpointAPI:
     @pytest.mark.asyncio
