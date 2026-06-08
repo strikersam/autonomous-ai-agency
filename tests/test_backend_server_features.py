@@ -13,7 +13,6 @@ import pytest
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only")
 os.environ.setdefault("ADMIN_EMAIL", "admin@test.local")
-os.environ.setdefault("ADMIN_PASSWORD", "TestPassword1!")
 
 from backend.server import (  # noqa: E402
     AGENT_ROLE_MODELS,
@@ -177,18 +176,23 @@ def test_mask_observations_preserves_message_count():
 # ── _run_agent_loop ───────────────────────────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_run_agent_loop_success(monkeypatch):
+async def test_run_agent_loop_success(monkeypatch) -> None:
     """Verify _run_agent_loop calls AgentRunner.run and returns the summary."""
     mock_result = {"summary": "Agent reached a conclusion."}
+    captured: dict[str, object] = {}
     
     class MockRunner:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
         async def run(self, **kwargs):
-            self.run_kwargs = kwargs
+            captured.update(kwargs)
             return mock_result
 
     monkeypatch.setattr("agent.loop.AgentRunner", MockRunner)
+    monkeypatch.setattr(
+        "backend.server._build_auto_skill_guidance",
+        lambda instruction: ("AUTO-SELECTED SKILLS\n- test-first-executor", [{"name": "test-first-executor", "description": "Run tests first"}]),
+    )
     
     provider = {"type": "ollama", "base_url": "http://localhost:11434", "api_key": None}
     result = await _run_agent_loop(
@@ -201,9 +205,10 @@ async def test_run_agent_loop_success(monkeypatch):
     )
     
     assert result == "Agent reached a conclusion."
+    assert "AUTO-SELECTED SKILLS" in captured["instruction"]
 
 @pytest.mark.anyio
-async def test_run_agent_loop_failure(monkeypatch):
+async def test_run_agent_loop_failure(monkeypatch) -> None:
     """Verify _run_agent_loop handles AgentRunner exceptions gracefully."""
     
     class MockRunner:

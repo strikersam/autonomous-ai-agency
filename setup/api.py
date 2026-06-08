@@ -9,7 +9,7 @@ Five-step wizard:
 
 After completion:
   - Settings are persisted per-user in the WizardState store.
-  - The wizard is NOT shown again to users who have completed it.
+  - The wizard stops auto-blocking login once complete, but can be reopened later for edits.
   - Admins can reset any user's wizard state.
 
 Routes:
@@ -34,10 +34,24 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+except ImportError:  # pragma: no cover - optional in some minimal environments
+    AsyncIOMotorClient = None
+
 from rbac import UserRole, audit, get_user_role, require_admin
+from activation import is_activated
+from activation_api import is_user_onboarding_allowed
 from secrets_store import get_secrets_store, SecretRecord
 
 log = logging.getLogger("qwen-proxy")
+
+DEFAULT_LANGFUSE_HOST = (
+    os.environ.get("LANGFUSE_BASE_URL")
+    or os.environ.get("LANGFUSE_HOST")
+    or os.environ.get("LANGFUSE_URL")
+    or "https://cloud.langfuse.com"
+)
 
 setup_router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -64,7 +78,8 @@ class WizardState(BaseModel):
 
 class Step1Request(BaseModel):
     """Provider setup: which providers to use and their API keys."""
-    use_ollama:       bool = True
+    use_nvidia_nim:   bool = True   # default ON — free cloud, no local infra needed
+    use_ollama:       bool = False  # default OFF — only needed for local inference
     ollama_base_url:  str  = "http://localhost:11434"
     repo_path:        str | None = None   # local-llm-server repo folder
     models_path:      str | None = None   # Ollama models folder
@@ -85,9 +100,13 @@ class Step1Request(BaseModel):
 
 class Step2Request(BaseModel):
     """Local model detection results and default model selection."""
-    default_model:      str  = "qwen3-coder:30b"
-    coder_model:        str  = "qwen3-coder:30b"
-    reviewer_model:     str  = "deepseek-r1:32b"
+    default_model:      str  = "nvidia/nemotron-3-super-120b-a12b"
+    coder_model:        str  = "nvidia/nemotron-3-super-120b-a12b"
+    planner_model:      str  = "qwen/qwen3-coder-480b-a35b-instruct"
+    executor_model:     str  = "nvidia/nemotron-3-super-120b-a12b"
+    reviewer_model:     str  = "nvidia/nemotron-3-super-120b-a12b"
+    verifier_model:     str  = "nvidia/nemotron-3-super-120b-a12b"
+    judge_model:        str  = "deepseek-ai/deepseek-v4-pro"
     embedding_model:    str  = "nomic-embed-text"
     accepted_degraded:  bool = False   # user acknowledges degraded compatibility
     repo_path:          str | None = None  # path to local-llm-server repo
@@ -100,6 +119,7 @@ class Step3Request(BaseModel):
     enable_opencode:   bool = False
     enable_goose:      bool = False
     enable_openhands:  bool = False
+    enable_task_harness: bool = False
     enable_aider:      bool = False
     hermes_base_url:   str  = "http://localhost:4444"
 
@@ -107,9 +127,9 @@ class Step3Request(BaseModel):
 class Step4Request(BaseModel):
     """Default agent configuration."""
     agent_name:        str  = "My Agent"
-    agent_model:       str  = "qwen3-coder:30b"
+    agent_model:       str  = "nvidia/nemotron-3-super-120b-a12b"
     runtime_id:        str | None = None
-    cost_policy:       str  = "local_only"
+    cost_policy:       str  = "free_only"
     system_prompt:     str  = ""
 
 
@@ -121,7 +141,7 @@ class Step5Request(BaseModel):
     enable_langfuse:                 bool = False
     langfuse_public_key_secret_id:   str | None = None
     langfuse_secret_key_secret_id:   str | None = None
-    langfuse_host:                   str  = "https://cloud.langfuse.com"
+    langfuse_host:                   str  = DEFAULT_LANGFUSE_HOST
     send_anonymous_telemetry:        bool = False
 
 
@@ -131,6 +151,45 @@ _WIZARD_STATE_DIR = Path.home() / ".local-llm-server" / "wizard-states"
 _WIZARD_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 _wizard_states: dict[str, WizardState] = {}
+_wizard_state_collection: Any | None = None
+_wizard_state_collection_configured = False
+_wizard_state_client: Any | None = None
+
+
+def set_wizard_state_collection(collection: Any | None) -> None:
+    """Override the persistence collection used for wizard state.
+
+    Tests and hosted backends can inject a Mongo-style collection here. Pass
+    ``None`` to fall back to auto-detection (or disk persistence when no DB is
+    configured).
+    """
+    global _wizard_state_collection, _wizard_state_collection_configured
+    _wizard_state_collection = collection
+    _wizard_state_collection_configured = collection is not None
+
+
+def clear_wizard_state_cache() -> None:
+    """Clear the in-memory wizard-state cache."""
+    _wizard_states.clear()
+
+
+def _get_wizard_state_collection() -> Any | None:
+    global _wizard_state_client, _wizard_state_collection
+    if _wizard_state_collection_configured:
+        return _wizard_state_collection
+    if _wizard_state_collection is not None:
+        return _wizard_state_collection
+    mongo_url = (os.environ.get("MONGO_URL") or "").strip()
+    if not mongo_url or AsyncIOMotorClient is None:
+        return None
+    try:
+        db_name = (os.environ.get("DB_NAME") or "llm_wiki_dashboard").strip() or "llm_wiki_dashboard"
+        _wizard_state_client = _wizard_state_client or AsyncIOMotorClient(mongo_url)
+        _wizard_state_collection = _wizard_state_client[db_name]["wizard_states"]
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        log.warning("Wizard state DB unavailable; falling back to disk: %s", exc)
+        _wizard_state_collection = None
+    return _wizard_state_collection
 
 
 def _get_state_file(user_id: str) -> Path:
@@ -139,8 +198,17 @@ def _get_state_file(user_id: str) -> Path:
     return _WIZARD_STATE_DIR / f"{safe_id}.json"
 
 
-def _load_wizard_state(user_id: str) -> WizardState:
+async def _load_wizard_state(user_id: str) -> WizardState:
     """Load wizard state from disk, or create a new one if not found."""
+    collection = _get_wizard_state_collection()
+    if collection is not None:
+        try:
+            data = await collection.find_one({"user_id": user_id}, {"_id": 0})
+            if data:
+                return WizardState(**data)
+        except Exception as e:
+            log.warning("Failed to load wizard state for %s from DB: %s", user_id, e)
+
     state_file = _get_state_file(user_id)
     if state_file.exists():
         try:
@@ -152,8 +220,20 @@ def _load_wizard_state(user_id: str) -> WizardState:
     return WizardState(user_id=user_id)
 
 
-def _save_wizard_state(state: WizardState) -> None:
+async def _save_wizard_state(state: WizardState) -> None:
     """Persist wizard state to disk."""
+    collection = _get_wizard_state_collection()
+    if collection is not None:
+        try:
+            await collection.replace_one(
+                {"user_id": state.user_id},
+                state.as_dict(),
+                upsert=True,
+            )
+            return
+        except Exception as e:
+            log.error("Failed to save wizard state for %s to DB: %s", state.user_id, e)
+
     state_file = _get_state_file(state.user_id)
     try:
         with open(state_file, 'w') as f:
@@ -162,10 +242,25 @@ def _save_wizard_state(state: WizardState) -> None:
         log.error("Failed to save wizard state for %s: %s", state.user_id, e)
 
 
-def get_wizard_state(user_id: str) -> WizardState:
+async def _delete_wizard_state(user_id: str) -> None:
+    collection = _get_wizard_state_collection()
+    if collection is not None:
+        try:
+            await collection.delete_one({"user_id": user_id})
+        except Exception as e:
+            log.warning("Failed to delete wizard state for %s from DB: %s", user_id, e)
+    state_file = _get_state_file(user_id)
+    try:
+        if state_file.exists():
+            state_file.unlink()
+    except Exception as e:
+        log.warning("Failed to delete wizard state file for %s: %s", user_id, e)
+
+
+async def get_wizard_state(user_id: str) -> WizardState:
     """Get wizard state, loading from disk if not already in memory."""
     if user_id not in _wizard_states:
-        _wizard_states[user_id] = _load_wizard_state(user_id)
+        _wizard_states[user_id] = await _load_wizard_state(user_id)
     return _wizard_states[user_id]
 
 
@@ -203,10 +298,60 @@ async def _detect_ollama_models(base_url: str = "http://localhost:11434") -> lis
 
 @setup_router.get("/state")
 async def get_setup_state(request: Request):
-    """Return the current wizard state for this user."""
+    """Return the current wizard state for this user.
+
+    Includes activation/onboarding gate flags so the frontend can show
+    the appropriate wizard screen without extra round-trips.
+    """
     uid   = _uid(request)
-    state = get_wizard_state(uid)
-    return state.as_dict()
+    state = await get_wizard_state(uid)
+    result = state.as_dict()
+    # Activation gate: if instance is not activated, block onboarding entirely
+    activated = is_activated()
+    onboarding_allowed = is_user_onboarding_allowed(uid) if activated else False
+    result["_activation"] = {
+        "instance_activated": activated,
+        "onboarding_allowed": onboarding_allowed,
+        # If blocked, tell the frontend why
+        "blocked_reason": (
+            None if (activated and onboarding_allowed)
+            else ("instance_not_activated" if not activated else "onboarding_not_allowed")
+        ),
+    }
+    return result
+
+
+@setup_router.get("/detect/providers")
+async def detect_configured_providers():
+    """Return which providers are already configured server-side via env vars.
+
+    Called by the setup wizard on load so it can show 'already configured'
+    indicators (e.g. Nvidia NIM key already set on Render) without exposing
+    the actual key values to the browser.
+    """
+    nvidia_key = (
+        os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or ""
+    ).strip()
+    openai_key = (
+        os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_COMPAT_API_KEY") or ""
+    ).strip()
+    anthropic_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    langfuse_pk = (os.environ.get("LANGFUSE_PUBLIC_KEY") or "").strip()
+    langfuse_sk = (os.environ.get("LANGFUSE_SECRET_KEY") or "").strip()
+
+    return {
+        "nvidia_nim": {
+            "configured": bool(nvidia_key),
+            "base_url": os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com",
+            "default_model": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+        },
+        "openai": {"configured": bool(openai_key)},
+        "anthropic": {"configured": bool(anthropic_key)},
+        "langfuse": {
+            "configured": bool(langfuse_pk and langfuse_sk),
+            "host": DEFAULT_LANGFUSE_HOST,
+        },
+    }
 
 
 @setup_router.get("/detect/hardware")
@@ -225,74 +370,103 @@ async def detect_models_for_wizard(ollama_url: str = "http://localhost:11434"):
     return {"models": models, "total": len(models), "ollama_url": ollama_url}
 
 
+
+def _require_onboarding_gate(request: Request) -> None:
+    """Raise 403 if instance is not activated or user is not allowed to onboard."""
+    uid = _uid(request)
+    if not is_activated():
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "instance_not_activated",
+                "message": "This LLM Relay instance has not been activated. "
+                           "Email strikersam@gmail.com with your Instance ID to request an activation code.",
+            },
+        )
+    if not is_user_onboarding_allowed(uid):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "onboarding_not_allowed",
+                "message": "Your account has not been approved for onboarding. "
+                           "Contact your administrator.",
+            },
+        )
+
 @setup_router.put("/step/1")
 async def save_step1(request: Request, body: Step1Request):
+    _require_onboarding_gate(request)
     """Save Step 1: Provider setup."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step1_providers = body.model_dump()
     state.current_step    = max(state.current_step, 2)
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step1", getattr(request.state, "user", {}), resource="setup")
     return {"step": 1, "saved": True, "next_step": 2}
 
 
 @setup_router.put("/step/2")
 async def save_step2(request: Request, body: Step2Request):
+    _require_onboarding_gate(request)
     """Save Step 2: Model selection."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step2_model  = body.model_dump()
     state.current_step = max(state.current_step, 3)
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step2", getattr(request.state, "user", {}), resource="setup")
     return {"step": 2, "saved": True, "next_step": 3}
 
 
 @setup_router.put("/step/3")
 async def save_step3(request: Request, body: Step3Request):
+    _require_onboarding_gate(request)
     """Save Step 3: Runtime configuration."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step3_runtimes = body.model_dump()
     state.current_step   = max(state.current_step, 4)
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step3", getattr(request.state, "user", {}), resource="setup")
     return {"step": 3, "saved": True, "next_step": 4}
 
 
 @setup_router.put("/step/4")
 async def save_step4(request: Request, body: Step4Request):
+    _require_onboarding_gate(request)
     """Save Step 4: Default agent."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step4_agent  = body.model_dump()
     state.current_step = max(state.current_step, 5)
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step4", getattr(request.state, "user", {}), resource="setup")
     return {"step": 4, "saved": True, "next_step": 5}
 
 
 @setup_router.put("/step/5")
 async def save_step5(request: Request, body: Step5Request):
+    _require_onboarding_gate(request)
     """Save Step 5: Policy preferences."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step5_policy = body.model_dump()
     state.current_step = 5
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step5", getattr(request.state, "user", {}), resource="setup")
     return {"step": 5, "saved": True, "next_step": "complete"}
 
 
 @setup_router.post("/complete")
 async def complete_wizard(request: Request):
+    _require_onboarding_gate(request)
     """Mark wizard as complete.  Will not be shown again on next login."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.completed    = True
     state.completed_at = time.time()
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.complete", getattr(request.state, "user", {}), resource="setup", outcome="success")
     log.info("Setup wizard completed for user %s", uid)
     return {"completed": True, "user_id": uid}
@@ -305,6 +479,7 @@ async def reset_wizard(request: Request):
     target_uid = (await request.json()).get("user_id", _uid(request))
     if target_uid in _wizard_states:
         del _wizard_states[target_uid]
+    await _delete_wizard_state(target_uid)
     audit("setup.reset", getattr(request.state, "user", {}), resource="setup", resource_id=target_uid)
     return {"reset": True, "user_id": target_uid}
 

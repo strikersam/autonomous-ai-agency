@@ -9,7 +9,7 @@ UVICORN ?= .venv/bin/uvicorn
 
 .PHONY: help install dev test test-fast test-verbose lint hooks-install
 .PHONY: changelog-check ai-start ai-status ai-resume ai-stop ai-logs
-.PHONY: manifest summary audit
+.PHONY: manifest summary audit ui-docs ci-parity doctor
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 
@@ -35,6 +35,7 @@ help:
 	@echo "  make manifest        List all available skills and commands"
 	@echo "  make summary         Summarize last AI session"
 	@echo "  make audit           Run dependency and security audit"
+	@echo "  make ui-docs         Refresh UI screenshots + README gallery"
 	@echo ""
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
@@ -57,6 +58,11 @@ test-fast:
 
 test-verbose:
 	$(PYTEST) -v --tb=long
+
+# Reproduce the exact environment the CI uses locally.
+# Requires Docker to be running.  Mirrors .github/workflows/ci.yml exactly.
+ci-parity:
+	@bash scripts/test_ci.sh
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
@@ -113,3 +119,9 @@ summary:
 
 audit:
 	$(PYTHON) scripts/ai_runner.py audit
+
+ui-docs:
+	python3 scripts/gen_webui_screenshots.py
+
+doctor: ## Run environment & CI-parity diagnostics (claw-code style)
+	$(PYTHON) scripts/doctor.py

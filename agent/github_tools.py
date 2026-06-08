@@ -1,3 +1,4 @@
+from __future__ import annotations
 """agent/github_tools.py — GitHub integration + local workspace execution.
 
 Provides:
@@ -19,12 +20,12 @@ Local workspace flow:
   POST /api/github/repos/{owner}/{repo}/workspace/pr     → open PR via API
 """
 
-from __future__ import annotations
 
 import asyncio
 import base64
 import logging
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -53,9 +54,25 @@ class GitHubTools:
     Tokens should be fetched from SecretsStore, not hard-coded.
     """
 
-    def __init__(self, token: str | None = None) -> None:
+    def __init__(self, token: str | None = None, *, agent_initiated: bool = False) -> None:
         self.token = token
         self.base_url = "https://api.github.com"
+        # When True, every write through this client is treated as agent-initiated and
+        # is subject to the autonomy gate (no commits/pushes to protected branches, no
+        # merges). AgentRunner constructs its GitHubTools with this set; human/API code
+        # leaves it False. Per-call agent_initiated=True can still opt in explicitly.
+        self.agent_initiated = agent_initiated
+
+    def _validate_repo_parts(self, owner: str, repo: str, branch: str | None = None, path: str | None = None) -> None:
+        """Strictly validate GitHub parameters to prevent URL injection or SSRF."""
+        if not re.match(r"^[a-zA-Z0-9._-]+$", owner):
+            raise ValueError(f"Invalid GitHub owner name: {owner}")
+        if not re.match(r"^[a-zA-Z0-9._-]+$", repo):
+            raise ValueError(f"Invalid GitHub repository name: {repo}")
+        if branch and not re.match(r"^[a-zA-Z0-9._/\-]+$", branch):
+            raise ValueError(f"Invalid branch name: {branch}")
+        if path and (".." in path or not re.match(r"^[a-zA-Z0-9._/\-]*$", path)):
+            raise ValueError(f"Invalid file path: {path}")
 
     def _headers(self) -> dict[str, str]:
         if not self.token:
@@ -85,6 +102,7 @@ class GitHubTools:
             return resp.json()
 
     async def get_repo(self, owner: str, repo: str) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
         """Get repository metadata."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
@@ -95,6 +113,7 @@ class GitHubTools:
             return resp.json()
 
     async def list_branches(self, owner: str, repo: str) -> list[dict[str, Any]]:
+        self._validate_repo_parts(owner, repo)
         """List branches in a repository."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
@@ -104,13 +123,8 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
-    async def read_repo_file(
-        self,
-        owner: str,
-        repo: str,
-        path: str,
-        branch: str = "main",
-    ) -> str:
+    async def read_repo_file(self, owner: str, repo: str, path: str, branch: str = "main") -> str:
+        self._validate_repo_parts(owner, repo, branch=branch, path=path)
         """Read a single file from a GitHub repository (API method)."""
         async with httpx.AsyncClient(timeout=10) as client:
             url  = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}?ref={branch}"
@@ -121,13 +135,8 @@ class GitHubTools:
                 return base64.b64decode(data["content"]).decode("utf-8")
             return data.get("content", "")
 
-    async def create_branch(
-        self,
-        owner: str,
-        repo: str,
-        branch_name: str,
-        base_branch: str = "main",
-    ) -> dict[str, Any]:
+    async def create_branch(self, owner: str, repo: str, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo, branch=base_branch)
         """Create a new branch from base_branch."""
         async with httpx.AsyncClient(timeout=10) as client:
             # Get base SHA
@@ -146,16 +155,11 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
-    async def commit_file(
-        self,
-        owner: str,
-        repo: str,
-        path: str,
-        content: str,
-        message: str,
-        branch: str,
-    ) -> dict[str, Any]:
-        """Create or update a single file on a branch."""
+    async def commit_file(self, owner: str, repo: str, path: str, content: str, message: str, branch: str = "main", *, agent_initiated: bool = False) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo, branch=branch, path=path)
+        # Autonomy gate: agent-initiated commits may not target a protected branch.
+        from agent.autonomy_gate import assert_agent_can_write
+        assert_agent_can_write(branch, agent_initiated=agent_initiated or self.agent_initiated, action="commit")
         async with httpx.AsyncClient(timeout=10) as client:
             # Get existing SHA if file exists
             sha = None
@@ -185,16 +189,13 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
-    async def open_pull_request(
-        self,
-        owner: str,
-        repo: str,
-        title: str,
-        head: str,
-        base: str = "main",
-        body: str = "",
-    ) -> dict[str, Any]:
+    async def open_pull_request(self, owner: str, repo: str, title: str, head: str, base: str = "main", body: str = "", *, agent_initiated: bool = False) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo, branch=head)
         """Open a pull request."""
+        # Autonomy gate: an agent-opened PR must come FROM an agent branch, not from a
+        # protected branch (head==main/master would mean it committed to master first).
+        from agent.autonomy_gate import assert_agent_can_write
+        assert_agent_can_write(head, agent_initiated=agent_initiated or self.agent_initiated, action="open a PR from")
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
                 f"{self.base_url}/repos/{owner}/{repo}/pulls",
@@ -219,6 +220,76 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
+
+    async def get_issue(self, owner: str, repo: str, issue_number: int) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
+        """Fetch a single GitHub issue."""
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}",
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def comment_on_issue(self, owner: str, repo: str, issue_number: int, body: str) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
+        """Post a comment on a GitHub issue."""
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}/comments",
+                headers=self._headers(),
+                json={"body": body},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def close_issue(self, owner: str, repo: str, issue_number: int, comment: str | None = None) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
+        """Close a GitHub issue, optionally adding a comment first."""
+        if comment:
+            await self.comment_on_issue(owner, repo, issue_number, comment)
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.patch(
+                f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}",
+                headers=self._headers(),
+                json={"state": "closed"},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def merge_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        pull_number: int,
+        merge_method: str = "merge",
+        commit_title: str | None = None,
+        *,
+        agent_initiated: bool = False,
+    ) -> dict[str, Any]:
+        """Merge an open pull request via the GitHub API."""
+        # Autonomy gate: agents never merge — a human merges proposed PRs.
+        from agent.autonomy_gate import assert_agent_can_merge
+        assert_agent_can_merge(agent_initiated=agent_initiated or self.agent_initiated)
+        self._validate_repo_parts(owner, repo)
+        if not isinstance(pull_number, int) or pull_number < 1:
+            raise ValueError(f"pull_number must be a positive integer, got {pull_number!r}")
+        _valid_methods = {"merge", "squash", "rebase"}
+        if merge_method not in _valid_methods:
+            raise ValueError(f"merge_method must be one of {_valid_methods}, got {merge_method!r}")
+        payload: dict[str, Any] = {"merge_method": merge_method}
+        if commit_title:
+            payload["commit_title"] = commit_title
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.put(
+                f"{self.base_url}/repos/{owner}/{repo}/pulls/{pull_number}/merge",
+                headers=self._headers(),
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     # ── backwards compat shims (old single-string owner/repo argument) ─────────
 
     async def read_repo_file_compat(
@@ -227,6 +298,52 @@ class GitHubTools:
         """Backwards-compat: accepts 'owner/repo' format."""
         owner, repo = repo_name.split("/", 1)
         return await self.read_repo_file(owner, repo, path, branch)
+
+    async def create_branch_compat(
+        self,
+        repo_name: str,
+        branch_name: str,
+        base_branch: str = "main",
+    ) -> dict[str, Any]:
+        """Backwards-compat: accepts 'owner/repo' format."""
+        owner, repo = repo_name.split("/", 1)
+        return await self.create_branch(owner, repo, branch_name, base_branch)
+
+    async def commit_changes(
+        self,
+        repo_name: str,
+        branch_name: str,
+        message: str,
+        path: str,
+        content: str,
+    ) -> dict[str, Any]:
+        """Commit a single file change. Accepts 'owner/repo' format for repo_name."""
+        owner, repo = repo_name.split("/", 1)
+        return await self.commit_file(
+            owner=owner,
+            repo=repo,
+            path=path,
+            content=content,
+            message=message,
+            branch=branch_name,
+        )
+
+    async def open_pull_request_compat(
+        self,
+        repo_name: str,
+        title: str,
+        head: str,
+        base: str = "main",
+        body: str = "",
+    ) -> dict[str, Any]:
+        """Backwards-compat: accepts 'owner/repo' format."""
+        owner, repo = repo_name.split("/", 1)
+        return await self.open_pull_request(owner, repo, title, head, base, body)
+
+    async def list_branches_compat(self, repo_name: str) -> list[dict[str, Any]]:
+        """Backwards-compat: accepts 'owner/repo' format."""
+        owner, repo = repo_name.split("/", 1)
+        return await self.list_branches(owner, repo)
 
     def _encode_content(self, content: str) -> str:
         return base64.b64encode(content.encode("utf-8")).decode("utf-8")
@@ -241,10 +358,25 @@ class LocalWorkspace:
     """
 
     def __init__(self, owner: str, repo: str, token: str | None = None) -> None:
-        self.owner  = owner
-        self.repo   = repo
-        self.token  = token
-        self.path   = WORKSPACE_BASE_DIR / owner / repo
+        # Strictly validate inputs to prevent path injection
+        if not re.match(r"^[a-zA-Z0-9_-]+$", owner):
+            raise ValueError("Invalid owner name")
+        if not re.match(r"^[a-zA-Z0-9_-]+$", repo):
+            raise ValueError("Invalid repository name")
+
+        self.owner = owner
+        self.repo  = repo
+
+        # Build path using os.path.join and absolute base for safety
+        base_abs = str(WORKSPACE_BASE_DIR.resolve())
+        # Use only validated components
+        safe_path = os.path.normpath(os.path.join(base_abs, owner, repo))
+
+        # Strong prefix check to satisfy static analysis
+        if not safe_path.startswith(base_abs + os.sep):
+             raise ValueError("Path escapes workspace root")
+        self.token = token
+        self.path = Path(safe_path)
 
     @property
     def clone_url(self) -> str:
@@ -273,11 +405,16 @@ class LocalWorkspace:
     async def clone_or_pull(self) -> dict[str, Any]:
         """Clone the repo if it doesn't exist; pull if it does."""
         if not self.exists():
-            WORKSPACE_BASE_DIR.mkdir(parents=True, exist_ok=True)
-            (WORKSPACE_BASE_DIR / self.owner).mkdir(exist_ok=True)
+            base = WORKSPACE_BASE_DIR.resolve()
+            base.mkdir(parents=True, exist_ok=True)
+            # Use validated self.owner to construct owner_dir
+            owner_dir = Path(os.path.normpath(os.path.join(str(base), self.owner)))
+            if not str(owner_dir).startswith(str(base) + os.sep):
+                 raise ValueError("Invalid workspace location")
+            owner_dir.mkdir(parents=True, exist_ok=True)
             rc, out, err = await self._run(
-                "git", "clone", "--depth=10", self.clone_url, str(self.path),
-                cwd=WORKSPACE_BASE_DIR / self.owner,
+                "git", "clone", "--depth=50", self.clone_url, str(self.path),
+                cwd=owner_dir,
             )
             action = "cloned"
         else:
@@ -306,39 +443,54 @@ class LocalWorkspace:
         _, out, _ = await self._run("git", "status", "--short")
         return out
 
-    async def create_branch(self, branch_name: str) -> dict[str, Any]:
-        rc, out, err = await self._run("git", "checkout", "-b", branch_name)
-        if rc != 0:
-            raise RuntimeError(f"git checkout -b failed: {err}")
-        return {"branch": branch_name, "created": True}
-
     async def stage_and_commit(self, message: str, paths: list[str] | None = None) -> dict[str, Any]:
-        """Stage files and commit.  Stages all tracked changes if paths is None."""
+        """Stage files and commit. paths=None stages everything; paths=[] raises."""
+        if paths is not None and not paths:
+            raise ValueError("paths must be None (stage all) or a non-empty list")
         if paths:
             for p in paths:
-                await self._run("git", "add", p)
+                rc, _, err = await self._run("git", "add", "--", p)
+                if rc != 0:
+                    raise RuntimeError(f"git add failed for {p!r}: {err.strip()}")
         else:
-            await self._run("git", "add", "-u")
-
+            rc, _, err = await self._run("git", "add", "-A")
+            if rc != 0:
+                raise RuntimeError(f"git add -A failed: {err.strip()}")
         rc, out, err = await self._run("git", "commit", "-m", message)
         if rc != 0:
-            raise RuntimeError(f"git commit failed: {err}")
+            raise RuntimeError(f"git commit failed: {err.strip()}")
         return {"committed": True, "message": message, "output": out}
 
-    async def push(self, branch: str | None = None) -> dict[str, Any]:
+    async def create_branch(self, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
+        """Create and checkout a new branch from base_branch."""
+        if not re.match(r"^[a-zA-Z0-9/_\-\.]{1,100}$", branch_name):
+            raise ValueError(f"Invalid branch name: {branch_name!r}")
+        if not re.match(r"^[a-zA-Z0-9/_\-\.]{1,100}$", base_branch):
+            raise ValueError(f"Invalid base branch name: {base_branch!r}")
+        rc, _, err = await self._run("git", "checkout", "-b", branch_name, base_branch)
+        if rc != 0:
+            raise RuntimeError(f"git checkout -b failed: {err.strip()}")
+        return {"branch": branch_name, "created": True}
+
+    async def push(self, branch: str | None = None, *, agent_initiated: bool = False) -> dict[str, Any]:
         """Push the current branch.  Sets upstream on first push."""
         if branch is None:
             branch = await self.current_branch()
-        # Temporarily set token in remote URL, push, then clear it
+        from agent.autonomy_gate import assert_agent_can_write
+        assert_agent_can_write(branch, agent_initiated=agent_initiated, action="push")
+        # Temporarily set token in remote URL, push, then ALWAYS clear it — even if
+        # the push raises (network error, timeout, auth failure).  A leftover token
+        # in .git/config is a security risk.
         await self._run("git", "remote", "set-url", "origin", self.clone_url)
-        rc, out, err = await self._run(
-            "git", "push", "--set-upstream", "origin", branch
-        )
-        # Always clear the token from remote URL
-        await self._run("git", "remote", "set-url", "origin",
-                        f"https://github.com/{self.owner}/{self.repo}.git")
-        if rc != 0:
-            raise RuntimeError(f"git push failed: {err}")
+        try:
+            rc, _out, err = await self._run(
+                "git", "push", "--set-upstream", "origin", branch
+            )
+            if rc != 0:
+                raise RuntimeError(f"git push failed: {err}")
+        finally:
+            await self._run("git", "remote", "set-url", "origin",
+                            f"https://github.com/{self.owner}/{self.repo}.git")
         return {"pushed": True, "branch": branch}
 
 
@@ -375,7 +527,7 @@ async def _get_token(user: dict) -> str | None:
     except Exception as e:
         log.debug("Could not fetch GitHub token from secrets: %s", e)
     # Fallback: env var
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
 
 
 @github_router.get("/repos")

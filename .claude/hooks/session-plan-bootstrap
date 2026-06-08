@@ -1,0 +1,44 @@
+#!/usr/bin/env sh
+# session-plan-bootstrap — SessionStart hook that surfaces the mandatory dynamic
+# planning inputs into the agent's context at the start of every session.
+#
+# This is the HARNESS-NATIVE equivalent of the issue-context-generator GitHub
+# workflow: instead of a CI runner calling an LLM, the running agent (Claude
+# Code, and — by AGENTS.md instruction — Codex/Cursor/Aider) IS the LLM, so this
+# hook only needs to inject the planning inputs and the directive. The agent then
+# produces the prompt + TODO plan itself, using its loaded skills.
+#
+# Keep this wrapper tiny and dependency-light: a SessionStart hook must NEVER
+# fail an agent turn. It always exits 0.
+
+set -u
+
+MODE="${1:---session}"
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT" || exit 0
+
+# Only emit context on an interactive session start. In any other mode, no-op.
+if [ "$MODE" != "--session" ]; then
+  exit 0
+fi
+
+echo "=== DYNAMIC PLANNING BOOTSTRAP (auto-loaded) ==="
+echo "Before writing any code this session, FIRST produce a short PLAN + TODO list"
+echo "(invoke the 'session-planning' skill). Ground it in these committed inputs:"
+echo "  • AGENTS.md                    — source of truth for all agents"
+echo "  • CLAUDE.md                    — project operating guide"
+echo "  • graphify-out/GRAPH_REPORT.md — codebase map (query before reading files)"
+echo "  • .claude/state/active-tasks.md — live cross-session task state"
+echo "Full workflow detail: .claude/skills/session-planning/SKILL.md"
+echo ""
+
+# Surface the current active-task state so the agent has live context without an
+# extra file read. Truncated to keep the session context budget small.
+if [ -f .claude/state/active-tasks.md ]; then
+  echo "--- Active tasks (top of .claude/state/active-tasks.md) ---"
+  # Skip the header/status-key preamble; show the most recent task rows.
+  sed -n '1,60p' .claude/state/active-tasks.md 2>/dev/null || true
+  echo "--- (see .claude/state/active-tasks.md for the full tracker) ---"
+fi
+
+exit 0

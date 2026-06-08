@@ -6,6 +6,7 @@ system degrades gracefully during development.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 from typing import Any
@@ -171,6 +172,64 @@ class TaskStore:
             docs = docs[:limit]
         return [Task.model_validate(d) for d in docs]
 
+    async def list_blocked(self, *, limit: int = 50) -> list[Task]:
+        """Return BLOCKED tasks that are candidates for auto-retry."""
+        if self._mode == "mongo":
+            cursor = self._collection.find(
+                {"status": TaskStatus.BLOCKED.value},
+                {"_id": 0},
+            ).sort("updated_at", 1).limit(limit)
+            docs = await cursor.to_list(length=limit)
+        else:
+            docs = [
+                value for value in self._mem.values()
+                if value.get("status") == TaskStatus.BLOCKED.value
+            ]
+            docs.sort(key=lambda d: d.get("updated_at", d.get("created_at", 0)))
+            docs = docs[:limit]
+        return [Task.model_validate(d) for d in docs]
+
+    async def count_by_agent(
+        self,
+        *,
+        owner_id: str | None = None,
+        statuses: set[TaskStatus] | None = None,
+    ) -> dict[str, int]:
+        """Return task counts keyed by ``agent_id`` for the requested statuses."""
+        status_values = {status.value for status in statuses} if statuses else None
+
+        if self._mode == "mongo":
+            match: dict[str, Any] = {"agent_id": {"$ne": None}}
+            if owner_id is not None:
+                match["owner_id"] = owner_id
+            if status_values is not None:
+                match["status"] = {"$in": sorted(status_values)}
+            pipeline = [
+                {"$match": match},
+                {"$group": {"_id": "$agent_id", "count": {"$sum": 1}}},
+            ]
+            cursor = self._collection.aggregate(pipeline)
+            if inspect.isawaitable(cursor):
+                cursor = await cursor
+            rows = await cursor.to_list(length=1000)
+            return {
+                str(row.get("_id")): int(row.get("count") or 0)
+                for row in rows
+                if row.get("_id")
+            }
+
+        counts: dict[str, int] = {}
+        for task in self._mem.values():
+            agent_id = task.get("agent_id")
+            if not agent_id:
+                continue
+            if owner_id is not None and task.get("owner_id") != owner_id:
+                continue
+            if status_values is not None and task.get("status") not in status_values:
+                continue
+            counts[str(agent_id)] = counts.get(str(agent_id), 0) + 1
+        return counts
+
     async def count_for_user(self, owner_id: str) -> dict[str, int]:
         """Return counts per status for a user's tasks."""
         if self._mode == "mongo":
@@ -178,7 +237,10 @@ class TaskStore:
                 {"$match": {"owner_id": owner_id}},
                 {"$group": {"_id": "$status", "count": {"$sum": 1}}},
             ]
-            result = await self._collection.aggregate(pipeline).to_list(length=20)
+            cursor = self._collection.aggregate(pipeline)
+            if inspect.isawaitable(cursor):
+                cursor = await cursor
+            result = await cursor.to_list(length=20)
             return {r["_id"]: r["count"] for r in result}
         else:
             counts: dict[str, int] = {}
@@ -205,6 +267,74 @@ class TaskStore:
             docs.sort(key=lambda d: d.get("due_date", 0))
             docs = docs[:20]
         return [Task.model_validate(d) for d in docs]
+
+
+    async def reconcile_stranded_tasks(
+        self,
+        *,
+        active_task_ids: set[str] | None = None,
+        stale_threshold_s: float = 300.0,
+    ) -> int:
+        """Reset tasks that are stuck IN_PROGRESS but no longer actively executing.
+
+        A task is considered "stranded" when all of these are true:
+        - status is IN_PROGRESS and pending_agent_run is False (execution was claimed)
+        - task_id is NOT in active_task_ids (not currently executing in this process)
+        - updated_at is older than stale_threshold_s (execution didn't complete)
+
+        This handles crash-recovery: after a server restart the in-memory claim
+        set is empty, so all mid-flight tasks are eligible for re-queue.
+
+        Returns the number of tasks reconciled.
+        """
+        import time as _time
+        active = active_task_ids or set()
+        cutoff = _time.time() - stale_threshold_s
+
+        if self._mode == "mongo":
+            cursor = self._collection.find(
+                {
+                    "status": TaskStatus.IN_PROGRESS.value,
+                    "pending_agent_run": False,
+                    "updated_at": {"$lt": cutoff},
+                },
+                {"_id": 0},
+            )
+            stranded = await cursor.to_list(length=500)
+        else:
+            stranded = [
+                v for v in self._mem.values()
+                if v.get("status") == TaskStatus.IN_PROGRESS.value
+                and v.get("pending_agent_run") is False
+                and v.get("updated_at", 0) < cutoff
+            ]
+
+        reconciled = 0
+        for doc in stranded:
+            task_id = doc.get("task_id") or doc.get("_id")
+            if not task_id or task_id in active:
+                continue
+
+            task = Task.model_validate(doc)
+            task.status = TaskStatus.TODO
+            task.pending_agent_run = True
+            task.add_log(
+                f"Task re-queued by reconciler (was stranded IN_PROGRESS for "
+                f">{stale_threshold_s:.0f}s without completion)",
+                event_type="reconciled",
+                actor="system:reconciler",
+                task_status=TaskStatus.TODO,
+            )
+            await self.update(task)
+            reconciled += 1
+            log.warning(
+                "Reconciler: re-queued stranded task %s (stale for >%.0fs)",
+                task_id, stale_threshold_s,
+            )
+
+        if reconciled:
+            log.info("Reconciler: reset %d stranded task(s) to TODO/pending", reconciled)
+        return reconciled
 
 
 _global_store: TaskStore | None = None

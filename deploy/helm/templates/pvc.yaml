@@ -1,0 +1,59 @@
+{{- if .Values.persistence.keys.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "local-llm-server.fullname" . }}-keys
+  labels:
+    {{- include "local-llm-server.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.keys.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.keys.size }}
+{{- end }}
+---
+{{- if .Values.persistence.data.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "local-llm-server.fullname" . }}-data
+  labels:
+    {{- include "local-llm-server.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.data.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.data.size }}
+{{- end }}
+---
+{{- if .Values.persistence.state.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "local-llm-server.fullname" . }}-state
+  labels:
+    {{- include "local-llm-server.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.state.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.state.size }}
+{{- end }}
+---
+{{- if .Values.persistence.workspace.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "local-llm-server.fullname" . }}-workspace
+  labels:
+    {{- include "local-llm-server.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.workspace.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.workspace.size }}
+{{- end }}

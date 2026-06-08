@@ -20,6 +20,7 @@ class ModelCapability:
     type: str  # "coder" | "reasoning" | "general"
     cost_tier: int  # 1=lightest, 2=medium, 3=heaviest (relative resource use)
     tags: list[str] = field(default_factory=list)
+    vision: bool = False  # True if model accepts image_url content parts
 
 
 # ── Built-in registry ──────────────────────────────────────────────────────────
@@ -117,6 +118,7 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         type="general",
         cost_tier=2,
         tags=["multimodal", "google", "gemma4"],
+        vision=True,
     ),
     "gemma4:9b": ModelCapability(
         name="gemma4:9b",
@@ -131,6 +133,7 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         type="general",
         cost_tier=1,
         tags=["multimodal", "google", "gemma4", "lightweight"],
+        vision=True,
     ),
     "gemma4:2b": ModelCapability(
         name="gemma4:2b",
@@ -178,6 +181,7 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         type="general",
         cost_tier=2,
         tags=["llama4", "meta", "moe", "multimodal"],
+        vision=True,
     ),
     "llama4-scout:17b": ModelCapability(
         name="llama4-scout:17b",
@@ -193,6 +197,7 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         type="general",
         cost_tier=1,
         tags=["llama4", "meta", "moe", "multimodal", "lightweight"],
+        vision=True,
     ),
     # ── DeepSeek V3 (Dec 2024) ────────────────────────────────────────────────
     # 685B MoE model; strong code + reasoning; lower cost than R1.
@@ -256,6 +261,7 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         type="general",
         cost_tier=2,
         tags=["qwen3.6", "moe", "multimodal"],
+        vision=True,
     ),
     # ── Installed local models ────────────────────────────────────────────────
     "gemma4:latest": ModelCapability(
@@ -272,6 +278,7 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         type="general",
         cost_tier=1,
         tags=["google", "gemma4", "lightweight", "installed"],
+        vision=True,
     ),
     "tinyllama:latest": ModelCapability(
         name="tinyllama:latest",
@@ -280,6 +287,74 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         type="general",
         cost_tier=1,
         tags=["lightweight", "fast", "installed"],
+    ),
+    # ── AWS Bedrock — Claude 4 family ─────────────────────────────────────────
+    # Opus 4.7: requires AWS Sales approval; listed for when access is granted
+    "us.anthropic.claude-opus-4-7": ModelCapability(
+        name="us.anthropic.claude-opus-4-7",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["bedrock", "claude", "flagship", "claude4"],
+    ),
+    # Opus 4.6: highest available Opus on Bedrock (confirmed accessible)
+    "us.anthropic.claude-opus-4-6-v1": ModelCapability(
+        name="us.anthropic.claude-opus-4-6-v1",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["bedrock", "claude", "flagship", "claude4"],
+    ),
+    "us.anthropic.claude-sonnet-4-6": ModelCapability(
+        name="us.anthropic.claude-sonnet-4-6",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "analysis",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="coder",
+        cost_tier=2,
+        tags=["bedrock", "claude", "claude4"],
+    ),
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0": ModelCapability(
+        name="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        strengths=["fast_response", "conversation", "code_generation", "tool_use"],
+        context_window=200000,
+        type="coder",
+        cost_tier=1,
+        tags=["bedrock", "claude", "claude4", "fast"],
     ),
 }
 
@@ -354,3 +429,33 @@ def best_model_for(
         return candidates[0].name
 
     return os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
+
+
+def best_vision_model(registry: dict[str, ModelCapability] | None = None) -> str | None:
+    """Return the name of the best registered vision-capable model, or None.
+
+    Prefers explicit VISION_MODEL env var, then the highest cost_tier vision model.
+    """
+    explicit = os.environ.get("VISION_MODEL", "").strip()
+    if explicit:
+        return explicit
+    if registry is None:
+        registry = get_registry()
+    candidates = [cap for cap in registry.values() if cap.vision]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c.cost_tier, reverse=True)
+    return candidates[0].name
+
+
+def has_image_content(messages: list[dict] | None) -> bool:
+    """Return True if any message contains an image_url content part."""
+    if not messages:
+        return False
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    return True
+    return False

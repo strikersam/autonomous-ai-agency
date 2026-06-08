@@ -1,0 +1,183 @@
+name: "Security Scan"
+
+on:
+  push:
+    branches: [master]
+    paths-ignore: ["docs/context/**"]
+  pull_request:
+    branches: [master]
+    paths-ignore: ["docs/context/**"]
+  schedule:
+    - cron: '30 2 * * 1'   # Weekly on Monday at 02:30 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  security-events: write
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  # ── CodeQL SAST (Python + JavaScript) ────────────────────────────────────
+  codeql:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - python
+          - javascript-typescript
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install JS dependencies (for JavaScript analysis)
+        if: matrix.language == 'javascript-typescript'
+        run: |
+          if [ -f frontend/package.json ]; then
+            cd frontend && npm install --legacy-peer-deps
+          fi
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ./.codeql/codeql-config.yml
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ── Bandit SAST (Python pattern-based) ───────────────────────────────────
+  bandit:
+    name: Bandit SAST
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: Run bandit
+        id: bandit
+        run: |
+          bandit -r . \
+            --exclude ".git,.venv,venv,node_modules,tests,frontend,remote-admin" \
+            --format json \
+            --output /tmp/bandit.json \
+            -ll \
+            || true
+          HIGH=$(python3 -c "import json,sys; d=json.load(open('/tmp/bandit.json')); print(sum(1 for r in d.get('results',[]) if r.get('issue_severity')=='HIGH'))" 2>/dev/null || echo 0)
+          MEDIUM=$(python3 -c "import json,sys; d=json.load(open('/tmp/bandit.json')); print(sum(1 for r in d.get('results',[]) if r.get('issue_severity')=='MEDIUM'))" 2>/dev/null || echo 0)
+          echo "high=${HIGH}" >> "$GITHUB_OUTPUT"
+          echo "medium=${MEDIUM}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload bandit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-results
+          path: /tmp/bandit.json
+          retention-days: 14
+
+      - name: Publish bandit summary
+        run: |
+          {
+            echo "### Bandit SAST Results"
+            echo ""
+            echo "| Severity | Count |"
+            echo "|----------|-------|"
+            echo "| High   | ${{ steps.bandit.outputs.high }} |"
+            echo "| Medium | ${{ steps.bandit.outputs.medium }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Dependency CVE Audit ──────────────────────────────────────────────────
+  dependency-audit:
+    name: Dependency CVE Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install safety
+        run: pip install safety
+
+      - name: Run safety check
+        id: safety
+        run: |
+          safety check --file requirements.txt --json --output /tmp/safety.json 2>/dev/null || true
+          COUNT=$(python3 -c "import json; d=json.load(open('/tmp/safety.json')); print(len(d) if isinstance(d,list) else len(d.get('vulnerabilities',[])))" 2>/dev/null || echo 0)
+          echo "vuln_count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish safety summary
+        run: |
+          {
+            echo "### Safety Dependency Audit"
+            ICON=$([[ "${{ steps.safety.outputs.vuln_count }}" == "0" ]] && echo "OK" || echo "WARN")
+            echo "${ICON} **${{ steps.safety.outputs.vuln_count }} CVE(s) found** in requirements.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Secret / Credential Scan ──────────────────────────────────────────────
+  secret-scan:
+    name: Secret / Credential Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for hardcoded secrets
+        id: secrets
+        run: |
+          PATTERNS=(
+            "api_key\\s*=\\s*['\\\"][A-Za-z0-9_\\-]{20,}['\\\"]"
+            "secret\\s*=\\s*['\\\"][^'\\\"]{8,}['\\\"]"
+            "sk-[A-Za-z0-9]{32,}"
+            "bearer\\s+[A-Za-z0-9_\\-\\.]{30,}"
+          )
+          TOTAL=0
+          for P in "${PATTERNS[@]}"; do
+            COUNT=$(grep -rniE "$P" . \
+              --include="*.py" \
+              --exclude-dir=".git" \
+              --exclude-dir="node_modules" \
+              --exclude-dir=".venv" \
+              --exclude-dir="tests" \
+              --exclude="generate_api_key.py" \
+              | grep -v "^\\s*#" | wc -l || echo 0)
+            TOTAL=$((TOTAL + COUNT))
+          done
+          echo "secret_count=${TOTAL}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish secret scan summary
+        run: |
+          {
+            echo "### Secret Scan"
+            ICON=$([[ "${{ steps.secrets.outputs.secret_count }}" == "0" ]] && echo "OK" || echo "ALERT")
+            echo "${ICON} **${{ steps.secrets.outputs.secret_count }} potential secret pattern(s) found**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if secrets found
+        if: steps.secrets.outputs.secret_count > 0
+        run: |
+          echo "::error::Potential hardcoded secrets detected."
+          exit 1

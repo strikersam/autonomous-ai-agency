@@ -109,14 +109,14 @@ def _get(base: str, path: str, api_key: str, params: str = "") -> dict:
     url = f"{base}{path}{'?' + params if params else ''}"
     req = urllib.request.Request(url, headers=_make_headers(api_key))
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # nosec: B110 - URL is from trusted source (GitHub API)
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        print(_c(RED, f"HTTP {e.code} on GET {path}: {body[:200]}"))
+        print(_c(RED, f"HTTP {e.code} on GET {path} (check server logs for details)"))
         sys.exit(1)
     except Exception as e:
-        print(_c(RED, f"Connection error on GET {path}: {e}"))
+        print(_c(RED, f"Connection error on GET {path}: {type(e).__name__}"))
         print(_c(DIM, f"Is the proxy running at {base}?"))
         sys.exit(1)
 
@@ -127,14 +127,13 @@ def _post(base: str, path: str, api_key: str, body: dict) -> dict:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=_make_headers(api_key), method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:  # nosec: B110 - URL is from trusted source (GitHub API)
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        body_text = e.read().decode("utf-8", errors="replace")
-        print(_c(RED, f"HTTP {e.code} on POST {path}: {body_text[:300]}"))
+        print(_c(RED, f"HTTP {e.code} on POST {path} (check server logs)"))
         sys.exit(1)
     except Exception as e:
-        print(_c(RED, f"Connection error on POST {path}: {e}"))
+        print(_c(RED, f"Connection error on POST {path}: {type(e).__name__}"))
         sys.exit(1)
 
 
@@ -308,9 +307,9 @@ def run_workflow(
         elif choice in ("q", "quit", "exit"):
             print(f"\n  {_c(YELLOW, '⏸')} Paused. Resume with:")
             print(f"     build-workflow --resume {run_id}")
-            print(f"  Or approve via API:")
+            print(f"   Or approve via API:")
             print(f"     curl -X POST {base}/workflow/{run_id}/approve \\")
-            print(f"       -H 'Authorization: Bearer {api_key or 'YOUR_KEY'}' \\")
+            print(f"       -H 'Authorization: Bearer <YOUR_KEY>' \\")
             print(f"       -d '{{\"approved_by\": \"human\"}}'")
             sys.exit(0)
         else:

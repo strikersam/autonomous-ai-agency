@@ -1,0 +1,73 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# local-llm-server — Docker Compose for E2E browser testing
+#
+# Spins up the backend + Playwright browser tests in Docker.
+# The backend uses SQLite (no MongoDB needed) and the pre-built frontend.
+# Playwright runs Chromium in headless mode.
+#
+# Prerequisites: ADMIN_PASSWORD must be set in the host environment:
+#   export ADMIN_PASSWORD=$(cat ~/.llm-relay-secret)
+#   # or from your .env.prod: export ADMIN_PASSWORD=$(grep ADMIN_PASSWORD .env.prod | cut -d= -f2)
+#
+# Two test suites available:
+#   - test_browser.py: page load + console error checks (lightweight)
+#   - test_regression.py: full CRUD + interaction regression (comprehensive)
+#
+# Usage:
+#   # Lightweight smoke test (default):
+#   docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
+#
+#   # Full regression suite:
+#   TEST_FILE=tests/e2e/test_regression.py docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
+#
+# After run, check exit code:
+#   docker compose -f docker-compose.e2e.yml ps -q playwright | xargs docker inspect -f '{{.State.ExitCode}}'
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Backend (FastAPI + built frontend) ────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: e2e-backend
+    restart: "no"
+    ports:
+      - "8001:8001"
+    environment:
+      - STORAGE_BACKEND=sqlite
+      - ADMIN_EMAIL=admin@llmrelay.local
+      - ADMIN_PASSWORD=WikiAdmin2026!
+      - JWT_SECRET=e2e-browser-test-secret
+      - LLM_PROVIDER=ollama
+      - LANGFUSE_SECRET_KEY=
+      - LANGFUSE_PUBLIC_KEY=
+      - LANGFUSE_HOST=
+      - ROUTER_HEALTH_CHECK_ENABLED=false
+      - PORT=8001
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/ping', timeout=5)"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+  # ── Playwright browser tests ──────────────────────────────────────────────
+  playwright:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    container_name: e2e-playwright
+    restart: "no"
+    environment:
+      - RELAY_BASE_URL=http://backend:8001
+      - ADMIN_EMAIL=admin@llmrelay.local
+      - ADMIN_PASSWORD=WikiAdmin2026!
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e/test_browser.py:/app/tests/e2e/test_browser.py:ro
+      - ./tests/e2e/test_regression.py:/app/tests/e2e/test_regression.py:ro
+      - /tmp/e2e-screenshots:/tmp/screenshots
+      - /tmp/e2e-artifacts:/tmp/e2e-artifacts

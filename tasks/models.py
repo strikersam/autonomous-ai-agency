@@ -11,12 +11,13 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class TaskStatus(str, Enum):
-    TODO        = "todo"
-    IN_PROGRESS = "in_progress"
-    IN_REVIEW   = "in_review"
-    BLOCKED     = "blocked"
-    DONE        = "done"
-    FAILED      = "failed"
+    TODO                 = "todo"
+    IN_PROGRESS          = "in_progress"
+    IN_REVIEW            = "in_review"
+    BLOCKED              = "blocked"
+    NEEDS_CLARIFICATION  = "needs_clarification"
+    DONE                 = "done"
+    FAILED               = "failed"
 
 
 class TaskPriority(str, Enum):
@@ -81,6 +82,10 @@ class Task(BaseModel):
     task_type: str = Field(default="general", max_length=64)
     tags: list[str] = Field(default_factory=list)
 
+    # Agile
+    story_points: int | None = None   # Fibonacci estimate: 1/2/3/5/8/13
+    sprint_id: str | None = None      # links to an AgileSprint ID
+
     # Scheduling
     due_date: float | None = None   # epoch timestamp
 
@@ -115,6 +120,16 @@ class Task(BaseModel):
     blocked_reason: str | None = None
     review_reason: str | None = None
 
+    # Workflow engine — persisted state machine
+    workflow_phase: str | None = Field(
+        default=None,
+        description="Current workflow phase (see WorkflowPhase enum in agent/workflow.py)",
+    )
+    workflow_history: list[dict] = Field(
+        default_factory=list,
+        description="Ordered list of WorkflowTransition dicts; append-only.",
+    )
+
     # Origin / automation metadata
     source: str = "manual"
     source_id: str | None = None
@@ -123,6 +138,11 @@ class Task(BaseModel):
     # Execution result / error (populated by dispatcher)
     result: str | None = None
     error_message: str | None = None
+
+    # Auto-retry tracking: number of times the dispatcher auto-retried this
+    # task after it went BLOCKED.  Reset to 0 on a successful manual retry or
+    # when the task completes successfully.
+    auto_retry_count: int = 0
 
     @field_validator("tags")
     @classmethod
@@ -162,6 +182,8 @@ class TaskCreateRequest(BaseModel):
     due_date: float | None = None
     requires_approval: bool = False
     status: TaskStatus = TaskStatus.TODO
+    story_points: int | None = Field(default=None, ge=0, le=100)
+    sprint_id: str | None = Field(default=None, max_length=64)
 
 
 class TaskUpdateRequest(BaseModel):
@@ -177,6 +199,8 @@ class TaskUpdateRequest(BaseModel):
     tags: list[str] | None = None
     due_date: float | None = None
     requires_approval: bool | None = None
+    story_points: int | None = Field(default=None, ge=0, le=100)
+    sprint_id: str | None = Field(default=None, max_length=64)
 
 
 class CommentAddRequest(BaseModel):
@@ -188,3 +212,16 @@ class ApprovalRequest(BaseModel):
     checkpoint_id: str
     approve: bool
     reason: str | None = Field(default=None, max_length=2000)
+
+
+class FollowUpRequest(BaseModel):
+    """A follow-up instruction that re-opens and re-queues a task with new guidance."""
+
+    message: str = Field(..., min_length=1, max_length=10_000)
+    model_preference: str | None = Field(default=None, max_length=200)
+
+
+class ClarifyRequest(BaseModel):
+    """Request clarification for a task — sets status to needs_clarification."""
+
+    reason: str = Field(..., min_length=1, max_length=2000)

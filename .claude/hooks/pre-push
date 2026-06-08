@@ -22,10 +22,13 @@ _head()  { printf "\n${GRN}[pre-push]${RST} %s\n" "$1"; }
 
 _head "Running test suite before push..."
 
-# Find python/pytest
+# Find python/pytest — prefer venv, then python3 -m pytest (avoids isolated
+# tool envs like uv/pipx that lack project deps), then bare pytest binary.
 PYTEST=""
 if [ -f ".venv/bin/pytest" ]; then
     PYTEST=".venv/bin/pytest"
+elif python3 -m pytest --version >/dev/null 2>&1; then
+    PYTEST="python3 -m pytest"
 elif command -v pytest >/dev/null 2>&1; then
     PYTEST="pytest"
 else

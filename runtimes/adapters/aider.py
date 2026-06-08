@@ -28,12 +28,14 @@ from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
     RuntimeCapability,
+    RuntimeDependency,
     RuntimeExecutionError,
     RuntimeHealth,
     RuntimeTier,
     RuntimeUnavailableError,
     TaskResult,
     TaskSpec,
+    task_wants_browser,
 )
 
 log = logging.getLogger("runtime.aider")
@@ -58,7 +60,20 @@ class AiderAdapter(RuntimeAdapter):
         RuntimeCapability.GIT_OPERATIONS,
         RuntimeCapability.FILE_READ_WRITE,
         RuntimeCapability.MULTI_FILE_EDIT,
+        RuntimeCapability.WEB_BROWSE,
     })
+
+    def supports(self, capability: RuntimeCapability) -> bool:
+        # WEB_BROWSE only works when the Kimi bridge is configured — that is Aider's
+        # only browser path. Don't advertise it otherwise, or the router could route
+        # a web_browse task here and run plain Aider with no browsing support.
+        if capability == RuntimeCapability.WEB_BROWSE:
+            try:
+                from providers.kimi_bridge import kimi_bridge_runtime_config
+                return kimi_bridge_runtime_config() is not None
+            except Exception:
+                return False
+        return capability in self.CAPABILITIES
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
@@ -72,6 +87,15 @@ class AiderAdapter(RuntimeAdapter):
             str((config or {}).get("no_auto_commit", os.environ.get("AIDER_NO_AUTO_COMMIT", "false"))).lower()
             == "true"
         )
+
+    def required_dependencies(self) -> list[RuntimeDependency]:
+        return [
+            RuntimeDependency(
+                name="aider",
+                config_var="AIDER_BIN",
+                install_hint="Install aider-chat and set AIDER_BIN if needed.",
+            )
+        ] if not self._base_url else []
 
     async def health_check(self) -> RuntimeHealth:
         if self._base_url:
@@ -90,6 +114,9 @@ class AiderAdapter(RuntimeAdapter):
                 latency_ms=round(latency_ms, 1),
                 error=None if resp.status_code == 200 else f"HTTP {resp.status_code}",
             )
+        except httpx.ConnectError:
+            return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False,
+                                 error=f"Service not running at {self._base_url} — use Start to launch it")
         except Exception as exc:
             return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error=str(exc))
 
@@ -127,7 +154,22 @@ class AiderAdapter(RuntimeAdapter):
             raise RuntimeUnavailableError(self.RUNTIME_ID, f"Binary '{self._bin}' not found")
 
         workspace = spec.workspace_path or "."
+
+        # When the task needs web browsing and the Kimi bridge is available,
+        # route through the Kimi bridge endpoint so Aider can use kimi.com's
+        # browser access for web-aware tasks.
         model = spec.model_preference or self._model
+        api_base: str | None = None
+        _needs_browser = task_wants_browser(spec)
+        if _needs_browser:
+            try:
+                from providers.kimi_bridge import kimi_bridge_runtime_config
+                _kb = kimi_bridge_runtime_config()
+                if _kb:
+                    model = str(_kb.get("model", model))
+                    api_base = str(_kb.get("base_url", "")) or None
+            except Exception:
+                pass
 
         cmd = [
             bin_path,
@@ -136,6 +178,8 @@ class AiderAdapter(RuntimeAdapter):
             "--yes",          # auto-confirm file edits
             "--message", spec.instruction,
         ]
+        if api_base:
+            cmd.extend(["--openai-api-base", api_base])
         if self._no_auto_commit:
             cmd.append("--no-auto-commits")
 
@@ -172,7 +216,7 @@ class AiderAdapter(RuntimeAdapter):
             success=success,
             output=output,
             model_used=model,
-            provider_used="local",
+            provider_used="kimi-web-bridge" if api_base else "local",
             execution_time_ms=elapsed_ms,
             metadata={
                 "returncode": proc.returncode,

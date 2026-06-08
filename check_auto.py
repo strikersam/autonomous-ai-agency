@@ -3,6 +3,9 @@ import os
 import subprocess
 import glob
 
+PROMPT_FILE = os.path.join("scratch", "verification", "prompt.txt")
+REPORT_FILE = os.path.join("scratch", "verification", "report.md")
+
 def check_files(files_str):
     files = [f.strip() for f in files_str.split(',')]
     missing = []
@@ -53,13 +56,15 @@ def check_feature(line):
                             # check if any sym matched
                             matched_any = any(sym.lower() in content for sym in sym_list)
                             # weak heuristic, just pass
-                    except:
-                        pass
+                    except Exception as exc:
+                        missing_symbols.append(f"{f}: {exc}")
+        if missing_symbols:
+            return num, feature, "⚠️", f"Symbol check skipped: {len(missing_symbols)} issue(s)"
         return num, feature, "✅", ""
     return None
 
 def main():
-    lines = open('prompt.txt', 'r', encoding='utf-8').read().splitlines()
+    lines = open(PROMPT_FILE, 'r', encoding='utf-8').read().splitlines()
     results = []
     for line in lines:
         if re.match(r'^\d+\t', line):
@@ -67,13 +72,16 @@ def main():
             if res:
                 results.append(res)
     
-    with open('report.md', 'w') as f:
+    with open(REPORT_FILE, 'w') as f:
         f.write("# Verification Report\n\n| # | Feature | Status | Notes |\n|---|---|---|---|\n")
         for r in results:
             note = r[3]
             if r[2] == "❌":
                 # check git history
-                git_log = subprocess.run(f"git log --all --oneline --grep='{r[1][:10]}' -n 1", shell=True, capture_output=True, text=True).stdout.strip()
+                git_log = subprocess.run(
+                    ["git", "log", "--all", "--oneline", "--grep", r[1][:10], "-n 1"],
+                    capture_output=True, text=True
+                ).stdout.strip()
                 if git_log:
                     note += f". Found in git history: {git_log}"
                 else:

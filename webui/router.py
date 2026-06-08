@@ -262,6 +262,22 @@ def register_webui(
         mgr: WorkspaceManager = request.app.state.webui_workspaces
         return {"workspaces": [w.model_dump() for w in mgr.list()], "admin": _admin_out(admin)}
 
+    # /workspaces/metrics must be registered BEFORE /workspaces/{workspace_id} so FastAPI
+    # routes it correctly instead of treating "metrics" as a workspace_id.
+    @admin_router.get("/workspaces/metrics")
+    async def admin_workspace_metrics(request: Request, admin: Any = Depends(get_admin_identity)):
+        """Return aggregate workspace metrics for the admin dashboard."""
+        mgr: WorkspaceManager = request.app.state.webui_workspaces
+        workspaces = mgr.list()
+        return {
+            "total": len(workspaces),
+            "by_status": {
+                "active": sum(1 for w in workspaces if getattr(w, "enabled", True)),
+                "disabled": sum(1 for w in workspaces if not getattr(w, "enabled", True)),
+            },
+            "admin": _admin_out(admin),
+        }
+
     @admin_router.post("/workspaces")
     async def admin_create_workspace(request: Request, body: WorkspaceCreate, admin: Any = Depends(get_admin_identity)):
         mgr: WorkspaceManager = request.app.state.webui_workspaces

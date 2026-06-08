@@ -1,0 +1,375 @@
+name: Agency Cycle
+
+# Runs the agency assessment via Claude Code.
+# Reads the improvement loop state, issues directives to specialist agents,
+# and pushes any code fixes directly to master.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours
+  workflow_dispatch:
+    inputs:
+      directive:
+        description: 'Optional specific directive for the CEO'
+        required: false
+        default: ''
+
+jobs:
+  ceo-assess-and-dispatch:
+    name: CEO Assessment & Agent Dispatch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt 2>&1 | tail -5
+
+      - name: Configure git identity
+        run: |
+          git config user.email "agency-bot@local-llm-server"
+          git config user.name "Agency Bot"
+
+      - name: Run pytest baseline (short tracebacks)
+        id: baseline
+        run: |
+          python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
+          EXIT=${PIPESTATUS[0]}
+          echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
+          # Catch FAILED tests AND ERROR collection/import failures
+          FAILING=$(grep -E '^(FAILED|ERROR) ' /tmp/test_baseline.txt | awk '{print $2}' | head -5 | tr '\n' ',' | sed 's/,$//')
+          echo "failing=${FAILING}" >> "$GITHUB_OUTPUT"
+
+      - name: Redact secrets from test output
+        if: steps.baseline.outputs.exit_code != '0'
+        run: |
+          chmod +x .github/scripts/redact_secrets.sh
+          .github/scripts/redact_secrets.sh /tmp/test_baseline.txt /tmp/test_failure_details.txt
+          echo "redacted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Capture per-test failure details (full tracebacks)
+        if: steps.baseline.outputs.exit_code != '0'
+        id: failure_details
+        run: |
+          echo "${{ steps.baseline.outputs.failing }}" | tr ',' '\n' | head -5 | while read test_id; do
+            [ -z "$test_id" ] && continue
+            echo "=== FAILURE: ${test_id} ===" >> /tmp/test_failure_details.txt
+            python -m pytest "${test_id}" --tb=long -q --no-header 2>&1 | tail -40 >> /tmp/test_failure_details.txt || true
+            echo "" >> /tmp/test_failure_details.txt
+          done
+          echo "captured=true" >> "$GITHUB_OUTPUT"
+
+          # Re-redact after per-test capture (narrower pytest runs may reveal
+          # different secrets than the baseline suite run)
+          .github/scripts/redact_secrets.sh /tmp/test_failure_details.txt
+
+      - name: Classify failures via SelfHealingAgent
+        if: steps.baseline.outputs.exit_code != '0'
+        id: self_healing
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, secrets, sys
+          sys.path.insert(0, os.getcwd())  # ensure agent/ imports resolve
+
+          failing = os.environ.get("FAILING_TESTS", "")
+          tests = [t.strip() for t in failing.split(",") if t.strip()]
+
+          # Read per-test failure details
+          failure_details = ""
+          try:
+              with open("/tmp/test_failure_details.txt") as f:
+                  failure_details = f.read()
+          except Exception:
+              pass
+
+          classifications = []
+          for test in tests[:5]:
+              test_file = test.split("::")[0] if "::" in test else ""
+
+              # Extract error text for this specific test from failure details
+              error_text = ""
+              marker = f"=== FAILURE: {test} ==="
+              if marker in failure_details:
+                  idx = failure_details.index(marker)
+                  section = failure_details[idx:idx+4000]
+                  # Try to find the next marker to bound the section
+                  next_idx = section.find("=== FAILURE:", len(marker))
+                  if next_idx > 0:
+                      section = section[:next_idx]
+                  error_text = section
+              else:
+                  # Fallback: use the baseline output snippet
+                  try:
+                      with open("/tmp/test_baseline.txt") as f:
+                          error_text = f.read()[:2000]
+                  except Exception:
+                      pass
+
+              # Use SelfHealingAgent static methods for classification
+              from agent.self_healing import SelfHealingAgent
+              category = SelfHealingAgent._classify_failure(error_text)
+              hint = SelfHealingAgent._failure_category_hint(category.value)
+
+              classifications.append({
+                  "test": test,
+                  "file": test_file,
+                  "category": category.value,
+                  "hint": hint,
+              })
+
+          # Register each failure with the ImprovementLoop for state tracking
+          from agent.improvement_loop import (
+              DetectedIssue,
+              ImprovementLoop,
+              IssueCategory,
+              IssueSeverity,
+          )
+          loop = ImprovementLoop()
+          for c in classifications:
+              issue = DetectedIssue(
+                  issue_id="ci_" + secrets.token_hex(4),
+                  category=IssueCategory.TEST_FAILURE,
+                  severity=IssueSeverity.HIGH,
+                  title=f"CI failure: {c['test']} (classified: {c['category']})",
+                  description=f"**Failure category:** {c['category']}\n\n**Suggested fix:** {c['hint']}",
+                  file_path=c['file'] or None,
+              )
+              loop._register_issue(issue)
+
+          with open("/tmp/self_healing_classifications.json", "w") as f:
+              json.dump(classifications, f, indent=2)
+          print(json.dumps(classifications, indent=2))
+
+          # Also write per-test fix hints for the Dispatch step
+          with open("/tmp/self_healing_hints.txt", "w") as f:
+              for c in classifications:
+                  f.write(f"  - {c['test']} → {c['category']}: {c['hint'][:120]}\n")
+          PYEOF
+        env:
+          FAILING_TESTS: ${{ steps.baseline.outputs.failing }}
+
+      - name: Scan for security issues (bandit)
+        id: security
+        run: |
+          pip install bandit safety -q
+          bandit -r . \
+            --exclude ".git,.venv,venv,node_modules,tests,frontend,remote-admin" \
+            --format json --output /tmp/bandit.json -ll 2>/dev/null || true
+          COUNT=$(python3 -c "import json; d=json.load(open('/tmp/bandit.json')); print(len(d.get('results',[])))" 2>/dev/null || echo 0)
+          echo "findings=${COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: CEO Assessment
+        id: ceo
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+
+          failing = os.environ.get("FAILING_TESTS", "")
+          sec_count = int(os.environ.get("SEC_COUNT", "0"))
+          test_ok = os.environ.get("TEST_OK", "1") == "1"
+
+          # Load self-healing classifications for richer assessment
+          sh_classifications = []
+          try:
+              with open("/tmp/self_healing_classifications.json") as f:
+                  sh_classifications = json.load(f)
+          except Exception:
+              pass
+
+          issues = []
+          priority = []
+
+          if failing:
+              tests = [t for t in failing.split(",") if t]
+              cat_summary = ""
+              if sh_classifications:
+                  cats = {}
+                  for c in sh_classifications:
+                      cats[c["category"]] = cats.get(c["category"], 0) + 1
+                  cat_summary = " (" + ", ".join(f"{v}× {k}" for k, v in cats.items()) + ")"
+              issues.append(f"❌ {len(tests)} failing test(s){cat_summary}: {', '.join(tests[:3])}")
+              priority.append("FIX_TESTS")
+
+          if sec_count > 0:
+              issues.append(f"🔒 {sec_count} security finding(s) from bandit")
+              priority.append("FIX_SECURITY")
+
+          if not issues:
+              issues.append("✅ All systems nominal")
+
+          assessment = {
+              "issues": issues,
+              "priority": priority,
+              "test_pass": test_ok,
+              "security_count": sec_count,
+              "self_healing_classifications": sh_classifications,
+          }
+
+          print(json.dumps(assessment, indent=2))
+          with open("/tmp/assessment.json", "w") as f:
+              json.dump(assessment, f)
+          PYEOF
+        env:
+          FAILING_TESTS: ${{ steps.baseline.outputs.failing }}
+          SEC_COUNT: ${{ steps.security.outputs.findings }}
+          TEST_OK: ${{ steps.baseline.outputs.exit_code == '0' && '1' || '0' }}
+
+      - name: Dispatch Dev Agent — Fix tests
+        if: steps.baseline.outputs.exit_code != '0'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          FAILING: ${{ steps.baseline.outputs.failing }}
+        run: |
+          # Read classification hints written by the classification step
+          SH_HINTS=""
+          if [ -f /tmp/self_healing_hints.txt ]; then
+            SH_HINTS=$(cat /tmp/self_healing_hints.txt)
+          fi
+
+          cat > /tmp/dev_instruction.txt <<EOF
+          You are the Dev Agent in the local-llm-server agency.
+
+          The following tests are currently failing:
+          $(echo "$FAILING" | tr ',' '\n' | sed 's/^/  - /')
+
+          $(if [ -n "$SH_HINTS" ]; then echo "### Self-Healing Classification\n$SH_HINTS\n"; fi)
+          Run \`python -m pytest --tb=short -x\` to see the failures.
+          Fix each failing test by correcting the implementation (never skip or mock tests).
+          After fixing, run pytest again to confirm green.
+          Update docs/changelog.md under [Unreleased] ### Fixed.
+          Commit all changes with message: \`fix: resolve failing tests from agency cycle\`
+          EOF
+
+          if command -v claude &>/dev/null; then
+            claude --print --dangerously-skip-permissions "$(cat /tmp/dev_instruction.txt)" || true
+          else
+            echo "Claude CLI not available — skipping automated fix"
+          fi
+
+      - name: Run tests after fix attempt (short tracebacks)
+        if: steps.baseline.outputs.exit_code != '0'
+        id: post_fix
+        run: |
+          python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_post.txt || true
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit & push fixes
+        if: steps.baseline.outputs.exit_code != '0'
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "fix: automated agency fix — failing tests"
+            git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
+            git push origin master || echo "::warning::Push to master blocked (branch protection); fixes were not auto-committed."
+            echo "Pushed fixes to master"
+          fi
+
+      - name: Publish agency cycle summary
+        run: |
+          ASSESSMENT=$(python3 -c "import json; d=json.load(open('/tmp/assessment.json')); [print('-', i) for i in d['issues']]" 2>/dev/null || echo "Assessment unavailable")
+          {
+            echo "### Agency Cycle Results — $(date -u '+%Y-%m-%d %H:%M') UTC"
+            echo ""
+            echo "**CEO Assessment:**"
+            echo "$ASSESSMENT"
+            echo ""
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            TEST_ICON=$([[ "${{ steps.baseline.outputs.exit_code }}" == "0" ]] && echo "✅" || echo "❌")
+            echo "| Tests | ${TEST_ICON} |"
+            echo "| Security findings | ${{ steps.security.outputs.findings }} |"
+            if [ "${{ steps.baseline.outputs.exit_code }}" != "0" ]; then
+              POST_ICON=$([[ "${{ steps.post_fix.outputs.exit_code }}" == "0" ]] && echo "✅ Fixed" || echo "⚠️ Still failing")
+              echo "| Post-fix tests | ${POST_ICON} |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create issue if agency cannot fix
+        if: steps.baseline.outputs.exit_code != '0' && steps.post_fix.outputs.exit_code != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const baseline = fs.readFileSync('/tmp/test_baseline.txt', 'utf8');
+            const postFix = fs.existsSync('/tmp/test_post.txt')
+              ? fs.readFileSync('/tmp/test_post.txt', 'utf8') : 'No post-fix output';
+            const failureDetails = fs.existsSync('/tmp/test_failure_details.txt')
+              ? fs.readFileSync('/tmp/test_failure_details.txt', 'utf8') : '';
+            const shClassifications = fs.existsSync('/tmp/self_healing_classifications.json')
+              ? JSON.parse(fs.readFileSync('/tmp/self_healing_classifications.json', 'utf8')) : [];
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              labels: 'auto-detected,bug', state: 'open', per_page: 5,
+            });
+            if (issues.some(i => i.title.includes('Agency: Cannot Fix Tests'))) return;
+
+            const failing = '${{ steps.baseline.outputs.failing }}'.split(',').filter(Boolean).map(t => `- \`${t}\``).join('\n') || '_(see output below)_';
+
+            // Build classification table from self-healing analysis
+            let classificationSection = '';
+            if (shClassifications.length > 0) {
+              const rows = shClassifications.map(c =>
+                `| \`${c.test}\` | \`${c.category}\` | ${c.hint.slice(0, 150)} |`
+              ).join('\n');
+              classificationSection = [
+                '### Self-Healing Classification',
+                '',
+                'Failures classified by `SelfHealingAgent._classify_failure()` with targeted fix hints:',
+                '',
+                '| Failing Test | Category | Suggested Fix |',
+                '|-------------|----------|--------------|',
+                rows,
+                '',
+              ].join('\n');
+            }
+
+            const body = [
+              '## Agency Escalation: Tests remain failing after automated fix attempt',
+              '',
+              classificationSection,
+              '### Failing tests',
+              failing,
+              '',
+              '### Detailed failure tracebacks',
+              failureDetails
+                ? '<details><summary>Per-test full tracebacks (click to expand)</summary>\n\n```\n' + failureDetails.slice(0, 8000) + '\n```\n</details>'
+                : '_No per-test tracebacks captured_',
+              '',
+              '### Baseline run (--tb=short)',
+              '<details><summary>Baseline output (click to expand)</summary>\n\n```\n' + baseline.slice(0, 4000) + '\n```\n</details>',
+              '',
+              '### Post-fix run (--tb=short)',
+              '<details><summary>Post-fix output (click to expand)</summary>\n\n```\n' + postFix.slice(0, 4000) + '\n```\n</details>',
+              '',
+              '### Action required',
+              '- Review the per-test tracebacks and classification above to understand the root cause',
+              '- Run `pytest -x --tb=long` locally on each failing test',
+              '- Fix the implementation, not the test expectations',
+              '- Never skip or mock tests to hide failures',
+              '',
+              '_Auto-escalated by the [agency-cycle](.github/workflows/agency-cycle.yml) workflow — human review required._',
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title: `Agency: Cannot Fix Tests — ${new Date().toISOString().split('T')[0]}`,
+              body,
+              labels: ['bug', 'auto-detected', 'agency-escalation'],
+            });

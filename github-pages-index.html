@@ -3,748 +3,419 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local LLM Server - Setup Wizard</title>
+    <title>Agency Core v5 — Autonomous AI Agency Platform</title>
+    <meta name="description" content="Self-hosted autonomous AI agency. Onboard any company URL, auto-provision specialist agents, and let them work through a typed workflow engine with HITL approvals.">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --primary: #667eea;
-            --primary-dark: #5568d3;
-            --success: #4caf50;
-            --danger: #f44336;
-            --warning: #ff9800;
-            --gray: #f8f9fa;
-            --dark: #333;
-            --light: #666;
+            --primary: #5da2ff;
+            --primary-dark: #3d7fdd;
+            --success: #46d9a4;
+            --warn: #ffbd66;
+            --danger: #ff6b7d;
+            --bg: #0e1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --font-mono: 'SF Mono', 'Fira Code', monospace;
         }
-
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
         }
 
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 700px;
-            width: 100%;
-            padding: 40px;
-        }
-
-        .breadcrumb {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            margin-bottom: 30px;
-            font-size: 13px;
-            color: var(--light);
-        }
-
-        .breadcrumb a {
-            color: var(--primary);
-            text-decoration: none;
-            font-weight: 600;
-        }
-
-        .breadcrumb a:hover {
-            text-decoration: underline;
-        }
-
-        .header {
+        /* ── Hero ─────────────────────────────────────────────────── */
+        .hero {
+            padding: 80px 20px 60px;
             text-align: center;
-            margin-bottom: 40px;
+            max-width: 900px;
+            margin: 0 auto;
         }
-
-        .header h1 {
-            font-size: 32px;
-            color: var(--dark);
-            margin-bottom: 8px;
-        }
-
-        .header p {
-            color: var(--light);
-            font-size: 15px;
-        }
-
-        .setup-steps {
-            display: none;
-        }
-
-        .setup-steps.active {
-            display: block;
-        }
-
-        .step {
-            margin-bottom: 30px;
-        }
-
-        .step-title {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--dark);
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .step-number {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 32px;
-            height: 32px;
-            background: var(--primary);
-            color: white;
-            border-radius: 50%;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        .form-group {
+        .hero .badge {
+            display: inline-block;
+            padding: 4px 14px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-family: var(--font-mono);
+            background: rgba(93,162,255,0.12);
+            border: 1px solid rgba(93,162,255,0.25);
+            color: var(--primary);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
             margin-bottom: 20px;
         }
-
-        label {
-            display: block;
-            font-weight: 600;
-            color: var(--dark);
-            margin-bottom: 8px;
-            font-size: 14px;
+        .hero h1 {
+            font-size: 48px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1.15;
+            margin-bottom: 16px;
         }
-
-        input[type="text"],
-        input[type="password"],
-        textarea {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #eee;
-            border-radius: 8px;
-            font-size: 14px;
-            font-family: monospace;
-            transition: border-color 0.3s;
+        .hero h1 span { color: var(--primary); }
+        .hero p {
+            font-size: 18px;
+            color: var(--text-muted);
+            max-width: 650px;
+            margin: 0 auto 30px;
         }
-
-        input[type="text"]:focus,
-        input[type="password"]:focus,
-        textarea:focus {
-            outline: none;
-            border-color: var(--primary);
-            background: #f0f4ff;
-        }
-
-        .path-hint {
-            font-size: 12px;
-            color: var(--light);
-            margin-top: 6px;
-        }
-
-        .status-box {
-            background: #f0f4ff;
-            border-left: 4px solid var(--primary);
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 10px;
-            font-size: 13px;
-        }
-
-        .status-box.success {
-            background: #f1f8e9;
-            border-left-color: var(--success);
-            color: #558b2f;
-        }
-
-        .status-box.error {
-            background: #ffebee;
-            border-left-color: var(--danger);
-            color: #c62828;
-        }
-
-        .service-list {
-            display: grid;
-            gap: 12px;
-        }
-
-        .service-item {
+        .hero .cta-group {
             display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .btn {
+            display: inline-flex;
             align-items: center;
-            gap: 12px;
-            padding: 12px;
-            background: var(--gray);
-            border-radius: 8px;
-            border-left: 4px solid var(--primary);
-        }
-
-        .service-status {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #ccc;
-            animation: pulse 2s infinite;
-        }
-
-        .service-status.running {
-            background: var(--success);
-        }
-
-        .service-status.stopped {
-            background: var(--danger);
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .service-info {
-            flex: 1;
-        }
-
-        .service-name {
-            font-weight: 600;
-            color: var(--dark);
-            font-size: 14px;
-        }
-
-        .service-detail {
-            font-size: 12px;
-            color: var(--light);
-        }
-
-        .service-actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        button {
-            padding: 10px 16px;
-            border: none;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
+            gap: 6px;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            text-decoration: none;
             cursor: pointer;
-            transition: all 0.3s ease;
+            border: none;
+            transition: all 0.2s;
         }
-
         .btn-primary {
             background: var(--primary);
-            color: white;
+            color: #fff;
         }
-
-        .btn-primary:hover:not(:disabled) {
+        .btn-primary:hover {
             background: var(--primary-dark);
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 6px 20px rgba(93,162,255,0.25);
+        }
+        .btn-outline {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .btn-outline:hover {
+            border-color: var(--primary);
+            color: var(--primary);
         }
 
-        .btn-primary:disabled {
-            background: #ccc;
-            cursor: not-allowed;
+        /* ── Sections ─────────────────────────────────────────────── */
+        section {
+            padding: 60px 20px;
+            max-width: 1100px;
+            margin: 0 auto;
         }
-
-        .btn-success {
-            background: var(--success);
-            color: white;
-            font-size: 12px;
-        }
-
-        .btn-danger {
-            background: var(--danger);
-            color: white;
-            font-size: 12px;
-        }
-
-        .btn-danger:hover {
-            background: #da190b;
-        }
-
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .button-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 30px;
-            justify-content: space-between;
-        }
-
-        .button-group button {
-            flex: 1;
-            padding: 14px;
-            font-size: 15px;
-        }
-
-        .success-screen {
-            display: none;
-            text-align: center;
-        }
-
-        .success-screen.active {
-            display: block;
-        }
-
-        .success-icon {
-            font-size: 64px;
-            margin-bottom: 20px;
-        }
-
-        .success-screen h2 {
-            font-size: 24px;
-            color: var(--success);
+        section h2 {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
             margin-bottom: 12px;
         }
+        section h2 span { color: var(--primary); }
+        section .subtitle {
+            font-size: 15px;
+            color: var(--text-muted);
+            margin-bottom: 36px;
+        }
 
-        .success-screen p {
-            color: var(--light);
-            margin-bottom: 20px;
+        /* ── Feature Grid ─────────────────────────────────────────── */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .feature-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 24px;
+            transition: border-color 0.2s;
+        }
+        .feature-card:hover { border-color: var(--primary); }
+        .feature-card .icon {
+            font-size: 24px;
+            margin-bottom: 12px;
+        }
+        .feature-card h3 {
+            font-size: 17px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .feature-card p {
+            font-size: 14px;
+            color: var(--text-muted);
             line-height: 1.6;
         }
-
-        .daemon-connection {
-            background: #f0f4ff;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-            text-align: left;
+        .feature-card .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-family: var(--font-mono);
+            margin-top: 10px;
+            background: rgba(70,217,164,0.10);
+            color: var(--success);
+            border: 1px solid rgba(70,217,164,0.20);
+        }
+        .feature-card .tag.beta {
+            background: rgba(255,189,102,0.10);
+            color: var(--warn);
+            border-color: rgba(255,189,102,0.20);
         }
 
-        .daemon-status {
+        /* ── Golden Path ──────────────────────────────────────────── */
+        .pipeline {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            margin: 30px 0;
+        }
+        .pipeline .phase {
+            padding: 10px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-family: var(--font-mono);
+            font-weight: 600;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+        .pipeline .arrow { color: var(--primary); align-self: center; font-weight: 700; }
+
+        /* ── Status Badge ─────────────────────────────────────────── */
+        .status-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin: 20px 0;
+        }
+        .status-chip {
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .spinner {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid var(--primary);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .info-box {
-            background: #e3f2fd;
-            border-left: 4px solid var(--primary);
-            padding: 15px;
-            border-radius: 8px;
-            margin: 15px 0;
+            padding: 10px 16px;
+            border-radius: 10px;
             font-size: 13px;
-            line-height: 1.6;
+            font-weight: 600;
+            border: 1px solid;
+        }
+        .status-chip.stable { background: rgba(70,217,164,0.06); border-color: rgba(70,217,164,0.20); color: var(--success); }
+        .status-chip.beta   { background: rgba(255,189,102,0.06); border-color: rgba(255,189,102,0.20); color: var(--warn); }
+        .status-chip.experimental { background: rgba(255,107,125,0.06); border-color: rgba(255,107,125,0.20); color: var(--danger); }
+
+        /* ── FAQ ──────────────────────────────────────────────────── */
+        .faq-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 10px;
+        }
+        .faq-item h4 {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            cursor: pointer;
+        }
+        .faq-item p {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.7;
         }
 
-        .public-url-display {
-            background: white;
-            border: 2px dashed var(--primary);
-            padding: 15px;
-            border-radius: 8px;
-            margin: 15px 0;
-            font-family: monospace;
-            word-break: break-all;
-            user-select: all;
-            color: var(--primary);
-            font-weight: 600;
+        /* ── Footer ───────────────────────────────────────────────── */
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
             font-size: 13px;
+        }
+        footer a { color: var(--primary); text-decoration: none; }
+
+        /* ── Responsive ───────────────────────────────────────────── */
+        @media (max-width: 640px) {
+            .hero h1 { font-size: 32px; }
+            .hero p { font-size: 15px; }
+            .features { grid-template-columns: 1fr; }
+            .pipeline { flex-direction: column; align-items: center; }
+            .pipeline .arrow { transform: rotate(90deg); }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="breadcrumb">
-            <a href="https://strikersam.github.io/local-llm-server/">LLM Relay v3</a>
-            <span>→</span>
-            <a href="#">Setup Wizard</a>
-            <span>→</span>
-            <span>Local Models</span>
-        </div>
 
-        <div class="header">
-            <h1>🚀 Local Models Setup</h1>
-            <p>Configure your local LLM server and start services</p>
-        </div>
-
-        <!-- Step 1: Path Configuration -->
-        <div class="setup-steps active" id="step1">
-            <div class="step">
-                <div class="step-title">
-                    <div class="step-number">1</div>
-                    Configure Local Paths
-                </div>
-
-                <div class="form-group">
-                    <label for="repoPath">📁 Repository Folder</label>
-                    <input type="text" id="repoPath" placeholder="/Users/username/Desktop/local-llm-server">
-                    <div class="path-hint">Path to your local-llm-server directory</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="modelsPath">📦 Models Folder</label>
-                    <input type="text" id="modelsPath" placeholder="/Users/username/Desktop/local-models">
-                    <div class="path-hint">Path to your local models directory</div>
-                </div>
-
-                <div id="configStatus"></div>
-            </div>
-
-            <div class="button-group">
-                <button class="btn-primary" onclick="saveConfig()">Continue →</button>
-            </div>
-        </div>
-
-        <!-- Step 2: Daemon Connection -->
-        <div class="setup-steps" id="step2">
-            <div class="step">
-                <div class="step-title">
-                    <div class="step-number">2</div>
-                    Start Service Daemon
-                </div>
-
-                <div class="info-box">
-                    ✅ The service daemon must be running on your machine to control services.
-                </div>
-
-                <div class="daemon-connection">
-                    <div class="daemon-status">
-                        <span class="spinner" id="daemonSpinner"></span>
-                        <span id="daemonText">Connecting to daemon...</span>
-                    </div>
-                    <div id="daemonError" style="display: none; color: var(--danger); font-size: 12px;">
-                        Daemon not found. Start it with: <code>python service_daemon.py</code>
-                    </div>
-                </div>
-
-                <div id="daemonVersion" style="font-size: 12px; color: var(--light); margin-top: 10px;"></div>
-            </div>
-
-            <div class="button-group">
-                <button class="btn-primary" onclick="checkDaemon()" id="retryBtn">Retry Connection</button>
-                <button class="btn-primary" onclick="goToStep(3)" id="continueBtn" style="display: none;">Continue →</button>
-            </div>
-        </div>
-
-        <!-- Step 3: Service Management -->
-        <div class="setup-steps" id="step3">
-            <div class="step">
-                <div class="step-title">
-                    <div class="step-number">3</div>
-                    Manage Services
-                </div>
-
-                <div class="info-box">
-                    💡 Start the services you need. The proxy is required for everything to work.
-                </div>
-
-                <div class="service-list" id="serviceList">
-                    <!-- Services will be populated here -->
-                </div>
-
-                <div id="publicUrlBox" style="display: none; margin-top: 20px;">
-                    <label>🌐 Public Access URL</label>
-                    <div class="public-url-display" id="publicUrlValue"></div>
-                </div>
-            </div>
-
-            <div class="button-group">
-                <button class="btn-primary" onclick="startAllServices()">▶️ START ALL</button>
-                <button class="btn-primary" style="background: #999;" onclick="goToStep(4)">Next →</button>
-            </div>
-        </div>
-
-        <!-- Step 4: Complete -->
-        <div class="success-screen" id="step4">
-            <div class="success-icon">✅</div>
-            <h2>Setup Complete!</h2>
-            <p>Your Local LLM Server is configured and ready to use.</p>
-
-            <div class="daemon-connection">
-                <div style="font-weight: 600; margin-bottom: 10px;">📊 Service Status</div>
-                <div id="finalStatus"></div>
-            </div>
-
-            <div class="info-box">
-                <strong>🔗 Public Access:</strong>
-                <div id="finalPublicUrl" style="margin-top: 8px; font-family: monospace; user-select: all; word-break: break-all;"></div>
-            </div>
-
-            <div class="info-box">
-                <strong>💻 Local Access:</strong>
-                <div style="margin-top: 8px;">http://localhost:8000</div>
-            </div>
-
-            <div class="button-group">
-                <button class="btn-primary" onclick="goToStep(3)" style="flex: 1;">Back to Services</button>
-                <button class="btn-primary" style="flex: 1; background: #999;" onclick="location.href='https://strikersam.github.io/local-llm-server/'">Back to Home</button>
-            </div>
+    <!-- ══════════════════════ HERO ════════════════════════ -->
+    <div class="hero">
+        <div class="badge">Agency Core v5</div>
+        <h1>Autonomous AI Agency<br><span>for any company URL</span></h1>
+        <p>
+            Onboard a website, scan its stack, auto-provision engineering and business specialists,
+            and let them execute real work through a typed workflow engine — with HITL approval gates
+            and evidence captured into your Company Graph.
+        </p>
+        <div class="cta-group">
+            <a href="https://github.com/strikersam/local-llm-server" class="btn btn-primary">View on GitHub →</a>
+            <a href="https://github.com/strikersam/local-llm-server/blob/master/docs/README.md" class="btn btn-outline">Read the Docs</a>
         </div>
     </div>
 
-    <script>
-        const DAEMON_URL = "http://localhost:3001";
-        const API_URL = `${DAEMON_URL}/api`;
-        let currentStep = 1;
-        let daemonReady = false;
+    <!-- ══════════════════════ FEATURES ════════════════════════ -->
+    <section>
+        <h2>What <span>Agency Core</span> Does</h2>
+        <p class="subtitle">Every surface is real — no mock data in the production path.</p>
 
-        function goToStep(step) {
-            document.querySelectorAll(".setup-steps, .success-screen").forEach(el => {
-                el.classList.remove("active");
-            });
+        <div class="features">
+            <div class="feature-card">
+                <div class="icon">🏢</div>
+                <h3>Company Onboarding</h3>
+                <p>Enter any production website URL. The scanner performs multi-pass HTTP/HTML/meta inspection, Wappalyzer-style heuristics, and structured AI extraction to detect the full technology stack.</p>
+                <span class="tag">Stable</span>
+            </div>
+            <div class="feature-card">
+                <div class="icon">🧠</div>
+                <h3>Company Graph</h3>
+                <p>Persistent graph of every detected system, website, repository, specialist, workflow, and approval policy. Survives restarts and grows with every operation.</p>
+                <span class="tag">Stable</span>
+            </div>
+            <div class="feature-card">
+                <div class="icon">🤖</div>
+                <h3>Auto-Provisioned Specialists</h3>
+                <p>Based on detected systems, the platform provisions engineering specialists (backend, frontend, security, test) AND business/domain specialists (SEO, analytics, ecommerce, content).</p>
+                <span class="tag">Stable</span>
+            </div>
+            <div class="feature-card">
+                <div class="icon">⚡</div>
+                <h3>28 Runtime Skills</h3>
+                <p>Skills like ECC (cross-harness orchestration), Obsidian Knowledge Graph, Graphify token optimization, council-review, and 24 others — typed, tested, and bound to specialists.</p>
+                <span class="tag">Stable</span> <span class="tag beta">7 enabled · 19 gated</span>
+            </div>
+            <div class="feature-card">
+                <div class="icon">💬</div>
+                <h3>Direct Chat Control Center</h3>
+                <p>Intent classification routes every message: answer_only, clarify, inspect_company, inspect_repo, execute_now, or execute_after_approval. No metadata leakage — humanized progress only.</p>
+                <span class="tag">Stable</span>
+            </div>
+            <div class="feature-card">
+                <div class="icon">🔀</div>
+                <h3>Workflow Engine</h3>
+                <p>All execution flows through the 11-phase golden path: Classify → Plan → Select Specialist → Preflight → Bind Context → Execute → Verify → Judge → Summarize → Persist → Monitor.</p>
+                <span class="tag">Stable</span>
+            </div>
+            <div class="feature-card">
+                <div class="icon">🩺</div>
+                <h3>Doctor / Diagnostics</h3>
+                <p>Public endpoint for system health (git, storage, provider) and authenticated endpoint for user diagnostics (GitHub token, workspace, company graph, skill library, orchestrator).</p>
+                <span class="tag">Stable</span>
+            </div>
+            <div class="feature-card">
+                <div class="icon">🛡️</div>
+                <h3>HITL Approval Gates</h3>
+                <p>Hard gate between Plan and Execute — no code path can skip it. Human approves the plan, then the orchestrator resumes execution with full audit trail.</p>
+                <span class="tag">Stable</span>
+            </div>
+            <div class="feature-card">
+                <div class="icon">📱</div>
+                <h3>Mobile-First Dashboard</h3>
+                <p>React v5 frontend with safe-area-aware chrome, partial-failure tolerance per widget, background polling, and contract-tested API integration.</p>
+                <span class="tag">Stable</span>
+            </div>
+        </div>
+    </section>
 
-            if (step <= 3) {
-                document.getElementById(`step${step}`).classList.add("active");
-            } else {
-                document.getElementById("step4").classList.add("active");
-                updateFinalStatus();
-            }
+    <!-- ══════════════════════ GOLDEN PATH ════════════════════════ -->
+    <section>
+        <h2>The <span>Golden Path</span></h2>
+        <p class="subtitle">Every task flows through 11 typed phases. No parallel execution paths.</p>
+        <div class="pipeline">
+            <div class="phase">Classify</div><div class="arrow">→</div>
+            <div class="phase">Plan</div><div class="arrow">→</div>
+            <div class="phase">Select Specialist</div><div class="arrow">→</div>
+            <div class="phase">Preflight</div><div class="arrow">→</div>
+            <div class="phase">Bind Context</div><div class="arrow">→</div>
+            <div class="phase" style="border-color: var(--warn); color: var(--warn);">Execute</div><div class="arrow">→</div>
+            <div class="phase">Verify</div><div class="arrow">→</div>
+            <div class="phase">Judge</div><div class="arrow">→</div>
+            <div class="phase">Summarize</div><div class="arrow">→</div>
+            <div class="phase">Persist</div><div class="arrow">→</div>
+            <div class="phase">Monitor</div>
+        </div>
 
-            currentStep = step;
-            window.scrollTo(0, 0);
-        }
+        <div class="status-row">
+            <div class="status-chip stable">✅ Stable — Direct Chat, Local Runtime, Workflow Engine, CEO+Specialists, Company Graph, Doctor, Skills Core</div>
+            <div class="status-chip beta">⚠️ Beta — Async agent jobs, task harness runtime, multi-agent swarm, OpenClaw, peer sync</div>
+            <div class="status-chip experimental">🧪 Experimental — Sidecar runtimes, quick actions, agentic portfolio management</div>
+        </div>
+    </section>
 
-        async function saveConfig() {
-            const repoPath = document.getElementById("repoPath").value.trim();
-            const modelsPath = document.getElementById("modelsPath").value.trim();
-            const statusDiv = document.getElementById("configStatus");
-
-            if (!repoPath || !modelsPath) {
-                statusDiv.innerHTML = `
-                    <div class="status-box error">
-                        ⚠️ Please enter both paths
-                    </div>
-                `;
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_URL}/configure`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        repo_path: repoPath,
-                        models_path: modelsPath
-                    })
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    statusDiv.innerHTML = `
-                        <div class="status-box success">
-                            ✅ Configuration saved successfully!
-                        </div>
-                    `;
-                    setTimeout(() => goToStep(2), 1500);
-                } else {
-                    statusDiv.innerHTML = `
-                        <div class="status-box error">
-                            ❌ ${data.message}
-                        </div>
-                    `;
-                }
-            } catch (e) {
-                statusDiv.innerHTML = `
-                    <div class="status-box error">
-                        ❌ Cannot reach daemon. Make sure it's running: <code>python service_daemon.py</code>
-                    </div>
-                `;
-            }
-        }
-
-        async function checkDaemon() {
-            const daemonText = document.getElementById("daemonText");
-            const daemonError = document.getElementById("daemonError");
-            const continueBtn = document.getElementById("continueBtn");
-            const retryBtn = document.getElementById("retryBtn");
-
-            try {
-                const response = await fetch(`${DAEMON_URL}/health`);
-                if (response.ok) {
-                    const data = await response.json();
-                    daemonText.textContent = "✅ Daemon connected";
-                    document.getElementById("daemonSpinner").style.display = "none";
-                    daemonError.style.display = "none";
-                    continueBtn.style.display = "block";
-                    retryBtn.style.display = "none";
-                    daemonReady = true;
-                } else {
-                    throw new Error("Daemon responded with error");
-                }
-            } catch (e) {
-                daemonText.textContent = "❌ Daemon not found";
-                daemonError.style.display = "block";
-                document.getElementById("daemonSpinner").style.display = "none";
-            }
-        }
-
-        function createServiceElement(name, status, url) {
-            const statusClass = status === "running" ? "running" : "stopped";
-            const isRunning = status === "running";
-            const serviceName = name.toLowerCase().split(' ')[0];
-
-            return `
-                <div class="service-item">
-                    <div class="service-status ${statusClass}"></div>
-                    <div class="service-info">
-                        <div class="service-name">${name}</div>
-                        <div class="service-detail">
-                            ${url}
-                            <span style="font-weight: 600; margin-left: 8px; color: ${isRunning ? '#4caf50' : '#f44336'};">
-                                ${isRunning ? '● Running' : '● Stopped'}
-                            </span>
-                        </div>
-                    </div>
-                    <div class="service-actions">
-                        <button class="btn-success" onclick="startService('${serviceName}')" ${isRunning ? 'disabled' : ''}>Start</button>
-                        <button class="btn-danger" onclick="stopService('${serviceName}')" ${!isRunning ? 'disabled' : ''}>Stop</button>
-                    </div>
+    <!-- ══════════════════════ DEPLOYMENT ════════════════════════ -->
+    <section style="background: var(--surface); max-width: 100%;">
+        <div style="max-width: 1100px; margin: 0 auto;">
+            <h2>Deploy <span>Anywhere</span></h2>
+            <p class="subtitle">Self-hosted, zero-vendor-lock. Runs on your machine or in the cloud.</p>
+            <div class="features">
+                <div class="feature-card" style="background: var(--bg);">
+                    <div class="icon">💻</div>
+                    <h3>Local (macOS / Linux / Windows)</h3>
+                    <p><code>./install.sh</code> or <code>./install.ps1</code> — single-command setup. Requires Python 3.10+, Ollama, and optionally Docker for runtimes.</p>
                 </div>
-            `;
-        }
+                <div class="feature-card" style="background: var(--bg);">
+                    <div class="icon">🐳</div>
+                    <h3>Docker Compose</h3>
+                    <p><code>docker compose up</code> — spins up the proxy, MongoDB, and Ollama in containers. <code>docker-compose.e2e.yml</code> for E2E testing with Playwright.</p>
+                </div>
+                <div class="feature-card" style="background: var(--bg);">
+                    <div class="icon">☁️</div>
+                    <h3>Render / Railway / Fly.io</h3>
+                    <p><code>render.yaml</code> blueprint included. One-click deploy to Render with auto-scaling. Compatible with any platform that runs Python + FastAPI.</p>
+                </div>
+                <div class="feature-card" style="background: var(--bg);">
+                    <div class="icon">🌐</div>
+                    <h3>GitHub Pages (this site)</h3>
+                    <p>This product page is served from GitHub Pages. The authenticated control plane runs wherever you deploy the backend.</p>
+                </div>
+            </div>
+        </div>
+    </section>
 
-        async function updateServices() {
-            try {
-                const response = await fetch(`${API_URL}/status`);
-                const status = await response.json();
+    <!-- ══════════════════════ FAQ ════════════════════════ -->
+    <section>
+        <h2>FAQ</h2>
+        <p class="subtitle">Common questions about Agency Core.</p>
 
-                const serviceList = document.getElementById("serviceList");
-                serviceList.innerHTML = `
-                    ${createServiceElement("🔷 Proxy Server", status.proxy, "http://localhost:8000")}
-                    ${createServiceElement("🔶 Ollama", status.ollama, "http://localhost:11434")}
-                    ${createServiceElement("🌐 ngrok Tunnel", status.tunnel, "Public internet")}
-                `;
+        <div class="faq-item">
+            <h4>What does "autonomous AI agency" actually mean?</h4>
+            <p>It means the platform picks up tasks (from chat, quick-notes, scheduled jobs, or issue ingestion), classifies them, plans execution, selects the right specialist agents, runs them through a typed workflow with verification and judging, and persists evidence into the Company Graph — all without a human having to manually trigger each step. You still approve risky work via the HITL gate.</p>
+        </div>
+        <div class="faq-item">
+            <h4>Is this a ChatGPT wrapper?</h4>
+            <p>No. Agency Core routes to your own LLM providers — local Ollama models, cloud APIs (DeepSeek, OpenRouter, Anthropic, Together, etc.), or any OpenAI-compatible endpoint. No dependency on a single vendor.</p>
+        </div>
+        <div class="faq-item">
+            <h4>How does the website scan work?</h4>
+            <p>The scanner performs a multi-pass inspection: HTTP headers, HTML metadata, JavaScript bundle analysis, Wappalyzer-style fingerprinting, and structured AI extraction. It detects CMS, PIM, OMS, DAM, analytics, commerce, CDN, and framework stacks.</p>
+        </div>
+        <div class="faq-item">
+            <h4>What are "specialists"?</h4>
+            <p>Specialists are agent profiles auto-provisioned based on what the scanner detects. Engineering specialists cover backend, frontend, security, testing, and DevOps. Business specialists cover SEO, analytics, ecommerce, content strategy, CRM, and domain-specific workflows. Each specialist has routing rules, skill bindings, and typed inputs/outputs.</p>
+        </div>
+        <div class="faq-item">
+            <h4>What skills are included?</h4>
+            <p>28 skills total: 7 production-ready (ECC cross-harness orchestration, Obsidian Knowledge Graph, Workflow Engine, Memory Consolidation, Fabric Patterns, Financial Analyst, Agentic Agile) and 19 gated behind a feature flag (council-review, implementation-planner, test-first-executor, Graphify, and others). All skills are typed, tested, and bindable to specialists.</p>
+        </div>
+        <div class="faq-item">
+            <h4>Is this production-ready?</h4>
+            <p>The core path is stable: company onboarding, Company Graph, specialist provisioning, direct chat, workflow engine, doctor/diagnostics, and the skills core. Features marked "beta" or "experimental" (async agent jobs, multi-agent swarm, peer sync, agentic portfolio management) are gated behind feature flags and should not be relied on in production without testing.</p>
+        </div>
+    </section>
 
-                if (status.public_url) {
-                    const box = document.getElementById("publicUrlBox");
-                    box.style.display = "block";
-                    document.getElementById("publicUrlValue").textContent = status.public_url;
-                }
-            } catch (e) {
-                console.error("Error updating services:", e);
-            }
-        }
+    <!-- ══════════════════════ FOOTER ════════════════════════ -->
+    <footer>
+        <p>Agency Core v5 · <a href="https://github.com/strikersam/local-llm-server">GitHub</a> · <a href="https://github.com/strikersam/local-llm-server/blob/master/docs/README.md">Documentation</a> · <a href="https://github.com/strikersam/local-llm-server/blob/master/docs/changelog.md">Changelog</a></p>
+        <p style="margin-top: 8px;">Self-hosted autonomous AI agency for any onboarded company URL.</p>
+    </footer>
 
-        async function startService(service) {
-            const endpoint = service === "proxy" ? "proxy" : service === "tunnel" ? "tunnel" : null;
-            if (!endpoint) return;
-
-            try {
-                console.log(`Starting ${service}...`);
-                const response = await fetch(`${API_URL}/services/${endpoint}/start`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" }
-                });
-                const data = await response.json();
-                console.log(`${service} response:`, data);
-
-                if (data.success) {
-                    console.log(`✓ ${service} started`);
-                    alert(`✅ ${service.toUpperCase()} started successfully!`);
-                } else {
-                    alert(`⚠️ ${data.message}`);
-                }
-
-                setTimeout(updateServices, 1500);
-            } catch (e) {
-                console.error(`Error starting ${service}:`, e);
-                alert(`❌ Error starting ${service}: ${e.message}`);
-            }
-        }
-
-        async function stopService(service) {
-            const endpoint = service === "proxy" ? "proxy" : service === "tunnel" ? "tunnel" : null;
-            if (!endpoint) return;
-
-            try {
-                console.log(`Stopping ${service}...`);
-                const response = await fetch(`${API_URL}/services/${endpoint}/stop`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" }
-                });
-                const data = await response.json();
-                console.log(`${service} response:`, data);
-
-                if (data.success) {
-                    console.log(`✓ ${service} stopped`);
-                    alert(`✅ ${service.toUpperCase()} stopped!`);
-                }
-
-                updateServices();
-            } catch (e) {
-                console.error(`Error stopping ${service}:`, e);
-                alert(`❌ Error stopping ${service}: ${e.message}`);
-            }
-        }
-
-        async function startAllServices() {
-            console.log("Starting all services...");
-            alert("🚀 Starting all services. This may take 30 seconds...");
-
-            await startService("proxy");
-            await new Promise(r => setTimeout(r, 3000));
-
-            await startService("tunnel");
-
-            setTimeout(() => {
-                updateServices();
-                alert("✅ All services started! Check the status below.");
-            }, 2000);
-        }
-
-        async function updateFinalStatus() {
-            try {
-                const response = await fetch(`${API_URL}/status`);
-                const status = await response.json();
-
-                document.getElementById("finalStatus").innerHTML = `
-                    <div>Proxy: <strong>${status.proxy}</strong></div>
-                    <div>Ollama: <strong>${status.ollama}</strong></div>
-                    <div>Tunnel: <strong>${status.tunnel}</strong></div>
-                `;
-
-                if (status.public_url) {
-                    document.getElementById("finalPublicUrl").textContent = status.public_url;
-                }
-            } catch (e) {
-                console.error("Error:", e);
-            }
-        }
-
-        // Initialize
-        checkDaemon();
-        setInterval(checkDaemon, 2000);
-
-        // Update services when step 3 is shown
-        const observer = new MutationObserver(() => {
-            if (document.getElementById("step3").classList.contains("active")) {
-                updateServices();
-            }
-        });
-
-        observer.observe(document.getElementById("step3"), { attributes: true });
-
-        // Set default paths
-        document.getElementById("repoPath").value = "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server";
-        document.getElementById("modelsPath").value = "/Users/swaminathan.balasub/Desktop/Syncthing/local-models";
-    </script>
 </body>
 </html>

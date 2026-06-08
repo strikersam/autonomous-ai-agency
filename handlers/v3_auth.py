@@ -45,8 +45,12 @@ class UserResponse(BaseModel):
 
 
 def _get_admin_email() -> str:
-    """Get admin email from environment."""
-    return os.environ.get("V3_ADMIN_EMAIL", "admin@localhost")
+    """Get admin email from environment (fall back to legacy ADMIN_EMAIL).
+
+    Align with backend.server ADMIN_EMAIL lookup to avoid environment discrepancies
+    between different modules (V3_ADMIN_EMAIL or ADMIN_EMAIL).
+    """
+    return os.environ.get("V3_ADMIN_EMAIL") or os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
 
 
 def _get_admin_name() -> str:
@@ -55,8 +59,15 @@ def _get_admin_name() -> str:
 
 
 def _get_admin_secret() -> str:
-    """Get admin secret (password) from environment."""
-    return os.environ.get("V3_ADMIN_PASSWORD") or os.environ.get("ADMIN_SECRET", "")
+    """Get admin secret (password) from environment.
+
+    Support multiple historical env var names: V3_ADMIN_PASSWORD, ADMIN_PASSWORD, or ADMIN_SECRET.
+    """
+    return (
+        os.environ.get("V3_ADMIN_PASSWORD")
+        or os.environ.get("ADMIN_PASSWORD")
+        or os.environ.get("ADMIN_SECRET", "")
+    )
 
 
 def _validate_credentials(email: str, password: str) -> bool:

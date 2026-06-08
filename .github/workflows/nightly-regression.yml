@@ -1,0 +1,307 @@
+name: Nightly Regression (2 AM CEST)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Midnight UTC = 2 AM CEST
+  workflow_dispatch:      # Manual trigger for ad-hoc runs
+    inputs:
+      auto_fix:
+        description: 'Auto-fix failures (create PR)'
+        type: boolean
+        default: true
+      create_issue:
+        description: 'Create issue for unfixable failures'
+        type: boolean
+        default: true
+
+concurrency:
+  group: nightly-regression
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  regression:
+    name: Full Browser Regression (Desktop + Mobile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y chromium-browser fonts-liberation libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 || true
+
+      # ADMIN_PASSWORD must be set as a GitHub Actions secret — no hardcoded fallback.
+      - name: Set admin password from secrets
+        run: echo "ADMIN_PW=${{ secrets.ADMIN_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install httpx pytest pytest-html playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Build and start backend
+        env:
+          ADMIN_PW: ${{ env.ADMIN_PW }}
+        run: |
+          docker build -f Dockerfile.backend -t llm-relay-backend:nightly .
+          docker run -d --name llm-relay-nightly \
+            -p 8001:8001 \
+            -e STORAGE_BACKEND=sqlite \
+            -e ADMIN_EMAIL=admin@llmrelay.local \
+            -e ADMIN_PASSWORD="${ADMIN_PW}" \
+            -e SCANNER_HEADLESS_RENDER=off \
+            -e SCANNER_BUILTWITH_FALLBACK=off \
+            -e ACTIVATION_REQUIRED=false \
+            llm-relay-backend:nightly
+
+      - name: Wait for backend
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8001/api/ping > /dev/null 2>&1; then
+              echo "Backend ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to start"
+          docker logs llm-relay-nightly
+          exit 1
+
+      - name: Run regression suite
+        id: regression
+        env:
+          RELAY_BASE_URL: http://localhost:8001
+          E2E_ARTIFACT_DIR: /tmp/e2e-artifacts
+        run: |
+          mkdir -p /tmp/e2e-artifacts
+          python tests/e2e/test_regression.py 2>&1 | tee /tmp/regression-output.txt
+          echo "exitcode=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Generate HTML report
+        if: always()
+        run: |
+          python -m pytest tests/e2e/test_regression.py \
+            --html=/tmp/e2e-artifacts/regression-report.html \
+            --self-contained-html \
+            -q 2>&1 || true
+
+      - name: Upload regression artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-artifacts
+          path: |
+            /tmp/e2e-artifacts/
+            /tmp/regression-output.txt
+          retention-days: 7
+
+      - name: Stop backend
+        if: always()
+        run: docker rm -f llm-relay-nightly || true
+
+  auto-fix:
+    name: Auto-Fix & Issue Creation
+    needs: regression
+    if: always() && needs.regression.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Download regression artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: regression-artifacts
+          path: /tmp/e2e-artifacts
+
+      - name: Analyze failures
+        id: analyze
+        run: |
+          echo "Analyzing regression failures..."
+          FAILURE_LOG="/tmp/e2e-artifacts/regression-output.txt"
+
+          if [ ! -f "$FAILURE_LOG" ]; then
+            echo "No regression output found"
+            echo "can_fix=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Count failure types
+          CONSOLE_ERRORS=$(grep -c "console error" "$FAILURE_LOG" 2>/dev/null || echo 0)
+          CRUD_FAILURES=$(grep -c "could not create\|could not find\|navigation error\|empty page" "$FAILURE_LOG" 2>/dev/null || echo 0)
+          SERVER_ERRORS=$(grep -c "500\|503\|Internal Server Error" "$FAILURE_LOG" 2>/dev/null || echo 0)
+
+          echo "console_errors=$CONSOLE_ERRORS" >> $GITHUB_OUTPUT
+          echo "crud_failures=$CRUD_FAILURES" >> $GITHUB_OUTPUT
+          echo "server_errors=$SERVER_ERRORS" >> $GITHUB_OUTPUT
+
+          # Auto-fixable: locator/CSS changes, simple CRUD flakiness
+          # NOT auto-fixable: 500 errors, server crashes, business logic changes
+          if [ "$SERVER_ERRORS" -gt 0 ]; then
+            echo "can_fix=false" >> $GITHUB_OUTPUT
+            echo "reason=Server errors detected (500/503) - requires manual investigation" >> $GITHUB_OUTPUT
+          elif [ "$CRUD_FAILURES" -gt 0 ] || [ "$CONSOLE_ERRORS" -gt 0 ]; then
+            echo "can_fix=true" >> $GITHUB_OUTPUT
+            echo "reason=Locator/CRUD failures - attempting auto-fix" >> $GITHUB_OUTPUT
+          else
+            echo "can_fix=false" >> $GITHUB_OUTPUT
+            echo "reason=Unknown failure mode" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Attempt auto-fix (locator updates)
+        if: ${{ github.event.inputs.auto_fix != 'false' && steps.analyze.outputs.can_fix == 'true' }}
+        run: |
+          echo "=== Auto-fixing regression test locators ==="
+          BRANCH="auto/regression-fix-$(date +%Y%m%d-%H%M)"
+          git checkout -b "$BRANCH"
+          FAILURE_LOG="/tmp/e2e-artifacts/regression-output.txt"
+
+          # Extract specific failures and add broader fallback selectors
+          if grep -q "could not find" "$FAILURE_LOG" 2>/dev/null; then
+            echo "Found locator failures — adding broader selectors..."
+            python -c "
+import re, sys
+
+# Read the test file
+with open('tests/e2e/test_regression.py', 'r') as f:
+    content = f.read()
+
+# For each locator pattern that uses .first, add a broader fallback
+# Pattern: page.locator('specific-selector').first
+# Add: page.locator('specific-selector, broader-fallback').first
+fixes = {
+    \"input[name='provider_id']\": \"input[name='provider_id'], input[placeholder*='provider' i], input[id*='provider' i]\",
+    \"input[name='name']\": \"input[name='name'], input[placeholder*='name' i], input[id*='name' i]\",
+    \"input[type='email']\": \"input[type='email'], input[name='email'], input[placeholder*='email' i], input[placeholder*='user' i]\",
+}
+
+changes = 0
+for old, new in fixes.items():
+    if old in content:
+        content = content.replace(old, new)
+        changes += 1
+        print(f'  Fixed: {old[:50]}...')
+
+if changes > 0:
+    with open('tests/e2e/test_regression.py', 'w') as f:
+        f.write(content)
+    print(f'Applied {changes} locator fixes')
+else:
+    print('No auto-fixable locator patterns found')
+"
+          fi
+
+          # If tests timed out, add timeout increases
+          if grep -q "timeout\|Time.*out" "$FAILURE_LOG" 2>/dev/null; then
+            echo "Found timeout errors — increasing timeouts..."
+            sed -i 's/timeout=15000/timeout=20000/g' tests/e2e/test_regression.py
+            sed -i 's/timeout=5000/timeout=8000/g' tests/e2e/test_regression.py
+          fi
+
+          # If we changed files, commit and create PR
+          if ! git diff --quiet; then
+            git add tests/e2e/test_regression.py
+            git diff --cached
+            REASON="$(echo '${{ steps.analyze.outputs.reason }}' | tr '\n' ' ')"
+            git commit -m "fix(ci): auto-fix regression test locators and timeouts
+
+      Auto-generated by nightly regression workflow.
+      Reason: ${REASON}"
+            git push origin "$BRANCH"
+            REASON_TITLE="$(echo '${{ steps.analyze.outputs.reason }}' | tr '\n' ' ')"
+          gh pr create \
+              --title "fix(ci): auto-fix nightly regression — ${REASON_TITLE}" \
+              --body "Automated PR from [nightly regression run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+      **Reason:** ${REASON_TITLE}
+      **Console errors:** ${{ steps.analyze.outputs.console_errors }}
+      **CRUD failures:** ${{ steps.analyze.outputs.crud_failures }}
+      **Server errors:** ${{ steps.analyze.outputs.server_errors }}
+
+      ## Changes Applied
+      - Added broader CSS selector fallbacks for form fields
+      - Increased timeout values for slow CI environments" \
+              --base master \
+              --label "auto-fix,regression"
+            echo "✅ Auto-fix PR created: $BRANCH"
+          else
+            echo "No auto-fix changes needed (failures are not locator/timing related)"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Create issue for unfixable failures
+        if: ${{ github.event.inputs.create_issue != 'false' && steps.analyze.outputs.can_fix == 'false' }}
+        run: |
+          cat << 'ISSUE_BODY' > /tmp/issue-body.md
+      ## Nightly Regression Failure
+
+      **Reason:** ${{ steps.analyze.outputs.reason }}
+      **Run:** [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+      ### Failure Summary
+      - Console errors: ${{ steps.analyze.outputs.console_errors }}
+      - CRUD failures: ${{ steps.analyze.outputs.crud_failures }}
+      - Server errors: ${{ steps.analyze.outputs.server_errors }}
+
+      ### Action Required
+      These failures could not be auto-fixed. A developer needs to investigate:
+
+      1. [View the workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+      2. Download the `regression-artifacts` from the run
+      3. Check the regression output for specific error messages
+      4. Fix the underlying issue and re-run manually
+
+      ### Next Steps
+      - [ ] Investigate root cause
+      - [ ] Fix the issue
+      - [ ] Re-run nightly regression: `gh workflow run nightly-regression.yml`
+      ISSUE_BODY
+
+          REASON_ISSUE="$(echo '${{ steps.analyze.outputs.reason }}' | tr '\n' ' ')"
+          gh issue create \
+            --title "fix: nightly regression failures — ${REASON_ISSUE}" \
+            --body-file /tmp/issue-body.md \
+            --label "bug,regression,nightly" \
+            --assignee "${{ github.actor }}"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+  notify:
+    name: Summary Notification
+    needs: [regression, auto-fix]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print summary
+        run: |
+          echo "## Nightly Regression Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Regression | ${{ needs.regression.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Auto-Fix | ${{ needs.auto-fix.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[View full run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY

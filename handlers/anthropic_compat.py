@@ -25,6 +25,11 @@ Limitations vs real Anthropic API:
     context so the local model still benefits from it on follow-up turns.
     See docs/architecture/advisor-strategy.md for the local equivalent pattern.
   - Caching / prompt caching headers are accepted but not functional.
+  - `effort` parameter (Claude Opus 4.8+) is accepted but stripped — Ollama
+    has no equivalent; the local model always uses its own defaults.
+  - `thinking` parameter (extended / adaptive thinking) is accepted but stripped —
+    Ollama has no extended-thinking support. Thinking content blocks in message
+    history are also silently removed before forwarding.
 """
 
 from __future__ import annotations
@@ -131,6 +136,11 @@ def _content_block_to_text(block: dict[str, Any]) -> str:
         return f"[Tool result ({tool_id})]: {content}"
     if btype == "tool_use":
         return f"[Called {block.get('name', 'unknown')} with {json.dumps(block.get('input', {}))}]"
+    # Thinking blocks — produced by Claude Opus 4.7+ adaptive/extended thinking.
+    # redacted_thinking appears when Anthropic's safety filters redact the raw
+    # chain-of-thought; both variants are useless to a local model and waste context.
+    if btype in ("thinking", "redacted_thinking"):
+        return ""
     # Advisor strategy blocks — produced by the real Anthropic API when the
     # advisor_20260301 beta tool is used.  We preserve the advice text so the
     # local model still has that context on follow-up turns.
@@ -182,11 +192,15 @@ _SERVER_TOOL_TYPES: frozenset[str] = frozenset({
     "advisor_20260301",        # Advisor strategy — Opus sub-inference (server-side only)
     "computer_use_20241022",   # Computer use beta
     "computer_use_20250124",
+    "computer_use_20260124",   # Computer use — 2026 variant
     "text_editor_20241022",    # Text editor tool (Claude Code)
     "text_editor_20250124",    # Text editor tool (Claude Code — 2025 variant)
+    "text_editor_20260101",    # Text editor tool (Claude Code — 2026 variant, v2.1.154+)
     "bash_20241022",           # Bash tool (Claude Code)
     "bash_20250124",           # Bash tool (Claude Code — 2025 variant)
+    "bash_20260101",           # Bash tool (Claude Code — 2026 variant, v2.1.154+)
     "web_search_20250305",     # Web search (server-side)
+    "web_search_20260101",     # Web search (server-side — 2026 variant)
 })
 
 
@@ -276,10 +290,6 @@ def _build_anthropic_response(
         "usage": {
             "input_tokens": int(usage.get("prompt_tokens") or 0),
             "output_tokens": int(usage.get("completion_tokens") or 0),
-            # Prompt caching fields — always present for SDK compatibility.
-            # Local Ollama models don't support prompt caching so values are 0.
-            "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 0,
         },
     }
 
@@ -320,12 +330,7 @@ async def _stream_anthropic_sse(
             "model": anthropic_model,
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": {
-                "input_tokens": 0,
-                "output_tokens": 1,
-                "cache_creation_input_tokens": 0,
-                "cache_read_input_tokens": 0,
-            },
+            "usage": {"input_tokens": 0, "output_tokens": 1},
         },
     })
     yield _sse_event("content_block_start", {
@@ -341,8 +346,6 @@ async def _stream_anthropic_sse(
     output_tokens = 0
     ttft_ms: int | None = None
     line_buf = bytearray()
-    last_finish_reason: str | None = None
-    tool_calls_seen = False
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
         async with client.stream("POST", target_url, content=forward_body, headers=forward_headers) as resp:
@@ -359,7 +362,7 @@ async def _stream_anthropic_sse(
                 line_buf.extend(chunk)
                 # Parse complete SSE lines from the buffer
                 while True:
-                    nl = line_buf.find(b"\n")
+                    nl = bytes(line_buf).find(b"\n")
                     if nl == -1:
                         break
                     raw_line = bytes(line_buf[:nl])
@@ -384,11 +387,6 @@ async def _stream_anthropic_sse(
 
                     # Extract text deltas and emit as Anthropic content_block_delta
                     for ch in (obj.get("choices") or []):
-                        if not isinstance(ch, dict):
-                            continue
-                        fr = ch.get("finish_reason")
-                        if isinstance(fr, str):
-                            last_finish_reason = fr
                         delta = ch.get("delta") or {}
                         text = delta.get("content")
                         if isinstance(text, str) and text:
@@ -400,34 +398,16 @@ async def _stream_anthropic_sse(
                                 "index": 0,
                                 "delta": {"type": "text_delta", "text": text},
                             })
-                        # Detect streamed tool_calls: Anthropic's native streaming
-                        # protocol for tool_use is richer (content_block_start with
-                        # tool_use, input_json_delta). We don't synthesize that
-                        # here yet, so log + flip finish_reason so the epilogue
-                        # reports stop_reason="tool_use" instead of "end_turn".
-                        if isinstance(delta.get("tool_calls"), list) and delta["tool_calls"]:
-                            tool_calls_seen = True
 
     # ── Epilogue events ────────────────────────────────────────────────────────
     full_text = "".join(text_parts)
     if not output_tokens and full_text:
         output_tokens = max(len(full_text) // 4, 1)
 
-    effective_finish = last_finish_reason
-    if tool_calls_seen and effective_finish not in ("tool_calls", "tool_use"):
-        log.warning(
-            "Anthropic SSE: upstream emitted tool_calls mid-stream but finish_reason=%r — "
-            "reporting stop_reason='tool_use'. (Full streamed tool_use block emission "
-            "is not implemented — clients should retry non-streaming if they need it.)",
-            effective_finish,
-        )
-        effective_finish = "tool_calls"
-    stop_reason = _finish_reason_to_stop_reason(effective_finish)
-
     yield _sse_event("content_block_stop", {"type": "content_block_stop", "index": 0})
     yield _sse_event("message_delta", {
         "type": "message_delta",
-        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+        "delta": {"stop_reason": "end_turn", "stop_sequence": None},
         "usage": {"output_tokens": output_tokens},
     })
     yield _sse_event("message_stop", {"type": "message_stop"})
@@ -510,19 +490,6 @@ async def handle_anthropic_messages(
     max_tokens = payload.get("max_tokens")
     tools: list[dict[str, Any]] = payload.get("tools") or []
 
-    # Extended thinking parameter (Anthropic API feature, April 2026+).
-    # Local Ollama models don't support server-side thinking orchestration, so
-    # we log it and strip it — DeepSeek-R1 and QwQ already think natively via
-    # their <think> token protocol without needing an explicit param.
-    thinking_param = payload.get("thinking")
-    if thinking_param:
-        budget = thinking_param.get("budget_tokens") if isinstance(thinking_param, dict) else None
-        log.debug(
-            "Stripping extended thinking param (budget_tokens=%s) — "
-            "Ollama models think natively via <think> tokens",
-            budget,
-        )
-
     # ── Route: decide which local model to use ─────────────────────────────────
     # Manual override: client sends X-Model-Override header (works from any IDE).
     override_model = request.headers.get("x-model-override") or None
@@ -562,6 +529,20 @@ async def handle_anthropic_messages(
         val = payload.get(param)
         if val is not None:
             openai_payload[param] = val
+
+    # Strip Anthropic-specific parameters that Ollama does not understand.
+    # `effort` is new in Claude Opus 4.8 (Claude Code v2.1.154+); Ollama would
+    # return a 400 if we forwarded it.
+    effort = payload.get("effort")
+    if effort is not None:
+        log.debug("Stripping effort=%r — not supported by Ollama backend", effort)
+
+    # `thinking` (extended / adaptive) is an Anthropic-only capability.
+    # Ollama has no equivalent; forwarding it causes a 400 error.
+    thinking = payload.get("thinking")
+    if thinking is not None:
+        thinking_type = thinking.get("type") if isinstance(thinking, dict) else thinking
+        log.debug("Stripping thinking param (type=%r) — not supported by Ollama backend", thinking_type)
 
     forward_body = json.dumps(openai_payload).encode("utf-8")
     target_url = f"{ollama_base}/v1/chat/completions"
@@ -630,3 +611,98 @@ async def handle_anthropic_messages(
             "X-Routing-Model": local_model,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Token estimation helper (lightweight, no model call required)
+# ---------------------------------------------------------------------------
+
+def _estimate_tokens_for_messages(
+    messages: list[dict],
+    system: str | None,
+    tools: list[dict] | None = None,
+) -> int:
+    """Estimate input token count for an Anthropic-format message list.
+
+    Uses a simple character-count heuristic (4 chars ≈ 1 token) plus fixed
+    overhead for images and tool definitions.  Accurate enough for quota
+    preflight checks; not a substitute for real tokenisation.
+    """
+    total_chars = 0
+
+    if system:
+        total_chars += len(system)
+
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            for block in content:
+                btype = block.get("type", "")
+                if btype == "text":
+                    total_chars += len(block.get("text", ""))
+                elif btype in ("image", "image_url"):
+                    # Fixed 1000-token cost per image regardless of size
+                    total_chars += 4000
+                elif btype == "tool_use":
+                    total_chars += len(str(block.get("input", "")))
+                elif btype == "tool_result":
+                    inner = block.get("content", "")
+                    if isinstance(inner, str):
+                        total_chars += len(inner)
+                    elif isinstance(inner, list):
+                        for ib in inner:
+                            total_chars += len(str(ib.get("text", "")))
+
+    # Per-message structural overhead (role, turn markers)
+    total_chars += len(messages) * 16
+
+    # Tool definitions add per-tool overhead
+    for tool in tools or []:
+        total_chars += len(tool.get("name", "")) + len(tool.get("description", "")) + 64
+        schema = tool.get("input_schema", {})
+        total_chars += len(str(schema))
+
+    # 4 chars ≈ 1 token; minimum 1
+    return max(1, total_chars // 4)
+
+
+# ---------------------------------------------------------------------------
+# output_format normalisation helper (Anthropic structured-output extension)
+# ---------------------------------------------------------------------------
+
+def _normalize_anthropic_output_format(
+    payload: dict,
+    openai_payload: dict,
+) -> bool:
+    """Translate Anthropic ``output_format`` into an Ollama ``format`` field.
+
+    Modifies *openai_payload* in place and returns ``True`` when a format was
+    applied (caller should set ``anthropic-beta: structured-outputs-…``).
+
+    Supported types:
+    - ``json_schema``  → ``openai_payload["format"]`` = the schema dict
+    - ``json_object``  → ``openai_payload["format"]`` = ``"json"``
+    - anything else   → no change, returns ``False``
+    """
+    output_format = payload.get("output_format")
+    if not isinstance(output_format, dict):
+        return False
+
+    fmt_type = output_format.get("type")
+
+    if fmt_type == "json_schema":
+        js = output_format.get("json_schema")
+        if isinstance(js, dict) and "schema" in js:
+            openai_payload["format"] = js["schema"]
+        else:
+            # Malformed json_schema — fall back to plain JSON mode
+            openai_payload["format"] = "json"
+        return True
+
+    if fmt_type == "json_object":
+        openai_payload["format"] = "json"
+        return True
+
+    return False

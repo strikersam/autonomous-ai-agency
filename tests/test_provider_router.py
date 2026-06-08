@@ -9,16 +9,74 @@ from provider_router import (
     CommercialFallbackRequiredError,
     ProviderConfig,
     ProviderRouter,
+    _normalize_nvidia_base_url,
+    _openai_url,
+    clear_cooldowns,
     extract_openai_text,
     is_commercial_provider,
 )
+
+
+
+# ── NVIDIA URL normalization tests (issue #363, item #8) ────────────────────
+
+def test_normalize_nvidia_base_url_strips_trailing_v1():
+    assert _normalize_nvidia_base_url("https://integrate.api.nvidia.com/v1") == "https://integrate.api.nvidia.com"
+
+
+def test_normalize_nvidia_base_url_strips_trailing_v1_with_slash():
+    assert _normalize_nvidia_base_url("https://integrate.api.nvidia.com/v1/") == "https://integrate.api.nvidia.com"
+
+
+def test_normalize_nvidia_base_url_no_v1_unchanged():
+    assert _normalize_nvidia_base_url("https://integrate.api.nvidia.com") == "https://integrate.api.nvidia.com"
+
+
+def test_normalize_nvidia_base_url_strips_whitespace_and_v1():
+    assert _normalize_nvidia_base_url("  https://integrate.api.nvidia.com/v1  ") == "https://integrate.api.nvidia.com"
+
+
+def test_normalize_nvidia_base_url_empty_string():
+    assert _normalize_nvidia_base_url("") == ""
+
+
+def test_normalize_nvidia_base_url_none_fallback():
+    assert _normalize_nvidia_base_url(None) == ""
+
+
+def test_openai_url_with_v1_base_does_not_double():
+    assert _openai_url("https://integrate.api.nvidia.com/v1", "/chat/completions") == "https://integrate.api.nvidia.com/v1/chat/completions"
+
+
+def test_openai_url_without_v1_adds_v1():
+    assert _openai_url("https://integrate.api.nvidia.com", "/chat/completions") == "https://integrate.api.nvidia.com/v1/chat/completions"
+
+
+def test_openai_url_with_custom_path_does_not_add_v1():
+    assert _openai_url("https://api.example.com/v1beta/openai", "/chat/completions") == "https://api.example.com/v1beta/openai/chat/completions"
+
+
+def test_openai_url_models_endpoint_with_v1_base():
+    assert _openai_url("https://integrate.api.nvidia.com/v1", "/models") == "https://integrate.api.nvidia.com/v1/models"
+
+
+def test_openai_url_strips_trailing_slash():
+    assert _openai_url("https://example.com/", "/chat/completions") == "https://example.com/v1/chat/completions"
+
+
+@pytest.fixture(autouse=True)
+async def reset_provider_cooldowns():
+    """Clear module-level cooldown state before every test so tests don't bleed into each other."""
+    await clear_cooldowns()
+    yield
+    await clear_cooldowns()
 
 
 @pytest.mark.anyio
 async def test_provider_router_falls_back_to_second_provider(monkeypatch):
     calls: list[str] = []
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         calls.append(provider.provider_id)
         if provider.provider_id == "ollama-local":
             return httpx.Response(503, json={"error": "down"})
@@ -48,7 +106,7 @@ async def test_provider_router_falls_back_to_second_provider(monkeypatch):
 async def test_provider_router_retries_model_fallback_on_404(monkeypatch):
     models: list[str] = []
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         models.append(payload["model"])
         if payload["model"] == "missing-model":
             return httpx.Response(404, json={"error": "missing"})
@@ -65,6 +123,28 @@ async def test_provider_router_retries_model_fallback_on_404(monkeypatch):
 
     assert models == ["missing-model", "safe-model"]
     assert result.model == "safe-model"
+
+
+@pytest.mark.anyio
+async def test_provider_router_passes_custom_provider_timeout(monkeypatch):
+    captured: list[float] = []
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        captured.append(timeout_sec)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter(
+        [ProviderConfig("ollama-local", "ollama", "http://localhost:11434", default_model="local", priority=0)]
+    )
+
+    await router.chat_completion(
+        {"model": "local", "messages": [{"role": "user", "content": "hi"}]},
+        max_retries=0,
+        provider_timeout_sec=7.5,
+    )
+
+    assert captured == [7.5]
 
 
 def test_provider_router_attempts_header_is_compact_json():
@@ -84,11 +164,21 @@ def test_provider_router_treats_emergent_anthropic_as_commercial():
     assert is_commercial_provider(provider) is True
 
 
+def test_provider_router_from_env_prioritizes_nvidia_nemotron_default(monkeypatch):
+    monkeypatch.setenv("NVIDIA_API_KEY", "nv-test-key")
+    monkeypatch.delenv("NVIDIA_DEFAULT_MODEL", raising=False)
+
+    router = ProviderRouter.from_env()
+
+    assert router.providers[0].provider_id == "nvidia-nim"
+    assert router.providers[0].default_model == "nvidia/nemotron-3-super-120b-a12b"
+
+
 @pytest.mark.anyio
 async def test_provider_router_prefers_local_then_remote_then_free_cloud(monkeypatch):
     calls: list[str] = []
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         calls.append(provider.provider_id)
         if provider.provider_id == "deepseek":
             return httpx.Response(200, json={"choices": [{"message": {"content": "free-cloud-ok"}}]})
@@ -112,7 +202,7 @@ async def test_provider_router_prefers_local_then_remote_then_free_cloud(monkeyp
 
 @pytest.mark.anyio
 async def test_provider_router_requires_approval_before_commercial_fallback(monkeypatch):
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         return httpx.Response(503, json={"error": "down"})
 
     monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
@@ -135,7 +225,7 @@ async def test_provider_router_requires_approval_before_commercial_fallback(monk
 
 @pytest.mark.anyio
 async def test_provider_router_can_use_emergent_provider(monkeypatch):
-    async def fake_emergent(self, provider, payload):
+    async def fake_emergent(self, provider, payload, timeout_sec):
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok from emergent"}}]})
 
     monkeypatch.setattr(ProviderRouter, "_post_emergent_chat", fake_emergent)

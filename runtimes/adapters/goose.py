@@ -27,12 +27,14 @@ from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
     RuntimeCapability,
+    RuntimeDependency,
     RuntimeExecutionError,
     RuntimeHealth,
     RuntimeTier,
     RuntimeUnavailableError,
     TaskResult,
     TaskSpec,
+    task_wants_browser,
 )
 
 log = logging.getLogger("runtime.goose")
@@ -57,7 +59,20 @@ class GooseAdapter(RuntimeAdapter):
         RuntimeCapability.TOOL_USE,
         RuntimeCapability.SHELL_EXEC,
         RuntimeCapability.STREAM_OUTPUT,
+        RuntimeCapability.WEB_BROWSE,
     })
+
+    def supports(self, capability: RuntimeCapability) -> bool:
+        # WEB_BROWSE only works when the Kimi bridge is configured — that is Goose's
+        # only browser path. Don't advertise it otherwise, or the router could route
+        # a web_browse task here and run plain Goose with no browsing support.
+        if capability == RuntimeCapability.WEB_BROWSE:
+            try:
+                from providers.kimi_bridge import kimi_bridge_runtime_config
+                return kimi_bridge_runtime_config() is not None
+            except Exception:
+                return False
+        return capability in self.CAPABILITIES
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
@@ -65,6 +80,15 @@ class GooseAdapter(RuntimeAdapter):
         self._bin = (config or {}).get("bin") or os.environ.get("GOOSE_BIN", "goose")
         self._model = (config or {}).get("model") or os.environ.get("GOOSE_MODEL", "qwen3-coder:14b")
         self._profile = (config or {}).get("profile") or os.environ.get("GOOSE_PROFILE", "default")
+
+    def required_dependencies(self) -> list[RuntimeDependency]:
+        return [
+            RuntimeDependency(
+                name="goose",
+                config_var="GOOSE_BIN",
+                install_hint="Install Goose and set GOOSE_BIN if needed.",
+            )
+        ] if not self._base_url else []
 
     async def health_check(self) -> RuntimeHealth:
         if self._base_url:
@@ -83,6 +107,9 @@ class GooseAdapter(RuntimeAdapter):
                 latency_ms=round(latency_ms, 1),
                 error=None if resp.status_code == 200 else f"HTTP {resp.status_code}",
             )
+        except httpx.ConnectError:
+            return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False,
+                                 error=f"Service not running at {self._base_url} — use Start to launch it")
         except Exception as exc:
             return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error=str(exc))
 
@@ -119,10 +146,40 @@ class GooseAdapter(RuntimeAdapter):
             raise RuntimeUnavailableError(self.RUNTIME_ID, f"Binary '{self._bin}' not found")
 
         workspace = spec.workspace_path or "."
+
+        # When the task needs web browsing and the Kimi bridge is available,
+        # route through the Kimi bridge endpoint so Goose can use kimi.com's
+        # browser access for web-aware tasks.
+        model = spec.model_preference or self._model
+        api_base: str | None = None
+        api_key: str | None = None
+        _needs_browser = task_wants_browser(spec)
+        if _needs_browser:
+            try:
+                from providers.kimi_bridge import kimi_bridge_runtime_config
+                _kb = kimi_bridge_runtime_config()
+                if _kb:
+                    model = str(_kb.get("model", model))
+                    api_base = str(_kb.get("base_url", "")) or None
+                    api_key = _kb.get("api_key") or None
+            except Exception as exc:
+                log.warning(
+                    "Goose: failed to resolve kimi_bridge_runtime_config for browser "
+                    "task; running without the bridge: %s", exc,
+                )
+
+        env = os.environ.copy()
+        if api_base:
+            env["OPENAI_API_BASE"] = api_base
+            env["OPENAI_BASE_URL"] = api_base
+            # Goose authenticates OpenAI-compatible endpoints via OPENAI_API_KEY.
+            if api_key:
+                env["OPENAI_API_KEY"] = str(api_key)
+
         cmd = [
             bin_path, "run",
             "--profile", self._profile,
-            "--model", spec.model_preference or self._model,
+            "--model", model,
             "--text", spec.instruction,
         ]
 
@@ -133,6 +190,7 @@ class GooseAdapter(RuntimeAdapter):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=workspace,
+                env=env,
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=float(spec.timeout_sec)
@@ -149,7 +207,7 @@ class GooseAdapter(RuntimeAdapter):
             task_id=spec.task_id,
             success=success,
             output=output,
-            model_used=spec.model_preference or self._model,
-            provider_used="local",
+            model_used=model,
+            provider_used="kimi-web-bridge" if api_base else "local",
             execution_time_ms=elapsed_ms,
         )

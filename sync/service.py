@@ -311,7 +311,7 @@ class SyncService:
                     else:
                         errors.append(f"{path}: HTTP {resp.status_code}")
                 except Exception as e:
-                    errors.append(f"{path}: {e}")
+                    errors.append(f"{path}: sync error"); log.debug("sync error for %s/%s: %s", folder, path, e)
 
         peer.last_sync = time.time()
         return {
@@ -333,7 +333,8 @@ class SyncService:
                     return {"error": f"Failed to get index from peer: HTTP {resp.status_code}"}
                 remote_index = resp.json()
         except Exception as e:
-            return {"error": f"Cannot connect to peer {peer.name}: {e}"}
+            log.debug("pull_folder connection error for %s: %s", peer.name, e)
+            return {"error": f"Cannot connect to peer {peer.name}"}
 
         pulled  = 0
         skipped = 0
@@ -366,7 +367,7 @@ class SyncService:
                     else:
                         errors.append(f"{path}: HTTP {file_resp.status_code}")
                 except Exception as e:
-                    errors.append(f"{path}: {e}")
+                    errors.append(f"{path}: sync error"); log.debug("sync error for %s/%s: %s", folder, path, e)
 
         peer.last_sync = time.time()
         return {

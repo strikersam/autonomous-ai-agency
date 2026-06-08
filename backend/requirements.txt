@@ -1,12 +1,33 @@
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-motor>=3.3.2
-pymongo>=4.7.2
-pydantic>=2.12.0
-python-dotenv>=1.0.1
-httpx>=0.27.0
-bcrypt>=4.1.3
-PyJWT>=2.8.0
-python-multipart>=0.0.9
+fastapi>=0.136.3
+uvicorn[standard]>=0.48.0
+motor>=3.7.1
+pymongo>=4.17.0
+pydantic>=2.13.4
+python-dotenv>=1.2.2
+httpx>=0.28.1
+bcrypt>=5.0.0
+PyJWT>=2.13.0
+python-multipart>=0.0.30
 itsdangerous>=2.2.0
-jinja2>=3.1.0
+jinja2>=3.1.6
+cryptography>=41.0.0
+
+aiosqlite>=0.22.1  # SQLite async adapter for STORAGE_BACKEND=sqlite
+
+beautifulsoup4>=4.14.3
+
+# Website-scanner detection deps. These MUST stay in sync with the scanner's
+# imports in services/scanner.py — the production image installs THIS file
+# (Dockerfile.backend), not the root requirements.txt that CI uses, so omitting
+# them makes prod silently return "No systems detected" while CI finds systems:
+#   - curl_cffi: Chrome TLS/JA3 impersonation for the anti-bot HTTP fetch
+#     (without it, gucci.com-class Akamai sites return a blocked/empty body).
+#   - dnspython: the MX/NS/TXT/CNAME analysis (_analyze_dns) that yields the
+#     ~11 "no-browser-needed" systems (Akamai, Microsoft 365, Salesforce, …).
+curl_cffi>=0.15.0
+dnspython>=2.8.0
+
+# Headless-browser rendering for the website scanner (JS-rendered / bot-protected
+# sites). The Chromium binary is installed in the Docker image (see Dockerfile.backend);
+# where it is absent the scanner gracefully falls back to static-HTML detection.
+playwright>=1.60.0

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Event log  (append-only session journal)
@@ -56,16 +56,25 @@ class AgentStep(BaseModel):
     description: str = Field(..., min_length=1)
     files: list[str] = Field(default_factory=list)
     type: Literal["edit", "create", "analyze", "github"]
+    # Planner-annotated fields (optional — older plans without them still validate)
+    risky: bool = False          # True when step touches a security-sensitive module
+    acceptance: str = ""         # How to verify this step succeeded
 
 
 class AgentPlan(BaseModel):
     goal: str = Field(..., min_length=1)
-    steps: list[AgentStep] = Field(default_factory=list, max_length=5)
+    steps: list[AgentStep] = Field(default_factory=list)  # truncated by max_steps in loop.py
+    risks: list[str] = Field(default_factory=list)
+    requires_risky_review: bool = False  # True when any step touches admin_auth, key_store, agent/tools
 
 
 class ToolCall(BaseModel):
     tool: Literal[
         "read_file",
+        "get_overview",
+        "get_context",
+        "get_risk",
+        "get_why",
         "head_file",      # JIT retrieval: first N lines only
         "file_index",     # JIT retrieval: lightweight file list with sizes
         "write_file",
@@ -74,12 +83,25 @@ class ToolCall(BaseModel):
         "search_code",
         "recall_memory",
         "save_memory",
+        "spawn_subagent",
         "github_read_repo_file",
         "github_list_repos",
         "github_list_branches",
         "github_create_branch",
         "github_commit_changes",
         "github_open_pull_request",
+        "github_merge_pull_request",
+        "github_get_issue",
+        "github_comment_on_issue",
+        "github_close_issue",
+        "run_command",
+        "clone_repo",
+        "git_status",
+        "git_diff",
+        "git_create_branch",
+        "git_commit",
+        "git_push",
+        "delete_workspace",
         "finish",
     ]
     args: dict[str, Any] = Field(default_factory=dict)
@@ -88,6 +110,23 @@ class ToolCall(BaseModel):
 class VerificationResult(BaseModel):
     status: Literal["pass", "fail"]
     issues: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @field_validator("issues", mode="before")
+    @classmethod
+    def coerce_issues_to_str(cls, v: Any) -> list[str]:
+        if not isinstance(v, list):
+            return []
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict):
+                text = item.get("issue") or item.get("description") or item.get("message") or str(item)
+                result.append(str(text))
+            else:
+                result.append(str(item))
+        return result
 
 
 class AgentRunRequest(BaseModel):
@@ -96,7 +135,7 @@ class AgentRunRequest(BaseModel):
     provider_id: str | None = Field(default=None, max_length=64)
     workspace_id: str | None = Field(default=None, max_length=64)
     auto_commit: bool = False
-    max_steps: int = Field(default=5, ge=1, le=5)
+    max_steps: int = Field(default=10, ge=1, le=20)
 
 
 class AgentSessionCreateRequest(BaseModel):
@@ -115,6 +154,13 @@ class AgentSession(BaseModel):
     title: str
     provider_id: str | None = None
     workspace_id: str | None = None
+    repo_url: Optional[str] = None
+    repo_ref: Optional[str] = None
+    active_objective: Optional[str] = None
+    last_branch: Optional[str] = None
+    resume_payload: Optional[dict[str, Any]] = None
+    metadata: Optional[dict[str, Any]] = Field(default_factory=dict)
+    owner_id: str = ""   # email of the creating user; enforced on load in /agent/chat
     created_at: str
     updated_at: str
     history: list[AgentSessionMessage] = Field(default_factory=list)
@@ -123,3 +169,28 @@ class AgentSession(BaseModel):
     # Total events appended to the durable event log for this session.
     # Used by the harness to know the current log position without loading all events.
     event_count: int = 0
+
+class ResumeRequest(BaseModel):
+    action: Literal["approve", "clarify", "cancel"]
+    input: Optional[str] = None
+
+
+class SubAgentConfig(BaseModel):
+    """Declarative configuration for a specialized sub-agent role.
+
+    Each sub-agent gets its own model, tool allowlist, and instruction prompt
+    so the orchestrator can route to the cheapest capable model per phase.
+
+    Fields:
+        role:       Logical role name ("file_picker", "planner", "editor", "reviewer").
+        model:      Ollama model name to use for this role (e.g. "qwen3-coder:7b").
+        tool_names: Allowlist of tools this sub-agent may call (empty = all tools).
+        instruction: Custom system prompt for this role (overrides the default).
+        max_steps:   Max execution steps for this sub-agent (default: 5).
+    """
+
+    role: str = Field(..., min_length=1, max_length=64)
+    model: str = Field(default="", description="Ollama model for this role; empty = inherit from parent")
+    tool_names: list[str] = Field(default_factory=list, description="Allowlist of tools; empty = all tools")
+    instruction: str = Field(default="", description="Custom system prompt; empty = use role default")
+    max_steps: int = Field(default=5, ge=1, le=50)

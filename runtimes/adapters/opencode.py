@@ -32,6 +32,7 @@ from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
     RuntimeCapability,
+    RuntimeDependency,
     RuntimeExecutionError,
     RuntimeHealth,
     RuntimeTier,
@@ -75,6 +76,15 @@ class OpenCodeAdapter(RuntimeAdapter):
             "OPENCODE_MODEL", os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
         )
         self._workspace = (config or {}).get("workspace") or os.environ.get("OPENCODE_WORKSPACE", ".")
+
+    def required_dependencies(self) -> list[RuntimeDependency]:
+        return [
+            RuntimeDependency(
+                name="opencode",
+                config_var="OPENCODE_BIN",
+                install_hint="Install OpenCode and set OPENCODE_BIN if the binary is not on PATH.",
+            )
+        ] if not self._base_url else []
 
     # ── Health ────────────────────────────────────────────────────────────────
 
@@ -129,6 +139,9 @@ class OpenCodeAdapter(RuntimeAdapter):
                 latency_ms=round(latency_ms, 1),
                 error=None if resp.status_code == 200 else f"HTTP {resp.status_code}",
             )
+        except httpx.ConnectError:
+            return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False,
+                                 error=f"Service not running at {self._base_url} — use Start to launch it")
         except Exception as exc:
             return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error=str(exc))
 

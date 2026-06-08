@@ -1,17 +1,20 @@
 {
-  "name": "llm-wiki-dashboard",
-  "version": "1.0.0",
+  "name": "local-llm-server",
+  "version": "5.0.0",
   "private": true,
   "dependencies": {
-    "axios": "^1.6.0",
-    "lucide-react": "^0.294.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "@tootallnate/once": "^3.0.1",
+    "axios": "^1.16.1",
+    "fast-uri": "^3.1.2",
+    "lucide-react": "^1.17.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^6.20.0",
-    "react-scripts": "5.0.1",
+    "react-router-dom": "^7.16.0",
+    "react-scripts": "^5.0.1",
     "remark-gfm": "^4.0.1",
-    "web-vitals": "^2.1.4"
+    "underscore": "^1.13.8",
+    "web-vitals": "^5.3.0"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -29,9 +32,37 @@
       "last 1 chrome version"
     ]
   },
+  "jest": {
+    "moduleNameMapper": {
+      "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js",
+      "^react-router-dom/(.*)$": "<rootDir>/node_modules/react-router-dom/$1",
+      "^react-router/dom$": "<rootDir>/node_modules/react-router/dist/development/dom-export.js",
+      "^react-router$": "<rootDir>/node_modules/react-router/dist/development/index.js",
+      "^react-router/(.*)$": "<rootDir>/node_modules/react-router/$1"
+    }
+  },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1"
+    "@testing-library/user-event": "^14.6.1",
+    "jsdom": "^29.1.1",
+    "react-scripts": "^5.0.1"
+  },
+  "overrides": {
+    "nth-check": ">=2.1.1",
+    "serialize-javascript": ">=7.0.5",
+    "postcss": ">=8.4.31",
+    "ws": ">=8.21.0",
+    "svgo": ">=2.8.0",
+    "jsonpath": ">=1.1.1",
+    "qs": ">=6.11.0",
+    "uuid": ">=9.0.0",
+    "bfj": ">=8.0.0",
+    "css-select": ">=5.1.0",
+    "webpack-dev-server": ">=5.2.4",
+    "http-proxy-agent": {
+      "@tootallnate/once": ">=2.0.1"
+    }
   }
 }
