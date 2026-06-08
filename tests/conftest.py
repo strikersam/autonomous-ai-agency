@@ -61,12 +61,38 @@ def client():
 
 
 @pytest.fixture(scope="session")
-def wiki_client():
+def _mongo_available():
+    """Check if MongoDB is reachable within a short timeout.
+
+    Used by integration tests to skip when MongoDB is unavailable.
+    Returns True if MongoDB responds, False otherwise.
+    """
+    import asyncio
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+
+        async def _ping():
+            mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+            client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=2000)
+            await client.admin.command("ping")
+
+        asyncio.run(_ping())
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="session")
+def wiki_client(_mongo_available):
     """FastAPI test client for backend/server.py — LLM Relay wiki dashboard.
 
     Iteration 6/7 integration tests target backend/server.py specifically
     (it has /api/chat/send, the Mongo-backed admin login, etc.).
+    Skips if MongoDB is unavailable.
     """
+    if not _mongo_available:
+        pytest.skip("MongoDB is not available — skipping backend integration tests")
+
     from backend.server import app as backend_app
 
     with TestClient(backend_app) as c:
