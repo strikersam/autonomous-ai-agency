@@ -1,111 +1,99 @@
-"""Pytest configuration for the backend test suite.
-
-Mongo availability
-------------------
-The CI job provides a real mongo:7 service (see .github/workflows/ci.yml).
-Tests that exercise the full database path simply run against it.
-
-If you're running locally WITHOUT MongoDB, set::
-
-    SKIP_DB_TESTS=1 pytest -x
-
-and any test decorated with ``@pytest.mark.requires_db`` will be skipped.
-
-The ``client`` fixture connects to the real database — it does not patch
-``get_db()``.  Mocking at the ``get_db()`` level (for unit tests) is the
-responsibility of individual tests, not the shared fixture.
-
-Admin password
---------------
-Set ``ADMIN_PASSWORD`` in Render environment variables (single source of truth).
-For local development the conftest sets a session-stable default so tests pass
-without manual env-var configuration.  Individual test files MUST NOT hardcode
-a fallback — read ``os.environ["ADMIN_PASSWORD"]`` directly.
-"""
 from __future__ import annotations
 
 import os
-import secrets
 
-# ── Single source of truth for admin password ────────────────────────────────
-# MUST run before ANY import that touches backend.server (which reads
-# ADMIN_PASSWORD at module level).  Set via Render env var; conftest provides
-# a session-stable random fallback for local dev.
-
-if not os.environ.get("ADMIN_PASSWORD"):
-    os.environ["ADMIN_PASSWORD"] = "test-" + secrets.token_hex(20)
-
-# ── Now safe to import backend modules that read ADMIN_PASSWORD ──────────────
+# Pin test credentials before load_dotenv() so the real .env cannot override
+# these values during test runs. seed_admin will sync the DB to match.
+os.environ.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")
+os.environ.setdefault("ADMIN_PASSWORD", "WikiAdmin2026!")
+import sys
+from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 
-from backend.server import app as backend_app
+# Load .env so tests see the same environment as the app
+load_dotenv()
 
 
-# ─── markers ──────────────────────────────────────────────────────────────────
+def pytest_configure() -> None:
+    """Ensure repo root is importable when running `pytest` as a console script."""
+    root = Path(__file__).resolve().parents[1]
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
 
-def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line(
-        "markers",
-        "requires_db: mark test as requiring a live MongoDB connection",
-    )
-
-
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
-    if not os.environ.get("SKIP_DB_TESTS"):
-        return  # CI always has Mongo — run everything
-    skip_db = pytest.mark.skip(reason="SKIP_DB_TESTS=1 — no MongoDB available")
-    for item in items:
-        if "requires_db" in item.keywords:
-            item.add_marker(skip_db)
-
-
-
-# ─── Legacy workflow mode for tests (Phase 2 deprecation guard) ──────────
-# By default, ALL tests run in legacy mode so AgentRunner.run(),
-# Agency.run_cycle(), MultiAgentSwarm.run() etc. work without patching
-# every test individually.  Tests that need orchestrator mode explicitly
-# override via monkeypatch.setattr + importlib.reload.
-
-import pytest  # noqa: E402 — re-import for fixture decorator clarity
+    # Test defaults (CI may not have a .env and proxy reads env at import time).
+    os.environ.setdefault("API_KEYS", "ci-test-key")
+    # Enable admin API routes for tests that hit /admin/api/*
+    os.environ.setdefault("ADMIN_SECRET", "ci-admin-secret-123")
+    # V3 API JWT secret for tests
+    os.environ.setdefault("V3_JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
+    os.environ.setdefault("V3_ADMIN_EMAIL", "admin@localhost")
+    os.environ.setdefault("V3_ADMIN_NAME", "Administrator")
 
 
 @pytest.fixture(autouse=True)
-def _set_legacy_workflow_mode(monkeypatch):
-    """Default all tests to legacy workflow mode (Phase 2 compatibility).
+def reset_provider_cooldowns():
+    """Reset cross-request provider cooldown state before every test.
 
-    Only patches WORKFLOW_MODE so ``is_legacy_mode()`` returns True naturally.
-    Tests that need orchestrator mode can override via
-    ``monkeypatch.setattr("...WORKFLOW_MODE", "orchestrator")``.
+    Without this, a test that triggers a provider failure (and thus a cooldown)
+    would pollute subsequent tests that use the same provider_id.
     """
-    monkeypatch.setattr(
-        "services.workflow_orchestrator.WORKFLOW_MODE", "legacy"
-    )
+    from provider_router import clear_cooldowns
+
+    clear_cooldowns()
+    yield
+    clear_cooldowns()
 
 
-# ─── fixtures ─────────────────────────────────────────────────────────────────
+@pytest.fixture(scope="session")
+def client():
+    """FastAPI test client for proxy.app — V3 API surface (default).
 
-@pytest.fixture
-def client() -> TestClient:
-    """TestClient for backend.server — used by backend-specific tests.
-
-    The app's lifespan runs (including ensure_bootstrap) so the admin user
-    and indexes are present before the first request.  Tests that need to
-    simulate a DB outage must mock ``get_db()`` *within* the test body, not
-    in this fixture.
+    Most existing tests (v3_auth, features_api, etc.) target proxy.app, so
+    this remains the default `client` fixture.
     """
-    return TestClient(backend_app)
+    import proxy
+    with TestClient(proxy.app) as c:
+        yield c
 
 
-@pytest.fixture
-def wiki_client() -> TestClient:
-    """TestClient with ``raise_server_exceptions=False`` for integration tests.
+@pytest.fixture(scope="session")
+def _mongo_available():
+    """Check if MongoDB is reachable within a short timeout.
 
-    Tests using this fixture should guard against unconfigured auth
-    environments by checking login status and calling ``pytest.skip()``
-    if the backend is not set up.
+    Used by integration tests to skip when MongoDB is unavailable.
+    Returns True if MongoDB responds, False otherwise.
     """
-    return TestClient(backend_app, raise_server_exceptions=False)
+    import asyncio
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+
+        async def _ping():
+            mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+            client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=2000)
+            await client.admin.command("ping")
+
+        asyncio.run(_ping())
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="session")
+def wiki_client(_mongo_available):
+    """FastAPI test client for backend/server.py — LLM Relay wiki dashboard.
+
+    Iteration 6/7 integration tests target backend/server.py specifically
+    (it has /api/chat/send, the Mongo-backed admin login, etc.).
+    Skips if MongoDB is unavailable.
+    """
+    if not _mongo_available:
+        pytest.skip("MongoDB is not available — skipping backend integration tests")
+
+    from backend.server import app as backend_app
+
+    with TestClient(backend_app, raise_server_exceptions=False) as c:
+        yield c
