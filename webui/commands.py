@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from output_filter import OutputFilter
+
 
 SAFE_TOP_LEVEL = frozenset({"pytest", "rg", "git", "ls", "cat"})
 SAFE_GIT_SUBCOMMANDS = frozenset({"status", "diff", "log", "show", "rev-parse"})
@@ -50,14 +52,23 @@ def run_command(
         timeout=timeout_sec,
         check=False,
     )
-    stdout = (proc.stdout or b"")[:max_output_bytes].decode("utf-8", errors="replace")
-    stderr = (proc.stderr or b"")[:max_output_bytes].decode("utf-8", errors="replace")
+    raw_stdout = (proc.stdout or b"")[:max_output_bytes].decode("utf-8", errors="replace")
+    raw_stderr = (proc.stderr or b"")[:max_output_bytes].decode("utf-8", errors="replace")
+
+    # Apply RTK-style output filtering for token efficiency
+    cmd_str = " ".join(command)
+    filtered_stdout = OutputFilter.filter(cmd_str, raw_stdout, max_chars=max_output_bytes)
+    filtered_stderr = OutputFilter.filter(cmd_str, raw_stderr, max_chars=max_output_bytes)
+
     return {
         "command": command,
         "cwd": str(cwd),
         "exit_code": proc.returncode,
-        "stdout": stdout,
-        "stderr": stderr,
+        "stdout": filtered_stdout,
+        "stderr": filtered_stderr,
+        "raw_stdout": raw_stdout if raw_stdout != filtered_stdout else None,
+        "raw_stderr": raw_stderr if raw_stderr != filtered_stderr else None,
+        "filtered": filtered_stdout != raw_stdout or filtered_stderr != raw_stderr,
         "truncated": (len(proc.stdout or b"") > max_output_bytes) or (len(proc.stderr or b"") > max_output_bytes),
     }
 
