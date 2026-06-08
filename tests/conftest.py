@@ -27,6 +27,7 @@ def pytest_configure() -> None:
     # Test defaults (CI may not have a .env and proxy reads env at import time).
     os.environ.setdefault("API_KEYS", "ci-test-key")
     # Enable admin API routes for tests that hit /admin/api/*
+    # Must be >= 32 chars (proxy.py security check #461)
     os.environ.setdefault("ADMIN_SECRET", "ci-admin-secret-12345678901234567890")
     # V3 API JWT secret for tests
     os.environ.setdefault("V3_JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
