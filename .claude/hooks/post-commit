@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# post-commit — keep graphify knowledge graph in sync after every commit.
+# Activate with: git config core.hooksPath .claude/hooks
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+HOOK="$ROOT/.claude/hooks/graphify-refresh"
+[ -x "$HOOK" ] || exit 0
+"$HOOK" --background

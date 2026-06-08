@@ -14,19 +14,19 @@ from provider_router import (
 
 
 @pytest.fixture(autouse=True)
-def reset_cooldowns():
+async def reset_cooldowns():
     """Ensure each test starts with no active cooldowns."""
-    clear_cooldowns()
+    await clear_cooldowns()
     yield
-    clear_cooldowns()
+    await clear_cooldowns()
 
 
 @pytest.mark.anyio
-async def test_failover_skips_local_uses_windows_server(monkeypatch):
+async def test_failover_skips_local_uses_windows_server(monkeypatch) -> None:
     """Local Ollama down → Windows server Ollama used."""
     attempts: list[str] = []
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         attempts.append(provider.provider_id)
         if provider.provider_id == "ollama-local":
             return httpx.Response(503, json={"error": "local down"})
@@ -65,11 +65,11 @@ async def test_failover_skips_local_uses_windows_server(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_failover_chain_local_windows_hf_deepseek_anthropic(monkeypatch):
+async def test_failover_chain_local_windows_hf_deepseek_anthropic(monkeypatch) -> None:
     """Full chain: local → windows → hf → deepseek → anthropic."""
     attempts: list[str] = []
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         attempts.append(provider.provider_id)
         # Fail everything except anthropic
         if provider.provider_id != "anthropic":
@@ -139,10 +139,10 @@ async def test_failover_chain_local_windows_hf_deepseek_anthropic(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_failover_raises_503_when_all_fail(monkeypatch):
+async def test_failover_raises_503_when_all_fail(monkeypatch) -> None:
     """All providers fail → ProviderFallbackError is raised."""
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         return httpx.Response(503, json={"error": "all down"})
 
     monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
@@ -174,18 +174,18 @@ async def test_failover_raises_503_when_all_fail(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_provider_on_cooldown_is_skipped(monkeypatch):
+async def test_provider_on_cooldown_is_skipped(monkeypatch) -> None:
     """A provider on cooldown is not attempted."""
     from provider_router import mark_provider_failed
 
     attempts: list[str] = []
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         attempts.append(provider.provider_id)
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
 
     monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
-    mark_provider_failed("ollama-local", cooldown_seconds=300)
+    await mark_provider_failed("ollama-local", cooldown_seconds=300)
 
     router = ProviderRouter(
         [
@@ -218,7 +218,7 @@ async def test_provider_on_cooldown_is_skipped(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_from_env_includes_windows_server(monkeypatch):
+async def test_from_env_includes_windows_server(monkeypatch) -> None:
     """ProviderRouter.from_env() picks up OLLAMA_WINDOWS_SERVER."""
     monkeypatch.setenv("OLLAMA_WINDOWS_SERVER", "http://192.168.1.50:11434")
     monkeypatch.setenv("OLLAMA_WINDOWS_MODEL", "llama3.2")
@@ -228,9 +228,7 @@ async def test_from_env_includes_windows_server(monkeypatch):
 
     router = ProviderRouter.from_env()
     ids = [p.provider_id for p in router.providers]
-    assert "ollama-local" in ids
+    # ollama-local should NOT be included unless explicitly opted in
+    assert "ollama-local" not in ids
     assert "ollama-windows-server" in ids
 
-    local_idx = ids.index("ollama-local")
-    windows_idx = ids.index("ollama-windows-server")
-    assert local_idx < windows_idx, "Local Ollama must come before Windows server"

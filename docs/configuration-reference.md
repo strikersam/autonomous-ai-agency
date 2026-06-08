@@ -12,7 +12,7 @@ Complete reference for every environment variable in `.env`. Copy `.env.example`
 | `KEYS_FILE` | (none) | Recommended | Path to the JSON key store (e.g. `keys.json`). Created automatically by `generate_api_key.py`. Enables per-user email/department tracking. |
 | `ADMIN_SECRET` | (none) | For admin UI/API | Strong random secret for the browser admin UI and admin API. Generate: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `ADMIN_WINDOWS_AUTH` | `true` on Windows | No | Enable Windows credential-based admin login. Users log in with their Windows machine username and password. |
-| `ADMIN_WINDOWS_ALLOWED_USERS` | (empty) | No | Comma-separated Windows usernames allowed to log in (e.g. `HOSTNAME\swami,swami`). Empty = all local users allowed. |
+| `ADMIN_WINDOWS_ALLOWED_USERS` | (empty) | No | Comma-separated Windows usernames allowed to log in (e.g. `HOSTNAME\alice,alice`). Empty = all local users allowed. |
 | `ADMIN_WINDOWS_DEFAULT_DOMAIN` | `.` | No | Default domain for username normalization. `.` means local machine. |
 
 ---
@@ -71,6 +71,26 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 | `AGENT_EXECUTOR_MODEL` | `qwen3-coder:30b` | Model used for code writing and file manipulation. Coding-specialist models recommended. |
 | `AGENT_VERIFIER_MODEL` | `deepseek-r1:32b` | Model used to validate each code change (returns pass/fail JSON). |
 | `AGENT_WORKSPACE_ROOT` | (repo root) | Absolute path to the workspace the agent operates on. Defaults to the directory containing `proxy.py`. |
+
+---
+
+## Workspace Isolation
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_WORKSPACE_BASE` | `.workspaces/` next to `proxy.py` | Base root for all per-job isolated workspaces.  All job directories are created as hashed subdirectories under this path. |
+| `WORKSPACE_TTL_HOURS` | `24` | Number of hours after job completion before the workspace becomes eligible for cleanup.  Workspaces in active states are never deleted regardless of TTL. |
+
+---
+
+## Feature Flags
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FEATURE_DISABLE` | (none) | Comma-separated list of feature IDs to force-disable at startup (e.g. `async_agent_jobs,telegram_bot`).  Takes precedence over `FEATURE_ENABLE`. |
+| `FEATURE_ENABLE` | (none) | Comma-separated list of feature IDs to force-enable at startup.  Can enable `beta` or `experimental` features.  Cannot enable features with maturity=`disabled`. |
+
+See [docs/support-matrix.md](support-matrix.md) for the full list of feature IDs.
 
 ---
 
@@ -183,8 +203,8 @@ See [docs/telegram-bot.md](telegram-bot.md) for full setup instructions.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLLAMA_MODELS` | `~/.ollama/models` | Directory where Ollama stores downloaded model weights. Recommended: `D:\aipc-models` (Windows), `/mnt/data/ollama-models` (Linux). Needs lots of free space. |
-| `OLLAMA_EXE` | (auto-detect) | Explicit path to `ollama.exe` or `ollama` binary. Only needed if Ollama is not on `PATH`. Windows AI PC path: `C:\Users\swami\AppData\Roaming\aipc\runtime\ollama\ollama.exe`. |
-| `PYTHON_EXE` | (auto-detect) | Explicit path to Python. Needed on Windows if `python` opens the Store app. Example: `C:\Users\swami\AppData\Local\Programs\Python\Python312\python.exe` |
+| `OLLAMA_EXE` | (auto-detect) | Explicit path to `ollama.exe` or `ollama` binary. Only needed if Ollama is not on `PATH`. Windows AI PC example: `C:\Users\<you>\AppData\Roaming\aipc\runtime\ollama\ollama.exe`. |
+| `PYTHON_EXE` | (auto-detect) | Explicit path to Python. Needed on Windows if `python` opens the Store app. Example: `C:\Users\<you>\AppData\Local\Programs\Python\Python312\python.exe` |
 | `CLOUDFLARED_EXE` | (auto-detect) | Explicit path to `cloudflared.exe`. Default install: `C:\Program Files (x86)\cloudflared\cloudflared.exe`. |
 | `NGROK_EXE` | (auto-detect) | Explicit path to `ngrok` binary. Auto-detected from pyngrok's download location if blank. |
 
@@ -201,6 +221,32 @@ Run `setup_ngrok.py` once to populate these automatically. Get your token free a
 | `NGROK_DOMAIN` | (empty) | Your free static ngrok domain (e.g. `yourword-yourword-1234.ngrok-free.app`). Used by the tunnel scripts. |
 
 ---
+
+
+## Workspace Isolation
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WORKSPACE_BASE_ROOT` | `.data/workspaces` | Base directory for all isolated workspaces. Every session/job workspace is created under this root. |
+| `WORKSPACE_RETENTION_TTL_SECONDS` | `604800` (7 days) | Time in seconds before a completed/failed/cancelled/archived workspace becomes eligible for cleanup. Set to `0` for immediate eligibility. |
+| `DIRECT_CHAT_AGENT_WORKSPACE_ROOT` | `.data/direct-chat-agent-workspaces` | Override base root for direct chat agent workspaces. If not set, uses the default workspace root. |
+
+## Feature Maturity Overrides
+
+Any feature in the support matrix can be overridden via environment variables using the pattern `FEATURE_<UPPERCASE_FEATURE_ID>`.
+
+| Variable Pattern | Values | Description |
+|-----------------|--------|-------------|
+| `FEATURE_<ID>` | `stable`, `beta`, `experimental`, `disabled`, `true`, `false` | Override a feature's maturity tier or enabled state. Example: `FEATURE_TELEGRAM_BOT=disabled` disables the Telegram bot. |
+
+Common overrides:
+
+| Variable | Example | Effect |
+|----------|---------|--------|
+| `FEATURE_TELEGRAM_BOT` | `disabled` | Disable the Telegram bot |
+| `FEATURE_OPENHANDS_RUNTIME` | `true` | Enable the OpenHands runtime (opt-in) |
+| `FEATURE_ASYNC_AGENT_JOBS` | `stable` | Promote async agent jobs to stable tier |
+| `FEATURE_SIDECAE_RUNTIMES` | `false` | Disable sidecar runtimes |
 
 ## Quick Reference — Minimal Configs
 

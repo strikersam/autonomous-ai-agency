@@ -8,17 +8,28 @@ import pytest
 from router.model_router import ModelRouter, RoutingDecision, reset_router, get_router
 from router.classifier import classify_task
 from router.health import invalidate_cache as invalidate_health_cache
+from router.registry import get_registry
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
 def clear_router(monkeypatch):
-    """Reset the router singleton and model map cache between tests."""
+    """Reset the router singleton and model map cache between tests.
+
+    NVIDIA env vars are cleared so that model-map assertions use the expected
+    Ollama-local model names (deepseek-r1:32b, qwen3-coder:30b, etc.) rather
+    than NVIDIA NIM aliases, which depend on the operator's .env configuration.
+    """
     reset_router()
     # Ensure clean env
     monkeypatch.delenv("MODEL_MAP", raising=False)
     monkeypatch.delenv("ROUTER_EXTRA_MODELS", raising=False)
+    # Clear NVIDIA provider settings so routing resolves to local Ollama models.
+    # Tests that explicitly want NVIDIA routing set these themselves.
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_BASE_URL", raising=False)
+    monkeypatch.delenv("NVIDIA_DEFAULT_MODEL", raising=False)
     # Keep most router tests independent from whichever Ollama models happen
     # to be installed on the host. Availability behavior is covered explicitly
     # in the health-check tests below.
@@ -135,7 +146,15 @@ def test_qwen36_35b_a3b_passthrough():
 
 def test_unknown_model_falls_to_heuristic():
     decision = _router().route(requested_model="some-unknown-model-xyz")
-    assert decision.resolved_model in ("qwen3-coder:30b", "deepseek-r1:32b")
+    # Any registered cost_tier=3 model is acceptable — the set grows as new providers are added
+    assert decision.resolved_model in (
+        "qwen3-coder:30b",
+        "deepseek-r1:32b",
+        "us.anthropic.claude-opus-4-7",
+        "deepseek-r1:671b",
+        "qwen3-coder:235b",
+        "deepseek-v3:685b",
+    )
     assert decision.selection_source in ("heuristic", "default")
 
 
@@ -293,6 +312,59 @@ def test_is_model_available_true_when_checks_disabled(monkeypatch):
     from router.health import is_model_available
     # Empty set = no filtering = everything is "available"
     assert is_model_available("any-model:latest") is True
+
+
+# ── Bedrock model registry entries ────────────────────────────────────────────
+
+_BEDROCK_MODEL_IDS = [
+    "us.anthropic.claude-opus-4-7",
+    "us.anthropic.claude-opus-4-6-v1",
+    "us.anthropic.claude-sonnet-4-6",
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+]
+
+
+def test_bedrock_opus_4_7_in_registry():
+    reg = get_registry()
+    cap = reg["us.anthropic.claude-opus-4-7"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert "bedrock" in cap.tags
+    assert "claude4" in cap.tags
+
+
+def test_bedrock_opus_4_6_v1_in_registry():
+    reg = get_registry()
+    cap = reg["us.anthropic.claude-opus-4-6-v1"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert "bedrock" in cap.tags
+    assert "flagship" in cap.tags
+
+
+def test_bedrock_sonnet_4_6_in_registry():
+    reg = get_registry()
+    cap = reg["us.anthropic.claude-sonnet-4-6"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 2
+    assert "bedrock" in cap.tags
+
+
+def test_bedrock_haiku_4_5_in_registry():
+    reg = get_registry()
+    cap = reg["us.anthropic.claude-haiku-4-5-20251001-v1:0"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 1
+    assert "bedrock" in cap.tags
+    assert "fast" in cap.tags
+
+
+def test_bedrock_models_route_as_passthrough():
+    for model_id in _BEDROCK_MODEL_IDS:
+        reset_router()
+        decision = _router().route(requested_model=model_id)
+        assert decision.resolved_model == model_id, f"Expected passthrough for {model_id}"
+        assert decision.selection_source == "passthrough", f"Wrong source for {model_id}"
 
 
 def test_is_model_available_prefix_match(monkeypatch):

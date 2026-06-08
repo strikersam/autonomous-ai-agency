@@ -14,7 +14,7 @@ Inspired by the CL4R1T4S project (github.com/elder-plinius/CL4R1T4S), this skill
 ### 1. Collect All Agent & Skill Definitions
 Scan and read every file that contains behavioral instructions:
 - `.claude/agents/*.md` — named agent personas and their directives
-- `.claude/skills/*/SKILL.md` — skill behavioral definitions
+- `.agents/skills/*/SKILL.md` — skill behavioral definitions
 - `.claude/commands/*.md` — slash command behaviors
 - `CLAUDE.md` (root) — global project-level instructions (if present)
 - `.claude/state/*` — current runtime state

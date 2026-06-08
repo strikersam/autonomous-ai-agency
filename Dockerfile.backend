@@ -1,14 +1,42 @@
+# ── Stage 1: build the React SPA from source ──────────────────────────────────
+# The backend serves the built SPA from ../frontend/build. frontend/build/ is
+# gitignored (untracked), so we must NOT depend on it existing in the build
+# context — building it here from the tracked frontend/ source makes the image
+# self-contained for BOTH the Render production build (which uses this
+# Dockerfile from a clean checkout) and the Browser E2E CI job.
+FROM node:20-slim AS frontend-build
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+# CI=false so build-time ESLint warnings don't fail the production build.
+RUN CI=false npm run build
+
+# ── Stage 2: the Python backend ───────────────────────────────────────────────
 FROM python:3.11-slim
+
+# git is required by mcp_server workspace tools (clone_repo, git_commit, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
+# Install the Chromium browser (+ OS deps) that Playwright drives for the
+# scanner's headless render pass, so JS-rendered / bot-protected sites are
+# detectable in production. If this layer is removed the scanner still works
+# (static-HTML fallback) — it just can't execute JS.
+RUN python -m playwright install --with-deps chromium
+
 COPY backend/ backend/
+COPY db/ db/
 COPY agent/ agent/
 COPY router/ router/
 COPY agents/ agents/
+COPY mcp_server/ mcp_server/
+COPY schedules/ schedules/
+COPY docker/ docker/
 COPY runtimes/ runtimes/
 COPY tasks/ tasks/
 COPY handlers/ handlers/
@@ -19,9 +47,21 @@ COPY hardware/ hardware/
 COPY rbac.py rbac.py
 COPY secrets_store.py secrets_store.py
 COPY provider_router.py provider_router.py
+COPY commercial_equivalent.py commercial_equivalent.py
 COPY langfuse_obs.py langfuse_obs.py
 COPY tokens.py tokens.py
 COPY key_store.py key_store.py
+COPY version.py version.py
+COPY activation.py activation.py
+COPY activation_api.py activation_api.py
+COPY infra_cost.py infra_cost.py
+COPY telegram_bot.py telegram_bot.py
+COPY models/ models/
+COPY services/ services/
+# The built SPA from stage 1 (backend/server.py `_FRONTEND_BUILD` serves it at
+# /login and every UI route). Built from source in-image, so this never depends
+# on the gitignored frontend/build/ existing in the build context.
+COPY --from=frontend-build /frontend/build/ frontend/build/
 
 EXPOSE 8001
 

@@ -373,7 +373,8 @@ async def handle_workflow_ide_chat(
                 f"Use `@status {run_id}` to monitor progress."
             )
         except (KeyError, ValueError) as exc:
-            content = f"❌ Could not approve `{run_id}`: {exc}"
+            log.error("Approve failed for %s: %s", run_id, exc)
+            content = f"❌ Could not approve `{run_id}` — check server logs for details"
         return _json_response(content) if not is_stream else StreamingResponse(
             _single_token_stream(content),
             media_type="text/event-stream",
@@ -393,7 +394,8 @@ async def handle_workflow_ide_chat(
                 f"Status: `{updated.status}`"
             )
         except (KeyError, ValueError) as exc:
-            content = f"❌ Could not reject `{run_id}`: {exc}"
+            log.error("Reject failed for %s: %s", run_id, exc)
+            content = f"❌ Could not reject `{run_id}` — check server logs for details"
         return _json_response(content) if not is_stream else StreamingResponse(
             _single_token_stream(content),
             media_type="text/event-stream",

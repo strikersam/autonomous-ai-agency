@@ -1,0 +1,182 @@
+# ── Default values for local-llm-server Helm chart ─────────────────────────
+
+# Number of proxy replicas (set >1 for HA with HorizontalPodAutoscaler)
+replicaCount: 1
+
+# ── Image configuration ─────────────────────────────────────────────────────
+image:
+  repository: ghcr.io/strikersam/local-llm-server
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ── Service account ─────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ── Pod annotations ─────────────────────────────────────────────────────────
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# ── Service ─────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+# ── Ingress ─────────────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: llm-relay.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# ── Resource limits ─────────────────────────────────────────────────────────
+resources:
+  limits:
+    cpu: "4"
+    memory: 4Gi
+  requests:
+    cpu: "1"
+    memory: 1Gi
+
+# ── Horizontal Pod Autoscaling (based on queue depth) ───────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# ── Environment variables (proxy configuration) ─────────────────────────────
+env:
+  # Ollama backend
+  OLLAMA_BASE: "http://ollama-service:11434"
+  # API keys (use external secrets / Vault in production)
+  API_KEYS: ""
+  KEYS_FILE: "/keys/keys.json"
+  # Admin secret (use external secrets in production)
+  ADMIN_SECRET: ""
+  # MongoDB (if using mongo store)
+  STORAGE_BACKEND: "sqlite"
+  MONGO_URL: ""
+  # CORS (restrict in production)
+  CORS_ORIGINS: "*"
+  # Rate limiting
+  RATE_LIMIT_RPM: "60"
+  # Agent configuration
+  AGENT_PLANNER_MODEL: "deepseek-r1:32b"
+  AGENT_EXECUTOR_MODEL: "qwen3-coder:30b"
+  AGENT_VERIFIER_MODEL: "deepseek-r1:32b"
+  AGENT_WORKSPACE_ROOT: "/workspace"
+  AGENT_CONFIDENCE_THRESHOLD: "0.9"
+  AGENT_REASONING_BUDGET: "high"
+  # C4/C5/C6 integration toggles
+  CHAT_HISTORY_ENABLED: "true"
+  CONTEXT_WINDOW_ENABLED: "true"
+  PROMPT_CACHE_ENABLED: "true"
+  # D3 OpenTelemetry
+  OTEL_ENABLED: "false"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-collector:4317"
+  OTEL_SERVICE_NAME: "local-llm-server"
+  # Logging
+  LOG_LEVEL: "INFO"
+
+# ── Secrets (mounted from external secrets manager) ─────────────────────────
+secrets:
+  # Name of the external secret to mount
+  externalSecretName: "llm-server-secrets"
+  # Keys to mount from the external secret
+  keys:
+    - API_KEYS
+    - ADMIN_SECRET
+    - ANTHROPIC_API_KEY
+    - NVIDIA_API_KEY
+    - GITHUB_TOKEN
+
+# ── Persistent volumes ──────────────────────────────────────────────────────
+persistence:
+  keys:
+    enabled: true
+    size: 1Gi
+    accessMode: ReadWriteOnce
+  data:
+    enabled: true
+    size: 10Gi
+    accessMode: ReadWriteOnce
+  state:
+    enabled: true
+    size: 5Gi
+    accessMode: ReadWriteOnce
+  workspace:
+    enabled: true
+    size: 20Gi
+    accessMode: ReadWriteOnce
+
+# ── Node selector / tolerations ─────────────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ── Ollama dependency (can use external Ollama) ─────────────────────────────
+ollama:
+  enabled: true
+  image:
+    repository: ollama/ollama
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    port: 11434
+  persistence:
+    enabled: true
+    size: 100Gi
+  resources:
+    limits:
+      cpu: "8"
+      memory: 32Gi
+      nvidia.com/gpu: 1
+    requests:
+      cpu: "4"
+      memory: 16Gi
+  nodeSelector:
+    accelerator: nvidia
+
+# ── MongoDB dependency ──────────────────────────────────────────────────────
+mongodb:
+  enabled: true
+  image:
+    repository: mongo
+    tag: "7"
+  service:
+    port: 27017
+  persistence:
+    enabled: true
+    size: 50Gi
+  resources:
+    limits:
+      cpu: "2"
+      memory: 4Gi
+    requests:
+      cpu: "1"
+      memory: 1Gi

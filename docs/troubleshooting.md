@@ -2,6 +2,9 @@
 
 Common problems and how to fix them. For configuration details, see [docs/configuration-reference.md](configuration-reference.md).
 
+For **CI / GitHub Actions failures**, see the dedicated runbook:
+[docs/runbooks/ci-troubleshooting.md](runbooks/ci-troubleshooting.md)
+
 ---
 
 ## Quick Diagnostics
@@ -32,6 +35,30 @@ Get-Content logs\proxy.log -Tail 50
 ---
 
 ## Startup Issues
+
+### Server starts but backend doesn't respond on port 8000
+
+**Symptom:** `curl http://localhost:8000/health` returns the proxy health check but `/api/auth/login` returns 401 "Missing API key".
+
+**Cause:** You're running `uvicorn proxy:app` (the API-key-gated proxy), but the main backend is at `backend.server:app`.
+
+**Fix:** Start the correct server:
+```bash
+uvicorn backend.server:app --host 0.0.0.0 --port 8001
+```
+
+`proxy.py` is the API-key-gated proxy that sits in front of Ollama — it does **not** serve the login, dashboard, wiki, or company graph endpoints. The main backend application is `backend/server.py` (runs on port 8001, with the frontend React dev server proxying to it).
+
+### Frontend dev server fails to start (Node 22+)
+
+**Symptom:** `npm start` in `frontend/` exits with `Invalid configuration object. Webpack has been initialized using a configuration object that does not match the API schema` mentioning `onAfterSetupMiddleware`.
+
+**Cause:** `react-scripts@5.0.1` bundles a version of `webpack-dev-server` that removed the `onAfterSetupMiddleware` option in newer releases.
+
+**Fix:** Use the pre-built frontend from `frontend/build/` which is served automatically by the backend's static file mount. Or build the frontend manually:
+```bash
+cd frontend && npx react-scripts build
+```
 
 ### Proxy fails to start
 
@@ -272,6 +299,40 @@ The bot calls the proxy's admin API. Check:
 
 ---
 
+## Runtime & Onboarding Issues
+
+### Runtime endpoints return 500 errors (decisions, health, policy)
+
+**Symptom:** `GET /runtimes/decisions`, `GET /runtimes/health`, or `PUT /runtimes/policy` return HTTP 500 with `AttributeError: 'RuntimeManager' object has no attribute`.
+
+**Fix:** This was a bug fixed in the latest release. Ensure you're running the latest `runtimes/manager.py` which has the three missing delegate methods (`get_decision_log`, `update_policy`, `health_summary`). Update by pulling the latest code:
+```bash
+git pull origin master
+```
+
+### Onboarding endpoints crash with 500
+
+**Symptom:** `POST /api/company/{id}/onboarding/start` or `/pause`/`/resume` return HTTP 500 with `NameError: name 'get_onboarding_service' is not defined`.
+
+**Fix:** This was a missing import in `backend/company_api.py`. Fixed by adding `get_onboarding_service` to the import statement. Update by pulling the latest code:
+```bash
+git pull origin master
+```
+
+### Website scan returns "No systems detected" for JS-rendered sites
+
+**Symptom:** Scanning sites like gucci.com returns no detected technologies.
+
+**Cause:** These sites are JS-rendered behind bot protection — a plain HTTP fetch gets an empty SPA shell. The scanner needs Playwright + headless Chromium installed.
+
+**Fix:** Install Playwright with Chromium:
+```bash
+pip install playwright
+playwright install --with-deps chromium
+```
+
+In Docker, this is handled automatically — the `Dockerfile` includes `RUN playwright install --with-deps chromium`.
+
 ## Agent API Issues
 
 ### Agent returns empty or incomplete plan
@@ -351,3 +412,94 @@ Ollama processes one request at a time by default. Queue depth increases with co
 - Consider running separate Ollama instances for different model tiers
 - Use smaller models for high-concurrency use cases
 - The proxy's rate limiting (`RATE_LIMIT_RPM`) helps prevent queue pile-up
+
+
+---
+
+## Workspace Issues
+
+### "Workspace not found" error
+
+**Symptom:** API returns `workspace_not_found` when trying to access a session/job workspace.
+
+**Causes and fixes:**
+
+| Cause | Fix |
+|-------|-----|
+| Session/job ID is wrong | Verify the session ID and job ID in the request |
+| Workspace was cleaned up | Completed workspaces past the retention TTL are removed. Increase `WORKSPACE_RETENTION_TTL_SECONDS` if needed |
+| Server restarted after workspace was created in memory | Workspaces are persisted to disk. Check `WORKSPACE_BASE_ROOT` is persistent storage |
+
+### "Invalid session ID" or "Invalid job ID" error
+
+**Symptom:** API returns `invalid_session_id` or `invalid_job_id`.
+
+**Fix:** Session and job IDs must be 1–128 characters, start with an alphanumeric character, and contain only letters, numbers, dashes, underscores, and dots. Path traversal characters (`../`) and slashes are rejected.
+
+### "Workspace outside root" error
+
+**Symptom:** API returns `workspace_outside_root`.
+
+**Cause:** The resolved workspace path escaped the configured base root. This can happen if:
+- A symlink inside the workspace points outside the root
+- The base root configuration was changed after workspace creation
+
+**Fix:** Check for symlinks in the workspace directory. If the base root was moved, update `WORKSPACE_BASE_ROOT` to the correct location.
+
+### "Workspace not resumable" error
+
+**Symptom:** API returns `workspace_not_resumable` when trying to resume a session.
+
+**Cause:** Only workspaces in `ready`, `active`, or `paused` state can be resumed. Completed, failed, or cancelled workspaces cannot be resumed.
+
+**Fix:** Start a new session/job instead of trying to resume an old one.
+
+### "Workspace manifest corrupt" error
+
+**Symptom:** API returns `workspace_manifest_corrupt`.
+
+**Cause:** The `manifest.json` file in the workspace directory is invalid JSON or has unexpected fields.
+
+**Fix:** Delete the workspace directory and re-create the session/job. If you need to recover data, inspect the manifest file manually.
+
+### "Workspace cleanup blocked" error
+
+**Symptom:** API returns `workspace_cleanup_blocked`.
+
+**Cause:** The workspace is still in an active state (creating, ready, active, paused). Cleanup only works on completed/failed/cancelled/archived workspaces.
+
+**Fix:** Wait for the session/job to complete, or cancel it first.
+
+---
+
+## Feature Maturity Issues
+
+### "Feature unavailable" error
+
+**Symptom:** API returns `feature_unavailable` when trying to use a feature.
+
+**Causes and fixes:**
+
+| Cause | Fix |
+|-------|-----|
+| Feature is disabled in the support matrix | Set `FEATURE_<ID>=enabled` in `.env` to override |
+| Feature maturity is set to `disabled` | Change the tier: `FEATURE_<ID>=beta` or `FEATURE_<ID>=stable` |
+| Feature not found in matrix | Check the feature ID spelling. Use `GET /admin/features` to list all features |
+
+### Beta/experimental warning in API response
+
+**Symptom:** API responses include a `warning` field for certain features.
+
+**Cause:** The feature is classified as beta or experimental in the support matrix.
+
+**What it means:** The feature works but may have edge cases, behavioral changes, or higher operational risk. Not recommended for production without testing.
+
+**Action:** Acknowledge the warning. If the feature is critical for production, override its maturity: `FEATURE_<ID>=stable`.
+
+### Feature not appearing in admin UI
+
+**Symptom:** A feature is missing from the admin features list.
+
+**Cause:** The feature entry has `admin_visible: false`.
+
+**Fix:** This is by design — some internal features are hidden from the admin UI. Use the API directly: `GET /admin/features/<feature_id>`.

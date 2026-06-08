@@ -37,7 +37,20 @@ class AgentSessionStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = str(path)
         self._lock = threading.RLock()
-        self._init_db()
+        try:
+            self._init_db()
+        except sqlite3.OperationalError as exc:
+            # Some filesystems (virtiofs, network mounts) reject SQLite journal
+            # operations. Fall back to a temp-dir DB so the server remains functional.
+            import tempfile
+            fallback = Path(tempfile.gettempdir()) / ("agent_state_" + path.stem + ".db")
+            log.warning(
+                "AgentSessionStore: could not open DB at %s (%s). "
+                "Falling back to %s — data will not persist across restarts.",
+                self._db_path, exc, fallback,
+            )
+            self._db_path = str(fallback)
+            self._init_db()
         self._sessions: dict[str, AgentSession] = self._load_all()
         log.info("AgentSessionStore loaded %d session(s) from %s", len(self._sessions), self._db_path)
 
@@ -46,6 +59,17 @@ class AgentSessionStore:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        # Prefer MEMORY journaling to avoid disk I/O errors on restricted/virtual
+        # filesystems (virtiofs, Docker overlay, network mounts). MEMORY is safe
+        # here because the store holds its own in-memory cache as the source of
+        # truth; durability is provided by the write-through cache, not the journal.
+        for mode in ("MEMORY", "DELETE", "OFF"):
+            try:
+                result = conn.execute(f"PRAGMA journal_mode={mode}").fetchone()
+                if result and result[0].upper() == mode:
+                    break
+            except sqlite3.OperationalError:
+                continue
         return conn
 
     def _init_db(self) -> None:
@@ -57,6 +81,9 @@ class AgentSessionStore:
                     title        TEXT NOT NULL,
                     provider_id  TEXT,
                     workspace_id TEXT,
+                    repo_url     TEXT,
+                    repo_ref     TEXT,
+                    active_objective TEXT,
                     created_at   TEXT NOT NULL,
                     updated_at   TEXT NOT NULL,
                     last_plan    TEXT,
@@ -94,7 +121,31 @@ class AgentSessionStore:
                 "CREATE INDEX IF NOT EXISTS idx_events_session "
                 "ON agent_events (session_id, position)"
             )
+            # ── schema migrations: add columns that may be absent in older DBs ──
+            existing = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(agent_sessions)").fetchall()
+            }
+            for col, definition in [
+                ("repo_url",          "TEXT"),
+                ("repo_ref",          "TEXT"),
+                ("active_objective",  "TEXT"),
+                ("event_count",       "INTEGER NOT NULL DEFAULT 0"),
+            ]:
+                if col not in existing:
+                    conn.execute(
+                        f"ALTER TABLE agent_sessions ADD COLUMN {col} {definition}"
+                    )
+                    log.info("Migrated agent_sessions: added column '%s'", col)
             conn.commit()
+
+    @staticmethod
+    def _row_get(row: sqlite3.Row, key: str, default=None):
+        """Safe getter for sqlite3.Row — Row supports index access but not .get()."""
+        try:
+            return row[key]
+        except IndexError:
+            return default
 
     def _load_all(self) -> dict[str, AgentSession]:
         sessions: dict[str, AgentSession] = {}
@@ -104,17 +155,21 @@ class AgentSessionStore:
                     "SELECT role, content FROM session_messages WHERE session_id = ? ORDER BY id",
                     (row["session_id"],),
                 ).fetchall()
+                col_names = row.keys()
                 sessions[row["session_id"]] = AgentSession(
                     session_id=row["session_id"],
                     title=row["title"],
                     provider_id=row["provider_id"],
                     workspace_id=row["workspace_id"],
+                    repo_url=self._row_get(row, "repo_url"),
+                    repo_ref=self._row_get(row, "repo_ref"),
+                    active_objective=self._row_get(row, "active_objective"),
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
                     history=[AgentSessionMessage(role=m["role"], content=m["content"]) for m in msgs],
                     last_plan=json.loads(row["last_plan"]) if row["last_plan"] else None,
                     last_result=json.loads(row["last_result"]) if row["last_result"] else None,
-                    event_count=row["event_count"] if "event_count" in row.keys() else 0,
+                    event_count=row["event_count"] if "event_count" in col_names else 0,
                 )
         return sessions
 
@@ -122,15 +177,18 @@ class AgentSessionStore:
         conn.execute(
             """
             INSERT OR REPLACE INTO agent_sessions
-                (session_id, title, provider_id, workspace_id, created_at, updated_at,
+                (session_id, title, provider_id, workspace_id, repo_url, repo_ref, active_objective, created_at, updated_at,
                  last_plan, last_result, event_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.session_id,
                 session.title,
                 session.provider_id,
                 session.workspace_id,
+                getattr(session, "repo_url", None),
+                getattr(session, "repo_ref", None),
+                getattr(session, "active_objective", None),
                 session.created_at,
                 session.updated_at,
                 json.dumps(session.last_plan.model_dump()) if session.last_plan else None,
@@ -147,14 +205,17 @@ class AgentSessionStore:
         title: str | None = None,
         provider_id: str | None = None,
         workspace_id: str | None = None,
+        session_id: str | None = None,
+        owner_id: str = "",
     ) -> AgentSession:
-        session_id = "as_" + secrets.token_hex(8)
+        session_id = session_id or "as_" + secrets.token_hex(8)
         now = _now()
         session = AgentSession(
             session_id=session_id,
             title=title or "Coding Agent Session",
             provider_id=provider_id,
             workspace_id=workspace_id,
+            owner_id=owner_id,
             created_at=now,
             updated_at=now,
             history=[],
@@ -167,6 +228,24 @@ class AgentSessionStore:
                 self._db_upsert_session(conn, session)
                 conn.commit()
         return session
+
+    def create_with_id(
+        self,
+        *,
+        session_id: str,
+        title: str | None = None,
+        owner_id: str = "",
+        provider_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> AgentSession:
+        """Create a session with a caller-supplied session_id (useful for tests and deterministic IDs)."""
+        return self.create(
+            session_id=session_id,
+            title=title,
+            owner_id=owner_id,
+            provider_id=provider_id,
+            workspace_id=workspace_id,
+        )
 
     def get(self, session_id: str) -> AgentSession | None:
         with self._lock:
@@ -193,6 +272,62 @@ class AgentSessionStore:
             return AgentSession.model_validate(session.model_dump())
 
     # ── event log ─────────────────────────────────────────────────────────────
+
+    def update_repo_context(self, session_id: str, repo_url: str | None, repo_ref: str | None) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            session.repo_url = repo_url
+            session.repo_ref = repo_ref
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET repo_url = ?, repo_ref = ?, updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (repo_url, repo_ref, session.updated_at, session_id),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_task_context(self, session_id: str, objective: str) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            session.active_objective = objective
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET active_objective = ?, updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (objective, session.updated_at, session_id),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+    def update_session_metadata(self, session_id: str, metadata: dict) -> AgentSession:
+        """Merge *metadata* into the session's metadata dict (in-memory only; not persisted)."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(f"Session {session_id!r} not found")
+            current = dict(session.metadata or {})
+            current.update(metadata)
+            session.metadata = current
+            session.updated_at = _now()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_resume_payload(self, session_id: str, payload: dict | None) -> AgentSession:
+        """Store or clear the resume payload for a paused agent job."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(f"Session {session_id!r} not found")
+            session.resume_payload = payload
+            session.updated_at = _now()
+            return AgentSession.model_validate(session.model_dump())
 
     def append_event(
         self,
@@ -269,6 +404,42 @@ class AgentSessionStore:
             )
             for row in rows
         ]
+
+    def list_all(self) -> list[AgentSession]:
+        with self._lock:
+            return [AgentSession.model_validate(s.model_dump()) for s in self._sessions.values()]
+
+    def snip_history(self, session_id: str, indices: set[int]) -> tuple[int, int]:
+        """Remove messages at the given indices from the session history.
+
+        Returns (removed_count, remaining_count).
+        Persists the change to the database by deleting and reinserting all messages.
+        """
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return 0, 0
+            original_len = len(session.history)
+            kept = [msg for i, msg in enumerate(session.history) if i not in indices]
+            session.history = kept
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    "DELETE FROM session_messages WHERE session_id = ?",
+                    (session_id,),
+                )
+                for msg in kept:
+                    conn.execute(
+                        "INSERT INTO session_messages (session_id, role, content) VALUES (?, ?, ?)",
+                        (session_id, msg.role, msg.content),
+                    )
+                conn.execute(
+                    "UPDATE agent_sessions SET updated_at = ? WHERE session_id = ?",
+                    (session.updated_at, session_id),
+                )
+                conn.commit()
+            removed = original_len - len(kept)
+            return removed, len(kept)
 
     def update_result(self, session_id: str, plan: AgentPlan | dict, result: dict) -> AgentSession:
         with self._lock:

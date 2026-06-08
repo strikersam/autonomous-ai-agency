@@ -32,12 +32,12 @@ Clone an existing plan, task thread, or agent session so you can explore an **al
 ### Manual duplication
 
 ```bash
-bash .claude/skills/duplicate-thread/duplicate.sh <source-thread-id> <reason>
+bash .agents/skills/duplicate-thread/duplicate.sh <source-thread-id> <reason>
 ```
 
 **Example:**
 ```bash
-bash .claude/skills/duplicate-thread/duplicate.sh plan-2025-01-15 "try-async-approach"
+bash .agents/skills/duplicate-thread/duplicate.sh plan-2025-01-15 "try-async-approach"
 # Creates: .claude/threads/plan-2025-01-15--fork-try-async-approach/
 ```
 

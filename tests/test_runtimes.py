@@ -12,6 +12,7 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -21,7 +22,9 @@ from runtimes.base import (
     RuntimeCapability,
     RuntimeTier,
     IntegrationMode,
+    RuntimeDependency,
     RuntimeHealth,
+    RuntimePreflightError,
     TaskResult,
     TaskSpec,
     RuntimeUnavailableError,
@@ -76,6 +79,19 @@ class TierTwoStub(StubAdapter):
     RUNTIME_ID   = "stub_t2"
     DISPLAY_NAME = "Stub Tier 2"
     TIER         = RuntimeTier.TIER_2
+
+
+class TaskHarnessStub(StubAdapter):
+    RUNTIME_ID = "task_harness_stub"
+
+    def required_dependencies(self):
+        return [
+            RuntimeDependency(
+                name="task-harness",
+                config_var="TASK_HARNESS_BIN",
+                install_hint="Install a compatible harness and point TASK_HARNESS_BIN at it.",
+            )
+        ]
 
 
 # ── Registry tests ─────────────────────────────────────────────────────────────
@@ -184,6 +200,79 @@ class TestCircuitState:
         assert not cs.is_open
 
 
+class TestRuntimePreflight:
+
+    def test_missing_task_harness_binary_returns_structured_preflight_issue(self, monkeypatch):
+        adapter = TaskHarnessStub()
+        monkeypatch.delenv("TASK_HARNESS_BIN", raising=False)
+        monkeypatch.setattr("shutil.which", lambda name: None)
+
+        report = asyncio.run(
+            adapter.readiness_check(
+                TaskSpec(task_id="task-1", instruction="run", workspace_path=".")
+            )
+        )
+
+        assert report.ready is False
+        issue = report.issues[0]
+        assert issue.code == "missing_binary"
+        assert issue.details["binary"] == "task-harness"
+        assert issue.details["config_var"] == "TASK_HARNESS_BIN"
+        assert "Install a compatible harness" in (issue.fix_hint or "")
+
+    def test_runtime_api_returns_preflight_report(self, monkeypatch):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from runtimes.api import runtime_router
+        from runtimes.manager import RuntimeManager
+        from rbac import require_authenticated
+
+        manager = RuntimeManager()
+        manager.register(TaskHarnessStub())
+        monkeypatch.setattr("runtimes.api.get_runtime_manager", lambda: manager)
+        monkeypatch.setattr("shutil.which", lambda name: None)
+
+        app = FastAPI()
+        app.include_router(runtime_router)
+        # Override auth so the test reaches the preflight logic (not a 401).
+        app.dependency_overrides[require_authenticated] = lambda: {"email": "test@example.com", "role": "admin"}
+        client = TestClient(app)
+
+        response = client.post(
+            "/runtimes/task_harness_stub/run",
+            json={"instruction": "hello", "workspace_path": "."},
+        )
+
+        assert response.status_code == 412
+        body = response.json()["detail"]
+        assert body["runtime_id"] == "task_harness_stub"
+        assert body["issues"][0]["code"] == "missing_binary"
+
+    def test_routing_engine_falls_back_when_primary_preflight_fails(self, monkeypatch):
+        reg = RuntimeCapabilityRegistry()
+        failing = TaskHarnessStub()
+        healthy = StubAdapter()
+        reg.register(failing)
+        reg.register(healthy)
+
+        health = MagicMock()
+        health.is_available.return_value = True
+        engine = RuntimeRoutingPolicyEngine(
+            reg,
+            health,
+            policy=RoutingPolicy(preferred_runtime_id="task_harness_stub", fallback_runtime_ids=["stub"]),
+        )
+        monkeypatch.setattr("shutil.which", lambda name: None if name == "task-harness" else "/usr/bin/git")
+
+        result, decision = asyncio.run(
+            engine.route_and_execute(TaskSpec(task_id="task-2", instruction="run", workspace_path="."))
+        )
+
+        assert result.runtime_id == "stub"
+        assert decision.fallback_attempted is True
+        assert decision.fallback_runtime_id == "stub"
+
+
 # ── RoutingPolicy tests ───────────────────────────────────────────────────────
 
 class TestRoutingPolicy:
@@ -290,6 +379,10 @@ class TestAdapterMetadata:
         from runtimes.adapters.aider import AiderAdapter
         self._check_adapter(AiderAdapter())
 
+    def test_task_harness_metadata(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+        self._check_adapter(TaskHarnessAdapter())
+
     def test_hermes_is_first_class(self):
         from runtimes.adapters.hermes import HermesAdapter
         assert HermesAdapter.TIER == RuntimeTier.FIRST_CLASS
@@ -310,6 +403,10 @@ class TestAdapterMetadata:
         from runtimes.adapters.aider import AiderAdapter
         assert AiderAdapter.TIER == RuntimeTier.TIER_3
 
+    def test_task_harness_is_tier_2(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+        assert TaskHarnessAdapter.TIER == RuntimeTier.TIER_2
+
     def test_hermes_supports_scheduled_tasks(self):
         from runtimes.adapters.hermes import HermesAdapter
         assert HermesAdapter().supports(RuntimeCapability.SCHEDULED_TASKS)
@@ -322,6 +419,12 @@ class TestAdapterMetadata:
         from runtimes.adapters.aider import AiderAdapter
         assert AiderAdapter().supports(RuntimeCapability.GIT_OPERATIONS)
 
+    def test_task_harness_supports_scheduled_tasks_and_agent_delegation(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+        adapter = TaskHarnessAdapter()
+        assert adapter.supports(RuntimeCapability.SCHEDULED_TASKS)
+        assert adapter.supports(RuntimeCapability.AGENT_DELEGATION)
+
     def test_hermes_health_returns_health_object_when_offline(self):
         from runtimes.adapters.hermes import HermesAdapter
         adapter = HermesAdapter({"base_url": "http://localhost:1"})
@@ -329,3 +432,228 @@ class TestAdapterMetadata:
         assert isinstance(health, RuntimeHealth)
         assert health.available is False
         assert health.error is not None
+
+
+class TestTaskHarnessAdapterExecution:
+
+    def test_task_harness_health_reports_missing_binary(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+
+        with patch("runtimes.adapters.task_harness.shutil.which", return_value=None):
+            health = asyncio.run(TaskHarnessAdapter().health_check())
+
+        assert health.available is False
+        assert "TASK_HARNESS_BIN" in (health.error or "")
+
+    def test_task_harness_execute_parses_run_json(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+
+        report = {
+            "session_id": "session_abc",
+            "provider": "OpenAI",
+            "model": "gpt-5.4",
+            "text": "OK",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+        class Proc:
+            returncode = 0
+
+            async def communicate(self):
+                return json.dumps(report).encode(), b""
+
+        async def fake_subprocess_exec(*args, **kwargs):
+            return Proc()
+
+        with patch("runtimes.adapters.task_harness.shutil.which", return_value="/usr/bin/task-harness"), \
+             patch("runtimes.adapters.task_harness.asyncio.create_subprocess_exec", new=fake_subprocess_exec):
+            result = asyncio.run(
+                TaskHarnessAdapter().execute(
+                    TaskSpec(
+                        task_id="task-1",
+                        instruction="Reply with exactly OK",
+                        workspace_path=".",
+                    )
+                )
+            )
+
+        assert result.success is True
+        assert result.output == "OK"
+        assert result.model_used == "gpt-5.4"
+        assert result.provider_used == "OpenAI"
+        assert result.tokens_used == 15
+        assert result.metadata["session_id"] == "session_abc"
+
+
+class TestJCodeAdapterMetadata:
+
+    def test_jcode_metadata(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter()
+        assert adapter.RUNTIME_ID == "jcode"
+        assert adapter.DISPLAY_NAME
+        assert isinstance(adapter.TIER, RuntimeTier)
+        assert isinstance(adapter.INTEGRATION_MODE, IntegrationMode)
+        assert isinstance(adapter.CAPABILITIES, frozenset)
+        d = adapter.as_dict()
+        assert d["runtime_id"] == "jcode"
+        assert "capabilities" in d
+
+    def test_jcode_is_tier_2(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter.TIER == RuntimeTier.TIER_2
+
+    def test_jcode_supports_mcp_connectivity(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter().supports(RuntimeCapability.MCP_CONNECTIVITY)
+
+    def test_jcode_supports_memory_sessions(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter().supports(RuntimeCapability.MEMORY_SESSIONS)
+
+    def test_jcode_supports_repo_editing(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter().supports(RuntimeCapability.REPO_EDITING)
+
+    def test_jcode_health_reports_missing_binary(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        with patch("runtimes.adapters.jcode.shutil.which", return_value=None):
+            health = asyncio.run(JCodeAdapter().health_check())
+        assert health.available is False
+        assert health.error is not None
+        assert "jcode" in (health.error or "").lower() or "binary" in (health.error or "").lower()
+
+    def test_jcode_health_via_http_when_offline(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter({"base_url": "http://localhost:1"})
+        health = asyncio.run(adapter.health_check())
+        assert isinstance(health, RuntimeHealth)
+        assert health.available is False
+        assert health.error is not None
+
+    def test_jcode_required_dependencies_when_no_base_url(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter()
+        deps = adapter.required_dependencies()
+        assert len(deps) == 1
+        assert deps[0].name == "jcode"
+        assert deps[0].config_var == "JCODE_BIN"
+
+    def test_jcode_no_required_dependencies_when_base_url_set(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter({"base_url": "http://localhost:8105"})
+        assert adapter.required_dependencies() == []
+
+    def test_jcode_write_mcp_config(self, tmp_path):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter({"api_key": "test-key"})
+        config_path = adapter.write_mcp_config(workspace_path=str(tmp_path), proxy_url="http://localhost:8000/v1")
+        assert config_path.exists()
+        data = json.loads(config_path.read_text())
+        assert "mcpServers" in data
+        server = data["mcpServers"]["local-llm-proxy"]
+        assert "http://localhost:8000/mcp" in server["url"]
+
+    def test_jcode_execute_missing_binary_raises(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        from runtimes.base import RuntimeUnavailableError
+        with patch("runtimes.adapters.jcode.shutil.which", return_value=None):
+            with pytest.raises(RuntimeUnavailableError):
+                asyncio.run(
+                    JCodeAdapter().execute(
+                        TaskSpec(task_id="t1", instruction="hello")
+                    )
+                )
+
+    def test_jcode_registered_when_flag_set(self, monkeypatch):
+        """JCodeAdapter is registered only when RUNTIME_JCODE_ENABLED=true."""
+        from runtimes.manager import _build_default_manager
+        monkeypatch.setenv("RUNTIME_JCODE_ENABLED", "true")
+        mgr = _build_default_manager()
+        ids = mgr._registry.ids()
+        assert "jcode" in ids
+
+    def test_jcode_not_registered_by_default(self, monkeypatch):
+        """JCodeAdapter is NOT in the default RuntimeManager (opt-in only)."""
+        from runtimes.manager import _build_default_manager
+        monkeypatch.delenv("RUNTIME_JCODE_ENABLED", raising=False)
+        mgr = _build_default_manager()
+        ids = mgr._registry.ids()
+        assert "jcode" not in ids
+        assert "internal_agent" in ids
+
+
+class TestStartLocalRuntime:
+    """Tests for _start_local_runtime safety guards in runtimes/control.py."""
+
+    def test_cli_only_adapter_skips_subprocess(self, monkeypatch):
+        """task_harness (no _base_url) must not spawn agent_runtime.py."""
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+        from runtimes.control import _start_local_runtime
+        from runtimes.manager import RuntimeManager
+        from runtimes.registry import RuntimeCapabilityRegistry
+
+        adapter = TaskHarnessAdapter()
+        assert not hasattr(adapter, "_base_url"), "TaskHarnessAdapter must remain CLI-only"
+
+        # Wire a manager with only the task_harness adapter registered
+        registry = RuntimeCapabilityRegistry()
+        registry.register(adapter)
+        fake_mgr = MagicMock()
+        fake_mgr._registry = registry
+        monkeypatch.setattr("runtimes.control.get_runtime_manager", lambda: fake_mgr)
+
+        spawned = []
+
+        def fake_popen(cmd, **kwargs):
+            spawned.append(cmd)
+            p = MagicMock()
+            p.poll.return_value = None
+            p.pid = 9999
+            return p
+
+        monkeypatch.setattr("runtimes.control.subprocess.Popen", fake_popen)
+
+        result = asyncio.run(_start_local_runtime("task_harness"))
+
+        assert not spawned, "No subprocess should be spawned for a CLI-only adapter"
+        assert result["status"] == "unavailable"
+        assert result.get("mode") == "cli_only"
+
+    def test_crashed_subprocess_returns_error_not_base_url(self, monkeypatch, tmp_path):
+        """If agent_runtime.py exits immediately, _base_url must NOT be set."""
+        from runtimes.adapters.aider import AiderAdapter
+        from runtimes.control import _start_local_runtime
+        from runtimes.registry import RuntimeCapabilityRegistry
+
+        adapter = AiderAdapter()
+        assert hasattr(adapter, "_base_url"), "AiderAdapter must have _base_url"
+        original_base_url = adapter._base_url  # empty string initially
+
+        registry = RuntimeCapabilityRegistry()
+        registry.register(adapter)
+        fake_mgr = MagicMock()
+        fake_mgr._registry = registry
+        monkeypatch.setattr("runtimes.control.get_runtime_manager", lambda: fake_mgr)
+
+        # Simulate a subprocess that crashes immediately (poll() returns exit code)
+        dead_proc = MagicMock()
+        dead_proc.poll.return_value = 1  # exited with error
+        dead_proc.pid = 1234
+        dead_proc.communicate.return_value = (b"", b"address already in use")
+        dead_proc.returncode = 1
+        monkeypatch.setattr("runtimes.control.subprocess.Popen", lambda *a, **kw: dead_proc)
+
+        # Use a real script path so the "script not found" check doesn't trigger first
+        fake_script = tmp_path / "agent_runtime.py"
+        fake_script.write_text("# dummy")
+        monkeypatch.setattr(
+            "runtimes.control._find_agent_runtime_script", lambda: fake_script
+        )
+
+        result = asyncio.run(_start_local_runtime("aider"))
+
+        assert result["status"] == "error"
+        assert "exited at startup" in result.get("error", "")
+        # _base_url must not have been updated
+        assert adapter._base_url == original_base_url

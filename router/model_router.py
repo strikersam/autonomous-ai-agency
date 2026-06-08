@@ -34,7 +34,7 @@ from typing import Any
 
 from router.classifier import classify_task
 from router.health import is_model_available
-from router.registry import best_model_for, get_registry
+from router.registry import best_model_for, best_vision_model, get_registry, has_image_content
 
 log = logging.getLogger("qwen-proxy")
 
@@ -87,40 +87,98 @@ class RoutingDecision:
 
 # ── Model map (Anthropic alias → local) ──────────────────────────────────────
 
-_BUILTIN_MODEL_MAP: dict[str, str] = {
-    # Claude 4.7 family (latest, April 2026)
-    "claude-opus-4-7": "deepseek-r1:671b",
-    # Claude 4.6 family
-    "claude-opus-4-6": "deepseek-r1:32b",
-    "claude-sonnet-4-6": "qwen3-coder:30b",
-    "claude-haiku-4-5-20251001": "qwen3-coder:7b",
-    # Claude 4.5 family
-    "claude-opus-4-5": "deepseek-r1:32b",
-    "claude-opus-4": "deepseek-r1:32b",
-    "claude-sonnet-4-5": "qwen3-coder:30b",
-    "claude-sonnet-4": "qwen3-coder:30b",
-    # Claude 3.5 family
-    "claude-3-5-sonnet-20241022": "qwen3-coder:30b",
-    "claude-3-5-haiku-20241022": "qwen3-coder:7b",
-    # Claude 3 family
-    "claude-3-opus-20240229": "deepseek-r1:32b",
-    "claude-3-sonnet-20240229": "qwen3-coder:30b",
-    "claude-3-haiku-20240307": "qwen3-coder:7b",
-    # Gemma 4 short-name aliases (Ollama pull names without size suffix)
-    "gemma4": "gemma4:27b",
-    "gemma4-9b": "gemma4:9b",
-    "gemma4-2b": "gemma4:2b",
-    "gemma4:latest": "gemma4:latest",  # passthrough for direct reference
-    # Llama 4 short-name aliases (Meta, April 2025)
-    "llama4": "llama4-maverick:17b",
-    "llama4-scout": "llama4-scout:17b",
-    "llama4-maverick": "llama4-maverick:17b",
-    # DeepSeek V3 short-name aliases
-    "deepseek-v3": "deepseek-v3:685b",
-    # Qwen3 short-name aliases
-    "qwen3-coder": "qwen3-coder:30b",
-    "qwen3-coder-235b": "qwen3-coder:235b",
-}
+def _nvidia_key_present() -> bool:
+    return bool(
+        os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
+    )
+
+
+def _opus_model() -> str | None:
+    """Return the best available Opus model ID, or None if Opus is not configured.
+
+    Checks Bedrock (AWS keys) first — higher-priority provider (priority 15).
+    Falls back to direct Anthropic API key (priority 50).
+    """
+    bedrock_key = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
+    bedrock_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
+    if bedrock_key and bedrock_secret:
+        return "us.anthropic.claude-opus-4-8"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "claude-opus-4-8"
+    return None
+
+
+def _build_builtin_model_map() -> dict[str, str]:
+    """Build the built-in alias table — Nvidia NIM models when key is set,
+    local Ollama models otherwise.
+
+    Note: resolved_model must be an Ollama- or NIM-routable name because the
+    proxy and Anthropic-compat handler post it directly to those backends.
+    Anthropic/Bedrock Opus routing is handled by ProviderRouter in agent/loop.py.
+    """
+    nvidia = _nvidia_key_present()
+
+    # Heavy reasoning model: nemotron-3-super-120b (MoE, 12B active) or deepseek-r1 (local)
+    _heavy = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:32b"
+    # Largest model: same on NIM (nemotron-3-super is the heaviest free model available)
+    _largest = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:671b"
+    # Coding/execution model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
+    _coder = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
+    # Fast/small model
+    _fast  = "meta/llama-3.1-8b-instruct" if nvidia else "qwen3-coder:7b"
+    # Default general model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
+    _gen   = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
+    # Deepseek reasoning / judge
+    _reason = "deepseek-ai/deepseek-v4-pro" if nvidia else "deepseek-r1:32b"
+
+    return {
+        # Claude 4.8 family — Opus 4.8 is Claude Code's default as of v2.1.154
+        "claude-opus-4-8": _largest,
+        # Claude 4.7 family
+        "claude-opus-4-7": _largest,
+        "claude-sonnet-4-7": _coder,
+        # Claude 4.6 family
+        "claude-opus-4-6": _heavy,
+        "claude-sonnet-4-6": _coder,
+        "claude-haiku-4-5-20251001": _fast,
+        # Claude 4.5 family
+        "claude-opus-4-5": _heavy,
+        "claude-opus-4": _heavy,
+        "claude-sonnet-4-5": _coder,
+        "claude-sonnet-4": _coder,
+        # Claude 3.5 family
+        "claude-3-5-sonnet-20241022": _coder,
+        "claude-3-5-haiku-20241022": _fast,
+        # Claude 3 family
+        "claude-3-opus-20240229": _heavy,
+        "claude-3-sonnet-20240229": _coder,
+        "claude-3-haiku-20240307": _fast,
+        # Nvidia NIM short-name aliases (passthrough when key is set)
+        "llama-3.3-70b": "meta/llama-3.3-70b-instruct",
+        "llama-3.1-405b": "meta/llama-3.1-405b-instruct",
+        "nemotron-ultra": "nvidia/nemotron-3-super-120b-a12b",
+        "qwen2.5-coder-32b": "qwen/qwen2.5-coder-32b-instruct",
+        "deepseek-r1-nim": "deepseek-ai/deepseek-r1",
+        # Gemma 4 short-name aliases (local Ollama pull names)
+        "gemma4": "gemma4:27b",
+        "gemma4-9b": "gemma4:9b",
+        "gemma4-2b": "gemma4:2b",
+        "gemma4:latest": "gemma4:latest",
+        # Llama 4 short-name aliases
+        "llama4": "llama4-maverick:17b",
+        "llama4-scout": "llama4-scout:17b",
+        "llama4-maverick": "llama4-maverick:17b",
+        # DeepSeek V3 short-name aliases
+        "deepseek-v3": "deepseek-v3:685b",
+        # Qwen3 short-name aliases (local)
+        "qwen3-coder": "qwen3-coder:30b",
+        "qwen3-coder-235b": "qwen3-coder:235b",
+    }
+
+
+# Evaluated once at import time; reset_router() clears _resolved_model_map so
+# this is effectively re-evaluated on the next call to _get_model_map().
+_BUILTIN_MODEL_MAP: dict[str, str] = _build_builtin_model_map()
 
 _resolved_model_map: dict[str, str] | None = None
 _LOCAL_SHORT_ALIASES = {
@@ -142,7 +200,9 @@ def _get_model_map() -> dict[str, str]:
     if _resolved_model_map is not None:
         return _resolved_model_map
 
-    merged = dict(_BUILTIN_MODEL_MAP)
+    # Rebuild from env so Nvidia NIM is used when NVIDIA_API_KEY is set at
+    # runtime (the module-level constant is evaluated at import time).
+    merged = dict(_build_builtin_model_map())
     raw = os.environ.get("MODEL_MAP", "").strip()
     if raw:
         for pair in raw.split(","):
@@ -162,11 +222,25 @@ def _get_model_map() -> dict[str, str]:
 
 
 def _default_model() -> str:
-    return os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
+    explicit = os.environ.get("AGENT_EXECUTOR_MODEL", "").strip()
+    if explicit:
+        return explicit
+    return (
+        "qwen/qwen2.5-coder-32b-instruct"
+        if _nvidia_key_present()
+        else "qwen3-coder:30b"
+    )
 
 
 def _default_reasoning_model() -> str:
-    return os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
+    explicit = os.environ.get("AGENT_PLANNER_MODEL", "").strip()
+    if explicit:
+        return explicit
+    return (
+        "deepseek-ai/deepseek-r1"
+        if _nvidia_key_present()
+        else "deepseek-r1:32b"
+    )
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
@@ -223,6 +297,21 @@ class ModelRouter:
                 selection_source="override",
                 fallback_chain=[_default_model()],
             )
+
+        # ── 1.5 Vision routing — if messages contain images, prefer a vision model ──
+        if has_image_content(messages):
+            registry = get_registry()
+            vision_model = best_vision_model(registry)
+            if vision_model:
+                return RoutingDecision(
+                    resolved_model=vision_model,
+                    requested_model=requested_model,
+                    mode="auto",
+                    routing_reason=f"Vision routing: request contains image_url → {vision_model}",
+                    task_category="multimodal",
+                    selection_source="vision",
+                    fallback_chain=[_default_model()],
+                )
 
         # ── 2. Classify the task ──────────────────────────────────────────────
         category = classify_task(

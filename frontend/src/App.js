@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './pages/LoginPage';
@@ -7,12 +7,14 @@ import DashboardLayout from './pages/DashboardLayout';
 import SetupWizardPage from './pages/SetupWizardPage';
 import { getSetupState, getBackendUrl } from './api';
 
+const V5App = React.lazy(() => import('./v5/V5App'));
+
 function LoadingScreen({ message }) {
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center bg-[#0A0A0A]">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-8 h-8 border-2 border-[#002FA7] border-t-transparent rounded-full animate-spin" />
-        <p className="text-[#555555] text-xs font-mono tracking-widest uppercase">{message}</p>
+    <div className="app-shell min-h-[100dvh] flex items-center justify-center px-4">
+      <div className="app-panel-elevated flex flex-col items-center gap-3 px-8 py-8 text-center">
+        <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--accent)" }} />
+        <p className="text-[var(--text-muted)] text-xs font-mono tracking-[0.18em] uppercase">{message}</p>
       </div>
     </div>
   );
@@ -62,9 +64,21 @@ function AppRoutes() {
       {/* Pre-auth setup wizard — configure backend URL before logging in */}
       <Route path="/bootstrap" element={<SetupWizardPage />} />
 
-      {/* Protected dashboard (includes /setup as a nested route) */}
+      {/* V5.0 Agency Core — primary authenticated UI */}
       <Route
-        path="/*"
+        path="/v5/*"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<LoadingScreen message="Loading Agency Core" />}>
+              <V5App />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Legacy v4 dashboard — kept for rollback; accessible at /legacy */}
+      <Route
+        path="/legacy/*"
         element={
           <ProtectedRoute>
             <SetupGuard>
@@ -72,6 +86,12 @@ function AppRoutes() {
             </SetupGuard>
           </ProtectedRoute>
         }
+      />
+
+      {/* Default: redirect authenticated users to Agency Core v5 */}
+      <Route
+        path="/*"
+        element={user ? <Navigate to="/v5" replace /> : <Navigate to="/login" replace />}
       />
     </Routes>
   );

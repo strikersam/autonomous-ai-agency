@@ -117,7 +117,7 @@ class LocalLLMSetup:
         print("   (Planner, Executor, Verifier roles)")
         print()
 
-        default_model = "gemma4:latest"
+        default_model = "nemotron-3-super-120b-a12b"
         model_choice = input(
             f"Model to use [{default_model}]: "
         ).strip()
@@ -184,7 +184,7 @@ class LocalLLMSetup:
                 timeout=2
             )
             ollama_running = result.returncode == 0
-        except:
+        except Exception:
             ollama_running = False
 
         # Check proxy
@@ -195,7 +195,7 @@ class LocalLLMSetup:
                 timeout=2
             )
             proxy_running = result.returncode == 0
-        except:
+        except Exception:
             proxy_running = False
 
         print(f"  Ollama:  {'✅ Running' if ollama_running else '⚠️  Not running'}")
@@ -236,7 +236,7 @@ class LocalLLMSetup:
                     )
                     print("✅ Proxy is ready!")
                     return True
-                except:
+                except Exception:
                     time.sleep(0.5)
 
             print("⚠️  Proxy took too long to start. Check logs with: tail -f /tmp/proxy.log")
@@ -266,7 +266,7 @@ class LocalLLMSetup:
         print("  4. Use with Claude Code:")
         print("     ANTHROPIC_BASE_URL=http://localhost:8000 claude code")
         print()
-        print("Documentation: See QUICK_START.md")
+        print("Documentation: See docs/README.md")
         print()
 
     def run(self):

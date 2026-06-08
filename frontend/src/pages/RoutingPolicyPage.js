@@ -21,7 +21,7 @@ const POOL_META = [
   },
   {
     id: 'freeCloud', label: 'Free Cloud', sub: 'Rate-limited, no cost',
-    desc: 'Ollama Cloud, Groq (free tier), Google Gemini Free, Together AI free, Mistral Le Platforme free.',
+    desc: 'NVIDIA NIM free models first, then Groq (free tier) and Google Gemini Free.',
     color: '#A78BFA', badge: 'free', cost: '$0.00', privacy: 'Low', latency: '~300–800ms',
   },
   {
@@ -31,10 +31,17 @@ const POOL_META = [
   },
 ];
 
+// Free cloud is the preferred tier — NVIDIA NIM free models first, then community free tiers.
 const DEFAULT_POOLS = {
   onDevice:        ['ollama/llama3.2:3b', 'ollama/codellama:7b', 'ollama/mistral:7b'],
   selfHosted:      ['server/llama3.2:8b', 'server/codellama:13b', 'server/qwen2.5:14b'],
-  freeCloud:       ['groq/llama-3.1-70b-versatile', 'gemini/gemini-1.5-flash', 'together/mixtral-8x7b'],
+  freeCloud:       [
+    'nvidia/nemotron-3-super-120b-a12b',
+    'qwen/qwen3-coder-480b-a35b-instruct',
+    'deepseek-ai/deepseek-v4-pro',
+    'groq/llama-3.1-70b-versatile',
+    'gemini/gemini-1.5-flash',
+  ],
   commercialCloud: ['anthropic/claude-3-haiku-20240307', 'openai/gpt-4o-mini', 'anthropic/claude-3-5-sonnet-20241022'],
 };
 
@@ -96,7 +103,6 @@ export default function RoutingPolicyPage() {
   const [newModel, setNewModel] = useState('');
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
-  const [loadError, setLoadError] = useState('');
   const [saveError, setSaveError] = useState('');
 
   const load = useCallback(async () => {

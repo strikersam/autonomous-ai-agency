@@ -10,6 +10,7 @@ from output_filter import OutputFilter
 
 SAFE_TOP_LEVEL = frozenset({"pytest", "rg", "git", "ls", "cat"})
 SAFE_GIT_SUBCOMMANDS = frozenset({"status", "diff", "log", "show", "rev-parse"})
+_UNSAFE_CHARS_RE = __import__('re').compile(r'[;&|`$(){}!<>\n\r]')  # nosec B324 — used for shell metacharacter validation in validate_command
 
 
 def _safe_allowlist() -> set[str]:
@@ -27,6 +28,11 @@ def validate_command(command: list[str]) -> None:
     exe = command[0].strip()
     if exe not in allow:
         raise ValueError(f"command not allowed: {exe}")
+
+    # Reject shell metacharacters in any argument to prevent injection
+    for arg in command:
+        if _UNSAFE_CHARS_RE.search(arg):
+            raise ValueError(f"unsafe characters in command argument: {arg[:40]}")
 
     if exe == "git":
         if len(command) < 2:

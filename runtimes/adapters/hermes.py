@@ -119,6 +119,12 @@ class HermesAdapter(RuntimeAdapter):
                 available=False,
                 error=f"HTTP {resp.status_code}",
             )
+        except httpx.ConnectError:
+            return RuntimeHealth(
+                runtime_id=self.RUNTIME_ID,
+                available=False,
+                error=f"Service not running at {self._base_url} — use Start to launch it",
+            )
         except Exception as exc:
             return RuntimeHealth(
                 runtime_id=self.RUNTIME_ID,
@@ -143,6 +149,22 @@ class HermesAdapter(RuntimeAdapter):
             payload["model"] = spec.model_preference
         if spec.tool_allowlist is not None:
             payload["tool_allowlist"] = spec.tool_allowlist
+
+        # Inject Kimi bridge config so Hermes Agent can use it for browser tasks.
+        # The bridge is an OpenAI-compatible endpoint that reaches kimi.com, which
+        # can browse the web.  Only injected when the task actually needs web access.
+        from runtimes.base import task_wants_browser
+        if task_wants_browser(spec):
+            try:
+                from providers.kimi_bridge import kimi_bridge_runtime_config
+                _kb_cfg = kimi_bridge_runtime_config()
+                if _kb_cfg:
+                    payload["kimi_bridge"] = _kb_cfg
+            except Exception as exc:
+                log.warning(
+                    "Hermes: failed to resolve kimi_bridge_runtime_config for browser "
+                    "task; running without the bridge: %s", exc,
+                )
 
         t0 = time.monotonic()
         try:

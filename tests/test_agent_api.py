@@ -128,6 +128,10 @@ def test_agent_session_run_reuses_bearer_key_for_same_origin_provider(monkeypatc
             email=None,
             department=None,
             key_id=None,
+            github_token=None,
+            session_store=None,
+            num_ctx=None,
+            keep_alive=None,
         ) -> None:
             captured["ollama_base"] = ollama_base
             captured["workspace_root"] = workspace_root
@@ -210,12 +214,47 @@ def test_agent_run_returns_structured_failure(monkeypatch):
     resp = client.post("/agent/run", json={"instruction": "Do the thing", "max_steps": 1})
     assert resp.status_code == 200
     assert resp.json()["result"]["status"] == "failed"
-    assert "planner backend unavailable" in resp.json()["result"]["summary"]
+    assert resp.json()["result"]["summary"] == "Agent run failed. Check server logs for details."
+    assert "error" not in resp.json()["result"]
+
+    proxy.app.dependency_overrides.clear()
+
+
+def test_agent_session_run_redacts_internal_exception_details(monkeypatch):
+    def fake_verify():
+        return proxy.AuthContext(
+            key="test-key",
+            email="tester@example.com",
+            department="engineering",
+            key_id="kid_test",
+            source="legacy",
+        )
+
+    async def fake_run(**kwargs):
+        raise RuntimeError("planner backend unavailable")
+
+    proxy.app.dependency_overrides[proxy.verify_api_key] = fake_verify
+    monkeypatch.setattr(proxy, "AGENT_RUNNER", type("Runner", (), {"run": staticmethod(fake_run)})())
+
+    client = TestClient(proxy.app)
+    create = client.post("/agent/sessions", json={"title": "Test Session"})
+    session_id = create.json()["session_id"]
+
+    resp = client.post(
+        f"/agent/sessions/{session_id}/run",
+        json={"instruction": "Do the thing", "auto_commit": False, "max_steps": 1},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["result"]["status"] == "failed"
+    assert resp.json()["result"]["summary"] == "Agent run failed. Check server logs for details."
+    assert "error" not in resp.json()["result"]
 
     proxy.app.dependency_overrides.clear()
 
 
 def test_admin_api_login_status_and_control(monkeypatch):
+    monkeypatch.setattr(proxy.ADMIN_AUTH, "admin_secret", "test-secret")
     monkeypatch.setattr(
         proxy.ADMIN_AUTH,
         "authenticate",
@@ -276,7 +315,7 @@ def test_admin_api_user_crud(monkeypatch, tmp_path):
     assert create.status_code == 200
     payload = create.json()
     key_id = payload["record"]["key_id"]
-    assert payload["api_key"].startswith("sk-qwen-")
+    assert payload["api_key"].startswith(("test-key-", "llms-"))  # supports both old and new key prefixes
 
     listing = client.get("/admin/api/users", headers=auth_header)
     assert listing.status_code == 200
@@ -292,7 +331,7 @@ def test_admin_api_user_crud(monkeypatch, tmp_path):
 
     rotate = client.post(f"/admin/api/users/{key_id}/rotate", headers=auth_header)
     assert rotate.status_code == 200
-    assert rotate.json()["api_key"].startswith("sk-qwen-")
+    assert rotate.json()["api_key"].startswith(("test-key-", "llms-"))  # supports both old and new key prefixes
 
     delete = client.delete(f"/admin/api/users/{key_id}", headers=auth_header)
     assert delete.status_code == 200

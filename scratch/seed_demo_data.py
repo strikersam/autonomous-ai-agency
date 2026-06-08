@@ -17,7 +17,7 @@ def req(method, path, body=None, token=None):
         data = json.dumps(body).encode()
     r = urllib.request.Request(f"{BASE}{path}", data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(r, timeout=10) as resp:
+        with urllib.request.urlopen(r, timeout=10) as resp:  # nosec: B110 - URL is hardcoded or from trusted source
             txt = resp.read().decode()
             return resp.status, json.loads(txt) if txt else {}
     except urllib.error.HTTPError as e:
@@ -25,7 +25,7 @@ def req(method, path, body=None, token=None):
 
 
 def login():
-    s, body = req("POST", "/api/auth/login", {"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"})
+    s, body = req("POST", "/api/auth/login", {"email": "admin@llmrelay.local", "password": os.environ["ADMIN_PASSWORD"]})
     assert s == 200, body
     return body["access_token"]
 

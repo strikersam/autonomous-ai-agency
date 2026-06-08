@@ -1,0 +1,73 @@
+version: 2
+updates:
+  # Python — pip
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 20
+    labels:
+      - "dependabot"
+      - "security"
+    groups:
+      security-patches:
+        applies-to: security-updates
+        patterns: ["*"]
+      all-patches:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+
+  # Frontend npm (frontend/)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependabot"
+      - "security"
+    groups:
+      security-patches:
+        applies-to: security-updates
+        patterns: ["*"]
+      all-patches:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+
+  # WebUI frontend npm (webui/frontend/)
+  - package-ecosystem: "npm"
+    directory: "/webui/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependabot"
+      - "security"
+    groups:
+      security-patches:
+        applies-to: security-updates
+        patterns: ["*"]
+      all-patches:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependabot"

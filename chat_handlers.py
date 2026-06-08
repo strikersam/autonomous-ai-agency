@@ -7,15 +7,15 @@ import json
 import logging
 import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator
 
 import httpx
 from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from langfuse_obs import emit_chat_observation
-from provider_router import ProviderConfig, ProviderFallbackError, ProviderRouter
 from router import get_router
 from router.health import invalidate_cache as _invalidate_health_cache
 
@@ -83,18 +83,12 @@ _STRIP_THINK_TAGS = os.environ.get("PROXY_STRIP_THINK_TAGS", "false").strip().lo
 _DEFAULT_SYSTEM_PROMPT_INLINE = os.environ.get("PROXY_DEFAULT_SYSTEM_PROMPT", "").strip()
 _DEFAULT_SYSTEM_PROMPT_FILE = os.environ.get("PROXY_DEFAULT_SYSTEM_PROMPT_FILE", "").strip()
 _DEFAULT_MAX_TOKENS_RAW = os.environ.get("PROXY_DEFAULT_MAX_TOKENS", "").strip()
-_DEFAULT_TEMPERATURE_RAW = os.environ.get("PROXY_DEFAULT_TEMPERATURE", "").strip()
 _CACHED_DEFAULT_SYSTEM_PROMPT: str | None = None
 
 try:
     _DEFAULT_MAX_TOKENS = int(_DEFAULT_MAX_TOKENS_RAW) if _DEFAULT_MAX_TOKENS_RAW else 0
 except ValueError:
     _DEFAULT_MAX_TOKENS = 0
-
-try:
-    _DEFAULT_TEMPERATURE: float | None = float(_DEFAULT_TEMPERATURE_RAW) if _DEFAULT_TEMPERATURE_RAW else None
-except ValueError:
-    _DEFAULT_TEMPERATURE = None
 
 
 def _load_default_system_prompt() -> str:
@@ -134,11 +128,12 @@ def _inject_default_system_prompt(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _apply_chat_defaults(payload: dict[str, Any]) -> dict[str, Any]:
+    if _DEFAULT_MAX_TOKENS <= 0:
+        return payload
+    if "max_tokens" in payload or "maxTokens" in payload:
+        return payload
     copied = dict(payload)
-    if _DEFAULT_MAX_TOKENS > 0 and "max_tokens" not in payload and "maxTokens" not in payload:
-        copied["max_tokens"] = _DEFAULT_MAX_TOKENS
-    if _DEFAULT_TEMPERATURE is not None and "temperature" not in payload:
-        copied["temperature"] = _DEFAULT_TEMPERATURE
+    copied["max_tokens"] = _DEFAULT_MAX_TOKENS
     return copied
 
 
@@ -148,7 +143,7 @@ def _strip_think_blocks(text: str) -> str:
         return text
     # Non-greedy match of <think> to </think> or end of string
     text = re.sub(r"<think>[\s\S]*?(?:</think>|$)", "", text, flags=re.IGNORECASE)
-    return text.strip().strip()
+    return text.strip()
 
 
 def _extract_exact_output(messages: Any) -> str | None:
@@ -159,13 +154,19 @@ def _extract_exact_output(messages: Any) -> str | None:
         if not isinstance(message, dict) or message.get("role") != "user":
             continue
         content = message.get("content")
-        if not isinstance(content, str):
+        if not isinstance(content, str) or len(content) > 10000:
             return None
-        match = re.search(r"Reply with exactly:\s*(.+?)\s*$", content, flags=re.IGNORECASE | re.DOTALL)
-        if not match:
+        # Limit backtracking: use a simple substring search instead of regex
+        lower = content.lower()
+        prefix = "reply with exactly:"
+        idx = lower.find(prefix)
+        if idx == -1:
             return None
-        exact = match.group(1).strip()
-        return exact or None
+        suffix = content[idx + len(prefix):].strip()
+        # Take only the first line to limit matching
+        if suffix:
+            suffix = suffix.split('\n')[0].strip()
+        return suffix or None
     return None
 
 
@@ -233,9 +234,8 @@ async def handle_openai_chat_completions(
     email: str,
     department: str,
     key_id: str | None,
-    body_override: bytes | None = None,
 ) -> JSONResponse | StreamingResponse:
-    body = body_override if body_override is not None else await request.body()
+    body = await request.body()
 
     try:
         payload: dict[str, Any] = json.loads(body) if body else {}
@@ -317,53 +317,19 @@ async def handle_openai_chat_completions(
             },
         )
 
-    primary_provider = ProviderConfig(
-        provider_id="ollama-local",
-        type="ollama",
-        base_url=ollama_base,
-        default_model=model,
-        priority=0,
-    )
-    try:
-        provider_result = await ProviderRouter.from_env(primary_provider=primary_provider).chat_completion(
-            payload,
-            model_fallbacks=routing.fallback_chain,
-        )
-    except ProviderFallbackError as exc:
-        log.error("All LLM providers failed: %s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    resp = await _post_with_fallback(target_url, forward, headers, routing.fallback_chain)
 
-    resp = provider_result.response
-    model = provider_result.model
-    routing_meta = {
-        **routing_meta,
-        "provider_fallback_provider": provider_result.provider.provider_id,
-        "provider_fallback_attempts": ProviderRouter.attempts_header(provider_result.attempts),
-    }
-
-    upstream_ct = resp.headers.get("content-type", "")
-    if upstream_ct.startswith("application/json"):
+    if resp.headers.get("content-type", "").startswith("application/json"):
         data = resp.json()
     else:
-        # Non-JSON error body (HTML from a proxy, plain-text 5xx, etc.): forward
-        # verbatim so the caller can read it — do NOT wrap in JSONResponse, which
-        # would double-encode the string literal.
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            media_type=upstream_ct or "text/plain; charset=utf-8",
-        )
+        return JSONResponse(content=resp.text, status_code=resp.status_code)
 
     out_text, pt, ct = _openai_usage_from_response(data)
     await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
     return JSONResponse(
         content=data,
         status_code=resp.status_code,
-        headers={
-            "X-Routing-Mode": routing.mode,
-            "X-Routing-Model": model,
-            "X-LLM-Provider": provider_result.provider.provider_id,
-        },
+        headers={"X-Routing-Mode": routing.mode, "X-Routing-Model": model},
     )
 
 
@@ -470,33 +436,27 @@ async def _stream_openai_chat(
     buf = bytearray()
     line_buf = bytearray()
     in_think = False
-    async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0)) as client:
-        try:
-            async with client.stream("POST", url, content=body, headers=headers) as resp:
-                if resp.status_code >= 400:
-                    yield await resp.aread()
-                    return
-                async for chunk in resp.aiter_bytes(chunk_size=1024):
-                    buf.extend(chunk)
-                    if not _STRIP_THINK_TAGS:
-                        yield chunk
-                        continue
-
-                    line_buf.extend(chunk)
-                    while True:
-                        newline = line_buf.find(b"\n")
-                        if newline == -1:
-                            break
-                        raw_line = bytes(line_buf[: newline + 1])
-                        del line_buf[: newline + 1]
-                        filtered_line, in_think = _filter_openai_sse_line(raw_line, in_think)
-                        if filtered_line:
-                            yield filtered_line
-        except Exception as exc:
-            if "client disconnected" in str(exc).lower() or "cancel" in str(exc).lower():
-                log.debug("Client disconnected during stream: %s", exc)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+        async with client.stream("POST", url, content=body, headers=headers) as resp:
+            if resp.status_code >= 400:
+                yield await resp.aread()
                 return
-            raise
+            async for chunk in resp.aiter_bytes(chunk_size=1024):
+                buf.extend(chunk)
+                if not _STRIP_THINK_TAGS:
+                    yield chunk
+                    continue
+
+                line_buf.extend(chunk)
+                while True:
+                    newline = line_buf.find(b"\n")
+                    if newline == -1:
+                        break
+                    raw_line = bytes(line_buf[: newline + 1])
+                    del line_buf[: newline + 1]
+                    filtered_line, in_think = _filter_openai_sse_line(raw_line, in_think)
+                    if filtered_line:
+                        yield filtered_line
 
     if _STRIP_THINK_TAGS and line_buf:
         filtered_line, _ = _filter_openai_sse_line(bytes(line_buf), in_think)
@@ -565,15 +525,8 @@ async def handle_ollama_native_chat(
 
     resp = await _post_with_fallback(target_url, body, headers, routing.fallback_chain)
 
-    upstream_ct = resp.headers.get("content-type", "")
-    if not upstream_ct.startswith("application/json"):
-        # Forward non-JSON upstream bodies verbatim instead of JSONResponse-wrapping
-        # a raw string (which would double-encode).
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            media_type=upstream_ct or "text/plain; charset=utf-8",
-        )
+    if not resp.headers.get("content-type", "").startswith("application/json"):
+        return JSONResponse(content=resp.text, status_code=resp.status_code)
 
     data = resp.json()
     out_text = ""
@@ -707,3 +660,207 @@ def _filter_fragment(text: str, in_think: bool) -> tuple[str, bool]:
         in_think = True
 
     return "".join(out), in_think
+
+
+# ---------------------------------------------------------------------------
+# Structured output normalisation
+# ---------------------------------------------------------------------------
+
+def _normalize_response_format(payload: dict) -> dict:
+    """Translate OpenAI ``response_format`` into Ollama's ``format`` field.
+
+    For *local* models (no ``/`` in the model name) the transformation is:
+    - ``json_schema`` with a valid ``schema`` key → ``format = <schema dict>``
+    - ``json_object``                             → ``format = "json"``
+    - anything else / malformed                   → payload unchanged
+
+    For *cloud* models (model name contains ``/``, e.g. ``nvidia/nemotron`` or
+    ``openai/gpt-4o``) the ``response_format`` is forwarded verbatim so the
+    cloud endpoint can handle it natively.
+
+    Returns a (possibly modified) copy of *payload*.
+    """
+    response_format = payload.get("response_format")
+    if not isinstance(response_format, dict):
+        return payload
+
+    fmt_type = response_format.get("type")
+    model = payload.get("model", "")
+
+    # Cloud / OpenAI-native endpoints: leave response_format intact
+    is_cloud = "/" in model
+    if is_cloud:
+        return payload
+
+    # Local models: translate to Ollama format field
+    if fmt_type == "json_schema":
+        js = response_format.get("json_schema")
+        if not isinstance(js, dict) or "schema" not in js:
+            # Malformed — leave unchanged so the caller can decide
+            return payload
+        out = {k: v for k, v in payload.items() if k != "response_format"}
+        out["format"] = js["schema"]
+        return out
+
+    if fmt_type == "json_object":
+        out = {k: v for k, v in payload.items() if k != "response_format"}
+        out["format"] = "json"
+        return out
+
+    # Unknown / text / etc — pass through unchanged
+    return payload
+
+
+def _parse_tool_calls_from_response(response_text: str) -> list[dict[str, Any]]:
+    """Parse OpenAI tool_calls from a model response.
+
+    Handles:
+    - Direct JSON tool_calls arrays embedded in the text
+    - Function-call format: ``<function_name>(<json_args>)``
+    - Markdown code-fenced JSON
+
+    Returns a list of OpenAI-format tool_call dicts suitable for
+    injecting into the response ``choices[0].message.tool_calls``.
+    """
+    import re as _re
+
+    # Try parsing as direct JSON array of tool_calls
+    try:
+        parsed = json.loads(response_text.strip())
+        if isinstance(parsed, list):
+            calls = []
+            for item in parsed:
+                if isinstance(item, dict) and "name" in item:
+                    calls.append({
+                        "id": f"call_{uuid.uuid4().hex[:12]}",
+                        "type": "function",
+                        "function": {
+                            "name": item.get("name", ""),
+                            "arguments": json.dumps(item.get("arguments", item.get("args", {}))),
+                        },
+                    })
+            if calls:
+                return calls
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Try extracting JSON from markdown fences
+    fence = _re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?```", response_text)
+    if fence:
+        try:
+            parsed = json.loads(fence.group(1).strip())
+            if isinstance(parsed, list):
+                return _parse_tool_calls_from_response(json.dumps(parsed))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Try function-call format: tool_name({...})
+    func_match = _re.findall(
+        r'(\w+)\((\{[^}]*\})\)',
+        response_text,
+    )
+    if func_match:
+        calls = []
+        for name, args_str in func_match:
+            try:
+                args = json.loads(args_str)
+            except (json.JSONDecodeError, ValueError):
+                args = {"raw": args_str}
+            calls.append({
+                "id": f"call_{uuid.uuid4().hex[:12]}",
+                "type": "function",
+                "function": {
+                    "name": name.strip(),
+                    "arguments": json.dumps(args),
+                },
+            })
+        return calls
+
+    return []
+
+
+def _normalize_tool_choice(payload: dict, model: str = "") -> dict:
+    """Normalize the ``tool_choice`` parameter for the upstream backend.
+
+    OpenAI supports:
+    - ``"none"`` — model does not call any tool
+    - ``"auto"`` — model decides whether to call a tool
+    - ``"required"`` — model must call a tool
+    - ``{"type": "function", "function": {"name": "..."}}`` — force a specific tool
+
+    For Ollama/local models that don't support ``tool_choice`` natively,
+    we translate it into a system-prompt instruction so the model still
+    honours the intent.
+    """
+    tc = payload.get("tool_choice")
+    if tc is None:
+        return payload
+
+    # Cloud models: forward tool_choice as-is (return a copy to avoid
+    # mutating the caller's dict)
+    if "/" in (model or ""):
+        return dict(payload)
+
+    # Local models: inject tool_choice as a system instruction
+    copied = dict(payload)
+    instruction = ""
+
+    if isinstance(tc, str):
+        if tc == "none":
+            instruction = "Do NOT call any tools. Respond with a text message only."
+        elif tc == "required":
+            instruction = "You MUST call a tool. Select the most appropriate tool and call it immediately."
+        elif tc == "auto":
+            instruction = "You may call a tool if needed."
+    elif isinstance(tc, dict):
+        fn = tc.get("function", {})
+        name = fn.get("name", "")
+        if name:
+            instruction = f"You MUST call the tool '{name}'. Do not respond with anything else."
+
+    if instruction:
+        msgs = list(copied.get("messages") or [])
+        if msgs and msgs[0].get("role") == "system":
+            msgs[0] = {"role": "system", "content": f"{msgs[0].get('content', '')}\n\n{instruction}"}
+        else:
+            msgs.insert(0, {"role": "system", "content": instruction})
+        copied["messages"] = msgs
+
+    # Remove tool_choice from payload for Ollama compat
+    copied.pop("tool_choice", None)
+    return copied
+
+
+def _inject_tool_results_as_messages(
+    original_payload: dict,
+    response_data: dict,
+    tool_results: list[dict[str, str]],
+) -> dict:
+    """Inject tool call results as follow-up messages for multi-turn execution.
+
+    When the model returns a tool call, we execute it and add the result
+    as a new message so the model can continue reasoning.
+    """
+    copied = dict(original_payload)
+    msgs = list(copied.get("messages") or [])
+
+    # Add assistant message with tool calls
+    choices = response_data.get("choices", [])
+    if choices:
+        assistant_msg = {
+            "role": "assistant",
+            "content": choices[0].get("message", {}).get("content") or None,
+            "tool_calls": choices[0].get("message", {}).get("tool_calls", []),
+        }
+        msgs.append(assistant_msg)
+
+    # Add tool result messages
+    for result in tool_results:
+        msgs.append({
+            "role": "tool",
+            "tool_call_id": result.get("id", ""),
+            "content": result.get("result", ""),
+        })
+
+    copied["messages"] = msgs
+    return copied

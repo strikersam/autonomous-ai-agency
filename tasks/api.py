@@ -5,12 +5,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 from collections.abc import Mapping
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from tasks.models import (
     ApprovalRequest,
+    ClarifyRequest,
     CommentAddRequest,
+    FollowUpRequest,
     Task,
     TaskCreateRequest,
     TaskPriority,
@@ -18,6 +21,7 @@ from tasks.models import (
     TaskUpdateRequest,
 )
 from tasks.service import TaskWorkflowService
+from tasks.service import TaskExecutionCoordinator
 from tasks.store import TaskStore, get_task_store
 
 log = logging.getLogger("qwen-proxy")
@@ -26,21 +30,29 @@ task_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 async def _current_user(request: Request) -> Any:
-    # Fast path: JWTUserStateMiddleware (production) or inject_user middleware
-    # (tests) has already validated the token and stored the user in request.state.
+    # Fast path: JWTAuthMiddleware has already validated the token and stored
+    # the user dict in request.state.user.
     user = getattr(request.state, "user", None)
     if user is not None:
         return user
-    # Slow path: validate the Bearer token directly.  Try both import paths so
-    # the code works when run from the repo root AND from within backend/.
-    for mod_name in ("server", "backend.server"):
+    # Slow path: re-verify the Bearer token directly using the same V3_JWT_SECRET
+    # that JWTAuthMiddleware uses.  The old approach (importing backend.server.
+    # get_current_user) used a different JWT_SECRET and always raised 401.
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth[:7].lower() == "bearer " else request.headers.get("x-api-key", "").strip()
+    if token:
         try:
-            import importlib
-            mod = importlib.import_module(mod_name)
-            return await mod.get_current_user(request)
-        except ModuleNotFoundError:
-            continue
-    from fastapi import HTTPException
+            from tokens import verify_token
+            payload = verify_token(token, token_type="access")
+            if payload:
+                return {
+                    "email": payload.get("email"),
+                    "_id": payload.get("sub"),
+                    "name": payload.get("name"),
+                    "role": payload.get("role", "user"),
+                }
+        except Exception as exc:
+            log.warning("Token verification error: %s", exc)
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 
@@ -50,6 +62,17 @@ def _get_store(_: Request) -> TaskStore:
 
 def _get_workflow(request: Request) -> TaskWorkflowService:
     return TaskWorkflowService(store=_get_store(request))
+
+
+def _queue_task_execution(background_tasks: BackgroundTasks, request: Request, task_id: str) -> None:
+    background_tasks.add_task(
+        TaskExecutionCoordinator(
+            store=_get_store(request),
+            workflow=_get_workflow(request),
+            workspace_root=str(Path(__file__).resolve().parent.parent),
+        ).execute,
+        task_id,
+    )
 
 
 def _is_admin(user: Any) -> bool:
@@ -90,6 +113,8 @@ async def create_task(body: TaskCreateRequest, request: Request, user: Any = Dep
         due_date=body.due_date,
         requires_approval=body.requires_approval,
         status=body.status,
+        story_points=body.story_points,
+        sprint_id=body.sprint_id,
         review_reason="Created in review lane" if body.status is TaskStatus.IN_REVIEW else None,
     )
     try:
@@ -175,6 +200,10 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
         task.due_date = updates["due_date"]
     if "requires_approval" in updates:
         task.requires_approval = updates["requires_approval"]
+    if "story_points" in updates:
+        task.story_points = updates["story_points"]
+    if "sprint_id" in updates:
+        task.sprint_id = updates["sprint_id"]
     if "agent_id" in updates:
         workflow.assign_agent(task, updates["agent_id"], actor=actor)
 
@@ -186,7 +215,7 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
                 actor=actor,
                 blocked_reason=task.blocked_reason or "Manually blocked" if body.status is TaskStatus.BLOCKED else None,
                 review_reason=task.review_reason or "Awaiting review" if body.status is TaskStatus.IN_REVIEW else None,
-                pending_agent_run=bool(task.agent_id) if body.status is TaskStatus.IN_PROGRESS else None,
+                pending_agent_run=True if body.status is TaskStatus.IN_PROGRESS else None,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -245,6 +274,36 @@ async def retry_task(task_id: str, request: Request, user: Any = Depends(_curren
     return {"task": task.as_dict()}
 
 
+@task_router.post("/{task_id}/follow-up")
+async def follow_up_task(
+    task_id: str,
+    body: FollowUpRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: Any = Depends(_current_user),
+) -> dict[str, Any]:
+    """Give a task new guidance and re-run it, carrying the conversation forward.
+
+    This is the missing 'rerun / give follow-up command' capability: the message is
+    appended to the task thread and the task is re-opened and re-queued (the
+    dispatcher picks it up; we also kick an immediate background run).
+    """
+    task, store, actor = await _load_task(request, task_id, user)
+    workflow = _get_workflow(request)
+    try:
+        workflow.follow_up(
+            task,
+            actor=actor,
+            message=body.message,
+            model_preference=body.model_preference,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await store.update(task)
+    _queue_task_execution(background_tasks, request, task.task_id)
+    return {"task": task.as_dict(), "queued": True}
+
+
 @task_router.post("/{task_id}/escalate")
 async def escalate_task(task_id: str, request: Request, user: Any = Depends(_current_user)) -> dict[str, Any]:
     task, store, actor = await _load_task(request, task_id, user)
@@ -252,3 +311,47 @@ async def escalate_task(task_id: str, request: Request, user: Any = Depends(_cur
     workflow.escalate(task, actor=actor)
     await store.update(task)
     return {"task": task.as_dict()}
+
+
+@task_router.patch("/{task_id}/clarify")
+async def clarify_task(task_id: str, body: ClarifyRequest, request: Request, user: Any = Depends(_current_user)) -> dict[str, Any]:
+    task, store, actor = await _load_task(request, task_id, user)
+    task.status = TaskStatus.NEEDS_CLARIFICATION
+    task.blocked_reason = body.reason
+    task.add_log(
+        f"Clarification requested: {body.reason}",
+        event_type="clarification_requested",
+        actor=actor,
+        task_status=task.status,
+    )
+    task.touch()
+    await store.update(task)
+    return {"task": task.as_dict()}
+
+
+@task_router.post("/{task_id}/run", status_code=202)
+async def run_task(
+    task_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: Any = Depends(_current_user),
+) -> dict[str, Any]:
+    task, store, actor = await _load_task(request, task_id, user)
+
+    if task.status in {TaskStatus.BLOCKED, TaskStatus.IN_REVIEW, TaskStatus.DONE}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Task in status '{task.status.value}' cannot be run directly. Move it back to todo/in_progress or use retry.",
+        )
+
+    task.pending_agent_run = True
+    if task.status is TaskStatus.TODO:
+        task.add_log(
+            "Task queued for immediate execution",
+            event_type="execution_requested",
+            actor=actor,
+            task_status=task.status,
+        )
+    await store.update(task)
+    _queue_task_execution(background_tasks, request, task.task_id)
+    return {"task": task.as_dict(), "queued": True}

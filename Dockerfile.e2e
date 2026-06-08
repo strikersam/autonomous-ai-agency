@@ -1,0 +1,31 @@
+# Dockerfile for Playwright E2E browser tests
+# Builds a minimal Python image with Playwright + Chromium installed.
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install system deps for Playwright/Chromium
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        wget curl gnupg ca-certificates \
+        fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 \
+        libcups2 libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 \
+        libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 \
+        libxrandr2 xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps + Playwright
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir playwright pytest \
+    && playwright install --with-deps chromium
+
+# Copy test files
+COPY tests/e2e/test_browser.py /app/tests/e2e/test_browser.py
+COPY tests/e2e/test_regression.py /app/tests/e2e/test_regression.py
+
+ENV RELAY_BASE_URL=http://backend:8001
+
+# Default to smoke test; override with TEST_FILE for full regression:
+#   docker compose -f docker-compose.e2e.yml run -e TEST_FILE=tests/e2e/test_regression.py playwright
+CMD python "${TEST_FILE:-tests/e2e/test_browser.py}"

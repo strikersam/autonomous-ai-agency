@@ -15,43 +15,46 @@ import httpx
 log = logging.getLogger("llm-provider-router")
 
 # ── Cross-request provider cooldowns ──────────────────────────────────────────
-# These are module-level so cooldown state persists across ProviderRouter
-# instances within the same process.
-_provider_cooldowns: dict[str, float] = {}
-_DEFAULT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_COOLDOWN_SECONDS", "60"))
+# Delegated to services.shared_state (in-memory by default, Redis when REDIS_URL
+# is set) so cooldown state survives across web/worker process boundaries.
+_DEFAULT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_COOLDOWN_SECONDS", "30"))
+_AUTH_FAILURE_COOLDOWN_SECONDS: int = 300  # bad API key — don't retry for 5 min
+_CONN_FAILURE_COOLDOWN_SECONDS: int = 15  # network hiccup — retry sooner
 
 
-def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
+async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
     """Put provider_id on cooldown for *cooldown_seconds* (default: PROVIDER_COOLDOWN_SECONDS)."""
+    from services.shared_state import cooldown_set
+
     secs = (
         cooldown_seconds if cooldown_seconds is not None else _DEFAULT_COOLDOWN_SECONDS
     )
-    _provider_cooldowns[provider_id] = time.time() + secs
+    await cooldown_set(f"provider:{provider_id}", secs)
     log.warning("Provider %s placed on cooldown for %ds", provider_id, secs)
 
 
-def is_provider_on_cooldown(provider_id: str) -> bool:
+async def is_provider_on_cooldown(provider_id: str) -> bool:
     """Return True if provider_id is currently on cooldown."""
-    until = _provider_cooldowns.get(provider_id)
-    if until is None:
-        return False
-    if time.time() >= until:
-        _provider_cooldowns.pop(provider_id, None)
-        return False
-    return True
+    from services.shared_state import cooldown_get
+
+    return await cooldown_get(f"provider:{provider_id}")
 
 
 def get_cooldown_state() -> dict[str, float]:
     """Return a snapshot of active cooldowns {provider_id: expiry_unix_timestamp}."""
-    now = time.time()
-    return {
-        pid: until for pid, until in list(_provider_cooldowns.items()) if until > now
-    }
+    # The shared_state backend is async; synchronously return an empty snapshot.
+    # Real cooldown state is queried via is_provider_on_cooldown().
+    return {}
 
 
-def clear_cooldowns() -> None:
-    """Clear all cooldown entries (useful for testing)."""
-    _provider_cooldowns.clear()
+async def clear_cooldowns() -> None:
+    """Clear all cooldown entries (useful for testing).
+
+    Delegates to shared_state.cooldown_clear() which handles both the in-memory
+    and Redis backends.
+    """
+    from services.shared_state import cooldown_clear
+    await cooldown_clear()
 
 
 @dataclass(frozen=True)
@@ -137,6 +140,9 @@ class CommercialFallbackRequiredError(RuntimeError):
 
 def _openai_url(base_url: str, path: str) -> str:
     base = base_url.strip().rstrip("/")
+    # Prevent double /v1 when base already ends with /v1
+    if base.endswith("/v1"):
+        return f"{base}{path}"
     parsed = urlparse(base)
     if parsed.path and parsed.path != "/":
         return f"{base}{path}"
@@ -159,6 +165,7 @@ def extract_openai_text(data: Any) -> str:
 _COMMERCIAL_PROVIDER_IDS = {
     "anthropic",
     "anthropic-universal",
+    "bedrock",
     "openai",
     "openrouter",
     "together-ai",
@@ -172,7 +179,22 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "huggingface-serverless",
     "huggingface",
     "deepseek",
+    "groq",
+    "groq-cloud",
+    "qwen-dashscope",
+    "together-free",
+    "cerebras",
+    "sambanova",
+    "mistral",
+    "google-gemini-free",
+    "cloudflare-ai",
+    "opencode-zen",
+    # Kimi (Moonshot) reached via a no-API-key web bridge — classified FREE so the
+    # routing policy permits it without triggering paid-escalation refusal.
+    "kimi-web-bridge",
 }
+# Nvidia NIM is free-tier — treated as highest-priority free cloud provider
+_NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
 _KNOWN_COMMERCIAL_HOSTS = (
     "anthropic.com",
     "openai.com",
@@ -188,7 +210,48 @@ _KNOWN_FREE_HOSTS = (
     "huggingface.co",
     "hf.space",
     "deepseek.com",
+    "api.groq.com",
+    "dashscope.aliyuncs.com",
+    "api.cerebras.ai",
+    "api.sambanova.ai",
+    "api.mistral.ai",
+    "generativelanguage.googleapis.com",
+    "api.cloudflare.com",
 )
+_KNOWN_NVIDIA_HOSTS = ("integrate.api.nvidia.com",)
+
+
+def _normalize_nvidia_base_url(url: str) -> str:
+    """Normalize NVIDIA base URLs to avoid double /v1 when openai_compat_url appends it.
+
+    The NVIDIA API lives at ``https://integrate.api.nvidia.com/v1/chat/completions``.
+    Some config sources set ``NVIDIA_BASE_URL`` to the full ``/v1`` path; others
+    set it to just the host.  The ``_openai_url`` helper always appends ``/v1``
+    when ``parsed.path`` is ``/`` (empty), so a pre-existing ``/v1`` would become
+    ``/v1/v1/chat/completions``.  This normalization strips any trailing ``/v1``
+    so the downstream URL builder adds exactly one.
+    """
+    stripped = (url or '').strip().rstrip('/')
+    if stripped.endswith('/v1'):
+        stripped = stripped[:-3]
+    return stripped
+
+# Prefixes that identify AWS Bedrock model IDs / inference profile IDs.
+# Requests using these model IDs are routed exclusively to the bedrock provider
+# so that other providers (e.g. Nvidia NIM) cannot intercept or fallback-serve them.
+_BEDROCK_MODEL_PREFIXES = (
+    "us.anthropic.",
+    "eu.anthropic.",
+    "ap.anthropic.",
+    "global.anthropic.",
+    "arn:aws:bedrock:",
+    "anthropic.claude-",  # direct Bedrock foundation model IDs
+)
+
+
+def _is_bedrock_model_id(model_id: str) -> bool:
+    """Return True if model_id is an AWS Bedrock model or inference profile ID."""
+    return any(model_id.startswith(p) for p in _BEDROCK_MODEL_PREFIXES)
 
 
 def _provider_field(
@@ -208,6 +271,10 @@ def provider_access_tier(provider: ProviderConfig | dict[str, Any]) -> str:
     hostname = (urlparse(base_url).hostname or "").lower()
     name = str(_provider_field(provider, "name", "") or "").strip().lower()
 
+    if provider_id in _NVIDIA_PROVIDER_IDS or any(
+        host in hostname for host in _KNOWN_NVIDIA_HOSTS
+    ):
+        return "nvidia_nim"
     if provider_id in _COMMERCIAL_PROVIDER_IDS or any(
         host in hostname for host in _KNOWN_COMMERCIAL_HOSTS
     ):
@@ -253,10 +320,13 @@ def provider_sort_key(
     provider: ProviderConfig | dict[str, Any],
 ) -> tuple[int, int, str]:
     tier_order = {
-        "local": 0,
-        "windows_server": 1,
-        "free_cloud": 2,
-        "commercial": 3,
+        # Nvidia NIM comes first — free, no local infra needed
+        "nvidia_nim": 0,
+        # Local Ollama is second preference when available
+        "local": 1,
+        "windows_server": 2,
+        "free_cloud": 3,
+        "commercial": 4,
     }
     priority = int(_provider_field(provider, "priority", 100) or 100)
     provider_id = str(_provider_field(provider, "provider_id", "") or "")
@@ -281,22 +351,51 @@ class ProviderRouter:
         cls, primary_provider: ProviderConfig | None = None
     ) -> "ProviderRouter":
         providers: list[ProviderConfig] = []
+
+        # ── Nvidia NIM — highest priority, always added when key is present ──
+        nvidia_key = (
+            os.environ.get("NVIDIA_API_KEY")
+            or os.environ.get("NVidiaApiKey")
+            or ""
+        ).strip()
+        if nvidia_key:
+            nvidia_base = _normalize_nvidia_base_url(
+                os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
+            )
+            providers.append(
+                ProviderConfig(
+                    provider_id="nvidia-nim",
+                    type="openai-compatible",
+                    base_url=nvidia_base,
+                    api_key=nvidia_key,
+                    default_model=(
+                        os.environ.get("NVIDIA_DEFAULT_MODEL")
+                        or "nvidia/nemotron-3-super-120b-a12b"
+                    ),
+                    priority=-10,  # before everything else
+                )
+            )
+
         if primary_provider:
             providers.append(primary_provider)
         else:
-            providers.append(
-                ProviderConfig(
-                    provider_id="ollama-local",
-                    type="ollama",
-                    base_url=os.environ.get("OLLAMA_BASE")
-                    or os.environ.get("OLLAMA_BASE_URL")
-                    or "http://localhost:11434",
-                    default_model=os.environ.get("OLLAMA_MODEL")
-                    or os.environ.get("AGENT_EXECUTOR_MODEL")
-                    or "qwen3-coder:30b",
-                    priority=0,
+            # Include Ollama as a fallback only if explicitly opted in via settings
+            include_local_fallback = os.environ.get("INCLUDE_LOCAL_FALLBACK", "false").lower() == "true"
+            if include_local_fallback:
+                providers.append(
+                    ProviderConfig(
+                        provider_id="ollama-local",
+                        type="ollama",
+                        base_url=os.environ.get("OLLAMA_BASE")
+                        or os.environ.get("OLLAMA_BASE_URL")
+                        or "http://localhost:11434",
+                        default_model=os.environ.get("OLLAMA_MODEL")
+                        or os.environ.get("AGENT_EXECUTOR_MODEL")
+                        or "qwen3-coder:30b",
+                        priority=0,  # local Ollama beats windows-server (5) and cloud fallbacks
+                    )
                 )
-            )
+        # If we have NVIDIA key and not including local fallback, we skip Ollama
 
         windows_base = (
             (os.environ.get("OLLAMA_WINDOWS_SERVER") or "").strip().rstrip("/")
@@ -317,8 +416,10 @@ class ProviderRouter:
             )
 
         hf_key = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN")
-        hf_base = os.environ.get("HF_BASE_URL")
-        if hf_key and hf_base:
+        if hf_key:
+            hf_base = (
+                os.environ.get("HF_BASE_URL") or "https://api-inference.huggingface.co/v1"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="huggingface",
@@ -327,13 +428,43 @@ class ProviderRouter:
                     api_key=hf_key,
                     default_model=os.environ.get("HF_MODEL_ID")
                     or "Qwen/Qwen2.5-Coder-7B-Instruct",
-                    priority=20,
+                    priority=45,
+                )
+            )
+
+        zhipu_key = os.environ.get("ZHIPU_API_KEY")
+        if zhipu_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="zhipu",
+                    type="openai-compatible",
+                    base_url="https://open.bigmodel.cn/api/paas/v4",
+                    api_key=zhipu_key,
+                    default_model=os.environ.get("ZHIPU_MODEL") or "glm-4-flash",
+                    priority=46,
+                )
+            )
+
+        minimax_key = os.environ.get("MINIMAX_API_KEY")
+        if minimax_key:
+            minimax_group = os.environ.get("MINIMAX_GROUP_ID", "")
+            providers.append(
+                ProviderConfig(
+                    provider_id="minimax",
+                    type="openai-compatible",
+                    base_url="https://api.minimax.chat/v1",
+                    api_key=minimax_key,
+                    default_model=os.environ.get("MINIMAX_MODEL") or "MiniMax-Text-01",
+                    priority=47,
+                    headers={"GroupId": minimax_group} if minimax_group else {},
                 )
             )
 
         openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-        openrouter_base = os.environ.get("OPENROUTER_BASE_URL")
-        if openrouter_key and openrouter_base:
+        if openrouter_key:
+            openrouter_base = (
+                os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="openrouter",
@@ -341,14 +472,16 @@ class ProviderRouter:
                     base_url=openrouter_base,
                     api_key=openrouter_key,
                     default_model=os.environ.get("OPENROUTER_MODEL")
-                    or "qwen/qwen3-235b-a22b",
-                    priority=30,
+                    or "qwen/qwen3-235b-a22b:free",
+                    priority=40,
                 )
             )
 
         deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
-        deepseek_base = os.environ.get("DEEPSEEK_BASE_URL")
-        if deepseek_key and deepseek_base:
+        if deepseek_key:
+            deepseek_base = (
+                os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="deepseek",
@@ -356,13 +489,173 @@ class ProviderRouter:
                     base_url=deepseek_base,
                     api_key=deepseek_key,
                     default_model=os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat",
-                    priority=40,
+                    priority=20,
+                )
+            )
+
+        groq_key = os.environ.get("GROQ_API_KEY")
+        if groq_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="groq",
+                    type="openai-compatible",
+                    base_url="https://api.groq.com/openai/v1",
+                    api_key=groq_key,
+                    default_model=os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile",
+                    priority=25,
+                )
+            )
+
+        qwen_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY")
+        if qwen_key:
+            qwen_base = (
+                os.environ.get("DASHSCOPE_BASE_URL")
+                or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="qwen-dashscope",
+                    type="openai-compatible",
+                    base_url=qwen_base,
+                    api_key=qwen_key,
+                    default_model=os.environ.get("QWEN_MODEL") or "qwen-plus",
+                    priority=30,
+                )
+            )
+
+        cerebras_key = os.environ.get("CEREBRAS_API_KEY")
+        if cerebras_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="cerebras",
+                    type="openai-compatible",
+                    base_url="https://api.cerebras.ai/v1",
+                    api_key=cerebras_key,
+                    default_model=os.environ.get("CEREBRAS_MODEL") or "llama-3.3-70b",
+                    priority=28,
+                )
+            )
+
+        sambanova_key = os.environ.get("SAMBANOVA_API_KEY")
+        if sambanova_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="sambanova",
+                    type="openai-compatible",
+                    base_url="https://api.sambanova.ai/v1",
+                    api_key=sambanova_key,
+                    default_model=os.environ.get("SAMBANOVA_MODEL") or "Meta-Llama-3.3-70B-Instruct",
+                    priority=27,
+                )
+            )
+
+        together_key = os.environ.get("TOGETHER_API_KEY")
+        if together_key:
+            together_base = (
+                os.environ.get("TOGETHER_BASE_URL") or "https://api.together.xyz/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="together-free",
+                    type="openai-compatible",
+                    base_url=together_base,
+                    api_key=together_key,
+                    default_model=os.environ.get("TOGETHER_MODEL") or "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+                    priority=35,
+                )
+            )
+
+        mistral_key = os.environ.get("MISTRAL_API_KEY")
+        if mistral_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="mistral",
+                    type="openai-compatible",
+                    base_url="https://api.mistral.ai/v1",
+                    api_key=mistral_key,
+                    default_model=os.environ.get("MISTRAL_MODEL") or "mistral-small-latest",
+                    priority=38,
+                )
+            )
+
+        gemini_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        if gemini_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="google-gemini-free",
+                    type="openai-compatible",
+                    base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                    api_key=gemini_key,
+                    default_model=os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash",
+                    priority=39,
+                )
+            )
+
+        cloudflare_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+        cloudflare_account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        if cloudflare_token and cloudflare_account:
+            providers.append(
+                ProviderConfig(
+                    provider_id="cloudflare-ai",
+                    type="openai-compatible",
+                    base_url=f"https://api.cloudflare.com/client/v4/accounts/{cloudflare_account}/ai/v1",
+                    api_key=cloudflare_token,
+                    default_model=os.environ.get("CLOUDFLARE_MODEL") or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                    priority=43,
+                )
+            )
+
+        zen_key = os.environ.get("OPENCODE_ZEN_API_KEY")
+        if zen_key:
+            zen_base = (
+                os.environ.get("OPENCODE_ZEN_BASE_URL") or "https://gateway.opencode.ai/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="opencode-zen",
+                    type="openai-compatible",
+                    base_url=zen_base,
+                    api_key=zen_key,
+                    default_model=os.environ.get("OPENCODE_ZEN_MODEL") or "zen",
+                    priority=5,
+                )
+            )
+
+        aws_access_key = (
+            os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY") or ""
+        ).strip()
+        aws_secret_key = (
+            os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY") or ""
+        ).strip()
+        if aws_access_key and aws_secret_key:
+            aws_region = (
+                os.environ.get("AWS_REGION")
+                or os.environ.get("AWS_DEFAULT_REGION")
+                or "us-east-1"
+            )
+            bedrock_model = (
+                os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-6-v1"
+            )
+            providers.append(
+                ProviderConfig(
+                    provider_id="bedrock",
+                    type="bedrock",
+                    base_url=f"https://bedrock-runtime.{aws_region}.amazonaws.com",
+                    api_key=aws_access_key,
+                    default_model=bedrock_model,
+                    priority=15,
+                    headers={
+                        "X-Bedrock-Secret": aws_secret_key,
+                        "X-Bedrock-Region": aws_region,
+                    },
                 )
             )
 
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        anthropic_base = os.environ.get("ANTHROPIC_BASE_URL")
-        if anthropic_key and anthropic_base:
+        if anthropic_key:
+            anthropic_base = (
+                os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="anthropic",
@@ -370,7 +663,7 @@ class ProviderRouter:
                     base_url=anthropic_base,
                     api_key=anthropic_key,
                     default_model=os.environ.get("ANTHROPIC_MODEL")
-                    or "claude-sonnet-4-5",
+                    or "claude-sonnet-4-6",
                     priority=50,
                 )
             )
@@ -387,6 +680,24 @@ class ProviderRouter:
                     or "claude-sonnet-4-5-20250929",
                     priority=60,
                 )
+            )
+
+        # ── Free Kimi (Moonshot) web bridge — no paid API key required ──
+        # Added near the end so it joins the chain whenever KIMI_BRIDGE_ENABLED is
+        # set. Classified free (see _FREE_CLOUD_PROVIDER_IDS) so the routing policy
+        # uses it before any paid escalation. This is what lets internal_agent /
+        # Hermes actually produce code without a paid provider.
+        try:
+            from providers.kimi_bridge import kimi_bridge_provider_config
+
+            _kimi_cfg = kimi_bridge_provider_config()
+            if _kimi_cfg is not None:
+                providers.append(_kimi_cfg)
+        except Exception as _kimi_err:  # pragma: no cover - defensive
+            import logging as _logging
+
+            _logging.getLogger("qwen-proxy").warning(
+                "Kimi bridge provider not added: %s", _kimi_err, exc_info=True
             )
 
         return cls(sorted(providers, key=provider_sort_key))
@@ -430,6 +741,8 @@ class ProviderRouter:
 
     async def health_check(self, provider: ProviderConfig) -> bool:
         try:
+            if provider.type == "bedrock":
+                return bool(provider.api_key and provider.headers.get("X-Bedrock-Secret"))
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(10.0, connect=5.0)
             ) as client:
@@ -454,6 +767,59 @@ class ProviderRouter:
             )
             return False
 
+    async def _try_one_provider(
+        self,
+        provider: ProviderConfig,
+        payload: dict[str, Any],
+        original_model: str,
+        model_fallbacks: list[str],
+        is_primary: bool,
+        max_retries: int,
+        attempts: list[ProviderAttempt],
+        provider_timeout_sec: float,
+    ) -> ProviderResult | None:
+        """Try all models for one provider. Returns ProviderResult on success, None on failure.
+
+        Records attempts in-place and applies a failure-type-aware cooldown on exhaustion.
+        """
+        last_status: int | None = None
+        last_was_conn_error = False
+        for model in self._candidate_models(provider, original_model, model_fallbacks, is_primary):
+            provider_payload = {**payload, "model": model, "stream": False}
+            for attempt_number in range(max_retries + 1):
+                started = time.perf_counter()
+                try:
+                    response = await self._post_chat(
+                        provider, provider_payload, provider_timeout_sec
+                    )
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+                    attempts.append(ProviderAttempt(
+                        provider.provider_id, model, response.status_code, latency_ms=latency_ms,
+                    ))
+                    if self._is_success(response):
+                        return ProviderResult(
+                            response=response, provider=provider, model=model, attempts=list(attempts)
+                        )
+                    last_status = response.status_code
+                    if not self._should_retry_status(response.status_code):
+                        break
+                except Exception as exc:
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+                    attempts.append(ProviderAttempt(
+                        provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms,
+                    ))
+                    last_was_conn_error = True
+                if attempt_number < max_retries:
+                    await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
+        # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
+        if last_status in (401, 403):
+            await mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
+        elif last_was_conn_error:
+            await mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
+        else:
+            await mark_provider_failed(provider.provider_id)
+        return None
+
     async def chat_completion(
         self,
         payload: dict[str, Any],
@@ -461,6 +827,7 @@ class ProviderRouter:
         model_fallbacks: list[str] | None = None,
         max_retries: int = 2,
         allow_commercial_fallback: bool = True,
+        provider_timeout_sec: float = 300.0,
     ) -> ProviderResult:
         attempts: list[ProviderAttempt] = []
         deferred_commercial: list[str] = []
@@ -468,66 +835,65 @@ class ProviderRouter:
             raise ProviderFallbackError(attempts)
 
         original_model = str(payload.get("model") or "").strip()
-        for provider_index, provider in enumerate(self.providers):
-            # Skip providers that are currently on cooldown
-            if is_provider_on_cooldown(provider.provider_id):
+        skipped_on_cooldown: list[tuple[ProviderConfig, bool]] = []  # (provider, is_primary)
+        # Track the first actually-eligible provider so is_primary works correctly
+        # even when earlier providers are skipped (cooldown or model-affinity).
+        first_eligible = True
+        _bedrock_only = bool(original_model and _is_bedrock_model_id(original_model))
+
+        for provider in self.providers:
+            if await is_provider_on_cooldown(provider.provider_id):
                 log.info(
-                    "Skipping provider %s (on cooldown, expires %.0fs from now)",
+                    "Skipping provider %s (on cooldown)",
                     provider.provider_id,
-                    _provider_cooldowns.get(provider.provider_id, 0) - time.time(),
                 )
+                skipped_on_cooldown.append((provider, first_eligible))
                 continue
-            if (
-                provider_index > 0
-                and is_commercial_provider(provider)
-                and not allow_commercial_fallback
-            ):
+            # Bedrock model IDs (us.anthropic.*, arn:aws:bedrock:*, etc.) must only
+            # be routed to the bedrock provider — other providers cannot serve them
+            # and would silently fall back to their own default model instead.
+            if _bedrock_only and provider.type != "bedrock":
+                continue
+            if not first_eligible and is_commercial_provider(provider) and not allow_commercial_fallback:
                 deferred_commercial.append(provider.provider_id)
                 continue
-            candidate_models = self._candidate_models(
-                provider, original_model, model_fallbacks or [], provider_index == 0
+            result = await self._try_one_provider(
+                provider, payload, original_model, model_fallbacks or [],
+                first_eligible, max_retries, attempts, provider_timeout_sec,
             )
-            for model in candidate_models:
-                provider_payload = dict(payload)
-                provider_payload["model"] = model
-                provider_payload["stream"] = False
-                for attempt_number in range(max_retries + 1):
-                    started = time.perf_counter()
-                    try:
-                        response = await self._post_chat(provider, provider_payload)
-                        latency_ms = int((time.perf_counter() - started) * 1000)
-                        attempts.append(
-                            ProviderAttempt(
-                                provider.provider_id,
-                                model,
-                                response.status_code,
-                                latency_ms=latency_ms,
-                            )
-                        )
-                        if self._is_success(response):
-                            return ProviderResult(
-                                response=response,
-                                provider=provider,
-                                model=model,
-                                attempts=attempts,
-                            )
-                        if not self._should_retry_status(response.status_code):
-                            break
-                    except Exception as exc:
-                        latency_ms = int((time.perf_counter() - started) * 1000)
-                        attempts.append(
-                            ProviderAttempt(
-                                provider.provider_id,
-                                model,
-                                None,
-                                error=str(exc),
-                                latency_ms=latency_ms,
-                            )
-                        )
-                    if attempt_number < max_retries:
-                        await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
-            # All models for this provider exhausted — put it on cooldown
-            mark_provider_failed(provider.provider_id)
+            first_eligible = False
+            if result is not None:
+                return result
+
+        # ── Last-resort bypass ────────────────────────────────────────────────
+        # If all providers were on cooldown (attempts is empty), bypass cooldowns
+        # and make a single best-effort attempt per skipped provider.
+        # This prevents the misleading "no providers attempted" dead-end that
+        # occurs when a previous request put every provider on cooldown.
+        if not attempts and skipped_on_cooldown:
+            log.warning(
+                "All %d providers on cooldown — making last-resort bypass attempt",
+                len(skipped_on_cooldown),
+            )
+            for provider, is_primary in skipped_on_cooldown:
+                # Apply the same Bedrock-affinity filter in the bypass path so that
+                # a Bedrock model ID is never routed to a non-Bedrock provider even
+                # when all providers were on cooldown.
+                if _bedrock_only and provider.type != "bedrock":
+                    continue
+                if is_commercial_provider(provider) and not allow_commercial_fallback:
+                    deferred_commercial.append(provider.provider_id)
+                    continue
+                result = await self._try_one_provider(
+                    provider, payload, original_model, model_fallbacks or [],
+                    is_primary,
+                    0,
+                    attempts,
+                    provider_timeout_sec,
+                )
+                if result is not None:
+                    return result
+
         if deferred_commercial and not attempts:
             raise CommercialFallbackRequiredError(deferred_commercial)
         if deferred_commercial:
@@ -556,13 +922,18 @@ class ProviderRouter:
         return deduped
 
     async def _post_chat(
-        self, provider: ProviderConfig, payload: dict[str, Any]
+        self,
+        provider: ProviderConfig,
+        payload: dict[str, Any],
+        timeout_sec: float = 300.0,
     ) -> httpx.Response:
         headers = provider.auth_headers()
+        if provider.type == "bedrock":
+            return await self._post_bedrock_converse(provider, payload, timeout_sec)
         if provider.type.startswith("emergent-"):
-            return await self._post_emergent_chat(provider, payload)
+            return await self._post_emergent_chat(provider, payload, timeout_sec)
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(300.0, connect=10.0)
+            timeout=httpx.Timeout(timeout_sec, connect=min(10.0, timeout_sec))
         ) as client:
             if provider.type == "anthropic":
                 response = await client.post(
@@ -595,7 +966,10 @@ class ProviderRouter:
             return response
 
     async def _post_emergent_chat(
-        self, provider: ProviderConfig, payload: dict[str, Any]
+        self,
+        provider: ProviderConfig,
+        payload: dict[str, Any],
+        timeout_sec: float = 300.0,
     ) -> httpx.Response:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
 
@@ -610,7 +984,10 @@ class ProviderRouter:
         ).with_model(
             provider_name, str(payload.get("model") or provider.default_model or "")
         )
-        response_text = await chat.send_message(UserMessage(text=user_text))
+        response_text = await asyncio.wait_for(
+            chat.send_message(UserMessage(text=user_text)),
+            timeout=timeout_sec,
+        )
         return httpx.Response(
             200,
             json={
@@ -761,6 +1138,120 @@ class ProviderRouter:
         return httpx.Response(
             200, json=body, headers={"content-type": "application/json"}
         )
+
+    async def _post_bedrock_converse(
+        self,
+        provider: ProviderConfig,
+        payload: dict[str, Any],
+        timeout_sec: float = 300.0,
+    ) -> httpx.Response:
+        try:
+            import boto3
+        except ImportError as exc:
+            raise RuntimeError(
+                "boto3 is required for the Bedrock provider. "
+                "Install with: pip install 'boto3>=1.34.0'"
+            ) from exc
+
+        aws_secret = provider.headers.get("X-Bedrock-Secret", "")
+        aws_region = provider.headers.get("X-Bedrock-Region", "us-east-1")
+        model_id = str(payload.get("model") or provider.default_model or "")
+
+        bedrock_payload = self._openai_to_bedrock_converse(payload)
+
+        def _sync_call() -> dict[str, Any]:
+            client = boto3.client(
+                "bedrock-runtime",
+                region_name=aws_region,
+                aws_access_key_id=provider.api_key,
+                aws_secret_access_key=aws_secret,
+            )
+            kwargs: dict[str, Any] = {
+                "modelId": model_id,
+                "messages": bedrock_payload["messages"],
+            }
+            if bedrock_payload.get("system"):
+                kwargs["system"] = bedrock_payload["system"]
+            if bedrock_payload.get("inferenceConfig"):
+                kwargs["inferenceConfig"] = bedrock_payload["inferenceConfig"]
+            return client.converse(**kwargs)  # type: ignore[return-value]
+
+        response_data = await asyncio.wait_for(
+            asyncio.to_thread(_sync_call),
+            timeout=timeout_sec,
+        )
+        return self._bedrock_response_to_openai(response_data, model_id)
+
+    @staticmethod
+    def _openai_to_bedrock_converse(payload: dict[str, Any]) -> dict[str, Any]:
+        """Translate an OpenAI chat/completions payload to Bedrock Converse format."""
+        system_parts: list[dict[str, str]] = []
+        messages: list[dict[str, Any]] = []
+        for msg in payload.get("messages") or []:
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role") or "user")
+            content = msg.get("content")
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                text = " ".join(
+                    item.get("text", "")
+                    for item in content
+                    if isinstance(item, dict) and item.get("type") == "text"
+                )
+            else:
+                text = ""
+            if not text:
+                continue
+            if role == "system":
+                system_parts.append({"text": text})
+            elif role in ("user", "assistant"):
+                messages.append({"role": role, "content": [{"text": text}]})
+
+        inference_config: dict[str, Any] = {}
+        if payload.get("max_tokens"):
+            inference_config["maxTokens"] = int(payload["max_tokens"])
+        if payload.get("temperature") is not None:
+            inference_config["temperature"] = float(payload["temperature"])
+
+        return {
+            "messages": messages or [{"role": "user", "content": [{"text": "Hello"}]}],
+            "system": system_parts,
+            "inferenceConfig": inference_config,
+        }
+
+    @staticmethod
+    def _bedrock_response_to_openai(data: dict[str, Any], model: str) -> httpx.Response:
+        """Translate a Bedrock Converse API response to OpenAI chat.completion format."""
+        output = data.get("output") or {}
+        message = output.get("message") or {}
+        content_blocks = message.get("content") or []
+        text = " ".join(
+            block.get("text", "")
+            for block in content_blocks
+            if isinstance(block, dict) and "text" in block
+        )
+        usage = data.get("usage") or {}
+        body = {
+            "id": f"chatcmpl-bedrock-{uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": int(usage.get("inputTokens") or 0),
+                "completion_tokens": int(usage.get("outputTokens") or 0),
+                "total_tokens": int(usage.get("totalTokens") or 0),
+            },
+        }
+        return httpx.Response(200, json=body, headers={"content-type": "application/json"})
 
     @staticmethod
     def attempts_header(attempts: list[ProviderAttempt]) -> str:

@@ -41,13 +41,13 @@ The resource panel is emitted as a fenced Markdown block:
 
 At the end of your task prompt, add:
 ```
-When done, emit a resource-panel summary following .claude/skills/resource-panel/SKILL.md
+When done, emit a resource-panel summary following .agents/skills/resource-panel/SKILL.md
 ```
 
 ### Automated via shell (git-based)
 
 ```bash
-bash .claude/skills/resource-panel/summarise.sh
+bash .agents/skills/resource-panel/summarise.sh
 ```
 
 This script uses `git diff --name-only` and `git status` to auto-generate the panel for the current working tree.

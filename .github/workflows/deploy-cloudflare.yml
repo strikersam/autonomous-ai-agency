@@ -1,0 +1,58 @@
+name: Deploy to Cloudflare Workers
+
+# Only deploy on version tags — NOT on every push or PR.
+# Cloudflare's automatic GitHub integration (dashboard-configured) should be
+# DISABLED in favour of this workflow so CI on unrelated PRs doesn't block
+# with a failing Workers build.
+#
+# To disable the automatic integration:
+#   Cloudflare Dashboard → Workers & Pages → local-llm-server
+#   → Settings → Builds & Deployments → Disconnect GitHub auto-deploy
+
+on:
+  push:
+    branches:
+      - master          # deploy on every push to master (post-PR-merge)
+    tags:
+      - 'v*'           # also deploy on version tags (v1.0.0, v2.1.3, etc.)
+  workflow_dispatch:    # manual trigger for emergency deploys
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --legacy-peer-deps
+
+      - name: Build frontend (SPA)
+        working-directory: frontend
+        env:
+          CI: 'false'
+          PUBLIC_URL: '/'
+          REACT_APP_BACKEND_URL: ''
+        run: npm run build
+
+      - name: Remove CRA _redirects (incompatible with Workers Assets)
+        run: rm -f frontend/build/_redirects
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler.jsonc

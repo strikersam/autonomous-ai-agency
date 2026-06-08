@@ -1,9 +1,9 @@
 /**
- * AuthCallback.js — Social login callback handler (v3.1)
+ * AuthCallback.js — Social login callback handler for LLM Relay v4.0
  *
  * Handles two OAuth flows:
  *   1. Legacy flow: /auth/callback?access_token=...&refresh_token=...
- *   2. Social login flow (v3.1): /auth/callback?token=<jwt>&provider=github|google
+ *   2. Social login flow (v4.0): /auth/callback?token=<jwt>&provider=github|google
  *
  * Security: JWT stored in localStorage (for axios interceptor) and
  * sessionStorage (soft fallback). Never logged or transmitted in URL
@@ -12,17 +12,19 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../AuthContext';
 
 export default function AuthCallback() {
   const navigate  = useNavigate();
   const location  = useLocation();
+  const { checkAuth } = useAuth();
   const [status, setStatus]   = useState('processing');
   const [provider, setProvider] = useState('');
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
 
-    // v3.1 social login flow
+    // v4.0 social login flow
     const socialToken = params.get('token');
     const socialProv  = params.get('provider');
 
@@ -31,56 +33,57 @@ export default function AuthCallback() {
     const refreshToken = params.get('refresh_token');
 
     if (socialToken) {
-      // Social login: store JWT
+      // Social login: store JWT then sync AuthContext before navigating so
+      // ProtectedRoute sees the authenticated user and doesn't bounce to /login.
       localStorage.setItem('access_token', socialToken);
       sessionStorage.setItem('access_token', socialToken);
       setProvider(socialProv || 'oauth');
       setStatus('success');
-      setTimeout(() => navigate('/control-plane', { replace: true }), 1200);
+      checkAuth().then(() => navigate('/', { replace: true }));
     } else if (accessToken && refreshToken) {
       // Legacy flow
       localStorage.setItem('access_token', accessToken);
       localStorage.setItem('refresh_token', refreshToken);
       setStatus('success');
-      setTimeout(() => navigate('/', { replace: true }), 800);
+      checkAuth().then(() => navigate('/', { replace: true }));
     } else {
       setStatus('error');
     }
-  }, [location, navigate]);
+  }, [location, navigate, checkAuth]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white rounded-2xl shadow-lg p-10 text-center max-w-sm w-full">
+    <main className="app-shell min-h-[100dvh] flex items-center justify-center px-4 py-[max(env(safe-area-inset-top,0px),1rem)]">
+      <section className="app-panel-elevated p-8 sm:p-10 text-center max-w-sm w-full">
         {status === 'processing' && (
           <>
             <div className="text-5xl mb-4 animate-bounce">🔐</div>
-            <h2 className="text-lg font-semibold text-gray-700">Authenticating…</h2>
-            <p className="text-gray-400 text-sm mt-1">Verifying your credentials</p>
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Authenticating…</h2>
+            <p className="text-[var(--text-tertiary)] text-sm mt-1">Verifying your credentials</p>
           </>
         )}
         {status === 'success' && (
           <>
             <div className="text-5xl mb-4">✅</div>
-            <h2 className="text-lg font-semibold text-gray-700">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
               {provider ? `${provider.charAt(0).toUpperCase() + provider.slice(1)} login successful!` : 'Login successful!'}
             </h2>
-            <p className="text-gray-400 text-sm mt-1">Redirecting…</p>
+            <p className="text-[var(--text-tertiary)] text-sm mt-1">Redirecting…</p>
           </>
         )}
         {status === 'error' && (
           <>
             <div className="text-5xl mb-4">❌</div>
-            <h2 className="text-lg font-semibold text-gray-700">Authentication failed</h2>
-            <p className="text-red-500 text-sm mt-1">No token received. Please try again.</p>
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Authentication failed</h2>
+            <p className="text-[var(--danger)] text-sm mt-1">No token received. Please try again.</p>
             <button
               onClick={() => navigate('/login', { replace: true })}
-              className="mt-4 text-indigo-600 text-sm hover:underline"
+              className="app-button-secondary mt-5 w-full rounded-[18px] text-[0.74rem]"
             >
-              ← Back to login
+              Back to login
             </button>
           </>
         )}
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
