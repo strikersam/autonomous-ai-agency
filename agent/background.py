@@ -45,9 +45,17 @@ class BackgroundTask:
 class BackgroundAgent:
     """Always-on worker that drains a task queue on a daemon thread.
 
+    GATE: Golden Path step #11 (CEO loop) — this agent processes tasks
+    submitted from webhooks, schedulers, and watchdogs without user interaction.
+
     Usage::
 
-        agent = BackgroundAgent(on_task_complete=notify_telegram)
+        from agent.loop import AgentRunner
+        runner = AgentRunner(ollama_base="http://localhost:11434")
+        agent = BackgroundAgent(
+            on_task_complete=notify_telegram,
+            agent_runner=runner,
+        )
         agent.start()
         agent.submit(BackgroundTask(
             task_id=secrets.token_hex(8),
@@ -61,9 +69,11 @@ class BackgroundAgent:
         self,
         *,
         on_task_complete: Callable[[BackgroundTask], None] | None = None,
+        agent_runner: Any | None = None,
     ) -> None:
         self._queue: queue.Queue[BackgroundTask] = queue.Queue()
         self._on_task_complete = on_task_complete
+        self._agent_runner = agent_runner
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._tasks: dict[str, BackgroundTask] = {}
@@ -155,9 +165,68 @@ class BackgroundAgent:
                     log.warning("on_task_complete callback raised: %s", exc)
 
     def _process(self, task: BackgroundTask) -> Any:
-        """Default handler — override in subclasses or patch for custom dispatch."""
-        log.debug("Background task processed (stub): %s", task.kind)
-        return {"dispatched": True, "kind": task.kind, "payload_keys": list(task.payload)}
+        """Real handler — dispatches through AgentRunner when available.
+
+        HARDENED (PR #468): This was previously a no-op stub that returned
+        a dummy dict. Now it actually runs instructions via the agent pipeline.
+
+        Falls back to the legacy stub behavior only when no agent_runner
+        is injected (for backward compatibility in bare test setups).
+        """
+        if self._agent_runner is None:
+            log.debug(
+                "Background task processed (no runner injected): %s", task.kind
+            )
+            return {
+                "dispatched": True,
+                "kind": task.kind,
+                "payload_keys": list(task.payload),
+                "note": "No AgentRunner injected — task not executed. Inject agent_runner for real dispatch.",
+            }
+
+        instruction = task.payload.get("instruction", "")
+        if not instruction:
+            instruction = task.payload.get("request", "")
+        if not instruction:
+            log.warning(
+                "Background task %s has no instruction — nothing to execute",
+                task.task_id,
+            )
+            return {"dispatched": False, "error": "No instruction in payload"}
+
+        # Dispatch through the real agent runner (synchronous wrapper)
+        import asyncio  # noqa: I001 — imported here for optional dependency
+        runner = self._agent_runner
+        try:
+            result = asyncio.run(
+                runner.run(
+                    instruction=instruction,
+                    history=[],
+                    requested_model=task.payload.get("model"),
+                    auto_commit=task.payload.get("auto_commit", False),
+                    max_steps=task.payload.get("max_steps", 5),
+                )
+            )
+            # Record KPIs
+            try:
+                from agent.kpi import get_tracker
+                tracker = get_tracker()
+                tracker.record_session()
+                tracker.record_plan()
+                for s in result.get("steps", []):
+                    if s.get("status") == "applied":
+                        tracker.record_step_applied()
+                    elif s.get("status") == "failed":
+                        tracker.record_step_failed()
+                    elif s.get("status") == "skipped":
+                        tracker.record_step_skipped()
+                tracker.record_events()
+            except Exception:
+                pass  # KPI tracking is best-effort
+            return result
+        except Exception as exc:
+            log.error("Background task %s failed: %s", task.task_id, exc)
+            return {"dispatched": True, "error": str(exc)}
 
 
 def _now() -> str:

@@ -98,6 +98,12 @@ _PHASE_ROLE = {
 class WorkflowEngine:
     """CRISPY workflow engine — phase sequencer + gate controller.
 
+    GATE: Golden Path steps #9 (Workflow Engine Backbone) and #12 (HITL Approvals).
+
+    The ApprovalGate at awaiting_approval is MANDATORY — no code path may
+    advance past it unless gate.status == "approved". This is the Human-in-
+    the-Loop enforcement point for the entire autonomous system.
+
     One engine instance manages all workflow runs for the server process.
     Use ``get_engine()`` to obtain the shared singleton.
     """
@@ -359,6 +365,13 @@ class WorkflowEngine:
         self._log_event(run_id, "gate_approved", {"approved_by": approved_by})
         log.info("ApprovalGate approved: run=%s by=%s", run_id, approved_by)
 
+        # GATE: Golden Path #15 — evidence capture (KPI: approval gates)
+        try:
+            from agent.kpi import get_tracker
+            get_tracker().record_approval_gate_passed()
+        except Exception:
+            pass
+
         # Resume post-gate execution
         asyncio.create_task(self._run_post_gate(run_id))
         return self.get(run_id)  # type: ignore[return-value]
@@ -383,6 +396,13 @@ class WorkflowEngine:
 
         self._log_event(run_id, "gate_rejected", {"reason": reason, "by": rejected_by})
         log.info("ApprovalGate rejected: run=%s reason=%r", run_id, reason[:80])
+
+        # GATE: Golden Path #15 — evidence capture (KPI: approval gates)
+        try:
+            from agent.kpi import get_tracker
+            get_tracker().record_approval_gate_rejected()
+        except Exception:
+            pass
         return self.get(run_id)  # type: ignore[return-value]
 
     def cancel(self, run_id: str) -> WorkflowRun:

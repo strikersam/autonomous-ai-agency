@@ -100,6 +100,14 @@ from workflow import WorkflowEngine, workflow_router
 from workflow.engine import get_engine
 from workflow.ide_bridge import handle_workflow_ide_chat
 
+# GATE: Golden Path #10 — Doctor diagnostics with public/authenticated split
+from handlers.diagnostics import (
+    list_available_fixes,
+    run_deep_diagnostics,
+    run_fix,
+    run_public_status,
+)
+
 # ─── Config ────────────────────────────────────────────────────────────────────
 
 OLLAMA_BASE = (
@@ -740,6 +748,90 @@ app.include_router(
     workflow_router,
 )
 log.info("CRISPY WorkflowEngine mounted at /workflow/*")
+
+# GATE: Golden Path #10 — Doctor diagnostics (public + authenticated)
+DIAGNOSTICS_START_TIME = time.time()
+
+
+@app.get("/api/diagnostics/status")
+async def diagnostics_public_status():
+    """Public diagnostics — basic health, no auth required.
+
+    Returns: ollama reachability, model count, server uptime.
+    Does NOT expose: session data, event log, provider chain, or KPIs.
+    """
+    status = run_public_status(start_time=DIAGNOSTICS_START_TIME)
+    status["server"] = "LLM Relay Control Plane v3"
+    return status
+
+
+@app.get("/api/diagnostics/health")
+async def diagnostics_health():
+    """Quick health check — all services running?
+
+    Public. Returns simple up/down for core services.
+    """
+    import httpx
+    base = OLLAMA_BASE
+    try:
+        r = httpx.get(f"{base}/api/tags", timeout=5.0)
+        ollama_up = r.status_code == 200
+    except Exception:
+        ollama_up = False
+    return {
+        "ok": ollama_up,
+        "ollama": "up" if ollama_up else "down",
+        "proxy": "up",
+    }
+
+
+@app.get("/api/diagnostics/deep")
+async def diagnostics_deep(auth: AuthContext = Depends(verify_api_key)):
+    """Deep diagnostics — full system scan, requires authentication.
+
+    Returns: ollama, sessions, workflow engine, disk, event log integrity,
+    provider chain health.  Requires valid API key or admin session.
+    """
+    return run_deep_diagnostics()
+
+
+@app.get("/api/diagnostics/fixes")
+async def diagnostics_list_fixes(auth: AuthContext = Depends(verify_api_key)):
+    """List available one-click fixes."""
+    return {"fixes": list_available_fixes()}
+
+
+@app.post("/api/diagnostics/fix")
+async def diagnostics_run_fix(
+    request: Request,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Run a named one-click fix.
+
+    Body: {"fix": "restart_ollama"} or {"fix": "clear_cooldowns"}
+    """
+    import asyncio
+    body = await request.json()
+    fix_name = body.get("fix", "")
+    if not fix_name:
+        raise HTTPException(status_code=400, detail="Missing 'fix' field")
+    # Run fix off the event loop (subprocess calls are blocking)
+    result = await asyncio.to_thread(run_fix, fix_name)
+    return result
+
+
+@app.get("/api/diagnostics/kpi")
+async def diagnostics_kpi(auth: AuthContext = Depends(verify_api_key)):
+    """Autonomy KPIs — evidence that the system is actually doing work.
+
+    Golden Path #14 (Evidence Capture) and #15 (Autonomy KPIs).
+    Requires authentication.
+    """
+    try:
+        from agent.kpi import get_tracker
+        return get_tracker().snapshot().as_dict()
+    except ImportError:
+        return {"error": "KPI tracking not available"}
 
 # ─── v3: Runtime layer ────────────────────────────────────────────────────────
 app.include_router(runtime_router)

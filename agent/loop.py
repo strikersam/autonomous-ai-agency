@@ -36,6 +36,18 @@ DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b
 
 
 class AgentRunner:
+    """GATE: Golden Path steps #7-12 — the primary agent execution loop.
+
+    This is the backbone for:
+      #7  Repo bootstrap (workspace tools)
+      #8  Direct chat control center (invoked from /agent/chat, /agent/sessions/*/run)
+      #9  Workflow engine backbone (used by WorkflowEngine for slice execution)
+      #11 CEO loop (BackgroundAgent._process dispatches through this)
+      #12 HITL approvals (workflow engine enforces approval gate before dispatch)
+      #14 Evidence capture (event log + KPI tracking)
+
+    HARDENED (PR #468): KPI tracking calls added at key decision points.
+    """
     def __init__(
         self,
         *,
@@ -96,6 +108,13 @@ class AgentRunner:
             )
 
         self._log_event(session_id, "user_message", {"instruction": instruction})
+
+        # GATE: Golden Path #14 — evidence capture (KPI: plan count)
+        try:
+            from agent.kpi import get_tracker
+            get_tracker().record_plan()
+        except Exception:
+            pass
 
         plan = await self._generate_plan(
             instruction, effective_history, requested_model, max_steps, user_id, memory_store
@@ -328,6 +347,13 @@ class AgentRunner:
                     diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
+                    # GATE: Golden Path #14 — evidence capture (KPI: safety block)
+                    try:
+                        from agent.kpi import get_tracker
+                        if syntax_issues:
+                            get_tracker().record_safety_block()
+                    except Exception:
+                        pass
                     file_applied = True
                     break
 
