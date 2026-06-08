@@ -75,6 +75,7 @@ from handlers.diagnostics import (
     run_deep_diagnostics,
     run_fix,
     run_public_status,
+    _check_ollama,
 )
 
 # ─── Config ────────────────────────────────────────────────────────────────────
@@ -1780,6 +1781,57 @@ async def agency_status(auth: AuthContext = Depends(verify_api_key)):
     except Exception:
         log.exception("Agency status check failed")
         return {"running": False, "error": "Agency status unavailable"}
+
+
+# ─── Doctor Diagnostics (Golden Path #10) ───────────────────────────────────
+
+@app.get("/api/diagnostics/status")
+async def diagnostics_status():
+    """Public health check — no auth required. Returns basic Ollama reachability."""
+    return run_public_status()
+
+
+@app.get("/api/diagnostics/health")
+async def diagnostics_health():
+    """Public quick health check — all services running? No auth required."""
+    ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+    return {"healthy": True, "ollama": _check_ollama(ollama_base)}
+
+
+@app.get("/api/diagnostics/deep")
+async def diagnostics_deep(auth: AuthContext = Depends(verify_api_key)):
+    """Full system scan — requires authentication. Exposes DB, sessions, cooldowns."""
+    return run_deep_diagnostics()
+
+
+@app.get("/api/diagnostics/fixes")
+async def diagnostics_fixes_list(auth: AuthContext = Depends(verify_api_key)):
+    """List all available one-click fixes — requires authentication."""
+    return {"fixes": list_available_fixes()}
+
+
+from pydantic import BaseModel
+
+
+class DiagnosticsFixRequest(BaseModel):
+    """Request body for /api/diagnostics/fix."""
+    fix_name: str
+
+
+@app.post("/api/diagnostics/fix")
+async def diagnostics_fix(req: DiagnosticsFixRequest, auth: AuthContext = Depends(verify_api_key)):
+    """Attempt a named one-click fix — requires authentication. Runs privileged ops."""
+    result = run_fix(req.fix_name)
+    if "error" in result:
+        return JSONResponse(status_code=400, content=result)
+    return result
+
+
+@app.get("/api/diagnostics/kpi")
+async def diagnostics_kpi(auth: AuthContext = Depends(verify_api_key)):
+    """Autonomy KPIs snapshot — requires authentication."""
+    from agent.kpi import get_tracker
+    return get_tracker().snapshot().as_dict()
 
 
 # ─── Features API router ─────────────────────────────────────────────────────
