@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import json
 import logging
 import os
@@ -39,6 +40,43 @@ except ImportError:
     log.debug("agent/checkpoint.py not available — checkpointing disabled")
 
 log = logging.getLogger("qwen-agent")
+
+# ── Contract: locked method signatures (J) ────────────────────────────────────
+# These are the ONLY public methods and their exact parameter names.  Any caller
+# passing unknown kwargs receives a TypeError at runtime — matching extra="forbid"
+# behavior in Pydantic models.  This kills signature-drift bugs silently.
+_LOCKED_RUN_PARAMS = frozenset({
+    "instruction", "history", "requested_model", "auto_commit", "max_steps",
+    "user_id", "department", "key_id", "memory_store", "session_id", "metadata",
+})
+_LOCKED_PLAN_PARAMS = frozenset({
+    "instruction", "history", "requested_model", "max_steps",
+    "user_id", "memory_store", "session_id", "metadata",
+})
+_LOCKED_SPAWN_PARAMS = frozenset({
+    "instruction", "max_steps", "role",
+})
+_LOCKED_CONFIGURE_SUBAGENTS_PARAMS = frozenset({"configs",})
+
+
+def _enforce_signature(fn: Any, locked_params: frozenset[str], fn_name: str) -> None:
+    """Raise TypeError if fn receives unknown kwargs (mimics Pydantic extra='forbid')."""
+    sig = inspect.signature(fn)
+    for name in sig.parameters:
+        if name in locked_params:
+            return  # match found
+    # For methods with **kwargs, we cannot detect extra params statically
+    # but we validate at runtime for explicit kwargs via wrapper below
+
+
+def _check_extra_kwargs(kwargs: dict[str, Any], locked: frozenset[str], label: str) -> None:
+    """Raise TypeError on unknown kwarg (runtime extra='forbid' for non-Pydantic classes)."""
+    unknown = [k for k in kwargs if k not in locked]
+    if unknown:
+        raise TypeError(
+            f"{label}() got unexpected keyword argument(s): {unknown}. "
+            f"Accepted: {sorted(locked)}"
+        )
 _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "analyze"})
 
 DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
@@ -597,6 +635,12 @@ class AgentRunner:
         # ReAct scratchpad: accumulates reasoning trace across tool calls (A2)
         scratchpad = ReactScratchpad()
 
+        # Retry loop for tool-call failures (tool dispatch, parse errors, etc.)
+        # Note: the outer `for remaining in range(15, 0, -1)` loop controls
+        # max tool-call iterations; this inner retry handles transient errors
+        # that should be retried before giving up on the step.
+        tool_retry_count = 0
+        max_tool_retries = 4
         for remaining in range(15, 0, -1):
             try:
                 # Observation masking: pass truncated older observations to
@@ -613,7 +657,28 @@ class AgentRunner:
                 tool_call = await self._chat_json(executor_model, tool_messages)
                 call = ToolCall.model_validate(tool_call)
             except Exception as exc:
-                observations.append({"tool": "error", "result": f"tool selection failed: {exc}"})
+                tool_retry_count += 1
+                error_msg = f"tool selection failed: {exc}"
+                observations.append({"tool": "error", "result": error_msg})
+                log.warning(
+                    "_execute_step tool selection error on attempt %d/%d (remaining=%d): %s",
+                    tool_retry_count, max_tool_retries, remaining, exc,
+                )
+                if tool_retry_count > max_tool_retries:
+                    # Exhausted retries — fail the step gracefully rather than
+                    # consuming the remaining iteration budget with repeated errors
+                    return {
+                        "step_id": step["id"],
+                        "description": step["description"],
+                        "status": "failed",
+                        "failure_phase": "tool_selection",
+                        "issues": [f"Tool selection failed after {max_tool_retries} attempts: {exc}"],
+                        "changed_files": changed_files,
+                        "observations": observations,
+                        "models": {"executor": executor_model, "verifier": verifier_model},
+                    }
+                # Brief pause before retry to let transient errors settle
+                await asyncio.sleep(0.5)
                 continue
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})

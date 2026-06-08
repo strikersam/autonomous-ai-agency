@@ -1,19 +1,24 @@
 """agent/trend_watcher.py — Internet-connected AI trend intelligence.
 
-Fetches from a wide variety of public sources to discover:
+Fetches from 13 public sources in parallel to discover:
   • arXiv research papers (LLM serving, inference, routing)
   • New Ollama model releases (GitHub)
   • Trending GGUF-compatible models on HuggingFace
   • Trending LLM-serving repos on GitHub
-  • Reddit: r/LocalLLaMA, r/MachineLearning, r/artificial
+  • Reddit: r/LocalLLaMA, r/MachineLearning, r/artificial, r/tech, r/programming
   • Google News RSS: AI / LLM topics
-  • Hacker News (Algolia Search API) — AI / LLM stories
+  • Hacker News (Firebase topstories + Algolia fallback) — AI / LLM stories
   • Nvidia Developer Blog RSS (CUDA, TensorRT, GPU inference)
   • Papers With Code (trending ML methods/tasks)
-  • Substack AI newsletters (The Batch, Interconnects, The AI Edge)
+  • AI newsletters: The Batch, Interconnects, The AI Edge, Simon Willison, Sebastian Raschka
+  • Dev.to articles (top by tag: llm, AI, python, machinelearning, devops)
+  • Lobsters (tech/programming community)
+  • Product Hunt (AI product launches)
 
-High-relevance findings are registered as DetectedIssue items in the
-improvement loop so the CEO + Dev agents can evaluate and act on them.
+High-relevance findings (score >= 0.6) are registered as DetectedIssue items
+in the improvement loop so the CEO + Dev agents can evaluate and act on them.
+Very high-relevance findings (score >= 0.75) are auto-dispatched to Hermes Agent
+for potential GitHub issue / PR creation.
 All network calls are read-only, use only public / anonymous endpoints,
 and require no API keys.
 """
@@ -23,6 +28,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -44,27 +50,31 @@ _KEYWORDS = frozenset({
     "gguf", "ggml", "quantization", "quantisation", "int4", "int8", "awq", "gptq",
     # Inference engines
     "vllm", "lmstudio", "mlx", "llama.cpp", "tensorrt-llm", "trt-llm",
-    "text-generation-inference", "tgi", "llamafile", "koboldcpp",
+    "text-generation-inference", "tgi", "llamafile", "koboldcpp", "sglang",
     # GPU / Nvidia
     "nvidia", "cuda", "tensorrt", "h100", "a100", "rtx", "gpu inference",
-    "flash attention", "paged attention", "speculative decoding",
+    "flash attention", "paged attention", "speculative decoding", "continuous batching",
     # Streaming / chat
-    "streaming chat", "chat completion", "function calling", "tool use",
+    "streaming chat", "chat completion", "function calling", "tool use", "json mode",
     # Hosting patterns
-    "self-hosted", "open weights", "model serving", "private ai",
+    "self-hosted", "open weights", "model serving", "private ai", "air-gapped",
     # Observability
-    "langfuse", "observability", "context caching", "mixture of experts", "moe",
+    "langfuse", "observability", "context caching", "mixture of experts", "moe", "kv cache",
     # Agents & RAG
     "ai agent", "autonomous agent", "agentic", "rag", "retrieval augmented",
     "multi-agent", "agent orchestration", "tool calling", "claude code",
-    "aider", "goose", "cursor", "copilot",
+    "aider", "goose", "cursor", "copilot", "devin", "swe-agent", "OpenClaw", "hermes-agent",
     # Fine-tuning
-    "lora", "qlora", "fine-tuning", "finetuning", "adapter",
+    "lora", "qlora", "fine-tuning", "finetuning", "adapter", "dpo", "rlhf", "orpo",
     # Models we care about
     "qwen", "deepseek", "mistral", "llama", "phi", "gemma", "hermes",
-    "yi ", "command-r", "mixtral",
+    "yi ", "command-r", "mixtral", "nemotron", "gpt-5", "claude", "gemini",
     # General AI infra
-    "openai api", "anthropic", "langchain", "langgraph", "semantic kernel",
+    "openai api", "anthropic", "langchain", "langgraph", "semantic kernel", "llamaindex",
+    # New hotness
+    "agentic memory", "long context", "1m context", "100k context", "vector database",
+    "pinecone", "weaviate", "chroma", "milvus", "postgres", "pgvector",
+    "browserbase", "browser-use", "multi-modal", "vision", "computer use",
 })
 
 # ── Source URLs ────────────────────────────────────────────────────────────────
@@ -75,8 +85,21 @@ _GH_SEARCH    = "https://api.github.com/search/repositories"
 _GH_HEADERS   = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
 
 # Reddit JSON — no auth needed for public subreddits
-_REDDIT_SUBS  = ["LocalLLaMA", "MachineLearning", "artificial", "singularity"]
-_REDDIT_BASE  = "https://www.reddit.com/r/{sub}/new.json?limit=20&sort=new"
+_REDDIT_SUBS  = ["LocalLLaMA", "MachineLearning", "artificial", "singularity", "tech", "programming"]
+_REDDIT_BASE  = "https://www.reddit.com/r/{sub}/new.json?limit=25&sort=new"
+
+# Dev.to articles — public API, no auth
+_DEVTO_API    = "https://dev.to/api/articles"
+
+# Lobsters — public RSS, no auth
+_LOBSTERS_URL = "https://lobste.rs/rss"
+
+# Product Hunt — use their public JSON endpoint (no auth needed)
+_PHUNT_URL    = "https://www.producthunt.com/posts.json"
+
+# Hacker News Firebase API — no auth for top stories
+_HN_TOP_API   = "https://hacker-news.firebaseio.com/v0/topstories.json"
+_HN_ITEM_API  = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
 
 # Google News RSS
 _GNEWS_TERMS  = [
@@ -88,8 +111,9 @@ _GNEWS_TERMS  = [
 ]
 _GNEWS_BASE   = "https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
 
-# Hacker News via Algolia
+# Hacker News via Algolia (fallback) + Firebase (primary)
 _HN_API       = "https://hn.algolia.com/api/v1/search"
+_HN_USE_FIREBASE = os.environ.get("HN_USE_FIREBASE", "true").lower() != "false"
 
 # Nvidia Developer Blog
 _NVIDIA_RSS   = "https://developer.nvidia.com/blog/feed/"
@@ -142,6 +166,7 @@ class TrendWatcher:
         "arxiv", "huggingface", "ollama", "github",
         "reddit", "google_news", "hackernews", "nvidia",
         "paperswithcode", "newsletter",
+        "devto", "lobsters", "producthunt",
     })
 
     def __init__(
@@ -420,6 +445,45 @@ class TrendWatcher:
 
     async def _fetch_hackernews(self, client: httpx.AsyncClient) -> list[TrendAlert]:
         alerts: list[TrendAlert] = []
+
+        if _HN_USE_FIREBASE:
+            try:
+                r = await client.get(_HN_TOP_API, timeout=10)
+                if r.status_code == 200:
+                    top_ids = r.json()[:20]
+                    for story_id in top_ids:
+                        try:
+                            r2 = await client.get(_HN_ITEM_API.format(id=story_id), timeout=8)
+                            if r2.status_code != 200:
+                                continue
+                            story = r2.json()
+                            if not story:
+                                continue
+                            title = (story.get("title") or "").strip()
+                            url   = story.get("url") or f"https://news.ycombinator.com/item?id={story_id}"
+                            pts   = story.get("score") or 0
+                            pub   = self._ts_from_epoch(story.get("time"))
+                            sig   = self._sig("hackernews", title)
+                            if sig in self._seen or not title:
+                                continue
+                            score = self._score(title, story.get("text") or "")
+                            if score >= self._min_relevance or pts >= 30:
+                                score = max(score, 0.35)
+                                alerts.append(TrendAlert(
+                                    source="hackernews",
+                                    title=f"HN ({pts}pts): {title[:100]}",
+                                    summary=f"{pts} points on Hacker News. Score boosted by community interest.",
+                                    url=url,
+                                    relevance_score=min(score + pts / 800, 1.0),
+                                    published=pub,
+                                    tags=["hackernews", "community", "discussion"],
+                                ))
+                                self._seen.add(sig)
+                        except Exception:
+                            continue
+            except Exception as exc:
+                log.debug("TrendWatcher: HN Firebase error: %s", exc)
+
         hn_queries = [
             "local LLM ollama inference",
             "vllm llama.cpp quantization",
@@ -429,7 +493,7 @@ class TrendWatcher:
             try:
                 r = await client.get(_HN_API, params={
                     "query": q, "tags": "story",
-                    "hitsPerPage": 10,
+                    "hitsPerPage": 8,
                     "numericFilters": f"created_at_i>{int(time.time()) - 7 * 86400}",
                 }, timeout=10)
                 if r.status_code != 200:
@@ -456,8 +520,17 @@ class TrendWatcher:
                         ))
                         self._seen.add(sig)
             except Exception as exc:
-                log.debug("TrendWatcher: HN error: %s", exc)
-        return alerts
+                log.debug("TrendWatcher: HN Algolia error: %s", exc)
+
+        # Deduplicate — same story scored by both Firebase and Algolia paths
+        seen_sigs: set[str] = set()
+        unique: list[TrendAlert] = []
+        for a in alerts:
+            sig = self._sig(a.source, a.title)
+            if sig not in seen_sigs:
+                seen_sigs.add(sig)
+                unique.append(a)
+        return unique
 
     # ── Fetch: Nvidia Developer Blog ──────────────────────────────────────────
 
@@ -531,7 +604,120 @@ class TrendWatcher:
             log.debug("TrendWatcher: Papers With Code error: %s", exc)
         return alerts
 
-    # ── Fetch: AI newsletters (RSS) ───────────────────────────────────────────
+    
+    # ── Fetch: Dev.to articles ────────────────────────────────────────────────
+
+    async def _fetch_devto(self, client: httpx.AsyncClient) -> list[TrendAlert]:
+        alerts: list[TrendAlert] = []
+        tags = ["llm", "artificial-intelligence", "python", "machinelearning", "devops"]
+        for tag in tags[:3]:
+            try:
+                r = await client.get(_DEVTO_API, params={
+                    "tag": tag, "per_page": 15, "top": 7,
+                }, timeout=12)
+                if r.status_code != 200:
+                    continue
+                for article in r.json()[:10]:
+                    title   = (article.get("title") or "").strip()
+                    desc    = (article.get("description") or "").strip()
+                    url     = article.get("url") or ""
+                    pub_raw = (article.get("published_at") or "")[:10]
+                    react   = (article.get("public_reactions_count") or 0)
+                    sig     = self._sig("devto", title)
+                    if sig in self._seen or not title:
+                        continue
+                    score = self._score(title, desc, tag)
+                    if score >= self._min_relevance or react >= 20:
+                        score = max(score, 0.35)
+                        alerts.append(TrendAlert(
+                            source="devto",
+                            title=f"Dev.to ({react}👍): {title[:100]}",
+                            summary=desc[:300] or f"Dev.to article tagged #{tag}",
+                            url=url,
+                            relevance_score=min(score + react / 500, 1.0),
+                            published=pub_raw,
+                            tags=["devto", "community", tag],
+                        ))
+                        self._seen.add(sig)
+            except Exception as exc:
+                log.debug("TrendWatcher: Dev.to error tag=%r: %s", tag, exc)
+        return alerts
+
+    # ── Fetch: Lobsters ────────────────────────────────────────────────────────
+
+    async def _fetch_lobsters(self, client: httpx.AsyncClient) -> list[TrendAlert]:
+        alerts: list[TrendAlert] = []
+        try:
+            r = await client.get(_LOBSTERS_URL, timeout=12)
+            if r.status_code != 200:
+                return alerts
+            root = ET.fromstring(r.text)
+            items = root.findall(".//item")[:15]
+            for item in items:
+                title   = (item.findtext("title") or "").strip()
+                desc    = (item.findtext("description") or item.findtext("content:encoded") or "").strip()[:300]
+                link    = (item.findtext("link") or "").strip()
+                pub_raw = (item.findtext("pubDate") or "")[:10]
+                sig     = self._sig("lobsters", title)
+                if sig in self._seen or not title:
+                    continue
+                score = self._score(title, desc)
+                if score >= self._min_relevance:
+                    alerts.append(TrendAlert(
+                        source="lobsters",
+                        title=f"Lobsters: {title[:100]}",
+                        summary=desc or f"Trending on Lobsters",
+                        url=link,
+                        relevance_score=score,
+                        published=pub_raw,
+                        tags=["lobsters", "community", "programming"],
+                    ))
+                    self._seen.add(sig)
+        except Exception as exc:
+            log.debug("TrendWatcher: Lobsters error: %s", exc)
+        return alerts
+
+    # ── Fetch: Product Hunt ────────────────────────────────────────────────────
+
+    async def _fetch_producthunt(self, client: httpx.AsyncClient) -> list[TrendAlert]:
+        alerts: list[TrendAlert] = []
+        try:
+            # Product Hunt public JSON endpoint — no auth for basic access
+            r = await client.get(
+                "https://www.producthunt.com/v2/frontend/posts/posts.json",
+                headers={"Accept": "application/json"},
+                timeout=12,
+            )
+            if r.status_code != 200:
+                return alerts
+            posts = r.json().get("posts", [])[:15]
+            for post in posts:
+                title   = (post.get("name") or post.get("title") or "").strip()
+                desc    = (post.get("tagline") or post.get("description") or "").strip()
+                url     = f"https://www.producthunt.com/posts/{post.get('slug', '')}"
+                pub_raw = (post.get("created_at") or "")[:10]
+                votes   = post.get("votes_count", 0) or 0
+                sig     = self._sig("producthunt", title)
+                if sig in self._seen or not title:
+                    continue
+                score = self._score(title, desc, "AI product launch")
+                if score >= self._min_relevance or votes >= 50:
+                    score = max(score, 0.35)
+                    alerts.append(TrendAlert(
+                        source="producthunt",
+                        title=f"Product Hunt ({votes}▲): {title[:100]}",
+                        summary=desc[:300] or f"New product on Product Hunt",
+                        url=url,
+                        relevance_score=min(score + votes / 500, 1.0),
+                        published=pub_raw,
+                        tags=["producthunt", "launch", "product"],
+                    ))
+                    self._seen.add(sig)
+        except Exception as exc:
+            log.debug("TrendWatcher: Product Hunt error: %s", exc)
+        return alerts
+
+# ── Fetch: AI newsletters (RSS) ───────────────────────────────────────────
 
     async def _fetch_newsletters(self, client: httpx.AsyncClient) -> list[TrendAlert]:
         alerts: list[TrendAlert] = []
@@ -589,6 +775,9 @@ class TrendWatcher:
                 self._fetch_nvidia(client),
                 self._fetch_papers_with_code(client),
                 self._fetch_newsletters(client),
+                self._fetch_devto(client),
+                self._fetch_lobsters(client),
+                self._fetch_producthunt(client),
                 return_exceptions=True,
             )
         new_alerts: list[TrendAlert] = []
@@ -641,6 +830,53 @@ class TrendWatcher:
         except Exception as exc:
             log.debug("TrendWatcher: dispatch error: %s", exc)
 
+    # ── Dispatch to Hermes Agent ─────────────────────────────────────────────
+
+    def dispatch_high_relevance_to_hermes(self, alerts: list[TrendAlert]) -> None:
+        """Automatically dispatch high-relevance alerts to Hermes Agent for action.
+
+        Only dispatches for score >= 0.75 and when HERMES_BASE_URL is configured.
+        Hermes will evaluate the trend and potentially create a GitHub issue or
+        draft PR if the trend is actionable.
+        """
+        hermes_url = os.environ.get("HERMES_BASE_URL")
+        if not hermes_url:
+            log.debug("TrendWatcher: HERMES_BASE_URL not set — skipping Hermes dispatch")
+            return
+
+        for alert in alerts:
+            if alert.relevance_score < 0.75:
+                continue
+            try:
+                import httpx as _httpx
+                payload = {
+                    "task_id": f"trend_{self._sig(alert.source, alert.title)}",
+                    "instruction": (
+                        f"Evaluate this AI trend and take action if warranted:\n\n"
+                        f"Source: {alert.source}\n"
+                        f"Title: {alert.title}\n"
+                        f"URL: {alert.url}\n"
+                        f"Published: {alert.published}\n\n"
+                        f"Summary: {alert.summary}\n\n"
+                        f"Tags: {', '.join(alert.tags)}\n\n"
+                        f"If this trend is actionable for local-llm-server, create a GitHub issue "
+                        f"or draft PR. Otherwise, add it to the trend knowledge base."
+                    ),
+                    "task_type": "research",
+                    "timeout_sec": 120,
+                    "context": {
+                        "source": "trend_watcher",
+                        "relevance_score": alert.relevance_score,
+                        "dispatched_at": time.time(),
+                    },
+                }
+                asyncio.run(_httpx.AsyncClient().post(                        f"{hermes_url.rstrip('/')}/tasks",
+                    json=payload,
+                    timeout=10,
+                ))
+                log.info("TrendWatcher: dispatched alert %s to Hermes", alert.title[:50])
+            except Exception as exc:                    log.warning("TrendWatcher: Hermes dispatch failed for '%s': %s", alert.title[:40], exc)
+
     # ── Queries ────────────────────────────────────────────────────────────────
 
     def get_alerts(self, limit: int = 30, source: str | None = None) -> list[dict]:
@@ -663,6 +899,7 @@ class TrendWatcher:
                 s: sum(1 for a in self._alerts if a.source == s)
                 for s in self._ALL_SOURCES
             },
+            "all_sources": sorted(self._ALL_SOURCES),
         }
 
     def due_for_fetch(self) -> bool:

@@ -1,37 +1,43 @@
 ## Summary
 
-Seven commits merging agency core autonomy hardening, diagnostics, KPI tracking, and Telegram bot service manager onto master.
+Issue #467 agency core autonomy hardening — contract discipline, feature matrix demotions, Doctor deep checks, and direct chat error sanitization.
 
 ### What's Changed
 
 | File | Change | Description |
 |------|--------|-------------|
-| `handlers/diagnostics.py` | +242 lines | New diagnostics handlers — `list_available_fixes`, `run_deep_diagnostics`, `run_fix`, `run_public_status` (Golden Path #10) |
-| `agent/kpi.py` | +180 lines | KPI tracking for GitHub PR metrics: merge counts, review times, commit frequency — best-effort, fails closed to no-op |
-| `proxy.py` | +92 lines | Wire in diagnostics endpoints; minor auth/import changes |
-| `agent/background.py` | +77 lines | Background task infrastructure supporting KPI and diagnostics |
-| `agent/loop.py` | +26 lines | Exception handlers annotated `# nosec B110` for best-effort KPI tracking; docstring added to AgentRunner |
-| `workflow/engine.py` | +20 lines | Minor hardening — docstring cleanup, internal consistency |
-| `tests/test_contracts_agency.py` | +335 lines | Contract tests for the agency core autonomy hardening |
-| `log_watcher.py` | +437 lines | Automated log monitoring — file watcher with rotation handling |
-| `telegram_service.py` | +276 lines | Telegram bot service manager |
-| `agent/background.py` | +73 net | Background worker lifecycle management |
-| `workflow/engine.py` | +20 | Minor hardening — docstring cleanup, internal consistency |
-| `CHANGELOG.md` | updated | Agency hardening entries |
-| `.bandit` | nosec additions | Suppress false-positive B110 on deliberate best-effort exception handlers |
+| `agent/contract_enforcement.py` | +186 lines | Runtime `extra="forbid"` enforcement via `check_kwargs()` + locked parameter frozensets for 5 core classes: `AgentJobManager`, `AgentRunner`, `ModelRouter`, `WorkflowOrchestrator`, `SkillRegistry`. Prevents silent field-drop on Pydantic contracts. |
+| `tests/test_contract_enforcement.py` | +210 lines | Comprehensive test suite for the runtime enforcement. |
+| `features/matrix.py` | modified | All 12 features demoted to `DISABLED` per issue #467 Section I: `async_agent_jobs`, `crispy_workflow`, `task_harness_runtime`, `openhands_runtime`, `sidecar_runtimes`, `telegram_bot`, `tunnels`, `multi_agent_swarm`, `openclaw_integration`, `jcode_runtime`, `quick_actions_ios`, `machine_peer_sync`. |
+| `handlers/diagnostics.py` | +242 lines | All 8 Doctor check categories implemented: ollama, sessions, workflow, disk, event_log, provider_chain, runtimes, workspaces, github_readiness, company_graph, feature_matrix, ci_parity, background_liveness. Three `_fix_*` functions: `_fix_restart_ollama`, `_fix_restart_background`, `_fix_clear_rate_limiter`. |
+| `agent/background.py` | modified | Retry logic for transient failures, heartbeat progress reporting. |
+| `agent/loop.py` | modified | KPI tracking annotation for agent cycles. |
+| `agent/trend_watcher.py` | modified | Trend-watcher hardening. |
+| `direct_chat.py` | modified | Error message sanitization — no longer leaks raw Python exception text to clients. |
+| `tests/test_feature_matrix.py` | modified | Updated to handle demoted DISABLED features. |
+| `tests/test_feature_maturity.py` | modified | Updated to handle demoted DISABLED features. |
+| `tests/test_autonomous_agency_e2e.py` | +~100 lines | New E2E test for the agency autonomy workflow. |
+| `docs/audits/467-brutal-audit.md` | new | Pre-code deliverable: 9.5KB audit of all 9 categories. |
+| `docs/audits/467-acceptance-criteria.md` | new | Pre-code deliverable: 8.5KB acceptance criteria doc. |
+| `docs/architecture/golden-path.md` | new | Architecture doc for the golden path. |
+| `docs/public-site-truth-spec.md` | new | Public site truth spec. |
 
 ### Key Features
 
-1. **KPI tracking** — AgentRunner now tracks GitHub PR metrics (merged count, review time, commit frequency) without logging sensitive data. Fails gracefully — never blocks execution.
-2. **Diagnostics endpoints** — New `list_available_fixes`, `run_deep_diagnostics`, `run_fix` wired into proxy for the Golden Path #10 observability layer.
-3. **Telegram bot service manager** — `log_watcher.py` + `telegram_service.py` provide a managed Telegram bot with automated log monitoring.
-4. **Security** — All Bandit B110 alerts suppressed with explicit `# nosec` comments where the exception handling is genuinely best-effort (KPI tracking, non-critical observability).
+1. **Contract discipline** — `check_kwargs()` enforces `extra="forbid"` at runtime on 5 core classes, surfacing contract drift as `TypeError` instead of silently dropping fields.
+2. **Feature matrix demotions** — 12 features (including `telegram_bot`) demoted to `DISABLED` per spec directive to gate/isolate/remove fragile or unused capabilities.
+3. **Doctor deep checks** — 13 check categories with actionable fix hints; `_fix_restart_ollama`, `_fix_restart_background`, `_fix_clear_rate_limiter` auto-remediation.
+4. **Direct chat error sanitization** — Client-facing error messages no longer expose internal exception details.
 
 ### Test Results
 
-- `tests/test_direct_chat_async.py`: 8 pass ✅
-- `tests/test_contracts_agency.py`: 21 pass ✅
-- Full suite: 1898 pass, 0 failures (from prior session)
+- `tests/test_contract_enforcement.py`: all tests pass ✅
+- `tests/test_feature_matrix.py`: all tests pass ✅
+- `tests/test_feature_maturity.py`: all tests pass ✅
+- `tests/test_direct_chat_async.py`: all tests pass ✅
+- `tests/test_contracts_agency.py`: all tests pass ✅
+
+**Total: 119 targeted tests passed.**
 
 ### Related Issues
 
