@@ -369,7 +369,7 @@ class WorkflowEngine:
         try:
             from agent.kpi import get_tracker
             get_tracker().record_approval_gate_passed()
-        except Exception:
+        except Exception:  # nosec B110 -- KPI tracking is best-effort
             pass
 
         # Resume post-gate execution
@@ -401,7 +401,7 @@ class WorkflowEngine:
         try:
             from agent.kpi import get_tracker
             get_tracker().record_approval_gate_rejected()
-        except Exception:
+        except Exception:  # nosec B110 -- KPI tracking is best-effort
             pass
         return self.get(run_id)  # type: ignore[return-value]
 

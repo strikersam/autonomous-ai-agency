@@ -99,7 +99,6 @@ IGNORE_PATTERNS: list[re.Pattern] = [
 
 
 @dataclass
-@dataclass
 class LogEntry:
     """A single error entry extracted from a log file."""
     file_path: str

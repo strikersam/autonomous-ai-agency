@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
+import subprocess  # nosec B404 -- admin-controlled svc mgmt
 import sys
 import time
 from pathlib import Path
