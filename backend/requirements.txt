@@ -14,7 +14,7 @@ cryptography>=41.0.0
 
 aiosqlite>=0.22.1  # SQLite async adapter for STORAGE_BACKEND=sqlite
 
-beautifulsoup4>=4.14.3
+beautifulsoup4>=4.15.0
 
 # Website-scanner detection deps. These MUST stay in sync with the scanner's
 # imports in services/scanner.py — the production image installs THIS file
