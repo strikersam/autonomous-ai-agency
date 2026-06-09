@@ -284,24 +284,33 @@ class NotificationDispatcher:
         threading.Thread(target=_send, daemon=True).start()
 
     def _notify_webhook(self, task: Any) -> None:
-        """POST task result to configured webhook URL."""
+        """POST task result to configured webhook URL.
+
+        Both ``error`` and ``result`` are passed through
+        :func:`_redact_for_notification` before being sent so secrets,
+        emails, and IPs cannot leak via the webhook payload.
+        """
         if not self.webhook_url:
             return
         import httpx
 
-        def _send():
+        def _send() -> None:
             try:
+                raw_error = getattr(task, "error", None)
+                raw_result = str(getattr(task, "result", ""))[:2000]
                 payload = {
                     "task_id": getattr(task, "task_id", ""),
                     "kind": getattr(task, "kind", ""),
                     "status": getattr(task, "status", ""),
-                    "error": getattr(task, "error", None),
-                    "result": str(getattr(task, "result", ""))[:2000],
+                    "error": _redact_for_notification(str(raw_error)) if raw_error else None,
+                    "result": _redact_for_notification(raw_result),
                 }
                 with httpx.Client(timeout=10.0) as client:
                     client.post(self.webhook_url, json=payload)
             except Exception as exc:
                 log.warning("Webhook notify failed: %s", exc)
+
+        threading.Thread(target=_send, daemon=True).start()
 
     def send_manual_notification(self, message: str) -> None:
         """Send an ad-hoc notification through all channels."""
