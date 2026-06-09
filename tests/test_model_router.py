@@ -601,3 +601,30 @@ def test_qwen3_coder_235b_in_registry():
     cap = reg["qwen3-coder:235b"]
     assert cap.cost_tier == 3
     assert "data_analysis" in cap.strengths
+
+
+# ---------------------------------------------------------------------------
+# Claude 5 family (Fable / Mythos) — issue #495
+# ---------------------------------------------------------------------------
+
+class TestClaude5Registry:
+    def test_fable_5_registered_by_default(self):
+        from router.registry import get_registry
+        reg = get_registry()
+        assert "claude-fable-5" in reg
+        cap = reg["claude-fable-5"]
+        assert cap.type == "reasoning"
+        assert "claude5" in cap.tags
+        assert "reasoning" in cap.strengths
+
+    def test_mythos_5_excluded_by_default(self, monkeypatch):
+        monkeypatch.delenv("ROUTER_ALLOW_MYTHOS", raising=False)
+        from router.registry import get_registry
+        assert "claude-mythos-5" not in get_registry()
+
+    def test_mythos_5_opt_in_via_env(self, monkeypatch):
+        monkeypatch.setenv("ROUTER_ALLOW_MYTHOS", "1")
+        from router.registry import get_registry
+        reg = get_registry()
+        assert "claude-mythos-5" in reg
+        assert "restricted" in reg["claude-mythos-5"].tags
