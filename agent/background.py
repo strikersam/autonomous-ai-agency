@@ -162,7 +162,10 @@ class BackgroundAgent:
                 task = self._queue.get(timeout=1.0)
             except queue.Empty:
                 continue
-            self._handle(task)
+            try:
+                self._handle(task)
+            finally:
+                self._queue.task_done()
 
     def _handle(self, task: BackgroundTask) -> None:
         task.status = "running"
@@ -176,7 +179,6 @@ class BackgroundAgent:
             task.error = str(exc)
             task.status = "failed"
         finally:
-            self._queue.task_done()
             if self._on_task_complete:
                 try:
                     self._on_task_complete(task)

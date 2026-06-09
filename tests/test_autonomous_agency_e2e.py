@@ -8,6 +8,8 @@ These tests validate:
 - Portfolio intelligence and agile sprint systems
 - Workflow orchestrator integration
 """
+from __future__ import annotations
+
 import time
 import threading
 from unittest.mock import MagicMock, patch
@@ -36,38 +38,41 @@ class TestBackgroundAgentRetryLogic:
     """Tests for background agent retry logic with exponential backoff."""
 
     def test_background_agent_retries_with_exponential_backoff(self):
-        """Verify BackgroundAgent retries failed tasks with exponential backoff."""
-        from agent.background import BackgroundAgent, DEFAULT_RETRY_DELAY_SEC, BackgroundTask
+        """Verify BackgroundAgent retries failed tasks with exponential backoff.
 
-        attempts = []
-        def mock_process(task: BackgroundTask):
-            attempts.append(task.retry_count)
-            if task.retry_count < 2:
-                task.status = "failed"
-                return False
-            task.status = "completed"
-            return True
+        The retry loop lives inside _process(), which calls asyncio.run(runner.run(...))
+        up to max_retries+1 times with exponential backoff sleep between attempts.
+        """
+        from agent.background import BackgroundAgent, BackgroundTask
 
-        bg = BackgroundAgent()
-        # BackgroundAgent processes BackgroundTask, not FakeTask
+        run_attempts: list[int] = []
+        def mock_asyncio_run(coro):
+            """Simulate runner.run() failing twice then succeeding."""
+            run_attempts.append(len(run_attempts))
+            if len(run_attempts) <= 2:
+                raise RuntimeError(f"Simulated failure {len(run_attempts)}")
+            return {"summary": "Success", "steps": []}
+
+        bg = BackgroundAgent(agent_runner=MagicMock())
         task = BackgroundTask(
             task_id="retry-test",
             kind="manual",
             payload={"instruction": "test task"},
             created_at=datetime.utcnow().isoformat(),
+            max_retries=2,
         )
 
-        with patch.object(bg, '_process', mock_process):
-            start = time.time()
-            # BackgroundAgent has no process_task() — use _handle() directly
+        with patch("asyncio.run", side_effect=mock_asyncio_run), \
+             patch("agent.background.time.sleep") as mock_sleep:
             bg._handle(task)
-            elapsed = time.time() - start
 
-            assert task.status == "completed"
-            assert attempts == [0, 1, 2], f"Expected [0, 1, 2], got {attempts}"
-            # Exponential backoff: delay = base * 2^(attempt-1)
-            # attempt 1 delay = 5 * 2^0 = 5s, attempt 2 delay = 5 * 2^1 = 10s
-            assert elapsed >= (DEFAULT_RETRY_DELAY_SEC * 2 ** 1), f"Expected >= {DEFAULT_RETRY_DELAY_SEC * 2}s delay, got {elapsed:.2f}s"
+        assert task.status == "done", f"Expected done, got {task.status}"
+        assert len(run_attempts) == 3, f"Expected 3 attempts (1+2 retries), got {len(run_attempts)}"
+        assert task.retry_count == 2, f"Expected retry_count=2, got {task.retry_count}"
+        # Verify exponential backoff sleep calls: 5s, 10s
+        assert mock_sleep.call_count == 2, f"Expected 2 sleep calls, got {mock_sleep.call_count}"
+        sleep_args = [call.args[0] for call in mock_sleep.call_args_list]
+        assert sleep_args == [5.0, 10.0], f"Expected [5.0, 10.0] backoff, got {sleep_args}"
 
     def test_retry_delay_configurable(self):
         """Verify retry delay is configurable via environment variable."""
@@ -81,10 +86,10 @@ class TestAgentRunnerExecution:
     def test_agent_runner_has_execute_step_method(self):
         """Verify AgentRunner has _execute_step for ReAct execution loop."""
         from agent.loop import AgentRunner
-        runner = AgentRunner()
+        runner = AgentRunner(ollama_base="http://localhost:11434")
         assert hasattr(runner, 'run'), "AgentRunner must have run() method"
         assert hasattr(runner, '_execute_step'), "AgentRunner must have _execute_step() method"
-        assert hasattr(runner, '_verify'), "AgentRunner must have _verify() method"
+        assert hasattr(runner, '_review_step_result'), "AgentRunner must have verification method"
 
     def test_bypass_context_var_exists_for_internal_calls(self):
         """Verify _BYPASS context var is used for internal agent execution."""
@@ -105,51 +110,34 @@ class TestAgentRunnerExecution:
         assert not is_legacy_mode() or _wo.WORKFLOW_MODE == "legacy", "is_legacy_mode should return False when _BYPASS is not set"
 
 
-class TestTelegramProgressUpdates:
-    """Tests for Telegram real-time progress updates."""
+class TestTelegramNotifications:
+    """Tests for Telegram notification dispatch."""
 
-    def test_telegram_progress_monitor_sends_updates(self):
-        """Verify Telegram progress monitor sends updates while task is active."""
+    def test_notification_dispatcher_on_task_complete(self):
+        """Verify NotificationDispatcher.on_task_complete dispatches notifications."""
         from telegram_service import NotificationDispatcher
 
         disp = NotificationDispatcher()
-        task = FakeTask(task_id="progress-test", instruction="long task", status="running")
+        task = FakeTask(task_id="progress-test", instruction="long task", status="done")
 
-        sent_messages = []
-        def mock_send_telegram(message):
-            sent_messages.append(message)
-
-        stop_flags = {}
-
-        with patch.object(disp, 'send_telegram', mock_send_telegram):
-            t = threading.Thread(target=disp._monitor_task_progress, args=(task, "chat123", stop_flags))
-            t.start()
-
-            time.sleep(1)
-            task.progress_message = "Step 1/3 complete"
-            time.sleep(1)
-            task.status = "completed"
-
-            t.join(timeout=5)
-
-            assert len(sent_messages) >= 1, f"Expected at least 1 progress message, got {len(sent_messages)}"
+        with patch.object(disp, '_notify_telegram') as mock_tg, \
+             patch.object(disp, '_notify_webhook') as mock_wh:
+            disp.on_task_complete(task)
+            assert mock_tg.called, "_notify_telegram should be called"
+            assert mock_wh.called, "_notify_webhook should be called"
+            sent_msg = mock_tg.call_args[0][0]
+            assert "progress-test" in sent_msg
 
 
 class TestDirectChatAgentExecution:
     """Tests for direct chat agent execution beyond planning."""
 
-    def test_direct_chat_handler_has_agent_mode_support(self):
-        """Verify DirectChatHandler supports agent mode execution."""
-        from direct_chat import DirectChatHandler
+    def test_direct_chat_has_agent_mode_field(self):
+        """Verify ChatSendRequest supports agent mode execution."""
+        from direct_chat import ChatSendRequest
 
-        handler = DirectChatHandler()
-        # Check for agent-related attributes
-        has_agent_support = (
-            hasattr(handler, '_agent_executor') or
-            hasattr(handler, 'run_agent_task') or
-            hasattr(handler, '_BYPASS')
-        )
-        assert has_agent_support, "DirectChatHandler should have agent mode support"
+        req = ChatSendRequest(content="test", agent_mode=True)
+        assert req.agent_mode is True, "ChatSendRequest should support agent_mode"
 
     def test_workspace_tools_for_agent_execution(self):
         """Verify WorkspaceTools provides filesystem operations for agents."""
@@ -158,7 +146,8 @@ class TestDirectChatAgentExecution:
         tools = WorkspaceTools(root=".")
         assert hasattr(tools, 'read_file'), "WorkspaceTools must have read_file"
         assert hasattr(tools, 'write_file'), "WorkspaceTools must have write_file"
-        assert hasattr(tools, 'list_directory'), "WorkspaceTools must have list_directory"
+        assert hasattr(tools, 'list_files'), "WorkspaceTools must have list_files"
+        assert hasattr(tools, 'search_code'), "WorkspaceTools must have search_code"
 
 
 class TestPortfolioIntelligence:
@@ -170,18 +159,18 @@ class TestPortfolioIntelligence:
 
         pm = PortfolioManager()
         assert pm is not None
-        assert hasattr(pm, 'initiatives')
+        assert hasattr(pm, 'initiative_count'), "PortfolioManager must have initiative_count"
 
         assert hasattr(InitiativeStatus, 'PROPOSED')
         assert hasattr(InitiativeStatus, 'IN_PROGRESS')
-        assert hasattr(InitiativeStatus, 'COMPLETED')
+        assert hasattr(InitiativeStatus, 'DONE')
 
-    def test_portfolio_intelligence_sweeps_signals(self):
-        """Verify PortfolioIntelligence can sweep signals for initiative discovery."""
+    def test_portfolio_intelligence_builds_from_signals(self):
+        """Verify PortfolioIntelligence can build from live signals."""
         from agents.portfolio_intelligence import PortfolioIntelligence
 
         pi = PortfolioIntelligence()
-        assert hasattr(pi, 'sweep'), "PortfolioIntelligence must have sweep() method"
+        assert hasattr(pi, 'build'), "PortfolioIntelligence must have build() method"
 
 
 class TestAgileSprints:
@@ -189,9 +178,9 @@ class TestAgileSprints:
 
     def test_sprint_velocity_tracking(self):
         """Verify sprint velocity is tracked correctly."""
-        from agents.agile_sprints import Sprint, SprintStatus
+        from agents.agile_sprints import AgileSprint, SprintStatus
 
-        sprint = Sprint(name="Sprint 1", goal="Test sprint")
+        sprint = AgileSprint(sprint_id="test-1", name="Sprint 1", goal="Test sprint")
         assert sprint is not None
         assert hasattr(sprint, 'name')
         assert hasattr(sprint, 'status')
@@ -200,12 +189,15 @@ class TestAgileSprints:
 class TestAgentKPITracking:
     """Tests for agent KPI tracking."""
 
-    def test_kpi_metrics_exist(self):
-        """Verify KPI metrics are collected."""
-        from agent.kpi import KPIMetrics
+    def test_kpi_tracker_exists(self):
+        """Verify KPI tracker is collected."""
+        from agent.kpi import AutonomyTracker, get_tracker
 
-        metrics = KPIMetrics()
-        assert metrics is not None
+        tracker = get_tracker()
+        assert tracker is not None
+        assert isinstance(tracker, AutonomyTracker)
+        snapshot = tracker.snapshot()
+        assert hasattr(snapshot, 'total_sessions')
 
 
 class TestWorkflowIntegration:
@@ -214,10 +206,11 @@ class TestWorkflowIntegration:
     def test_workflow_orchestrator_bypass(self):
         """Verify WorkflowOrchestrator correctly bypasses for internal callers."""
         from services.workflow_orchestrator import WorkflowOrchestrator
+        import services.workflow_orchestrator as _wo
 
         wo = WorkflowOrchestrator()
-        assert hasattr(wo, '_BYPASS'), "WorkflowOrchestrator must have _BYPASS"
         assert hasattr(wo, '_handle_execute'), "WorkflowOrchestrator must have _handle_execute"
+        assert hasattr(_wo, '_BYPASS'), "workflow_orchestrator must define _BYPASS ContextVar"
 
     def test_internal_agent_adapter_exists(self):
         """Verify InternalAgentAdapter provides agent execution for workflows."""
@@ -230,12 +223,12 @@ class TestWorkflowIntegration:
 class TestCEOAgencySystem:
     """Tests for CEO-driven agency system."""
 
-    def test_ceo_agent_exists(self):
+    def test_ceo_agent_role_exists(self):
         """Verify CEO agent system is implemented."""
-        from agent.agency import AgencyCoordinator, AgentRole
+        from agent.agency import Agency, AgentRole
 
         assert hasattr(AgentRole, 'CEO'), "AgentRole must have CEO role"
-        assert AgencyCoordinator is not None
+        assert Agency is not None
 
     def test_agency_cycle_workflow_exists(self):
         """Verify agency cycle GitHub Actions workflow exists."""
@@ -248,11 +241,12 @@ class TestFreeBuffAgent:
 
     def test_freebuff_agent_model_routing(self):
         """Verify FreeBuff agent pins to free NVIDIA models."""
-        from agent.loop import AgentRunner
+        from agent.loop import FreeBuffAgent
 
-        # Check that resolve_model coerces to free models when FREEBUFF_MODELS is set
-        runner = AgentRunner()
-        assert hasattr(runner, 'resolve_model'), "AgentRunner must have resolve_model()"
+        runner = FreeBuffAgent()
+        assert hasattr(runner, 'resolve_model'), "FreeBuffAgent must have resolve_model()"
+        resolved = runner.resolve_model(None)
+        assert resolved, "resolve_model should return a model even when None is passed"
 
 
 if __name__ == "__main__":
