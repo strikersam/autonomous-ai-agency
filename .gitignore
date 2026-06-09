@@ -94,3 +94,6 @@ render-env-vars.txt
 .wrangler
 .dev.vars*
 !.dev.vars.example
+
+# Local credentials / memory files — never commit credentials
+memory/test_credentials.md

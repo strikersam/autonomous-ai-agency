@@ -1,3 +1,4 @@
+"""tools.py — WorkspaceTools: read/write/search and diff application (risky module)."""
 from __future__ import annotations
 
 import difflib

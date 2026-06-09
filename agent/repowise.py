@@ -1,3 +1,4 @@
+"""repowise.py — RepowiseIntelligence: context packing and dependency analysis."""
 from __future__ import annotations
 import ast
 import json

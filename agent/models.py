@@ -1,3 +1,4 @@
+"""models.py — Pydantic models for agent I/O contracts."""
 from __future__ import annotations
 
 from typing import Any, Literal, Optional

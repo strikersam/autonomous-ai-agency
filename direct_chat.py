@@ -463,7 +463,7 @@ async def _handle_regular_chat(
         })
     except Exception as e:
         log.error(f"Failed to get provider response: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get provider response")
+        raise HTTPException(status_code=500, detail="The AI service is currently unavailable. Please try again or select a different model.")
 
 async def _handle_agent_mode(
     req: ChatSendRequest,
