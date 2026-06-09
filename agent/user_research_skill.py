@@ -78,6 +78,7 @@ class ResearchMethod(BaseModel):
 
     model_config = {"extra": "forbid"}
 
+    id: str = Field(default="", description="Stable ID (e.g. 'METH-1'); auto-assigned by plan_research")
     method: Literal[
         "interview", "survey", "diary_study", "usability_test",
         "card_sorting", "tree_testing", "field_observation", "focus_group",
@@ -348,6 +349,7 @@ def plan_research(
     method_participant_sum = 0
     for i, m in enumerate(methods, start=1):
         data = dict(m)
+        data.setdefault("id", f"METH-{i}")
         data.setdefault("rationale", f"Selected to address the research question via {data.get('method', 'this method')}")
         model = ResearchMethod.model_validate(data)
         method_models.append(model)
@@ -624,9 +626,17 @@ def synthesize_research(
             )
 
     if qual is not None:
+        if not derived_findings:
+            derived_findings.append(
+                f"Qualitative analysis covered {qual.participant_count} participants from '{qual.source}'."
+            )
         for theme in qual.pain_points[:3]:
             derived_findings.append(
                 f"{theme.frequency}/{qual.participant_count} participants raised pain point: '{theme.name}'."
+            )
+        if qual.desires:
+            derived_findings.append(
+                f"{len(qual.desires)} distinct desire theme(s) surfaced from qualitative data."
             )
         for theme in qual.desires[:3]:
             derived_recommendations.append(

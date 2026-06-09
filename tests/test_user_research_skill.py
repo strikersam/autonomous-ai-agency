@@ -74,9 +74,9 @@ class TestPlanResearch:
 
     def test_hypothesis_default_null(self) -> None:
         plan = plan_research(
-            title="T",
+            title="Test plan title",
             primary_question="Q that is long enough",
-            audience="A",
+            audience="Audience",
             objectives=[{"statement": "A first objective statement."}],
             methods=[{"method": "survey", "target_participants": 5}],
             hypotheses=[{"statement": "Users prefer the new flow over the old."}],
@@ -86,9 +86,9 @@ class TestPlanResearch:
 
     def test_scope_in_out_default_empty(self) -> None:
         plan = plan_research(
-            title="T",
+            title="Test plan title",
             primary_question="Q that is long enough",
-            audience="A",
+            audience="Audience",
             objectives=[{"statement": "A first objective statement."}],
             methods=[{"method": "survey", "target_participants": 5}],
         )
@@ -116,9 +116,9 @@ class TestPlanResearch:
 
     def test_horizon_creation(self) -> None:
         plan = plan_research(
-            title="T",
+            title="Test plan title",
             primary_question="Q that is long enough",
-            audience="A",
+            audience="Audience",
             objectives=[{"statement": "A first objective statement."}],
             methods=[{"method": "survey", "target_participants": 5}],
         )
@@ -210,6 +210,7 @@ class TestAnalyzeQualitative:
             source="t",
             transcripts=["the cat is awesome", "the dog is awesome"],
             pain_point_keywords=["cat"],
+            min_theme_frequency=1,
         )
         cat_theme = [p for p in result.pain_points if p.name == "cat"]
         assert len(cat_theme) == 1
@@ -283,7 +284,7 @@ class TestAnalyzeQuantitative:
             analyze_quantitative(source="t", values=[1, 2], metric_name="x", bins=100)
 
     def test_single_value(self) -> None:
-        result = analyze_quantitative(source="t", values=[5.0], metric_name="x")
+        result = analyze_quantitative(source="t", values=[5.0], metric_name="xs")
         assert result.mean == 5.0
         assert result.median == 5.0
         assert result.stdev == 0.0  # pstdev of single value
@@ -374,8 +375,8 @@ class TestSynthesizeResearch:
 
 class TestHelpers:
     def test_sample_size_increases_with_stricter_margin(self) -> None:
-        loose = _sample_size_for_proportion(margin_of_error=0.10)
-        tight = _sample_size_for_proportion(margin_of_error=0.01)
+        loose = _sample_size_for_proportion(population_size=None, margin_of_error=0.10)
+        tight = _sample_size_for_proportion(population_size=None, margin_of_error=0.01)
         assert tight > loose
 
     def test_extract_keywords_stops_words(self) -> None:
