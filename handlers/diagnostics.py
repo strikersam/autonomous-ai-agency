@@ -292,11 +292,12 @@ def _fix_restart_ollama() -> dict[str, Any]:
 def _fix_clear_cooldowns() -> dict[str, Any]:
     """Clear provider cooldowns to allow retry."""
     try:
-        from provider_router import get_cooldown_state
-        cooldowns = get_cooldown_state()
-        if isinstance(cooldowns, dict):
-            cooldowns.clear()
+        import asyncio
+        from provider_router import clear_cooldowns
+        asyncio.run(clear_cooldowns())
         return {"action": "clear_cooldowns", "success": True}
+    except AttributeError as exc:
+        return {"action": "clear_cooldowns", "success": False, "error": f"clear_cooldowns not available: {exc}"}
     except Exception as exc:
         return {"action": "clear_cooldowns", "success": False, "error": str(exc)}
 

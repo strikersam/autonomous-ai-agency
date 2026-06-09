@@ -224,7 +224,7 @@ class LogWatcher:
         """Force an immediate scan. Returns any errors found (synchronous)."""
         entries: list[LogEntry] = []
         for file_path in self.log_files:
-            entries.extend(self._scan_file(file_path))
+            entries.extend(self._scan_file(file_path, from_start=True))
         return entries
 
     # ── Internal: file discovery ──────────────────────────────────────────
@@ -274,17 +274,26 @@ class LogWatcher:
 
             self._stop.wait(SCAN_INTERVAL)
 
-    def _scan_file(self, file_path: str) -> list[LogEntry]:
-        """Read new content from a log file and extract error entries."""
+    def _scan_file(self, file_path: str, from_start: bool = False) -> list[LogEntry]:
+        """Read new content from a log file and extract error entries.
+
+        Args:
+            file_path: Path to log file to scan
+            from_start: If True, read from byte 0 (for manual/one-shot scans).
+                       If False, read from last position or EOF (for background tailing).
+        """
         if not Path(file_path).exists():
             return []
 
         try:
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                if file_path in self._last_positions:
+                if from_start:
+                    # Manual scan: read from start
+                    f.seek(0)
+                elif file_path in self._last_positions:
                     f.seek(self._last_positions[file_path])
                 else:
-                    # First scan: skip existing content (only watch NEW errors)
+                    # First background scan: skip existing content (only watch NEW errors)
                     f.seek(0, 2)  # Seek to end
 
                 new_lines = f.readlines()
