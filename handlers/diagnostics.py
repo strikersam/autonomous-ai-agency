@@ -34,9 +34,24 @@ MIN_AVAILABLE_RAM_GB = 0.5
 
 
 def _check_ollama(base_url: str) -> dict[str, Any]:
-    """Check if Ollama is reachable and list loaded models."""
+    """Check if Ollama is reachable and list loaded models.
+
+    Sync helper — call from async handlers via ``asyncio.to_thread`` or use
+    ``check_ollama_async`` to avoid blocking the event loop.
+    """
     try:
         r = httpx.get(f"{base_url}/api/tags", timeout=5.0)
+        models = [m["name"] for m in r.json().get("models", [])]
+        return {"reachable": True, "model_count": len(models), "models": models}
+    except Exception as exc:
+        return {"reachable": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+async def check_ollama_async(base_url: str) -> dict[str, Any]:
+    """Async Ollama reachability check — non-blocking for FastAPI handlers."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{base_url}/api/tags")
         models = [m["name"] for m in r.json().get("models", [])]
         return {"reachable": True, "model_count": len(models), "models": models}
     except Exception as exc:

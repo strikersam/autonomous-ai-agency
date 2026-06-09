@@ -148,7 +148,7 @@ This is good. However, `service_manager.py` invokes these as subprocess commands
 
 ## 9. Production Secrets in GitHub Actions
 
-**Finding SEC-015 [HIGH]:** CI workflow `ci.yml` hard-codes `ADMIN_PASSWORD: "WikiAdmin2026!"` in plain text as an environment variable in the workflow file. Even if this is a test-only password, it sets a bad precedent and could be accidentally reused.
+**Finding SEC-015 [HIGH]:** CI workflow `ci.yml` hard-codes `ADMIN_PASSWORD: "<redacted-rotated>"` in plain text as an environment variable in the workflow file. Even if this is a test-only password, it sets a bad precedent and could be accidentally reused.
 
 **Affected code:** `.github/workflows/ci.yml:89`
 

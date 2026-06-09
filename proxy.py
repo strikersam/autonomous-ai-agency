@@ -1794,9 +1794,9 @@ async def diagnostics_status():
 @app.get("/api/diagnostics/health")
 async def diagnostics_health():
     """Public quick health check — all services running? No auth required."""
-    from handlers.diagnostics import _check_ollama
+    from handlers.diagnostics import check_ollama_async
     ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
-    ollama_status = _check_ollama(ollama_base)
+    ollama_status = await check_ollama_async(ollama_base)
     healthy = ollama_status.get("reachable", False)
     return {"healthy": healthy, "ollama": ollama_status}
 
