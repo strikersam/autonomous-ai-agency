@@ -262,7 +262,7 @@ class TestDiagnostics:
     def test_deep_diagnostics_has_full_detail(self):
         """Contract: Deep diagnostics include all system sections."""
         from handlers.diagnostics import run_deep_diagnostics
-        deep = run_deep_diagnostics()
+        deep = asyncio.run(run_deep_diagnostics())
         assert "ollama" in deep
         assert "sessions" in deep
         assert "workflow" in deep
