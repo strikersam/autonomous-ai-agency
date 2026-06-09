@@ -383,7 +383,5 @@ class TestMalformedCompanyId:
         from services.company_graph_store import MongoDBStore
 
         store = MongoDBStore()
-        result = asyncio.get_event_loop().run_until_complete(
-            store.get_company("companies")  # not a valid ObjectId
-        )
+        result = asyncio.run(store.get_company("companies"))  # not a valid ObjectId
         assert result is None

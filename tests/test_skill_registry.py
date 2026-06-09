@@ -342,9 +342,7 @@ def test_nested_registry_indexes_deeply_nested_skills():
     }
     sr = SkillRegistry(local_skills_dir="/nonexistent")
     client = _FakeClient(tree, files)
-    skills = asyncio.get_event_loop().run_until_complete(
-        sr._fetch_nested_registry(client, reg_cfg)
-    )
+    skills = asyncio.run(sr._fetch_nested_registry(client, reg_cfg))
     ids = {s.skill_id for s in skills}
     assert "github:borghei-claude-skills:pre-mortem" in ids
     assert "github:borghei-claude-skills:churn-prevention" in ids

@@ -39,8 +39,8 @@ class TestCreateGithubIssueRepoRequired:
         # Pass empty github_repo (constructor param) and ensure no env override
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": ""}, clear=False):
             watcher = LogWatcher(
-                log_files=["/tmp/does-not-matter.log"],
-                github_token="ghp_fake_token_for_test",
+                log_files=["/tmp/does-not-matter.log"],  # nosec B106 B108 -- fake test fixture, not a real credential/path
+                github_token="ghp_fake_token_for_test",  # nosec B106 B108 -- fake test fixture, not a real credential/path
                 github_repo="",
             )
             entry = MagicMock()
@@ -54,8 +54,8 @@ class TestCreateGithubIssueRepoRequired:
 
     def test_refuses_when_only_constructor_empty(self) -> None:
         watcher = LogWatcher(
-            log_files=["/tmp/does-not-matter.log"],
-            github_token="ghp_fake_token_for_test",
+            log_files=["/tmp/does-not-matter.log"],  # nosec B106 B108 -- fake test fixture, not a real credential/path
+            github_token="ghp_fake_token_for_test",  # nosec B106 B108 -- fake test fixture, not a real credential/path
             github_repo="",
         )
         entry = MagicMock()
@@ -68,8 +68,8 @@ class TestCreateGithubIssueRepoRequired:
 
     def test_fires_when_explicit_repo_set(self) -> None:
         watcher = LogWatcher(
-            log_files=["/tmp/does-not-matter.log"],
-            github_token="ghp_fake_token_for_test",
+            log_files=["/tmp/does-not-matter.log"],  # nosec B106 B108 -- fake test fixture, not a real credential/path
+            github_token="ghp_fake_token_for_test",  # nosec B106 B108 -- fake test fixture, not a real credential/path
             github_repo="my-org/my-repo",
         )
         entry = MagicMock()
@@ -85,9 +85,10 @@ class TestCreateGithubIssueRepoRequired:
                 urlopen.return_value = fake_response
                 watcher._create_github_issue(entry, "fp789")
                 urlopen.assert_called_once()
-                call_args = urlopen.call_args
-                # url is positional in urllib.request.urlopen(url, data)
-                assert "my-org/my-repo" in call_args[0][0]
+                req = urlopen.call_args[0][0]
+                # production passes a urllib.request.Request object
+                url = getattr(req, "full_url", req)
+                assert "my-org/my-repo" in url
 
 
 class TestFirstScanFromBeginning:
@@ -100,7 +101,7 @@ class TestFirstScanFromBeginning:
             f.write("2026-06-09 10:00:02 INFO recovered\n")
             tmp_path = f.name
         try:
-            watcher = LogWatcher(log_files=[tmp_path], github_token="")
+            watcher = LogWatcher(log_files=[tmp_path], github_token="")  # nosec B106 B108 -- fake test fixture, not a real credential/path
             entries = watcher.scan_now()
             error_entries = [e for e in entries if e.error_type != "traceback"]
             # The pre-existing ERROR line MUST be detected on first scan
@@ -116,7 +117,7 @@ class TestFirstScanFromBeginning:
             f.write("2026-06-09 10:00:00 ERROR first error\n")
             tmp_path = f.name
         try:
-            watcher = LogWatcher(log_files=[tmp_path], github_token="")
+            watcher = LogWatcher(log_files=[tmp_path], github_token="")  # nosec B106 B108 -- fake test fixture, not a real credential/path
             first = watcher.scan_now()
             assert any("first error" in e.message for e in first)
 
@@ -151,7 +152,7 @@ class TestAutoFileEnabledGate:
         try:
             watcher = LogWatcher(
                 log_files=[tmp_path],
-                github_token="ghp_fake_token_for_test",
+                github_token="ghp_fake_token_for_test",  # nosec B106 B108 -- fake test fixture, not a real credential/path
                 github_repo="my-org/my-repo",
             )
             with patch.dict(os.environ, {"LOG_WATCHER_AUTO_FILE": "0"}, clear=False):
@@ -172,7 +173,7 @@ class TestAutoFileEnabledGate:
         try:
             watcher = LogWatcher(
                 log_files=[tmp_path],
-                github_token="ghp_fake_token_for_test",
+                github_token="ghp_fake_token_for_test",  # nosec B106 B108 -- fake test fixture, not a real credential/path
                 github_repo="my-org/my-repo",
             )
             fake_response = MagicMock()

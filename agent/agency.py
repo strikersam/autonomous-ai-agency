@@ -636,11 +636,11 @@ def _collect_recent_git_context() -> str:
     """Return recent commits and changed files for CEO situational awareness."""
     import subprocess
     try:
-        log = subprocess.run(  # nosec
+        log = subprocess.run(  # nosec B603 B607 -- fixed git argv, no user input
             ["git", "log", "--oneline", "--no-merges", "-10"],
             capture_output=True, text=True, timeout=5,
         )
-        diff_stat = subprocess.run(  # nosec
+        diff_stat = subprocess.run(  # nosec B603 B607 -- fixed git argv, no user input
             ["git", "diff", "--stat", "HEAD~5", "HEAD"],
             capture_output=True, text=True, timeout=5,
         )

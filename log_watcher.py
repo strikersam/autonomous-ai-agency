@@ -50,6 +50,11 @@ AUTO_FIX_ENABLED = os.environ.get("LOG_WATCHER_AUTO_FIX", "0").strip() in ("1", 
 # and test deployments never file issues by accident. When false, the watcher
 # still detects and reports errors locally but makes no network call.
 AUTO_FILE_ENABLED = os.environ.get("LOG_WATCHER_AUTO_FILE", "0").strip() in ("1", "true", "yes", "on")
+
+
+def _auto_file_enabled() -> bool:
+    """Read the LOG_WATCHER_AUTO_FILE flag at call time (testable, restart-free)."""
+    return os.environ.get("LOG_WATCHER_AUTO_FILE", "0").strip() in ("1", "true", "yes", "on")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
 # Issue filing requires an explicit GITHUB_REPOSITORY env var; do not default
 # to the upstream repo so forks / test deployments cannot accidentally file
@@ -231,10 +236,15 @@ class LogWatcher:
         }
 
     def scan_now(self) -> list[LogEntry]:
-        """Force an immediate scan. Returns any errors found (synchronous)."""
+        """Force an immediate scan. Returns any errors found (synchronous).
+
+        Incremental: the first scan of a file reads from byte 0 (so
+        pre-existing errors are caught); subsequent scans resume from the
+        recorded position so already-consumed content is not re-reported.
+        """
         entries: list[LogEntry] = []
         for file_path in self.log_files:
-            entries.extend(self._scan_file(file_path, from_start=True))
+            entries.extend(self._scan_file(file_path, from_start=False))
         return entries
 
     # ── Internal: file discovery ──────────────────────────────────────────
@@ -388,7 +398,7 @@ class LogWatcher:
         log.info("New error detected: [%s] %s in %s",
                  entry.error_type, entry.message[:120], entry.file_path)
 
-        if self.github_token and AUTO_FILE_ENABLED and self.github_repo:
+        if self.github_token and _auto_file_enabled() and self.github_repo:
             self._create_github_issue(entry, fp)
 
     def _create_github_issue(self, entry: LogEntry, fingerprint: str) -> None:
@@ -403,7 +413,7 @@ class LogWatcher:
         """
         import urllib.request
 
-        if not AUTO_FILE_ENABLED:
+        if not _auto_file_enabled():
             log.info(
                 "LogWatcher: LOG_WATCHER_AUTO_FILE is off — skipping issue "
                 "creation for fingerprint %s (set LOG_WATCHER_AUTO_FILE=1 to "

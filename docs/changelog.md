@@ -300,6 +300,7 @@
   `Depends(require_authenticated)`. Previously all reads were unauthenticated.
 
 ### Fixed
+- **log_watcher: runtime LOG_WATCHER_AUTO_FILE flag + incremental scan_now(); Bandit-clean test fixtures; py3.13-safe asyncio in tests.** Security Gate and Test (3.13) CI blockers on PR #487 resolved.
 - **Doctor: optional sidecar runtimes (hermes/goose/aider) no longer fail readiness.** Beta sidecars now report `warn` when unavailable; only `internal_agent` is required in the default path. Aligns Doctor with feature-matrix gating of experimental runtimes.
 - **GET /api/company/{id} returned 500 for malformed IDs (production).** `MongoDBStore.get_company` raised ValueError on invalid ObjectId; now returns None so the API raises a clean 404. Regression test in `tests/test_company_graph.py::TestMalformedCompanyId`.
 - **Doctor public storage check: 'MotorCollection object is not callable' (production).** Replaced hasattr duck-typing with `store.companies.count_documents({})`. Regression test in `tests/test_phase5_doctor.py`.
