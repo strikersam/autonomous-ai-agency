@@ -1053,8 +1053,11 @@ class AgentRunner:
         _MCP_ONLY = {"clone_repo", "git_commit", "git_push"}
         if tool in _MCP_ONLY:
             if self._mcp is None:
-                return f"[tool error: MCP not set \u2014 cannot execute {tool}]"
-            return await self._mcp.call_tool(tool, args)
+                return f"[tool error: MCP not configured — cannot execute {tool}]"
+            try:
+                return await self._mcp.call_tool(tool, args)
+            except MCPUnavailableError as exc:
+                return f"[tool error: MCP unavailable for {tool}: {exc}]"
 
         raise ValueError(f"Unsupported tool: {tool}")
 
