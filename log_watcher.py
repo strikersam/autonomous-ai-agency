@@ -45,6 +45,10 @@ log = logging.getLogger("qwen-log-watcher")
 WATCHER_ENABLED = os.environ.get("LOG_WATCHER_ENABLED", "1").strip() not in ("0", "false", "no", "off")
 SCAN_INTERVAL = int(os.environ.get("LOG_WATCHER_INTERVAL", "30"))
 AUTO_FIX_ENABLED = os.environ.get("LOG_WATCHER_AUTO_FIX", "0").strip() in ("1", "true", "yes", "on")
+# Gate raw-log auto-filing behind an explicit opt-in feature flag so forks
+# and test deployments never file issues by accident. When false, the watcher
+# still detects and reports errors locally but makes no network call.
+AUTO_FILE_ENABLED = os.environ.get("LOG_WATCHER_AUTO_FILE", "0").strip() in ("1", "true", "yes", "on")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
 # Issue filing requires an explicit GITHUB_REPOSITORY env var; do not default
 # to the upstream repo so forks / test deployments cannot accidentally file
@@ -172,9 +176,14 @@ class LogWatcher:
         log_files: list[str] | None = None,
         github_token: str | None = None,
         issue_labels: list[str] | None = None,
+        *,
+        github_repo: str | None = None,
     ) -> None:
         self.log_files = log_files or self._discover_log_files()
         self.github_token = github_token or GITHUB_TOKEN
+        # Accept an explicit per-instance override; fall back to the env var,
+        # which itself has no upstream default.
+        self.github_repo = (github_repo or GITHUB_REPO).strip()
         self.issue_labels = issue_labels or ["auto-detected", "log-watcher"]
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -284,8 +293,11 @@ class LogWatcher:
                 if file_path in self._last_positions:
                     f.seek(self._last_positions[file_path])
                 else:
-                    # First scan: skip existing content (only watch NEW errors)
-                    f.seek(0, 2)  # Seek to end
+                    # First scan: start from the beginning so pre-existing
+                    # errors are not silently skipped. The previous behaviour
+                    # of seeking to EOF (CodeRabbit nit) meant the watcher
+                    # could miss errors that happened before it started.
+                    f.seek(0)
 
                 new_lines = f.readlines()
                 self._last_positions[file_path] = f.tell()
@@ -366,23 +378,40 @@ class LogWatcher:
         log.info("New error detected: [%s] %s in %s",
                  entry.error_type, entry.message[:120], entry.file_path)
 
-        if self.github_token:
+        if self.github_token and AUTO_FILE_ENABLED and self.github_repo:
             self._create_github_issue(entry, fp)
 
     def _create_github_issue(self, entry: LogEntry, fingerprint: str) -> None:
-        """Create a GitHub issue for the detected error."""
+        """Create a GitHub issue for the detected error.
+
+        Requires both:
+          * ``LOG_WATCHER_AUTO_FILE=1`` — opt-in feature flag (default off so
+            forks and test deployments never file issues by accident).
+          * An explicit ``github_repo`` (constructor arg) or non-empty
+            ``GITHUB_REPOSITORY`` env var. There is **no upstream default**:
+            a missing/blank target is logged and the call is skipped.
+        """
         import urllib.request
 
-        # Refuse to post when no explicit repo target is configured so forks
-        # and test deployments cannot accidentally file against the upstream
-        # repo.
-        if not GITHUB_REPO:
-            log.warning(
-                "LogWatcher: GITHUB_REPOSITORY not set — skipping issue creation "
-                "for fingerprint %s (no explicit target repo configured).",
+        if not AUTO_FILE_ENABLED:
+            log.info(
+                "LogWatcher: LOG_WATCHER_AUTO_FILE is off — skipping issue "
+                "creation for fingerprint %s (set LOG_WATCHER_AUTO_FILE=1 to "
+                "opt in).",
                 fingerprint,
             )
             return
+
+        if not self.github_repo:
+            log.warning(
+                "LogWatcher: no explicit target repo (pass github_repo= or "
+                "set GITHUB_REPOSITORY) — skipping issue creation for "
+                "fingerprint %s.",
+                fingerprint,
+            )
+            return
+
+        target_repo = self.github_repo
 
         # Redact secrets from the message before they leave this process. The
         # entry.message was already redacted at scan time, but re-redact the
@@ -406,7 +435,7 @@ class LogWatcher:
         }).encode()
 
         req = urllib.request.Request(
-            f"https://api.github.com/repos/{GITHUB_REPO}/issues",
+            f"https://api.github.com/repos/{target_repo}/issues",
             data=payload,
             headers={
                 "Authorization": f"Bearer {self.github_token}",
