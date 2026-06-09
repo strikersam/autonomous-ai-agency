@@ -623,8 +623,13 @@ class TestStartLocalRuntime:
     def test_crashed_subprocess_returns_error_not_base_url(self, monkeypatch, tmp_path):
         """If agent_runtime.py exits immediately, _base_url must NOT be set."""
         from runtimes.adapters.aider import AiderAdapter
-        from runtimes.control import _start_local_runtime
+        from runtimes.control import _start_local_runtime, _local_runtime_processes
         from runtimes.registry import RuntimeCapabilityRegistry
+
+        # Clear any stale 'aider' entry left over from a previous test in this
+        # session — otherwise the "already_running" short-circuit would mask
+        # the crash-detection path this test is verifying.
+        _local_runtime_processes.pop("aider", None)
 
         adapter = AiderAdapter()
         assert hasattr(adapter, "_base_url"), "AiderAdapter must have _base_url"

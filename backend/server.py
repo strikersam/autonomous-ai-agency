@@ -1,3 +1,4 @@
+"""server.py — Main backend FastAPI app: auth, dashboard, company graph, doctor, agents."""
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -6246,7 +6247,12 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
                 id=f"runtime_{rid}",
                 category="Runtime",
                 label=f"Runtime: {rid}",
-                status="pass" if available else ("warn" if circuit_open else "fail"),
+                # Sidecar runtimes (hermes/goose/aider/...) are optional beta
+                # features — their absence must not flip Doctor to not-ready.
+                # Only the internal agent runtime is required in the default path.
+                status="pass" if available else (
+                    "fail" if rid == "internal_agent" else "warn"
+                ),
                 detail=str(detail)[:200],
                 action={"label": "Check health", "href": f"/runtimes/{rid}/health"} if not available else None,
                 explanation="Circuit breaker is OPEN — runtime failed 3+ consecutive health checks." if circuit_open else None,
@@ -6339,7 +6345,10 @@ async def get_public_doctor() -> _DoctorReport:
     try:
         from db import get_store
         store = get_store()
-        count = await store.count_companies() if hasattr(store, 'count_companies') else 0
+        # NOTE: don't duck-type with hasattr() — MongoStore.__getattr__ proxies
+        # any attribute to a Motor *collection*, so store.count_companies is a
+        # collection named "count_companies", not a method (TypeError at call).
+        count = await store.companies.count_documents({})
         checks.append(_DoctorCheck(
             id="storage",
             category="Storage",

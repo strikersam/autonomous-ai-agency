@@ -457,9 +457,18 @@ class MongoDBStore:
         return company
 
     async def get_company(self, company_id: str) -> Company | None:
-        """Get a company by ID from MongoDB."""
+        """Get a company by ID from MongoDB.
+
+        A malformed ID is a lookup miss, not a server error: return None so
+        callers raise their own 404 instead of a 500 (seen in production on
+        GET /api/company/<non-objectid>).
+        """
         db = self._get_db()
-        doc = await db.companies.find_one({"_id": self._to_object_id(company_id)})
+        try:
+            oid = self._to_object_id(company_id)
+        except ValueError:
+            return None
+        doc = await db.companies.find_one({"_id": oid})
         return self._prepare_result(doc, Company)
 
     async def update_company(self, company: Company) -> Company:

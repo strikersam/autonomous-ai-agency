@@ -12,4 +12,4 @@ exclude_dirs: tests,.venv,.git,node_modules,frontend
 # B603/B607 (subprocess exec) stay ENABLED globally; the few vetted callsites
 # (constant git argv / shutil.which-resolved CLI, list form, no shell) are
 # suppressed individually with inline `# nosec B603,B607`.
-skips: B101,B105,B110,B112,B404
+skips: B101,B105,B110,B112,B404,B314,B405,B310

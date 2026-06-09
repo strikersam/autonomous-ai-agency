@@ -92,12 +92,19 @@ def _set_legacy_workflow_mode(monkeypatch):
 def client() -> TestClient:
     """TestClient for backend.server — used by backend-specific tests.
 
-    The app's lifespan runs (including ensure_bootstrap) so the admin user
-    and indexes are present before the first request.  Tests that need to
-    simulate a DB outage must mock ``get_db()`` *within* the test body, not
-    in this fixture.
+    Uses the context-manager form so the ASGI lifespan (startup/shutdown) and
+    the underlying anyio event loop stay alive for the entire test.  This is
+    required for background asyncio tasks (e.g. agent jobs dispatched via
+    asyncio.create_task) to survive beyond a single HTTP response — without it,
+    the portal is torn down after each request and background tasks are
+    cancelled immediately.
+
+    The admin user and indexes are seeded by ensure_bootstrap before the first
+    request.  Tests that need to simulate a DB outage must mock ``get_db()``
+    *within* the test body, not in this fixture.
     """
-    return TestClient(backend_app)
+    with TestClient(backend_app) as c:
+        yield c
 
 
 @pytest.fixture
