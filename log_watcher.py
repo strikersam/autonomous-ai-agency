@@ -46,7 +46,37 @@ WATCHER_ENABLED = os.environ.get("LOG_WATCHER_ENABLED", "1").strip() not in ("0"
 SCAN_INTERVAL = int(os.environ.get("LOG_WATCHER_INTERVAL", "30"))
 AUTO_FIX_ENABLED = os.environ.get("LOG_WATCHER_AUTO_FIX", "0").strip() in ("1", "true", "yes", "on")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
-GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "strikersam/local-llm-server").strip()
+# Issue filing requires an explicit GITHUB_REPOSITORY env var; do not default
+# to the upstream repo so forks / test deployments cannot accidentally file
+# issues against the wrong project. Failures to provide this are logged and
+# the issue is skipped (no network call is made).
+GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "").strip()
+
+# ─── Sensitive-data filtering ────────────────────────────────────────────────
+# Patterns whose matches MUST be redacted from log lines before they are ever
+# posted to GitHub. Prevents inadvertent secret exfiltration via the issue
+# body. Best-effort: a leftover that doesn't match these patterns is still
+# possible but the common exfil vectors are covered.
+_SENSITIVE_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"(?i)(api[_-]?key|token|secret|password|passwd|pwd)\s*[:=]\s*['\"]?([A-Za-z0-9_\-\.=]{8,})"), r"\1=<REDACTED>"),
+    (re.compile(r"sk-[A-Za-z0-9_\-]{16,}"), "sk-<REDACTED>"),
+    (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "ghp_<REDACTED>"),
+    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "github_pat_<REDACTED>"),
+    (re.compile(r"xox[bpars]-[A-Za-z0-9\-]{10,}"), "<SLACK_TOKEN_REDACTED>"),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"), "<PRIVATE_KEY_REDACTED>"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "<AWS_KEY_REDACTED>"),
+    (re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"), "<EMAIL_REDACTED>"),
+    (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b"), "<IP_REDACTED>"),
+    (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9_\-\.=]{12,}"), r"\1<REDACTED>"),
+]
+
+
+def _redact_sensitive(line: str) -> str:
+    """Strip API keys, tokens, emails, IPs, and private keys from a log line."""
+    redacted = line
+    for pattern, replacement in _SENSITIVE_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
 
 # ─── Error detection ──────────────────────────────────────────────────────────
 
@@ -268,10 +298,14 @@ class LogWatcher:
             if error_type:
                 if self._should_ignore(line):
                     continue
+                # Redact sensitive values before storing, so the in-memory copy
+                # is also safe (prevents the redacted line from leaking via a
+                # future /stats endpoint, for example).
+                safe_line = _redact_sensitive(line).strip()
                 entries.append(LogEntry(
                     file_path=file_path,
                     line_number=0,  # Approximate since we only track byte offsets
-                    message=line.strip(),
+                    message=safe_line,
                     error_type=error_type,
                 ))
 
@@ -339,13 +373,29 @@ class LogWatcher:
         """Create a GitHub issue for the detected error."""
         import urllib.request
 
-        title = f"[auto] {entry.error_type.upper()}: {entry.message[:80]}"
+        # Refuse to post when no explicit repo target is configured so forks
+        # and test deployments cannot accidentally file against the upstream
+        # repo.
+        if not GITHUB_REPO:
+            log.warning(
+                "LogWatcher: GITHUB_REPOSITORY not set — skipping issue creation "
+                "for fingerprint %s (no explicit target repo configured).",
+                fingerprint,
+            )
+            return
+
+        # Redact secrets from the message before they leave this process. The
+        # entry.message was already redacted at scan time, but re-redact the
+        # title substring too in case it contains values not present in the
+        # stored message (e.g. when a custom log line was used).
+        safe_message = _redact_sensitive(entry.message)[:2000]
+        title = f"[auto] {entry.error_type.upper()}: {_redact_sensitive(entry.message)[:80]}"
         body = (
             f"## Auto-detected Error\n\n"
             f"**Type:** `{entry.error_type}`\n"
             f"**File:** `{entry.file_path}`\n"
             f"**Fingerprint:** `{fingerprint}`\n\n"
-            f"### Error Message\n```\n{entry.message[:2000]}\n```\n\n"
+            f"### Error Message\n```\n{safe_message}\n```\n\n"
             f"---\n*Detected by log_watcher.py — auto-filed from production logs.*\n"
         )
 

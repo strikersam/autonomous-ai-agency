@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -27,6 +28,31 @@ from pathlib import Path
 from typing import Any, Callable
 
 log = logging.getLogger("qwen-telegram-svc")
+
+
+# ── Sensitive-data redaction for outbound notifications ─────────────────────
+# Best-effort secret/email/IP redaction for outbound Telegram/webhook messages
+# so the notification path doesn't exfiltrate user-supplied secrets or PII.
+_NOTIFY_SENSITIVE_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"sk-[A-Za-z0-9_\-]{16,}"), "sk-<REDACTED>"),
+    (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "ghp_<REDACTED>"),
+    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "github_pat_<REDACTED>"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "<AWS_KEY_REDACTED>"),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"), "<PRIVATE_KEY_REDACTED>"),
+    (re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"), "<EMAIL_REDACTED>"),
+    (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b"), "<IP_REDACTED>"),
+    (re.compile(r"(?i)(api[_-]?key|token|secret|password|passwd|pwd)\s*[:=]\s*['\"]?([A-Za-z0-9_\-\.=]{8,})"), r"\1=<REDACTED>"),
+]
+
+
+def _redact_for_notification(text: str) -> str:
+    """Best-effort secret/email/IP redaction for outbound Telegram/webhook messages."""
+    if not text:
+        return text
+    redacted = text
+    for pattern, replacement in _NOTIFY_SENSITIVE_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
 
 
 def _creationflags() -> int:
@@ -210,18 +236,25 @@ class NotificationDispatcher:
         """Callback for BackgroundAgent.on_task_complete.
 
         Dispatches task result notifications to all configured channels.
+        The raw task instruction / prompt is intentionally NOT included in
+        the notification to prevent PII or secret leakage; only redacted
+        metadata (id, kind, status) and redacted error/result previews
+        are surfaced.
         """
+        task_id = getattr(task, "task_id", "unknown")
+        task_kind = getattr(task, "kind", "unknown")
         status_icon = "[OK]" if getattr(task, "status", "") == "done" else "[FAIL]"
         message = (
-            f"{status_icon} *Task {getattr(task, 'task_id', 'unknown')}* "
-            f"({getattr(task, 'kind', 'unknown')})\n"
+            f"{status_icon} *Task {task_id}* "
+            f"({task_kind})\n"
             f"Status: `{getattr(task, 'status', 'unknown')}`\n"
         )
         if hasattr(task, "error") and task.error:
-            message += f"Error: `{task.error[:500]}`\n"
+            err_preview = str(task.error)[:500]
+            message += f"Error: `{_redact_for_notification(err_preview)}`\n"
         if hasattr(task, "result") and task.result:
             result_str = str(task.result)[:1000]
-            message += f"Result: ```{result_str}```"
+            message += f"Result: ```{_redact_for_notification(result_str)}```"
 
         # Dispatch to all channels (non-blocking)
         self._log(message)
