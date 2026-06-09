@@ -5,10 +5,10 @@ with open('docs/changelog.md', 'rb') as f:
 
 # The section header is "### Added- **` (dash immediately after Added, no newline)
 # em-dash UTF-8 = b'\u00e2\u0080\u0094'
-emdash = b'\u00e2\u0080\u0094'
+emdash = b'\xe2\x80\x94'
 
-# Old pattern: "### Added- **`spawn_subagent` \u2014 accept"
-old = b'### Added- **` + b'spawn_subagent` ' + emdash + b' accept'
+# Old pattern: "### Added- **`spawn_subagent` — accept"
+old = b'### Added- **`' + b'spawn_subagent` ' + emdash + b' accept'
 
 new = (
     b'### Fixed\n'
