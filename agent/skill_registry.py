@@ -77,6 +77,28 @@ GITHUB_REGISTRIES: list[dict[str, str]] = [
         "structure": "nested",
         "branch": "main",
     },
+    # ── Curated from BehiSecc/awesome-claude-skills (issue #491) ───────────
+    # The awesome list itself is links, not skills; these are the two largest
+    # actual skill repos it references that we don't already index
+    # (anthropics/skills is already registered above via "anthropic-skills").
+    {
+        "id": "superpowers",
+        "owner": "obra",
+        "repo": "superpowers",
+        "path": "",
+        "skill_file": "SKILL.md",
+        "structure": "nested",
+        "branch": "main",
+    },
+    {
+        "id": "ai-skills-sanjay",
+        "owner": "sanjay3290",
+        "repo": "ai-skills",
+        "path": "",
+        "skill_file": "SKILL.md",
+        "structure": "nested",
+        "branch": "main",
+    },
 ]
 
 # Max skill files fetched per refresh for "nested" registries.

@@ -1813,6 +1813,24 @@ async def diagnostics_fixes_list(auth: AuthContext = Depends(verify_api_key)):
     return {"fixes": list_available_fixes()}
 
 
+# ─── Trend Analysis (issue #493 — last30days-style window) ──────────────────
+
+@app.get("/api/trends")
+async def get_trends(auth: AuthContext = Depends(verify_api_key)):
+    """Run a 30-day trend analysis and return the typed report — requires auth.
+
+    Backed by agent.trend_watcher (13 public sources, zero-config) and
+    persisted to trends/trend_summary.md for the admin dashboard.
+    """
+    from trend_analysis import run_trend_analysis
+    try:
+        report = await run_trend_analysis()
+        return report.model_dump()
+    except Exception:
+        log.exception("Trend analysis failed")
+        return {"error": "Trend analysis failed — see server logs"}
+
+
 from pydantic import BaseModel
 
 
