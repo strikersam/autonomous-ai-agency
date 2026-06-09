@@ -6339,7 +6339,10 @@ async def get_public_doctor() -> _DoctorReport:
     try:
         from db import get_store
         store = get_store()
-        count = await store.count_companies() if hasattr(store, 'count_companies') else 0
+        # NOTE: don't duck-type with hasattr() — MongoStore.__getattr__ proxies
+        # any attribute to a Motor *collection*, so store.count_companies is a
+        # collection named "count_companies", not a method (TypeError at call).
+        count = await store.companies.count_documents({})
         checks.append(_DoctorCheck(
             id="storage",
             category="Storage",
