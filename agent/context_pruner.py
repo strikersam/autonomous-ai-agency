@@ -1,3 +1,5 @@
+"""context_pruner.py — auto-generated module docstring (user-research skill scan)."""
+
 from __future__ import annotations
 
 import logging

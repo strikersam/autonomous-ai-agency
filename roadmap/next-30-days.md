@@ -10,7 +10,7 @@
 
 | Task | Priority | Owner | Audit Ref |
 |------|----------|-------|-----------|
-| Remove hardcoded `WikiAdmin2026!` from `ci.yml` | P0 | DevOps Agent | SEC-015 |
+| Remove hardcoded `<redacted-rotated>` from `ci.yml` | P0 | DevOps Agent | SEC-015 |
 | Add `pip-audit` to CI pipeline | P0 | DevOps Agent | SEC-011 |
 | Change API key prefix from `test-key-` to `llms-` | P1 | Bug Fix Agent | TD-005 |
 | Add startup CORS wildcard warning | P1 | Bug Fix Agent | SEC-005 |

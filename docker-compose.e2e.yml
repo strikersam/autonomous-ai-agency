@@ -6,8 +6,8 @@
 # Playwright runs Chromium in headless mode.
 #
 # Prerequisites: ADMIN_PASSWORD must be set in the host environment:
-#   export ADMIN_PASSWORD=$(cat ~/.llm-relay-secret)
-#   # or from your .env.prod: export ADMIN_PASSWORD=$(grep ADMIN_PASSWORD .env.prod | cut -d= -f2)
+#   export ADMIN_PASSWORD=${ADMIN_PASSWORD:-e2e-local-only-password} ~/.llm-relay-secret)
+#   # or from your .env.prod: export ADMIN_PASSWORD=${ADMIN_PASSWORD:-e2e-local-only-password} ADMIN_PASSWORD .env.prod | cut -d= -f2)
 #
 # Two test suites available:
 #   - test_browser.py: page load + console error checks (lightweight)
@@ -37,7 +37,7 @@ services:
     environment:
       - STORAGE_BACKEND=sqlite
       - ADMIN_EMAIL=admin@llmrelay.local
-      - ADMIN_PASSWORD=WikiAdmin2026!
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-e2e-local-only-password}
       - JWT_SECRET=e2e-browser-test-secret
       - LLM_PROVIDER=ollama
       - LANGFUSE_SECRET_KEY=
@@ -62,7 +62,7 @@ services:
     environment:
       - RELAY_BASE_URL=http://backend:8001
       - ADMIN_EMAIL=admin@llmrelay.local
-      - ADMIN_PASSWORD=WikiAdmin2026!
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-e2e-local-only-password}
     depends_on:
       backend:
         condition: service_healthy

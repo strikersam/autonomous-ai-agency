@@ -1,3 +1,4 @@
+"""navigation_metrics.py — Navigation/usage metrics collection for agent sessions."""
 import time
 from typing import Dict
 
