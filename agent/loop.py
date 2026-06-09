@@ -849,17 +849,17 @@ class AgentRunner:
                                 "models": {"executor": executor_model, "verifier": verifier_model},
                             }
                         continue
+                # GATE: Golden Path #14 — evidence capture (KPI: safety block)
+                if syntax_issues:
+                    try:
+                        from agent.kpi import get_tracker
+                        get_tracker().record_safety_block()
+                    except Exception:  # nosec B110 -- KPI tracking is best-effort
+                        pass
                 if verdict.status == "pass" and not syntax_issues:
                     diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
-                    # GATE: Golden Path #14 — evidence capture (KPI: safety block)
-                    try:
-                        from agent.kpi import get_tracker
-                        if syntax_issues:
-                            get_tracker().record_safety_block()
-                    except Exception:  # nosec B110 -- KPI tracking is best-effort
-                        pass
                     file_applied = True
                     # Adaptive Loop Halting: track confidence for early exit
                     if "_confidence_scores" not in step:

@@ -293,6 +293,7 @@ class NotificationDispatcher:
         if not self.webhook_url:
             return
         import httpx
+        import threading
 
         def _send() -> None:
             try:
@@ -310,6 +311,7 @@ class NotificationDispatcher:
             except Exception as exc:
                 log.warning("Webhook notify failed: %s", exc)
 
+        # Start webhook POST in background thread
         threading.Thread(target=_send, daemon=True).start()
 
     def send_manual_notification(self, message: str) -> None:
