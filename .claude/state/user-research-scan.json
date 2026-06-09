@@ -1,0 +1,46 @@
+{
+  "generated_at": "2026-06-09T19:58:48.387149+00:00",
+  "metrics": {
+    "py_files": 465,
+    "total_loc": 132767,
+    "comment_lines": 5581,
+    "comment_ratio": 0.042,
+    "test_files": 188,
+    "test_ratio": 0.4043,
+    "docstring_files": 391,
+    "docstring_ratio": 0.8409,
+    "marker_count": 230,
+    "marker_by_type": {
+      "BUG": 104,
+      "TODO": 71,
+      "DEPRECATED": 14,
+      "FIXME": 13,
+      "HACK": 11,
+      "TEMPORARY": 11,
+      "XXX": 6
+    },
+    "files_with_markers": 74,
+    "no_docstring_files": [
+      "admin_auth.py",
+      "check_auto.py",
+      "provider_router.py",
+      "service_manager.py",
+      "agent\\context_pruner.py",
+      "agent\\doctor.py",
+      "agent\\intent.py",
+      "agent\\loop.py",
+      "agent\\models.py",
+      "agent\\navigation_metrics.py",
+      "agent\\prompts.py",
+      "agent\\repowise.py",
+      "agent\\schemas.py",
+      "agent\\state.py",
+      "agent\\tools.py",
+      "backend\\hello_claude.py",
+      "backend\\llm_providers.py",
+      "backend\\server.py",
+      "features\\__init__.py",
+      "handlers\\__init__.py"
+    ]
+  }
+}
