@@ -33,7 +33,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-REPO = Path("C:/Users/swami/qwen-server")
+REPO = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(REPO))
 

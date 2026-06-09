@@ -60,21 +60,35 @@ _LOCKED_CONFIGURE_SUBAGENTS_PARAMS = frozenset({"configs",})
 
 
 def _enforce_signature(fn: Any, locked_params: frozenset[str], fn_name: str) -> None:
-    """Raise TypeError if fn receives unknown kwargs (mimics Pydantic extra='forbid')."""
+    """Raise TypeError if fn's signature drifts from the locked contract (Pydantic extra='forbid').
+
+    Two-way validation:
+      1. Every named parameter on fn must appear in locked_params (no extras).
+      2. Every locked_param must appear on fn (no missing required params).
+    **kwargs is allowed to pass through — runtime _check_extra_kwargs handles
+    the dynamic case. *args has no name to check.
+    """
     sig = inspect.signature(fn)
+    named_params: set[str] = set()
     for name, param in sig.parameters.items():
-        # Allow **kwargs (VAR_KEYWORD) to pass through — runtime check handles them
         if param.kind == inspect.Parameter.VAR_KEYWORD:
-            return
-        # Allow *args (VAR_POSITIONAL) — no name constraint
+            continue
         if param.kind == inspect.Parameter.VAR_POSITIONAL:
             continue
-        # Check named parameters against locked_params
-        if name not in locked_params and name != 'self':
+        if name == 'self':
+            continue
+        named_params.add(name)
+        if name not in locked_params:
             raise TypeError(
                 f"{fn_name}() has unexpected parameter {name!r}. "
                 f"Accepted: {sorted(locked_params)}"
             )
+    missing = locked_params - named_params
+    if missing:
+        raise TypeError(
+            f"{fn_name}() is missing required locked parameter(s): {sorted(missing)}. "
+            f"Expected: {sorted(locked_params)}"
+        )
 
 
 def _check_extra_kwargs(kwargs: dict[str, Any], locked: frozenset[str], label: str) -> None:
@@ -849,13 +863,6 @@ class AgentRunner:
                                 "models": {"executor": executor_model, "verifier": verifier_model},
                             }
                         continue
-                # GATE: Golden Path #14 — evidence capture (KPI: safety block)
-                if syntax_issues:
-                    try:
-                        from agent.kpi import get_tracker
-                        get_tracker().record_safety_block()
-                    except Exception:  # nosec B110 -- KPI tracking is best-effort
-                        pass
                 if verdict.status == "pass" and not syntax_issues:
                     diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
@@ -866,6 +873,17 @@ class AgentRunner:
                         step["_confidence_scores"] = []
                     step["_confidence_scores"].append(verdict.confidence)
                     break
+
+                # GATE: Golden Path #14 — evidence capture (KPI: safety block)
+                # Record a safety block event whenever syntax/safety issues prevented
+                # the diff from being applied. Reachable on every retry where the
+                # safety gate fired.
+                if syntax_issues:
+                    try:
+                        from agent.kpi import get_tracker
+                        get_tracker().record_safety_block()
+                    except Exception:  # nosec B110 -- KPI tracking is best-effort
+                        pass
 
                 retries += 1
                 feedback_issues = syntax_issues + verdict.issues
