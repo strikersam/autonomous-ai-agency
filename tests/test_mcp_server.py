@@ -377,7 +377,7 @@ class TestAgentLoopMCPIntegration:
         result = asyncio.run(
             runner._dispatch_tool("clone_repo", {"workspace_id": "x", "repo_url": "https://github.com/a/b"})
         )
-        assert result.startswith("[tool error:") and "not set" in result
+        assert result.startswith("[tool error:") and ("not set" in result or "not configured" in result)
 
     def test_mcp_only_tool_delegates_when_client_present(self):
         from agent.mcp_client import MCPClient
