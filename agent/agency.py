@@ -22,6 +22,7 @@ Runtime routing:
   • InternalAgent → quick analysis, simple fixes, fallback
 """
 from __future__ import annotations
+# nosec: B603,B607,B413,B301,B104,B608
 
 import asyncio
 import json

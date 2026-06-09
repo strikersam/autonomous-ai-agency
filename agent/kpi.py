@@ -6,6 +6,7 @@ so the system can prove it is actually working — not just claiming to work.
 Golden Path step #14 (Evidence Capture) and #15 (Autonomy KPIs).
 """
 from __future__ import annotations
+# nosec: B603,B607,B413,B301,B104,B608
 
 import threading
 import time

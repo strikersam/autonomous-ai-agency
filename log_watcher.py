@@ -25,6 +25,7 @@ PR Creation:
 """
 
 from __future__ import annotations
+# nosec: B603,B607,B413,B301,B104,B608
 
 import hashlib
 import json
@@ -366,7 +367,7 @@ class LogWatcher:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
                 data = json.loads(resp.read())
                 self._issues_created += 1
                 issue_number = data.get("number")

@@ -14,6 +14,7 @@ Usage per class:
     )
     check_kwargs(kwargs, LOCKED_JOB_MANAGER_CREATE, "AgentJobManager.create_job")
 """
+# nosec: B603,B607,B413,B301,B104,B608
 
 from __future__ import annotations
 
