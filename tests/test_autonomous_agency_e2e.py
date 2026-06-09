@@ -10,8 +10,6 @@ These tests validate:
 """
 from __future__ import annotations
 
-import time
-import threading
 from unittest.mock import MagicMock, patch
 from dataclasses import dataclass, field
 from typing import Optional
