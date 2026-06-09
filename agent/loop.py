@@ -1,3 +1,4 @@
+"""loop.py — AgentRunner: plan → execute → verify loop with locked tool signatures."""
 from __future__ import annotations
 
 import ast

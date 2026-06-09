@@ -32,6 +32,7 @@
 ## [Unreleased]
 
 ### Added
+- **Weekly user-research scan workflow** (`.github/workflows/user-research-scan.yml`): Mondays 03:00 UTC, runs `scripts/scan_repo_with_user_research.py` and files/updates a `user-research-scan` issue when recommendations are produced. Implements the scan's own recommendation #3. Module docstrings added to all remaining flagged files (recommendation #2).
 - **External skill registry: borghei/Claude-Skills (338 skills) wired into company scan and post-onboarding.** New "nested" registry structure in `agent/skill_registry.py` indexes nested `SKILL.md` layouts via the git-trees API; onboarding post-scan skill refresh now recommends from these packs. Test: `tests/test_skill_registry.py::test_nested_registry_indexes_deeply_nested_skills`.
 - **Autonomous agency maturation — contract enforcement, KPI tracking, trend watcher, log watcher, and e2e test coverage.** New `agent/contract_enforcement.py` validates agent tool outputs against Pydantic schemas. `agent/kpi.py` provides thread-safe autonomy KPI tracking (13 metrics). `agent/trend_watcher.py` fetches AI trends from 13 public sources in parallel. `log_watcher.py` monitors logs and auto-creates GitHub issues. 16 new e2e tests in `tests/test_contracts_agency.py`.
 - ** **`spawn_subagent` — accept `command`/`task`/`text` as `instruction` aliases.** The executor model may emit spawn_subagent tool calls with command/task/text field names instead of instruction, causing 'missing 1 required keyword-only argument: instruction' on the CEO and any delegating agent. The _spawn_subagent() method now promotes any of those three field names to instruction before validating non-emptiness. Fixes CEO error: AgentRunner._spawn_subagent() missing 1 required keyword-only argument: instruction.
@@ -470,6 +471,7 @@
 # Changelog
 
 ### Security
+- **Removed tracked credentials file `memory/test_credentials.md` from version control** (user-research/pre-mortem finding). File remains locally; added to `.gitignore`. Admin password and proxy admin secret must be rotated — they were exposed in a public repo.
 - **`admin_auth.py` — timing-safe admin secret comparison.** Replaced Python `==` operator with `hmac.compare_digest()` for admin secret validation to prevent timing side-channel attacks (`SEC-003`).
 - **`proxy.py` — ADMIN_SECRET minimum length enforcement.** Added startup check requiring `ADMIN_SECRET` to be at least 32 characters; server refuses to start with a short secret (`PR-013`).
 - **`proxy.py` — CORS wildcard warning.** Added startup warning when `CORS_ORIGINS` is `"*"` to alert operators that wildcard CORS is active in their deployment (`SEC-005`).

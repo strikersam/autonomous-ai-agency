@@ -1,3 +1,4 @@
+"""prompts.py — Prompt builders for planner, executor, and verifier roles."""
 from __future__ import annotations
 
 import json

@@ -1,3 +1,4 @@
+"""server.py — Main backend FastAPI app: auth, dashboard, company graph, doctor, agents."""
 from dotenv import load_dotenv
 
 load_dotenv()

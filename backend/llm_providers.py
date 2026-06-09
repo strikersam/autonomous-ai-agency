@@ -1,3 +1,4 @@
+"""llm_providers.py — LLM provider adapters and provider selection for the backend."""
 from __future__ import annotations
 
 import logging

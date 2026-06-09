@@ -1,3 +1,4 @@
+"""intent.py — Intent classification for direct chat (answer_only, execute_now, etc.)."""
 from __future__ import annotations
 import re
 from typing import Any, Literal

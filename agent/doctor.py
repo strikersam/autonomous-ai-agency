@@ -1,3 +1,4 @@
+"""doctor.py — Agent-side doctor diagnostics: environment, provider, and workspace checks."""
 from __future__ import annotations
 import shutil
 import subprocess
