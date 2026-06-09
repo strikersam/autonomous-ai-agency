@@ -56,7 +56,7 @@ class TestRegistryLoads:
         beta = [e for e in matrix._entries.values() if e.maturity == FeatureMaturity.BETA]
         assert len(beta) > 0
 
-    def test_experimental_features_demoted_to_disabled(self):
+    def test_experimental_features_demoted_to_disabled(self) -> None:
         # All experimental features were demoted to DISABLED per issue #467 Section I.
         # Verify the demotion: no features remain EXPERIMENTAL, but DISABLED features exist.
         matrix = FeatureMatrix()
@@ -65,28 +65,28 @@ class TestRegistryLoads:
         assert len(exp) == 0, "Experimental features remain — demotion incomplete"
         assert len(disabled) > 0, "No DISABLED features found — matrix structure unexpected"
 
-    def test_known_stable_features_are_stable(self):
+    def test_known_stable_features_are_stable(self) -> None:
         matrix = FeatureMatrix()
         for fid in ("direct_chat", "local_runtime"):
             entry = matrix.get(fid)
             assert entry is not None, f"Feature {fid!r} not in matrix"
             assert entry.maturity == FeatureMaturity.STABLE, f"{fid} should be STABLE"
 
-    def test_known_beta_features_are_beta(self):
+    def test_known_beta_features_are_beta(self) -> None:
         # Per issue #467 Section I, async_agent_jobs was demoted to DISABLED.
         # Verify beta features exist (stable ones may be promoted separately).
         matrix = FeatureMatrix()
         beta_ids = {e.feature_id for e in matrix._entries.values() if e.maturity == FeatureMaturity.BETA}
         assert len(beta_ids) > 0, "No beta features found in matrix"
 
-    def test_promoted_features_are_stable(self):
+    def test_promoted_features_are_stable(self) -> None:
         matrix = FeatureMatrix()
         for fid in ("workspace_isolation", "runtime_preflight"):
             entry = matrix.get(fid)
             assert entry is not None, f"Feature {fid!r} not in matrix"
             assert entry.maturity == FeatureMaturity.STABLE, f"{fid} should be STABLE after promotion"
 
-    def test_openhands_is_experimental(self):
+    def test_openhands_is_experimental(self) -> None:
         # openhands_runtime was demoted to DISABLED per issue #467 Section I.
         # This test verifies the demotion is reflected in the matrix.
         matrix = FeatureMatrix()
@@ -304,7 +304,7 @@ class TestSingleton:
         finally:
             fm._feature_matrix = original
 
-    def test_maturity_warning_for_beta_returns_warning(self):
+    def test_maturity_warning_for_beta_returns_warning(self) -> None:
         # async_agent_jobs was demoted to DISABLED per issue #467.
         # Find a feature that is actually BETA to test the warning path.
         matrix = FeatureMatrix()
@@ -315,7 +315,7 @@ class TestSingleton:
             assert "BETA" in warning
         # If no beta features exist, skip (matrix may be in a fully-demoted state).
 
-    def test_maturity_warning_returns_none_for_disabled(self):
+    def test_maturity_warning_returns_none_for_disabled(self) -> None:
         matrix = FeatureMatrix()
         # async_agent_jobs is already DISABLED; verify no warning is returned.
         warning = matrix.maturity_warning("async_agent_jobs")

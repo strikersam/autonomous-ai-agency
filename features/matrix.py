@@ -517,6 +517,9 @@ class FeatureMatrix:
             entry.enabled = False
         elif val in ("enabled", "true", "1", "yes"):
             entry.enabled = True
+            # Promote DISABLED features to EXPERIMENTAL when explicitly enabled
+            if entry.maturity == FeatureMaturity.DISABLED:
+                entry.maturity = FeatureMaturity.EXPERIMENTAL
         elif val in ("false", "0", "no"):
             entry.enabled = False
 

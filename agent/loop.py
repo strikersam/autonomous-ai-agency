@@ -62,11 +62,19 @@ _LOCKED_CONFIGURE_SUBAGENTS_PARAMS = frozenset({"configs",})
 def _enforce_signature(fn: Any, locked_params: frozenset[str], fn_name: str) -> None:
     """Raise TypeError if fn receives unknown kwargs (mimics Pydantic extra='forbid')."""
     sig = inspect.signature(fn)
-    for name in sig.parameters:
-        if name in locked_params:
-            return  # match found
-    # For methods with **kwargs, we cannot detect extra params statically
-    # but we validate at runtime for explicit kwargs via wrapper below
+    for name, param in sig.parameters.items():
+        # Allow **kwargs (VAR_KEYWORD) to pass through — runtime check handles them
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return
+        # Allow *args (VAR_POSITIONAL) — no name constraint
+        if param.kind == inspect.Parameter.VAR_POSITIONAL:
+            continue
+        # Check named parameters against locked_params
+        if name not in locked_params and name != 'self':
+            raise TypeError(
+                f"{fn_name}() has unexpected parameter {name!r}. "
+                f"Accepted: {sorted(locked_params)}"
+            )
 
 
 def _check_extra_kwargs(kwargs: dict[str, Any], locked: frozenset[str], label: str) -> None:
@@ -640,7 +648,7 @@ class AgentRunner:
         # max tool-call iterations; this inner retry handles transient errors
         # that should be retried before giving up on the step.
         tool_retry_count = 0
-        max_tool_retries = 4
+        max_tool_retries = 3
         for remaining in range(15, 0, -1):
             try:
                 # Observation masking: pass truncated older observations to
@@ -662,9 +670,9 @@ class AgentRunner:
                 observations.append({"tool": "error", "result": error_msg})
                 log.warning(
                     "_execute_step tool selection error on attempt %d/%d (remaining=%d): %s",
-                    tool_retry_count, max_tool_retries, remaining, exc,
+                    tool_retry_count, max_tool_retries + 1, remaining, exc,
                 )
-                if tool_retry_count > max_tool_retries:
+                if tool_retry_count > max_tool_retries - 1:
                     # Exhausted retries — fail the step gracefully rather than
                     # consuming the remaining iteration budget with repeated errors
                     return {

@@ -848,7 +848,6 @@ class TrendWatcher:
             if alert.relevance_score < 0.75:
                 continue
             try:
-                import httpx as _httpx
                 payload = {
                     "task_id": f"trend_{self._sig(alert.source, alert.title)}",
                     "instruction": (
@@ -870,12 +869,15 @@ class TrendWatcher:
                         "dispatched_at": time.time(),
                     },
                 }
-                asyncio.run(_httpx.AsyncClient().post(                        f"{hermes_url.rstrip('/')}/tasks",
-                    json=payload,
-                    timeout=10,
-                ))
+                with httpx.Client() as client:
+                    client.post(
+                        f"{hermes_url.rstrip('/')}/tasks",
+                        json=payload,
+                        timeout=10,
+                    )
                 log.info("TrendWatcher: dispatched alert %s to Hermes", alert.title[:50])
-            except Exception as exc:                    log.warning("TrendWatcher: Hermes dispatch failed for '%s': %s", alert.title[:40], exc)
+            except Exception as exc:
+                log.warning("TrendWatcher: Hermes dispatch failed for '%s': %s", alert.title[:40], exc)
 
     # ── Queries ────────────────────────────────────────────────────────────────
 

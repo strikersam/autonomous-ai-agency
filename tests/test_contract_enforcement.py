@@ -240,4 +240,4 @@ class TestSkillRegistryContracts:
         reg = SkillRegistry()
         with pytest.raises(TypeError, match="unexpected keyword argument"):
             # type: ignore[arg-type]
-            reg.update_github_token(token="ghp_xxx", extra=True)
+            reg.update_github_token(token="DUMMY_TOKEN_FOR_TESTING", extra=True)

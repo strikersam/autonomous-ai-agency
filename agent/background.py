@@ -224,8 +224,8 @@ class BackgroundAgent:
             if self._on_task_complete:
                 try:
                     self._on_task_complete(task)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.exception("on_task_complete callback failed during heartbeat for task %s: %s", task.task_id, e)
 
         # Retry loop with exponential backoff for failure resilience
         last_error: str | None = None
@@ -273,8 +273,8 @@ class BackgroundAgent:
                         elif s.get("status") == "skipped":
                             tracker.record_step_skipped()
                     tracker.record_events()
-                except Exception:
-                    pass  # KPI tracking is best-effort
+                except Exception as e:
+                    log.error("KPI tracking failed for task %s: %s", task.task_id, e)  # KPI tracking is best-effort
 
                 heartbeat("completed", result.get("summary", "Task completed"))
                 return result

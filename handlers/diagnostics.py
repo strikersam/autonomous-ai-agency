@@ -304,10 +304,11 @@ def _fix_clear_cooldowns() -> dict[str, Any]:
 def _fix_restart_background() -> dict[str, Any]:
     """Restart the background agent worker thread."""
     try:
-        from agent.background import BackgroundAgent
-        bg = BackgroundAgent()
-        bg.stop()
-        bg.start()
+        from proxy import BACKGROUND_AGENT
+        if BACKGROUND_AGENT is None:
+            return {"action": "restart_background", "success": False, "error": "Background agent singleton not available"}
+        BACKGROUND_AGENT.stop()
+        BACKGROUND_AGENT.start()
         return {"action": "restart_background", "success": True}
     except Exception as exc:
         return {"action": "restart_background", "success": False, "error": str(exc)}
@@ -335,7 +336,7 @@ def run_public_status(*, start_time: float | None = None) -> dict[str, Any]:
     return result
 
 
-def run_deep_diagnostics() -> dict[str, Any]:
+async def run_deep_diagnostics() -> dict[str, Any]:
     """Full system scan — requires authentication.
 
     Covers all 8 Doctor check categories from issue #467 Section F:
@@ -348,21 +349,40 @@ def run_deep_diagnostics() -> dict[str, Any]:
     - CI parity: workflow files are syntactically valid
     - background liveness: background agent worker is alive
     """
+    import asyncio
     base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+
+    # Run blocking checks concurrently in thread pool
+    results = await asyncio.gather(
+        asyncio.to_thread(_check_ollama, base),
+        asyncio.to_thread(_check_sessions),
+        asyncio.to_thread(_check_workflow_engine),
+        asyncio.to_thread(_check_disk),
+        asyncio.to_thread(_check_event_log_integrity),
+        asyncio.to_thread(_check_provider_chain),
+        asyncio.to_thread(_check_runtimes),
+        asyncio.to_thread(_check_workspaces),
+        asyncio.to_thread(_check_github_readiness),
+        asyncio.to_thread(_check_company_graph),
+        asyncio.to_thread(_check_feature_matrix),
+        asyncio.to_thread(_check_ci_parity),
+        asyncio.to_thread(_check_background_liveness),
+    )
+
     return {
-        "ollama": _check_ollama(base),
-        "sessions": _check_sessions(),
-        "workflow": _check_workflow_engine(),
-        "disk": _check_disk(),
-        "event_log": _check_event_log_integrity(),
-        "provider_chain": _check_provider_chain(),
-        "runtimes": _check_runtimes(),
-        "workspaces": _check_workspaces(),
-        "github": _check_github_readiness(),
-        "company_graph": _check_company_graph(),
-        "feature_matrix": _check_feature_matrix(),
-        "ci_parity": _check_ci_parity(),
-        "background_liveness": _check_background_liveness(),
+        "ollama": results[0],
+        "sessions": results[1],
+        "workflow": results[2],
+        "disk": results[3],
+        "event_log": results[4],
+        "provider_chain": results[5],
+        "runtimes": results[6],
+        "workspaces": results[7],
+        "github": results[8],
+        "company_graph": results[9],
+        "feature_matrix": results[10],
+        "ci_parity": results[11],
+        "background_liveness": results[12],
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 

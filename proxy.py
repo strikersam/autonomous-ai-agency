@@ -1794,14 +1794,17 @@ async def diagnostics_status():
 @app.get("/api/diagnostics/health")
 async def diagnostics_health():
     """Public quick health check — all services running? No auth required."""
+    from handlers.diagnostics import _check_ollama
     ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
-    return {"healthy": True, "ollama": _check_ollama(ollama_base)}
+    ollama_status = _check_ollama(ollama_base)
+    healthy = ollama_status.get("reachable", False)
+    return {"healthy": healthy, "ollama": ollama_status}
 
 
 @app.get("/api/diagnostics/deep")
 async def diagnostics_deep(auth: AuthContext = Depends(verify_api_key)):
     """Full system scan — requires authentication. Exposes DB, sessions, cooldowns."""
-    return run_deep_diagnostics()
+    return await run_deep_diagnostics()
 
 
 @app.get("/api/diagnostics/fixes")
