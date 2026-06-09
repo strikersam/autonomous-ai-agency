@@ -22,7 +22,7 @@ You are tasked with integrating user research capabilities into the local-llm-se
 - [ ] **[M]** Add Pydantic models for user research inputs/outputs in agent/models.py `agent/models.py`
 - [ ] **[M]** Register new user research tool in agent/tools.py `agent/tools.py`
 - [ ] **[L]** Create unit tests for user research skill functionality `tests/test_user_research_skill.py`
-- [ ] **[M]** Update agent/tools.py to register new user research capabilities `agent/tools.py`
+- [ ] **[M]** Integrate user research tool with agent loop in agent/loop.py 
 - [ ] **[S]** Update docs/changelog.md with new feature documentation `docs/changelog.md`
 - [ ] **[M]**  `agent/loop.py`
 - [ ] **[S]** Run pytest -x to validate all changes ``
