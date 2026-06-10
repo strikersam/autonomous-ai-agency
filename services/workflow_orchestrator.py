@@ -833,12 +833,11 @@ class WorkflowOrchestrator:
             record (the same store the Providers screen manages) -> local Ollama.
             Returns (openai_compatible_base_url, auth_headers_or_None, model_or_None).
             """
-            import os as _os2
-            env_base = (_os2.environ.get("AGENT_LLM_BASE_URL") or "").strip()
+            env_base = (os.environ.get("AGENT_LLM_BASE_URL") or "").strip()
             if env_base:
-                key = (_os2.environ.get("AGENT_LLM_API_KEY") or "").strip()
+                key = (os.environ.get("AGENT_LLM_API_KEY") or "").strip()
                 headers = {"Authorization": f"Bearer {key}"} if key else None
-                return env_base.rstrip("/"), headers, (_os2.environ.get("AGENT_LLM_MODEL") or None)
+                return env_base.rstrip("/"), headers, (os.environ.get("AGENT_LLM_MODEL") or None)
             try:
                 # Lazy import to avoid a circular import at module load time.
                 from backend.server import _list_configured_provider_records
@@ -866,7 +865,7 @@ class WorkflowOrchestrator:
             except Exception:
                 log.exception("Brain provider resolution failed — falling back to local Ollama")
             return (
-                _os2.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
+                os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
                 None,
                 None,
             )
