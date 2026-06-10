@@ -352,7 +352,7 @@ def test_nested_registry_indexes_deeply_nested_skills():
     assert "project-management" in pm.tags
 
 
-def test_local_skills_dir_defaults_to_repo_root_not_cwd(tmp_path, monkeypatch):
+def test_local_skills_dir_defaults_to_repo_root_not_cwd(tmp_path, monkeypatch) -> None:
     """Production regression: server started from a non-repo CWD indexed
     0 local skills because the default path was CWD-relative."""
     from agent.skill_registry import SkillRegistry
