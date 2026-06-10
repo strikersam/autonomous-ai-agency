@@ -32,6 +32,7 @@
 ## [Unreleased]
 
 ### Added
+- **Autonomous loop enabled in deployment config.** `render.yaml` sets `LOG_WATCHER_AUTO_FILE=1` and `GITHUB_REPOSITORY` so production errors auto-file issues that agents pick up via the context-PR pipeline (mergeable since the docs-context stub workflow). New `docs/runbooks/credential-rotation.md` runbook for the exposed credentials.
 - **Claude 5 family in the model router (issue #495).** `claude-fable-5` registered (reasoning, 200K context); `claude-mythos-5` env-gated behind `ROUTER_ALLOW_MYTHOS` (approved-orgs-only). Tests in `tests/test_model_router.py::TestClaude5Registry`.
 - **Trend analysis module + authenticated `/api/trends` endpoint (issue #493).** `trend_analysis.py` applies a last30days-style 30-day window over the existing TrendWatcher (no duplicate subsystem, no external CLI), persists `trends/trend_summary.md`. Tests in `tests/test_trend_analysis.py`.
 - **Curated skill repos from BehiSecc/awesome-claude-skills (issue #491).** obra/superpowers and sanjay3290/ai-skills registered as nested skill registries; anthropics/skills already indexed.
@@ -303,6 +304,7 @@
   `Depends(require_authenticated)`. Previously all reads were unauthenticated.
 
 ### Fixed
+- **V5 deep links: /v5/<screen> URLs now open the right screen.** `V5App.jsx` derived nothing from the URL — every load rendered Chat regardless of path; back/forward didn't work. Screen state now syncs with react-router location (deep links, history navigation, URL updates on nav).
 - **log_watcher: runtime LOG_WATCHER_AUTO_FILE flag + incremental scan_now(); Bandit-clean test fixtures; py3.13-safe asyncio in tests.** Security Gate and Test (3.13) CI blockers on PR #487 resolved.
 - **Doctor: optional sidecar runtimes (hermes/goose/aider) no longer fail readiness.** Beta sidecars now report `warn` when unavailable; only `internal_agent` is required in the default path. Aligns Doctor with feature-matrix gating of experimental runtimes.
 - **GET /api/company/{id} returned 500 for malformed IDs (production).** `MongoDBStore.get_company` raised ValueError on invalid ObjectId; now returns None so the API raises a clean 404. Regression test in `tests/test_company_graph.py::TestMalformedCompanyId`.
