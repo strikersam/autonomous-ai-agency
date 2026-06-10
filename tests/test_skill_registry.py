@@ -350,3 +350,14 @@ def test_nested_registry_indexes_deeply_nested_skills():
     # frontmatter stripped; description from prose, categories become tags
     assert "name: pre-mortem" not in pm.description
     assert "project-management" in pm.tags
+
+
+def test_local_skills_dir_defaults_to_repo_root_not_cwd(tmp_path, monkeypatch) -> None:
+    """Production regression: server started from a non-repo CWD indexed
+    0 local skills because the default path was CWD-relative."""
+    from agent.skill_registry import SkillRegistry
+    monkeypatch.chdir(tmp_path)  # simulate foreign working directory
+    sr = SkillRegistry()
+    assert len(sr.list(source="local")) > 0, (
+        "expected repo .claude/skills to be indexed regardless of CWD"
+    )

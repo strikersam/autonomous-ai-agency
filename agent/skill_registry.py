@@ -304,7 +304,11 @@ class SkillRegistry:
                  github_token: str | None = None) -> None:
         self._skills: dict[str, RegistrySkill] = {}
         self._last_remote_fetch: float = 0.0
-        self._local_dir = Path(local_skills_dir or ".claude/skills")
+        # Resolve relative to the repo root, not the process CWD — in
+        # production the server may start from a different working directory,
+        # which made the local skill index come up empty (0 skills loaded).
+        _default_dir = Path(__file__).resolve().parent.parent / ".claude" / "skills"
+        self._local_dir = Path(local_skills_dir) if local_skills_dir else _default_dir
         self._github_token = github_token
         self._semaphore = asyncio.Semaphore(self._MAX_CONCURRENT)
         self._etags: dict[str, str] = {}  # URL → ETag for conditional requests
