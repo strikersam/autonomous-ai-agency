@@ -444,6 +444,16 @@ class WorkflowOrchestrator:
                 run.error = f"{type(exc).__name__}: {exc}"
                 return run
 
+        if run.verification is not None and not run.verification.passed:
+            run.status = "failed"
+            run.error = run.error or "; ".join(
+                run.verification.issues or ["Verification failed"]
+            )
+            log.info(
+                "WorkflowOrchestrator: run=%s FAILED — verification did not pass", run.run_id
+            )
+            return run
+
         run.status = "done"
         log.info("WorkflowOrchestrator: run=%s DONE", run.run_id)
         return run
@@ -816,6 +826,51 @@ class WorkflowOrchestrator:
         if plan.goal and plan.goal.strip() and plan.goal[:200] != req.request[:200]:
             instruction = f"Goal: {plan.goal}\n\nFull request:\n{req.request}"
 
+        async def _resolve_brain_provider():
+            """Resolve the LLM endpoint for agent execution from the provider setup.
+
+            Order: AGENT_LLM_* env override -> highest-priority configured provider
+            record (the same store the Providers screen manages) -> local Ollama.
+            Returns (openai_compatible_base_url, auth_headers_or_None, model_or_None).
+            """
+            import os as _os2
+            env_base = (_os2.environ.get("AGENT_LLM_BASE_URL") or "").strip()
+            if env_base:
+                key = (_os2.environ.get("AGENT_LLM_API_KEY") or "").strip()
+                headers = {"Authorization": f"Bearer {key}"} if key else None
+                return env_base.rstrip("/"), headers, (_os2.environ.get("AGENT_LLM_MODEL") or None)
+            try:
+                # Lazy import to avoid a circular import at module load time.
+                from backend.server import _list_configured_provider_records
+                records = await _list_configured_provider_records()
+                records.sort(
+                    key=lambda r: r.get("priority") if isinstance(r.get("priority"), (int, float)) else 0
+                )
+                for rec in records:
+                    base = str(rec.get("base_url") or "").strip().rstrip("/")
+                    if not base:
+                        continue
+                    rtype = str(rec.get("type") or "").lower()
+                    key = str(rec.get("api_key") or "").strip()
+                    if rtype != "ollama" and not key:
+                        continue
+                    if not base.endswith("/v1"):
+                        base = f"{base}/v1"
+                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                    model = str(rec.get("default_model") or "").strip() or None
+                    log.info(
+                        "Brain provider resolved from provider setup: %s base=%s model=%s",
+                        rec.get("provider_id"), base, model,
+                    )
+                    return base, headers, model
+            except Exception:
+                log.exception("Brain provider resolution failed — falling back to local Ollama")
+            return (
+                _os2.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
+                None,
+                None,
+            )
+
         # Try AgentRunner for actual execution (bypass deprecation via flag)
         try:
             from agent.loop import AgentRunner
@@ -833,8 +888,10 @@ class WorkflowOrchestrator:
                 gh_token = req.github_token
                 if gh_token is None and req.user_id is None:
                     gh_token = _os.environ.get("GH_TOKEN") or _os.environ.get("GH_PAT") or _os.environ.get("GITHUB_TOKEN")
+                brain_base, brain_headers, brain_model = await _resolve_brain_provider()
                 runner = AgentRunner(
-                    ollama_base=_os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
+                    ollama_base=brain_base,
+                    provider_headers=brain_headers,
                     workspace_root=_os.getcwd(),
                     github_token=gh_token,
                     email=req.user_id,
@@ -842,7 +899,7 @@ class WorkflowOrchestrator:
                 result = await runner.run(
                     instruction=instruction,
                     history=[],
-                    requested_model=None,
+                    requested_model=brain_model,
                     auto_commit=False,
                     max_steps=req.max_steps,
                     user_id=req.user_id,

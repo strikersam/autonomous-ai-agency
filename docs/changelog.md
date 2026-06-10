@@ -31,6 +31,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Orchestrator execution brain now resolves its LLM endpoint from the provider setup.** `services/workflow_orchestrator.py` no longer hardwires `AgentRunner` to `OLLAMA_BASE`/localhost (root cause of every cloud run dying at planning with "All connection attempts failed"). New `_resolve_brain_provider()` picks the highest-priority configured provider record (the same store the Providers screen manages), passing its base URL, auth header, and default model to the runner; optional `AGENT_LLM_BASE_URL`/`AGENT_LLM_API_KEY`/`AGENT_LLM_MODEL` env override; local Ollama remains the last-resort fallback. Provider switching is now a priority change in the dashboard, no redeploy.
+- **Truthful run status.** A run whose verification fails can no longer end `done`: it is marked `failed` with the verification issues in `run.error`. Live evidence: five approved runs on 2026-06-10 reported `done` with zero changed files and `verification.passed=false`.
+
 ### Added
 - **Autonomous loop enabled in deployment config.** `render.yaml` sets `LOG_WATCHER_AUTO_FILE=1` and `GITHUB_REPOSITORY` so production errors auto-file issues that agents pick up via the context-PR pipeline (mergeable since the docs-context stub workflow). New `docs/runbooks/credential-rotation.md` runbook for the exposed credentials.
 - **Claude 5 family in the model router (issue #495).** `claude-fable-5` registered (reasoning, 200K context); `claude-mythos-5` env-gated behind `ROUTER_ALLOW_MYTHOS` (approved-orgs-only). Tests in `tests/test_model_router.py::TestClaude5Registry`.
