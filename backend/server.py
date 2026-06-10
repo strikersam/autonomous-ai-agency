@@ -4772,7 +4772,12 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
 try:
     from agent.skill_registry import SkillRegistry as _SkillRegistry, set_skill_registry
     _SKILL_REGISTRY = _SkillRegistry(
-        github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_ACCESS_TOKEN")
+        github_token=(
+            os.environ.get("GH_TOKEN")  # render.yaml / preflight use GH_TOKEN
+            or os.environ.get("GITHUB_TOKEN")
+            or os.environ.get("GH_PAT")
+            or os.environ.get("GITHUB_ACCESS_TOKEN")
+        )
     )
     set_skill_registry(_SKILL_REGISTRY)
 except Exception as _sr_err:

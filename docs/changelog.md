@@ -304,6 +304,7 @@
   `Depends(require_authenticated)`. Previously all reads were unauthenticated.
 
 ### Fixed
+- **Skill registry empty in production (Doctor: '0 skills loaded / repos configured but none fetched').** Two root causes found via browser E2E + pre-mortem probe: (1) the registry token fallback chain omitted `GH_TOKEN` (the var render.yaml and preflight actually use), so remote fetches ran unauthenticated and hit the 60/h GitHub rate limit; (2) the default local skills dir was CWD-relative, indexing 0 skills when the server starts outside the repo root. Token chain now includes GH_TOKEN; local dir resolves relative to the repo. Regression test added.
 - **V5 deep links: /v5/<screen> URLs now open the right screen.** `V5App.jsx` derived nothing from the URL — every load rendered Chat regardless of path; back/forward didn't work. Screen state now syncs with react-router location (deep links, history navigation, URL updates on nav).
 - **log_watcher: runtime LOG_WATCHER_AUTO_FILE flag + incremental scan_now(); Bandit-clean test fixtures; py3.13-safe asyncio in tests.** Security Gate and Test (3.13) CI blockers on PR #487 resolved.
 - **Doctor: optional sidecar runtimes (hermes/goose/aider) no longer fail readiness.** Beta sidecars now report `warn` when unavailable; only `internal_agent` is required in the default path. Aligns Doctor with feature-matrix gating of experimental runtimes.
