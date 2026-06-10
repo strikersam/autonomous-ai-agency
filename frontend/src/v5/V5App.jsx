@@ -78,8 +78,12 @@ export default function V5App() {
   const isAdmin = user?.role === 'admin';
   const agentRunning = true;
   const go = React.useCallback((s) => {
-    setScreen(s);
-    navigate(`/v5/${s === 'chat' ? '' : s}`, { replace: false });
+    // Normalize: unknown/invalid targets fall back to chat so state and URL
+    // never disagree (e.g. a stale nav id would otherwise produce /v5/<bogus>
+    // while the shell renders the chat fallback).
+    const target = V5_SCREENS.includes(s) ? s : 'chat';
+    setScreen(target);
+    navigate(`/v5/${target === 'chat' ? '' : target}`, { replace: false });
   }, [navigate]);
   // Back/forward buttons and external URL changes keep the screen in sync.
   React.useEffect(() => {
