@@ -54,6 +54,44 @@ def test_task_create_request_accepts_status():
     assert body.status is TaskStatus.IN_REVIEW
 
 
+@pytest.mark.parametrize(
+    "start_status,expected_status",
+    [
+        (TaskStatus.FAILED, TaskStatus.TODO),
+        (TaskStatus.BLOCKED, TaskStatus.IN_PROGRESS),
+        (TaskStatus.IN_REVIEW, TaskStatus.IN_PROGRESS),
+        (TaskStatus.NEEDS_CLARIFICATION, TaskStatus.IN_PROGRESS),
+        (TaskStatus.DONE, TaskStatus.IN_PROGRESS),
+        (TaskStatus.TODO, TaskStatus.TODO),
+        (TaskStatus.IN_PROGRESS, TaskStatus.IN_PROGRESS),
+    ],
+)
+def test_retry_is_permissive_for_every_non_active_state(
+    workflow: TaskWorkflowService,
+    start_status: TaskStatus,
+    expected_status: TaskStatus,
+):
+    """The dashboard Retry button is always visible, so retry() must never 400 —
+    it re-opens terminal/blocked/review/clarify tasks and re-arms runnable ones.
+    Regression for: 'retry of failed task throws runtime exception with 400 error'
+    and clicking Retry on a NEEDS_CLARIFICATION task (previously an illegal
+    transition because the status was missing from ALLOWED_TRANSITIONS)."""
+    task = Task(owner_id="owner@example.com", title="Retry me")
+    task.status = start_status
+    if start_status is TaskStatus.BLOCKED:
+        task.blocked_reason = "needs creds"
+    task.auto_retry_count = 3
+    task.error_message = "boom"
+
+    # Must not raise (the old guard raised ValueError -> HTTP 400).
+    workflow.retry(task, actor="user:owner@example.com")
+
+    assert task.status is expected_status
+    assert task.pending_agent_run is True
+    assert task.auto_retry_count == 0
+    assert task.error_message is None
+
+
 @pytest.mark.asyncio
 async def test_workflow_enforces_blocked_reason_and_legal_transitions(workflow: TaskWorkflowService):
     task = Task(owner_id="owner@example.com", title="Fix auth", agent_id="agent_builder")

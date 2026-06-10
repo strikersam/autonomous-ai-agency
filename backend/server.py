@@ -3664,6 +3664,14 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     # Hard timeouts so a stuck/thinking model never silently hangs the request.
     _AGENT_TIMEOUT_SEC = 45  # stay below hosted edge timeouts; recover with direct answer
     _LLM_TIMEOUT_SEC = 120  # 2 minutes for simple LLM calls
+    # The background agent job is polled (the HTTP request already returned 202),
+    # so the edge-timeout rationale above does not apply to the loop itself. Bound
+    # the whole agent loop so an unreachable planner fails fast with a clear message
+    # instead of grinding through the planner's 300s HTTP timeout × retries (~15 min),
+    # which users perceive as "stuck in planning forever".
+    _DIRECT_CHAT_AGENT_TIMEOUT_SEC = int(
+        os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "180")
+    )
 
     if use_agent:
         _ensure_agent_session_exists(
@@ -3730,20 +3738,34 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
 
         async def _run_agent_job(heartbeat):
             heartbeat("planning", f"Planner model: {role_models['planner']}")
-            response_text = await _run_agent_loop(
-                instruction=body.content,
-                session_messages=model_messages[:-1],
-                wiki_index=wiki_index,
-                provider=primary_provider,
-                session_id=sid,
-                requested_model=requested_agent_model,
-                model_overrides=role_models,
-                github_token=user.get("github_repo_token"),
-                provider_chain=router.providers[1:],
-                allow_commercial_fallback=policy["allow_commercial_fallback"],
-                workspace_root=workspace_root,
-                context=body.context,
-            )
+            try:
+                response_text = await asyncio.wait_for(
+                    _run_agent_loop(
+                        instruction=body.content,
+                        session_messages=model_messages[:-1],
+                        wiki_index=wiki_index,
+                        provider=primary_provider,
+                        session_id=sid,
+                        requested_model=requested_agent_model,
+                        model_overrides=role_models,
+                        github_token=user.get("github_repo_token"),
+                        provider_chain=router.providers[1:],
+                        allow_commercial_fallback=policy["allow_commercial_fallback"],
+                        workspace_root=workspace_root,
+                        context=body.context,
+                    ),
+                    timeout=_DIRECT_CHAT_AGENT_TIMEOUT_SEC,
+                )
+            except asyncio.TimeoutError as exc:
+                # Fail fast with an actionable message rather than letting the UI
+                # sit on "planning" while the planner's HTTP timeout × retries run.
+                raise RuntimeError(
+                    f"Agent mode timed out after {_DIRECT_CHAT_AGENT_TIMEOUT_SEC}s — the "
+                    f"planner model '{role_models['planner']}' did not respond. It may be "
+                    f"unreachable from this deployment (no local Ollama in the cloud). "
+                    f"Check the Providers screen, set AGENT_PLANNER_MODEL to a reachable "
+                    f"model, or use Direct mode. (Raise DIRECT_CHAT_AGENT_TIMEOUT_SEC to wait longer.)"
+                ) from exc
             heartbeat("verification", f"Judge model: {role_models['judge']}")
             await _persist_agent_chat_response(
                 session_id=sid,
