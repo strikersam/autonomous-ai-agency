@@ -58,6 +58,11 @@ COPY infra_cost.py infra_cost.py
 COPY telegram_bot.py telegram_bot.py
 COPY models/ models/
 COPY services/ services/
+# Ship the skill library so /api/skills (SkillRegistry._index_local) finds the
+# .claude/skills/*/SKILL.md descriptors at runtime. Without this the Skills
+# screen shows 0 skills in production: the dir is resolved relative to the repo
+# root but was never copied into the image, so _index_local() early-returns.
+COPY .claude/ .claude/
 # The built SPA from stage 1 (backend/server.py `_FRONTEND_BUILD` serves it at
 # /login and every UI route). Built from source in-image, so this never depends
 # on the gitignored frontend/build/ existing in the build context.
