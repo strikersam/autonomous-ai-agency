@@ -57,6 +57,35 @@ _PHASE_TIMEOUT_SEC = float(os.environ.get("ORCHESTRATOR_PHASE_TIMEOUT_SEC", "120
 _MAX_PHASE_RETRIES = int(os.environ.get("ORCHESTRATOR_MAX_PHASE_RETRIES", "2"))
 _BACKOFF_BASE_SEC = float(os.environ.get("ORCHESTRATOR_BACKOFF_BASE_SEC", "1.0"))
 
+
+def _resolve_push_token(github_token: str | None, user_id: str | None) -> str | None:
+    """GitHub token used to push branches / open PRs during EXECUTION (#506).
+
+    Precedence:
+      1. The per-request / per-user token (Settings > GitHub) always wins.
+      2. The operator/server token (GH_TOKEN/GH_PAT/GITHUB_TOKEN) is the fallback
+         for internal system runs (no user_id) — and for user-initiated runs only
+         when explicitly opted in via ``ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS``.
+
+    Defaulting the opt-in OFF preserves the multi-tenant guard (a user run must not
+    silently borrow the service account's repo access); the operator of a
+    single-tenant agency sets the flag (or connects a per-user token) so that
+    runs can actually open PRs instead of executing and then failing to push.
+    """
+    if github_token:
+        return github_token
+    allow_user_runs = os.environ.get(
+        "ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", ""
+    ).strip().lower() in ("1", "true", "yes", "on")
+    if user_id is None or allow_user_runs:
+        return (
+            os.environ.get("GH_TOKEN")
+            or os.environ.get("GH_PAT")
+            or os.environ.get("GITHUB_TOKEN")
+        )
+    return None
+
+
 # ── Feature flag ──────────────────────────────────────────────────────────────
 
 WORKFLOW_MODE = os.environ.get("AGENCY_WORKFLOW_MODE", "orchestrator")
@@ -1078,9 +1107,7 @@ class WorkflowOrchestrator:
                 # user's own repo permissions. Only fall back to the server-wide
                 # token for internal/system runs (no user_id) — never let a
                 # user-initiated run borrow the service account's repo access.
-                gh_token = req.github_token
-                if gh_token is None and req.user_id is None:
-                    gh_token = _os.environ.get("GH_TOKEN") or _os.environ.get("GH_PAT") or _os.environ.get("GITHUB_TOKEN")
+                gh_token = _resolve_push_token(req.github_token, req.user_id)
                 brain_base, brain_headers, brain_model = await _resolve_brain_provider()
                 # Record provider provenance for failover tracking.
                 run.llm_provenance["execute"] = (brain_model or brain_base.split("/")[-1] or "unknown")
@@ -1174,9 +1201,7 @@ class WorkflowOrchestrator:
         # Try to verify PR if GitHub token available. Use the caller's token
         # (same as preflight/execute) so verification reflects the caller's
         # access; env fallback only for internal/system runs (no user_id).
-        github_token = req.github_token
-        if github_token is None and req.user_id is None:
-            github_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN")
+        github_token = _resolve_push_token(req.github_token, req.user_id)
         if github_token and execution.output:
             import re
             pr_matches = re.findall(r'github\.com/([^/]+/[^/]+)/pull/(\d+)', execution.output)
