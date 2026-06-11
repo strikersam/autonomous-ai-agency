@@ -18,7 +18,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-log = logging.getLogger("qwen-proxy")
+log = logging.getLogger("qwen-scheduler")
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -72,22 +72,22 @@ class ScheduledJob:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ScheduledJob":
-        """Reconstruct a ScheduledJob from a persisted dict (see as_dict)."""
+        """Reconstruct a ScheduledJob from its as_dict() output."""
         return cls(
-            job_id=d.get("job_id") or d.get("id") or ("job_" + secrets.token_hex(6)),
+            job_id=d.get("job_id", d.get("id", "")),
             name=d.get("name", ""),
-            cron=d.get("cron") or d.get("schedule", ""),
+            cron=d.get("cron", "0 0 * * *"),
             instruction=d.get("instruction", ""),
-            created_at=d.get("created_at") or _now(),
+            created_at=d.get("created_at", ""),
             agent_id=d.get("agent_id"),
             runtime_id=d.get("runtime_id"),
             model=d.get("model"),
             task_type=d.get("task_type", "scheduled"),
-            requires_approval=bool(d.get("requires_approval", d.get("approval_gate", False))),
-            tags=list(d.get("tags") or []),
+            requires_approval=d.get("requires_approval", False),
+            tags=d.get("tags", []),
             last_run=d.get("last_run"),
-            run_count=int(d.get("run_count", 0) or 0),
-            enabled=bool(d.get("enabled", True)),
+            run_count=d.get("run_count", 0),
+            enabled=d.get("enabled", True),
         )
 
 
@@ -109,59 +109,15 @@ class AgentScheduler:
     ) -> None:
         self._jobs: dict[str, ScheduledJob] = {}
         self._on_fire = on_fire
+        self._aps: Any = None
         # Durable store (ScheduleStore-like: load_all/upsert/remove). Optional —
         # when None the scheduler behaves exactly as before (in-memory only).
         self._persistence = persistence
-        self._aps: Any = None
+        self._store = persistence  # #505: durable store (lazy-init if None)
         if _HAS_APSCHEDULER:
             self._aps = BackgroundScheduler()
             self._aps.start()
             log.info("APScheduler background scheduler started")
-
-    def _persist(self, job: ScheduledJob) -> None:
-        if self._persistence is None:
-            return
-        try:
-            self._persistence.upsert(job.as_dict())
-        except Exception as exc:  # never let persistence break scheduling
-            log.warning("Schedule persist failed for %s: %s", job.job_id, exc)
-
-    def rehydrate(self) -> int:
-        """Reload persisted schedules on boot and re-register their cron triggers.
-
-        Returns the number of jobs rehydrated. Does NOT fire jobs or re-persist
-        them. Safe to call once at startup after construction. Fixes #505 — the
-        12 company cadences + tech-debt burndown now survive a redeploy.
-        """
-        if self._persistence is None:
-            return 0
-        count = 0
-        try:
-            docs = self._persistence.load_all()
-        except Exception as exc:
-            log.warning("Schedule rehydrate: load_all failed: %s", exc)
-            return 0
-        for d in docs:
-            try:
-                job = ScheduledJob.from_dict(d)
-                if job.job_id in self._jobs:
-                    continue
-                self._jobs[job.job_id] = job
-                # Register every job with APScheduler — including disabled ones —
-                # then pause the disabled ones, so a later toggle(enabled=True)
-                # can resume_job() instead of silently failing on a missing job.
-                self._register_aps(job)
-                if not job.enabled and self._aps:
-                    try:
-                        self._aps.pause_job(job.job_id)
-                    except Exception as exc:
-                        log.warning("Could not pause rehydrated job %s: %s", job.job_id, exc)
-                count += 1
-            except Exception as exc:
-                log.warning("Schedule rehydrate: skipping bad record %r: %s", d, exc)
-        if count:
-            log.info("Rehydrated %d scheduled job(s) from durable store", count)
-        return count
 
     # ------------------------------------------------------------------
     # Public API
@@ -197,7 +153,15 @@ class AgentScheduler:
         )
         self._jobs[job_id] = job
         self._register_aps(job)
-        self._persist(job)
+        try:
+            asyncio.create_task(self._persist(job))
+        except RuntimeError:
+            # No event loop (sync caller, test fixture) — persist synchronously.
+            if self._store is not None:
+                try:
+                    self._store.upsert(job.as_dict())
+                except Exception:
+                    pass
         log.info("Scheduled job created: id=%s name=%r cron=%r", job_id, name, cron)
         return job
 
@@ -214,16 +178,20 @@ class AgentScheduler:
         if job_id not in self._jobs:
             return False
         del self._jobs[job_id]
+        try:
+            asyncio.create_task(self._remove_persisted(job_id))
+        except RuntimeError:
+            # No event loop — delete synchronously.
+            if self._store is not None:
+                try:
+                    self._store.remove(job_id)
+                except Exception:
+                    pass
         if self._aps:
             try:
                 self._aps.remove_job(job_id)
             except Exception:
                 pass
-        if self._persistence is not None:
-            try:
-                self._persistence.remove(job_id)
-            except Exception as exc:
-                log.warning("Schedule remove-persist failed for %s: %s", job_id, exc)
         log.info("Scheduled job deleted: id=%s", job_id)
         return True
 
@@ -243,6 +211,15 @@ class AgentScheduler:
         if not job:
             raise KeyError(f"Job {job_id!r} not found")
         job.enabled = enabled
+        try:
+            asyncio.create_task(self._persist(job))
+        except RuntimeError:
+            # No event loop — persist synchronously.
+            if self._store is not None:
+                try:
+                    self._store.upsert(job.as_dict())
+                except Exception:
+                    pass
         if self._aps:
             try:
                 if enabled:
@@ -251,12 +228,13 @@ class AgentScheduler:
                     self._aps.pause_job(job_id)
             except Exception:
                 pass
-        self._persist(job)
         log.info("Job %s %s", job_id, "enabled" if enabled else "paused")
         return job
 
     def set_on_fire(self, on_fire: Callable[[ScheduledJob], Any] | None) -> None:
         self._on_fire = on_fire
+
+    # ── #505: Durable scheduler store ─────────────────────────────────────
 
     def attach_persistence(self, persistence: Any) -> int:
         """Attach a durable store and immediately rehydrate from it (#505).
@@ -266,7 +244,97 @@ class AgentScheduler:
         number of jobs rehydrated.
         """
         self._persistence = persistence
+        self._store = persistence
         return self.rehydrate()
+
+    async def _ensure_store(self) -> None:
+        if self._store is not None:
+            return
+        # Prefer the services.scheduler_store singleton (backward compat for
+        # tests that inject via mod._store) and fall back to the agent-level
+        # ScheduleStore when it isn't available.
+        try:
+            from services.scheduler_store import get_scheduler_store
+            self._store = get_scheduler_store()
+            return
+        except Exception:
+            pass
+        try:
+            from agent.schedule_store import ScheduleStore
+            self._store = ScheduleStore()
+        except Exception:
+            pass
+
+    def rehydrate(self) -> int:
+        """Sync entry-point for attach_persistence(); delegates to hydrate()."""
+        return asyncio.run(self.hydrate())
+
+    async def hydrate(self) -> int:
+        """#505: Rehydrate persisted schedules on boot.
+
+        Returns the number of jobs restored from durable storage.
+        """
+        await self._ensure_store()
+        if self._store is None:
+            return 0
+        try:
+            result = self._store.load_all()
+            docs = (await result) if inspect.isawaitable(result) else result
+            count = 0
+            for doc in docs:
+                job_id = doc.get("job_id") or doc.get("id")
+                if not job_id or job_id in self._jobs:
+                    continue
+                job = ScheduledJob(
+                    job_id=job_id,
+                    name=doc.get("name", "restored-job"),
+                    cron=doc.get("cron", "0 0 * * *"),
+                    instruction=doc.get("instruction", ""),
+                    created_at=doc.get("created_at", _now()),
+                    agent_id=doc.get("agent_id"),
+                    runtime_id=doc.get("runtime_id"),
+                    model=doc.get("model"),
+                    task_type=doc.get("task_type", "scheduled"),
+                    requires_approval=doc.get("requires_approval", False),
+                    tags=doc.get("tags", []),
+                    last_run=doc.get("last_run"),
+                    run_count=doc.get("run_count", 0),
+                    enabled=doc.get("enabled", True),
+                )
+                self._jobs[job_id] = job
+                self._register_aps(job)
+                count += 1
+            if count:
+                log.info("Hydrated %d scheduled job(s) from durable store", count)
+            return count
+        except Exception as exc:
+            log.warning("Scheduler hydration failed: %s", exc)
+            return 0
+
+    async def _persist(self, job: ScheduledJob) -> None:
+        """#505: Persist a job to durable storage."""
+        await self._ensure_store()
+        if self._store is None:
+            return
+        try:
+            result = self._store.upsert(job.as_dict())
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            log.warning("Scheduler persist failed for %s: %s", job.job_id, exc)
+
+    async def _remove_persisted(self, job_id: str) -> None:
+        """#505: Remove a job from durable storage."""
+        if self._store is None:
+            await self._ensure_store()
+        if self._store is None:
+            return
+        try:
+            result = self._store.remove(job_id)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Internal
@@ -302,7 +370,10 @@ class AgentScheduler:
             return
         job.last_run = _now()
         job.run_count += 1
-        self._persist(job)  # keep last_run/run_count durable
+        try:
+            asyncio.create_task(self._persist(job))
+        except RuntimeError:
+            pass  # no event loop (sync caller)
         log.info("Firing job %s (%s)", job_id, job.name)
         if self._on_fire:
             try:

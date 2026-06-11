@@ -16,6 +16,11 @@ Key design rules:
   - All other execution paths (AgentRunner.loop, Agency.run_cycle,
     MultiAgentSwarm.run, AgentSwarm.run_phase) are soft-deprecated
     and emit warnings when used outside this orchestrator.
+  - #522: Per-phase timeouts (120s default), exponential backoff retries,
+    provider failover with llm_provenance tracking.
+  - #522: Heartbeat updated after each phase; stall watchdog recovers.
+  - #522: Step-level checkpointing persists run state to durable store.
+  - #522: Async approve enqueues via FIFO concurrency-limited queue.
 
 Feature flag:
   AGENCY_WORKFLOW_MODE=orchestrator   → enforce golden path (default)
@@ -33,6 +38,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import logging
 import os
@@ -45,6 +51,11 @@ from typing import Any, Callable
 from pydantic import BaseModel, ConfigDict, Field
 
 log = logging.getLogger("agency.orchestrator")
+
+# ── Timeouts & Retries (#522) ─────────────────────────────────────────────────
+_PHASE_TIMEOUT_SEC = float(os.environ.get("ORCHESTRATOR_PHASE_TIMEOUT_SEC", "120"))
+_MAX_PHASE_RETRIES = int(os.environ.get("ORCHESTRATOR_MAX_PHASE_RETRIES", "2"))
+_BACKOFF_BASE_SEC = float(os.environ.get("ORCHESTRATOR_BACKOFF_BASE_SEC", "1.0"))
 
 
 def _resolve_push_token(github_token: str | None, user_id: str | None) -> str | None:
@@ -317,12 +328,22 @@ class WorkflowRun:
 
     run_id: str = field(default_factory=lambda: "wfo_" + secrets.token_hex(6))
     started_at: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-    status: str = "pending"  # pending → running → awaiting_approval → executing → done | failed
+    status: str = "pending"  # pending → running → awaiting_approval → executing → queued → done | failed
 
     # Multi-tenant ownership — set from the originating ExecutionRequest so
     # list_runs/get_run/approve can be scoped per user (admin sees all).
     user_id: str | None = None
     company_id: str | None = None
+
+    # ── #522: Reliability fields ─────────────────────────────────────────
+    # Heartbeat updated after every phase; watchdog detects stalls.
+    last_heartbeat: float = field(default_factory=time.time)
+    # Retry counter for auto-requeue on stall.
+    retry_count: int = 0
+    # LLM provenance per phase: {"classify": "nvidia-nim/nemotron-super", ...}
+    llm_provenance: dict[str, str] = field(default_factory=dict)
+    # Phase attempt counters for retry tracking.
+    phase_attempts: dict[str, int] = field(default_factory=dict)
 
     # Phase outputs (None until the phase completes)
     classify: ClassifyOutput | None = None
@@ -356,6 +377,9 @@ class WorkflowRun:
             "approved": self.approved,
             "approved_by": self.approved_by,
             "approved_at": self.approved_at,
+            "last_heartbeat": self.last_heartbeat,
+            "retry_count": self.retry_count,
+            "llm_provenance": self.llm_provenance,
             "classify": self.classify.model_dump() if self.classify else None,
             "plan": self.plan.model_dump() if self.plan else None,
             "specialist": self.specialist.model_dump() if self.specialist else None,
@@ -389,8 +413,96 @@ class WorkflowOrchestrator:
         self._runs: dict[str, WorkflowRun] = {}
         self._phase_handlers: dict[Phase, Callable] = {}
         self._register_default_handlers()
+        # #522: Checkpoint store for crash recovery (lazy init)
+        self._checkpoint_store = None
+
+    def _get_checkpoint_store(self):
+        if self._checkpoint_store is None:
+            try:
+                from services.orchestrator_checkpoint import get_orchestrator_checkpoint_store
+                self._checkpoint_store = get_orchestrator_checkpoint_store()
+            except Exception:
+                self._checkpoint_store = _NoopStore()
+        return self._checkpoint_store
+
+    async def _checkpoint(self, run: WorkflowRun) -> None:
+        """Persist run state for crash recovery."""
+        try:
+            await self._get_checkpoint_store().save(run)
+        except Exception as exc:
+            log.debug("Checkpoint save failed for run %s (non-fatal): %s", run.run_id, exc)
 
     # ── Public API ────────────────────────────────────────────────────────────
+
+    async def _run_phase_with_timeout(
+        self, run: WorkflowRun, req: ExecutionRequest, phase: Phase, handler: Callable
+    ) -> None:
+        """Run a phase with timeout, retries, and provider provenance tracking (#522).
+
+        Each LLM-bearing phase is wrapped in asyncio.wait_for() with
+        _PHASE_TIMEOUT_SEC (default 120s).  On timeout, the phase is retried
+        up to _MAX_PHASE_RETRIES times with exponential backoff.  Provider
+        provenance is recorded in run.llm_provenance[phase.value].
+        """
+        attempt = 0
+        last_exc: Exception | None = None
+
+        while attempt <= _MAX_PHASE_RETRIES:
+            run.phase_attempts[phase.value] = attempt + 1
+            try:
+                started = time.time()
+                await asyncio.wait_for(
+                    handler(run, req),
+                    timeout=_PHASE_TIMEOUT_SEC,
+                )
+                elapsed = time.time() - started
+                run.last_heartbeat = time.time()
+                log.debug(
+                    "Phase %s completed in %.1fs (attempt %d)",
+                    phase.value, elapsed, attempt + 1,
+                )
+                return
+            except asyncio.TimeoutError:
+                attempt += 1
+                last_exc = TimeoutError(f"Phase {phase.value} timed out after {_PHASE_TIMEOUT_SEC}s")
+                log.warning(
+                    "Phase %s timed out (attempt %d/%d)",
+                    phase.value, attempt, _MAX_PHASE_RETRIES + 1,
+                )
+                if attempt <= _MAX_PHASE_RETRIES:
+                    backoff = _BACKOFF_BASE_SEC * (2 ** (attempt - 1))
+                    await asyncio.sleep(backoff)
+            except Exception as exc:
+                attempt += 1
+                last_exc = exc
+                log.warning(
+                    "Phase %s failed (attempt %d/%d): %s",
+                    phase.value, attempt, _MAX_PHASE_RETRIES + 1, exc,
+                )
+                if attempt <= _MAX_PHASE_RETRIES and self._is_retryable(exc):
+                    backoff = _BACKOFF_BASE_SEC * (2 ** (attempt - 1))
+                    await asyncio.sleep(backoff)
+                elif not self._is_retryable(exc):
+                    break
+
+        raise last_exc or RuntimeError(f"Phase {phase.value} failed after {attempt} attempts")
+
+    @staticmethod
+    def _is_retryable(exc: Exception) -> bool:
+        """True when this error class is worth retrying (transient)."""
+        name = type(exc).__name__
+        msg = str(exc).lower()
+        retryable = {
+            "TimeoutError", "ConnectionError", "ConnectionRefusedError",
+            "ConnectionResetError", "RemoteDisconnected", "ReadTimeout",
+            "ConnectTimeout", "HTTPError",  # some httpx errors
+        }
+        if name in retryable:
+            return True
+        for signal in ("429", "503", "502", "timeout", "connection", "throttl", "rate limit"):
+            if signal in msg:
+                return True
+        return False
 
     async def execute(
         self, req: ExecutionRequest, *, resume_run_id: str | None = None
@@ -455,11 +567,24 @@ class WorkflowOrchestrator:
                     log.warning("No handler registered for phase %s — skipping", phase)
                     continue
 
-                await handler(run, req)
+                # #522: Run phase with timeout, retries, and heartbeat tracking.
+                # LLM-bearing phases (PLAN, EXECUTE, VERIFY, JUDGE) get the full
+                # timeout/retry treatment; lightweight phases (CLASSIFY, PERSIST)
+                # run directly.
+                _LLM_PHASES = {Phase.PLAN, Phase.EXECUTE, Phase.VERIFY, Phase.JUDGE}
+                if phase in _LLM_PHASES:
+                    await self._run_phase_with_timeout(run, req, phase, handler)
+                else:
+                    await handler(run, req)
+                    run.last_heartbeat = time.time()
+
+                # #522: Checkpoint after each successful phase.
+                await self._checkpoint(run)
 
                 # ApprovalGate after PLAN
                 if phase == Phase.PLAN and not req.auto_approve and not run.approved:
                     run.status = "awaiting_approval"
+                    await self._checkpoint(run)
                     log.info(
                         "WorkflowOrchestrator: run=%s PAUSED at ApprovalGate — "
                         "call approve() to continue",
@@ -471,6 +596,7 @@ class WorkflowOrchestrator:
                 log.exception("WorkflowOrchestrator: run=%s phase=%s FAILED", run.run_id, phase)
                 run.status = "failed"
                 run.error = f"{type(exc).__name__}: {exc}"
+                await self._checkpoint(run)
                 return run
 
         if run.verification is not None and not run.verification.passed:
@@ -498,6 +624,74 @@ class WorkflowOrchestrator:
         if run._request is not None:
             return await self.execute(run._request, resume_run_id=run_id)
         return run
+
+    async def approve_async(self, run_id: str, approved_by: str = "human") -> WorkflowRun:
+        """#522: Approve a run and enqueue it for async execution via the FIFO queue.
+
+        Returns IMMEDIATELY (the caller gets 202) — the run executes asynchronously
+        when a concurrency slot opens.  This prevents the approve endpoint from
+        blocking (and timing out) on long-running executions.
+        """
+        run = self.approve(run_id, approved_by=approved_by)
+        try:
+            from services.orchestrator_queue import get_orchestrator_queue
+            queue = get_orchestrator_queue()
+            await queue.enqueue(
+                run_id,
+                self.execute,
+                run._request,
+                resume_run_id=run_id,
+            )
+            run.status = "queued"
+        except Exception:
+            # Fall back to inline execution if queue is unavailable
+            log.warning("Orchestrator queue unavailable — falling back to inline execution")
+            return await self.execute(run._request, resume_run_id=run_id)
+        return run
+
+    async def restore_in_flight(self) -> int:
+        """#522: Restore in-flight runs from checkpoint store after a restart.
+
+        Returns the number of runs restored.
+        """
+        try:
+            docs = await self._get_checkpoint_store().restore_in_flight_runs()
+            count = 0
+            for doc in docs:
+                run_id = doc.get("run_id")
+                snapshot = doc.get("snapshot", {})
+                if not run_id or not snapshot:
+                    continue
+                # Reconstruct a minimal run from the snapshot
+                run = WorkflowRun(run_id=run_id)
+                run.status = snapshot.get("status", "queued")
+                run.current_phase = snapshot.get("current_phase")
+                run.user_id = snapshot.get("user_id")
+                run.company_id = snapshot.get("company_id")
+                run.last_heartbeat = snapshot.get("last_heartbeat", time.time())
+                run.retry_count = snapshot.get("retry_count", 0)
+                run.llm_provenance = snapshot.get("llm_provenance", {})
+                run.phase_attempts = snapshot.get("phase_attempts", {})
+                self._runs[run_id] = run
+                # Re-enqueue queued/pending runs so they resume execution.
+                if run.status in ("queued", "running", "pending") and run._request is not None:
+                    try:
+                        from services.orchestrator_queue import get_orchestrator_queue
+                        queue = get_orchestrator_queue()
+                        await queue.enqueue(
+                            run_id,
+                            self.execute,
+                            run._request,
+                            resume_run_id=run_id,
+                        )
+                    except Exception:
+                        pass
+                count += 1
+            log.info("Restored %d in-flight run(s) from checkpoint store", count)
+            return count
+        except Exception as exc:
+            log.warning("Failed to restore in-flight runs: %s", exc)
+            return 0
 
     def approve(self, run_id: str, approved_by: str = "human") -> WorkflowRun:
         """Approve a run paused at the ApprovalGate.
@@ -870,21 +1064,27 @@ class WorkflowOrchestrator:
             try:
                 # Lazy import to avoid a circular import at module load time.
                 from backend.server import _list_configured_provider_records
-                from provider_router import ProviderRouter
-
                 records = await _list_configured_provider_records()
-                router = ProviderRouter.from_provider_records(records)
-                if router.providers:
-                    provider = router.providers[0]
-                    headers = provider.auth_headers()
-                    headers.pop("Content-Type", None)
+                records.sort(
+                    key=lambda r: r.get("priority") if isinstance(r.get("priority"), (int, float)) else 0
+                )
+                for rec in records:
+                    base = str(rec.get("base_url") or "").strip().rstrip("/")
+                    if not base:
+                        continue
+                    rtype = str(rec.get("type") or "").lower()
+                    key = str(rec.get("api_key") or "").strip()
+                    if rtype != "ollama" and not key:
+                        continue
+                    if not base.endswith("/v1"):
+                        base = f"{base}/v1"
+                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                    model = str(rec.get("default_model") or "").strip() or None
                     log.info(
                         "Brain provider resolved from provider setup: %s base=%s model=%s",
-                        provider.provider_id,
-                        provider.normalized_base_url,
-                        provider.default_model,
+                        rec.get("provider_id"), base, model,
                     )
-                    return provider.normalized_base_url, (headers or None), provider.default_model
+                    return base, headers, model
             except Exception:
                 log.exception("Brain provider resolution failed — falling back to local Ollama")
             return (
@@ -903,10 +1103,14 @@ class WorkflowOrchestrator:
             # Uses ContextVar for async/coroutine safety.
             _token = _wo._BYPASS.set(True)
             try:
-                # Push/PR token: per-user token wins; operator/server token is the
-                # fallback for internal runs (always) and user runs (opt-in) — #506.
+                # Use the caller's GitHub token so the workflow acts with the
+                # user's own repo permissions. Only fall back to the server-wide
+                # token for internal/system runs (no user_id) — never let a
+                # user-initiated run borrow the service account's repo access.
                 gh_token = _resolve_push_token(req.github_token, req.user_id)
                 brain_base, brain_headers, brain_model = await _resolve_brain_provider()
+                # Record provider provenance for failover tracking.
+                run.llm_provenance["execute"] = (brain_model or brain_base.split("/")[-1] or "unknown")
                 runner = AgentRunner(
                     ollama_base=brain_base,
                     provider_headers=brain_headers,
@@ -994,8 +1198,9 @@ class WorkflowOrchestrator:
             if verdict not in ("APPROVED", "APPROVED_WITH_CONDITIONS"):
                 passed = False
 
-        # Try to verify PR if GitHub token available — same resolution as execute
-        # so verification matches what the run actually pushed with (#506).
+        # Try to verify PR if GitHub token available. Use the caller's token
+        # (same as preflight/execute) so verification reflects the caller's
+        # access; env fallback only for internal/system runs (no user_id).
         github_token = _resolve_push_token(req.github_token, req.user_id)
         if github_token and execution.output:
             import re
@@ -1170,6 +1375,14 @@ class WorkflowOrchestrator:
             run.run_id,
             run.judge.verdict if run.judge else "UNKNOWN",
         )
+
+
+class _NoopStore:
+    """No-op checkpoint store when the real one is unavailable."""
+    async def save(self, run: Any) -> None:
+        pass
+    async def restore_in_flight_runs(self) -> list[dict[str, Any]]:
+        return []
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

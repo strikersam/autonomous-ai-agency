@@ -619,3 +619,31 @@ async def test_coordinator_deduplicates_overlapping_execution_requests(task_stor
     await asyncio.gather(first, second)
 
     assert runtime_manager.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_human_retry_resets_runtime_unavailable_counter(workflow: TaskWorkflowService):
+    """Regression: a task that exhausted the runtime-unavailable dispatch limit
+    must NOT re-block instantly after a human retry — the counter resets."""
+    task = Task(owner_id="owner@example.com", title="Stuck task", agent_id="agent_builder")
+
+    for _ in range(12):
+        task.add_log(
+            "No runtime available",
+            level="warning",
+            event_type="runtime_unavailable",
+            actor="system:coordinator",
+        )
+    task.status = TaskStatus.BLOCKED
+
+    workflow.retry(task, actor="owner@example.com")
+
+    # Re-compute the counter the same way the coordinator does post-fix
+    count = 0
+    for e in task.execution_log:
+        if e.event_type == "runtime_retry_reset":
+            count = 0
+        elif e.event_type == "runtime_unavailable":
+            count += 1
+    assert count == 0
+    assert task.pending_agent_run is True

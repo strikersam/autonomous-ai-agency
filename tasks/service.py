@@ -268,6 +268,12 @@ class TaskWorkflowService:
                 pending_agent_run=True,
             )
         task.auto_retry_count = 0  # human retry resets the auto-retry counter
+        task.add_log(
+            "Runtime-unavailable counter reset by human retry",
+            event_type="runtime_retry_reset",
+            actor=actor,
+            task_status=task.status,
+        )
         task.error_message = None
         return task
 
@@ -311,6 +317,12 @@ class TaskWorkflowService:
                     message=f"Follow-up requested by {actor}",
                     pending_agent_run=True,
                 )
+        task.add_log(
+            "Runtime-unavailable counter reset by follow-up",
+            event_type="runtime_retry_reset",
+            actor=actor,
+            task_status=task.status,
+        )
         task.error_message = None
         return task
 
@@ -558,10 +570,16 @@ class TaskExecutionCoordinator:
         except RuntimeUnavailableError as exc:
             # No healthy runtime was available at dispatch time.  Re-queue the
             # task instead of failing it so the next dispatcher cycle retries.
-            unavailable_events = sum(
-                1 for e in task.execution_log
-                if e.event_type == "runtime_unavailable"
-            )
+            # Count only runtime_unavailable events since the most recent
+            # human retry/follow-up. Counting the task's *entire* history meant
+            # any task that ever exhausted the limit re-blocked immediately on
+            # every later retry ("400 no runtime available" → BLOCKED).
+            unavailable_events = 0
+            for e in task.execution_log:
+                if e.event_type == "runtime_retry_reset":
+                    unavailable_events = 0
+                elif e.event_type == "runtime_unavailable":
+                    unavailable_events += 1
             if unavailable_events >= _DISPATCH_RETRY_LIMIT:
                 log.error(
                     "Task %s blocked after %d failed dispatch attempts: %s",
