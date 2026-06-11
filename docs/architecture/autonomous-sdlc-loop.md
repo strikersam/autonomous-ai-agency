@@ -267,6 +267,34 @@ force, never silently drop, never land on the deployment branch.*
 
 ---
 
+## Integrations & intake sources (honest tiers)
+
+Two distinct integration kinds — keep them separate and **never advertise what isn't
+wired** (the docs-consistency gate applies):
+
+**Code hosts (read + write: branch/PR/merge)**
+- **GitHub / GitHub Enterprise** — supported.
+- **GitLab**, **Bitbucket** — planned (provider-abstracted `RepoClient`).
+
+**Intake sources (issues / tickets / signals → tasks)**
+- **GitHub Issues** — supported.
+- **Jira (API token)** — *planned, first-class.* High-value: poll/JQL the project,
+  turn tickets into capability-tagged tasks, push status/comment back, link the PR to
+  the ticket. (An Atlassian connector is already reachable in-session, so this is a
+  natural near-term add — auth via Jira **API token + email + site URL**.)
+- **Scanner signals / Quick Note / Telegram / operator dashboard** — supported.
+
+**Coming soon (surface as a disabled option with a "Coming soon" badge — do NOT
+implement a fake path):** AWS CodeCommit, Azure DevOps (Repos + Boards), Gitea,
+Linear, Asana, Trello. These appear in the connect UI so users see the roadmap, but
+selecting one says "coming soon" rather than pretending to integrate.
+
+> Rule: an integration is either **wired + tested** (shown active) or **"Coming
+> soon"** (shown disabled). Nothing in between — same anti-drift discipline as the
+> feature matrix.
+
+---
+
 ## Reuse map (what already exists)
 
 | Capability | Existing component | Status |
