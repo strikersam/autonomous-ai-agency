@@ -3,7 +3,12 @@
   "session_id": "agency-cycle-fresh-2026-06-10",
   "status": "ready",
   "last_updated": "2026-06-10T08:30:14.173Z",
-  "next_step": "Run agency-cycle.yml workflow — CEO assessment, pytest baseline, bandit scan.",
+  "next_step": {
+    "id": "agency-cycle-001",
+    "name": "Run agency-cycle workflow",
+    "description": "CEO assessment, pytest baseline, bandit scan \u2014 trigger agency-cycle.yml after Friday maintenance.",
+    "resume_command": "python scripts/ai_runner.py resume"
+  },
   "completed_steps": [
     "weekly-maintenance-2026-06-10"
   ],
