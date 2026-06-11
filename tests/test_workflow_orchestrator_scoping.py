@@ -196,7 +196,7 @@ class TestOrchestratorEndpointScoping:
         resp = api_client.post(
             f"/api/workflow/orchestrator/approve/{run_id}?approved_by=somebody-else"
         )
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code in (200, 202), resp.text  # 202 when enqueued via approve_async
         assert resp.json()["run"]["approved_by"] == "alice"
 
     def test_admin_sees_all_runs(self, api_client):
