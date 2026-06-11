@@ -31,6 +31,9 @@
 
 ## [Unreleased]
 
+### Added
+- README: "Live monitoring, self-supervision, and a knowledge base that writes itself" — documents the switchable execution brain, live derived alerts, the three supervision cadences, the GitHub-native tracking loop, and an honest in-progress note for #505/#517/#518.
+
 ### Fixed
 - **AlertsBell is now live.** `/api/activity` returns the `items`/`activities` keys the v5 bell reads (previous shape was invisible to it, making the bell look like a dummy), and derives storage-free alerts on read: failed orchestrator runs (P1), runs awaiting approval (P2), and an empty scheduler wipe warning linking issue #505. Added `docs/knowledge/agency-operational-knowledge.md` and a matching wiki page in the Knowledge screen.
 - **Telegram bot crash: `UnboundLocalError` on `TELEGRAM_BOT_TOKEN`.** `telegram_bot.py::run_bot()` reassigns the module-global `TELEGRAM_BOT_TOKEN` (whitespace strip) but only declared `ALLOWED_USER_IDS`/`ADMIN_USER_IDS` as `global`, so Python treated `TELEGRAM_BOT_TOKEN` as a function-local and the earlier `if not TELEGRAM_BOT_TOKEN` read raised `cannot access local variable 'TELEGRAM_BOT_TOKEN' where it is not associated with a value` — the bot crash-looped every 30s. Added `TELEGRAM_BOT_TOKEN` to the `global` declaration.
