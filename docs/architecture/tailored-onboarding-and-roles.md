@@ -133,3 +133,29 @@ Specialist×Skill matrix CI gate (already added) keeps every role skill-bound.
 - Every onboarding question maps to a concrete provisioning action (no cosmetic Qs).
 - Any provisioned role (seed or custom) is skill-bound + workflow-attached (CI-gated).
 - Custom roles are namespaced per company; the 34 seeds stay globally consistent.
+
+---
+
+## UI-first — an API is not "done"
+
+**Every capability must be reachable and actionable from the dashboard UI**, not only
+via REST. "The endpoint exists" does not count as shipped. Verified gaps (2026-06-10):
+
+| Capability | API | JS client | UI surface | Gap |
+|------------|-----|-----------|-----------|-----|
+| Edit company | `PATCH /api/company/{id}` ✅ | `updateCompany` ✅ | `CompanyScreen` is **read-only** | **wire edit** |
+| Provision/add specialist | `POST /api/company/{id}/specialists` ✅ | `provisionSpecialist` ✅ | none | **wire add/role UI** |
+| Edit provider priority/key/model (#508) | `PUT /api/providers/{id}` ✅ | `updateProvider` ✅ | `ProvidersScreen` only creates + set-default | **in-place edit form** |
+| Connect repo (GitHub/GitLab/Bitbucket) | (Phase 0) | — | none | **connect UI + per-conn token** |
+| Connect intake (Jira; coming-soon others) | (planned) | — | none | **integrations screen w/ badges** |
+| Edit onboarding answers / re-tailor | partial | — | one-shot wizard | **editable + re-run** |
+| Roles add/edit (Role Registry) | (Phase 3) | — | none | **role management UI** |
+
+**Requirement:** each backend capability above ships with a UI control in the relevant
+v5 screen (`CompanyScreen`, `ProvidersScreen`, `AgentsScreen`, `OnboardingScreen`, a new
+**Integrations** screen). Coming-soon integrations render as **disabled options with a
+"Coming soon" badge** — visible, honest, not clickable.
+
+**Anti-drift gate (extends `tests/test_docs_consistency.py`):** for the load-bearing
+capabilities, assert that an API/client function is actually referenced by a screen
+component — so "API-only, no UI" fails CI the same way feature/skill drift does.
