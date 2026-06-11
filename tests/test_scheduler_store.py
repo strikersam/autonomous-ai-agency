@@ -11,12 +11,15 @@ class TestSchedulerStore:
     def store(self):
         from services.scheduler_store import (
             SchedulerStore,
-            get_scheduler_store,
+            _MemDB,
             _store as _ss_singleton,
         )
         _backup = _ss_singleton
         s = SchedulerStore()
-        # Force memory backend
+        # Force memory backend — inject _MemDB directly so _ensure_db()
+        # skips the `from backend.server import get_db` import chain which
+        # can trigger event-loop-closed errors in CI.
+        s._db = _MemDB()
         import services.scheduler_store as mod
         mod._store = s
         yield s
@@ -74,6 +77,9 @@ class TestSchedulerStore:
 
         # Set up a store with a persisted job
         sim_store = SchedulerStore()
+        # Force memory backend to skip get_db() import chain in CI.
+        from services.scheduler_store import _MemDB
+        sim_store._db = _MemDB()
         sim_job = ScheduledJob(
             job_id="hydrate-job",
             name="hydrate test",

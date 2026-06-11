@@ -250,6 +250,15 @@ class AgentScheduler:
     async def _ensure_store(self) -> None:
         if self._store is not None:
             return
+        # Prefer the services.scheduler_store singleton (backward compat for
+        # tests that inject via mod._store) and fall back to the agent-level
+        # ScheduleStore when it isn't available.
+        try:
+            from services.scheduler_store import get_scheduler_store
+            self._store = get_scheduler_store()
+            return
+        except Exception:
+            pass
         try:
             from agent.schedule_store import ScheduleStore
             self._store = ScheduleStore()
