@@ -31,6 +31,9 @@
 
 ## [Unreleased]
 
+### Added
+- README: "Live monitoring, self-supervision, and a knowledge base that writes itself" — documents the switchable execution brain, live derived alerts, the three supervision cadences, the GitHub-native tracking loop, and an honest in-progress note for #505/#517/#518.
+
 ### Fixed
 - **Hardened the public KPI endpoint + agent-timeout parsing (review follow-ups).** `/api/kpi/public` no longer returns raw exception text (logs server-side, returns a generic message); `DIRECT_CHAT_AGENT_TIMEOUT_SEC` parsing validates/falls back to 180s on a malformed or non-positive value instead of crashing the request.
 - **Agents no longer sit idle — the 24×7 CEO loop is actually started.** `start_background_services` launched the dispatcher, scheduler and self-bootstrap but **never started the proactive CEO `Agency` loop** (`agent/agency.py`), so the dispatcher only ran reactively (quick notes / scheduled cadences) and specialists idled between events. Now `_start_ceo_agency()` starts it on boot (gated by `AGENCY_CEO_ENABLED`, default on; crash-safe; rule-based fallback when the CEO LLM is unreachable). Tests in `tests/test_ceo_agency_startup.py`.
