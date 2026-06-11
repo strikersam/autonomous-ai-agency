@@ -155,6 +155,118 @@ invents `REPO_WRITE` tasks for it; the agency focuses on the domains it *can* se
 
 ---
 
+## Universality: case-coverage matrix
+
+To be truly universal the loop must have a defined behaviour for every combination
+of connection, provider, policy, CI, review, state, stack, and governance. Each axis
+below lists the cases and the handling; the **golden rule** across all of them:
+*when uncertain or unsafe, stop at a reviewable artifact (PR/draft) + HITL — never
+force, never silently drop, never land on the deployment branch.*
+
+### A. Connection & credentials
+| Case | Handling |
+|------|----------|
+| No repo + no token (URL-only) | Non-code work runs; code tasks paused `awaiting_repo_connection`. |
+| Repo URL, no token (public) | `REPO_READ` (clone/scan) ok; `REPO_WRITE` paused `awaiting_token`. |
+| Token, no repo URL | List repos the token can access; ask operator to pick (HITL). |
+| Token with insufficient scope (no push/PR) | Detect via API probe; pause writes with `insufficient_scope` + re-auth CTA. |
+| Token expired / revoked mid-flow | 401/403 ⇒ pause affected tasks, emit re-auth CTA, keep work queued. |
+| Org SSO-gated token | Detect SSO requirement; surface "authorize token for org" CTA. |
+| Fine-grained PAT vs classic vs OAuth vs GitHub App | Capability probe, not assumptions — store detected permissions on the connection. |
+| Multiple repos per company (poly-repo) | A company has *N* `RepoConnection`s; tasks bind to a specific repo; route by path/signal. |
+| Monorepo | One connection; path-scoped CODEOWNERS + path-scoped tests/scope. |
+
+### B. Provider & host
+| Case | Handling |
+|------|----------|
+| GitHub.com / GitHub Enterprise | `RepoClient(github, base_url)`; PR terminology. |
+| GitLab.com / self-managed | MR terminology, GitLab CI checks, approvers rules. |
+| Bitbucket Cloud / Server | PR + Bitbucket pipelines + reviewers. |
+| Self-hosted / custom base URL | `base_url` on the connection; never hardcode api.github.com. |
+| Unsupported provider | Degrade to clone+push over git only (no PR API); or pause with "provider unsupported". |
+
+### C. Delivery / branch policy  *(detected — see DeliveryPolicy)*
+| Case | Handling |
+|------|----------|
+| Direct push to default allowed | Push commits straight to deployment branch. |
+| PR/MR required into default | Open PR into correct base; merge per repo rules. |
+| Gitflow (feature→develop→release→main) | Base work on the integration branch, not `main`; respect promotion chain. |
+| Protected branch: required reviews/checks/CODEOWNERS | Block landing until satisfied with the repo's own thresholds. |
+| Required signed commits (GPG/S/MIME) | Sign with a configured key; if unavailable ⇒ pause `cannot_sign` + HITL. |
+| Linear history / "up-to-date before merge" | Rebase/merge base, re-run checks, then land. |
+| Squash-only / merge-only / rebase-only | Use the repo's single allowed `merge_method`. |
+| Fork-only contribution (no upstream branch) | Fork → branch → PR from fork. |
+| Ambiguous / unreadable protection | Safest path: PR, no auto-merge, surface policy for confirmation. |
+
+### D. CI / checks
+| Case | Handling |
+|------|----------|
+| Repo has CI (Actions/GitLab CI/Jenkins/external) | Wait for required checks; land only when green. |
+| Repo has **no** CI | Run tests + bandit/lint **in our worktree** as the gate. |
+| Required check we can't trigger (external) | Async wait w/ timeout ⇒ escalate, don't force-merge. |
+| Flaky / transient failure | Bounded re-run; if persistent ⇒ real failure, escalate. |
+| Long-running checks | Async wait off the worker; resume on webhook/poll. |
+| Non-Python stack | Language-aware tooling (jest/go test/cargo/…); scanner detects stack. |
+
+### E. Review automation & humans
+| Case | Handling |
+|------|----------|
+| CodeRabbit / Codex bot reviews | Ingest threads; classify actionable vs nit vs question. |
+| Actionable comment | Sub-task → patch → push → resolve thread. |
+| Nit / question / "won't fix" | Reply with rationale; resolve or leave per convention. |
+| Required **human** approval | Wait; never self-approve; notify the reviewer; timeout ⇒ escalate. |
+| Conflicting / ambiguous feedback | HITL — do not guess. |
+| Review loop (changes requested N×) | Bounded retries (≤3), then escalate with a diff of what was tried. |
+| No reviewers at all | Our JUDGE + council-review skill act as the gating reviewer. |
+
+### F. Repo state & conflicts
+| Case | Handling |
+|------|----------|
+| Base moved / merge conflict | Rebase/merge base in the worktree, re-verify; unresolvable ⇒ HITL. |
+| Existing draft/plan PR for the issue | Continue it in place; never open a duplicate. |
+| Branch name collision | Detect + reuse or suffix; idempotent. |
+| Concurrent tasks touching same files | Per-repo **merge queue** / serialize landings to avoid conflict storms. |
+| Someone force-pushed the PR branch | Detect divergence; re-sync or escalate. |
+| Repo deleted / access lost mid-flow | Pause, notify, keep artifacts. |
+
+### G. Task origin
+| Source | Handling |
+|--------|----------|
+| Issue (this or customer repo) | Context → implement → land. |
+| Scanner signal (security/stack/trend) | Synthesized task, no issue required. |
+| Operator / dashboard / Quick Note / Telegram | Normal task intake. |
+| Portfolio initiative | Decomposed into capability-tagged tasks (WSJF-ranked). |
+| Scheduled cadence | Recurring task; dedupe against open work. |
+
+### H. Governance / safety / HITL
+| Case | Handling |
+|------|----------|
+| Auto-merge opt-in vs off | Per connection; off ⇒ always stop at PR. |
+| Production / high-risk repo | Stricter: mandatory HITL even if auto-merge on. |
+| Sensitive paths (auth, payments, infra, secrets) | Mandatory HITL regardless of policy. |
+| Spend / rate-limit budget per company | Enforce budget; pause `budget_exceeded` when hit. |
+| Provider API rate-limited | Exponential backoff; resume. |
+| Push rejected by secret-scanning / push protection | Treat as a hard stop; strip secret, never bypass protection. |
+| Compliance (license, no-secrets, audit) | License check + `_local_safety_check`; every action audited + KPI'd. |
+
+### I. Idempotency & dedupe (cross-cutting)
+- One open PR per issue/initiative; one reply per review thread; reusing existing
+  branches/PRs — keyed on `(connection, issue_id|initiative_id)`. CEO-style dedupe
+  prevents two agents implementing the same thing.
+
+### J. Concurrency & fairness (cross-cutting)
+- Per-company and per-repo concurrency caps; fair scheduling across companies; a
+  per-repo landing queue so concurrent merges don't thrash. Worktree isolation
+  (already built) keeps task working trees independent.
+
+### K. Stuck / dead-letter (cross-cutting)
+- Any task that can't progress lands in a typed paused state (`awaiting_*`,
+  `needs_human`, `budget_exceeded`, `cannot_sign`, …) — visible on the board, never
+  lost. The reconciler (`reconcile_stranded_tasks`) is the last-resort net, observable
+  and rate-warned (Doctor warning if it fires > N/24h).
+
+---
+
 ## Reuse map (what already exists)
 
 | Capability | Existing component | Status |
