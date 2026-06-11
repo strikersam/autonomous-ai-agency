@@ -86,6 +86,16 @@ async def start_background_services(
     scheduler.set_on_fire(task_automation.handle_scheduled_job)
     log.info("Scheduler automation wired to task workflow")
 
+    # Durable schedule persistence + boot rehydration (#505): without this, the
+    # in-memory scheduler loses every company cadence on redeploy.
+    try:
+        from agent.schedule_store import ScheduleStore
+
+        n = scheduler.attach_persistence(ScheduleStore())
+        log.info("Scheduler durable persistence attached (%d job(s) rehydrated)", n)
+    except Exception as exc:
+        log.warning("Scheduler durable persistence not attached: %s", exc)
+
     await runtime_manager.start()
     log.info(
         "RuntimeManager started (%d runtimes registered)",
