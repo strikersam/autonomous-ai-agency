@@ -68,7 +68,7 @@ function CapBadge({ cap }) {
 }
 
 // A real, persisted provider record from GET /api/providers.
-function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, busy }) {
+function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, onEdit, busy }) {
   const [testState, setTestState] = React.useState(null); // null | 'testing' | 'ok' | 'error'
   const [testMsg, setTestMsg]     = React.useState('');
   const isDefault = !!provider.is_default;
@@ -103,9 +103,10 @@ function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, busy })
         </div>
       </div>
 
-      <div style={{ display:'flex', gap:10, fontSize:11, color:'var(--text-muted)', marginBottom:10 }}>
+      <div style={{ display:'flex', gap:10, fontSize:11, color:'var(--text-muted)', marginBottom:10, flexWrap:'wrap' }}>
         <span>Model: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.default_model || '—'}</span></span>
         {provider.api_key_masked ? <span>Key: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.api_key_masked}</span></span> : <span style={{ color:'#46d9a4' }}>no key</span>}
+        <span>Priority: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.priority ?? '—'}</span></span>
       </div>
 
       {testState && (
@@ -116,6 +117,7 @@ function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, busy })
 
       <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
         <button onClick={test} disabled={testState==='testing'} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)' }}>Test</button>
+        <button onClick={()=>onEdit(provider)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(196,181,253,0.10)', border:'1px solid rgba(196,181,253,0.25)', color:'#c4b5fd' }}>Edit</button>
         {!isDefault && <button onClick={()=>onSetDefault(provider.provider_id)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.22)', color:'#46d9a4' }}>Set default</button>}
         <button onClick={()=>onDelete(provider)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d', marginLeft:'auto' }}>Delete</button>
       </div>
@@ -188,6 +190,66 @@ function AddProviderForm({ onCreate, onClose }) {
       {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
       <div style={{ display:'flex', gap:8 }}>
         <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Saving…' : '+ Add provider'}</button>
+        <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// Edit an existing provider in place (PUT /api/providers/{id}) — #508.
+// Lets operators change priority / key / model / name / base_url after creation.
+function EditProviderForm({ provider, onUpdate, onClose }) {
+  const [name, setName]       = React.useState(provider.name || '');
+  const [baseUrl, setBaseUrl] = React.useState(provider.base_url || '');
+  const [apiKey, setApiKey]   = React.useState('');  // blank = keep existing key
+  const [model, setModel]     = React.useState(provider.default_model || '');
+  const [priority, setPriority] = React.useState(
+    provider.priority === null || provider.priority === undefined ? '' : String(provider.priority)
+  );
+  const [busy, setBusy]   = React.useState(false);
+  const [error, setError] = React.useState(null);
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    const payload = {
+      name: name.trim(),
+      base_url: baseUrl.trim(),
+      default_model: model.trim(),
+    };
+    // Only send the key when the operator typed a new one — never blank it out.
+    if (apiKey.trim()) payload.api_key = apiKey.trim();
+    if (priority.trim() !== '') {
+      const n = parseInt(priority, 10);
+      if (Number.isNaN(n)) { setError('Priority must be a whole number.'); setBusy(false); return; }
+      payload.priority = n;
+    }
+    try {
+      await onUpdate(provider.provider_id, payload);
+      onClose();
+    } catch (e) {
+      setError(errText(e, 'Failed to update provider.'));
+      setBusy(false);
+    }
+  };
+
+  const fld = { width:'100%', padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' };
+  return (
+    <div style={{ borderRadius:18, border:'1px solid rgba(196,181,253,0.25)', background:'rgba(196,181,253,0.05)', padding:'16px', marginBottom:14 }}>
+      <div style={{ fontSize:13, fontWeight:800, color:'#fff', marginBottom:2 }}>Edit provider</div>
+      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', marginBottom:12 }}>{provider.provider_id}</div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Display name" style={fld}/>
+        <input value={priority} onChange={e=>setPriority(e.target.value)} placeholder="Priority (lower = first)" inputMode="numeric" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
+      </div>
+      <input value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="Base URL (https://api.example.com/v1)" style={{ ...fld, fontFamily:'var(--font-mono)', marginBottom:10 }}/>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+        <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder={provider.api_key_masked ? `Leave blank to keep (${provider.api_key_masked})` : 'API key (optional)'} style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
+        <input value={model} onChange={e=>setModel(e.target.value)} placeholder="Default model" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
+      </div>
+      {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
+      <div style={{ display:'flex', gap:8 }}>
+        <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#c4b5fd,#a78bfa)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Saving…' : 'Save changes'}</button>
         <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
       </div>
     </div>
@@ -462,6 +524,7 @@ function MCPTab() {
 function ProvidersScreen() {
   const [tab, setTab]         = React.useState('providers');
   const [showAdd, setShowAdd] = React.useState(false);
+  const [editingId, setEditingId] = React.useState(null);
   const [busy, setBusy]       = React.useState(false);
   const [actionErr, setActionErr] = React.useState(null);
   const [showCatalog, setShowCatalog] = React.useState(false);
@@ -486,6 +549,10 @@ function ProvidersScreen() {
     try { await api.deleteProvider(provider.provider_id); refetch(); }
     catch (e) { setActionErr(errText(e, 'Could not delete provider.')); }
     finally { setBusy(false); }
+  };
+  const handleUpdate = async (id, payload) => {
+    await api.updateProvider(id, payload);  // throws → surfaced by EditProviderForm
+    refetch();
   };
 
   return (
@@ -535,8 +602,15 @@ function ProvidersScreen() {
           ) : (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))', gap:10 }}>
               {providers.map(p => (
-                <BackendProviderCard key={p.provider_id} provider={p} busy={busy}
-                  onTest={api.testProvider} onSetDefault={handleSetDefault} onDelete={handleDelete}/>
+                editingId === p.provider_id ? (
+                  <div key={p.provider_id} style={{ gridColumn:'1 / -1' }}>
+                    <EditProviderForm provider={p} onUpdate={handleUpdate} onClose={()=>setEditingId(null)}/>
+                  </div>
+                ) : (
+                  <BackendProviderCard key={p.provider_id} provider={p} busy={busy}
+                    onTest={api.testProvider} onSetDefault={handleSetDefault} onDelete={handleDelete}
+                    onEdit={(prov)=>{ setEditingId(prov.provider_id); setShowAdd(false); }}/>
+                )
               ))}
             </div>
           )}

@@ -4581,6 +4581,8 @@ class ProviderCreate(BaseModel):
     api_key: str = ""
     default_model: str = ""
     is_default: bool = False
+    # Routing order (lower = tried first). Surfaced + editable in the Providers UI (#508).
+    priority: int = None
 
 
 class ProviderUpdate(BaseModel):
@@ -4589,6 +4591,8 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
+    # Lets the Providers screen edit routing priority/key/model in place (#508).
+    priority: int = None
 
 
 @app.get("/api/providers")
