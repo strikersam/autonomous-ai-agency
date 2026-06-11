@@ -70,6 +70,26 @@ class ScheduledJob:
             "fail_count": 0,
         }
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ScheduledJob":
+        """Reconstruct a ScheduledJob from a persisted dict (see as_dict)."""
+        return cls(
+            job_id=d.get("job_id") or d.get("id") or ("job_" + secrets.token_hex(6)),
+            name=d.get("name", ""),
+            cron=d.get("cron") or d.get("schedule", ""),
+            instruction=d.get("instruction", ""),
+            created_at=d.get("created_at") or _now(),
+            agent_id=d.get("agent_id"),
+            runtime_id=d.get("runtime_id"),
+            model=d.get("model"),
+            task_type=d.get("task_type", "scheduled"),
+            requires_approval=bool(d.get("requires_approval", d.get("approval_gate", False))),
+            tags=list(d.get("tags") or []),
+            last_run=d.get("last_run"),
+            run_count=int(d.get("run_count", 0) or 0),
+            enabled=bool(d.get("enabled", True)),
+        )
+
 
 class AgentScheduler:
     """Register, list, trigger, and delete cron-scheduled agent jobs.
@@ -85,14 +105,56 @@ class AgentScheduler:
     def __init__(
         self,
         on_fire: Callable[[ScheduledJob], None] | None = None,
+        persistence: Any | None = None,
     ) -> None:
         self._jobs: dict[str, ScheduledJob] = {}
         self._on_fire = on_fire
+        # Durable store (ScheduleStore-like: load_all/upsert/remove). Optional —
+        # when None the scheduler behaves exactly as before (in-memory only).
+        self._persistence = persistence
         self._aps: Any = None
         if _HAS_APSCHEDULER:
             self._aps = BackgroundScheduler()
             self._aps.start()
             log.info("APScheduler background scheduler started")
+
+    def _persist(self, job: ScheduledJob) -> None:
+        if self._persistence is None:
+            return
+        try:
+            self._persistence.upsert(job.as_dict())
+        except Exception as exc:  # never let persistence break scheduling
+            log.warning("Schedule persist failed for %s: %s", job.job_id, exc)
+
+    def rehydrate(self) -> int:
+        """Reload persisted schedules on boot and re-register their cron triggers.
+
+        Returns the number of jobs rehydrated. Does NOT fire jobs or re-persist
+        them. Safe to call once at startup after construction. Fixes #505 — the
+        12 company cadences + tech-debt burndown now survive a redeploy.
+        """
+        if self._persistence is None:
+            return 0
+        count = 0
+        try:
+            docs = self._persistence.load_all()
+        except Exception as exc:
+            log.warning("Schedule rehydrate: load_all failed: %s", exc)
+            return 0
+        for d in docs:
+            try:
+                job = ScheduledJob.from_dict(d)
+                if job.job_id in self._jobs:
+                    continue
+                self._jobs[job.job_id] = job
+                if job.enabled:
+                    self._register_aps(job)
+                count += 1
+            except Exception as exc:
+                log.warning("Schedule rehydrate: skipping bad record %r: %s", d, exc)
+        if count:
+            log.info("Rehydrated %d scheduled job(s) from durable store", count)
+        return count
 
     # ------------------------------------------------------------------
     # Public API
@@ -128,6 +190,7 @@ class AgentScheduler:
         )
         self._jobs[job_id] = job
         self._register_aps(job)
+        self._persist(job)
         log.info("Scheduled job created: id=%s name=%r cron=%r", job_id, name, cron)
         return job
 
@@ -149,6 +212,11 @@ class AgentScheduler:
                 self._aps.remove_job(job_id)
             except Exception:
                 pass
+        if self._persistence is not None:
+            try:
+                self._persistence.remove(job_id)
+            except Exception as exc:
+                log.warning("Schedule remove-persist failed for %s: %s", job_id, exc)
         log.info("Scheduled job deleted: id=%s", job_id)
         return True
 
@@ -176,11 +244,22 @@ class AgentScheduler:
                     self._aps.pause_job(job_id)
             except Exception:
                 pass
+        self._persist(job)
         log.info("Job %s %s", job_id, "enabled" if enabled else "paused")
         return job
 
     def set_on_fire(self, on_fire: Callable[[ScheduledJob], Any] | None) -> None:
         self._on_fire = on_fire
+
+    def attach_persistence(self, persistence: Any) -> int:
+        """Attach a durable store and immediately rehydrate from it (#505).
+
+        Called at startup once the DB is available (the scheduler itself is
+        constructed at import time, before Mongo is reachable). Returns the
+        number of jobs rehydrated.
+        """
+        self._persistence = persistence
+        return self.rehydrate()
 
     # ------------------------------------------------------------------
     # Internal
@@ -216,6 +295,7 @@ class AgentScheduler:
             return
         job.last_run = _now()
         job.run_count += 1
+        self._persist(job)  # keep last_run/run_count durable
         log.info("Firing job %s (%s)", job_id, job.name)
         if self._on_fire:
             try:
