@@ -123,8 +123,15 @@ class SchedulerStore:
 
 
 class _MemDB:
+    def __init__(self) -> None:
+        self._collections: dict[str, _MemCollection] = {}
+
     def __getattr__(self, name: str):
-        return _MemCollection()
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if name not in self._collections:
+            self._collections[name] = _MemCollection()
+        return self._collections[name]
 
 
 class _MemCollection:
