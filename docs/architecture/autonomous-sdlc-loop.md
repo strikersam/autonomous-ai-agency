@@ -46,7 +46,7 @@ class RepoConnection:
     url: str                 # https://github.com/<owner>/<repo>
     token: str               # per-connection PAT/OAuth (NOT the server token)
     default_branch: str = "main"
-    provider: str = "github" # github | gitlab | … (future)
+    provider: str = "github" # github | gitlab | bitbucket | … (provider-abstracted)
     delivery: "DeliveryPolicy | None" = None  # detected per repo (see below)
 ```
 
@@ -111,6 +111,47 @@ class DeliveryPolicy:
 fall back to the **safest** path (open a PR, never auto-merge) and surface the
 detected `DeliveryPolicy` for operator confirmation before the first unattended
 merge on that repo. `auto_merge_allowed` is opt-in per connection.
+
+---
+
+## Companies without a connected repo (URL-only onboarding)
+
+Many companies onboard with **only a website URL** — no repo, no PAT, sometimes no
+codebase at all. The agency must still be useful, and code work must **wait, not fail**.
+
+**Split work by capability, not by company.** Every task declares what it needs:
+
+```python
+class TaskCapability(str, Enum):
+    NONE        = "none"          # research, SEO, content, portfolio, monitoring, drafts
+    REPO_READ   = "repo_read"     # scan/analyse code (clone only)
+    REPO_WRITE  = "repo_write"    # implement / push / open PR / merge  → needs a connection
+```
+
+- **`NONE` tasks run regardless of any repo** — a URL-only company gets its full
+  non-code agency (the content/SEO/research/marketing/portfolio/support specialists,
+  which already exist and are now skill-bound for all 34 families). Value is delivered
+  on day one without a repo.
+- **`REPO_WRITE` (and `REPO_READ`) tasks** check the company's `RepoConnection` before
+  execution. If none exists, the task is **created and paused**, not dropped:
+  `status = BLOCKED`, `blocked_reason = "awaiting_repo_connection"` (a typed reason),
+  surfaced on the board with a **“Connect a repository”** CTA (GitHub / GitLab /
+  **Bitbucket**). The work item is visible and queued — the operator sees *exactly*
+  what the agency would do the moment a repo is connected.
+
+**Auto-resume on connect.** Adding a `RepoConnection` for a company emits a
+`repo_connected` event that re-queues every task `BLOCKED` on
+`awaiting_repo_connection` for that company (reuse `tasks/dispatcher._auto_retry_blocked`
++ the permissive `retry()` already on master in #515). No manual re-trigger.
+
+**Provider-abstracted.** A repo connection can be GitHub, GitLab, or Bitbucket; the
+`GitHubClient` generalises to a `RepoClient(connection)` interface so detection,
+push, PR/MR, comments, and merge work across providers. A company may connect a repo
+*after* months of URL-only operation — the queued code tasks then flow through the
+normal loop.
+
+**No fabricated code work.** If a company genuinely has no codebase, the loop never
+invents `REPO_WRITE` tasks for it; the agency focuses on the domains it *can* serve.
 
 ---
 
