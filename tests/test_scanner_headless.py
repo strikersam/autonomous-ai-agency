@@ -453,10 +453,11 @@ class TestBotProtectionResilience:
         monkeypatch.setattr(scanner, "_detect_systems_generic", fake_detect)
 
         class _Resp:
-            text = "<html><body>thin storefront</body></html>"
-            headers: dict = {}
-            cookies: dict = {}
-            status_code = 200
+            def __init__(self) -> None:
+                self.text = "<html><body>thin storefront</body></html>"
+                self.headers: dict = {}
+                self.cookies: dict = {}
+                self.status_code = 200
 
         class _Session:
             def __init__(self, *a, **k):

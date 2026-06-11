@@ -3669,9 +3669,15 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     # the whole agent loop so an unreachable planner fails fast with a clear message
     # instead of grinding through the planner's 300s HTTP timeout × retries (~15 min),
     # which users perceive as "stuck in planning forever".
-    _DIRECT_CHAT_AGENT_TIMEOUT_SEC = int(
-        os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "180")
-    )
+    try:
+        _DIRECT_CHAT_AGENT_TIMEOUT_SEC = int(
+            os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "180")
+        )
+        if _DIRECT_CHAT_AGENT_TIMEOUT_SEC <= 0:
+            raise ValueError("must be > 0")
+    except (ValueError, TypeError):
+        log.warning("Invalid DIRECT_CHAT_AGENT_TIMEOUT_SEC; falling back to 180s.")
+        _DIRECT_CHAT_AGENT_TIMEOUT_SEC = 180
 
     if use_agent:
         _ensure_agent_session_exists(
@@ -6509,10 +6515,11 @@ async def get_public_kpis() -> dict:
     try:
         from agent.kpi import get_tracker
         snapshot = get_tracker().snapshot().as_dict()
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception:  # pragma: no cover - defensive
+        log.exception("Public KPI snapshot unavailable")
         return {
             "available": False,
-            "error": str(exc),
+            "error": "KPI service temporarily unavailable",
             "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
 

@@ -103,7 +103,7 @@ async def test_provider_router_falls_back_to_second_provider(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_rate_limited_provider_fails_over_immediately_without_burning_retries(monkeypatch):
+async def test_rate_limited_provider_fails_over_immediately_without_burning_retries(monkeypatch) -> None:
     """A 429 (e.g. 40 rpm hit) must NOT retry the same provider — it fails over to the
     next working provider at once and cools the rate-limited one."""
     from provider_router import is_provider_on_cooldown
@@ -128,7 +128,7 @@ async def test_rate_limited_provider_fails_over_immediately_without_burning_retr
         ]
     )
 
-    # max_retries=2: the OLD behaviour would call fast-but-limited 3× before failover.
+    # max_retries=2: the OLD behaviour would call fast-but-limited 3x before failover.
     result = await router.chat_completion(
         {"model": "a", "messages": [{"role": "user", "content": "hi"}]}, max_retries=2
     )
@@ -141,7 +141,7 @@ async def test_rate_limited_provider_fails_over_immediately_without_burning_retr
     assert await is_provider_on_cooldown("fast-but-limited") is True
 
 
-def test_parse_retry_after_seconds_and_missing():
+def test_parse_retry_after_seconds_and_missing() -> None:
     assert ProviderRouter._parse_retry_after(httpx.Response(429, headers={"Retry-After": "20"})) == 20.0
     assert ProviderRouter._parse_retry_after(httpx.Response(429)) is None
 

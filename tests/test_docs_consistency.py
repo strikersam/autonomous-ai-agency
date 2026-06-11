@@ -23,7 +23,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 # ── 1. Orchestration doc must match the worktree code ───────────────────────────
 
 
-def test_orchestration_doc_does_not_call_worktree_isolation_future():
+def test_orchestration_doc_does_not_call_worktree_isolation_future() -> None:
     """Per-task worktree isolation is implemented in
     runtimes/adapters/internal_agent.py (`_create_worktree`) and dispatched
     concurrently via asyncio.gather. The architecture doc must not still frame it
@@ -47,7 +47,7 @@ def test_orchestration_doc_does_not_call_worktree_isolation_future():
 # ── 2. Feature matrix must be internally consistent and self-documenting ─────────
 
 
-def test_disabled_features_are_documented_and_not_enabled():
+def test_disabled_features_are_documented_and_not_enabled() -> None:
     """A DISABLED feature must be enabled=False and carry a note explaining why —
     prevents silently demoting load-bearing features without a paper trail."""
     matrix = get_feature_matrix()
@@ -62,7 +62,7 @@ def test_disabled_features_are_documented_and_not_enabled():
             )
 
 
-def test_beta_or_experimental_features_carry_a_note():
+def test_beta_or_experimental_features_carry_a_note() -> None:
     """The brief: no feature may be presented as production-grade while it is still
     beta/experimental without an explicit caveat. The matrix is the source of truth,
     so every non-stable, still-enabled feature must document its caveat."""
@@ -92,7 +92,7 @@ _PUBLICLY_ADVERTISED_SKILLS = [
 
 
 @pytest.mark.parametrize("skill_id", _PUBLICLY_ADVERTISED_SKILLS)
-def test_publicly_advertised_skill_is_registered(skill_id: str):
+def test_publicly_advertised_skill_is_registered(skill_id: str) -> None:
     bindings = get_skill_bindings()
     skill = bindings.get(skill_id)
     assert skill is not None, (
@@ -101,7 +101,7 @@ def test_publicly_advertised_skill_is_registered(skill_id: str):
     )
 
 
-def test_skills_not_in_registry_are_not_claimed_as_registered_skills():
+def test_skills_not_in_registry_are_not_claimed_as_registered_skills() -> None:
     """browserbase / agent-browser / perplexity are MCP/CLI tools, NOT runtime
     skills. Guard against someone quietly adding them to the public 'Skill
     Registry' list without registering an executor — they must stay out until

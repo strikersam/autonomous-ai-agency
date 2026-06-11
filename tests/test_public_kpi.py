@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
-def test_public_kpi_endpoint_needs_no_auth_and_reports_real_counters(client: TestClient):
+def test_public_kpi_endpoint_needs_no_auth_and_reports_real_counters(client: TestClient) -> None:
     from agent.kpi import get_tracker, reset_tracker
 
     reset_tracker()
@@ -36,7 +36,7 @@ def test_public_kpi_endpoint_needs_no_auth_and_reports_real_counters(client: Tes
     reset_tracker()
 
 
-def test_public_kpi_does_not_leak_identifiers(client: TestClient):
+def test_public_kpi_does_not_leak_identifiers(client: TestClient) -> None:
     """The public strip must expose only aggregate counts — no user/company/repo
     or task identifiers."""
     r = client.get("/api/kpi/public")

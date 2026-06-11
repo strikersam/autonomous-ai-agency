@@ -120,7 +120,7 @@ def main() -> int:
         existing = _DOC_PATH.read_text(encoding="utf-8") if _DOC_PATH.exists() else ""
         # Compare ignoring the volatile "Last generated" line.
         def _strip_ts(s: str) -> str:
-            return "\n".join(l for l in s.splitlines() if not l.startswith("> Last generated:"))
+            return "\n".join(line for line in s.splitlines() if not line.startswith("> Last generated:"))
         if _strip_ts(existing) != _strip_ts(content):
             print("specialists-skills-matrix.md is stale — run the generator.", file=sys.stderr)
             return 1
