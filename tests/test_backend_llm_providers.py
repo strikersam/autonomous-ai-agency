@@ -92,6 +92,70 @@ async def test_list_openai_models_404_returns_empty():
 
 
 @pytest.mark.anyio
+async def test_anthropic_chat_uses_x_api_key_and_messages_api():
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["auth"] = request.headers.get("x-api-key", "")
+        seen["version"] = request.headers.get("anthropic-version", "")
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["model"] == "claude-sonnet-4-6"
+        assert payload["messages"] == [{"role": "user", "content": "hi"}]
+        body = {"content": [{"type": "text", "text": "hello from claude"}]}
+        return httpx.Response(200, json=body)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport, base_url="https://api.anthropic.com") as client:
+        provider = LlmProviderConfig(
+            type="openai-compatible",
+            base_url="https://api.anthropic.com",
+            api_key="sk-ant-test",
+            default_model="claude-sonnet-4-6",
+        )
+        out = await chat_completion_text(
+            provider,
+            messages=[{"role": "user", "content": "hi"}],
+            model=None,
+            temperature=0.3,
+            client=client,
+        )
+    assert out == "hello from claude"
+    assert seen == {
+        "path": "/v1/messages",
+        "auth": "sk-ant-test",
+        "version": "2023-06-01",
+    }
+
+
+@pytest.mark.anyio
+async def test_list_openai_models_supports_anthropic_provider_shape():
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["auth"] = request.headers.get("x-api-key", "")
+        seen["version"] = request.headers.get("anthropic-version", "")
+        return httpx.Response(200, json={"data": [{"id": "claude-sonnet-4-6"}]})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport, base_url="https://api.anthropic.com") as client:
+        provider = LlmProviderConfig(
+            type="openai-compatible",
+            base_url="https://api.anthropic.com",
+            api_key="sk-ant-test",
+            default_model=None,
+        )
+        models = await list_openai_models(provider, client=client)
+    assert models == ["claude-sonnet-4-6"]
+    assert seen == {
+        "path": "/v1/models",
+        "auth": "sk-ant-test",
+        "version": "2023-06-01",
+    }
+
+
+@pytest.mark.anyio
 async def test_ollama_falls_back_to_native_api_chat_when_openai_surface_missing():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/v1/chat/completions"):

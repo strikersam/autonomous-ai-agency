@@ -296,9 +296,21 @@ class InternalAgentAdapter(RuntimeAdapter):
         """
         nvidia_chain = _nvidia_provider_chain()
 
-        # Pick the best available cloud primary — keeps local Ollama out of the
-        # fallback chain whenever any free cloud key is configured.
+        provider_headers: dict[str, str] = {}
         primary_base = _best_cloud_primary_base(self._ollama_base)
+        try:
+            from backend.server import _list_configured_provider_records
+            from provider_router import ProviderRouter
+
+            records = await _list_configured_provider_records()
+            router = ProviderRouter.from_provider_records(records)
+            if router.providers:
+                primary_provider = router.providers[0]
+                primary_base = primary_provider.normalized_base_url
+                provider_headers = primary_provider.auth_headers()
+                provider_headers.pop("Content-Type", None)
+        except Exception:
+            provider_headers = {}
 
         # --- Worktree isolation -------------------------------------------
         # Each task executes in its own git worktree (or a temp dir copy if
@@ -310,27 +322,24 @@ class InternalAgentAdapter(RuntimeAdapter):
         )
         # ------------------------------------------------------------------
 
-        # Build auth headers for the active cloud provider.
-        # _best_cloud_primary_base() returns a URL; we match it back to the
-        # provider key so the AgentRunner can authenticate correctly.
-        provider_headers: dict[str, str] = {}
-        nvidia_key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
-        normalized_primary = primary_base.rstrip("/")
-        nvidia_normalized = _normalize_nvidia_base_url(os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL).rstrip("/")
-        if nvidia_key and normalized_primary == nvidia_normalized:
-            provider_headers = {"Authorization": f"Bearer {nvidia_key}"}
-        elif os.environ.get("DEEPSEEK_API_KEY") and "deepseek" in normalized_primary:
-            provider_headers = {"Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"}
-        elif os.environ.get("GROQ_API_KEY") and "groq" in normalized_primary:
-            provider_headers = {"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"}
-        elif os.environ.get("OPENROUTER_API_KEY") and "openrouter" in normalized_primary:
-            provider_headers = {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}
-        elif os.environ.get("TOGETHER_API_KEY") and "together" in normalized_primary:
-            provider_headers = {"Authorization": f"Bearer {os.environ['TOGETHER_API_KEY']}"}
-        elif os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY"):
-            dash_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY") or ""
-            if dash_key and "dashscope" in normalized_primary:
-                provider_headers = {"Authorization": f"Bearer {dash_key}"}
+        if not provider_headers:
+            nvidia_key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+            normalized_primary = primary_base.rstrip("/")
+            nvidia_normalized = _normalize_nvidia_base_url(os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL).rstrip("/")
+            if nvidia_key and normalized_primary == nvidia_normalized:
+                provider_headers = {"Authorization": f"Bearer {nvidia_key}"}
+            elif os.environ.get("DEEPSEEK_API_KEY") and "deepseek" in normalized_primary:
+                provider_headers = {"Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"}
+            elif os.environ.get("GROQ_API_KEY") and "groq" in normalized_primary:
+                provider_headers = {"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"}
+            elif os.environ.get("OPENROUTER_API_KEY") and "openrouter" in normalized_primary:
+                provider_headers = {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}
+            elif os.environ.get("TOGETHER_API_KEY") and "together" in normalized_primary:
+                provider_headers = {"Authorization": f"Bearer {os.environ['TOGETHER_API_KEY']}"}
+            elif os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY"):
+                dash_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY") or ""
+                if dash_key and "dashscope" in normalized_primary:
+                    provider_headers = {"Authorization": f"Bearer {dash_key}"}
 
         runner = AgentRunner(
             ollama_base=primary_base,

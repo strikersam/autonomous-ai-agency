@@ -219,7 +219,7 @@ def test_provider_router_from_env_prioritizes_nvidia_nemotron_default(monkeypatc
 
 
 @pytest.mark.anyio
-async def test_provider_router_prefers_local_then_remote_then_free_cloud(monkeypatch):
+async def test_provider_router_respects_record_priority_for_configured_providers(monkeypatch):
     calls: list[str] = []
 
     async def fake_post_chat(self, provider, payload, timeout_sec):
@@ -231,16 +231,16 @@ async def test_provider_router_prefers_local_then_remote_then_free_cloud(monkeyp
     monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
     router = ProviderRouter.from_provider_records(
         [
-            {"provider_id": "anthropic", "type": "anthropic", "base_url": "https://api.anthropic.com", "default_model": "claude-sonnet-4-5"},
-            {"provider_id": "remote-win", "type": "openai-compatible", "base_url": "https://my-tunnel.ngrok-free.app/v1", "default_model": "remote-model"},
-            {"provider_id": "deepseek", "type": "openai-compatible", "base_url": "https://api.deepseek.com", "default_model": "deepseek-chat"},
-            {"provider_id": "ollama-local", "type": "ollama", "base_url": "http://localhost:11434", "default_model": "local-model"},
+            {"provider_id": "anthropic", "type": "anthropic", "base_url": "https://api.anthropic.com", "default_model": "claude-sonnet-4-5", "priority": 40},
+            {"provider_id": "remote-win", "type": "openai-compatible", "base_url": "https://my-tunnel.ngrok-free.app/v1", "default_model": "remote-model", "priority": 20},
+            {"provider_id": "deepseek", "type": "openai-compatible", "base_url": "https://api.deepseek.com", "default_model": "deepseek-chat", "priority": 10},
+            {"provider_id": "ollama-local", "type": "ollama", "base_url": "http://localhost:11434", "default_model": "local-model", "priority": 30},
         ]
     )
 
     result = await router.chat_completion({"model": "local-model", "messages": [{"role": "user", "content": "hi"}]}, max_retries=0)
 
-    assert calls == ["ollama-local", "remote-win", "deepseek"]
+    assert calls == ["deepseek"]
     assert result.provider.provider_id == "deepseek"
 
 
@@ -265,6 +265,23 @@ async def test_provider_router_requires_approval_before_commercial_fallback(monk
         )
 
     assert exc.value.candidates == ["anthropic"]
+
+
+def test_provider_router_infers_anthropic_type_from_base_url():
+    router = ProviderRouter.from_provider_records(
+        [
+            {
+                "provider_id": "anthropic-saved-as-openai",
+                "type": "openai-compatible",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-test",
+                "default_model": "claude-sonnet-4-6",
+            }
+        ]
+    )
+
+    assert len(router.providers) == 1
+    assert router.providers[0].type == "anthropic"
 
 
 @pytest.mark.anyio

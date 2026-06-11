@@ -12,6 +12,7 @@ import sys
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import time
 import asyncio
@@ -1177,6 +1178,14 @@ class AgentRunner:
         if self.keep_alive:
             payload["keep_alive"] = self.keep_alive
 
+        normalized_base = self.ollama_base.rstrip("/")
+        explicit_provider_configured = bool(self.provider_headers)
+        provider_header_names = {key.lower() for key in self.provider_headers}
+        provider_is_anthropic = (
+            "x-api-key" in provider_header_names
+            or (urlparse(normalized_base).hostname or "").lower().endswith("anthropic.com")
+        )
+
         # Prefer Anthropic Opus when available for Claude/Opus-like models
         try:
             opus_model = None
@@ -1187,7 +1196,7 @@ class AgentRunner:
                 opus_model = None
             anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
             target_is_opus = "opus" in model.lower() or model.lower().startswith("claude")
-            if anthropic_key and (target_is_opus or (opus_model and model == opus_model)):
+            if (not explicit_provider_configured) and anthropic_key and (target_is_opus or (opus_model and model == opus_model)):
                 try:
                     import anthropic as _anthropic
                     client = _anthropic.Anthropic(api_key=anthropic_key)
@@ -1240,7 +1249,7 @@ class AgentRunner:
                     log.debug("Anthropic Opus call failed (falling back to Ollama): %s", exc)
 
             # Bedrock fallback: used when only AWS credentials are set (no ANTHROPIC_API_KEY)
-            if not anthropic_key and target_is_opus:
+            if (not explicit_provider_configured) and (not anthropic_key) and target_is_opus:
                 aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
                 aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
                 aws_region = (
@@ -1302,7 +1311,66 @@ class AgentRunner:
             # Any unexpected error should not break the normal Ollama path
             pass
 
-        # Fallback: call Ollama-compatible endpoint
+        if provider_is_anthropic:
+            headers = {"Content-Type": "application/json", **self.provider_headers}
+            system_parts: list[str] = []
+            anthropic_messages: list[dict[str, str]] = []
+            for message in payload.get("messages") or []:
+                if not isinstance(message, dict):
+                    continue
+                role = str(message.get("role") or "user")
+                content = str(message.get("content") or "")
+                if role == "system":
+                    system_parts.append(content)
+                elif role in {"user", "assistant"}:
+                    anthropic_messages.append({"role": role, "content": content})
+            anthropic_payload = {
+                "model": model,
+                "messages": anthropic_messages or [{"role": "user", "content": ""}],
+                "system": "\n\n".join(system_parts) if system_parts else None,
+                "max_tokens": 4096,
+                "temperature": payload.get("temperature", 0.3),
+            }
+            start = time.perf_counter()
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+                resp = await client.post(
+                    f"{normalized_base}/v1/messages",
+                    json=anthropic_payload,
+                    headers=headers,
+                )
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            resp.raise_for_status()
+            data = resp.json()
+            out_text = "\n".join(
+                block.get("text", "")
+                for block in data.get("content", [])
+                if isinstance(block, dict) and block.get("type") == "text"
+            ).strip()
+
+            if self.email:
+                usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+                pt = int(usage.get("input_tokens") or 0)
+                ct = int(usage.get("output_tokens") or 0)
+                try:
+                    from langfuse_obs import emit_chat_observation
+                    await asyncio.to_thread(
+                        emit_chat_observation,
+                        email=self.email,
+                        department=self.department or "agent",
+                        key_id=self.key_id,
+                        model=model,
+                        messages=messages,
+                        output_text=out_text,
+                        prompt_tokens=pt,
+                        completion_tokens=ct,
+                        latency_ms=duration_ms,
+                        task_name="agent-task",
+                    )
+                except Exception:  # nosec B110 -- KPI tracking is best-effort
+                    pass
+            return out_text
+
+        # Fallback: call Ollama/OpenAI-compatible endpoint
         headers = {"Content-Type": "application/json", **self.provider_headers}
         start = time.perf_counter()
         # Build the chat URL defensively: use _openai_url to prevent double /v1
