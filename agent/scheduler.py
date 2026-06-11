@@ -70,6 +70,26 @@ class ScheduledJob:
             "fail_count": 0,
         }
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ScheduledJob":
+        """Reconstruct a ScheduledJob from its as_dict() output."""
+        return cls(
+            job_id=d.get("job_id", d.get("id", "")),
+            name=d.get("name", ""),
+            cron=d.get("cron", "0 0 * * *"),
+            instruction=d.get("instruction", ""),
+            created_at=d.get("created_at", ""),
+            agent_id=d.get("agent_id"),
+            runtime_id=d.get("runtime_id"),
+            model=d.get("model"),
+            task_type=d.get("task_type", "scheduled"),
+            requires_approval=d.get("requires_approval", False),
+            tags=d.get("tags", []),
+            last_run=d.get("last_run"),
+            run_count=d.get("run_count", 0),
+            enabled=d.get("enabled", True),
+        )
+
 
 class AgentScheduler:
     """Register, list, trigger, and delete cron-scheduled agent jobs.
@@ -85,11 +105,15 @@ class AgentScheduler:
     def __init__(
         self,
         on_fire: Callable[[ScheduledJob], None] | None = None,
+        persistence: Any | None = None,
     ) -> None:
         self._jobs: dict[str, ScheduledJob] = {}
         self._on_fire = on_fire
         self._aps: Any = None
-        self._store = None  # #505: lazy-init durable store
+        # Durable store (ScheduleStore-like: load_all/upsert/remove). Optional —
+        # when None the scheduler behaves exactly as before (in-memory only).
+        self._persistence = persistence
+        self._store = persistence  # #505: durable store (lazy-init if None)
         if _HAS_APSCHEDULER:
             self._aps = BackgroundScheduler()
             self._aps.start()
@@ -132,7 +156,12 @@ class AgentScheduler:
         try:
             asyncio.create_task(self._persist(job))
         except RuntimeError:
-            pass  # no event loop (sync caller, test fixture)
+            # No event loop (sync caller, test fixture) — persist synchronously.
+            if self._store is not None:
+                try:
+                    self._store.upsert(job.as_dict())
+                except Exception:
+                    pass
         log.info("Scheduled job created: id=%s name=%r cron=%r", job_id, name, cron)
         return job
 
@@ -152,7 +181,12 @@ class AgentScheduler:
         try:
             asyncio.create_task(self._remove_persisted(job_id))
         except RuntimeError:
-            pass  # no event loop (sync caller)
+            # No event loop — delete synchronously.
+            if self._store is not None:
+                try:
+                    self._store.remove(job_id)
+                except Exception:
+                    pass
         if self._aps:
             try:
                 self._aps.remove_job(job_id)
@@ -180,7 +214,12 @@ class AgentScheduler:
         try:
             asyncio.create_task(self._persist(job))
         except RuntimeError:
-            pass  # no event loop (sync caller)
+            # No event loop — persist synchronously.
+            if self._store is not None:
+                try:
+                    self._store.upsert(job.as_dict())
+                except Exception:
+                    pass
         if self._aps:
             try:
                 if enabled:
@@ -197,14 +236,29 @@ class AgentScheduler:
 
     # ── #505: Durable scheduler store ─────────────────────────────────────
 
+    def attach_persistence(self, persistence: Any) -> int:
+        """Attach a durable store and immediately rehydrate from it (#505).
+
+        Called at startup once the DB is available (the scheduler itself is
+        constructed at import time, before Mongo is reachable). Returns the
+        number of jobs rehydrated.
+        """
+        self._persistence = persistence
+        self._store = persistence
+        return self.rehydrate()
+
     async def _ensure_store(self) -> None:
         if self._store is not None:
             return
         try:
-            from services.scheduler_store import get_scheduler_store
-            self._store = get_scheduler_store()
+            from agent.schedule_store import ScheduleStore
+            self._store = ScheduleStore()
         except Exception:
             pass
+
+    def rehydrate(self) -> int:
+        """Sync entry-point for attach_persistence(); delegates to hydrate()."""
+        return asyncio.run(self.hydrate())
 
     async def hydrate(self) -> int:
         """#505: Rehydrate persisted schedules on boot.
@@ -215,7 +269,8 @@ class AgentScheduler:
         if self._store is None:
             return 0
         try:
-            docs = await self._store.load_all()
+            result = self._store.load_all()
+            docs = (await result) if inspect.isawaitable(result) else result
             count = 0
             for doc in docs:
                 job_id = doc.get("job_id") or doc.get("id")
@@ -253,7 +308,9 @@ class AgentScheduler:
         if self._store is None:
             return
         try:
-            await self._store.save(job)
+            result = self._store.upsert(job.as_dict())
+            if inspect.isawaitable(result):
+                await result
         except Exception as exc:
             log.warning("Scheduler persist failed for %s: %s", job.job_id, exc)
 
@@ -264,7 +321,9 @@ class AgentScheduler:
         if self._store is None:
             return
         try:
-            await self._store.delete(job_id)
+            result = self._store.remove(job_id)
+            if inspect.isawaitable(result):
+                await result
         except Exception:
             pass
 
