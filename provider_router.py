@@ -22,6 +22,11 @@ log = logging.getLogger("llm-provider-router")
 _DEFAULT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_COOLDOWN_SECONDS", "30"))
 _AUTH_FAILURE_COOLDOWN_SECONDS: int = 300  # bad API key — don't retry for 5 min
 _CONN_FAILURE_COOLDOWN_SECONDS: int = 15  # network hiccup — retry sooner
+# Rate-limit (429): fail over to the next provider *immediately* (don't burn retries
+# on a provider that's telling us to back off) and cool it for this long unless the
+# response carries a Retry-After header, in which case we honour that.
+_RATELIMIT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_RATELIMIT_COOLDOWN_SECONDS", "20"))
+_RATELIMIT_COOLDOWN_MAX_SECONDS: int = int(os.environ.get("PROVIDER_RATELIMIT_COOLDOWN_MAX_SECONDS", "120"))
 
 
 async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
@@ -786,6 +791,8 @@ class ProviderRouter:
         """
         last_status: int | None = None
         last_was_conn_error = False
+        rate_limited = False
+        retry_after_sec: float | None = None
         for model in self._candidate_models(provider, original_model, model_fallbacks, is_primary):
             provider_payload = {**payload, "model": model, "stream": False}
             for attempt_number in range(max_retries + 1):
@@ -803,6 +810,13 @@ class ProviderRouter:
                             response=response, provider=provider, model=model, attempts=list(attempts)
                         )
                     last_status = response.status_code
+                    if response.status_code == 429:
+                        # Rate-limited: do NOT burn retries on this provider — cool it
+                        # and fail over to the next working provider immediately. This
+                        # is the "40 rpm → another provider kicks in" path.
+                        rate_limited = True
+                        retry_after_sec = self._parse_retry_after(response)
+                        break
                     if not self._should_retry_status(response.status_code):
                         break
                 except Exception as exc:
@@ -813,8 +827,17 @@ class ProviderRouter:
                     last_was_conn_error = True
                 if attempt_number < max_retries:
                     await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
+            if rate_limited:
+                # No other model on this provider will dodge a provider-level rate
+                # limit — stop and let the outer loop move to the next provider.
+                break
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
-        if last_status in (401, 403):
+        if rate_limited:
+            secs = _RATELIMIT_COOLDOWN_SECONDS
+            if retry_after_sec is not None:
+                secs = max(1, min(int(retry_after_sec), _RATELIMIT_COOLDOWN_MAX_SECONDS))
+            await mark_provider_failed(provider.provider_id, secs)
+        elif last_status in (401, 403):
             await mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
         elif last_was_conn_error:
             await mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
@@ -1048,7 +1071,36 @@ class ProviderRouter:
 
     @staticmethod
     def _should_retry_status(status_code: int) -> bool:
-        return status_code in (404, 408, 409, 425, 429) or status_code >= 500
+        # NOTE: 429 is handled specially in _try_one_provider (immediate failover +
+        # Retry-After-aware cooldown), so it never reaches the same-provider retry path.
+        return status_code in (404, 408, 409, 425) or status_code >= 500
+
+    @staticmethod
+    def _parse_retry_after(response: httpx.Response) -> float | None:
+        """Parse a 429/503 ``Retry-After`` header → seconds, or None.
+
+        Accepts either delta-seconds ("20") or an HTTP-date; clamps to >= 0.
+        """
+        raw = response.headers.get("retry-after") or response.headers.get("Retry-After")
+        if not raw:
+            return None
+        raw = raw.strip()
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            pass
+        try:
+            from email.utils import parsedate_to_datetime
+            import datetime as _dt
+            when = parsedate_to_datetime(raw)
+            if when is not None:
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=_dt.timezone.utc)
+                delta = (when - _dt.datetime.now(_dt.timezone.utc)).total_seconds()
+                return max(0.0, delta)
+        except (TypeError, ValueError):
+            pass
+        return None
 
     @staticmethod
     def _anthropic_payload(payload: dict[str, Any]) -> dict[str, Any]:

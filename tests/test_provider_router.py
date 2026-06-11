@@ -103,6 +103,50 @@ async def test_provider_router_falls_back_to_second_provider(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_rate_limited_provider_fails_over_immediately_without_burning_retries(monkeypatch):
+    """A 429 (e.g. 40 rpm hit) must NOT retry the same provider — it fails over to the
+    next working provider at once and cools the rate-limited one."""
+    from provider_router import is_provider_on_cooldown
+
+    calls: list[str] = []
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        calls.append(provider.provider_id)
+        if provider.provider_id == "fast-but-limited":
+            return httpx.Response(429, json={"error": "rate limited"}, headers={"Retry-After": "17"})
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "secondary-ok"}}]},
+            headers={"content-type": "application/json"},
+        )
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter(
+        [
+            ProviderConfig("fast-but-limited", "openai-compatible", "https://a/v1", api_key="k", default_model="a", priority=0),
+            ProviderConfig("backup", "openai-compatible", "https://b/v1", api_key="k", default_model="b", priority=10),
+        ]
+    )
+
+    # max_retries=2: the OLD behaviour would call fast-but-limited 3× before failover.
+    result = await router.chat_completion(
+        {"model": "a", "messages": [{"role": "user", "content": "hi"}]}, max_retries=2
+    )
+
+    # Rate-limited provider tried exactly once, then immediate failover.
+    assert calls == ["fast-but-limited", "backup"]
+    assert result.provider.provider_id == "backup"
+    assert extract_openai_text(result.response.json()) == "secondary-ok"
+    # And it was cooled down so subsequent requests skip it.
+    assert await is_provider_on_cooldown("fast-but-limited") is True
+
+
+def test_parse_retry_after_seconds_and_missing():
+    assert ProviderRouter._parse_retry_after(httpx.Response(429, headers={"Retry-After": "20"})) == 20.0
+    assert ProviderRouter._parse_retry_after(httpx.Response(429)) is None
+
+
+@pytest.mark.anyio
 async def test_provider_router_retries_model_fallback_on_404(monkeypatch):
     models: list[str] = []
 
