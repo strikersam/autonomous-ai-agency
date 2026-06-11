@@ -819,12 +819,33 @@ class WebsiteScanner:
             except re.error:
                 return False
 
+        def _match_snippet(pattern, value):
+            """Like _match but returns the matched text so evidence shown in the
+            UI ("detected via html") is human-readable, never raw regex source."""
+            if not value:
+                return None
+            bare = str(pattern).split("\\;")[0]
+            if not bare:
+                return value[:80]
+            try:
+                m = re.search(bare, value, re.IGNORECASE)
+            except re.error:
+                return None
+            if not m:
+                return None
+            snippet = m.group(0).strip()
+            if not snippet:
+                return str(bare)[:80]
+            return (snippet[:117] + "...") if len(snippet) > 120 else snippet
+
         systems_map = {}
         headers_dict = {str(k).lower(): str(v).lower() for k, v in dict(headers).items()}
         cookies_dict = {str(k).lower(): str(v).lower() for k, v in dict(cookies).items()}
         
         # Limit html size to prevent catastrophic backtracking on minified bundles
-        html_safe = html[:100000].lower() if html else ""
+        # 100KB silently dropped signatures deep in heavy storefront pages
+        # (e.g. gucci.com); 500KB keeps regexes safe but sees the whole document.
+        html_safe = html[:500000].lower() if html else ""
         
         # Extract meta tags once
         metas = {}
@@ -880,8 +901,9 @@ class WebsiteScanner:
                 if not isinstance(patterns, list):
                     patterns = [patterns]
                 for pattern in patterns:
-                    if _match(pattern, html_safe):
-                        add_sys(app_name, app_spec, 0.90, 'html', pattern)
+                    snippet = _match_snippet(pattern, html_safe)
+                    if snippet is not None:
+                        add_sys(app_name, app_spec, 0.90, 'html', snippet)
                         matched = True
                         break
 

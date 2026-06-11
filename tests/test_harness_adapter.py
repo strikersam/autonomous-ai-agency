@@ -1,171 +1,135 @@
-"""Tests for harness adapter (cross-harness support inspired by ECC)"""
+"""tests/test_harness_adapter.py — Tests for ECC cross-harness adapter."""
+from __future__ import annotations
 
 import pytest
 
-from agents.harness_adapter import (
-    HarnessAdapter,
-    HarnessCapabilities,
-    HarnessType,
-    detect_harness,
-)
-
 
 class TestHarnessAdapter:
-    """Test harness normalization and denormalization"""
+    """Harness detection, normalization, and registration."""
 
-    def test_detect_harness_default(self, monkeypatch):
-        """Should default to claude_code when no harness detected"""
-        # Clear environment
-        monkeypatch.delenv("CURSOR_SESSION_ID", raising=False)
-        monkeypatch.delenv("ZED_SOCKET", raising=False)
-        monkeypatch.delenv("VSCODE_PID", raising=False)
-        
-        harness = detect_harness()
-        assert harness == HarnessType.CLAUDE_CODE
+    @pytest.fixture
+    def adapter(self):
+        from agents.harness_adapter import (
+            get_harness_adapter,
+            _adapter as _ad_singleton,
+        )
+        _backup = _ad_singleton
+        import agents.harness_adapter as mod
+        mod._adapter = None
+        ad = get_harness_adapter()
+        yield ad
+        mod._adapter = _backup
 
-    def test_detect_harness_cursor(self, monkeypatch):
-        """Should detect Cursor from environment"""
-        monkeypatch.setenv("CURSOR_SESSION_ID", "cursor_123")
-        
-        harness = detect_harness()
-        assert harness == HarnessType.CURSOR
+    def test_catalog_has_entries(self):
+        from agents.harness_adapter import HARNESS_CATALOG
+        assert len(HARNESS_CATALOG) >= 8
+        assert "claude_code" in HARNESS_CATALOG
+        assert "cursor" in HARNESS_CATALOG
+        assert "telegram" in HARNESS_CATALOG
 
-    def test_detect_harness_zed(self, monkeypatch):
-        """Should detect Zed from environment"""
-        monkeypatch.delenv("CURSOR_SESSION_ID", raising=False)
-        monkeypatch.setenv("ZED_SOCKET", "/tmp/zed.sock")
-        
-        harness = detect_harness()
-        assert harness == HarnessType.ZED
+    def test_register_and_deregister(self, adapter):
+        adapter.register_active("claude_code")
+        assert "claude_code" in adapter.active_harness_ids
+        adapter.deregister("claude_code")
+        assert "claude_code" not in adapter.active_harness_ids
 
-    def test_harness_initialization_valid(self):
-        """Should initialize with valid harness type"""
-        adapter = HarnessAdapter(HarnessType.CLAUDE_CODE)
-        assert adapter.harness == HarnessType.CLAUDE_CODE
+    def test_register_unknown_harness_logs_warning(self, adapter, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            adapter.register_active("nonexistent")
+        assert "Unknown harness" in caplog.text
 
-    def test_harness_initialization_string(self):
-        """Should accept string harness names"""
-        adapter = HarnessAdapter("claude_code")
-        assert adapter.harness == HarnessType.CLAUDE_CODE
+    def test_detect_claude_code_by_ua(self, adapter):
+        headers = {"user-agent": "claude-code/1.0.0"}
+        result = adapter.detect_harness(headers)
+        assert result == "claude_code"
 
-    def test_harness_initialization_invalid_defaults(self):
-        """Should default to claude_code on invalid harness"""
-        adapter = HarnessAdapter("invalid_harness")
-        assert adapter.harness == HarnessType.CLAUDE_CODE
+    def test_detect_cursor_by_ua(self, adapter):
+        headers = {"user-agent": "Cursor/0.48.0"}
+        result = adapter.detect_harness(headers)
+        assert result == "cursor"
 
-    def test_capabilities_claude_code(self):
-        """Should have correct capabilities for Claude Code"""
-        adapter = HarnessAdapter(HarnessType.CLAUDE_CODE)
-        
-        assert adapter.supports_streaming() is True
-        assert adapter.get_model_preference() == "reasoning"
-        assert adapter.get_max_context() == 50 * 1024 * 1024
+    def test_detect_by_explicit_header(self, adapter):
+        headers = {"x-harness-id": "aider"}
+        result = adapter.detect_harness(headers)
+        assert result == "aider"
 
-    def test_capabilities_cursor(self):
-        """Should have correct capabilities for Cursor"""
-        adapter = HarnessAdapter(HarnessType.CURSOR)
-        
-        assert adapter.supports_streaming() is True
-        assert adapter.get_model_preference() == "speed"
-        assert adapter.get_max_context() == 25 * 1024 * 1024
+    def test_detect_unknown_returns_none(self, adapter):
+        headers = {"user-agent": "curl/8.0"}
+        result = adapter.detect_harness(headers)
+        assert result is None
 
-    def test_capabilities_codex(self):
-        """Should have correct capabilities for Codex"""
-        adapter = HarnessAdapter(HarnessType.CODEX)
-        
-        assert adapter.supports_streaming() is False
-        assert adapter.get_model_preference() == "completion"
-        assert adapter.get_max_context() == 10 * 1024 * 1024
-
-    def test_normalize_request_claude_code(self):
-        """Should normalize Claude Code request"""
-        adapter = HarnessAdapter(HarnessType.CLAUDE_CODE)
-        
-        request = {"messages": [{"role": "user", "content": "hello"}]}
-        normalized = adapter.normalize_request(request)
-        
-        assert normalized["harness"] == "claude_code"
-        assert normalized["context_type"] == "workspace"
-        assert "messages" in normalized
-
-    def test_normalize_request_cursor(self):
-        """Should normalize Cursor request"""
-        adapter = HarnessAdapter(HarnessType.CURSOR)
-        
-        request = {
-            "messages": [{"role": "user", "content": "hello"}],
-            "context": {"active_tabs": ["main.py", "test.py"]},
-        }
-        normalized = adapter.normalize_request(request)
-        
+    def test_normalize_request_copies_common_fields(self, adapter):
+        raw = {"messages": [{"role": "user", "content": "hi"}], "model": "test-model", "temperature": 0.7}
+        normalized = adapter.normalize_request("cursor", raw)
         assert normalized["harness"] == "cursor"
-        assert normalized["context_type"] == "editor_tabs"
+        assert normalized["messages"] == raw["messages"]
+        assert normalized["model"] == "test-model"
 
-    def test_denormalize_response_claude_code(self):
-        """Should denormalize Claude Code response"""
-        adapter = HarnessAdapter(HarnessType.CLAUDE_CODE)
-        
-        response = {"content": "response text"}
-        denormalized = adapter.denormalize_response(response)
-        
-        # Should return unchanged for Claude Code
-        assert denormalized == response
+    def test_model_hint(self, adapter):
+        hint = adapter.model_hint("claude_code")
+        assert hint == "claude-sonnet-4-6"
 
-    def test_harness_capabilities_enum(self):
-        """Should have capabilities defined for all harnesses"""
-        for harness_type in HarnessType:
-            assert harness_type in HarnessCapabilities.HARNESS_FEATURES
+    def test_supports_feature(self, adapter):
+        assert adapter.supports_feature("cursor", "streaming") is True
+        assert adapter.supports_feature("zed", "multi_step") is False
 
-    def test_all_harnesses_have_model_preference(self):
-        """All harnesses should have model preference"""
-        for harness_type in HarnessType:
-            adapter = HarnessAdapter(harness_type)
-            preference = adapter.get_model_preference()
-            assert preference in ["reasoning", "speed", "completion", "balanced"]
-
-    def test_all_harnesses_have_max_context(self):
-        """All harnesses should have max context defined"""
-        for harness_type in HarnessType:
-            adapter = HarnessAdapter(harness_type)
-            max_ctx = adapter.get_max_context()
-            assert max_ctx > 0
-            assert max_ctx <= 100 * 1024 * 1024  # Reasonable upper bound
+    def test_as_dict(self, adapter):
+        adapter.register_active("cursor")
+        d = adapter.as_dict()
+        assert d["catalog_size"] >= 8
+        assert d["active_harnesses"]
+        assert any(h["harness_id"] == "cursor" for h in d["active_harnesses"])
 
 
-class TestHarnessCapabilities:
-    """Test harness capability declarations"""
+class TestHarnessRegistry:
+    """Harness session tracking and metrics."""
 
-    def test_streaming_preferences(self):
-        """Verify streaming capability distribution"""
-        streaming_harnesses = [
-            HarnessType.CLAUDE_CODE,
-            HarnessType.CURSOR,
-            HarnessType.OPENCODE,
-            HarnessType.GEMINI,
-            HarnessType.ZED,
-            HarnessType.GITHUB_COPILOT,
-        ]
-        
-        non_streaming = [HarnessType.CODEX]
-        
-        for harness in streaming_harnesses:
-            caps = HarnessCapabilities.HARNESS_FEATURES[harness]
-            assert caps["supports_streaming"] is True
-        
-        for harness in non_streaming:
-            caps = HarnessCapabilities.HARNESS_FEATURES[harness]
-            assert caps["supports_streaming"] is False
+    @pytest.fixture
+    def registry(self):
+        from services.harness_registry import (
+            get_harness_registry,
+            _registry as _reg_singleton,
+        )
+        _backup = _reg_singleton
+        import services.harness_registry as mod
+        mod._registry = None
+        reg = get_harness_registry()
+        yield reg
+        mod._registry = _backup
 
-    def test_context_source_declared(self):
-        """Each harness should declare its context source"""
-        for harness, caps in HarnessCapabilities.HARNESS_FEATURES.items():
-            assert "context_source" in caps
-            assert caps["context_source"] in [
-                "workspace_tree",
-                "editor_open_tabs",
-                "current_file",
-                "buffer",
-                "project_root",
-                "editor_buffer",
-                "vscode_context",
-            ]
+    def test_register_and_close_session(self, registry):
+        record = registry.register_session("cursor", "sess-1", "qwen3-coder:30b")
+        assert record.harness_id == "cursor"
+        assert record.session_id == "sess-1"
+
+        registry.close_session("sess-1", tasks_completed=3, success=True)
+        metrics = registry.get_metrics("cursor")
+        assert metrics["total_sessions"] == 1
+        assert metrics["total_tasks"] == 3
+
+    def test_get_metrics_all(self, registry):
+        registry.register_session("cursor", "s1")
+        registry.register_session("claude_code", "s2")
+        registry.close_session("s1", tasks_completed=1, success=True)
+        registry.close_session("s2", tasks_completed=2, success=False)
+
+        all_metrics = registry.get_metrics()
+        assert "cursor" in all_metrics
+        assert "claude_code" in all_metrics
+
+    def test_active_harnesses(self, registry):
+        registry.register_session("cursor", "s1")
+        registry.register_session("telegram", "s2")
+        active = registry.active_harnesses
+        assert "cursor" in active
+        assert "telegram" in active
+
+    def test_close_nonexistent_session_no_error(self, registry):
+        registry.close_session("no-such-session")  # must not raise
+
+    def test_as_dict(self, registry):
+        registry.register_session("cursor", "s1")
+        d = registry.as_dict()
+        assert "cursor" in d["active_harnesses"]
+        assert d["active_sessions"] >= 1

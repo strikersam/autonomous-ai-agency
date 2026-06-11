@@ -315,6 +315,7 @@ class SkillBindings:
             trigger_keywords=["harness", "cursor", "codex", "cross-harness", "ECC", "multi-IDE"],
             source="local",
             source_path=".claude/skills/ecc-harness-patterns/SKILL.md",
+            is_enabled=False,  # ECC turned off per user request (2026-06-10)
         ))
 
         self._register(RuntimeSkill(
