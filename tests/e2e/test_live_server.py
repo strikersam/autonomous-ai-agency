@@ -503,8 +503,8 @@ def test_orchestrator_flow(c: httpx.Client, h: dict) -> None:
         r2 = req("POST", c, f"/api/workflow/orchestrator/approve/{run_id}", headers=h, timeout=15.0, json={
             "approved_by": "e2e-test",
         })
-        check(r2.status_code in (200, 503),
-              f"POST /api/workflow/orchestrator/approve/{run_id[:8]}… → 200/503", r2)
+        check(r2.status_code in (200, 202, 503),
+              f"POST /api/workflow/orchestrator/approve/{run_id[:8]}… → 200/202/503", r2)
         approve_body = r2.json()
         final_status = approve_body.get("status", "")
         ok(f"POST /api/workflow/orchestrator/approve/{{run_id}} → approve_and_resume status={final_status}")

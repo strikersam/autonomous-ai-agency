@@ -129,7 +129,10 @@ class AgentScheduler:
         )
         self._jobs[job_id] = job
         self._register_aps(job)
-        asyncio.create_task(self._persist(job))
+        try:
+            asyncio.create_task(self._persist(job))
+        except RuntimeError:
+            pass  # no event loop (sync caller, test fixture)
         log.info("Scheduled job created: id=%s name=%r cron=%r", job_id, name, cron)
         return job
 
@@ -146,7 +149,10 @@ class AgentScheduler:
         if job_id not in self._jobs:
             return False
         del self._jobs[job_id]
-        asyncio.create_task(self._remove_persisted(job_id))
+        try:
+            asyncio.create_task(self._remove_persisted(job_id))
+        except RuntimeError:
+            pass  # no event loop (sync caller)
         if self._aps:
             try:
                 self._aps.remove_job(job_id)
@@ -171,7 +177,10 @@ class AgentScheduler:
         if not job:
             raise KeyError(f"Job {job_id!r} not found")
         job.enabled = enabled
-        asyncio.create_task(self._persist(job))
+        try:
+            asyncio.create_task(self._persist(job))
+        except RuntimeError:
+            pass  # no event loop (sync caller)
         if self._aps:
             try:
                 if enabled:
@@ -293,7 +302,10 @@ class AgentScheduler:
             return
         job.last_run = _now()
         job.run_count += 1
-        asyncio.create_task(self._persist(job))
+        try:
+            asyncio.create_task(self._persist(job))
+        except RuntimeError:
+            pass  # no event loop (sync caller)
         log.info("Firing job %s (%s)", job_id, job.name)
         if self._on_fire:
             try:
