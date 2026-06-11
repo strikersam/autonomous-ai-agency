@@ -317,7 +317,22 @@ class WebsiteScanner:
             # fetch looks blocked/empty — render the page with a real browser
             # (Playwright/Chromium) and re-run the same signature detection on the
             # fully-rendered DOM. No-ops gracefully when the browser isn't present.
-            if not detected_systems or status_code == 0 or status_code >= 400:
+            # Escalate when detection is *thin*, not only when it found literally
+            # nothing: bot-protected storefronts (gucci.com behind Akamai) leak a
+            # couple of signals from the challenge page, so a `not detected_systems`
+            # gate never fired and PIM/CRM/etc. behind the JS wall stayed invisible.
+            import os as _os
+            try:
+                _render_min = int(_os.environ.get("SCANNER_RENDER_MIN_SYSTEMS", "5"))
+            except ValueError:
+                _render_min = 5
+            _blocked_or_thin = (
+                len(detected_systems) < _render_min
+                or status_code == 0
+                or status_code >= 400
+                or _looks_like_bot_challenge(html or "")
+            )
+            if _blocked_or_thin:
                 rendered = await self._render_html(_safe_url)
                 if rendered:
                     r_html, r_headers, r_cookies = rendered
@@ -344,7 +359,11 @@ class WebsiteScanner:
             # available), ask builtwith.com what it already knows about the
             # domain from its own crawl. Free, no API key, off-page — so it works
             # even when the target site refuses us. Merged at lower confidence.
-            if not detected_systems:
+            try:
+                _bw_min = int(_os.environ.get("SCANNER_BUILTWITH_MIN_SYSTEMS", "5"))
+            except ValueError:
+                _bw_min = 5
+            if len(detected_systems) < _bw_min:
                 bw_systems = await self._query_builtwith(domain)
                 for s in bw_systems:
                     if s.name not in all_systems_map:

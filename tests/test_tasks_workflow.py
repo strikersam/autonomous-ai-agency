@@ -54,6 +54,31 @@ def test_task_create_request_accepts_status():
     assert body.status is TaskStatus.IN_REVIEW
 
 
+@pytest.mark.asyncio
+async def test_list_for_user_surfaces_system_agency_tasks(task_store: TaskStore):
+    """Agent/scheduler tasks own owner_id='system'. The operator's board must show
+    them — previously they were returned by the admin API but filtered out of the
+    owner-scoped list (reported: 'agent tasks visible at API level, never on the UI')."""
+    mine = Task(owner_id="me@example.com", title="My task")
+    agency = Task(owner_id="system", title="Autonomous maintenance task")
+    other = Task(owner_id="someone-else@example.com", title="Not mine")
+    for t in (mine, agency, other):
+        await task_store.create(t)
+
+    visible = await task_store.list_for_user("me@example.com")
+    titles = {t.title for t in visible}
+    assert "My task" in titles
+    assert "Autonomous maintenance task" in titles  # the fix
+    assert "Not mine" not in titles  # tenant isolation preserved
+
+    # Opt-out still scopes strictly to the user.
+    strict = await task_store.list_for_user("me@example.com", include_system=False)
+    assert {t.title for t in strict} == {"My task"}
+
+    counts = await task_store.count_for_user("me@example.com")
+    assert sum(counts.values()) == 2  # mine + agency, not 'other'
+
+
 @pytest.mark.parametrize(
     "start_status,expected_status",
     [
