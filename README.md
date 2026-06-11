@@ -263,6 +263,20 @@ This means you get the leverage of a 24x7 team without the risk of autonomous ag
 
 ---
 
+## Live monitoring, self-supervision, and a knowledge base that writes itself
+
+Three capabilities landed in June 2026, each verified end-to-end against the live Cloudflare deployment:
+
+**Switchable execution brain.** The agent runtime resolves its LLM from your provider setup at run time — highest priority wins (Claude via the Anthropic OpenAI-compatible layer, DeepSeek V4 Pro or Nemotron via NVIDIA NIM, or local Ollama). Swapping the brain is a one-field priority change in the Providers screen; no redeploy, no code. Failed runs report `failed` with the real error — verification results can never be masked as success.
+
+**Live alerts (the 🔔 actually rings).** The top-right bell derives alerts on every read with zero stored state: failed runs surface as P1, runs awaiting your approval as P2 with a one-tap jump to the Tasks board, and an empty scheduler raises a wipe warning. Because alerts are computed from live platform state rather than a log table, the monitoring layer itself cannot be lost to a restart.
+
+**Self-supervising backlog.** Three standing cadences run the improvement loop: an **agency supervisor** (every 4 h) re-files failed runs, picks up unchecked items from the [autonomy epic](../../issues/504), and verifies PRs exist for completed work; a **post-deploy verifier** (daily) health-checks Doctor, runs a smoke task, and resurrects the cadences if a deploy wiped them; and a **tech-debt burndown** (Mon/Thu) that fixes three tracked code markers per run with PRs. Work is tracked where it survives restarts — GitHub issues and PRs — and the operating manual lives in `docs/knowledge/agency-operational-knowledge.md`, mirrored as a wiki page in the Knowledge screen.
+
+> Honest status: schedule and run persistence across redeploys is in progress ([#505](../../issues/504)); until it merges, the daily verifier self-heals the cadences. Capture-hub FAB ([#517](../../issues/517)) and automatic README/changelog/knowledge ingestion on repo connect ([#518](../../issues/518)) are specced and queued.
+
+---
+
 ## Quick Notes — capture ideas from your phone
 
 Drop a task from anywhere — no laptop needed.
