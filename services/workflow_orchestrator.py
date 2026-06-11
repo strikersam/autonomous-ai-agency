@@ -46,6 +46,35 @@ from pydantic import BaseModel, ConfigDict, Field
 
 log = logging.getLogger("agency.orchestrator")
 
+
+def _resolve_push_token(github_token: str | None, user_id: str | None) -> str | None:
+    """GitHub token used to push branches / open PRs during EXECUTION (#506).
+
+    Precedence:
+      1. The per-request / per-user token (Settings > GitHub) always wins.
+      2. The operator/server token (GH_TOKEN/GH_PAT/GITHUB_TOKEN) is the fallback
+         for internal system runs (no user_id) — and for user-initiated runs only
+         when explicitly opted in via ``ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS``.
+
+    Defaulting the opt-in OFF preserves the multi-tenant guard (a user run must not
+    silently borrow the service account's repo access); the operator of a
+    single-tenant agency sets the flag (or connects a per-user token) so that
+    runs can actually open PRs instead of executing and then failing to push.
+    """
+    if github_token:
+        return github_token
+    allow_user_runs = os.environ.get(
+        "ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", ""
+    ).strip().lower() in ("1", "true", "yes", "on")
+    if user_id is None or allow_user_runs:
+        return (
+            os.environ.get("GH_TOKEN")
+            or os.environ.get("GH_PAT")
+            or os.environ.get("GITHUB_TOKEN")
+        )
+    return None
+
+
 # ── Feature flag ──────────────────────────────────────────────────────────────
 
 WORKFLOW_MODE = os.environ.get("AGENCY_WORKFLOW_MODE", "orchestrator")
@@ -880,13 +909,9 @@ class WorkflowOrchestrator:
             # Uses ContextVar for async/coroutine safety.
             _token = _wo._BYPASS.set(True)
             try:
-                # Use the caller's GitHub token so the workflow acts with the
-                # user's own repo permissions. Only fall back to the server-wide
-                # token for internal/system runs (no user_id) — never let a
-                # user-initiated run borrow the service account's repo access.
-                gh_token = req.github_token
-                if gh_token is None and req.user_id is None:
-                    gh_token = _os.environ.get("GH_TOKEN") or _os.environ.get("GH_PAT") or _os.environ.get("GITHUB_TOKEN")
+                # Push/PR token: per-user token wins; operator/server token is the
+                # fallback for internal runs (always) and user runs (opt-in) — #506.
+                gh_token = _resolve_push_token(req.github_token, req.user_id)
                 brain_base, brain_headers, brain_model = await _resolve_brain_provider()
                 runner = AgentRunner(
                     ollama_base=brain_base,
@@ -975,12 +1000,9 @@ class WorkflowOrchestrator:
             if verdict not in ("APPROVED", "APPROVED_WITH_CONDITIONS"):
                 passed = False
 
-        # Try to verify PR if GitHub token available. Use the caller's token
-        # (same as preflight/execute) so verification reflects the caller's
-        # access; env fallback only for internal/system runs (no user_id).
-        github_token = req.github_token
-        if github_token is None and req.user_id is None:
-            github_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN")
+        # Try to verify PR if GitHub token available — same resolution as execute
+        # so verification matches what the run actually pushed with (#506).
+        github_token = _resolve_push_token(req.github_token, req.user_id)
         if github_token and execution.output:
             import re
             pr_matches = re.findall(r'github\.com/([^/]+/[^/]+)/pull/(\d+)', execution.output)

@@ -32,6 +32,16 @@ ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.BLOCKED: {TaskStatus.IN_PROGRESS, TaskStatus.FAILED},
     TaskStatus.FAILED: {TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED},
     TaskStatus.DONE: {TaskStatus.IN_PROGRESS},
+    # A task awaiting human input can be re-opened, re-queued, or terminated.
+    # Without this key, any transition from NEEDS_CLARIFICATION raised
+    # "Cannot transition…" → a 400 on the Retry button.
+    TaskStatus.NEEDS_CLARIFICATION: {
+        TaskStatus.TODO,
+        TaskStatus.IN_PROGRESS,
+        TaskStatus.BLOCKED,
+        TaskStatus.FAILED,
+        TaskStatus.DONE,
+    },
 }
 
 
@@ -105,13 +115,14 @@ class TaskWorkflowService:
         task.blocked_reason = blocked_reason if status is TaskStatus.BLOCKED else None
         task.review_reason = review_reason if status is TaskStatus.IN_REVIEW else None
 
-        if status is TaskStatus.IN_PROGRESS:
-            if task.started_at is None:
+        if status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+            # Both states are "runnable" — the dispatcher's list_pending() requires
+            # status in {todo, in_progress} AND pending_agent_run is True. Previously
+            # TODO was not handled here, so a FAILED→TODO retry left pending_agent_run
+            # False and the dispatcher never picked the task back up.
+            if status is TaskStatus.IN_PROGRESS and task.started_at is None:
                 task.started_at = time.time()
-            if pending_agent_run is None:
-                task.pending_agent_run = True
-            else:
-                task.pending_agent_run = pending_agent_run
+            task.pending_agent_run = True if pending_agent_run is None else pending_agent_run
         elif status in {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED}:
             task.pending_agent_run = bool(pending_agent_run) if pending_agent_run is not None else False
 
@@ -232,21 +243,26 @@ class TaskWorkflowService:
         return task
 
     def retry(self, task: Task, *, actor: str) -> Task:
-        if task.status not in {TaskStatus.FAILED, TaskStatus.BLOCKED, TaskStatus.IN_REVIEW}:
-            raise ValueError(f"Retry is only allowed for failed, blocked, or in_review tasks (got {task.status.value})")
-
-        if task.status is TaskStatus.IN_REVIEW:
-            self.transition(
-                task,
-                TaskStatus.IN_PROGRESS,
+        """Re-run a task. Permissive across every non-active state so the dashboard
+        Retry button (which is always visible) never returns a 400: terminal,
+        blocked, in-review and clarification-pending tasks are re-opened, while
+        already-runnable tasks (todo/in_progress) are simply re-armed.
+        """
+        if task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+            # Already runnable — re-arm the agent run without an illegal self-transition.
+            task.pending_agent_run = True
+            task.add_log(
+                f"Task re-armed for retry by {actor}",
+                event_type="status_changed",
                 actor=actor,
-                message=f"Review retry requested by {actor}",
-                pending_agent_run=True,
+                task_status=task.status,
             )
         else:
+            # FAILED → TODO (back of the queue); everything else → IN_PROGRESS (resume).
+            target = TaskStatus.TODO if task.status is TaskStatus.FAILED else TaskStatus.IN_PROGRESS
             self.transition(
                 task,
-                TaskStatus.TODO if task.status is TaskStatus.FAILED else TaskStatus.IN_PROGRESS,
+                target,
                 actor=actor,
                 message=f"Task reset for retry by {actor}",
                 pending_agent_run=True,

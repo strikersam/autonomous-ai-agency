@@ -3664,6 +3664,20 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     # Hard timeouts so a stuck/thinking model never silently hangs the request.
     _AGENT_TIMEOUT_SEC = 45  # stay below hosted edge timeouts; recover with direct answer
     _LLM_TIMEOUT_SEC = 120  # 2 minutes for simple LLM calls
+    # The background agent job is polled (the HTTP request already returned 202),
+    # so the edge-timeout rationale above does not apply to the loop itself. Bound
+    # the whole agent loop so an unreachable planner fails fast with a clear message
+    # instead of grinding through the planner's 300s HTTP timeout × retries (~15 min),
+    # which users perceive as "stuck in planning forever".
+    try:
+        _DIRECT_CHAT_AGENT_TIMEOUT_SEC = int(
+            os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "180")
+        )
+        if _DIRECT_CHAT_AGENT_TIMEOUT_SEC <= 0:
+            raise ValueError("must be > 0")
+    except (ValueError, TypeError):
+        log.warning("Invalid DIRECT_CHAT_AGENT_TIMEOUT_SEC; falling back to 180s.")
+        _DIRECT_CHAT_AGENT_TIMEOUT_SEC = 180
 
     if use_agent:
         _ensure_agent_session_exists(
@@ -3730,20 +3744,32 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
 
         async def _run_agent_job(heartbeat):
             heartbeat("planning", f"Planner model: {role_models['planner']}")
-            response_text = await _run_agent_loop(
-                instruction=body.content,
-                session_messages=model_messages[:-1],
-                wiki_index=wiki_index,
-                provider=primary_provider,
-                session_id=sid,
-                requested_model=requested_agent_model,
-                model_overrides=role_models,
-                github_token=user.get("github_repo_token"),
-                provider_chain=router.providers[1:],
-                allow_commercial_fallback=policy["allow_commercial_fallback"],
-                workspace_root=workspace_root,
-                context=body.context,
-            )
+            try:
+                response_text = await asyncio.wait_for(
+                    _run_agent_loop(
+                        instruction=body.content,
+                        session_messages=model_messages[:-1],
+                        wiki_index=wiki_index,
+                        provider=primary_provider,
+                        session_id=sid,
+                        requested_model=requested_agent_model,
+                        model_overrides=role_models,
+                        github_token=user.get("github_repo_token"),
+                        provider_chain=router.providers[1:],
+                        allow_commercial_fallback=policy["allow_commercial_fallback"],
+                        workspace_root=workspace_root,
+                        context=body.context,
+                    ),
+                    timeout=_DIRECT_CHAT_AGENT_TIMEOUT_SEC,
+                )
+            except asyncio.TimeoutError as exc:
+                raise RuntimeError(
+                    f"Agent mode timed out after {_DIRECT_CHAT_AGENT_TIMEOUT_SEC}s — the "
+                    f"planner model '{role_models['planner']}' did not respond. It may be "
+                    f"unreachable from this deployment (no local Ollama in the cloud). "
+                    f"Check the Providers screen, set AGENT_PLANNER_MODEL to a reachable "
+                    f"model, or use Direct mode. (Raise DIRECT_CHAT_AGENT_TIMEOUT_SEC to wait longer.)"
+                ) from exc
             heartbeat("verification", f"Judge model: {role_models['judge']}")
             await _persist_agent_chat_response(
                 session_id=sid,
@@ -6471,6 +6497,53 @@ async def get_public_doctor() -> _DoctorReport:
         checks=checks,
         run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
     )
+
+
+@app.get("/api/kpi/public")
+async def get_public_kpis() -> dict:
+    """Public, read-only autonomy KPIs — no authentication required.
+
+    Surfaces the aggregate autonomy counters from agent/kpi.py so the public
+    site / public Doctor view can show a live read-only KPI strip (brief #6).
+    Only non-sensitive process-wide counts are exposed — no user, company, repo,
+    or task identifiers. Counters are cumulative since process start
+    (``uptime_seconds`` gives the window); fields that are not yet instrumented
+    are reported honestly rather than fabricated.
+    """
+    import datetime
+
+    try:
+        from agent.kpi import get_tracker
+        snapshot = get_tracker().snapshot().as_dict()
+    except Exception:  # pragma: no cover - defensive
+        log.exception("Public KPI snapshot unavailable")
+        return {
+            "available": False,
+            "error": "KPI service temporarily unavailable",
+            "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+
+    derived = {
+        "plans_started": snapshot.get("total_plans", 0),
+        "steps_applied": snapshot.get("steps_applied", 0),
+        "steps_failed": snapshot.get("steps_failed", 0),
+        "prs_opened": snapshot.get("prs_created", 0),
+        "commits_made": snapshot.get("commits_made", 0),
+        "approval_gates_passed": snapshot.get("approval_gates_passed", 0),
+        "approval_gates_rejected": snapshot.get("approval_gates_rejected", 0),
+        "safety_blocks": snapshot.get("safety_blocks", 0),
+        # Not yet instrumented in agent/kpi.py — surfaced as null, not faked, so the
+        # public view never overstates autonomy. (brief: regression-after-auto-merge)
+        "regressions_after_auto_merge": None,
+    }
+    return {
+        "available": True,
+        "window": "cumulative-since-process-start",
+        "uptime_seconds": snapshot.get("uptime_seconds", 0),
+        "metrics": snapshot,
+        "summary": derived,
+        "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
 
 
 @app.get("/api/doctor/diagnostics", response_model=_DoctorReport)

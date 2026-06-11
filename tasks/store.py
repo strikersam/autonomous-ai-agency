@@ -15,6 +15,11 @@ from tasks.models import Task, TaskStatus, TaskPriority
 
 log = logging.getLogger("qwen-proxy")
 
+# Owner id used for tasks the agency creates for itself (scheduler/playbook,
+# self-healing, error-interceptor, self-bootstrap). Surfaced on every operator's
+# board so autonomous work is visible, not hidden behind owner-scoping.
+_AGENCY_OWNER_ID = "system"
+
 
 class TaskStore:
     """Persistent task store backed by MongoDB.
@@ -101,9 +106,21 @@ class TaskStore:
         tag: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        include_system: bool = True,
     ) -> list[Task]:
-        """List tasks for a specific user with optional filters."""
-        query: dict[str, Any] = {"owner_id": owner_id}
+        """List tasks for a specific user with optional filters.
+
+        ``include_system`` (default True) also surfaces the shared autonomous
+        queue (tasks the agency creates for itself with ``owner_id="system"`` —
+        scheduler/playbook, self-healing, error-interceptor, self-bootstrap).
+        Without this, agent-created tasks were returned by the admin/global API
+        but filtered out of the owner-scoped Task Board, so the human operator
+        could never see what the agents were doing.
+        """
+        owner_match: Any = (
+            {"$in": [owner_id, _AGENCY_OWNER_ID]} if include_system else owner_id
+        )
+        query: dict[str, Any] = {"owner_id": owner_match}
         if status:
             query["status"] = status.value
         if priority:
@@ -113,13 +130,17 @@ class TaskStore:
         if tag:
             query["tags"] = tag
 
+        def _owner_ok(v: dict[str, Any]) -> bool:
+            o = v.get("owner_id")
+            return o == owner_id or (include_system and o == _AGENCY_OWNER_ID)
+
         if self._mode == "mongo":
             cursor = self._collection.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
             docs = await cursor.to_list(length=limit)
         else:
             docs = [
                 v for v in self._mem.values()
-                if v.get("owner_id") == owner_id
+                if _owner_ok(v)
                 and (not status or v.get("status") == status.value)
                 and (not priority or v.get("priority") == priority.value)
                 and (not agent_id or v.get("agent_id") == agent_id)
@@ -230,11 +251,18 @@ class TaskStore:
             counts[str(agent_id)] = counts.get(str(agent_id), 0) + 1
         return counts
 
-    async def count_for_user(self, owner_id: str) -> dict[str, int]:
-        """Return counts per status for a user's tasks."""
+    async def count_for_user(self, owner_id: str, *, include_system: bool = True) -> dict[str, int]:
+        """Return counts per status for a user's tasks.
+
+        Mirrors ``list_for_user``: by default also counts the shared autonomous
+        queue (``owner_id="system"``) so the board column badges match the rows.
+        """
+        owner_match: Any = (
+            {"$in": [owner_id, _AGENCY_OWNER_ID]} if include_system else owner_id
+        )
         if self._mode == "mongo":
             pipeline = [
-                {"$match": {"owner_id": owner_id}},
+                {"$match": {"owner_id": owner_match}},
                 {"$group": {"_id": "$status", "count": {"$sum": 1}}},
             ]
             cursor = self._collection.aggregate(pipeline)
@@ -245,7 +273,8 @@ class TaskStore:
         else:
             counts: dict[str, int] = {}
             for v in self._mem.values():
-                if v.get("owner_id") == owner_id:
+                o = v.get("owner_id")
+                if o == owner_id or (include_system and o == _AGENCY_OWNER_ID):
                     s = v.get("status", "todo")
                     counts[s] = counts.get(s, 0) + 1
             return counts

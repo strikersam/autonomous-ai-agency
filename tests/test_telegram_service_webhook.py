@@ -22,12 +22,21 @@ class _FakeResponse:
 
 
 def _wait_for_threads(timeout: float = 2.0) -> None:
-    """Drain any daemon threads spawned by the dispatcher (webhook/telegram)."""
-    deadline = threading.active_count()
-    for _ in range(int(timeout * 10)):
-        if threading.active_count() <= deadline:
+    """Drain any daemon threads spawned by the dispatcher (webhook/telegram).
+
+    Snapshot the active count *before* the dispatching call and wait until it
+    drops back to that level.  The snapshot must be taken by the caller, so
+    this helper only works correctly when used with the Thread-inline patch
+    added to the test class (see ``_inline_threads`` fixture).
+    """
+    # Best-effort: give threads up to `timeout` seconds to finish.
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        # All our daemon threads are short-lived; 50 ms polling is fine.
+        time.sleep(0.05)
+        if threading.active_count() <= 1:
             return
-        threading.Event().wait(0.1)
 
 
 def _make_task(*, error: object = None, result: object = "") -> SimpleNamespace:
@@ -52,6 +61,32 @@ class TestRedactForNotification:
 
 
 class TestNotifyWebhookRedaction:
+    """Ensure _notify_webhook redacts secrets/PII before sending the webhook payload.
+
+    The dispatcher spawns a background daemon thread for each webhook call.
+    On CPython 3.13 the GIL is optional and thread scheduling changed, so
+    _wait_for_threads() with a simple active-count poll can return before the
+    daemon thread has had a chance to call ``client.post``.
+
+    We side-step the timing issue entirely by patching ``threading.Thread`` to
+    run the target callable *inline* (synchronously) during the test, eliminating
+    any thread-scheduling non-determinism.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _inline_threads(self, monkeypatch):
+        """Replace threading.Thread with a synchronous stub for this test class."""
+        class _SyncThread:
+            def __init__(self, target=None, daemon=None, *args, **kwargs):
+                self._target = target
+
+            def start(self):
+                if self._target is not None:
+                    self._target()
+
+        monkeypatch.setattr("telegram_service.threading.Thread", _SyncThread)
+        yield
+
     """The webhook payload MUST NOT contain raw secrets / emails / IPs."""
 
     def test_payload_redacts_secret_in_error(self) -> None:

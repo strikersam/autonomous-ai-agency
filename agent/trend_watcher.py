@@ -76,6 +76,15 @@ _KEYWORDS = frozenset({
     "agentic memory", "long context", "1m context", "100k context", "vector database",
     "pinecone", "weaviate", "chroma", "milvus", "postgres", "pgvector",
     "browserbase", "browser-use", "multi-modal", "vision", "computer use",
+    # Broader AI world (don't let the feed collapse onto Ollama/local-LLM only)
+    "mcp", "model context protocol", "agent framework", "crewai", "autogen",
+    "openai agents sdk", "agent sdk", "agentic workflow", "ai coding agent",
+    "reasoning model", "o3", "o4", "test-time compute", "inference-time scaling",
+    "llm eval", "evals", "swe-bench", "agent benchmark", "guardrails",
+    "voice agent", "realtime api", "structured output", "prompt caching",
+    "fine-tune", "distillation", "synthetic data", "world model", "diffusion",
+    "open source model", "frontier model", "small language model", "slm",
+    "ai product", "ai startup", "model release", "benchmark", "leaderboard",
 })
 
 # ── Source URLs ────────────────────────────────────────────────────────────────
@@ -104,11 +113,16 @@ _HN_ITEM_API  = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
 
 # Google News RSS
 _GNEWS_TERMS  = [
-    "local LLM inference server",
-    "ollama model release",
-    "LLM proxy openai compatible",
-    "Nvidia GPU AI inference 2025",
-    "open source AI agent 2025",
+    # Broadened beyond Ollama/local-LLM so the feed reflects the real AI world.
+    "AI agent framework",
+    "autonomous AI agents",
+    "AI coding agent",
+    "new LLM model release",
+    "agentic AI workflow",
+    "model context protocol MCP",
+    "reasoning model benchmark",
+    "open source LLM",
+    "local LLM inference server",  # keep one local-LLM term for our own niche
 ]
 _GNEWS_BASE   = "https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
 
@@ -133,6 +147,9 @@ _NEWSLETTER_FEEDS: dict[str, str] = {
 
 FETCH_INTERVAL_HOURS = 6
 MIN_RELEVANCE        = 0.25
+# Fixed relevance saturation: number of keyword hits that yields a max (1.0) score.
+# Kept constant so adding keywords broadens coverage instead of lowering all scores.
+_SCORE_SATURATION_HITS = 12.0
 
 # Reddit user-agent (required or Reddit returns 429/403)
 _REDDIT_HEADERS = {"User-Agent": "local-llm-server/4.1 (trend-watcher; +https://github.com/strikersam/local-llm-server)"}
@@ -218,7 +235,10 @@ class TrendWatcher:
     def _score(self, *texts: str) -> float:
         combined = " ".join(t.lower() for t in texts if t)
         hits = sum(1 for kw in _KEYWORDS if kw in combined)
-        return min(hits / max(len(_KEYWORDS) * 0.15, 1), 1.0)
+        # Normalise by a FIXED saturation point (NOT len(_KEYWORDS)) so the keyword
+        # set can grow to cover the wider AI world without diluting every score —
+        # ~12 keyword hits ⇒ max relevance, matching the original calibration.
+        return min(hits / _SCORE_SATURATION_HITS, 1.0)
 
     def _sig(self, source: str, title: str) -> str:
         return hashlib.sha256(f"{source}:{title}".encode()).hexdigest()[:16]
@@ -238,10 +258,12 @@ class TrendWatcher:
         try:
             r = await client.get(_ARXIV_API, params={
                 "search_query": (
-                    "ti:llm-serving OR ti:local-llm OR ti:inference-serving "
-                    "OR ti:llm-routing OR ti:ollama OR abs:model-routing "
-                    "OR ti:openai-compatible OR ti:speculative-decoding "
-                    "OR ti:mixture-of-experts OR ti:rag-retrieval"
+                    # Broadened beyond serving/Ollama to the wider agentic-AI world.
+                    "ti:llm-agent OR ti:agentic OR ti:multi-agent OR ti:tool-use "
+                    "OR ti:llm-reasoning OR ti:code-generation OR ti:llm-evaluation "
+                    "OR ti:retrieval-augmented OR ti:llm-routing OR ti:inference-serving "
+                    "OR ti:speculative-decoding OR ti:mixture-of-experts "
+                    "OR abs:autonomous-agent OR abs:llm-orchestration"
                 ),
                 "start": 0, "max_results": 20,
                 "sortBy": "submittedDate", "sortOrder": "descending",

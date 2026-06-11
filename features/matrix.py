@@ -341,7 +341,7 @@ _CANONICAL_FEATURES: list[dict[str, Any]] = [
         "key_dependencies": [],
         "config_flags": ["CRISPY_ARTIFACTS_ROOT"],
         "admin_visible": True,
-        "notes": "DEMOTED per issue #467 Section I. Phase sequence not enforced, worktree isolation missing. Re-enable with FEATURE_CRISPY_WORKFLOW=enabled.",
+        "notes": "DEMOTED per issue #467 Section I. This engine does not enforce its own phase sequence. (Per-task git worktree isolation DOES exist in the default internal_agent runtime — see runtimes/adapters/internal_agent.py; it is not gated on this feature.) Re-enable with FEATURE_CRISPY_WORKFLOW=enabled.",
     },
     {
         "feature_id": "task_harness_runtime",
