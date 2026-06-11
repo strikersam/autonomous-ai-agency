@@ -18,6 +18,55 @@ from webui.commands import run_command
 
 log = logging.getLogger("qwen-proxy")
 
+
+def _provider_kind(base_url: str, kind: str) -> str:
+    normalized = (kind or "openai_compat").strip().lower()
+    if normalized == "openai_compat" and (urlsplit(base_url).hostname or "").lower().endswith("anthropic.com"):
+        return "anthropic"
+    return normalized
+
+
+def _provider_headers(base_url: str, api_key: str | None, kind: str) -> dict[str, str]:
+    effective_kind = _provider_kind(base_url, kind)
+    headers: dict[str, str] = {}
+    if effective_kind == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
+        if api_key:
+            headers["x-api-key"] = api_key
+        return headers
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def _anthropic_chat_payload(model: str, messages: list[dict[str, Any]], temperature: float) -> dict[str, Any]:
+    system_parts: list[str] = []
+    anthropic_messages: list[dict[str, str]] = []
+    for message in messages:
+        role = str(message.get("role") or "user")
+        content = message.get("content")
+        if not isinstance(content, str):
+            continue
+        if role == "system":
+            system_parts.append(content)
+        elif role in {"user", "assistant"}:
+            anthropic_messages.append({"role": role, "content": content})
+    return {
+        "model": model,
+        "messages": anthropic_messages or [{"role": "user", "content": ""}],
+        "system": "\n\n".join(system_parts) if system_parts else None,
+        "max_tokens": 1024,
+        "temperature": temperature,
+    }
+
+
+def _anthropic_text(data: dict[str, Any]) -> str:
+    return "".join(
+        block.get("text", "")
+        for block in data.get("content", [])
+        if isinstance(block, dict)
+    )
+
 def _same_origin(url_a: str, url_b: str) -> bool:
     """Return True when two URLs share the same scheme, host, and port."""
     def _origin(u: str) -> tuple[str, str, int]:
@@ -104,13 +153,12 @@ def register_webui(
         secret = mgr.get_secret(provider_id)
         if not secret:
             raise HTTPException(status_code=404, detail="Unknown provider")
-        headers: dict[str, str] = {}
-        if secret.api_key:
-            headers["Authorization"] = f"Bearer {secret.api_key}"
+        headers = _provider_headers(secret.base_url, secret.api_key, secret.kind)
+        effective_kind = _provider_kind(secret.base_url, secret.kind)
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=3.0)) as client:
                 resp = await client.get(f"{secret.base_url}/v1/models", headers=headers)
-                if resp.status_code == 404:
+                if resp.status_code == 404 and effective_kind != "anthropic":
                     # Ollama exposes model listing via /api/tags (older or non-OpenAI endpoints).
                     resp = await client.get(f"{secret.base_url}/api/tags", headers=headers)
             resp.raise_for_status()
@@ -133,25 +181,35 @@ def register_webui(
         secret = mgr.get_secret(body.provider_id)
         if not secret:
             raise HTTPException(status_code=404, detail="Unknown provider")
+        effective_kind = _provider_kind(secret.base_url, secret.kind)
         headers: dict[str, str] = {"Content-Type": "application/json"}
-        if secret.api_key:
-            headers["Authorization"] = f"Bearer {secret.api_key}"
-        elif _same_origin(secret.base_url, str(request.base_url)):
+        headers.update(_provider_headers(secret.base_url, secret.api_key, secret.kind))
+        if not secret.api_key and effective_kind != "anthropic" and _same_origin(secret.base_url, str(request.base_url)):
             user_key = getattr(auth, "key", None)
             if user_key:
                 headers["Authorization"] = f"Bearer {user_key}"
         model = body.model or secret.default_model
         if not model:
             raise HTTPException(status_code=400, detail="Missing model (set provider default or pass model)")
-        payload = {
-            "model": model,
-            "messages": body.messages,
-            "temperature": body.temperature if body.temperature is not None else secret.default_temperature,
-            "stream": False,
-        }
+        temperature = body.temperature if body.temperature is not None else secret.default_temperature
+        payload = (
+            _anthropic_chat_payload(model, body.messages, temperature)
+            if effective_kind == "anthropic"
+            else {
+                "model": model,
+                "messages": body.messages,
+                "temperature": temperature,
+                "stream": False,
+            }
+        )
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-                resp = await client.post(f"{secret.base_url}/v1/chat/completions", json=payload, headers=headers)
+                target_url = (
+                    f"{secret.base_url}/v1/messages"
+                    if effective_kind == "anthropic"
+                    else f"{secret.base_url}/v1/chat/completions"
+                )
+                resp = await client.post(target_url, json=payload, headers=headers)
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=503, detail=f"Provider unreachable: {exc}") from exc
         if resp.status_code >= 400:
@@ -163,14 +221,17 @@ def register_webui(
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=f"Non-JSON upstream response: {exc}") from exc
 
-        choices = data.get("choices") if isinstance(data, dict) else None
-        if not isinstance(choices, list) or not choices:
-            raise HTTPException(status_code=502, detail="Upstream response missing choices")
-        first = choices[0] if isinstance(choices[0], dict) else {}
-        msg = first.get("message") if isinstance(first.get("message"), dict) else {}
-        content = msg.get("content", "") if isinstance(msg, dict) else ""
-        if not isinstance(content, str):
-            content = str(content or "")
+        if effective_kind == "anthropic":
+            content = _anthropic_text(data)
+        else:
+            choices = data.get("choices") if isinstance(data, dict) else None
+            if not isinstance(choices, list) or not choices:
+                raise HTTPException(status_code=502, detail="Upstream response missing choices")
+            first = choices[0] if isinstance(choices[0], dict) else {}
+            msg = first.get("message") if isinstance(first.get("message"), dict) else {}
+            content = msg.get("content", "") if isinstance(msg, dict) else ""
+            if not isinstance(content, str):
+                content = str(content or "")
         return {"model": model, "content": content}
 
     @router.post("/route")

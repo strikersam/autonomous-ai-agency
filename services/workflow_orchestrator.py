@@ -870,27 +870,21 @@ class WorkflowOrchestrator:
             try:
                 # Lazy import to avoid a circular import at module load time.
                 from backend.server import _list_configured_provider_records
+                from provider_router import ProviderRouter
+
                 records = await _list_configured_provider_records()
-                records.sort(
-                    key=lambda r: r.get("priority") if isinstance(r.get("priority"), (int, float)) else 0
-                )
-                for rec in records:
-                    base = str(rec.get("base_url") or "").strip().rstrip("/")
-                    if not base:
-                        continue
-                    rtype = str(rec.get("type") or "").lower()
-                    key = str(rec.get("api_key") or "").strip()
-                    if rtype != "ollama" and not key:
-                        continue
-                    if not base.endswith("/v1"):
-                        base = f"{base}/v1"
-                    headers = {"Authorization": f"Bearer {key}"} if key else None
-                    model = str(rec.get("default_model") or "").strip() or None
+                router = ProviderRouter.from_provider_records(records)
+                if router.providers:
+                    provider = router.providers[0]
+                    headers = provider.auth_headers()
+                    headers.pop("Content-Type", None)
                     log.info(
                         "Brain provider resolved from provider setup: %s base=%s model=%s",
-                        rec.get("provider_id"), base, model,
+                        provider.provider_id,
+                        provider.normalized_base_url,
+                        provider.default_model,
                     )
-                    return base, headers, model
+                    return provider.normalized_base_url, (headers or None), provider.default_model
             except Exception:
                 log.exception("Brain provider resolution failed — falling back to local Ollama")
             return (

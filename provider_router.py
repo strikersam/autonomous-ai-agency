@@ -340,6 +340,16 @@ def provider_sort_key(
     return (tier_order.get(provider_access_tier(provider), 99), priority, provider_id)
 
 
+def _normalized_provider_type(record: dict[str, Any]) -> str:
+    raw = str(record.get("type") or record.get("kind") or "openai-compatible").strip().lower()
+    if raw in {"openai_compat", "openai-compatible"}:
+        host = (urlparse(str(record.get("base_url") or "").strip()).hostname or "").lower()
+        if host.endswith("anthropic.com"):
+            return "anthropic"
+        return "openai-compatible"
+    return raw or "openai-compatible"
+
+
 class ProviderRouter:
     """Priority-ordered LLM provider fallback with health checks and retries."""
 
@@ -717,10 +727,10 @@ class ProviderRouter:
         primary_provider_id: str | None = None,
         include_commercial: bool = True,
     ) -> "ProviderRouter":
-        providers: list[ProviderConfig] = []
+        providers_with_order: list[tuple[int, ProviderConfig]] = []
         selected: ProviderConfig | None = None
 
-        for record in provider_records:
+        for index, record in enumerate(provider_records):
             base_url = str(record.get("base_url") or "").strip()
             provider_id = str(record.get("provider_id") or "").strip()
             if not provider_id or not base_url:
@@ -729,7 +739,7 @@ class ProviderRouter:
                 continue
             cfg = ProviderConfig(
                 provider_id=provider_id,
-                type=str(record.get("type") or "openai-compatible").strip(),
+                type=_normalized_provider_type(record),
                 base_url=base_url,
                 api_key=(str(record.get("api_key") or "").strip() or None),
                 default_model=(str(record.get("default_model") or "").strip() or None),
@@ -739,9 +749,14 @@ class ProviderRouter:
             if primary_provider_id and provider_id == primary_provider_id:
                 selected = cfg
             else:
-                providers.append(cfg)
+                providers_with_order.append((index, cfg))
 
-        providers = sorted(providers, key=provider_sort_key)
+        providers = [
+            cfg for _, cfg in sorted(
+                providers_with_order,
+                key=lambda item: (item[1].priority, item[0]),
+            )
+        ]
         if selected is not None:
             providers = [selected, *providers]
         return cls(providers)

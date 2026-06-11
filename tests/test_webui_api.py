@@ -91,3 +91,38 @@ def test_admin_can_create_provider_via_webui_admin_api(tmp_path: Path):
     assert provider["name"] == "Example remote"
     assert provider["has_api_key"] is True
 
+
+def test_admin_can_create_anthropic_provider_via_webui_admin_api(tmp_path: Path):
+    store = JsonConfigStore(
+        JsonStorePaths(
+            providers=tmp_path / "providers.json",
+            workspaces=tmp_path / "workspaces.json",
+        )
+    )
+    providers = ProviderManager(store)
+    workspaces = WorkspaceManager(store, default_local_root=tmp_path)
+    providers.ensure_defaults(local_base_url="http://localhost:11434")
+    workspaces.ensure_defaults()
+
+    proxy.app.state.webui_providers = providers
+    proxy.app.state.webui_workspaces = workspaces
+
+    session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
+    client = TestClient(proxy.app)
+    resp = client.post(
+        "/admin/api/providers",
+        headers={"Authorization": f"Bearer {session.token}"},
+        json={
+            "name": "Anthropic Claude",
+            "base_url": "https://api.anthropic.com",
+            "api_key": "sk-ant-test",
+            "default_model": "claude-sonnet-4-6",
+            "default_temperature": 0.2,
+            "kind": "anthropic",
+        },
+    )
+    assert resp.status_code == 200
+    provider = resp.json()["provider"]
+    assert provider["name"] == "Anthropic Claude"
+    assert provider["kind"] == "anthropic"
+

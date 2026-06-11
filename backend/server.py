@@ -2932,15 +2932,25 @@ async def _run_agent_loop(
     # Use a workspace root defined by either environment or a default.
     workspace_root = Path(workspace_root or Path(__file__).resolve().parent)
 
-    headers = (
-        {"Authorization": f"Bearer {provider.get('api_key')}"}
-        if provider.get("api_key")
-        else None
-    )
+    _router_providers = ProviderRouter.from_provider_records([provider]).providers
+    if _router_providers:
+        provider_cfg = _router_providers[0]
+        headers = provider_cfg.auth_headers()
+        headers.pop("Content-Type", None)
+        _agent_base_url = provider_cfg.normalized_base_url
+    else:
+        # Record was filtered (e.g. missing provider_id in tests/ad-hoc callers):
+        # fall back to the legacy direct wiring.
+        headers = (
+            {"Authorization": f"Bearer {provider.get('api_key')}"}
+            if provider.get("api_key")
+            else {}
+        )
+        _agent_base_url = _resolve_ollama_url(provider.get("base_url") or OLLAMA_BASE)
     runner = AgentRunner(
-        ollama_base=_resolve_ollama_url(provider.get("base_url") or OLLAMA_BASE),
+        ollama_base=_agent_base_url,
         workspace_root=workspace_root,
-        provider_headers=headers,
+        provider_headers=headers or None,
         provider_temperature=0.3,  # default for agent
         session_store=AGENT_EVENT_STORE,
         github_token=github_token,
@@ -3219,6 +3229,17 @@ async def _list_configured_provider_records() -> list[dict]:
     nim = _nvidia_nim_provider_record()
     if nim:
         filtered = [nim] + [r for r in filtered if r.get("provider_id") != "nvidia-nim"]
+    if filtered:
+        head = filtered[:1] if filtered[0].get("provider_id") == "nvidia-nim" else []
+        tail = filtered[1:] if head else filtered
+        tail = sorted(
+            tail,
+            key=lambda record: (
+                int(record.get("priority") or 100),
+                str(record.get("provider_id") or ""),
+            ),
+        )
+        filtered = [*head, *tail]
     return filtered or [_fallback_local_provider_record()]
 
 
