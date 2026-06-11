@@ -5496,6 +5496,53 @@ async def ping() -> dict[str, object]:
     return {"status": "ok", "pong": True}
 
 
+@app.get("/api/kpi/public")
+async def get_public_kpis() -> dict:
+    """Public, read-only autonomy KPIs — no authentication required.
+
+    Surfaces the aggregate autonomy counters from agent/kpi.py so the public
+    site / public Doctor view can show a live read-only KPI strip (brief #6).
+    Only non-sensitive process-wide counts are exposed — no user, company, repo,
+    or task identifiers. Counters are cumulative since process start
+    (``uptime_seconds`` gives the window); fields that are not yet instrumented
+    are reported honestly rather than fabricated.
+    """
+    import datetime
+
+    try:
+        from agent.kpi import get_tracker
+        snapshot = get_tracker().snapshot().as_dict()
+    except Exception:  # pragma: no cover - defensive
+        log.exception("Public KPI snapshot unavailable")
+        return {
+            "available": False,
+            "error": "KPI service temporarily unavailable",
+            "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+
+    derived = {
+        "plans_started": snapshot.get("total_plans", 0),
+        "steps_applied": snapshot.get("steps_applied", 0),
+        "steps_failed": snapshot.get("steps_failed", 0),
+        "prs_opened": snapshot.get("prs_created", 0),
+        "commits_made": snapshot.get("commits_made", 0),
+        "approval_gates_passed": snapshot.get("approval_gates_passed", 0),
+        "approval_gates_rejected": snapshot.get("approval_gates_rejected", 0),
+        "safety_blocks": snapshot.get("safety_blocks", 0),
+        # Not yet instrumented in agent/kpi.py — surfaced as null, not faked, so the
+        # public view never overstates autonomy. (brief: regression-after-auto-merge)
+        "regressions_after_auto_merge": None,
+    }
+    return {
+        "available": True,
+        "window": "cumulative-since-process-start",
+        "uptime_seconds": snapshot.get("uptime_seconds", 0),
+        "metrics": snapshot,
+        "summary": derived,
+        "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
 @app.get("/api/status")
 async def system_status(user: dict = Depends(get_current_user)) -> dict[str, object]:
     """Authenticated system status summary for the Doctor screen."""
