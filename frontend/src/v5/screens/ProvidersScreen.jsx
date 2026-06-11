@@ -220,9 +220,9 @@ function EditProviderForm({ provider, onUpdate, onClose }) {
     // Only send the key when the operator typed a new one — never blank it out.
     if (apiKey.trim()) payload.api_key = apiKey.trim();
     if (priority.trim() !== '') {
-      const n = parseInt(priority, 10);
-      if (Number.isNaN(n)) { setError('Priority must be a whole number.'); setBusy(false); return; }
-      payload.priority = n;
+      const raw = priority.trim();
+      if (!/^-?\d+$/.test(raw)) { setError('Priority must be a whole number.'); setBusy(false); return; }
+      payload.priority = Number(raw);
     }
     try {
       await onUpdate(provider.provider_id, payload);

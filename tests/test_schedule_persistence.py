@@ -68,6 +68,26 @@ def test_delete_and_toggle_are_persisted() -> None:
     assert s2.list() == []
 
 
+def test_disabled_job_rehydrates_and_can_be_re_enabled() -> None:
+    """A disabled job must be registered (paused) on rehydrate so a later
+    toggle(enabled=True) can resume it instead of silently failing on a missing
+    APScheduler job. Regression for CodeRabbit review on #525."""
+    store = _FakePersistence()
+    s1 = AgentScheduler(persistence=store)
+    job = s1.create(name="paused-cadence", cron="0 2 * * *", instruction="nightly")
+    s1.toggle(job.job_id, enabled=False)
+    assert store.docs[job.job_id]["enabled"] is False
+
+    # Restart: rehydrate, then re-enable. Must not raise and must end enabled.
+    s2 = AgentScheduler()
+    s2.attach_persistence(store)
+    rehydrated = s2.get(job.job_id)
+    assert rehydrated is not None and rehydrated.enabled is False
+    s2.toggle(job.job_id, enabled=True)
+    assert s2.get(job.job_id).enabled is True
+    assert store.docs[job.job_id]["enabled"] is True
+
+
 def test_scheduled_job_roundtrips_through_dict() -> None:
     j = ScheduledJob(
         job_id="job_abc", name="n", cron="* * * * *", instruction="i",

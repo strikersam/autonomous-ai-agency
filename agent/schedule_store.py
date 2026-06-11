@@ -17,7 +17,7 @@ import logging
 import os
 from typing import Any
 
-log = logging.getLogger("qwen-scheduler")
+log = logging.getLogger("qwen-proxy")
 
 _MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 _DB_NAME = os.environ.get("DB_NAME", "llm_platform")
@@ -49,8 +49,8 @@ class ScheduleStore:
             self._collection = client[db_name or _DB_NAME][_COLLECTION]
             try:
                 self._collection.create_index("job_id", unique=True)
-            except Exception:  # index best-effort
-                pass
+            except Exception as exc:  # index best-effort
+                log.warning("Index creation for %s.job_id failed: %s", _COLLECTION, exc)
             self._mode = "mongo"
             log.info("ScheduleStore: MongoDB-backed (durable across restarts)")
         except Exception as exc:

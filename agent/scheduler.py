@@ -18,7 +18,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-log = logging.getLogger("qwen-scheduler")
+log = logging.getLogger("qwen-proxy")
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -147,8 +147,15 @@ class AgentScheduler:
                 if job.job_id in self._jobs:
                     continue
                 self._jobs[job.job_id] = job
-                if job.enabled:
-                    self._register_aps(job)
+                # Register every job with APScheduler — including disabled ones —
+                # then pause the disabled ones, so a later toggle(enabled=True)
+                # can resume_job() instead of silently failing on a missing job.
+                self._register_aps(job)
+                if not job.enabled and self._aps:
+                    try:
+                        self._aps.pause_job(job.job_id)
+                    except Exception as exc:
+                        log.warning("Could not pause rehydrated job %s: %s", job.job_id, exc)
                 count += 1
             except Exception as exc:
                 log.warning("Schedule rehydrate: skipping bad record %r: %s", d, exc)
