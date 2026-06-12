@@ -6,7 +6,7 @@
 ## What It Does
 
 The audit engine crawls a website (robots.txt-aware, sitemap-seeded, SSRF-safe),
-runs **95+ deterministic checks** against every page plus site-level signals, and
+runs **102 deterministic checks** against every page plus site-level signals, and
 produces a prioritized, fully exportable report — the same `Issue Name / Issue
 Type / Issue Priority / URLs / % of Total / Description / How To Fix / Help URL`
 taxonomy Screaming Frog SEO Spider exports, so existing SEO workflows work as-is.
@@ -55,7 +55,7 @@ curl -X POST "$HOST/api/company/$COMPANY/seo/audit" \
 
 ```
 models/seo_audit.py      Typed Pydantic contracts (request, report, fix plan)
-services/seo_checks.py   The check catalog (95+ checks with remediation guidance)
+services/seo_checks.py   The check catalog (102 checks with remediation guidance)
 services/seo_audit.py    Async crawler + check engine + scoring + exports
 services/seo_fixer.py    Repo-aware auto-fixer (dry-run diffs / apply mode)
 backend/seo_api.py       REST API (mounted in backend/server.py)

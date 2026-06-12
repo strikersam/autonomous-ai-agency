@@ -1,6 +1,6 @@
 - **World-class SEO / GEO / AEO / AIO audit engine + repo-aware auto-fixer (issue #533, PR #534).**
   *Engine:* `services/seo_audit.py` — async SSRF-safe crawler (robots.txt-aware, sitemap-seeded, up to 500 pages)
-  running a 97-check catalog (`services/seo_checks.py`) with full Screaming Frog issue-taxonomy parity
+  running a 102-check catalog (`services/seo_checks.py`) with full Screaming Frog issue-taxonomy parity
   (Issue Name / Type / Priority / URLs / % of Total / Description / How To Fix / Help URL) plus
   GEO (llms.txt, AI-crawler robots access, sitemaps, semantic landmarks, citable anchors) and
   AIO/AEO (JSON-LD validity, Organization/Breadcrumb/FAQ schema, E-E-A-T, chunkability) pillars;

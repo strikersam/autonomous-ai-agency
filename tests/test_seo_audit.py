@@ -74,6 +74,7 @@ class TestCatalog:
             "title_below_30", "security_protocol_relative_resources", "title_below_200px",
             "meta_desc_duplicate", "links_no_anchor_text", "meta_desc_below_70",
             "directive_noindex", "h2_missing", "content_readability_difficult",
+            "h2_multiple", "hreflang_noindex_return_links",
         ]
         for code in expected:
             assert code in CHECKS, f"Screaming Frog parity check missing: {code}"
@@ -317,6 +318,33 @@ class TestSpecificChecks:
             headers={"content-type": "text/html", "x-robots-tag": "noindex"},
         ))
         assert "directive_noindex" in fired
+
+    def test_h2_multiple_fires(self):
+        html = "<html><body><h1>T</h1><h2>A</h2><h2>B</h2></body></html>"
+        fired = codes(analyze_page("https://example.com/", html,
+                                   headers={"content-type": "text/html"}))
+        assert "h2_multiple" in fired
+
+    def test_hreflang_noindex_return_links_site_check(self):
+        """Hreflang targets that are noindexed are flagged at site level."""
+        from services.seo_audit import SeoAuditEngine, analyze_page as ap
+        from models.seo_audit import SeoSiteFindings
+
+        en = ap("https://example.com/en", (
+            '<html><head><title>x</title>'
+            '<link rel="alternate" hreflang="en" href="https://example.com/en">'
+            '<link rel="alternate" hreflang="de" href="https://example.com/de">'
+            "</head><body>hi</body></html>"
+        ), headers={"content-type": "text/html"})
+        de = ap("https://example.com/de", (
+            '<html><head><title>x</title>'
+            '<meta name="robots" content="noindex"></head><body>hi</body></html>'
+        ), headers={"content-type": "text/html"})
+        engine = SeoAuditEngine()
+        issues = engine._site_checks(
+            "https://example.com/", [en, de], SeoSiteFindings(), {}, [], {}, {},
+        )
+        assert any(i.check_code == "hreflang_noindex_return_links" for i in issues)
 
     def test_question_headings_with_faq_schema_pass(self):
         html = (

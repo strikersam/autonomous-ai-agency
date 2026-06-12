@@ -75,7 +75,7 @@ With Agency Core:
 - An **E-commerce specialist** monitors your storefront every 30 minutes for uptime issues, TLS expiry, and stack changes
 - A **PIM specialist** keeps product descriptions, attributes, and taxonomy consistent
 - A **Support specialist** triages incoming tickets, drafts responses, and flags edge cases for human review
-- An **SEO specialist** runs Screaming Frog-class site audits (97 checks across SEO/GEO/AEO/AIO pillars), quantifies findings as revenue-at-risk, auto-fixes issues when your repo is connected, and delegates the rest as WSJF-prioritized tasks — see [docs/seo-audit.md](docs/seo-audit.md)
+- An **SEO specialist** runs Screaming Frog-class site audits (102 checks across SEO/GEO/AEO/AIO pillars), quantifies findings as revenue-at-risk, auto-fixes issues when your repo is connected, and delegates the rest as WSJF-prioritized tasks — see [docs/seo-audit.md](docs/seo-audit.md)
 - A **Content specialist** writes product copy and blog drafts from a brief you drop in plain English
 
 **Result:** Your ops team focuses on decisions, not repetitive maintenance.

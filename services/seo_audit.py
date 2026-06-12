@@ -193,6 +193,7 @@ class PageFindings:
         self.has_favicon_link: bool = False
         self.has_feed_link: bool = False
         self.structured_data_types: List[str] = []
+        self.hreflang_targets: List[str] = []
 
 
 def analyze_page(
@@ -387,6 +388,7 @@ def analyze_page(
     if hreflangs:
         values = [(h.get("hreflang") or "").strip() for h in hreflangs]
         hrefs = {normalize_url(h.get("href") or "", final_url) for h in hreflangs}
+        findings.hreflang_targets = sorted(hrefs)
         invalid = [v for v in values if v.lower() != "x-default" and not _HREFLANG_RE.match(v)]
         if invalid:
             fire("hreflang_invalid_codes", f"Invalid hreflang values: {invalid}")
@@ -420,6 +422,8 @@ def analyze_page(
     if not h2s:
         fire("h2_missing", "Page has no (or an empty) <h2>")
     else:
+        if len(h2s) > 1:
+            fire("h2_multiple", f"Page has {len(h2s)} <h2> elements")
         long_h2 = [h for h in h2s if len(h) > catalog.HEADING_MAX_CHARS]
         if long_h2:
             fire("h2_over_70", f"{len(long_h2)} <h2>(s) over {catalog.HEADING_MAX_CHARS} characters")
@@ -983,6 +987,19 @@ class SeoAuditEngine:
                 fire("response_blocked_by_robots", p.url,
                      f"{len(blocked)} internal link(s) blocked by robots.txt",
                      targets=blocked[:10])
+
+        # hreflang annotations pointing at crawled URLs that carry noindex
+        noindexed = {
+            p.url for p in pages
+            if p.audit is not None and "noindex" in p.audit.robots_directives
+        }
+        if noindexed:
+            for p in pages:
+                bad_targets = sorted(set(p.hreflang_targets) & noindexed)
+                if bad_targets:
+                    fire("hreflang_noindex_return_links", p.url,
+                         f"{len(bad_targets)} hreflang target(s) are noindexed",
+                         targets=bad_targets[:10])
 
         # site-wide single-fire checks (reported against the root URL)
         if not site.robots_txt_present:

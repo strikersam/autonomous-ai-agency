@@ -224,6 +224,12 @@ _ALL_CHECKS: List[SeoCheckDefinition] = [
        "helpful to users.",
        "Write concise <h2>s including target keywords where natural.",
        help_url=_SF),
+    _c("h2_multiple", "H2: Multiple", "H2", "warning", "low",
+       "Pages with multiple <h2>s. HTML standards allow this within a logical heading "
+       "hierarchy; the filter helps review whether they are used appropriately.",
+       "Ensure <h2>s sit in a logical hierarchical structure, using h3-h6 for deeper "
+       "levels where appropriate.",
+       help_url=_SF),
     _c("h2_non_sequential", "H2: Non-Sequential", "H2", "warning", "low",
        "Pages where an <h2> is not the second heading level after the <h1>. Heading "
        "elements should descend logically from <h1> to <h6>.",
@@ -396,6 +402,13 @@ _ALL_CHECKS: List[SeoCheckDefinition] = [
        "Consider an x-default page, especially for language selectors or auto-redirecting "
        "homepages.",
        help_url=_SF),
+    _c("hreflang_noindex_return_links", "Hreflang: Noindex Return Links", "Hreflang",
+       "issue", "high",
+       "Hreflang annotations pointing at URLs which carry a 'noindex' directive. All "
+       "pages in an hreflang set should be indexable; noindex members can cause the "
+       "whole relationship to be ignored.",
+       "Update hreflang annotations to include indexable URLs only.",
+       scope="site", help_url=_SF),
     _c("hreflang_invalid_codes", "Hreflang: Incorrect Language & Region Codes", "Hreflang",
        "issue", "high",
        "Hreflang annotations with invalid language (ISO 639-1) or region (ISO 3166-1 "
