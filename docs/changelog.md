@@ -62,6 +62,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Deploys unfrozen: Worker secret upload honors wrangler.jsonc.** Deploys failed with "Required Worker name missing" because the wrangler-action secrets input runs secret put without --config. Replaced with an explicit npx -y wrangler@4 secret put step; the first green deploy activates the env-pinned Claude brain.
+
 ### Added
 - **Deploy pins the agent brain via env (immune to #537).** deploy-cloudflare.yml now passes AGENT_LLM_BASE_URL (Anthropic OpenAI-compat) and AGENT_LLM_MODEL=claude-sonnet-4-6 as Worker vars and uploads AGENT_LLM_API_KEY as a Worker secret from GitHub secrets on every deploy. The brain resolver checks env before provider records, so Claude stays the brain across restarts and instances; remove the vars to fall back to record-priority ordering (free models).
 
