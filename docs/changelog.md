@@ -62,6 +62,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Provider priority now governs ALL records, including env-injected Nvidia NIM.** `_list_configured_provider_records` previously prepended the env NIM record unconditionally, so a user-promoted provider (e.g. Anthropic at -50) could never outrank it — verified live via llm_provenance showing nemotron despite Claude on top. Records are now merged and sorted strictly by priority (#524). Note: commercial providers additionally require the runtime policy `never_use_paid_providers` to be disabled.
+
 
 ### Added
 - **#522: Orchestrator reliability — async approve queue, per-phase timeouts, heartbeat watchdog, deterministic supervisor, step-level checkpointing.** New modules:  (FIFO queue with configurable concurrency semaphore via ),  (zero-LLM periodic coroutine that detects stalled runs by heartbeat and re-enqueues them; configurable via  /  / ),  (durable Mongo/SQLite checkpoint store; in-flight runs survive restarts).  now wraps LLM phases (PLAN, EXECUTE, VERIFY, JUDGE) in per-phase timeouts (, default 120s) with exponential-backoff retries (, default 2) and  tracking.  enqueues approved runs via the FIFO queue instead of blocking inline (API returns 202).  rehydrates + re-enqueues runs after a restart. New endpoints:  (queue depth, active runs, supervisor state), , , , . Startup hooks hydrate persisted schedules and restore in-flight runs.
