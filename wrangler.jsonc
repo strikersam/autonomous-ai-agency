@@ -9,6 +9,15 @@
   "observability": {
     "enabled": true
   },
+  "env": {
+    "production": {
+      "vars": {
+        "AGENT_LLM_BASE_URL": "https://api.anthropic.com/v1",
+        "AGENT_LLM_MODEL": "claude-sonnet-4-6"
+      },
+      "secrets": ["AGENT_LLM_API_KEY"]
+    }
+  },
   // The React SPA is built by the CI/CD workflow (GitHub Actions) before wrangler runs.
   // No build.command here — the workflow handles: npm install + npm run build + _redirects cleanup.
   "assets": {
