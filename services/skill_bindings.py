@@ -750,6 +750,24 @@ class SkillBindings:
             source_path=".claude/skills/risky-module-review/SKILL.md",
         ))
 
+        self._register(RuntimeSkill(
+            skill_id="seo-audit",
+            name="SEO / GEO / AIO Site Audit",
+            description="Screaming Frog-class website audit: crawls a site, runs the full check catalog (page titles, meta descriptions, headings, content, images, links, canonicals, directives, hreflang, URL structure, security headers, response codes, validation, structured data) plus GEO (llms.txt, AI-crawler access, sitemaps) and AIO (schema.org, FAQ/HowTo, chunkability) pillars, prioritizes findings and produces a Screaming Frog-compatible report. The companion repo-aware fixer can remediate auto-fixable findings when a code repository is available.",
+            category=SkillCategory.ANALYTICS,
+            safety=SkillSafety.NETWORK,
+            inputs=[
+                SkillInput(name="website_url", type="str", description="Root URL to audit"),
+                SkillInput(name="max_pages", type="int", default=25, description="Crawl page budget (1-500)"),
+            ],
+            outputs=SkillOutput(type="dict", description="Audit summary: health score, pillar scores, prioritized findings"),
+            specialist_families=["seo", "content", "marketing", "analytics", "frontend", "ecommerce"],
+            capabilities_added=["site_audit", "issue_remediation", "geo_optimization", "aio_optimization"],
+            trigger_keywords=["seo", "audit", "crawl", "screaming frog", "meta description", "sitemap", "llms.txt", "geo", "aio", "ai overviews", "structured data"],
+            source="local",
+            source_path="services/seo_audit.py",
+        ))
+
         log.info("Registered %d core runtime skills", len(self._skills))
 
     # ------------------------------------------------------------------
@@ -973,6 +991,31 @@ def _execute_skill_impl(skill_id: str, params: dict[str, Any]) -> dict[str, Any]
 
     elif skill_id == "council-review":
         result["result"] = _run_council_review(params)
+
+    elif skill_id == "seo-audit":
+        from models.seo_audit import SeoAuditRequest
+        from services.seo_audit import run_audit_sync
+        report = run_audit_sync(SeoAuditRequest(
+            website_url=str(params.get("website_url", "")),
+            max_pages=int(params.get("max_pages", 25)),
+        ), company_id=params.get("company_id"))
+        result["success"] = report.status == "success"
+        result["result"] = {
+            "audit_id": report.audit_id,
+            "status": report.status,
+            "error": report.error,
+            "pages_crawled": report.pages_crawled,
+            "health_score": report.health_score,
+            "pillar_scores": report.pillar_scores,
+            "total_issues": report.total_issues,
+            "issues_by_priority": report.issues_by_priority,
+            "top_findings": [
+                {"issue": r.issue_name, "priority": r.issue_priority,
+                 "type": r.issue_type, "urls": r.urls_affected}
+                for r in report.rows[:10]
+            ],
+            "summary": report.summary,
+        }
 
     elif skill_id in ("risky-module-review", "implementation-planner",
                        "test-first-executor", "stop-slop-quality", "changelog-enforcer",

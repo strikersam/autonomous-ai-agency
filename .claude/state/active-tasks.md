@@ -30,6 +30,7 @@
 | 6 | Portfolio refresh workflow → reuse RENDER_BACKEND_URL secret | `IN_PROGRESS` | claude/portfolio-refresh-backend-url | point cron ping at existing secret | 2026-06-06 |
 | 7 | FreeBuff agent (free NVIDIA models) + Telegram phone control (#416) | `DONE` | [#431](https://github.com/strikersam/local-llm-server/pull/431) merged | FreeBuffAgent + /freebuff/* endpoints + Telegram inline buttons + unlimited rate limit; tests + docs | 2026-06-06 |
 | 8 | FreeBuff always-on Telegram bot (24×7 Render/Docker, embedded mode) | `IN_PROGRESS` | `claude/freebuff-telegram-deploy` | embedded in-process agent + launcher + Dockerfile.telegram + render worker + deploy docs | 2026-06-06 |
+| 9 | SEO/GEO/AEO/AIO audit engine + repo fixer + revenue portfolio (#533, PR #534 plan) | `DONE` | `claude/cool-davinci-494siy` | 97-check engine, WSJF delegation, auto-fixer, API, 124 tests — see docs/seo-audit.md | 2026-06-12 |
 
 ---
 
