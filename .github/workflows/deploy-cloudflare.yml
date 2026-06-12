@@ -57,9 +57,3 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --config wrangler.jsonc --env production
 
-      - name: Push brain API key as Worker secret
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          AGENT_LLM_API_KEY: ${{ secrets.AGENT_LLM_API_KEY }}
-        run: echo "$AGENT_LLM_API_KEY" | npx -y wrangler@4 secret put AGENT_LLM_API_KEY --config wrangler.jsonc --env production
