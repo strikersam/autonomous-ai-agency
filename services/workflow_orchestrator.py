@@ -1050,17 +1050,12 @@ class WorkflowOrchestrator:
             instruction = f"Goal: {plan.goal}\n\nFull request:\n{req.request}"
 
         async def _resolve_brain_provider():
-            """Resolve the LLM endpoint for agent execution from the provider setup.
-
-            Order: AGENT_LLM_* env override -> highest-priority configured provider
-            record (the same store the Providers screen manages) -> local Ollama.
+            """Resolve the LLM endpoint for agent execution from provider priority.
+            
+            Single source of truth: highest-priority configured provider record
+            (the same store the Providers screen manages).
             Returns (openai_compatible_base_url, auth_headers_or_None, model_or_None).
             """
-            env_base = (os.environ.get("AGENT_LLM_BASE_URL") or "").strip()
-            if env_base:
-                key = (os.environ.get("AGENT_LLM_API_KEY") or "").strip()
-                headers = {"Authorization": f"Bearer {key}"} if key else None
-                return env_base.rstrip("/"), headers, (os.environ.get("AGENT_LLM_MODEL") or None)
             try:
                 # Lazy import to avoid a circular import at module load time.
                 from backend.server import _list_configured_provider_records
