@@ -35,6 +35,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse, urlunparse
 
+import threading
+
 import httpx
 from bs4 import BeautifulSoup
 
@@ -184,6 +186,7 @@ class PageFindings:
         self.audit: Optional[SeoPageAudit] = None
         self.issues: List[SeoIssueInstance] = []
         self.internal_hrefs: List[str] = []
+        self.external_hrefs: List[str] = []
         self.image_urls: List[str] = []
         self.title: str = ""
         self.meta_description: str = ""
@@ -522,6 +525,7 @@ def analyze_page(
             if target == "_blank" and "noopener" not in rel and "noreferrer" not in rel:
                 unsafe_blank += 1
     findings.internal_hrefs = internal
+    findings.external_hrefs = external
     if localhost_links:
         fire("links_localhost_or_dev",
              f"{len(localhost_links)} link(s) to development hosts",
@@ -735,11 +739,13 @@ class SeoAuditEngine:
                 limits=httpx.Limits(max_connections=CRAWL_CONCURRENCY * 2),
             ) as client:
                 return await self._run_with_client(client, request, audit_id, company_id, started, root)
-        except Exception as exc:  # noqa: BLE001 - audit must fail closed, not raise
+        except Exception:  # noqa: BLE001 - audit must fail closed, not raise
+            # Full details go to server logs only; the report payload is
+            # client-visible and must not leak internal runtime details.
             log.exception("SEO audit %s failed", audit_id)
             return SeoAuditReport(
                 audit_id=audit_id, company_id=company_id, website_url=root,
-                status="failed", error=f"{type(exc).__name__}: {exc}",
+                status="failed", error="Audit execution failed - see server logs",
                 started_at=started, completed_at=datetime.now(timezone.utc),
             )
 
@@ -917,6 +923,8 @@ class SeoAuditEngine:
         # bounded image-weight checks
         if request.check_image_sizes:
             issues.extend(await self._check_image_weights(client, pages, root))
+        if request.check_external_links:
+            issues.extend(await self._check_external_links(client, pages))
 
         # ---- aggregate ----------------------------------------------------------------
         return self._build_report(
@@ -1072,6 +1080,29 @@ class SeoAuditEngine:
                         url=page_url,
                         detail=f"Image {img_url} is {size / 1024:.0f} kB",
                         evidence={"image": img_url, "bytes": size},
+                    ))
+        return issues
+
+    async def _check_external_links(
+        self,
+        client: httpx.AsyncClient,
+        pages: List[PageFindings],
+    ) -> List[SeoIssueInstance]:
+        """HEAD a bounded set of external link targets and flag dead ones."""
+        link_pages: Dict[str, List[str]] = {}
+        for p in pages:
+            for href in p.external_hrefs:
+                link_pages.setdefault(href, []).append(p.url)
+        issues: List[SeoIssueInstance] = []
+        for href in list(link_pages.keys())[:MAX_LINK_HEAD_REQUESTS]:
+            _, status = await self._fetch_head(client, href)
+            if 400 <= status < 600:
+                for page_url in sorted(set(link_pages[href]))[:5]:
+                    issues.append(SeoIssueInstance(
+                        check_code="links_broken_external",
+                        url=page_url,
+                        detail=f"External link {href} responded {status}",
+                        evidence={"target": href, "status": status},
                     ))
         return issues
 
@@ -1347,7 +1378,8 @@ class SeoAuditEngine:
         try:
             resp = await client.get(url)
             return resp.text, resp.status_code
-        except Exception:  # noqa: BLE001 - discovery files are optional
+        except Exception as exc:  # noqa: BLE001 - discovery files are optional
+            log.warning("SEO audit could not fetch %s: %s", url, exc)
             return "", 0
 
     @staticmethod
@@ -1357,7 +1389,8 @@ class SeoAuditEngine:
             if resp.status_code == 405:  # some servers refuse HEAD
                 resp = await client.get(url)
             return {k.lower(): v for k, v in resp.headers.items()}, resp.status_code
-        except Exception:  # noqa: BLE001 - bounded best-effort checks
+        except Exception as exc:  # noqa: BLE001 - bounded best-effort checks
+            log.warning("SEO audit could not HEAD %s: %s", url, exc)
             return {}, 0
 
     async def _discover_sitemaps(
@@ -1556,22 +1589,27 @@ def report_to_markdown(report: SeoAuditReport) -> str:
 
 _MAX_REPORTS = 50
 _reports: "OrderedDict[str, SeoAuditReport]" = OrderedDict()
+_reports_lock = threading.RLock()
 
 
 def save_report(report: SeoAuditReport) -> None:
     """Store a report in the bounded in-memory registry."""
-    _reports[report.audit_id] = report
-    while len(_reports) > _MAX_REPORTS:
-        _reports.popitem(last=False)
+    with _reports_lock:
+        _reports[report.audit_id] = report
+        while len(_reports) > _MAX_REPORTS:
+            _reports.popitem(last=False)
 
 
 def get_report(audit_id: str) -> Optional[SeoAuditReport]:
     """Fetch a stored report by id."""
-    return _reports.get(audit_id)
+    with _reports_lock:
+        return _reports.get(audit_id)
 
 
 def list_reports(company_id: Optional[str] = None) -> List[SeoAuditSummary]:
     """List stored reports (most recent first), optionally filtered by company."""
+    with _reports_lock:
+        snapshot = list(_reports.values())
     summaries = [
         SeoAuditSummary(
             audit_id=r.audit_id,
@@ -1584,7 +1622,7 @@ def list_reports(company_id: Optional[str] = None) -> List[SeoAuditSummary]:
             total_issues=r.total_issues,
             health_score=r.health_score,
         )
-        for r in reversed(_reports.values())
+        for r in reversed(snapshot)
         if company_id is None or r.company_id == company_id
     ]
     return summaries

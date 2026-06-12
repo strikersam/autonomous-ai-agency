@@ -6908,7 +6908,7 @@ try:
     import backend.seo_api as seo_api_module
     app.include_router(seo_api_module.router)
 except Exception as _seo_err:  # noqa: BLE001 - SEO API must not block startup
-    log.warning("SEO audit API not mounted: %s", _seo_err)
+    log.warning("SEO audit API not mounted: %s", _seo_err, exc_info=True)
 
 # Workflow Orchestrator API --- canonical execution backbone
 from services.workflow_orchestrator import (

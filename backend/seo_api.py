@@ -59,8 +59,14 @@ def _workspace_root() -> FsPath:
 
 
 @router.get("/seo/checks", response_model=List[SeoCheckDefinition])
-async def seo_check_catalog() -> List[SeoCheckDefinition]:
-    """Return the full SEO/GEO/AIO check catalog (no company data involved)."""
+async def seo_check_catalog(
+    user: dict = Depends(_get_current_user_thunk),
+) -> List[SeoCheckDefinition]:
+    """Return the full SEO/GEO/AIO check catalog.
+
+    Static metadata only, but gated behind authentication like every other
+    non-doctor endpoint per the repo's API guidelines.
+    """
     return list_checks()
 
 
@@ -264,25 +270,36 @@ async def run_seo_fixes(
     request: SeoFixRequest = Body(...),
     user: dict = Depends(_get_current_user_thunk),
 ) -> SeoFixResult:
-    """Run the repo-aware auto-fixer against a workspace checkout.
+    """Run the repo-aware auto-fixer against this company's workspace checkout.
 
-    The repo path must live inside the configured workspace root
-    (SEO_FIX_WORKSPACE_ROOT, default ./workspace) - the fixer reads and,
-    with apply=true, writes files, so arbitrary filesystem paths are refused.
+    Authorization boundary: the repo path must live inside the company's own
+    workspace directory (<SEO_FIX_WORKSPACE_ROOT>/<company_id>/...), so an
+    operator of one company can never read or modify another company's
+    checkout, regardless of the path they submit.
     """
-    await get_company_access(company_id, user)
+    company = await get_company_access(company_id, user)
 
-    root = _workspace_root()
+    company_root = (_workspace_root() / company.id).resolve()
     target = FsPath(request.repo_path).resolve()
-    if not str(target).startswith(str(root) + os.sep) and target != root:
+    try:
+        target.relative_to(company_root)
+    except ValueError:
+        log.warning("Rejected SEO fix: repo_path %s outside company workspace %s",
+                    target, company_root)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"repo_path must be inside the workspace root ({root})",
+            detail="repo_path must be inside this company's workspace directory",
         )
     if not target.is_dir():
+        log.warning("Rejected SEO fix: repo_path does not exist: %s", target)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"repo_path does not exist: {target}",
+            detail="repo_path not found in this company's workspace",
         )
 
-    return run_fixes(request.model_copy(update={"repo_path": str(target)}))
+    # run_fixes walks and (with apply) writes files - keep it off the event loop.
+    from starlette.concurrency import run_in_threadpool
+
+    return await run_in_threadpool(
+        run_fixes, request.model_copy(update={"repo_path": str(target)}),
+    )

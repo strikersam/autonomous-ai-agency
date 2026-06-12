@@ -758,7 +758,7 @@ class SkillBindings:
             safety=SkillSafety.NETWORK,
             inputs=[
                 SkillInput(name="website_url", type="str", description="Root URL to audit"),
-                SkillInput(name="max_pages", type="int", default="25", description="Crawl page budget (1-200)"),
+                SkillInput(name="max_pages", type="int", default=25, description="Crawl page budget (1-500)"),
             ],
             outputs=SkillOutput(type="dict", description="Audit summary: health score, pillar scores, prioritized findings"),
             specialist_families=["seo", "content", "marketing", "analytics", "frontend", "ecommerce"],

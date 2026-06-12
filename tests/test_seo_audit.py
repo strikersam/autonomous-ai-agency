@@ -384,7 +384,7 @@ def _mock_site_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text=(
             "User-agent: *\nDisallow: /secret/\n\n"
             "User-agent: GPTBot\nDisallow: /\n\n"
-            f"Sitemap: https://mocksite.test/sitemap.xml\n"
+            "Sitemap: https://mocksite.test/sitemap.xml\n"
         ))
     if path == "/sitemap.xml":
         return httpx.Response(200, text=(
@@ -464,7 +464,7 @@ class TestCrawl:
         assert priorities == sorted(priorities)
 
     def test_health_scores_in_range(self, mock_report):
-        assert 0 <= mock_report.health_score < 100
+        assert 0 <= mock_report.health_score <= 100
         for pillar, score in mock_report.pillar_scores.items():
             assert 0 <= score <= 100, pillar
 
@@ -472,6 +472,32 @@ class TestCrawl:
         for row in mock_report.rows:
             assert 0 < row.percent_of_total <= 100 * row.urls_affected
             assert row.urls_affected <= max(1, mock_report.pages_crawled)
+
+    def test_external_link_validation_when_enabled(self):
+        """check_external_links=True HEAD-checks external targets (bounded)."""
+        def handler(request: httpx.Request) -> httpx.Response:
+            host, path = request.url.host, request.url.path
+            if host == "deadsite.example":
+                return httpx.Response(404, text="gone")
+            if path == "/":
+                return httpx.Response(200, text=(
+                    '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+                    "<title>External link test page title here</title></head>"
+                    '<body><main><h1>Home</h1><a href="/a">A</a>'
+                    '<a href="https://deadsite.example/old">Dead</a></main></body></html>'
+                ), headers={"content-type": "text/html"})
+            if path == "/a":
+                return httpx.Response(200, text="<html><body>a</body></html>",
+                                      headers={"content-type": "text/html"})
+            return httpx.Response(404, text="nf")
+
+        engine = SeoAuditEngine(transport=httpx.MockTransport(handler))
+        report = asyncio.run(engine.run(SeoAuditRequest(
+            website_url="https://extlink.test/", max_pages=5,
+            check_external_links=True, check_image_sizes=False,
+        )))
+        fired = {i.check_code for i in report.issues}
+        assert "links_broken_external" in fired
 
     def test_ssrf_protection_blocks_private_hosts(self):
         engine = SeoAuditEngine()  # no transport -> safety check active

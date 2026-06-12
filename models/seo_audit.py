@@ -99,9 +99,12 @@ class SeoAuditRequest(BaseModel):
     @field_validator("website_url")
     @classmethod
     def _validate_url(cls, v: str) -> str:
+        from urllib.parse import urlparse
+
         v = v.strip()
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("website_url must start with http:// or https://")
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("website_url must be an absolute http(s) URL with a host")
         return v
 
 

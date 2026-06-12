@@ -53,7 +53,7 @@ curl -X POST "$HOST/api/company/$COMPANY/seo/audit" \
 
 ## Architecture
 
-```
+```text
 models/seo_audit.py      Typed Pydantic contracts (request, report, fix plan)
 services/seo_checks.py   The check catalog (102 checks with remediation guidance)
 services/seo_audit.py    Async crawler + check engine + scoring + exports

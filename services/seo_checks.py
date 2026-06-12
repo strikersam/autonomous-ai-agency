@@ -335,6 +335,11 @@ _ALL_CHECKS: List[SeoCheckDefinition] = [
        "but may also indicate link spam or poorly curated content.",
        "Review external links to ensure they are credible, trusted and useful to users.",
        help_url=_SF),
+    _c("links_broken_external", "Links: Broken External Links", "Links", "issue", "medium",
+       "External outlinks resolving to client or server errors. Broken external links "
+       "erode user trust and signal unmaintained content to search engines.",
+       "Update or remove links to dead external resources.",
+       help_url=_SF),
     _c("links_localhost_or_dev", "Links: Localhost / Development URLs", "Links", "issue", "high",
        "Links pointing at localhost, 127.0.0.1 or private development hosts. These leak "
        "from development environments and are broken for real users.",

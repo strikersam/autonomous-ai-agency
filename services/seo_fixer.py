@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import difflib
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -132,12 +133,15 @@ class SeoFixer:
 
     def _find_html_files(self) -> List[Path]:
         files: List[Path] = []
-        for path in sorted(self.repo.rglob("*")):
-            if path.suffix.lower() not in _HTML_SUFFIXES or not path.is_file():
-                continue
-            if any(part in _SKIP_DIRS for part in path.relative_to(self.repo).parts):
-                continue
-            files.append(path)
+        # os.walk with in-place dirnames pruning so we never descend into
+        # .git/node_modules/dist on large repos (rglob would walk them first).
+        for dirpath, dirnames, filenames in os.walk(self.repo):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            for filename in filenames:
+                path = Path(dirpath) / filename
+                if path.suffix.lower() in _HTML_SUFFIXES:
+                    files.append(path)
+        files.sort()
         return files
 
     def _record(
@@ -376,20 +380,29 @@ class SeoFixer:
         return _IMG_TAG_RE.sub(repl, content), alt_count, size_count, lazy_count
 
     def _measure_image(self, html_path: Path, src: str) -> Optional[Tuple[int, int]]:
-        candidate = (html_path.parent / src.split("?")[0].lstrip("/")).resolve()
-        if not str(candidate).startswith(str(self.repo)):
-            # also try repo-rooted absolute paths ("/img/x.png")
-            candidate = (self.repo / src.split("?")[0].lstrip("/")).resolve()
-        if (not str(candidate).startswith(str(self.repo))
-                or candidate.suffix.lower() not in _IMAGE_SUFFIXES
-                or not candidate.is_file()):
+        raw_src = src.split("?")[0]
+        # Site-absolute srcs ("/img/x.png") are rooted at the repo; relative
+        # srcs resolve against the page's own directory.
+        if raw_src.startswith("/"):
+            candidate = (self.repo / raw_src.lstrip("/")).resolve()
+        else:
+            candidate = (html_path.parent / raw_src).resolve()
+        # Path-aware containment check (str.startswith would accept sibling
+        # directories like /repo-copy when the repo is /repo).
+        try:
+            candidate.relative_to(self.repo)
+        except ValueError:
+            return None
+        if candidate.suffix.lower() not in _IMAGE_SUFFIXES or not candidate.is_file():
             return None
         try:
             from PIL import Image
 
             with Image.open(candidate) as img:
                 return int(img.width), int(img.height)
-        except Exception:  # noqa: BLE001 - measurement is best-effort
+        except Exception as exc:  # noqa: BLE001 - measurement is best-effort
+            log.warning("Could not measure image %s (from %s): %s",
+                        candidate, html_path, exc)
             return None
 
     # ------------------------------------------------------------------
@@ -478,7 +491,9 @@ class SeoFixer:
             "X-Frame-Options": "security_missing_x_frame_options",
             "Referrer-Policy": "security_missing_referrer_policy",
         }
-        if not any(self._enabled(code) for code in header_checks.values()):
+        enabled = [(header, code) for header, code in header_checks.items()
+                   if self._enabled(code)]
+        if not enabled:
             return
 
         if (self.repo / "netlify.toml").exists():
@@ -490,13 +505,17 @@ class SeoFixer:
         else:
             target, snippet = "security-headers (server config)", self._headers_file_snippet()
 
-        self._record(
-            "security_missing_csp", Path(target), "suggested",
-            "Recommended security headers for the detected hosting platform. "
-            "Review the CSP policy against the site's actual resource origins "
-            "before applying.",
-            snippet,
-        )
+        # One suggestion per enabled check so SeoFixAction.check_code stays
+        # accurate for include_checks filtering and downstream consumers.
+        for header, code in enabled:
+            self._record(
+                code, Path(target), "suggested",
+                f"Set the {header} header on all responses (snippet covers the "
+                "full recommended set for the detected hosting platform). "
+                "Review the CSP policy against the site's actual resource "
+                "origins before applying.",
+                snippet,
+            )
 
     def _netlify_headers_snippet(self) -> str:
         lines = ['[[headers]]', '  for = "/*"', "  [headers.values]"]

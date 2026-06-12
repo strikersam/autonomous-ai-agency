@@ -6,28 +6,33 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client():
-    try:
-        from backend.server import app
-        return TestClient(app)
-    except ImportError:
-        pytest.skip("Backend server not available")
+def client() -> TestClient:
+    # Import failures must fail the suite loudly, not skip it.
+    from backend.server import app
+    return TestClient(app)
 
 
 class TestSeoApiSurface:
-    def test_check_catalog_is_public(self, client):
+    def test_check_catalog_requires_auth(self, client):
+        # Per repo guidelines, only /health, /version and /api/doctor/public
+        # are unauthenticated - the catalog is gated like everything else.
         resp = client.get("/api/seo/checks")
-        assert resp.status_code == 200
-        checks = resp.json()
+        assert resp.status_code in (401, 403)
+
+    def test_catalog_contents_complete(self):
+        from services.seo_checks import list_checks
+
+        checks = list_checks()
         assert len(checks) >= 80
         sample = checks[0]
         for field in ("code", "name", "issue_type", "priority", "pillar",
                       "description", "how_to_fix", "auto_fixable"):
-            assert field in sample
+            assert hasattr(sample, field)
 
-    def test_catalog_includes_geo_and_aio(self, client):
-        checks = client.get("/api/seo/checks").json()
-        pillars = {c["pillar"] for c in checks}
+    def test_catalog_includes_geo_and_aio(self):
+        from services.seo_checks import list_checks
+
+        pillars = {c.pillar for c in list_checks()}
         assert {"technical", "content", "security", "social", "geo", "aio"} <= pillars
 
     def test_audit_requires_auth(self, client):

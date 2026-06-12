@@ -72,7 +72,7 @@ class TestApply:
         return repo, result
 
     def test_html_fixes_applied(self, applied):
-        repo, result = applied
+        repo, _result = applied
         content = (repo / "index.html").read_text()
         assert '<meta charset="utf-8">' in content
         assert 'name="viewport"' in content
@@ -83,7 +83,7 @@ class TestApply:
         assert 'name="twitter:card"' in content
 
     def test_image_alt_added(self, applied):
-        repo, _ = applied
+        repo, _result = applied
         content = (repo / "index.html").read_text()
         assert 'alt="Hero banner 2"' in content
 
@@ -99,7 +99,7 @@ class TestApply:
         assert 'src="//cdn.example.com' not in content
 
     def test_geo_files_created(self, applied):
-        repo, result = applied
+        repo, _result = applied
         assert (repo / "robots.txt").exists()
         robots = (repo / "robots.txt").read_text()
         assert "Sitemap: https://example.com/sitemap.xml" in robots
@@ -164,8 +164,8 @@ class TestScoping:
         assert not (repo / "llms.txt").exists()
         assert result.files_created == 0
 
-    def test_missing_repo_path(self):
-        result = run_fixes(SeoFixRequest(repo_path="/nonexistent/path/xyz"))
+    def test_missing_repo_path(self, tmp_path: Path):
+        result = run_fixes(SeoFixRequest(repo_path=str(tmp_path / "does-not-exist")))
         assert result.files_scanned == 0
         assert "does not exist" in result.summary
 
