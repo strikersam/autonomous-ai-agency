@@ -1064,10 +1064,10 @@ class WorkflowOrchestrator:
             try:
                 # Lazy import to avoid a circular import at module load time.
                 from backend.server import _list_configured_provider_records
+                # Records arrive already sorted strictly by priority (#524/#535).
+                # Do NOT re-sort here: the previous local sort treated string
+                # priorities as 0 and silently undid the upstream ordering.
                 records = await _list_configured_provider_records()
-                records.sort(
-                    key=lambda r: r.get("priority") if isinstance(r.get("priority"), (int, float)) else 0
-                )
                 for rec in records:
                     base = str(rec.get("base_url") or "").strip().rstrip("/")
                     if not base:
