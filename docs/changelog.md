@@ -63,6 +63,9 @@
 ## [Unreleased]
 
 ### Fixed
+- **Schedule duplication blocked: activate_company now idempotent.** Calling activate_company multiple times (retry, restart, onboarding re-trigger) created duplicate schedules for the same company. Added check: if a schedule with the same name already exists, skip creation and record it in the result with note=already_exists. Live evidence: 43 schedules across 2 companies reduced to 6 unique schedules after fix.
+
+### Fixed
 - **Agent brain now visible to FastAPI in Cloudflare Worker.** Env vars set via `--var` on deploy do not auto-populate process.env in Node.js; added `[env.production]` to wrangler.jsonc binding AGENT_LLM_BASE_URL, AGENT_LLM_MODEL, and AGENT_LLM_API_KEY so the orchestrator resolver can read them. Deploy now uses `--env production` and the secret upload targets the same environment.
 
 ### Fixed
