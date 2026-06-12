@@ -4613,7 +4613,48 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
         seen.add(key)
         deduped.append(entry)
     logs = deduped[:limit]
-    return {"logs": logs, "events": logs, "activity": logs}
+    
+    # Derive live platform alerts on read (no storage — restart/wipe-proof):
+    # failed orchestrator runs, runs awaiting approval, and an empty scheduler.
+    try:
+        from services.workflow_orchestrator import get_workflow_orchestrator
+        for run in (await get_workflow_orchestrator().list_runs(limit=25)) or []:
+            rid = run.get("run_id", "?")
+            status = run.get("status")
+            ts = run.get("started_at") or ""
+            if status == "failed":
+                logs.insert(0, {
+                    "id": f"alert-run-{rid}", "type": "error", "severity": "error",
+                    "title": f"Run failed: {rid}",
+                    "message": str(run.get("error") or "Execution failed")[:160],
+                    "created_at": ts,
+                })
+            elif status == "awaiting_approval":
+                logs.insert(0, {
+                    "id": f"alert-approval-{rid}", "type": "approval", "severity": "warning",
+                    "title": f"Run awaiting approval: {rid}",
+                    "message": str(run.get("request") or "")[:160],
+                    "created_at": ts,
+                })
+    except Exception as exc:  # never break the feed
+        log.debug("Activity: orchestrator alert derivation unavailable: %s", exc)
+    
+    try:
+        from agent.scheduler import get_scheduler
+        jobs = await get_scheduler().list() or []
+        if not jobs:
+            logs.insert(0, {
+                "id": "alert-schedules-empty", "type": "infra", "severity": "error",
+                "title": "No schedules registered — possible wipe after restart",
+                "message": "All scheduler jobs are missing. Recreate supervisor cadences (see GitHub issue #504 / epic).",
+                "created_at": "",
+            })
+    except Exception as exc:
+        log.debug("Activity: scheduler alert derivation unavailable: %s", exc)
+    
+    logs = logs[:limit]
+    # Return all key names AlertsBell reads: logs, events, activity, items, activities
+    return {"logs": logs, "events": logs, "activity": logs, "items": logs, "activities": logs}
 
 
 @app.get("/api/stats")
