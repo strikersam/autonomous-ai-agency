@@ -2544,12 +2544,22 @@ async def seed_default_providers():
 def _builtin_provider_records() -> list[dict]:
     """Return a minimal set of built-in provider records without touching MongoDB.
 
-    This is an intentional SUBSET (3 of 13 providers) covering the entries that
-    are always present regardless of operator configuration.  It is used as a
-    limited-mode fallback when MongoDB is unreachable — not as the authoritative
-    full catalog.  Full provider list lives in seed_default_providers().
+    This is an intentional SUBSET covering the entries that are always present
+    regardless of operator configuration. It is used as a limited-mode fallback 
+    when MongoDB is unreachable — not as the authoritative full catalog.
     """
     return [
+        {
+            "provider_id": "anthropic-claude",
+            "name": "Claude (Sonnet 4.6)",
+            "type": "anthropic",
+            "base_url": "https://api.anthropic.com/v1",
+            "api_key": ANTHROPIC_API_KEY,
+            "default_model": "claude-sonnet-4-6",
+            "is_default": False,
+            "priority": -50,
+            "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
+        },
         {
             "provider_id": "ollama-local",
             "name": "Ollama (Local)",
