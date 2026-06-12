@@ -3356,11 +3356,14 @@ async def _list_configured_provider_records() -> list[dict]:
     nim = _nvidia_nim_provider_record()
     if nim and not any(r.get("provider_id") == "nvidia-nim" for r in filtered):
         filtered.append(nim)
+    def _record_priority(r: dict) -> int:
+        try:
+            return int(float(r.get("priority")))
+        except (TypeError, ValueError):
+            return 100
+
     filtered.sort(
-        key=lambda r: (
-            int(r.get("priority")) if isinstance(r.get("priority"), (int, float)) else 100,
-            str(r.get("provider_id") or ""),
-        )
+        key=lambda r: (_record_priority(r), str(r.get("provider_id") or ""))
     )
     return filtered or [_fallback_local_provider_record()]
 
