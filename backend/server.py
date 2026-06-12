@@ -3350,10 +3350,18 @@ async def _list_configured_provider_records() -> list[dict]:
             continue
         if provider_type == "ollama" or status == "configured" or has_key:
             filtered.append(record)
-    # Always prepend Nvidia NIM from env when key is present — takes priority over DB records
+    # Nvidia NIM from env participates like any other record — priority governs.
+    # (Previously it was unconditionally prepended, which made UI ordering a lie:
+    # a user-promoted provider could never outrank it. See #524.)
     nim = _nvidia_nim_provider_record()
-    if nim:
-        filtered = [nim] + [r for r in filtered if r.get("provider_id") != "nvidia-nim"]
+    if nim and not any(r.get("provider_id") == "nvidia-nim" for r in filtered):
+        filtered.append(nim)
+    filtered.sort(
+        key=lambda r: (
+            int(r.get("priority")) if isinstance(r.get("priority"), (int, float)) else 100,
+            str(r.get("provider_id") or ""),
+        )
+    )
     return filtered or [_fallback_local_provider_record()]
 
 
