@@ -55,4 +55,8 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --config wrangler.jsonc
+          command: deploy --config wrangler.jsonc --var AGENT_LLM_BASE_URL:https://api.anthropic.com/v1 --var AGENT_LLM_MODEL:claude-sonnet-4-6
+          secrets: |
+            AGENT_LLM_API_KEY
+        env:
+          AGENT_LLM_API_KEY: ${{ secrets.AGENT_LLM_API_KEY }}
