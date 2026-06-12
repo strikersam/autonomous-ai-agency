@@ -63,6 +63,9 @@
 ## [Unreleased]
 
 ### Fixed
+- **Brain resolver no longer re-sorts provider records.** The orchestrator local sort treated non-numeric priorities as 0, silently undoing the strict priority ordering introduced in #535 and keeping the env NIM record on top (verified live: llm_provenance stayed nemotron despite anthropic-claude at -50 and paid policy disabled). The upstream sorted list is now the single source of truth.
+
+### Fixed
 - **Provider priority now governs ALL records, including env-injected Nvidia NIM.** `_list_configured_provider_records` previously prepended the env NIM record unconditionally, so a user-promoted provider (e.g. Anthropic at -50) could never outrank it — verified live via llm_provenance showing nemotron despite Claude on top. Records are now merged and sorted strictly by priority (#524). Note: commercial providers additionally require the runtime policy `never_use_paid_providers` to be disabled.
 
 
