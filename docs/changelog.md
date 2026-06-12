@@ -1,3 +1,27 @@
+- **World-class SEO / GEO / AEO / AIO audit engine + repo-aware auto-fixer (issue #533, PR #534).**
+  *Engine:* `services/seo_audit.py` — async SSRF-safe crawler (robots.txt-aware, sitemap-seeded, up to 500 pages)
+  running a 97-check catalog (`services/seo_checks.py`) with full Screaming Frog issue-taxonomy parity
+  (Issue Name / Type / Priority / URLs / % of Total / Description / How To Fix / Help URL) plus
+  GEO (llms.txt, AI-crawler robots access, sitemaps, semantic landmarks, citable anchors) and
+  AIO/AEO (JSON-LD validity, Organization/Breadcrumb/FAQ schema, E-E-A-T, chunkability) pillars;
+  weighted 0-100 health score overall and per pillar.
+  *Revenue portfolio mechanism:* findings are quantified as estimated monthly revenue at risk
+  (capped at 35% of the `monthly_organic_revenue` baseline) and delegation packages are
+  WSJF-scored to slot directly into `agents/portfolio.py` Initiatives.
+  *Delegation:* every report includes an agent-ready delegation plan (priority, S/M/L effort,
+  suggested specialist family, instructions); `POST .../delegate` turns packages into real tasks.
+  *Auto-fixer:* `services/seo_fixer.py` — when a code repo is available, remediates fixable findings
+  with minimal targeted diffs (charset/viewport/lang, meta description, canonical, OG/Twitter tags,
+  noopener, protocol-relative URLs, image alt + Pillow-measured size attributes, lazy-loading,
+  robots.txt/sitemap.xml/llms.txt generation, platform-aware security-header suggestions);
+  dry-run by default, workspace-root jailed.
+  *API:* `backend/seo_api.py` — catalog, audit, list, full report, CSV/urls/issues/markdown/JSON
+  exports, delegate, fix. *Integration:* `seo-audit` runtime skill bound to seo/content/marketing/
+  analytics/frontend/ecommerce specialists; audits persisted to the Company Graph as KnowledgeItems;
+  SEO specialist family gains site_audit/issue_remediation/geo_optimization/aio_optimization.
+  *Tests:* 124 new tests across `tests/test_seo_audit.py`, `tests/test_seo_fixer.py`,
+  `tests/test_seo_api.py`. *Docs:* `docs/seo-audit.md`.
+
 - **Onboarding UX, logs, chat, admin fixes.** *Onboarding:* clickable breadcrumbs, restart button, Done back button. *Logs:* expandable messages (click to expand). *Chat:* ModelPicker two-step provider→model, mutual dropdown exclusion, repo URL input for code tasks. *Admin:* Companies tab with delete cleanup. *Backend:* DELETE /api/company/{id} endpoint.
 
 
