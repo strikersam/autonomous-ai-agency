@@ -62,6 +62,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Deploy pins the agent brain via env (immune to #537).** deploy-cloudflare.yml now passes AGENT_LLM_BASE_URL (Anthropic OpenAI-compat) and AGENT_LLM_MODEL=claude-sonnet-4-6 as Worker vars and uploads AGENT_LLM_API_KEY as a Worker secret from GitHub secrets on every deploy. The brain resolver checks env before provider records, so Claude stays the brain across restarts and instances; remove the vars to fall back to record-priority ordering (free models).
+
 ### Fixed
 - **Brain resolver no longer re-sorts provider records.** The orchestrator local sort treated non-numeric priorities as 0, silently undoing the strict priority ordering introduced in #535 and keeping the env NIM record on top (verified live: llm_provenance stayed nemotron despite anthropic-claude at -50 and paid policy disabled). The upstream sorted list is now the single source of truth.
 
