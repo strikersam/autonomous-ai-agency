@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Dashboard data visualizations** (frontend polish): new dependency-free SVG chart kit `frontend/src/v5/components/Charts.jsx` (`Sparkline`, `BarChart`, `Donut`) themed via design-system CSS variables. Wired into the v5 Dashboard: a real request-volume sparkline driven by the observability `time_series`/`buckets` data, and a new "Task Distribution" donut breaking down tasks by status. All charts degrade gracefully on empty/short/all-zero data. Added the missing `@keyframes pulse` animation that the live status dots reference.
 - **Agency Core Autonomy Hardening** (#468): Replaced BackgroundAgent `_process()` no-op stub with real AgentRunner dispatch. Added Doctor diagnostics module with public/authenticated split and one-click fixes. Added AutonomyTracker KPI singleton. Added 21 Golden Path contract tests.
 - **RTK-style Output Filtering** (#463): Added `output_filter.py` with command-specific compressors for 60-90% token reduction. Fixed #462.
 - **Telegram Bot Service Manager & Log Monitoring** (#486): `telegram_service.py` integrates bot lifecycle into service_manager. `log_watcher.py` scans logs for errors and files GitHub issues automatically.
