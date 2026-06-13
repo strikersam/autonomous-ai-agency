@@ -401,6 +401,7 @@ function CompanyScreen() {
     })),
     environments: company.domain ? [{ name: 'Production', url: company.domain, status: 'healthy' }] : [],
     specialists: specialists.map(s => ({
+      id: s.id || s.specialist_id || s.name || s.role,
       name: s.name || s.role || 'Specialist',
       status: s.status || 'idle',
       lastRun: s.last_used_at || s.lastRun || '—',
@@ -566,7 +567,7 @@ function CompanyScreen() {
           {(d.specialists || []).map(sp => {
             const statusColor = sp.status === 'active' || sp.status === 'running' ? '#5da2ff' : 'var(--text-muted)';
             return (
-              <div key={sp.name} style={{
+              <div key={sp.id} style={{
                 borderRadius: 16, border: `1px solid ${sp.status !== 'idle' ? `${statusColor}25` : 'rgba(255,255,255,0.09)'}`,
                 background: sp.status !== 'idle' ? `${statusColor}05` : 'rgba(255,255,255,0.03)',
                 padding: '16px', cursor: 'pointer', transition: 'all 0.2s ease',
