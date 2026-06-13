@@ -83,6 +83,221 @@ function CompanyHeader({ data, isPreview }) {
   );
 }
 
+function healthColor(score) {
+  return score >= 80 ? '#46d9a4' : score >= 60 ? '#ffbd66' : '#ff6b7d';
+}
+
+const PRIORITY_COLOR = { high: '#ff6b7d', medium: '#ffbd66', low: '#8aa0b6' };
+
+// SEO / GEO / AIO audit panel — runs a real crawl, shows the health score,
+// pillar scores, revenue-at-risk (model estimate, clearly labelled), the full
+// findings table, downloadable exports, and a one-click delegate-to-task-board.
+function SeoAuditPanel({ companyId, defaultUrl }) {
+  const [url, setUrl] = React.useState(defaultUrl || '');
+  const [fetchMode, setFetchMode] = React.useState('auto');
+  const [revenue, setRevenue] = React.useState('');
+  const [maxPages, setMaxPages] = React.useState(50);
+  const [report, setReport] = React.useState(null);
+  const [running, setRunning] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+  const [msg, setMsg] = React.useState(null);
+  const mounted = React.useRef(true);
+  React.useEffect(() => () => { mounted.current = false; }, []);
+  React.useEffect(() => { setUrl(u => u || defaultUrl || ''); }, [defaultUrl]);
+
+  const loadAudits = React.useCallback(async () => {
+    if (!companyId) return;
+    try {
+      const { data } = await api.listSeoAudits(companyId);
+      const list = data.audits || (Array.isArray(data) ? data : []);
+      if (mounted.current && list.length) {
+        const full = await api.getSeoAudit(companyId, list[0].audit_id);
+        if (mounted.current) setReport(full.data);
+      }
+    } catch { /* no audits stored yet */ }
+  }, [companyId]);
+  React.useEffect(() => { loadAudits(); }, [loadAudits]);
+
+  const run = async () => {
+    setErr(null); setMsg(null); setRunning(true);
+    try {
+      const body = { website_url: url, fetch_mode: fetchMode, max_pages: Number(maxPages) || 50 };
+      if (Number(revenue) > 0) body.monthly_organic_revenue = Number(revenue);
+      const { data } = await api.runSeoAudit(companyId, body);
+      if (!mounted.current) return;
+      setReport(data);
+      if (data.status !== 'success') setErr(data.error || `Audit finished with status: ${data.status}`);
+    } catch (e) {
+      setErr(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Audit failed.');
+    } finally { if (mounted.current) setRunning(false); }
+  };
+
+  const download = async (fmt) => {
+    try { await api.downloadSeoExport(companyId, report.audit_id, fmt); }
+    catch (e) { setErr('Download failed: ' + (api.fmtErr(e?.response?.data?.detail) || e?.message || '')); }
+  };
+
+  const delegate = async () => {
+    setErr(null); setMsg(null);
+    try {
+      const { data } = await api.delegateSeoFindings(companyId, report.audit_id, { min_priority: 'medium' });
+      setMsg(`Created ${data.created} prioritized task(s) on the board.`);
+    } catch (e) { setErr('Delegate failed: ' + (api.fmtErr(e?.response?.data?.detail) || e?.message || '')); }
+  };
+
+  const rows = report?.rows || [];
+  const pillars = report?.pillar_scores || {};
+  const baseline = report?.monthly_organic_revenue || 0;
+  const loss = report?.estimated_monthly_revenue_loss || 0;
+  const sharePct = baseline > 0 ? (loss / baseline * 100) : 0;
+  const inputStyle = {
+    padding: '8px 10px', borderRadius: 8, fontSize: 12,
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
+    color: 'var(--text-primary)', outline: 'none',
+  };
+  const dlBtn = {
+    padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+    background: 'rgba(93,162,255,0.10)', border: '1px solid rgba(93,162,255,0.22)', color: 'var(--accent)',
+  };
+
+  return (
+    <div style={{ animation: 'fadeSlideUp 0.3s ease-out', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Run controls */}
+      <Card>
+        <SectionHeader label="Run SEO / GEO / AIO Audit" icon="🔍"/>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+          <div style={{ flex: '2 1 240px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>WEBSITE URL</label>
+            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.example.com" style={inputStyle}/>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>FETCH MODE</label>
+            <select value={fetchMode} onChange={e => setFetchMode(e.target.value)} style={inputStyle}>
+              <option value="auto">auto (browser on block)</option>
+              <option value="http">http (fast)</option>
+              <option value="browser">browser (bot-bypass)</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 110 }}>
+            <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>MAX PAGES</label>
+            <input type="number" value={maxPages} onChange={e => setMaxPages(e.target.value)} style={inputStyle}/>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 170 }}>
+            <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>MONTHLY ORGANIC $ (opt.)</label>
+            <input type="number" value={revenue} onChange={e => setRevenue(e.target.value)} placeholder="e.g. 1000000" style={inputStyle}/>
+          </div>
+          <button onClick={run} disabled={running || !url || !companyId} style={{
+            padding: '9px 18px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+            cursor: running ? 'wait' : 'pointer',
+            background: running ? 'rgba(93,162,255,0.20)' : 'var(--accent)',
+            border: '1px solid rgba(93,162,255,0.40)', color: running ? 'var(--accent)' : '#04101f',
+            opacity: (!url || !companyId) ? 0.5 : 1,
+          }}>{running ? 'Crawling…' : '▶ Run Audit'}</button>
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+          Bot-protected sites (Akamai/Cloudflare) need <b>browser</b> or <b>auto</b> mode (real Chromium via
+          browser-use/Playwright). The dollar figure is a transparent <b>model estimate</b>, not a measured loss.
+        </div>
+        {err && <div style={{ marginTop: 8, fontSize: 12, color: '#ff6b7d' }}>{err}</div>}
+        {msg && <div style={{ marginTop: 8, fontSize: 12, color: '#46d9a4' }}>{msg}</div>}
+      </Card>
+
+      {!report && !running && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>
+          No audit yet — run one above to see findings, scores and downloadable reports.
+        </div>
+      )}
+
+      {report && (
+        <>
+          {/* Scores + revenue */}
+          <Card>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'center' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 34, fontWeight: 800, color: healthColor(report.health_score), lineHeight: 1 }}>{report.health_score}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>HEALTH / 100</div>
+              </div>
+              <div style={{ height: 40, width: 1, background: 'rgba(255,255,255,0.10)' }}/>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                <div><b style={{ color: '#fff' }}>{report.pages_crawled}</b> pages crawled · <b style={{ color: '#fff' }}>{report.total_issues}</b> issue occurrences</div>
+                <div style={{ marginTop: 3 }}>Status: <b style={{ color: report.status === 'success' ? '#46d9a4' : '#ffbd66' }}>{report.status}</b> · {report.website_url}</div>
+              </div>
+              {baseline > 0 && (
+                <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#ffbd66' }}>${Number(loss).toLocaleString()}/mo</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>est. revenue at risk · {sharePct.toFixed(1)}% of baseline (model)</div>
+                </div>
+              )}
+            </div>
+            {/* Pillar scores */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 8, marginTop: 14 }}>
+              {Object.entries(pillars).map(([p, s]) => (
+                <div key={p} style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', textAlign: 'center' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: healthColor(s) }}>{s}</div>
+                  <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>{p}</div>
+                </div>
+              ))}
+            </div>
+            {baseline > 0 && (
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.5 }}>
+                ⓘ Revenue-at-risk is the supplied ${Number(baseline).toLocaleString()}/mo baseline × an at-risk share
+                derived from finding severity, type and page-coverage via a diminishing-returns curve (35% cap).
+                It is a prioritisation signal — not a guaranteed amount.
+              </div>
+            )}
+            {/* Downloads + delegate */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+              <button style={dlBtn} onClick={() => download('csv')}>⬇ CSV (findings)</button>
+              <button style={dlBtn} onClick={() => download('issues')}>⬇ CSV (issues)</button>
+              <button style={dlBtn} onClick={() => download('urls')}>⬇ CSV (URLs)</button>
+              <button style={dlBtn} onClick={() => download('markdown')}>⬇ Markdown report</button>
+              <button style={dlBtn} onClick={() => download('json')}>⬇ JSON</button>
+              <button style={{ ...dlBtn, marginLeft: 'auto', background: 'rgba(70,217,164,0.10)', borderColor: 'rgba(70,217,164,0.25)', color: '#46d9a4' }} onClick={delegate}>→ Delegate to task board</button>
+            </div>
+          </Card>
+
+          {/* Findings table */}
+          <Card>
+            <SectionHeader label={`Findings (${rows.length} types)`} icon="◈"/>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'left' }}>
+                    <th style={{ padding: '6px 8px' }}>Priority</th>
+                    <th style={{ padding: '6px 8px' }}>Issue</th>
+                    <th style={{ padding: '6px 8px' }}>Pillar</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>URLs</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>%</th>
+                    {baseline > 0 && <th style={{ padding: '6px 8px', textAlign: 'right' }}>$/mo</th>}
+                    <th style={{ padding: '6px 8px' }}>Fix</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, 60).map((r, i) => (
+                    <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                      <td style={{ padding: '6px 8px' }}>
+                        <span style={{ color: PRIORITY_COLOR[r.issue_priority] || 'var(--text-muted)', fontWeight: 700, textTransform: 'capitalize' }}>{r.issue_priority}</span>
+                      </td>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{r.issue_name}</td>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{r.pillar}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--text-secondary)' }}>{r.urls_affected}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--text-muted)' }}>{r.percent_of_total}%</td>
+                      {baseline > 0 && <td style={{ padding: '6px 8px', textAlign: 'right', color: '#ffbd66' }}>{Number(r.estimated_monthly_revenue_loss || 0).toLocaleString()}</td>}
+                      <td style={{ padding: '6px 8px' }}>{r.auto_fixable ? <span style={{ color: '#46d9a4' }}>auto</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rows.length > 60 && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8 }}>Showing top 60 of {rows.length}. Download CSV/Markdown for the full report.</div>}
+              {rows.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>No findings recorded.</div>}
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
 function CompanyScreen() {
   const storedId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
   const [companies, setCompanies] = React.useState([]);
@@ -94,7 +309,8 @@ function CompanyScreen() {
   const [loadingCompany, setLoadingCompany] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [activeTab, setActiveTab] = React.useState('overview');
-  const tabs = ['overview', 'systems', 'specialists', 'priorities'];
+  const tabs = ['overview', 'systems', 'specialists', 'priorities', 'seo'];
+  const tabLabel = (t) => (t === 'seo' ? 'SEO Audit' : t);
   const mounted = React.useRef(true);
   React.useEffect(() => () => { mounted.current = false; }, []);
 
@@ -264,7 +480,7 @@ function CompanyScreen() {
               background: activeTab === t ? 'rgba(93,162,255,0.15)' : 'rgba(255,255,255,0.04)',
               border: `1px solid ${activeTab === t ? 'rgba(93,162,255,0.35)' : 'rgba(255,255,255,0.08)'}`,
               color: activeTab === t ? '#fff' : 'var(--text-muted)',
-            }}>{t}</button>
+            }}>{tabLabel(t)}</button>
           ))}
         </div>
       )}
@@ -436,6 +652,10 @@ function CompanyScreen() {
             ))}
           </div>
         </div>
+      )}
+
+      {!loadingCompany && activeTab === 'seo' && (
+        <SeoAuditPanel companyId={selectedCompanyId} defaultUrl={d.domain ? (/^https?:\/\//i.test(d.domain) ? d.domain : `https://${d.domain}`) : ''}/>
       )}
     </div>
   );

@@ -26,19 +26,20 @@ import csv
 import io
 import json
 import logging
+import math
 import re
 import secrets
-import time
+import threading
 import urllib.robotparser
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse, urlunparse
 
-import threading
-
 import httpx
 from bs4 import BeautifulSoup
+
+from services.seo_fetch import PageFetcher, make_fetcher
 
 from models.seo_audit import (
     SeoAuditReport,
@@ -68,11 +69,19 @@ CRAWL_CONCURRENCY = 5
 _TYPE_FACTOR: Dict[str, float] = {"issue": 1.0, "warning": 0.55, "opportunity": 0.25}
 _PRIORITY_WEIGHT: Dict[str, float] = {"high": 14.0, "medium": 7.0, "low": 3.0}
 
-# Revenue-at-risk model: each finding's health-score deduction doubles as the
-# share of organic revenue considered at risk (a site-wide high-priority issue
-# puts up to 14% of organic revenue at risk). The aggregate is capped - even a
-# badly broken site doesn't lose all organic revenue to technical findings.
+# Revenue-at-risk model (content-dependent, diminishing-returns).
+#
+# Each finding contributes "issue pressure" = severity x type x coverage-breadth.
+# The aggregate pressure is mapped to an at-risk share of organic revenue via a
+# saturating curve   share = MAX * (1 - e^(-pressure / SCALE))   so that:
+#   * a handful of issues moves the figure only a little (NOT to the ceiling),
+#   * a pervasively broken site approaches but never reaches the cap,
+#   * the dollar number tracks what was actually measured instead of pinning to
+#     the cap on almost any input.
+# SCALE is calibrated so ~one site-wide high-priority issue (pressure ~= 14)
+# puts ~8% at risk, and a catastrophic site (pressure ~= 150) ~= 33%.
 MAX_REVENUE_LOSS_SHARE = 0.35
+REVENUE_PRESSURE_SCALE = 50.0
 
 _VALID_HEAD_ELEMENTS = {
     "title", "meta", "link", "script", "style", "base", "noscript", "template", "head",
@@ -709,9 +718,27 @@ def analyze_page(
 class SeoAuditEngine:
     """Crawls a site and produces a complete SeoAuditReport."""
 
-    def __init__(self, transport: Optional[httpx.AsyncBaseTransport] = None) -> None:
+    def __init__(
+        self,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
+        fetcher: Optional[PageFetcher] = None,
+    ) -> None:
         # ``transport`` lets tests inject httpx.MockTransport - no network needed.
+        # ``fetcher`` lets tests/callers inject a custom (e.g. browser) backend.
         self._transport = transport
+        self._fetcher = fetcher
+
+    def _build_fetcher(self, request: SeoAuditRequest) -> PageFetcher:
+        """Pick the fetch backend for this run (http / browser / auto)."""
+        if self._fetcher is not None:
+            return self._fetcher
+        return make_fetcher(
+            fetch_mode=request.fetch_mode,
+            timeout=request.timeout_seconds,
+            user_agent=USER_AGENT,
+            transport=self._transport,
+            concurrency=CRAWL_CONCURRENCY,
+        )
 
     async def run(
         self,
@@ -723,22 +750,16 @@ class SeoAuditEngine:
         started = datetime.now(timezone.utc)
         root = normalize_url(request.website_url)
 
-        if self._transport is None and not _is_safe_url(root):
+        if self._transport is None and self._fetcher is None and not _is_safe_url(root):
             return SeoAuditReport(
                 audit_id=audit_id, company_id=company_id, website_url=root,
                 status="failed", error="URL failed safety validation (private/loopback hosts are not allowed)",
                 started_at=started, completed_at=datetime.now(timezone.utc),
             )
 
+        fetcher = self._build_fetcher(request)
         try:
-            async with httpx.AsyncClient(
-                transport=self._transport,
-                follow_redirects=True,
-                timeout=request.timeout_seconds,
-                headers={"User-Agent": USER_AGENT},
-                limits=httpx.Limits(max_connections=CRAWL_CONCURRENCY * 2),
-            ) as client:
-                return await self._run_with_client(client, request, audit_id, company_id, started, root)
+            return await self._run_with_client(fetcher, request, audit_id, company_id, started, root)
         except Exception:  # noqa: BLE001 - audit must fail closed, not raise
             # Full details go to server logs only; the report payload is
             # client-visible and must not leak internal runtime details.
@@ -748,6 +769,11 @@ class SeoAuditEngine:
                 status="failed", error="Audit execution failed - see server logs",
                 started_at=started, completed_at=datetime.now(timezone.utc),
             )
+        finally:
+            try:
+                await fetcher.aclose()
+            except Exception as exc:  # noqa: BLE001 - teardown best-effort
+                log.warning("SEO audit %s fetcher teardown error: %s", audit_id, exc)
 
     # ------------------------------------------------------------------
     # crawl + analysis
@@ -755,7 +781,7 @@ class SeoAuditEngine:
 
     async def _run_with_client(
         self,
-        client: httpx.AsyncClient,
+        fetcher: PageFetcher,
         request: SeoAuditRequest,
         audit_id: str,
         company_id: Optional[str],
@@ -765,7 +791,7 @@ class SeoAuditEngine:
         base = f"{urlparse(root).scheme}://{urlparse(root).netloc}"
 
         # ---- site discovery files -------------------------------------------------
-        robots_txt, robots_status = await self._fetch_text(client, f"{base}/robots.txt")
+        robots_txt, robots_status = await fetcher.get_text(f"{base}/robots.txt")
         robots_present = robots_status == 200 and bool(robots_txt.strip())
         robot_parser = urllib.robotparser.RobotFileParser()
         sitemap_urls_declared: List[str] = []
@@ -787,10 +813,10 @@ class SeoAuditEngine:
             f"{base}/sitemap.xml", f"{base}/sitemap_index.xml"
         ]
         sitemap_present, sitemap_found_urls, sitemap_page_urls = await self._discover_sitemaps(
-            client, sitemap_candidates, root
+            fetcher, sitemap_candidates, root
         )
 
-        llms_txt, llms_status = await self._fetch_text(client, f"{base}/llms.txt")
+        llms_txt, llms_status = await fetcher.get_text(f"{base}/llms.txt")
         llms_present = llms_status == 200 and bool(llms_txt.strip()) and "<html" not in llms_txt[:500].lower()
 
         # ---- BFS crawl -------------------------------------------------------------
@@ -812,25 +838,23 @@ class SeoAuditEngine:
         async def fetch_page(url: str, depth: int) -> Optional[PageFindings]:
             nonlocal pages_failed, root_headers
             async with semaphore:
-                t0 = time.monotonic()
                 try:
-                    resp = await client.get(url)
+                    result = await fetcher.get(url)
                 except Exception as exc:  # noqa: BLE001 - record and continue crawling
                     pages_failed += 1
                     log.debug("Fetch failed for %s: %s", url, exc)
                     return None
-                elapsed = int((time.monotonic() - t0) * 1000)
-            final = normalize_url(str(resp.url))
+            final = normalize_url(result.final_url)
             redirect_map[url] = final
             # The status the *requested* URL answered with (pre-redirect).
-            first_status = resp.history[0].status_code if resp.history else resp.status_code
+            first_status = result.first_status
             status_map[url] = first_status
-            status_map[final] = resp.status_code
-            headers = dict(resp.headers)
+            status_map[final] = result.status_code
+            headers = dict(result.headers)  # already lower-cased by the fetcher
             if url == root:
-                root_headers = {k.lower(): v for k, v in headers.items()}
-            body = resp.text if "html" in headers.get("content-type", "").lower() else ""
-            redirected = bool(resp.history) and final != url
+                root_headers = dict(headers)
+            body = result.text  # fetcher blanks non-HTML bodies
+            redirected = final != url
 
             redirect_issue = SeoIssueInstance(
                 check_code="response_internal_3xx", url=url,
@@ -847,8 +871,8 @@ class SeoAuditEngine:
             if redirected:
                 visited.add(final)
             findings = analyze_page(
-                analysis_url, body, status_code=resp.status_code,
-                headers=headers, depth=depth, final_url=final, fetch_ms=elapsed,
+                analysis_url, body, status_code=result.status_code,
+                headers=headers, depth=depth, final_url=final, fetch_ms=result.elapsed_ms,
             )
             if redirected:
                 findings.issues.append(redirect_issue)
@@ -883,12 +907,12 @@ class SeoAuditEngine:
         # ---- site-level facts --------------------------------------------------------
         favicon_present = any(p.has_favicon_link for p in pages)
         if not favicon_present:
-            _, fav_status = await self._fetch_head(client, f"{base}/favicon.ico")
+            _, fav_status = await fetcher.head(f"{base}/favicon.ico")
             favicon_present = fav_status == 200
         rss_present = any(p.has_feed_link for p in pages)
         if not rss_present:
             for feed_path in ("/feed", "/rss.xml", "/atom.xml", "/feed.xml"):
-                _, st = await self._fetch_head(client, base + feed_path)
+                _, st = await fetcher.head(base + feed_path)
                 if st == 200:
                     rss_present = True
                     break
@@ -922,9 +946,9 @@ class SeoAuditEngine:
 
         # bounded image-weight checks
         if request.check_image_sizes:
-            issues.extend(await self._check_image_weights(client, pages, root))
+            issues.extend(await self._check_image_weights(fetcher, pages, root))
         if request.check_external_links:
-            issues.extend(await self._check_external_links(client, pages))
+            issues.extend(await self._check_external_links(fetcher, pages))
 
         # ---- aggregate ----------------------------------------------------------------
         return self._build_report(
@@ -1054,7 +1078,7 @@ class SeoAuditEngine:
 
     async def _check_image_weights(
         self,
-        client: httpx.AsyncClient,
+        fetcher: PageFetcher,
         pages: List[PageFindings],
         root: str,
     ) -> List[SeoIssueInstance]:
@@ -1066,7 +1090,7 @@ class SeoAuditEngine:
                     image_pages.setdefault(img, []).append(p.url)
         issues: List[SeoIssueInstance] = []
         for img_url in list(image_pages.keys())[:MAX_IMAGE_HEAD_REQUESTS]:
-            headers, status = await self._fetch_head(client, img_url)
+            headers, status = await fetcher.head(img_url)
             if status != 200:
                 continue
             try:
@@ -1085,7 +1109,7 @@ class SeoAuditEngine:
 
     async def _check_external_links(
         self,
-        client: httpx.AsyncClient,
+        fetcher: PageFetcher,
         pages: List[PageFindings],
     ) -> List[SeoIssueInstance]:
         """HEAD a bounded set of external link targets and flag dead ones."""
@@ -1095,7 +1119,7 @@ class SeoAuditEngine:
                 link_pages.setdefault(href, []).append(p.url)
         issues: List[SeoIssueInstance] = []
         for href in list(link_pages.keys())[:MAX_LINK_HEAD_REQUESTS]:
-            _, status = await self._fetch_head(client, href)
+            _, status = await fetcher.head(href)
             if 400 <= status < 600:
                 for page_url in sorted(set(link_pages[href]))[:5]:
                     issues.append(SeoIssueInstance(
@@ -1154,29 +1178,35 @@ class SeoAuditEngine:
             priority_order[r.issue_priority], type_order[r.issue_type], -r.urls_affected,
         ))
 
-        # Portfolio quantification: translate each finding's severity deduction
-        # into estimated monthly revenue at risk (when a baseline is provided).
+        # Portfolio quantification: translate the measured issue pressure into
+        # estimated monthly revenue at risk via a diminishing-returns curve, so
+        # the dollar figure reflects what was actually found (see the model notes
+        # at REVENUE_PRESSURE_SCALE). Only meaningful when a baseline is given.
         revenue = request.monthly_organic_revenue
         total_loss = 0.0
+        loss_share = 0.0
         if revenue > 0 and rows:
-            raw_losses = []
-            for row in rows:
-                ratio = min(1.0, row.urls_affected / total_pages)
-                deduction = (
-                    _PRIORITY_WEIGHT[row.issue_priority]
-                    * _TYPE_FACTOR[row.issue_type] * ratio
-                )
-                raw_losses.append(revenue * deduction / 100.0)
-            uncapped = sum(raw_losses)
-            cap = revenue * MAX_REVENUE_LOSS_SHARE
-            scale = min(1.0, cap / uncapped) if uncapped > 0 else 0.0
+            pressures = [
+                _PRIORITY_WEIGHT[row.issue_priority]
+                * _TYPE_FACTOR[row.issue_type]
+                * min(1.0, row.urls_affected / total_pages)
+                for row in rows
+            ]
+            total_pressure = sum(pressures)
+            loss_share = MAX_REVENUE_LOSS_SHARE * (
+                1.0 - math.exp(-total_pressure / REVENUE_PRESSURE_SCALE)
+            )
+            total_loss = round(revenue * loss_share, 2)
+            # Attribute the modeled loss across findings by their pressure share.
             rows = [
                 row.model_copy(update={
-                    "estimated_monthly_revenue_loss": round(loss * scale, 2),
+                    "estimated_monthly_revenue_loss": (
+                        round(total_loss * (p / total_pressure), 2)
+                        if total_pressure > 0 else 0.0
+                    ),
                 })
-                for row, loss in zip(rows, raw_losses)
+                for row, p in zip(rows, pressures)
             ]
-            total_loss = round(min(uncapped, cap), 2)
 
         health = self._score(rows, total_pages, pillar=None)
         pillar_scores = {
@@ -1373,29 +1403,9 @@ class SeoAuditEngine:
     # fetch helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    async def _fetch_text(client: httpx.AsyncClient, url: str) -> Tuple[str, int]:
-        try:
-            resp = await client.get(url)
-            return resp.text, resp.status_code
-        except Exception as exc:  # noqa: BLE001 - discovery files are optional
-            log.warning("SEO audit could not fetch %s: %s", url, exc)
-            return "", 0
-
-    @staticmethod
-    async def _fetch_head(client: httpx.AsyncClient, url: str) -> Tuple[Dict[str, str], int]:
-        try:
-            resp = await client.head(url)
-            if resp.status_code == 405:  # some servers refuse HEAD
-                resp = await client.get(url)
-            return {k.lower(): v for k, v in resp.headers.items()}, resp.status_code
-        except Exception as exc:  # noqa: BLE001 - bounded best-effort checks
-            log.warning("SEO audit could not HEAD %s: %s", url, exc)
-            return {}, 0
-
     async def _discover_sitemaps(
         self,
-        client: httpx.AsyncClient,
+        fetcher: PageFetcher,
         candidates: List[str],
         root: str,
     ) -> Tuple[bool, List[str], List[str]]:
@@ -1407,7 +1417,7 @@ class SeoAuditEngine:
         while queue and fetched < MAX_SITEMAP_FETCHES:
             sm_url = queue.pop(0)
             fetched += 1
-            text, status = await self._fetch_text(client, sm_url)
+            text, status = await fetcher.get_text(sm_url)
             if status != 200 or "<" not in text:
                 continue
             found.append(sm_url)
@@ -1508,11 +1518,26 @@ def report_to_markdown(report: SeoAuditReport) -> str:
         f"- **Health score:** **{report.health_score}/100**",
     ]
     if report.monthly_organic_revenue > 0:
-        lines.append(
-            f"- **Estimated monthly revenue at risk:** "
-            f"**{report.estimated_monthly_revenue_loss:,.0f}** "
-            f"(baseline {report.monthly_organic_revenue:,.0f}/month organic)"
+        share = (
+            report.estimated_monthly_revenue_loss / report.monthly_organic_revenue * 100
+            if report.monthly_organic_revenue else 0.0
         )
+        lines.append(
+            f"- **Estimated monthly revenue at risk (model estimate):** "
+            f"**{report.estimated_monthly_revenue_loss:,.0f}** "
+            f"({share:.1f}% of the {report.monthly_organic_revenue:,.0f}/month "
+            f"organic baseline you supplied)"
+        )
+        lines += [
+            "",
+            "> **How this figure is derived (read before quoting it):** This is a "
+            "*model estimate*, not a measured loss. It is the supplied organic-revenue "
+            "baseline multiplied by an at-risk share computed from the findings: each "
+            "finding contributes severity x type x page-coverage 'pressure', and the "
+            "aggregate is mapped through a diminishing-returns curve (cap 35%). It "
+            "depends entirely on the baseline you provide and on crawl breadth - "
+            "treat it as a prioritisation signal, not a guaranteed dollar amount.",
+        ]
     lines += [
         "",
         "## Pillar Scores",
