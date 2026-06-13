@@ -392,6 +392,7 @@ class WorkflowRun:
             "persist": self.persist.model_dump() if self.persist else None,
             "monitor": self.monitor.model_dump() if self.monitor else None,
             "error": self.error,
+            "_request": self._request.model_dump() if self._request and hasattr(self._request, 'model_dump') else None,
         }
 
 
@@ -672,6 +673,23 @@ class WorkflowOrchestrator:
                 run.retry_count = snapshot.get("retry_count", 0)
                 run.llm_provenance = snapshot.get("llm_provenance", {})
                 run.phase_attempts = snapshot.get("phase_attempts", {})
+                run.approved = snapshot.get("approved", False)
+                run.error = snapshot.get("error")
+                # Restore phase outputs so skip detection works on retry.
+                # Without this every resume re-runs all phases from scratch.
+                for _attr in ("classify","plan","specialist","preflight",
+                              "bound_context","execution","verification",
+                              "judge","summary","persist","monitor"):
+                    _val = snapshot.get(_attr)
+                    if _val is not None:
+                        setattr(run, _attr, _val)
+                # Restore _request so supervisor can requeue without losing the original task.
+                _req_dict = snapshot.get("_request")
+                if _req_dict and isinstance(_req_dict, dict):
+                    try:
+                        run._request = ExecutionRequest(**_req_dict)
+                    except Exception:
+                        pass
                 self._runs[run_id] = run
                 # Re-enqueue queued/pending runs so they resume execution.
                 if run.status in ("queued", "running", "pending") and run._request is not None:
