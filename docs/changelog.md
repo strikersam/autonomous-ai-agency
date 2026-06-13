@@ -86,6 +86,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Scheduler now actually fires jobs.** Two root causes fixed: (1) AgentScheduler was created without an on_fire callback so cron events had nowhere to go; wired to orchestrator execute with auto_approve. (2) Render free tier spins down after inactivity killing APScheduler; added Cloudflare cron trigger (every minute) in wrangler.jsonc and a Worker scheduled handler that pings /api/scheduler/tick on the Render backend. APScheduler now stays alive and overdue jobs are dispatched on every tick.
+
 ### Added
 - **SEO audit: browser-fetch path (bot-protection bypass) + demoable UI + honest revenue model.**
   - *Browser-use fetch backend* (`services/seo_fetch.py`): pluggable page fetchers — default `HttpxFetcher`,

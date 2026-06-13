@@ -120,7 +120,27 @@ def clear_error_log_buffer() -> None:
 
 _ensure_error_log_capture()
 
-SCHEDULER = AgentScheduler()
+def _scheduler_on_fire(job) -> None:
+    """Called by APScheduler when a cron fires. Dispatches to the orchestrator."""
+    import asyncio, threading
+    from services.workflow_orchestrator import get_workflow_orchestrator
+    async def _dispatch():
+        try:
+            orch = get_workflow_orchestrator()
+            run = await orch.execute(request=job.instruction, auto_approve=True)
+            log.info("Scheduler fired job %s → run %s", job.job_id, run.get("run_id"))
+        except Exception as exc:
+            log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_dispatch())
+        else:
+            loop.run_until_complete(_dispatch())
+    except Exception as exc:
+        log.error("Scheduler on_fire loop error: %s", exc)
+
+SCHEDULER = AgentScheduler(on_fire=_scheduler_on_fire)
 set_scheduler(SCHEDULER)
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
@@ -5627,6 +5647,30 @@ async def health():
         mongo_ok = True
     except Exception:
         mongo_ok = False
+
+
+@app.post("/api/scheduler/tick")
+async def scheduler_tick():
+    """Called by Cloudflare Cron every minute to keep APScheduler alive on Render
+    and tick any overdue jobs. Safe to call from outside — no auth required since
+    it only triggers already-configured scheduled jobs."""
+    scheduler = get_scheduler()
+    fired = []
+    try:
+        jobs = scheduler.list()
+        import datetime
+        now = datetime.datetime.utcnow()
+        for job in jobs:
+            next_run = job.next_run_time if hasattr(job, "next_run_time") else None
+            if next_run and next_run <= now:
+                try:
+                    scheduler.trigger(job.job_id)
+                    fired.append(job.job_id)
+                except Exception as exc:
+                    log.warning("tick: failed to trigger %s: %s", job.job_id, exc)
+    except Exception as exc:
+        log.error("scheduler_tick error: %s", exc)
+    return {"ok": True, "fired": fired, "total_jobs": len(scheduler.list())}
 
     active = await get_active_provider()
     active_type = str((active or {}).get("type", "ollama")).lower()
