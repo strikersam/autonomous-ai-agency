@@ -7123,7 +7123,7 @@ async def workflow_orchestrator_status(
     owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
     runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
 
-    queue_status = {max_concurrent: 2, active: 0, queued: 0}
+    queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
     try:
         from services.orchestrator_queue import get_orchestrator_queue
         q = get_orchestrator_queue()
@@ -7137,23 +7137,27 @@ async def workflow_orchestrator_status(
         sv = get_orchestrator_supervisor()
         st = sv.state
         supervisor_state = {
-            running: st.running,
-            ticks: st.ticks,
-            stalled_recovered: st.stalled_recovered,
-            failed_retried: st.failed_retried,
-            alerts_emitted: st.alerts_emitted,
+            "running": st.running,
+            "ticks": st.ticks,
+            "stalled_recovered": st.stalled_recovered,
+            "failed_retried": st.failed_retried,
+            "alerts_emitted": st.alerts_emitted,
         }
     except Exception:
         pass
 
     return {
-        runs: len(runs),
-        by_status: {
-            s: sum(1 for r in runs if r.get(status) == s)
-            for s in [pending, running, awaiting_approval, queued, done, failed]
+        "runs": len(runs),
+        "by_status": {
+            "pending": sum(1 for r in runs if r.get("status") == "pending"),
+            "running": sum(1 for r in runs if r.get("status") == "running"),
+            "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
+            "queued": sum(1 for r in runs if r.get("status") == "queued"),
+            "done": sum(1 for r in runs if r.get("status") == "done"),
+            "failed": sum(1 for r in runs if r.get("status") == "failed"),
         },
-        queue: queue_status,
-        supervisor: supervisor_state,
+        "queue": queue_status,
+        "supervisor": supervisor_state,
     }
 
 @app.get("/api/workflow/orchestrator/runs")
