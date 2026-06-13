@@ -86,6 +86,12 @@
 
 ## [Unreleased]
 
+### Changed
+- **ECC skill enabled.** `ecc-harness-patterns` re-enabled in skill_bindings.py (was off since 2026-06-10). Cross-harness orchestration now available to engineering/devops/architecture runs.
+
+### Fixed
+- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
+
 ### Fixed
 - **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
 
