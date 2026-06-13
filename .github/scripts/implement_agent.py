@@ -32,9 +32,29 @@ log = logging.getLogger("implement_agent")
 # ---------------------------------------------------------------------------
 # Args
 # ---------------------------------------------------------------------------
-URL = sys.argv[1] if len(sys.argv) > 1 else ""
-ISSUE_NUM = sys.argv[2] if len(sys.argv) > 2 else "?"
-TASK = sys.argv[3] if len(sys.argv) > 3 else ""
+def _load_optional(path):
+    if not path:
+        return ""
+    p = Path(path)
+    if not p.exists():
+        return ""
+    return p.read_text(encoding="utf-8", errors="replace")
+
+import argparse
+_parser = argparse.ArgumentParser()
+_parser.add_argument("url", nargs="?", default="")
+_parser.add_argument("issue_num", nargs="?", default="?")
+_parser.add_argument("task", nargs="?", default="")
+_parser.add_argument("--body-file", default=None,
+                    help="Path to issue body (written by process-quick-note capture step).")
+_parser.add_argument("--comments-file", default=None,
+                    help="Path to issue comments JSONL (written by capture step).")
+_args, _unknown = _parser.parse_known_args()
+URL = _args.url
+ISSUE_NUM = _args.issue_num
+TASK = _args.task
+ISSUE_BODY_TEXT = _load_optional(_args.body_file)
+ISSUE_COMMENTS_RAW = _load_optional(_args.comments_file)
 RESULT_FILE = "/tmp/impl_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility; secure temp file used internally
 MAX_TURNS = 120
 
@@ -477,14 +497,53 @@ def main() -> None:
 
     claude_md = _read_claude_md()
 
+    # Build a thread context block from the body + comments so the LLM
+    # can see the FULL issue discussion (not just the URL-derived content).
+    thread_block = ""
+    if ISSUE_BODY_TEXT.strip():
+        thread_block += f"\n### Issue body\n{ISSUE_BODY_TEXT.strip()}\n"
+    if ISSUE_COMMENTS_RAW.strip():
+        thread_block += "\n### User comments on this issue (consider ALL of them)\n"
+        for line in ISSUE_COMMENTS_RAW.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                c = json.loads(line)
+                thread_block += f"- **{c.get('author','?')}** ({c.get('created','?')}):\n  {c.get('body','')}\n"
+            except Exception:
+                thread_block += f"- {line}\n"
+    if not thread_block and not url_content:
+        thread_block = "\n(no source content captured -- URL was empty and issue body was empty)\n"
+
+    # THREAD_CAP = 60_000 chars. Tail-truncation preserves the most recent comments
+    # (most likely to be relevant). If earlier context is critical, the LLM can
+    # read /tmp/issue_comments.jsonl directly via the bash tool.
+    # 60K ≈ safe for NIM Nemotron Ultra (128K ctx) and Claude Sonnet (200K).
+    # Qwen3-Coder 480B's 32K window will still overflow; that is handled by the
+    # LLM client at the call site. Do not lower without re-running cost / quality audit.
+    THREAD_CAP = 60_000
+    if len(thread_block) > THREAD_CAP:
+        head_chars = THREAD_CAP // 4
+        tail_chars = THREAD_CAP - head_chars
+        omitted = len(thread_block) - head_chars - tail_chars
+        thread_block = (
+            thread_block[:head_chars]
+            + f"\n\n[... {omitted} chars of earlier thread omitted for context budget; "
+            f"read /tmp/issue_comments.jsonl directly if a missing earlier comment is critical ...]\n\n"
+            + thread_block[-tail_chars:]
+        )
+
     user_msg = (
         f"Issue #{ISSUE_NUM}\n"
         f"URL: {URL}\n"
-        f"Task: {TASK}\n\n"
-        f"Content from URL (may be truncated):\n{url_content[:4000]}\n\n"
+        f"Task: {TASK}\n"
+        f"\n--- Full issue thread (body + every user comment) ---\n{thread_block}\n"
+        f"--- Content from URL (may be truncated) ---\n{url_content[:4000]}\n\n"
         f"--- CLAUDE.md (repo conventions) ---\n{claude_md}\n\n"
         f"--- Baseline pytest (before your changes) ---\n{baseline}\n"
         "Fix any pre-existing failures if they are easy, but focus on the task.\n"
+        "Read every user comment above before acting; if a comment contradicts the URL, follow the comment.\n"
         "Remember: always update docs/changelog.md before signaling IMPLEMENTATION_COMPLETE."
     )
 
