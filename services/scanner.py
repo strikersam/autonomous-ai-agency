@@ -890,42 +890,97 @@ class WebsiteScanner:
 
     @staticmethod
     def _decode_der_cert(der: bytes) -> dict:
-        """Decode a raw DER certificate into the same dict shape that
-        ``ssl.getpeercert()`` produces (``issuer`` tuple-of-tuples +
-        ``subjectAltName``), used when the cert could not be verified (expired,
-        self-signed, hostname mismatch) so SSL-based detection still works.
+        """Parse a DER-encoded X.509 certificate and return a dict in the same
+        shape as ``ssl.getpeercert()``: ``{'issuer': ((('organizationName', 'O'),
+        ('commonName', 'CN'),), ...), 'subjectAltName': (('DNS', 'host'), ...)}``.
 
-        Degrades to ``{}`` on any error -- never raises into the scan.
+        Used as a fallback for the unverified-cert path where ``getpeercert()``
+        returns an empty dict (CPython only populates the parsed form when the
+        cert is *verified*). Degrades to ``{}`` on any parse failure so the
+        scanner can never 500 on a malformed cert.
         """
+        if not der:
+            return {}
         try:
             from cryptography import x509
-            from cryptography.x509.oid import NameOID, ExtensionOID
-
-            crt = x509.load_der_x509_certificate(der)
-
-            issuer_rdns: list = []
-            _oid_map = {
-                NameOID.ORGANIZATION_NAME: "organizationName",
-                NameOID.COMMON_NAME: "commonName",
-            }
-            for oid, label in _oid_map.items():
-                for attr in crt.issuer.get_attributes_for_oid(oid):
-                    issuer_rdns.append(((label, attr.value),))
-
-            san_entries: list = []
-            try:
-                ext = crt.extensions.get_extension_for_oid(
-                    ExtensionOID.SUBJECT_ALTERNATIVE_NAME
-                )
-                for name in ext.value.get_values_for_type(x509.DNSName):
-                    san_entries.append(("DNS", name))
-            except Exception:
-                pass
-
-            return {"issuer": tuple(issuer_rdns), "subjectAltName": tuple(san_entries)}
-        except Exception as e:
-            log.debug("DER cert decode failed: %s", e)
+            from cryptography.x509.oid import NameOID
+            cert = x509.load_der_x509_certificate(der)
+        except Exception:
             return {}
+
+        oid_to_name = {
+            NameOID.COMMON_NAME: 'commonName',
+            NameOID.ORGANIZATION_NAME: 'organizationName',
+            NameOID.ORGANIZATIONAL_UNIT_NAME: 'organizationalUnitName',
+            NameOID.SERIAL_NUMBER: 'serialNumber',
+            NameOID.COUNTRY_NAME: 'countryName',
+            NameOID.STATE_OR_PROVINCE_NAME: 'stateOrProvinceName',
+            NameOID.LOCALITY_NAME: 'localityName',
+            NameOID.EMAIL_ADDRESS: 'emailAddress',
+        }
+
+        def _name_to_rdn(name) -> tuple:
+            rdn = tuple(
+                (oid_to_name.get(attr.oid, attr.oid.dotted_string), str(attr.value))
+                for attr in name
+            )
+            return rdn if rdn else ()
+
+        try:
+            issuer = (_name_to_rdn(cert.issuer),)
+        except Exception:
+            issuer = ()
+
+        sans: list = []
+        try:
+            san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            for dns in san_ext.value.get_values_for_type(x509.DNSName):
+                sans.append(('DNS', dns))
+        except Exception:
+            pass
+
+        result: dict = {}
+        if issuer and any(issuer[0]):
+            result['issuer'] = issuer
+        if sans:
+            result['subjectAltName'] = tuple(sans)
+        return result
+
+    def _fetch_ssl_cert(self, domain: str) -> dict:
+        """Fetch the TLS cert for ``domain`` and return it in the same dict
+        shape as ``ssl.getpeercert()``. Tries a verified handshake first; on
+        any failure (expired cert, hostname mismatch, connection blocked) falls
+        back to an unverified handshake and decodes the raw DER via
+        ``_decode_der_cert`` — CPython only populates the parsed form when the
+        cert is *verified*, so an unverified cert otherwise yields an empty
+        dict and zero detections. Returns ``{}`` on any failure.
+        """
+        import ssl as _ssl
+        import socket as _socket
+        # First try: verified handshake (populates parsed cert dict).
+        try:
+            ctx = _ssl.create_default_context()
+            with _socket.create_connection((domain, 443), timeout=min(self.timeout, 10)) as sock:
+                with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert = ssock.getpeercert()
+                    if cert:
+                        return cert
+        except Exception:
+            pass
+        # Second try: unverified handshake + DER decode (CPython returns an
+        # empty dict from getpeercert(binary_form=False) under CERT_NONE).
+        try:
+            ctx = _ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
+            with _socket.create_connection((domain, 443), timeout=min(self.timeout, 10)) as sock:
+                with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                    der = ssock.getpeercert(binary_form=True)
+                    if der:
+                        return self._decode_der_cert(der)
+        except Exception:
+            pass
+        return {}
 
     def _analyze_ssl_cert(self, domain: str) -> List[DetectedSystem]:
         """Inspect the TLS certificate (issuer + Subject Alternative Names) to
@@ -941,109 +996,69 @@ class WebsiteScanner:
         if not domain:
             return systems
 
-        import ssl as _ssl
-        import socket as _socket
-
         def add_sys(sys_id, sys_type, name, conf, ev_type, ev_val):
             systems.append(DetectedSystem(
                 system_type=sys_type, name=name, confidence=conf,
                 evidence=[Evidence(type=ev_type, value=str(ev_val)[:200], location="SSL", confidence=conf)]
             ))
 
-        try:
-            timeout = min(self.timeout, 10)
+        cert = self._fetch_ssl_cert(domain)
+        if not cert:
+            return systems
 
-            # IMPORTANT: CPython's ``getpeercert()`` returns an EMPTY dict ``{}``
-            # whenever ``verify_mode == CERT_NONE`` -- the parsed issuer/SAN
-            # fields are only populated when the cert is actually verified. A
-            # previous version disabled verification "to tolerate misconfigured
-            # certs", which silently made this whole analysis a no-op (it never
-            # returned any systems). We therefore do a verified handshake FIRST
-            # (the common case -- valid public certs) to get the parsed dict, and
-            # only fall back to DER decoding for the unverified case (expired/
-            # self-signed/hostname-mismatch certs) so detection still works.
-            cert: dict = {}
-            der: Optional[bytes] = None
+        # Issuer organisation / common name.
+        issuer_parts = []
+        for rdn in cert.get('issuer', ()):  # tuple of tuples
+            for k, v in rdn:
+                if k in ('organizationName', 'commonName'):
+                    issuer_parts.append(str(v))
+        issuer = " ".join(issuer_parts).lower()
 
-            verify_ctx = _ssl.create_default_context()
-            try:
-                with _socket.create_connection((domain, 443), timeout=timeout) as sock:
-                    with verify_ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                        cert = ssock.getpeercert() or {}
-                        der = ssock.getpeercert(binary_form=True)
-            except Exception:
-                # Verification failed -- retry without it so we can still read the
-                # raw cert (DER form is populated even with CERT_NONE).
-                unverified = _ssl.create_default_context()
-                unverified.check_hostname = False
-                unverified.verify_mode = _ssl.CERT_NONE
-                with _socket.create_connection((domain, 443), timeout=timeout) as sock:
-                    with unverified.wrap_socket(sock, server_hostname=domain) as ssock:
-                        der = ssock.getpeercert(binary_form=True)
+        issuer_map = [
+            ("let's encrypt", ('letsencrypt', 'custom', "Let's Encrypt")),
+            ('cloudflare',    ('cloudflare',  'custom', 'Cloudflare')),
+            ('amazon',        ('aws',         'custom', 'Amazon Web Services')),
+            ('google trust',  ('gcp',         'custom', 'Google Cloud')),
+            ('digicert',      ('digicert',    'custom', 'DigiCert')),
+            ('sectigo',       ('sectigo',     'custom', 'Sectigo')),
+            ('globalsign',    ('globalsign',  'custom', 'GlobalSign')),
+            ('microsoft',     ('azure',       'custom', 'Microsoft Azure')),
+            ('gts ',          ('gcp',         'custom', 'Google Cloud')),
+            ('entrust',       ('entrust',     'custom', 'Entrust')),
+        ]
+        for needle, (sid, stype, name) in issuer_map:
+            if needle in issuer:
+                add_sys(sid, stype, name, 0.85, 'SSL issuer', issuer)
+                break
 
-            # If the verified path gave us no parsed dict, decode the DER blob
-            # into the same shape using `cryptography` (a production dependency).
-            if not cert and der:
-                cert = self._decode_der_cert(der)
-
-            if not cert:
-                return systems
-
-            # Issuer organisation / common name.
-            issuer_parts = []
-            for rdn in cert.get('issuer', ()):  # tuple of tuples
-                for k, v in rdn:
-                    if k in ('organizationName', 'commonName'):
-                        issuer_parts.append(str(v))
-            issuer = " ".join(issuer_parts).lower()
-
-            issuer_map = [
-                ("let's encrypt", ('letsencrypt', 'custom', "Let's Encrypt")),
-                ('cloudflare',    ('cloudflare',  'custom', 'Cloudflare')),
-                ('amazon',        ('aws',         'custom', 'Amazon Web Services')),
-                ('google trust',  ('gcp',         'custom', 'Google Cloud')),
-                ('digicert',      ('digicert',    'custom', 'DigiCert')),
-                ('sectigo',       ('sectigo',     'custom', 'Sectigo')),
-                ('globalsign',    ('globalsign',  'custom', 'GlobalSign')),
-                ('microsoft',     ('azure',       'custom', 'Microsoft Azure')),
-                ('gts ',          ('gcp',         'custom', 'Google Cloud')),
-                ('entrust',       ('entrust',     'custom', 'Entrust')),
-            ]
-            for needle, (sid, stype, name) in issuer_map:
-                if needle in issuer:
-                    add_sys(sid, stype, name, 0.85, 'SSL issuer', issuer)
-                    break
-
-            # Subject Alternative Names — wildcard/secondary SANs frequently leak
-            # the underlying SaaS/CDN host the cert was minted for.
-            san_map = [
-                ('cloudflaressl.com', ('cloudflare', 'custom', 'Cloudflare')),
-                ('sni.cloudflaressl', ('cloudflare', 'custom', 'Cloudflare')),
-                ('myshopify.com',     ('shopify',    'CMS',    'Shopify')),
-                ('shopify',           ('shopify',    'CMS',    'Shopify')),
-                ('herokuapp.com',     ('heroku',     'custom', 'Heroku')),
-                ('netlify',           ('netlify',    'custom', 'Netlify')),
-                ('vercel',            ('vercel',     'custom', 'Vercel')),
-                ('wpengine',          ('wpengine',   'custom', 'WP Engine')),
-                ('squarespace',       ('squarespace','CMS',    'Squarespace')),
-                ('wixsite',           ('wix',        'CMS',    'Wix')),
-                ('fastly',            ('fastly',     'custom', 'Fastly')),
-                ('akamai',            ('akamai',     'custom', 'Akamai')),
-                ('amazonaws.com',     ('aws',        'custom', 'Amazon Web Services')),
-                ('cloudfront.net',    ('cloudfront', 'custom', 'AWS CloudFront')),
-                ('azure',             ('azure',      'custom', 'Microsoft Azure')),
-                ('hubspot',           ('hubspot',    'marketing_automation', 'HubSpot')),
-                ('zendesk',           ('zendesk',    'support', 'Zendesk')),
-            ]
-            for typ, san in cert.get('subjectAltName', ()):
-                if typ != 'DNS':
-                    continue
-                san_l = str(san).lower()
-                for needle, (sid, stype, name) in san_map:
-                    if needle in san_l:
-                        add_sys(sid, stype, name, 0.8, 'SSL SAN', san_l)
-        except Exception as e:
-            log.debug("SSL cert analysis skipped for %s: %s", domain, e)
+        # Subject Alternative Names — wildcard/secondary SANs frequently leak
+        # the underlying SaaS/CDN host the cert was minted for.
+        san_map = [
+            ('cloudflaressl.com', ('cloudflare', 'custom', 'Cloudflare')),
+            ('sni.cloudflaressl', ('cloudflare', 'custom', 'Cloudflare')),
+            ('myshopify.com',     ('shopify',    'CMS',    'Shopify')),
+            ('shopify',           ('shopify',    'CMS',    'Shopify')),
+            ('herokuapp.com',     ('heroku',     'custom', 'Heroku')),
+            ('netlify',           ('netlify',    'custom', 'Netlify')),
+            ('vercel',            ('vercel',     'custom', 'Vercel')),
+            ('wpengine',          ('wpengine',   'custom', 'WP Engine')),
+            ('squarespace',       ('squarespace','CMS',    'Squarespace')),
+            ('wixsite',           ('wix',        'CMS',    'Wix')),
+            ('fastly',            ('fastly',     'custom', 'Fastly')),
+            ('akamai',            ('akamai',     'custom', 'Akamai')),
+            ('amazonaws.com',     ('aws',        'custom', 'Amazon Web Services')),
+            ('cloudfront.net',    ('cloudfront', 'custom', 'AWS CloudFront')),
+            ('azure',             ('azure',      'custom', 'Microsoft Azure')),
+            ('hubspot',           ('hubspot',    'marketing_automation', 'HubSpot')),
+            ('zendesk',           ('zendesk',    'support', 'Zendesk')),
+        ]
+        for typ, san in cert.get('subjectAltName', ()):
+            if typ != 'DNS':
+                continue
+            san_l = str(san).lower()
+            for needle, (sid, stype, name) in san_map:
+                if needle in san_l:
+                    add_sys(sid, stype, name, 0.8, 'SSL SAN', san_l)
 
         return systems
 
