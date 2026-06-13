@@ -86,6 +86,9 @@
 
 ## [Unreleased]
 
+### Security
+- **agent/tools.py: hardened path-traversal guard in `WorkspaceTools`.** Added `_safe_path()` using a strict `os.path.realpath` prefix comparison (root + os.sep), rejecting `..` traversal, absolute paths, and sibling-prefix directories. `_resolve_path` now delegates to it, so `read_file`, `write_file`, `apply_diff`, `list_files`, `head_file`, `file_index` and `search_code` are all jailed to the workspace root. Constructor accepts a `workspace_root` keyword alias. Regression tests in `tests/test_agent_tools_security.py`.
+
 ### Added
 - **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
 - **CompanyScreen: Systems tab — category grouping, confidence scores, detection method badges.** Previously the systems tab showed a flat list. Now systems are grouped by category (CMS, CRM, analytics, payment_gateway, etc.) with a color-coded category header. Each detected system shows: version if available, detection method badges (html/dns/ssl/headers/script/cookie in distinct colours), and a confidence mini-bar + percentage score. Summary counts at top: "N systems detected across M categories", with separate counters for auto-detected vs connected systems. Empty state message directs users to run a scan.
