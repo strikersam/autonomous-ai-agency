@@ -1640,3 +1640,12 @@
 
 
 
+
+- **Parameterised SEO audit skill + runner script.**
+  `scripts/run_seo_audit.py` — standalone CLI that accepts `--website-url`, `--max-pages`,
+  `--max-depth`, `--output-dir`, `--timeout-seconds`, and `--monthly-organic-revenue` parameters;
+  crawls any public site using curl_cffi Chrome-120 TLS impersonation (bypasses Akamai/Cloudflare);
+  writes executive PDF (reportlab), JSON, Markdown, findings CSV, pages CSV, and issues CSV.
+  `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
+  quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
+  revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).
