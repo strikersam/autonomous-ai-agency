@@ -88,7 +88,7 @@ export async function detectBackend(backendUrl) {
   if (!url) {
     return {
       id: 'backend',
-      name: 'Autonomous AI Agency Backend',
+      name: 'LLM Relay Backend',
       tier: 'remote',
       available: false,
       reason: 'No backend URL configured. Open Setup Wizard to connect.',
@@ -98,7 +98,7 @@ export async function detectBackend(backendUrl) {
   const r = await probeFetch(`${url}/api/health`);
   return {
     id: 'backend',
-    name: 'Autonomous AI Agency Backend',
+    name: 'LLM Relay Backend',
     tier: 'remote',
     available: r.ok,
     reason: r.ok ? '' : `Backend not reachable at ${url}`,

@@ -1,5 +1,5 @@
 /**
- * SetupWizardPage.js — Autonomous AI Agency first-run setup wizard (5 steps)
+ * SetupWizardPage.js — Agency Core v5.0 first-run setup wizard (5 steps)
  *
  * Steps:
  *   1 Provider Setup      — select Ollama / cloud providers
@@ -680,7 +680,7 @@ export default function SetupWizardPage({ onComplete }) {
             </div>
           ))}
         </nav>
-        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono uppercase tracking-[0.16em]">Autonomous AI Agency · AI Control Plane</div>
+        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono uppercase tracking-[0.16em]">Agency Core v5.0 · AI Control Plane</div>
       </div>
 
       {/* Main */}

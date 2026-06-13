@@ -5,8 +5,8 @@
 // version.py and package.json via `python scripts/bump_version.py X.Y.Z`
 // (tests/test_version_consistency.py guards against drift).
 export const APP_VERSION = '5.0.0';
-export const APP_NAME = 'Autonomous AI Agency';
-export const APP_TAGLINE = 'Your AI-powered workforce';
+export const APP_NAME = 'Agency Core';
+export const APP_TAGLINE = 'Autonomous AI Platform';
 
-// Human-facing label, e.g. "Autonomous AI Agency v5.0".
+// Human-facing label, e.g. "Agency Core v5.0".
 export const APP_LABEL = `${APP_NAME} v${APP_VERSION.split('.').slice(0, 2).join('.')}`;

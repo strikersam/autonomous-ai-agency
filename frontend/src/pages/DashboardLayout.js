@@ -28,7 +28,7 @@ import KnowledgePage from './KnowledgePage';
 import LogsPage from './LogsPage';
 
 /**
- * navSections — Autonomous AI Agency navigation matching the Control Plane design system.
+ * navSections — Agency Core v5.0 navigation matching the Control Plane design system.
  *
  * Sections mirror the design bundle layout:
  *  WORKSPACE   — Control Plane, Tasks
@@ -142,7 +142,7 @@ function SidebarContent({ user, onLogout, onClose }) {
           </div>
           <div>
             <div className="text-[14px] font-bold text-white tracking-tight"
-              style={{ fontFamily: 'var(--font-main)' }}>Autonomous AI Agency</div>
+              style={{ fontFamily: 'var(--font-main)' }}>Agency Core v5.0</div>
             <div className="text-[10px] text-[var(--text-muted)] font-mono leading-none mt-0.5">Autonomous AI Agency</div>
           </div>
         </div>
@@ -247,7 +247,7 @@ export default function DashboardLayout() {
             <Cpu size={14} className="text-white" />
           </div>
           <div className="min-w-0">
-            <div className="text-[0.95rem] font-extrabold tracking-[-0.04em] text-white">Autonomous AI Agency</div>
+            <div className="text-[0.95rem] font-extrabold tracking-[-0.04em] text-white">Agency Core v5.0</div>
             <div className="text-[0.65rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)] truncate">
               {user?.name || user?.email || 'Control plane'}
             </div>

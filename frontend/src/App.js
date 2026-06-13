@@ -69,7 +69,7 @@ function AppRoutes() {
         path="/v5/*"
         element={
           <ProtectedRoute>
-            <Suspense fallback={<LoadingScreen message="Loading Autonomous AI Agency" />}>
+            <Suspense fallback={<LoadingScreen message="Loading Agency Core" />}>
               <V5App />
             </Suspense>
           </ProtectedRoute>

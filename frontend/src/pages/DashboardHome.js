@@ -168,7 +168,7 @@ export default function DashboardHome() {
         <div>
           <h1 className="text-[1.5rem] font-bold tracking-tight text-[var(--text-primary)]"
             style={{ fontFamily: 'var(--font-main)' }}>Dashboard</h1>
-          <p className="text-[0.9rem] text-[var(--text-tertiary)]">Overview of your Autonomous AI Agency</p>
+          <p className="text-[0.9rem] text-[var(--text-tertiary)]">Overview of your LLM Relay system</p>
         </div>
         <div className="flex items-center gap-3">
           <HealthBadge label="API" ok={Boolean(stats?.llm_provider)} />
