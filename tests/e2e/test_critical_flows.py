@@ -199,12 +199,31 @@ def test_company_onboarding_scan_flow():
             ).first
             assert scan_btn.count(), "No scan/onboard button found on the onboarding screen"
             # Clicking kicks the scan; we don't wait for full completion (the scan
-            # can take 30s+), only that the UI accepts the action without error.
+            # can take 30s+), only that the action landed. Capture the actual API
+            # response (POST to /api/company/{id}/onboarding/start, per api.js) and
+            # assert it returned 2xx. The previous `assert "error" not in body or
+            # "scanning" in body or "scan" in body` was a tautology — the onboarding
+            # page itself contains the word "scan", so the assertion always passed
+            # and never caught a real failure. Fall back to a UI signal if no
+            # network call was observed (e.g. the page was in a cached state).
+            api_responses = []
+            page.on(
+                "response",
+                lambda r: api_responses.append(r)
+                if (r.request.method == "POST" and "/onboarding/start" in r.url)
+                else None,
+            )
             scan_btn.click()
-            page.wait_for_timeout(2500)
-            body = page.locator("body").inner_text().lower()
-            assert "error" not in body or "scanning" in body or "scan" in body, \
-                "Scan kickoff surfaced an error state"
+            page.wait_for_timeout(3000)
+            if api_responses:
+                last = api_responses[-1]
+                assert last.status < 400, \
+                    f"onboarding/start failed: HTTP {last.status} {last.status_text}"
+            else:
+                body = page.locator("body").inner_text().lower()
+                assert any(k in body for k in (
+                    "scanning", "in progress", "started", "loading", "kickoff",
+                )), "Scan kickoff produced no /onboarding/start POST and no success UI"
         finally:
             ctx.close()
             browser.close()
