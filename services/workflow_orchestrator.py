@@ -1071,9 +1071,15 @@ class WorkflowOrchestrator:
                     key = str(rec.get("api_key") or "").strip()
                     if rtype != "ollama" and not key:
                         continue
-                    if not base.endswith("/v1"):
+                    # Native Anthropic: agent/loop.py appends /v1/messages itself.
+                    # All others: normalise to end in /v1 so the agent loop finds the right path.
+                    if rtype != "anthropic" and not base.endswith("/v1"):
                         base = f"{base}/v1"
-                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                    # Anthropic native API uses x-api-key, not Bearer token.
+                    if rtype == "anthropic":
+                        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+                    else:
+                        headers = {"Authorization": f"Bearer {key}"} if key else None
                     model = str(rec.get("default_model") or "").strip() or None
                     log.info(
                         "Brain provider resolved from provider setup: %s base=%s model=%s",

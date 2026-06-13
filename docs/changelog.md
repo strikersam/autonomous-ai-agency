@@ -87,6 +87,18 @@
 ## [Unreleased]
 
 ### Added
+- **`GET /api/scheduler/tick/last` — Cloudflare cron keepalive monitoring endpoint.** Tracks `_last_cron_tick_at` (updated on each authenticated `POST /api/scheduler/tick` from the Cloudflare Worker). Public endpoint (no auth) returns last tick timestamp, seconds since last tick, staleness flag (>120s = stale), and human-readable message. Monitoring tools can poll this to confirm the Worker's `scheduled()` handler is successfully reaching Render.
+
+### Fixed
+- **Anthropic brain calls now authenticated correctly.** The brain resolver used `Authorization: Bearer` for all provider types including `type=anthropic`, which requires `x-api-key` + `anthropic-version` headers. This caused silent 401s that appeared as stalled runs. Fixed with a type check in the resolver.
+
+### Fixed
+- **Anthropic API calls no longer 404.** Seed records for `anthropic-claude` had `base_url` ending in `/v1`; the orchestrator resolver then appended `/v1/messages`, producing `https://api.anthropic.com/v1/v1/messages`. Changed both seed records to `https://api.anthropic.com` to match the env default.
+
+### Fixed
+- **Scheduler now actually fires jobs.** Two root causes fixed: (1) AgentScheduler was created without an on_fire callback so cron events had nowhere to go; wired to orchestrator execute with auto_approve. (2) Render free tier spins down after inactivity killing APScheduler; added Cloudflare cron trigger (every minute) in wrangler.jsonc and a Worker scheduled handler that pings /api/scheduler/tick on the Render backend. APScheduler now stays alive and overdue jobs are dispatched on every tick.
+
+### Added
 - **SEO audit: browser-fetch path (bot-protection bypass) + demoable UI + honest revenue model.**
   - *Browser-use fetch backend* (`services/seo_fetch.py`): pluggable page fetchers — default `HttpxFetcher`,
     a `BrowserFetcher` that renders pages with a real headless Chromium (browser-use / Playwright; local by

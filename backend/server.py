@@ -120,7 +120,32 @@ def clear_error_log_buffer() -> None:
 
 _ensure_error_log_capture()
 
-SCHEDULER = AgentScheduler()
+def _scheduler_on_fire(job) -> None:
+    """Called by APScheduler when a cron fires. Dispatches to the orchestrator."""
+    import asyncio
+    from services.workflow_orchestrator import get_workflow_orchestrator, ExecutionRequest
+    async def _dispatch():
+        try:
+            orch = get_workflow_orchestrator()
+            req = ExecutionRequest(
+                request=job.instruction,
+                auto_approve=True,
+                user_id="scheduler",
+            )
+            run = await orch.execute(req)
+            log.info("Scheduler fired job %s → run %s", job.job_id, run.run_id)
+        except Exception as exc:
+            log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_dispatch())
+        else:
+            loop.run_until_complete(_dispatch())
+    except Exception as exc:
+        log.error("Scheduler on_fire loop error: %s", exc)
+
+SCHEDULER = AgentScheduler(on_fire=_scheduler_on_fire)
 set_scheduler(SCHEDULER)
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
@@ -2329,6 +2354,17 @@ async def seed_default_providers():
     )
     defaults = [
         {
+            "provider_id": "anthropic-claude",
+            "name": "Claude (Sonnet 4.6)",
+            "type": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "api_key": ANTHROPIC_API_KEY,
+            "default_model": "claude-sonnet-4-6",
+            "is_default": False,
+            "priority": -50,
+            "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
+        },
+        {
             "provider_id": "nvidia-nim",
             "name": "Nvidia NIM (Free)",
             "type": "openai-compatible",
@@ -2553,7 +2589,7 @@ def _builtin_provider_records() -> list[dict]:
             "provider_id": "anthropic-claude",
             "name": "Claude (Sonnet 4.6)",
             "type": "anthropic",
-            "base_url": "https://api.anthropic.com/v1",
+            "base_url": "https://api.anthropic.com",
             "api_key": ANTHROPIC_API_KEY,
             "default_model": "claude-sonnet-4-6",
             "is_default": False,
@@ -5627,6 +5663,87 @@ async def health():
         mongo_ok = True
     except Exception:
         mongo_ok = False
+    return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok}
+
+
+_last_cron_tick_at: Optional[datetime] = None
+
+
+@app.post("/api/scheduler/tick")
+async def scheduler_tick(request: Request):
+    """Called by Cloudflare Cron every minute. Protected by CRON_SECRET header."""
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    incoming = request.headers.get("x-cron-secret", "")
+    if cron_secret and incoming != cron_secret:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Invalid cron secret")
+    global _last_cron_tick_at
+    _last_cron_tick_at = datetime.now(timezone.utc)
+    scheduler = get_scheduler()
+    fired = []
+    try:
+        jobs = scheduler.list()
+        now = datetime.now(timezone.utc)
+        for job in jobs:
+            next_run = getattr(job, "next_run_time", None)
+            if next_run is None:
+                continue
+            if next_run.tzinfo is None:
+                next_run = next_run.replace(tzinfo=timezone.utc)
+            if next_run <= now:
+                try:
+                    scheduler.trigger(job.job_id)
+                    fired.append(job.job_id)
+                except Exception as exc:
+                    log.warning("tick: failed to trigger %s: %s", job.job_id, exc)
+    except Exception as exc:
+        log.error("scheduler_tick error: %s", exc)
+    return {"ok": True, "fired": fired, "total_jobs": len(scheduler.list())}
+
+
+
+class SchedulerTickLastResponse(BaseModel):
+    """Public keepalive-monitoring response for GET /api/scheduler/tick/last.
+
+    Intentionally public — no auth required.  Monitoring tools and the
+    Cloudflare Worker itself call this endpoint to confirm the cron
+    ``scheduled()`` handler is successfully reaching the Render backend.
+    """
+    last_tick_at: Optional[str] = Field(default=None, description="ISO 8601 timestamp of last tick, or null")
+    seconds_since_last_tick: Optional[float] = Field(default=None, description="Elapsed seconds since last tick, or null")
+    stale: bool = Field(default=True, description="True when >120s since last tick")
+    message: str = Field(default="No tick received yet since server start", description="Human-readable status")
+
+
+@app.get("/api/scheduler/tick/last", response_model=SchedulerTickLastResponse)
+async def scheduler_tick_last() -> SchedulerTickLastResponse:
+    """Return the last Cloudflare Cron tick timestamp for keepalive monitoring.
+
+    Public — no auth required. Monitoring tools and the Cloudflare Worker itself
+    can call this to confirm the cron is successfully reaching the backend.
+    Returns nulls when the server has just started and no tick has arrived yet.
+    """
+    tick_at = _last_cron_tick_at
+    if tick_at is None:
+        return SchedulerTickLastResponse(
+            last_tick_at=None,
+            seconds_since_last_tick=None,
+            stale=True,
+            message="No tick received yet since server start",
+        )
+    now = datetime.now(timezone.utc)
+    delta = (now - tick_at).total_seconds()
+    stale = delta > 120
+    return SchedulerTickLastResponse(
+        last_tick_at=tick_at.isoformat(),
+        seconds_since_last_tick=round(delta, 1),
+        stale=stale,
+        message=(
+            "Keepalive is healthy" if not stale
+            else f"No tick received in {round(delta)}s — keepalive may be down"
+        ),
+    )
+
 
     active = await get_active_provider()
     active_type = str((active or {}).get("type", "ollama")).lower()
