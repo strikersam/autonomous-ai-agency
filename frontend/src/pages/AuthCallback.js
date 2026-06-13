@@ -1,5 +1,5 @@
 /**
- * AuthCallback.js — Social login callback handler for LLM Relay v4.0
+ * AuthCallback.js — Social login callback handler for Autonomous AI Agency
  *
  * Handles two OAuth flows:
  *   1. Legacy flow: /auth/callback?access_token=...&refresh_token=...

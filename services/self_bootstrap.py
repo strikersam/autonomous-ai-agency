@@ -28,7 +28,7 @@ SELF_WEBSITE_URL = os.environ.get(
 SELF_REPO_URL = os.environ.get(
     "SELF_BOOTSTRAP_REPO", "https://github.com/strikersam/local-llm-server"
 )
-SELF_COMPANY_NAME = os.environ.get("SELF_BOOTSTRAP_NAME", "Agency Core (self)")
+SELF_COMPANY_NAME = os.environ.get("SELF_BOOTSTRAP_NAME", "Autonomous AI Agency (self)")
 
 
 def self_bootstrap_enabled() -> bool:

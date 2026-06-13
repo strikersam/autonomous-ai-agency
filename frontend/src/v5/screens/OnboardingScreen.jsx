@@ -109,9 +109,9 @@ function NonAdminGate() {
 
   const handleSend = () => {
     if (!query.trim()) return;
-    const subject = encodeURIComponent(`LLM Relay V5.0 — Company Setup Request${name?' from '+name:''}`);
+    const subject = encodeURIComponent(`Autonomous AI Agency — Company Setup Request${name?' from '+name:''}`);
     const body    = encodeURIComponent(
-      `Hello Sam,\n\nI'd like to set up a company on LLM Relay V5.0.\n\nName: ${name||'(not provided)'}\nEmail: ${email||'(not provided)'}\n\nWhat I need:\n${query}\n\nPlease help me get started.`
+      `Hello Sam,\n\nI'd like to set up a company on Autonomous AI Agency.\n\nName: ${name||'(not provided)'}\nEmail: ${email||'(not provided)'}\n\nWhat I need:\n${query}\n\nPlease help me get started.`
     );
     window.open(`mailto:strikersam@gmail.com?subject=${subject}&body=${body}`, '_blank');
     setSent(true);
@@ -161,7 +161,7 @@ function NonAdminGate() {
         <button onClick={handleSend} disabled={!query.trim()} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)', opacity:!query.trim()?0.5:1, transition:'all 0.2s' }}>
           ✉️ Send request to admin
         </button>
-        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>Opens your email client with a pre-filled message to the LLM Relay admin.</div>
+        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>Opens your email client with a pre-filled message to the Autonomous AI Agency admin.</div>
       </div>
     </div>
   );
@@ -309,7 +309,7 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
       <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>What company are you setting up?</h2>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:22, maxWidth:440 }}>
-        Enter your production URL. LLM Relay V5.0 will inspect the site, infer your stack, and provision specialists that understand your industry automatically.
+        Enter your production URL. Autonomous AI Agency will inspect the site, infer your stack, and provision specialists that understand your industry automatically.
       </p>
       <div style={{ marginBottom:14 }}>
         <label style={{ display:'block', fontSize:12, fontWeight:600, color:'var(--text-secondary)', marginBottom:7 }}>Production website URL *</label>
@@ -586,30 +586,58 @@ function DoneStep({ onFinish, onRestart, onBack, companyId, companyName }) {
 
   React.useEffect(() => {
     if (!companyId) { setSpecialists([]); return; }
-    // Trigger specialist provisioning from scans already saved, then list results.
+
+    let settled = false;
+    const finish = (list, err) => {
+      if (settled) return;
+      settled = true;
+      setSpecialists(list);
+      if (err) setSpecsError(err);
+    };
+
+    // Load whatever specialists exist for the company. This is the single
+    // source of truth for the loading state — it runs regardless of whether
+    // provisioning succeeds, hangs, or errors, so the UI never sticks on
+    // "Loading specialists..." forever.
+    const loadSpecialists = (errPrefix) =>
+      api.listSpecialists(companyId)
+        .then(res => {
+          const list = Array.isArray(res?.data?.specialists) ? res.data.specialists : [];
+          finish(list.map(sp => ({
+            name: sp.name,
+            desc: sp.description || 'Specialist ready and active.',
+            icon: sp.icon || '🤖',
+          })), errPrefix || '');
+        })
+        .catch(e => {
+          finish([], (errPrefix ? errPrefix + ' ' : '') +
+            (api.fmtErr(e?.response?.data?.detail) || e?.message || 'Something went wrong.'));
+        });
+
+    // Hard safety net: if neither provisioning nor listing settle within
+    // 30s (e.g. the backend onboarding lock is held by a stuck scan), stop
+    // showing the spinner and surface a recoverable message.
+    const watchdog = setTimeout(() => {
+      finish([], 'Provisioning is taking longer than expected. Your specialists may still ' +
+        'be created in the background — check the Agent Roster shortly.');
+    }, 30000);
+
+    // Trigger specialist provisioning from scans already saved, then list
+    // results. Bound the provisioning request itself so a hung backend call
+    // cannot block the listing fallback.
     api.startOnboarding(companyId, {
       skip_website_scan: true,
       skip_repo_scan: true,
       auto_provision_specialists: true,
-    })
+    }, { timeout: 25000 })
+      .then(() => loadSpecialists())
       .catch((e) => {
-        setSpecsError('Specialist provisioning failed: ' + (e?.response?.data?.detail?.message || e?.message || 'Unknown error. Check that your LLM providers are reachable.'));
+        const prefix = 'Specialist provisioning reported an issue: ' +
+          (e?.response?.data?.detail?.message || e?.message || 'Unknown error. Check that your LLM providers are reachable.');
+        // Still try to list — provisioning may have partially succeeded.
+        loadSpecialists(prefix);
       })
-      .finally(() => {
-        api.listSpecialists(companyId)
-          .then(res => {
-            const list = Array.isArray(res?.data?.specialists) ? res.data.specialists : [];
-            setSpecialists(list.map(sp => ({
-              name: sp.name,
-              desc: sp.description || 'Specialist ready and active.',
-              icon: sp.icon || '🤖',
-            })));
-          })
-          .catch(e => {
-            setSpecialists([]);
-            setSpecsError((api.fmtErr(e?.response?.data?.detail) || e?.message || 'Something went wrong.'));
-          });
-      });
+      .finally(() => clearTimeout(watchdog));
   }, [companyId]);
 
   return (
@@ -701,14 +729,14 @@ function OnboardingScreen({ onComplete, isAdmin }) {
 
   if (!isAdmin) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:580, margin:'0 auto' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
+      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · Autonomous AI Agency</div>
       <NonAdminGate/>
     </div>
   );
 
   if (checkingProgress) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto', textAlign:'center' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
+      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · Autonomous AI Agency</div>
       <div style={{ padding:'40px 0', color:'var(--text-muted)', fontSize:14 }}>Checking onboarding status...</div>
     </div>
   );
@@ -756,7 +784,7 @@ function OnboardingScreen({ onComplete, isAdmin }) {
 
   return (
     <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
+      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · Autonomous AI Agency</div>
       <StepIndicator current={step} onStepClick={(s) => {
         // When jumping back to URL step via breadcrumb, reset company state
         // so the old company doesn't linger and cause duplicate creation.

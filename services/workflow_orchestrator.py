@@ -715,6 +715,60 @@ class WorkflowOrchestrator:
     def get_run(self, run_id: str) -> WorkflowRun | None:
         return self._runs.get(run_id)
 
+    def cancel_run(self, run_id: str) -> bool:
+        """Cancel a run by removing it from memory entirely.
+
+        Marks the run as cancelled and clears _request BEFORE deleting from the
+        dict so the supervisor (which snapshots runs) cannot re-queue a stale
+        reference even if it processes the run concurrently.
+
+        Returns True if the run existed, False otherwise.
+        """
+        run = self._runs.get(run_id)
+        if run is None:
+            return False
+        run.status = "cancelled"
+        run._request = None
+        del self._runs[run_id]
+        log.info("WorkflowOrchestrator: run=%s CANCELLED (removed)", run_id)
+        return True
+
+    def cancel_runs_bulk(self, run_ids: list[str] | None = None, *, status: str | None = None) -> int:
+        """Cancel multiple runs at once.
+
+        If ``run_ids`` is provided, cancels those specific runs.
+        If ``status`` is provided, cancels all runs matching that status.
+        Returns the number of runs cancelled.
+
+        Each run is marked cancelled + _request cleared BEFORE dict deletion
+        so concurrent supervisor ticks cannot re-queue stale snapshots.
+        """
+        if run_ids:
+            to_cancel = [rid for rid in run_ids if rid in self._runs]
+            for rid in to_cancel:
+                r = self._runs[rid]
+                r.status = "cancelled"
+                r._request = None
+                del self._runs[rid]
+                log.info("WorkflowOrchestrator: run=%s CANCELLED (bulk)", rid)
+            return len(to_cancel)
+        if status:
+            to_cancel = [
+                rid for rid, r in self._runs.items()
+                if r.status == status
+            ]
+            for rid in to_cancel:
+                r = self._runs[rid]
+                r.status = "cancelled"
+                r._request = None
+                del self._runs[rid]
+                log.info(
+                    "WorkflowOrchestrator: run=%s CANCELLED (bulk, status=%s)",
+                    rid, status,
+                )
+            return len(to_cancel)
+        return 0
+
     def list_runs(
         self, limit: int = 50, *, owner_id: str | None = None
     ) -> list[dict[str, Any]]:

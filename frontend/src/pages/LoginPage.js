@@ -84,8 +84,8 @@ export default function LoginPage() {
             </div>
             <div>
               <div className="text-[1.35rem] font-extrabold text-[var(--text-primary)] tracking-[-0.04em]"
-                style={{ fontFamily: 'var(--font-main)' }}>Agency Core v5.0</div>
-              <div className="text-[0.8rem] text-[var(--text-muted)] font-mono leading-none mt-1 tracking-[0.16em] uppercase">Autonomous AI Agency</div>
+                style={{ fontFamily: 'var(--font-main)' }}>Autonomous AI Agency</div>
+              <div className="text-[0.8rem] text-[var(--text-muted)] font-mono leading-none mt-1 tracking-[0.16em] uppercase">Your AI-powered workforce</div>
             </div>
           </div>
 
@@ -96,22 +96,22 @@ export default function LoginPage() {
             <div className="flex items-center gap-3">
               <Bot size={16} className="flex-shrink-0 text-[var(--accent)]" />
               <div className="flex-1">
-                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">CEO-coordinated agency</h3>
-                <p className="text-[0.92rem] text-[var(--text-tertiary)]">LLM-powered CEO agent assesses the codebase every 15 min and dispatches Dev, Security, Reviewer, and Scout specialists across 8 runtimes.</p>
+                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Multi-agent task execution</h3>
+                <p className="text-[0.92rem] text-[var(--text-tertiary)]">A CEO agent plans, dispatches, and verifies work across Dev, Security, Reviewer, and Scout specialists — with automatic provider failover across 8 runtimes.</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <CheckCircle size={16} className="flex-shrink-0 text-[var(--success)]" />
               <div className="flex-1">
-                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Self-healing & trend watching</h3>
-                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Backend errors auto-create fix tasks. AI trend watcher fetches arXiv, HuggingFace, Ollama releases, and GitHub weekly.</p>
+                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Technology intelligence across 1,000+ platforms</h3>
+                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Detects your stack, maps your business systems, and tracks releases across arXiv, HuggingFace, Ollama, and GitHub so your agency always works with current knowledge.</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <Database size={16} className="flex-shrink-0 text-[var(--role-power-user)]" />
               <div className="flex-1">
-                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Local-first, private by default</h3>
-                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Route to Ollama, Hermes, Goose, Claude Code, or Aider — all on your own hardware with no data leaving your network.</p>
+                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Connect any repo, any team, any tool</h3>
+                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Point it at any codebase or workflow. Routes to Ollama, Hermes, Goose, Claude Code, or Aider — all on your own hardware, with no data leaving your network.</p>
               </div>
             </div>
             </div>
@@ -135,17 +135,17 @@ export default function LoginPage() {
               <Lock size={18} className="text-white" />
             </div>
             <div>
-              <div className="text-[1.1rem] font-extrabold tracking-[-0.04em] text-[var(--text-primary)]">Agency Core v5.0</div>
-              <div className="text-[0.72rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)]">Autonomous AI Agency</div>
+              <div className="text-[1.1rem] font-extrabold tracking-[-0.04em] text-[var(--text-primary)]">Autonomous AI Agency</div>
+              <div className="text-[0.72rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)]">Your AI-powered workforce</div>
             </div>
           </div>
 
           <div className="app-panel-elevated p-5 sm:p-7 space-y-6">
             <div className="space-y-3">
               <div className="app-kicker">Sign in</div>
-              <h1 className="app-title text-[var(--text-primary)]">Sign in to Control Plane</h1>
+              <h1 className="app-title text-[var(--text-primary)]">Sign in</h1>
               <p className="app-subtitle">
-                Autonomous AI agency that continuously improves your local LLM stack — CEO agent, 8 runtimes, self-healing, and trend intelligence.
+                Your AI-powered workforce — plan, execute, and deliver across any codebase or workflow, all on your own infrastructure.
               </p>
             </div>
 
@@ -252,6 +252,4 @@ export default function LoginPage() {
           )}
         </div>
       </section>
-    </main>
-  );
-}
+    </main

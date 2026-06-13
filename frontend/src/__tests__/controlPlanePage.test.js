@@ -188,7 +188,7 @@ test('renders company-style dashboard summary with NVIDIA priority surfaced', as
   renderPage();
 
   expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
-  expect(screen.getByText(/Agency Core v5\.0/i)).toBeInTheDocument();
+  expect(screen.getByText(/Autonomous AI Agency command center/i)).toBeInTheDocument();
 
   await waitFor(() => expect(getUsage).toHaveBeenCalled());
   expect(screen.getByText('$128.40')).toBeInTheDocument();

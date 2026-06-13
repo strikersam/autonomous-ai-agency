@@ -1,5 +1,5 @@
 """
-Company Graph Models for Agency Core v5
+Company Graph Models for Autonomous AI Agency v5
 """
 from .company_graph import (
     # Enums

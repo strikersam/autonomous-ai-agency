@@ -103,9 +103,9 @@ export default function ActivationGate({ children }) {
 
   const iid = status.instance_id || 'unknown';
   const contactEmail = status.register_email || 'strikersam@gmail.com';
-  const mailtoSubject = encodeURIComponent('LLM Relay Activation Request');
+  const mailtoSubject = encodeURIComponent('Autonomous AI Agency Activation Request');
   const mailtoBody = encodeURIComponent(
-    `Hello,\n\nI'd like to activate my LLM Relay instance.\n\nInstance ID: ${iid}\n\nPlease send me an activation code.\n\nThank you.`
+    `Hello,\n\nI'd like to activate my Autonomous AI Agency instance.\n\nInstance ID: ${iid}\n\nPlease send me an activation code.\n\nThank you.`
   );
 
   return (
@@ -114,12 +114,12 @@ export default function ActivationGate({ children }) {
         {/* Header */}
         <div style={{ textAlign:'center', marginBottom:32 }}>
           <div style={{ fontSize:11, fontFamily:'var(--font-mono, monospace)', color:'rgba(93,162,255,0.7)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:10 }}>
-            LLM Relay — Instance Activation
+            Autonomous AI Agency — Instance Activation
           </div>
           <div style={{ width:52, height:52, borderRadius:16, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, margin:'0 auto 14px' }}>🔑</div>
           <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', margin:'0 0 8px' }}>Activate this instance</h1>
           <p style={{ fontSize:14, color:'rgba(255,255,255,0.5)', lineHeight:1.6, margin:0, maxWidth:400, marginLeft:'auto', marginRight:'auto' }}>
-            This LLM Relay is not yet activated. Follow the three steps below to unlock onboarding and start using the platform.
+            This Autonomous AI Agency is not yet activated. Follow the three steps below to unlock onboarding and start using the platform.
           </p>
         </div>
 

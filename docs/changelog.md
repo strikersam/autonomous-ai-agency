@@ -86,6 +86,17 @@
 
 ## [Unreleased]
 
+### Changed
+- **Brand rename to "Autonomous AI Agency."** Replaced all user-visible "Agency Core", "LLM Relay", "Local LLM Server", and "local-llm-server" branding across the frontend (login, dashboard, onboarding, activation, control plane), marketing/landing HTML, admin templates, setup wizards, screenshot generators, and README with the single product name **Autonomous AI Agency**. Updated `version.py`/`frontend/src/version.js` brand constants (`APP_NAME`, `APP_TAGLINE`) and the `bump_version.py` HTML-title regex + `tests/test_version_consistency.py` to track the new name. Logger names, env-var/config keys, and GitHub repo URLs were intentionally left unchanged to avoid breaking logging and deployments.
+- **Login screen messaging.** Rewrote `frontend/src/pages/LoginPage.js` copy to communicate what the product does — headline "Autonomous AI Agency", subheadline "Your AI-powered workforce", and three feature highlights (multi-agent execution with provider failover, technology intelligence across 1,000+ platforms, connect any repo/team/tool). CTA reads "Sign in". The branding panel already stacks below the form on mobile (`flex-col lg:flex-row`).
+- **Mobile-first CSS hardening.** Strengthened the global baseline in `frontend/src/index.css`: added `max-width: 100vw` to `html, body, #root` (alongside the existing `overflow-x: clip`) and an `img, video { max-width: 100%; height: auto }` rule so media never forces horizontal overflow. Audited inline-styled v5 screens and legacy pages — data tables (Portfolio, Company, admin onboarding) already use `overflow-x: auto` scroll wrappers, nav uses a hamburger drawer + bottom-nav on mobile, and no fixed-pixel container widths were found.
+
+### Fixed
+- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
+
+### Fixed
+- **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
+
 ### Added
 - **`GET /api/scheduler/tick/last` — Cloudflare cron keepalive monitoring endpoint.** Tracks `_last_cron_tick_at` (updated on each authenticated `POST /api/scheduler/tick` from the Cloudflare Worker). Public endpoint (no auth) returns last tick timestamp, seconds since last tick, staleness flag (>120s = stale), and human-readable message. Monitoring tools can poll this to confirm the Worker's `scheduled()` handler is successfully reaching Render.
 
@@ -1652,3 +1663,12 @@
 
 
 
+
+- **Parameterised SEO audit skill + runner script.**
+  `scripts/run_seo_audit.py` — standalone CLI that accepts `--website-url`, `--max-pages`,
+  `--max-depth`, `--output-dir`, `--timeout-seconds`, and `--monthly-organic-revenue` parameters;
+  crawls any public site using curl_cffi Chrome-120 TLS impersonation (bypasses Akamai/Cloudflare);
+  writes executive PDF (reportlab), JSON, Markdown, findings CSV, pages CSV, and issues CSV.
+  `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
+  quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
+  revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).
