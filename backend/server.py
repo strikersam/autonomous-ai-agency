@@ -2354,6 +2354,17 @@ async def seed_default_providers():
     )
     defaults = [
         {
+            "provider_id": "anthropic-claude",
+            "name": "Claude (Sonnet 4.6)",
+            "type": "anthropic",
+            "base_url": "https://api.anthropic.com/v1",
+            "api_key": ANTHROPIC_API_KEY,
+            "default_model": "claude-sonnet-4-6",
+            "is_default": False,
+            "priority": -50,
+            "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
+        },
+        {
             "provider_id": "nvidia-nim",
             "name": "Nvidia NIM (Free)",
             "type": "openai-compatible",
