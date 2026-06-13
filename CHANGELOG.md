@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **README accuracy pass**: documented the technology scanner's true depth (BuiltWith-parity, four evidence sources — HTML / DNS / TLS cert / response headers — with bot-wall escalation) and added an honest **Feature maturity** matrix (Stable / Beta / Experimental) so the README no longer over-promises relative to the support matrix.
+
 ### Added
 - **Agency Core Autonomy Hardening** (#468): Replaced BackgroundAgent `_process()` no-op stub with real AgentRunner dispatch. Added Doctor diagnostics module with public/authenticated split and one-click fixes. Added AutonomyTracker KPI singleton. Added 21 Golden Path contract tests.
 - **RTK-style Output Filtering** (#463): Added `output_filter.py` with command-specific compressors for 60-90% token reduction. Fixed #462.
