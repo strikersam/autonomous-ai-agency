@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 - **Proxy CORS no longer silently sends credentials to a wildcard origin**: `proxy.py` now enables `allow_credentials=True` (`CORS_ALLOW_CREDENTIALS`) only when an explicit `CORS_ORIGINS` allow-list is configured; with the default `*` it stays off — the only browser-safe combination — so the admin session cookie works cross-origin in production without being exposed to arbitrary origins in dev.
+### Changed
+- **README accuracy pass**: documented the technology scanner's true depth (BuiltWith-parity, four evidence sources — HTML / DNS / TLS cert / response headers — with bot-wall escalation) and added an honest **Feature maturity** matrix (Stable / Beta / Experimental) so the README no longer over-promises relative to the support matrix.
 
 ### Added
 - **Dashboard data visualizations** (frontend polish): new dependency-free SVG chart kit `frontend/src/v5/components/Charts.jsx` (`Sparkline`, `BarChart`, `Donut`) themed via design-system CSS variables. Wired into the v5 Dashboard: a real request-volume sparkline driven by the observability `time_series`/`buckets` data, and a new "Task Distribution" donut breaking down tasks by status. All charts degrade gracefully on empty/short/all-zero data. Added the missing `@keyframes pulse` animation that the live status dots reference.

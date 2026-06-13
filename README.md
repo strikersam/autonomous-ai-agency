@@ -113,7 +113,7 @@ With Autonomous AI Agency:
 ## How it works — the 5-minute version
 
 1. **Paste your website URL.** `https://acme-store.com`
-2. **Autonomous AI Agency scans it.** Playwright + HTTP fingerprinting detects your tech stack, business systems, and integrations (Shopify, Stripe, Google Analytics, GitHub, Intercom, Salesforce, …).
+2. **Agency Core scans it.** A BuiltWith-parity technology scanner detects your tech stack, business systems, and integrations (Shopify, Stripe, Google Analytics, GitHub, Intercom, Salesforce, …). It fuses four evidence sources — headless-browser HTML fingerprinting (Playwright, with `curl_cffi` Chrome impersonation to clear bot walls), DNS records (MX/NS/TXT/CNAME), TLS-certificate issuer + Subject Alternative Names, and high-signal response headers (CF-Ray, X-Served-By, X-Amz-Cf-Id, Server, X-Powered-By) — so it identifies CDN/host/cert providers even on sites whose HTML is bot-walled, with highest-confidence-wins merging.
 3. **It asks you the right questions.** AI-generated onboarding questions based on what it found — not generic forms.
 4. **Specialists are auto-provisioned.** A fleet of agents is assembled from 34 specialist families — exactly the ones your business needs, with the right runtimes and skills bound.
 5. **Schedules activate.** Health scans, security audits, code quality checks, SEO monitoring, graph sync — all running on their own cadence without manual setup.
@@ -552,6 +552,27 @@ The dashboard is responsive — sign in, run the setup wizard, and monitor agent
 │  Observability — Langfuse traces + local TCO cost model              │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Feature maturity — what's stable vs. beta
+
+We'd rather under-promise. Here's the honest split (see `docs/architecture/feature-maturity-matrix.md` and `docs/support-matrix.md` for the full breakdown):
+
+| Area | Maturity | Notes |
+|---|---|---|
+| OpenAI-compatible proxy (`/v1/chat/completions`) | **Stable** | Used daily by Claude Code, Cursor, Aider, Continue. |
+| Multi-provider routing + failover | **Stable** | Bedrock -> NIM -> DeepSeek -> Anthropic -> Ollama chain with per-provider cooldown. |
+| Technology scanner (HTML + DNS + TLS + headers) | **Stable** | BuiltWith-parity off-HTML evidence; headless escalation for bot-walled sites is best-effort and needs Chromium installed in the deployment. |
+| Task workflow + dispatcher + HITL gates | **Stable** | Persisted state machine, crash-recovery reconciler. |
+| Scheduled tasks / persistent schedule store | **Stable** | Reconciles on boot; nothing silently skipped. |
+| Skill bindings + dynamic skill registry | **Stable** | GitHub discovery with ETag caching and rate-limit semaphores. |
+| Langfuse observability + local TCO cost model | **Stable** | Cost figures are an estimated commercial-equivalent model, not a billed invoice. |
+| Telegram bot remote control | **Beta** | Works; long-running 24x7 deployment paths are still hardening. |
+| Multi-agent orchestration (CEO -> specialists) | **Beta** | Plan->execute->verify loop is solid for single-specialist jobs; deep multi-hop swarms are experimental. |
+| External agent runtimes (Goose / Hermes / OpenHands) | **Experimental** | Optional sidecars; the Doctor reports them as warnings, never gating, when absent. |
+
+If a screen or capability isn't listed above, treat it as experimental.
 
 ---
 
