@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Start an ngrok tunnel for local-llm-server with public access.
+Start an ngrok tunnel for the Autonomous AI Agency with public access.
 Requires pyngrok to be installed: pip install pyngrok
 """
 

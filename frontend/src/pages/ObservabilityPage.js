@@ -1,5 +1,5 @@
 /**
- * ObservabilityPage.js — Cost Insights & Langfuse Integration (LLM Relay v4.0)
+ * ObservabilityPage.js — Cost Insights & Langfuse Integration (Autonomous AI Agency)
  *
  * Shows:
  *   - Total savings vs cloud APIs (this month / week / day)
