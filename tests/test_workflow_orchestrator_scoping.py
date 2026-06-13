@@ -10,6 +10,8 @@ Regression coverage for per-user scoping of WorkflowOrchestrator runs:
 """
 from __future__ import annotations
 
+import os
+import socket
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,6 +22,22 @@ from backend.server import app as backend_app
 # ── Unit: orchestrator-level scoping ──────────────────────────────────────────
 
 
+def _ollama_reachable() -> bool:
+    ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+    host = ollama_base.replace("http://", "").replace("https://", "").split(":")[0]
+    try:
+        port = int(ollama_base.rsplit(":", 1)[-1].rstrip("/"))
+    except ValueError:
+        port = 11434
+    try:
+        s = socket.create_connection((host, port), timeout=2.0)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(not _ollama_reachable(), reason="LLM backend not reachable in CI")
 class TestOrchestratorRunScoping:
     async def test_run_is_stamped_with_request_user_id(self):
         from services.workflow_orchestrator import (
@@ -92,6 +110,7 @@ def api_client():
     backend_app.dependency_overrides.pop(server.get_current_user, None)
 
 
+@pytest.mark.skipif(not _ollama_reachable(), reason="LLM backend not reachable in CI")
 class TestOrchestratorEndpointScoping:
     def _seed_run(self, client, user) -> str:
         _override_user(user)
