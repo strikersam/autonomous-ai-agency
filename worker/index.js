@@ -36,8 +36,12 @@ export default {
   async scheduled(event, env, ctx) {
     // Cloudflare Cron fires every minute — pings the Render backend tick endpoint
     // to keep APScheduler alive and fire overdue scheduled jobs.
+    const secret = env.CRON_SECRET || "";
     ctx.waitUntil(
-      fetch(BACKEND_ORIGIN + "/api/scheduler/tick", { method: "POST" })
+      fetch(BACKEND_ORIGIN + "/api/scheduler/tick", {
+        method: "POST",
+        headers: { "x-cron-secret": secret },
+      })
         .then(r => r.ok ? console.log("tick ok") : console.warn("tick", r.status))
         .catch(e => console.error("tick error", e))
     );

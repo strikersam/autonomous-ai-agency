@@ -122,13 +122,18 @@ _ensure_error_log_capture()
 
 def _scheduler_on_fire(job) -> None:
     """Called by APScheduler when a cron fires. Dispatches to the orchestrator."""
-    import asyncio, threading
-    from services.workflow_orchestrator import get_workflow_orchestrator
+    import asyncio
+    from services.workflow_orchestrator import get_workflow_orchestrator, ExecutionRequest
     async def _dispatch():
         try:
             orch = get_workflow_orchestrator()
-            run = await orch.execute(request=job.instruction, auto_approve=True)
-            log.info("Scheduler fired job %s → run %s", job.job_id, run.get("run_id"))
+            req = ExecutionRequest(
+                request=job.instruction,
+                auto_approve=True,
+                user_id="scheduler",
+            )
+            run = await orch.execute(req)
+            log.info("Scheduler fired job %s → run %s", job.job_id, run.run_id)
         except Exception as exc:
             log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
     try:
@@ -5651,19 +5656,26 @@ async def health():
 
 
 @app.post("/api/scheduler/tick")
-async def scheduler_tick():
-    """Called by Cloudflare Cron every minute to keep APScheduler alive on Render
-    and tick any overdue jobs. Safe to call from outside — no auth required since
-    it only triggers already-configured scheduled jobs."""
+async def scheduler_tick(request: Request):
+    """Called by Cloudflare Cron every minute. Protected by CRON_SECRET header."""
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    incoming = request.headers.get("x-cron-secret", "")
+    if cron_secret and incoming != cron_secret:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Invalid cron secret")
     scheduler = get_scheduler()
     fired = []
     try:
         jobs = scheduler.list()
-        import datetime
-        now = datetime.datetime.utcnow()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
         for job in jobs:
-            next_run = job.next_run_time if hasattr(job, "next_run_time") else None
-            if next_run and next_run <= now:
+            next_run = getattr(job, "next_run_time", None)
+            if next_run is None:
+                continue
+            if next_run.tzinfo is None:
+                next_run = next_run.replace(tzinfo=timezone.utc)
+            if next_run <= now:
                 try:
                     scheduler.trigger(job.job_id)
                     fired.append(job.job_id)
