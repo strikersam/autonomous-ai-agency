@@ -49,9 +49,25 @@ class ScheduleToggleRequest(BaseModel):
 
 @schedules_router.get("/")
 async def list_schedules(request: Request) -> dict:
-    """List all scheduled jobs."""
+    """List all scheduled jobs, enriched with APScheduler next_run_time."""
     sched = get_scheduler()
-    return {"schedules": [j.as_dict() for j in sched.list()]}
+    jobs = sched.list()
+    # Build next_run lookup from APScheduler if available
+    next_run_map: dict[str, str] = {}
+    try:
+        if sched._aps:
+            for aps_job in sched._aps.get_jobs():
+                nrt = getattr(aps_job, "next_run_time", None)
+                if nrt:
+                    next_run_map[aps_job.id] = nrt.isoformat()
+    except Exception:
+        pass
+    result = []
+    for j in jobs:
+        d = j.as_dict()
+        d["next_run"] = next_run_map.get(j.job_id)
+        result.append(d)
+    return {"schedules": result}
 
 
 @schedules_router.post("/")

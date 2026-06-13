@@ -87,6 +87,7 @@
 ## [Unreleased]
 
 ### Added
+- Scanner: subdomain enumeration layer — probes common subdomains (shop, api, cdn, checkout, account, etc.) to narrow the BuiltWith technology-count gap
 - **SEO audit: one-click CTO-level PDF report (issue #533 follow-up).**
   - *Renderer* (`services/seo_report_pdf.py`, new): `report_to_pdf(report: SeoAuditReport) -> bytes`
     builds a multi-section reportlab PDF — cover page, executive summary (pillar scores, $ at risk
@@ -111,6 +112,32 @@
     all render valid PDFs), plus `TestRevenueModelHelpers` in `tests/test_seo_audit.py` and an
     export-endpoint coverage test in `tests/test_seo_api.py`.
 
+### Added
+- **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
+- **CompanyScreen: Systems tab — category grouping, confidence scores, detection method badges.** Previously the systems tab showed a flat list. Now systems are grouped by category (CMS, CRM, analytics, payment_gateway, etc.) with a color-coded category header. Each detected system shows: version if available, detection method badges (html/dns/ssl/headers/script/cookie in distinct colours), and a confidence mini-bar + percentage score. Summary counts at top: "N systems detected across M categories", with separate counters for auto-detected vs connected systems. Empty state message directs users to run a scan.
+
+### Changed
+- **Mobile-first CSS hardening.** Added a global mobile baseline so the dashboard and chat UIs never overflow horizontally on small screens: `max-width: 100vw` on the `html, body, #root` root containers and a `img, video, iframe { max-width: 100%; height: auto; }` rule in both `frontend/src/index.css` and `webui/frontend/src/styles.css` (the latter also gains `overflow-x: hidden` on `html, body`). Wrapped the three previously-unwrapped data tables in horizontally scrollable containers so wide tables scroll instead of clipping on phones: `frontend/src/pages/LogsPage.js` (Provider Performance) and both tables in `frontend/src/v5/screens/AdminOnboardingPanel.jsx` (user-onboarding and audit-log).
+
+### Fixed
+- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
+
+### Fixed
+- **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
+
+### Added
+- **`GET /api/scheduler/tick/last` — Cloudflare cron keepalive monitoring endpoint.** Tracks `_last_cron_tick_at` (updated on each authenticated `POST /api/scheduler/tick` from the Cloudflare Worker). Public endpoint (no auth) returns last tick timestamp, seconds since last tick, staleness flag (>120s = stale), and human-readable message. Monitoring tools can poll this to confirm the Worker's `scheduled()` handler is successfully reaching Render.
+
+### Fixed
+- **Anthropic brain calls now authenticated correctly.** The brain resolver used `Authorization: Bearer` for all provider types including `type=anthropic`, which requires `x-api-key` + `anthropic-version` headers. This caused silent 401s that appeared as stalled runs. Fixed with a type check in the resolver.
+
+### Fixed
+- **Anthropic API calls no longer 404.** Seed records for `anthropic-claude` had `base_url` ending in `/v1`; the orchestrator resolver then appended `/v1/messages`, producing `https://api.anthropic.com/v1/v1/messages`. Changed both seed records to `https://api.anthropic.com` to match the env default.
+
+### Fixed
+- **Scheduler now actually fires jobs.** Two root causes fixed: (1) AgentScheduler was created without an on_fire callback so cron events had nowhere to go; wired to orchestrator execute with auto_approve. (2) Render free tier spins down after inactivity killing APScheduler; added Cloudflare cron trigger (every minute) in wrangler.jsonc and a Worker scheduled handler that pings /api/scheduler/tick on the Render backend. APScheduler now stays alive and overdue jobs are dispatched on every tick.
+
+### Added
 - **SEO audit: browser-fetch path (bot-protection bypass) + demoable UI + honest revenue model.**
   - *Browser-use fetch backend* (`services/seo_fetch.py`): pluggable page fetchers — default `HttpxFetcher`,
     a `BrowserFetcher` that renders pages with a real headless Chromium (browser-use / Playwright; local by
@@ -1664,3 +1691,12 @@
 
 
 
+
+- **Parameterised SEO audit skill + runner script.**
+  `scripts/run_seo_audit.py` — standalone CLI that accepts `--website-url`, `--max-pages`,
+  `--max-depth`, `--output-dir`, `--timeout-seconds`, and `--monthly-organic-revenue` parameters;
+  crawls any public site using curl_cffi Chrome-120 TLS impersonation (bypasses Akamai/Cloudflare);
+  writes executive PDF (reportlab), JSON, Markdown, findings CSV, pages CSV, and issues CSV.
+  `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
+  quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
+  revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).

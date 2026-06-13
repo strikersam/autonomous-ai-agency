@@ -2,6 +2,7 @@
 import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { Donut, BarChart, Sparkline } from '../components/Charts';
 
 // dashboard.jsx — Resilient Dashboard wired to the real backend
 // Each widget fetches independently via useSafeData (Promise.allSettled) so a
@@ -233,8 +234,20 @@ function TasksWidget({ tasks, loading, error, onRetry, title = 'Open Tasks' }) {
 function CostWidget({ data, loading, error, onRetry }) {
   const hasRatio = data.localRatio != null;
   const barW = `${Math.round((data.localRatio || 0) * 100)}%`;
+  const trend = data.trend || [];
+  const hasTrend = trend.length >= 2;
   return (
     <Widget title="Cost & Usage" loading={loading} error={error} onRetry={onRetry}>
+      {/* Request-volume trend sparkline — real time-series from observability metrics */}
+      {hasTrend && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Request volume</span>
+            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)' }}>{trend.length} buckets</span>
+          </div>
+          <Sparkline values={trend} height={48} />
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: hasRatio ? 12 : 0 }}>
         {[
           { label: 'Cost saved (24h)', value: data.saved, color: '#46d9a4' },
@@ -286,6 +299,20 @@ function MonitoringWidget({ signals, loading, error, onRetry }) {
   );
 }
 
+function TaskDistributionWidget({ breakdown, total, loading, error, onRetry }) {
+  return (
+    <Widget title="Task Distribution" loading={loading} error={error} onRetry={onRetry}>
+      {total === 0 && !loading && !error ? (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+          No tasks tracked yet — create one from the Tasks screen to see the breakdown.
+        </div>
+      ) : (
+        <Donut data={breakdown} centerLabel="tasks" />
+      )}
+    </Widget>
+  );
+}
+
 function SystemHealthWidget({ health, loading, error, onRetry }) {
   const services = [
     { label: 'MongoDB',  ok: health.mongo  ?? null },
@@ -318,6 +345,32 @@ function SystemHealthWidget({ health, loading, error, onRetry }) {
   );
 }
 
+
+// ─── AgentActivityWidget ─────────────────────────────────────────────────────
+function AgentActivityWidget({ donutData, sparklineData, totalTasks, activeAgents, loading, error, onRetry }) {
+  return (
+    <Widget title="Agent Activity" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
+      {!loading && !error && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{totalTasks} total tasks</span>
+            {activeAgents > 0 && (
+              <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 999, color: '#46d9a4', background: 'rgba(70,217,164,0.10)', border: '1px solid rgba(70,217,164,0.20)' }}>
+                {activeAgents} agent{activeAgents === 1 ? '' : 's'} running
+              </span>
+            )}
+          </div>
+          <Donut data={donutData} size={100} thickness={12} centerLabel="tasks" />
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>7-day activity</div>
+            <Sparkline values={sparklineData} height={44} />
+          </div>
+        </div>
+      )}
+    </Widget>
+  );
+}
+
 function DashboardScreen() {
   const [data, states, fetchAll] = useSafeData(null, {
     health:    '/api/health',
@@ -326,6 +379,7 @@ function DashboardScreen() {
     metrics:   '/api/observability/metrics',
     providers: '/api/providers',
     tasks:     '/api/tasks/',
+    agents:    '/api/agents/',
   }, { refreshMs: 30000 });
 
   // Map /api/tasks/ to the Open Tasks widget (exclude finished/failed)
@@ -336,6 +390,42 @@ function DashboardScreen() {
       .slice(0, 6)
       .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status, priority: t.priority }));
   }, [data.tasks]);
+
+  // Build task status distribution for Donut chart
+  const taskDonutData = React.useMemo(() => {
+    const all = data.tasks?.tasks || [];
+    const STATUS_COLORS = {
+      done: '#46d9a4',
+      running: '#5da2ff',
+      pending: '#ffbd66',
+      failed: '#ff6b7d',
+    };
+    const counts = { done: 0, running: 0, pending: 0, failed: 0 };
+    all.forEach(t => {
+      const s = t.status || 'pending';
+      if (s in counts) counts[s]++;
+      else counts.pending++;
+    });
+    return Object.entries(counts)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => ({ label: k, value: v, color: STATUS_COLORS[k] || 'var(--accent)' }));
+  }, [data.tasks]);
+
+  // Build last-7-day agent activity sparkline from /api/activity
+  const agentActivitySparkline = React.useMemo(() => {
+    const logs = data.activity?.logs || data.activity?.events || [];
+    // Bucket activity entries into 7 day slots (most recent last)
+    const buckets = Array(7).fill(0);
+    const now = Date.now();
+    logs.forEach(log => {
+      const ts = log.created_at || log.timestamp;
+      if (!ts) return;
+      const age = now - Date.parse(ts);
+      const dayIdx = Math.floor(age / 86400000);
+      if (dayIdx >= 0 && dayIdx < 7) buckets[6 - dayIdx]++;
+    });
+    return buckets;
+  }, [data.activity]);
 
   // Map /api/health + /api/providers into ProviderHealthWidget shape
   const providerData = React.useMemo(() => {
@@ -379,22 +469,53 @@ function DashboardScreen() {
     }));
   }, [data.activity]);
 
+  // Active agents count
+  const activeAgents = React.useMemo(() => {
+    const agentList = data.agents?.agents || (Array.isArray(data.agents) ? data.agents : []);
+    return agentList.filter(a => a.status === 'running' || a.status === 'active').length;
+  }, [data.agents]);
+
   // Map /api/observability/metrics to CostWidget shape.
   // Backend exposes a 24h window only (total_requests/tokens/savings); there is
   // no monthly spend figure and no cloud/local split, so we don't fabricate them.
   const costData = React.useMemo(() => {
-    const s = data.metrics?.summary_24h || {};
+    const m = data.metrics || {};
+    const s = m.summary_24h || m.summary || {};
     const saved = s.total_savings_usd || 0;
     const requests = s.total_requests || 0;
     const tokens = s.total_tokens || 0;
+    // Real time-series for the request-volume sparkline (observability metrics
+    // expose `time_series` / `buckets`; fall back gracefully if absent).
+    const series = m.time_series || m.buckets || [];
+    const trend = Array.isArray(series) ? series.map((b) => Number(b.requests) || 0) : [];
     return {
       saved: `$${saved.toFixed(2)}`,
       requests,
       tokens: fmtTokens(tokens),
       avgTokens: requests ? fmtTokens(Math.round(tokens / requests)) : '—',
       localRatio: null, // no cloud/local split in metrics yet — bar hidden
+      trend,
     };
   }, [data.metrics]);
+
+  // Task status breakdown for the distribution donut.
+  const taskBreakdown = React.useMemo(() => {
+    const all = data.tasks?.tasks || [];
+    const buckets = {
+      in_progress: { label: 'In progress', value: 0, color: '#5da2ff' },
+      todo: { label: 'To do', value: 0, color: '#6e7786' },
+      in_review: { label: 'In review', value: 0, color: '#ffbd66' },
+      done: { label: 'Done', value: 0, color: '#46d9a4' },
+      blocked: { label: 'Blocked', value: 0, color: '#ff6b7d' },
+      failed: { label: 'Failed', value: 0, color: '#ff6b7d' },
+    };
+    all.forEach((t) => {
+      const b = buckets[t.status] || buckets.todo;
+      b.value += 1;
+    });
+    const rows = Object.values(buckets).filter((b) => b.value > 0);
+    return { rows, total: all.length };
+  }, [data.tasks]);
 
   // Map /api/health + /api/stats to MonitoringWidget signals
   const monitoringSignals = React.useMemo(() => {
@@ -468,6 +589,15 @@ function DashboardScreen() {
             onRetry={fetchAll}
           />
         </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.tasks?.error || '')}>
+          <TaskDistributionWidget
+            breakdown={taskBreakdown.rows}
+            total={taskBreakdown.total}
+            loading={states.tasks?.loading}
+            error={states.tasks?.error}
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
         <ErrorBoundary onRetry={fetchAll} resetKey={String(states.metrics?.error || '')}>
           <CostWidget
             data={costData}
@@ -491,6 +621,17 @@ function DashboardScreen() {
             loading={states.health?.loading || states.stats?.loading}
             error={states.health?.error || states.stats?.error}
             errorSeverity="warning"
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.tasks?.error || states.activity?.error || '')}>
+          <AgentActivityWidget
+            donutData={taskDonutData}
+            sparklineData={agentActivitySparkline}
+            totalTasks={(data.tasks?.tasks || []).length}
+            activeAgents={activeAgents}
+            loading={states.tasks?.loading || states.activity?.loading}
+            error={states.tasks?.error || states.activity?.error}
             onRetry={fetchAll}
           />
         </ErrorBoundary>

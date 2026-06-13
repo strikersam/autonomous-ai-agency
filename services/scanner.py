@@ -245,8 +245,11 @@ class WebsiteScanner:
 
             domain = parsed.hostname.replace('www.', '') if parsed.hostname else ""
 
-            # 1. DNS Analysis (BuiltWith-level off-site detection)
-            dns_systems = self._analyze_dns(domain)
+            # 1. DNS + TLS-certificate Analysis (BuiltWith-level off-site
+            #    detection). Both are network/CPU work, so run them in worker
+            #    threads to keep the event loop responsive.
+            dns_systems = await asyncio.to_thread(self._analyze_dns, domain)
+            ssl_systems = await asyncio.to_thread(self._analyze_ssl_cert, domain)
 
             # 2. On-Site Analysis
             html = ""
@@ -300,15 +303,18 @@ class WebsiteScanner:
             # page can't block the event loop and stall concurrent requests.
             html_systems = await asyncio.to_thread(self._detect_systems_generic, html, headers, cookies)
             
-            # Merge DNS systems and HTML systems, keeping highest confidence
+            # Explicit high-signal response-header detection (CDN/infra/security
+            # headers BuiltWith reports) on top of the regex DB pass.
+            header_systems = self._analyze_response_headers(headers)
+
+            # Merge all evidence sources, keeping the highest-confidence record
+            # per system: HTML signatures, DNS, TLS cert, response headers.
             all_systems_map = {sys.name: sys for sys in html_systems}
-            for dns_sys in dns_systems:
-                if dns_sys.name in all_systems_map:
-                    if dns_sys.confidence > all_systems_map[dns_sys.name].confidence:
-                        all_systems_map[dns_sys.name] = dns_sys
-                else:
-                    all_systems_map[dns_sys.name] = dns_sys
-                    
+            for extra_sys in (*dns_systems, *ssl_systems, *header_systems):
+                existing = all_systems_map.get(extra_sys.name)
+                if existing is None or extra_sys.confidence > existing.confidence:
+                    all_systems_map[extra_sys.name] = extra_sys
+
             detected_systems = list(all_systems_map.values())
 
             # Headless fallback. JS-rendered and bot-protected sites (e.g. luxury
@@ -370,6 +376,39 @@ class WebsiteScanner:
                         all_systems_map[s.name] = s
                 detected_systems = list(all_systems_map.values())
 
+            # 3b. Subdomain layer — scan common subdomains for additional tech signals.
+            # Each responding subdomain is scanned with the same HTML + header detection
+            # pipeline, potentially revealing different tech stacks (e.g. shop.gucci.com
+            # may run Shopify while the main site runs a custom stack).
+            subdomain_results = await self._scan_subdomains(domain)
+            for sub_data in subdomain_results:
+                sub_systems = await asyncio.to_thread(
+                    self._detect_systems_generic,
+                    sub_data["html"],
+                    sub_data["headers"],
+                    {},
+                )
+                sub_header_systems = self._analyze_response_headers(sub_data["headers"])
+                for s in (*sub_systems, *sub_header_systems):
+                    # Mark origin subdomain in evidence source
+                    s = DetectedSystem(
+                        name=s.name,
+                        category=s.category,
+                        confidence=max(0.0, s.confidence - 0.05),  # slight penalty for subdomain signal
+                        evidence=s.evidence,
+                        version=s.version,
+                        metadata={**(s.metadata or {}), "source_subdomain": sub_data["subdomain"]},
+                    )
+                    existing = all_systems_map.get(s.name)
+                    if existing is None or s.confidence > existing.confidence:
+                        all_systems_map[s.name] = s
+            if subdomain_results:
+                detected_systems = list(all_systems_map.values())
+                log.info(
+                    f"Subdomain scan found {len(subdomain_results)} responding subdomains, "
+                    f"total systems now {len(detected_systems)}"
+                )
+
             stack_inference = await self._infer_stack(soup, html, headers, website_url)
             
             # 3. Sitemap discovery
@@ -392,6 +431,56 @@ class WebsiteScanner:
                 scan_id=scan_id, website_url=website_url, company_id=self.company_id, status="failed",
                 errors=[str(e)], started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
             )
+
+    async def _scan_subdomains(self, domain: str) -> list[dict]:
+        """Try common subdomains and scan each for additional tech signals.
+
+        For each subdomain that returns an HTTP < 400 response, captures up to
+        200 KB of HTML and the full response headers.  The caller merges these
+        results into the main ``all_systems_map`` to expose tech stacks that
+        only appear on sub-domains (e.g. shop.brand.com running Shopify while
+        the root site runs a custom stack).
+
+        Returns a list of dicts:
+            {"subdomain": str, "url": str, "html": str, "headers": dict}
+        """
+        common = [
+            "www", "shop", "store", "blog", "api",
+            "cdn", "assets", "checkout", "account", "static",
+            "media", "images",
+        ]
+        results: list[dict] = []
+        async with httpx.AsyncClient(
+            timeout=5,
+            follow_redirects=True,
+            headers={"User-Agent": self.user_agent},
+        ) as client:
+            async def _probe(sub: str) -> dict | None:
+                url = f"https://{sub}.{domain}"
+                if not _is_safe_url(url):
+                    return None
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code < 400:
+                        return {
+                            "subdomain": sub,
+                            "url": str(resp.url),
+                            "html": resp.text[:200_000],
+                            "headers": dict(resp.headers),
+                        }
+                except Exception:
+                    pass
+                return None
+
+            tasks = [_probe(sub) for sub in common]
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    result = await coro
+                    if result is not None:
+                        results.append(result)
+                except Exception:
+                    pass
+        return results
 
     async def _render_html(self, url: str) -> Optional[tuple[str, dict, dict]]:
         """Render a page with a real headless browser (Playwright/Chromium) and
@@ -799,6 +888,228 @@ class WebsiteScanner:
 
         return systems
 
+    @staticmethod
+    def _decode_der_cert(der: bytes) -> dict:
+        """Decode a raw DER certificate into the same dict shape that
+        ``ssl.getpeercert()`` produces (``issuer`` tuple-of-tuples +
+        ``subjectAltName``), used when the cert could not be verified (expired,
+        self-signed, hostname mismatch) so SSL-based detection still works.
+
+        Degrades to ``{}`` on any error -- never raises into the scan.
+        """
+        try:
+            from cryptography import x509
+            from cryptography.x509.oid import NameOID, ExtensionOID
+
+            crt = x509.load_der_x509_certificate(der)
+
+            issuer_rdns: list = []
+            _oid_map = {
+                NameOID.ORGANIZATION_NAME: "organizationName",
+                NameOID.COMMON_NAME: "commonName",
+            }
+            for oid, label in _oid_map.items():
+                for attr in crt.issuer.get_attributes_for_oid(oid):
+                    issuer_rdns.append(((label, attr.value),))
+
+            san_entries: list = []
+            try:
+                ext = crt.extensions.get_extension_for_oid(
+                    ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+                )
+                for name in ext.value.get_values_for_type(x509.DNSName):
+                    san_entries.append(("DNS", name))
+            except Exception:
+                pass
+
+            return {"issuer": tuple(issuer_rdns), "subjectAltName": tuple(san_entries)}
+        except Exception as e:
+            log.debug("DER cert decode failed: %s", e)
+            return {}
+
+    def _analyze_ssl_cert(self, domain: str) -> List[DetectedSystem]:
+        """Inspect the TLS certificate (issuer + Subject Alternative Names) to
+        infer hosting/CDN/cert platforms — BuiltWith-style off-HTML evidence.
+
+        Many platforms terminate TLS with their own certs whose issuer or SANs
+        reveal the provider even when the HTML is bot-walled (e.g. Cloudflare,
+        Let's Encrypt via a PaaS, Google Trust Services on GCP, Amazon on
+        CloudFront/ELB). Degrades to an empty list on any error so it can never
+        500 or hang the scan.
+        """
+        systems: List[DetectedSystem] = []
+        if not domain:
+            return systems
+
+        import ssl as _ssl
+        import socket as _socket
+
+        def add_sys(sys_id, sys_type, name, conf, ev_type, ev_val):
+            systems.append(DetectedSystem(
+                system_type=sys_type, name=name, confidence=conf,
+                evidence=[Evidence(type=ev_type, value=str(ev_val)[:200], location="SSL", confidence=conf)]
+            ))
+
+        try:
+            timeout = min(self.timeout, 10)
+
+            # IMPORTANT: CPython's ``getpeercert()`` returns an EMPTY dict ``{}``
+            # whenever ``verify_mode == CERT_NONE`` -- the parsed issuer/SAN
+            # fields are only populated when the cert is actually verified. A
+            # previous version disabled verification "to tolerate misconfigured
+            # certs", which silently made this whole analysis a no-op (it never
+            # returned any systems). We therefore do a verified handshake FIRST
+            # (the common case -- valid public certs) to get the parsed dict, and
+            # only fall back to DER decoding for the unverified case (expired/
+            # self-signed/hostname-mismatch certs) so detection still works.
+            cert: dict = {}
+            der: Optional[bytes] = None
+
+            verify_ctx = _ssl.create_default_context()
+            try:
+                with _socket.create_connection((domain, 443), timeout=timeout) as sock:
+                    with verify_ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                        cert = ssock.getpeercert() or {}
+                        der = ssock.getpeercert(binary_form=True)
+            except Exception:
+                # Verification failed -- retry without it so we can still read the
+                # raw cert (DER form is populated even with CERT_NONE).
+                unverified = _ssl.create_default_context()
+                unverified.check_hostname = False
+                unverified.verify_mode = _ssl.CERT_NONE
+                with _socket.create_connection((domain, 443), timeout=timeout) as sock:
+                    with unverified.wrap_socket(sock, server_hostname=domain) as ssock:
+                        der = ssock.getpeercert(binary_form=True)
+
+            # If the verified path gave us no parsed dict, decode the DER blob
+            # into the same shape using `cryptography` (a production dependency).
+            if not cert and der:
+                cert = self._decode_der_cert(der)
+
+            if not cert:
+                return systems
+
+            # Issuer organisation / common name.
+            issuer_parts = []
+            for rdn in cert.get('issuer', ()):  # tuple of tuples
+                for k, v in rdn:
+                    if k in ('organizationName', 'commonName'):
+                        issuer_parts.append(str(v))
+            issuer = " ".join(issuer_parts).lower()
+
+            issuer_map = [
+                ("let's encrypt", ('letsencrypt', 'custom', "Let's Encrypt")),
+                ('cloudflare',    ('cloudflare',  'custom', 'Cloudflare')),
+                ('amazon',        ('aws',         'custom', 'Amazon Web Services')),
+                ('google trust',  ('gcp',         'custom', 'Google Cloud')),
+                ('digicert',      ('digicert',    'custom', 'DigiCert')),
+                ('sectigo',       ('sectigo',     'custom', 'Sectigo')),
+                ('globalsign',    ('globalsign',  'custom', 'GlobalSign')),
+                ('microsoft',     ('azure',       'custom', 'Microsoft Azure')),
+                ('gts ',          ('gcp',         'custom', 'Google Cloud')),
+                ('entrust',       ('entrust',     'custom', 'Entrust')),
+            ]
+            for needle, (sid, stype, name) in issuer_map:
+                if needle in issuer:
+                    add_sys(sid, stype, name, 0.85, 'SSL issuer', issuer)
+                    break
+
+            # Subject Alternative Names — wildcard/secondary SANs frequently leak
+            # the underlying SaaS/CDN host the cert was minted for.
+            san_map = [
+                ('cloudflaressl.com', ('cloudflare', 'custom', 'Cloudflare')),
+                ('sni.cloudflaressl', ('cloudflare', 'custom', 'Cloudflare')),
+                ('myshopify.com',     ('shopify',    'CMS',    'Shopify')),
+                ('shopify',           ('shopify',    'CMS',    'Shopify')),
+                ('herokuapp.com',     ('heroku',     'custom', 'Heroku')),
+                ('netlify',           ('netlify',    'custom', 'Netlify')),
+                ('vercel',            ('vercel',     'custom', 'Vercel')),
+                ('wpengine',          ('wpengine',   'custom', 'WP Engine')),
+                ('squarespace',       ('squarespace','CMS',    'Squarespace')),
+                ('wixsite',           ('wix',        'CMS',    'Wix')),
+                ('fastly',            ('fastly',     'custom', 'Fastly')),
+                ('akamai',            ('akamai',     'custom', 'Akamai')),
+                ('amazonaws.com',     ('aws',        'custom', 'Amazon Web Services')),
+                ('cloudfront.net',    ('cloudfront', 'custom', 'AWS CloudFront')),
+                ('azure',             ('azure',      'custom', 'Microsoft Azure')),
+                ('hubspot',           ('hubspot',    'marketing_automation', 'HubSpot')),
+                ('zendesk',           ('zendesk',    'support', 'Zendesk')),
+            ]
+            for typ, san in cert.get('subjectAltName', ()):
+                if typ != 'DNS':
+                    continue
+                san_l = str(san).lower()
+                for needle, (sid, stype, name) in san_map:
+                    if needle in san_l:
+                        add_sys(sid, stype, name, 0.8, 'SSL SAN', san_l)
+        except Exception as e:
+            log.debug("SSL cert analysis skipped for %s: %s", domain, e)
+
+        return systems
+
+    def _analyze_response_headers(self, headers: Any) -> List[DetectedSystem]:
+        """Explicit high-signal response-header detection beyond the
+        technologies.json header specs — covers CDN/infra/security headers
+        BuiltWith reports (Server, Via, X-Powered-By, X-Served-By, CF-Ray,
+        X-Cache, X-Amz-*, etc.). Complements the regex DB pass; never throws.
+        """
+        systems: List[DetectedSystem] = []
+        try:
+            hdr = {str(k).lower(): str(v).lower() for k, v in dict(headers or {}).items()}
+        except Exception:
+            return systems
+
+        def add_sys(sys_id, sys_type, name, conf, hname, hval):
+            systems.append(DetectedSystem(
+                system_type=sys_type, name=name, confidence=conf,
+                evidence=[Evidence(type='header', value=f'{hname}: {str(hval)[:120]}',
+                                   location='headers', confidence=conf)]
+            ))
+
+        # (header name, substring-or-empty, system tuple). Empty substring =
+        # presence-only signal (the header existing is itself the evidence).
+        rules = [
+            ('cf-ray',          '',            ('cloudflare', 'custom', 'Cloudflare')),
+            ('cf-cache-status', '',            ('cloudflare', 'custom', 'Cloudflare')),
+            ('x-served-by',     'cache',       ('fastly',     'custom', 'Fastly')),
+            ('x-fastly-request-id', '',        ('fastly',     'custom', 'Fastly')),
+            ('x-cache',         'cloudfront',  ('cloudfront', 'custom', 'AWS CloudFront')),
+            ('via',             'cloudfront',  ('cloudfront', 'custom', 'AWS CloudFront')),
+            ('x-amz-cf-id',     '',            ('cloudfront', 'custom', 'AWS CloudFront')),
+            ('x-amz-request-id','',            ('aws_s3',     'custom', 'Amazon S3')),
+            ('x-azure-ref',     '',            ('azure',      'custom', 'Microsoft Azure')),
+            ('x-akamai-transformed', '',       ('akamai',     'custom', 'Akamai')),
+            ('x-iinfo',         '',            ('imperva',    'custom', 'Imperva')),
+            ('x-sucuri-id',     '',            ('sucuri',     'custom', 'Sucuri')),
+            ('x-vercel-id',     '',            ('vercel',     'custom', 'Vercel')),
+            ('x-nf-request-id', '',            ('netlify',    'custom', 'Netlify')),
+            ('x-shopify-stage', '',            ('shopify',    'CMS',    'Shopify')),
+            ('x-shopid',        '',            ('shopify',    'CMS',    'Shopify')),
+            ('x-drupal-cache',  '',            ('drupal',     'CMS',    'Drupal')),
+            ('x-generator',     'drupal',      ('drupal',     'CMS',    'Drupal')),
+            ('x-powered-by',    'php',         ('php',        'custom', 'PHP')),
+            ('x-powered-by',    'asp.net',     ('aspnet',     'custom', 'ASP.NET')),
+            ('x-powered-by',    'express',     ('express',    'custom', 'Express.js')),
+            ('x-powered-by',    'next.js',     ('nextjs',     'frontend', 'Next.js')),
+            ('x-powered-by',    'wp engine',   ('wpengine',   'custom', 'WP Engine')),
+            ('x-aspnet-version','',            ('aspnet',     'custom', 'ASP.NET')),
+            ('server',          'cloudflare',  ('cloudflare', 'custom', 'Cloudflare')),
+            ('server',          'nginx',       ('nginx',      'custom', 'Nginx')),
+            ('server',          'apache',      ('apache',     'custom', 'Apache')),
+            ('server',          'microsoft-iis',('iis',       'custom', 'Microsoft IIS')),
+            ('server',          'litespeed',   ('litespeed',  'custom', 'LiteSpeed')),
+            ('server',          'gws',         ('gcp',        'custom', 'Google Cloud')),
+            ('server',          'awselb',      ('aws_elb',    'custom', 'AWS Elastic Load Balancing')),
+            ('server',          'cowboy',      ('heroku',     'custom', 'Heroku')),
+        ]
+        for hname, needle, (sid, stype, name) in rules:
+            val = hdr.get(hname)
+            if val is None:
+                continue
+            if needle == '' or needle in val:
+                add_sys(sid, stype, name, 0.9 if needle == '' else 0.85, hname, val)
+        return systems
+
     def _detect_systems_generic(self, html: str, headers: Any, cookies: Any) -> List[DetectedSystem]:
         """
         Replicates builtwith.builtwith() data-driven logic natively using the
@@ -1082,7 +1393,7 @@ class RepoScanner:
         """
         self.company_id = company_id
         self.github_token = github_token
-        self.user_agent = "AgencyCore/1.0 (Company Graph Repo Scanner)"
+        self.user_agent = "AutonomousAIAgency/1.0 (Company Graph Repo Scanner)"
         self.timeout = 30.0
 
     async def scan_repo(

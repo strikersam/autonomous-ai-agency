@@ -120,7 +120,32 @@ def clear_error_log_buffer() -> None:
 
 _ensure_error_log_capture()
 
-SCHEDULER = AgentScheduler()
+def _scheduler_on_fire(job) -> None:
+    """Called by APScheduler when a cron fires. Dispatches to the orchestrator."""
+    import asyncio
+    from services.workflow_orchestrator import get_workflow_orchestrator, ExecutionRequest
+    async def _dispatch():
+        try:
+            orch = get_workflow_orchestrator()
+            req = ExecutionRequest(
+                request=job.instruction,
+                auto_approve=True,
+                user_id="scheduler",
+            )
+            run = await orch.execute(req)
+            log.info("Scheduler fired job %s → run %s", job.job_id, run.run_id)
+        except Exception as exc:
+            log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_dispatch())
+        else:
+            loop.run_until_complete(_dispatch())
+    except Exception as exc:
+        log.error("Scheduler on_fire loop error: %s", exc)
+
+SCHEDULER = AgentScheduler(on_fire=_scheduler_on_fire)
 set_scheduler(SCHEDULER)
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
@@ -146,6 +171,11 @@ OLLAMA_BASE = (
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
 _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
+# Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
+# execute + verify). Caps a hung provider so the chat job fails cleanly
+# instead of sitting at phase "planning" forever. Configurable via env.
+_AGENT_RUN_BUDGET_SEC = float(os.environ.get("CHAT_AGENT_RUN_BUDGET_SEC", "240"))
+
 _CHAT_AGENT_JOBS = AgentJobManager()
 _CHAT_AGENT_WORKSPACE_ROOT = Path(
     os.environ.get("BACKEND_CHAT_AGENT_WORKSPACE_ROOT", ".data/backend-chat-agent-workspaces")
@@ -1391,11 +1421,11 @@ async def lifespan(app_: "FastAPI"):
     bg: Optional[BackgroundServices] = None
     try:
         await ensure_bootstrap()
-        log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
+        log.info("Autonomous AI Agency started — provider=%s", LLM_PROVIDER)
     except Exception as exc:
         log.warning("MongoDB bootstrap deferred (no DB connection): %s", exc)
         log.info(
-            "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
+            "Autonomous AI Agency started in limited mode — set MONGO_URL to enable full features"
         )
 
     if run_background_in_web():
@@ -2329,6 +2359,17 @@ async def seed_default_providers():
     )
     defaults = [
         {
+            "provider_id": "anthropic-claude",
+            "name": "Claude (Sonnet 4.6)",
+            "type": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "api_key": ANTHROPIC_API_KEY,
+            "default_model": "claude-sonnet-4-6",
+            "is_default": False,
+            "priority": -50,
+            "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
+        },
+        {
             "provider_id": "nvidia-nim",
             "name": "Nvidia NIM (Free)",
             "type": "openai-compatible",
@@ -2553,7 +2594,7 @@ def _builtin_provider_records() -> list[dict]:
             "provider_id": "anthropic-claude",
             "name": "Claude (Sonnet 4.6)",
             "type": "anthropic",
-            "base_url": "https://api.anthropic.com/v1",
+            "base_url": "https://api.anthropic.com",
             "api_key": ANTHROPIC_API_KEY,
             "default_model": "claude-sonnet-4-6",
             "is_default": False,
@@ -3133,14 +3174,37 @@ async def _run_agent_loop(
         import services.workflow_orchestrator as _wo
         _bypass_token = _wo._BYPASS.set(True)
         try:
-            result = await runner.run(
-                instruction=agent_instruction,
-                history=session_messages,
-                requested_model=requested_model,
-                auto_commit=True,
-                max_steps=8,
-                memory_store=UserMemoryStore(),
-                session_id=session_id,
+            # Overall wall-clock budget for the entire agent run (plan +
+            # execute + verify). Without this, a hung provider connection
+            # leaves the chat job stuck at phase "planning" indefinitely
+            # because runner.run() makes several sequential LLM calls each
+            # with a 300s httpx read timeout and no aggregate cap.
+            result = await asyncio.wait_for(
+                runner.run(
+                    instruction=agent_instruction,
+                    history=session_messages,
+                    requested_model=requested_model,
+                    auto_commit=True,
+                    max_steps=8,
+                    memory_store=UserMemoryStore(),
+                    session_id=session_id,
+                ),
+                timeout=_AGENT_RUN_BUDGET_SEC,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "Agent run exceeded %ss budget (session=%s) — returning timeout response",
+                _AGENT_RUN_BUDGET_SEC, session_id,
+            )
+            return (
+                "\u26a0\ufe0f The agent run timed out before completing.\n\n"
+                "The selected provider took too long to respond (no result within "
+                f"{int(_AGENT_RUN_BUDGET_SEC)}s). This usually means the LLM endpoint "
+                "is overloaded, unreachable, or the model is too slow.\n\n"
+                "**Try:**\n"
+                "\u2022 Re-run the request (transient provider slowness is common).\n"
+                "\u2022 Switch to a faster provider/model in Providers.\n"
+                "\u2022 For Ollama, confirm the model is pulled and `ollama serve` is responsive.\n"
             )
         finally:
             _wo._BYPASS.reset(_bypass_token)
@@ -5627,6 +5691,87 @@ async def health():
         mongo_ok = True
     except Exception:
         mongo_ok = False
+    return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok}
+
+
+_last_cron_tick_at: Optional[datetime] = None
+
+
+@app.post("/api/scheduler/tick")
+async def scheduler_tick(request: Request):
+    """Called by Cloudflare Cron every minute. Protected by CRON_SECRET header."""
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    incoming = request.headers.get("x-cron-secret", "")
+    if cron_secret and incoming != cron_secret:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Invalid cron secret")
+    global _last_cron_tick_at
+    _last_cron_tick_at = datetime.now(timezone.utc)
+    scheduler = get_scheduler()
+    fired = []
+    try:
+        jobs = scheduler.list()
+        now = datetime.now(timezone.utc)
+        for job in jobs:
+            next_run = getattr(job, "next_run_time", None)
+            if next_run is None:
+                continue
+            if next_run.tzinfo is None:
+                next_run = next_run.replace(tzinfo=timezone.utc)
+            if next_run <= now:
+                try:
+                    scheduler.trigger(job.job_id)
+                    fired.append(job.job_id)
+                except Exception as exc:
+                    log.warning("tick: failed to trigger %s: %s", job.job_id, exc)
+    except Exception as exc:
+        log.error("scheduler_tick error: %s", exc)
+    return {"ok": True, "fired": fired, "total_jobs": len(scheduler.list())}
+
+
+
+class SchedulerTickLastResponse(BaseModel):
+    """Public keepalive-monitoring response for GET /api/scheduler/tick/last.
+
+    Intentionally public — no auth required.  Monitoring tools and the
+    Cloudflare Worker itself call this endpoint to confirm the cron
+    ``scheduled()`` handler is successfully reaching the Render backend.
+    """
+    last_tick_at: Optional[str] = Field(default=None, description="ISO 8601 timestamp of last tick, or null")
+    seconds_since_last_tick: Optional[float] = Field(default=None, description="Elapsed seconds since last tick, or null")
+    stale: bool = Field(default=True, description="True when >120s since last tick")
+    message: str = Field(default="No tick received yet since server start", description="Human-readable status")
+
+
+@app.get("/api/scheduler/tick/last", response_model=SchedulerTickLastResponse)
+async def scheduler_tick_last() -> SchedulerTickLastResponse:
+    """Return the last Cloudflare Cron tick timestamp for keepalive monitoring.
+
+    Public — no auth required. Monitoring tools and the Cloudflare Worker itself
+    can call this to confirm the cron is successfully reaching the backend.
+    Returns nulls when the server has just started and no tick has arrived yet.
+    """
+    tick_at = _last_cron_tick_at
+    if tick_at is None:
+        return SchedulerTickLastResponse(
+            last_tick_at=None,
+            seconds_since_last_tick=None,
+            stale=True,
+            message="No tick received yet since server start",
+        )
+    now = datetime.now(timezone.utc)
+    delta = (now - tick_at).total_seconds()
+    stale = delta > 120
+    return SchedulerTickLastResponse(
+        last_tick_at=tick_at.isoformat(),
+        seconds_since_last_tick=round(delta, 1),
+        stale=stale,
+        message=(
+            "Keepalive is healthy" if not stale
+            else f"No tick received in {round(delta)}s — keepalive may be down"
+        ),
+    )
+
 
     active = await get_active_provider()
     active_type = str((active or {}).get("type", "ollama")).lower()
@@ -7006,7 +7151,7 @@ async def workflow_orchestrator_status(
     owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
     runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
 
-    queue_status = {max_concurrent: 2, active: 0, queued: 0}
+    queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
     try:
         from services.orchestrator_queue import get_orchestrator_queue
         q = get_orchestrator_queue()
@@ -7020,23 +7165,27 @@ async def workflow_orchestrator_status(
         sv = get_orchestrator_supervisor()
         st = sv.state
         supervisor_state = {
-            running: st.running,
-            ticks: st.ticks,
-            stalled_recovered: st.stalled_recovered,
-            failed_retried: st.failed_retried,
-            alerts_emitted: st.alerts_emitted,
+            "running": st.running,
+            "ticks": st.ticks,
+            "stalled_recovered": st.stalled_recovered,
+            "failed_retried": st.failed_retried,
+            "alerts_emitted": st.alerts_emitted,
         }
     except Exception:
         pass
 
     return {
-        runs: len(runs),
-        by_status: {
-            s: sum(1 for r in runs if r.get(status) == s)
-            for s in [pending, running, awaiting_approval, queued, done, failed]
+        "runs": len(runs),
+        "by_status": {
+            "pending": sum(1 for r in runs if r.get("status") == "pending"),
+            "running": sum(1 for r in runs if r.get("status") == "running"),
+            "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
+            "queued": sum(1 for r in runs if r.get("status") == "queued"),
+            "done": sum(1 for r in runs if r.get("status") == "done"),
+            "failed": sum(1 for r in runs if r.get("status") == "failed"),
         },
-        queue: queue_status,
-        supervisor: supervisor_state,
+        "queue": queue_status,
+        "supervisor": supervisor_state,
     }
 
 @app.get("/api/workflow/orchestrator/runs")
@@ -7065,6 +7214,55 @@ async def workflow_orchestrator_get_run(
     orchestrator = get_workflow_orchestrator()
     run = _wfo_owned_run_or_404(orchestrator, run_id, user)
     return {"run": run.as_dict()}
+
+
+@app.delete("/api/workflow/orchestrator/runs/{run_id}")
+async def workflow_orchestrator_cancel_run(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Cancel a single orchestrator run (removes from memory).
+
+    Admin users can cancel any run; non-admin users can only cancel their own runs."""
+    orchestrator = get_workflow_orchestrator()
+    _wfo_owned_run_or_404(orchestrator, run_id, user)
+    orchestrator.cancel_run(run_id)
+    return {"ok": True, "run_id": run_id, "cancelled": 1}
+
+
+@app.delete("/api/workflow/orchestrator/runs")
+async def workflow_orchestrator_cancel_runs_bulk(
+    status: str | None = None,
+    run_ids: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """Bulk-cancel orchestrator runs by status or explicit run_id list.
+
+    Query params:
+      status=failed,queued  — cancels all runs matching that status (admin only)
+      run_ids=id1,id2,id3   — cancels specific runs (ownership enforced per run)
+
+    Admin only for status-based cleanup; run_ids honours per-run ownership."""
+    orchestrator = get_workflow_orchestrator()
+    is_admin = _wfo_is_admin(user)
+    count = 0
+
+    if status:
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Bulk status cleanup requires admin")
+        for s in status.split(","):
+            count += orchestrator.cancel_runs_bulk(status=s.strip())
+    elif run_ids:
+        for rid in run_ids.split(","):
+            rid = rid.strip()
+            if not rid:
+                continue
+            _wfo_owned_run_or_404(orchestrator, rid, user)
+            if orchestrator.cancel_run(rid):
+                count += 1
+
+    return {"ok": True, "cancelled": count}
+
 
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.

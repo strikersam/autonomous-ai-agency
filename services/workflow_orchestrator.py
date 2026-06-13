@@ -108,6 +108,81 @@ _BYPASS: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 
 
+async def _resolve_brain_provider(
+    exclude_base_urls: set[str] | None = None,
+) -> tuple[str, dict | None, str | None]:
+    """Resolve the LLM endpoint for agent execution (module-level, #522 failover).
+
+    Resolution order:
+      1. AGENT_LLM_BASE_URL env override (with optional AGENT_LLM_API_KEY /
+         AGENT_LLM_MODEL) — wins over everything.
+      2. Highest-priority configured provider record (the same store the
+         Providers screen manages), skipping any whose normalised base URL is in
+         *exclude_base_urls* and any non-Ollama provider without an API key.
+      3. Local Ollama fallback.
+
+    Returns ``(openai_compatible_base_url, auth_headers_or_None, model_or_None)``.
+    Accepting *exclude_base_urls* lets a phase fail over to the NEXT provider in
+    priority order after the current one errors.
+    """
+    exclude = {u.rstrip("/") for u in (exclude_base_urls or set())}
+
+    # 1. Explicit env override — highest precedence.
+    env_base = os.environ.get("AGENT_LLM_BASE_URL", "").strip()
+    if env_base:
+        env_key = os.environ.get("AGENT_LLM_API_KEY", "").strip()
+        env_model = os.environ.get("AGENT_LLM_MODEL", "").strip() or None
+        headers = {"Authorization": f"Bearer {env_key}"} if env_key else None
+        return env_base.rstrip("/"), headers, env_model
+
+    # 2. Configured provider records, ordered by priority (highest first).
+    try:
+        from backend.server import _list_configured_provider_records
+        records = list(await _list_configured_provider_records())
+        # Sort by priority (highest first). Records from the store are normally
+        # pre-sorted, but resolve defensively so callers passing raw lists (and
+        # the failover unit tests) get deterministic highest-priority selection.
+        def _prio(rec: dict) -> int:
+            try:
+                return int(rec.get("priority") or 0)
+            except (TypeError, ValueError):
+                return 0
+        records.sort(key=_prio, reverse=True)
+        for rec in records:
+            base = str(rec.get("base_url") or "").strip().rstrip("/")
+            if not base:
+                continue
+            rtype = str(rec.get("type") or "").lower()
+            key = str(rec.get("api_key") or "").strip()
+            if rtype != "ollama" and not key:
+                continue
+            # Native Anthropic appends /v1/messages itself; normalise others to /v1.
+            if rtype != "anthropic" and not base.endswith("/v1"):
+                base = f"{base}/v1"
+            if base.rstrip("/") in exclude:
+                continue
+            if rtype == "anthropic":
+                headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+            else:
+                headers = {"Authorization": f"Bearer {key}"} if key else None
+            model = str(rec.get("default_model") or "").strip() or None
+            log.info(
+                "Brain provider resolved from provider setup: %s base=%s model=%s",
+                rec.get("provider_id"), base, model,
+            )
+            return base, headers, model
+    except Exception:
+        log.exception("Brain provider resolution failed — falling back to local Ollama")
+
+    # 3. Local Ollama fallback.
+    return (
+        os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
+        None,
+        None,
+    )
+
+
+
 def _orchestrator_bypass() -> bool:
     """True when the WorkflowOrchestrator is the caller (bypass deprecation)."""
     return _BYPASS.get()
@@ -367,6 +442,16 @@ class WorkflowRun:
     _request: Any = None
 
     def as_dict(self) -> dict[str, Any]:
+        def _dump(val):
+            """Safely serialize phase output — handles both Pydantic models and raw dicts."""
+            if val is None:
+                return None
+            if hasattr(val, 'model_dump'):
+                return val.model_dump()
+            if isinstance(val, dict):
+                return val
+            return str(val)
+
         return {
             "run_id": self.run_id,
             "started_at": self.started_at,
@@ -380,18 +465,19 @@ class WorkflowRun:
             "last_heartbeat": self.last_heartbeat,
             "retry_count": self.retry_count,
             "llm_provenance": self.llm_provenance,
-            "classify": self.classify.model_dump() if self.classify else None,
-            "plan": self.plan.model_dump() if self.plan else None,
-            "specialist": self.specialist.model_dump() if self.specialist else None,
-            "preflight": self.preflight.model_dump() if self.preflight else None,
-            "bound_context": self.bound_context.model_dump() if self.bound_context else None,
-            "execution": self.execution.model_dump() if self.execution else None,
-            "verification": self.verification.model_dump() if self.verification else None,
-            "judge": self.judge.model_dump() if self.judge else None,
-            "summary": self.summary.model_dump() if self.summary else None,
-            "persist": self.persist.model_dump() if self.persist else None,
-            "monitor": self.monitor.model_dump() if self.monitor else None,
+            "classify": _dump(self.classify),
+            "plan": _dump(self.plan),
+            "specialist": _dump(self.specialist),
+            "preflight": _dump(self.preflight),
+            "bound_context": _dump(self.bound_context),
+            "execution": _dump(self.execution),
+            "verification": _dump(self.verification),
+            "judge": _dump(self.judge),
+            "summary": _dump(self.summary),
+            "persist": _dump(self.persist),
+            "monitor": _dump(self.monitor),
             "error": self.error,
+            "_request": self._request.model_dump() if self._request and hasattr(self._request, 'model_dump') else None,
         }
 
 
@@ -451,10 +537,24 @@ class WorkflowOrchestrator:
             run.phase_attempts[phase.value] = attempt + 1
             try:
                 started = time.time()
-                await asyncio.wait_for(
-                    handler(run, req),
-                    timeout=_PHASE_TIMEOUT_SEC,
-                )
+                # Periodic heartbeat — update last_heartbeat every 30s while the
+                # phase runs so the supervisor knows it is not stalled (#522).
+                async def _heartbeat():
+                    while True:
+                        await asyncio.sleep(30)
+                        run.last_heartbeat = time.time()
+                heartbeat_task = asyncio.create_task(_heartbeat())
+                try:
+                    await asyncio.wait_for(
+                        handler(run, req),
+                        timeout=_PHASE_TIMEOUT_SEC,
+                    )
+                finally:
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
                 elapsed = time.time() - started
                 run.last_heartbeat = time.time()
                 log.debug(
@@ -571,7 +671,7 @@ class WorkflowOrchestrator:
                 # LLM-bearing phases (PLAN, EXECUTE, VERIFY, JUDGE) get the full
                 # timeout/retry treatment; lightweight phases (CLASSIFY, PERSIST)
                 # run directly.
-                _LLM_PHASES = {Phase.PLAN, Phase.EXECUTE, Phase.VERIFY, Phase.JUDGE}
+                _LLM_PHASES = {Phase.PLAN, Phase.BIND_CONTEXT, Phase.EXECUTE, Phase.VERIFY, Phase.JUDGE}
                 if phase in _LLM_PHASES:
                     await self._run_phase_with_timeout(run, req, phase, handler)
                 else:
@@ -672,6 +772,23 @@ class WorkflowOrchestrator:
                 run.retry_count = snapshot.get("retry_count", 0)
                 run.llm_provenance = snapshot.get("llm_provenance", {})
                 run.phase_attempts = snapshot.get("phase_attempts", {})
+                run.approved = snapshot.get("approved", False)
+                run.error = snapshot.get("error")
+                # Restore phase outputs so skip detection works on retry.
+                # Without this every resume re-runs all phases from scratch.
+                for _attr in ("classify","plan","specialist","preflight",
+                              "bound_context","execution","verification",
+                              "judge","summary","persist","monitor"):
+                    _val = snapshot.get(_attr)
+                    if _val is not None:
+                        setattr(run, _attr, _val)
+                # Restore _request so supervisor can requeue without losing the original task.
+                _req_dict = snapshot.get("_request")
+                if _req_dict and isinstance(_req_dict, dict):
+                    try:
+                        run._request = ExecutionRequest(**_req_dict)
+                    except Exception:
+                        pass
                 self._runs[run_id] = run
                 # Re-enqueue queued/pending runs so they resume execution.
                 if run.status in ("queued", "running", "pending") and run._request is not None:
@@ -714,6 +831,60 @@ class WorkflowOrchestrator:
 
     def get_run(self, run_id: str) -> WorkflowRun | None:
         return self._runs.get(run_id)
+
+    def cancel_run(self, run_id: str) -> bool:
+        """Cancel a run by removing it from memory entirely.
+
+        Marks the run as cancelled and clears _request BEFORE deleting from the
+        dict so the supervisor (which snapshots runs) cannot re-queue a stale
+        reference even if it processes the run concurrently.
+
+        Returns True if the run existed, False otherwise.
+        """
+        run = self._runs.get(run_id)
+        if run is None:
+            return False
+        run.status = "cancelled"
+        run._request = None
+        del self._runs[run_id]
+        log.info("WorkflowOrchestrator: run=%s CANCELLED (removed)", run_id)
+        return True
+
+    def cancel_runs_bulk(self, run_ids: list[str] | None = None, *, status: str | None = None) -> int:
+        """Cancel multiple runs at once.
+
+        If ``run_ids`` is provided, cancels those specific runs.
+        If ``status`` is provided, cancels all runs matching that status.
+        Returns the number of runs cancelled.
+
+        Each run is marked cancelled + _request cleared BEFORE dict deletion
+        so concurrent supervisor ticks cannot re-queue stale snapshots.
+        """
+        if run_ids:
+            to_cancel = [rid for rid in run_ids if rid in self._runs]
+            for rid in to_cancel:
+                r = self._runs[rid]
+                r.status = "cancelled"
+                r._request = None
+                del self._runs[rid]
+                log.info("WorkflowOrchestrator: run=%s CANCELLED (bulk)", rid)
+            return len(to_cancel)
+        if status:
+            to_cancel = [
+                rid for rid, r in self._runs.items()
+                if r.status == status
+            ]
+            for rid in to_cancel:
+                r = self._runs[rid]
+                r.status = "cancelled"
+                r._request = None
+                del self._runs[rid]
+                log.info(
+                    "WorkflowOrchestrator: run=%s CANCELLED (bulk, status=%s)",
+                    rid, status,
+                )
+            return len(to_cancel)
+        return 0
 
     def list_runs(
         self, limit: int = 50, *, owner_id: str | None = None
@@ -977,20 +1148,24 @@ class WorkflowOrchestrator:
         skill_ids: list[str] = []
         memory_keys: list[str] = []
         company_graph: dict[str, Any] = {}
+        loop = asyncio.get_event_loop()
 
-        # Bind skills from Phase 1 SkillBindings.
-        # recommend_for_company requires BOTH system_types and specialist_families
-        # and returns a list of dicts (skill.as_dict() + score/reasons) — not
-        # RuntimeSkill objects.  Pass the classified domain as a system hint and
-        # the selected specialists' families so the recommender actually fires.
+        # Skill bindings — recommend_for_company is synchronous; run in executor
+        # so it cannot block the event loop and prevent asyncio.wait_for cancellation.
         try:
             from services.skill_bindings import get_skill_bindings
             sb = get_skill_bindings()
             classify = run.classify
             domain = classify.domain if classify else "general"
             families = list(run.specialist.families) if run.specialist else []
-            recommended = sb.recommend_for_company(
-                system_types=[domain], specialist_families=families
+            recommended = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: sb.recommend_for_company(
+                        system_types=[domain], specialist_families=families
+                    ),
+                ),
+                timeout=10.0,
             )
             skill_ids = [
                 r["skill_id"] for r in recommended
@@ -1008,18 +1183,23 @@ class WorkflowOrchestrator:
             try:
                 from services.company_graph_store import CompanyGraphStore
                 store = CompanyGraphStore()
-                company = await store.get_company(req.company_id)
+                company = await asyncio.wait_for(
+                    store.get_company(req.company_id), timeout=8.0
+                )
                 if company:
                     company_graph = company.model_dump() if hasattr(company, 'model_dump') else {}
             except Exception as exc:
                 log.debug("Company Graph load failed (non-fatal): %s", exc)
 
-        # Load user memory
+        # Load user memory — synchronous; run in executor
         if req.user_id:
             try:
                 from agent.user_memory import UserMemoryStore
                 mem_store = UserMemoryStore()
-                memories = mem_store.recall_all(req.user_id)
+                memories = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: mem_store.recall_all(req.user_id)),
+                    timeout=8.0,
+                )
                 memory_keys = list(memories.keys()) if memories else []
             except Exception:
                 pass
@@ -1049,44 +1229,9 @@ class WorkflowOrchestrator:
         if plan.goal and plan.goal.strip() and plan.goal[:200] != req.request[:200]:
             instruction = f"Goal: {plan.goal}\n\nFull request:\n{req.request}"
 
-        async def _resolve_brain_provider():
-            """Resolve the LLM endpoint for agent execution from provider priority.
-            
-            Single source of truth: highest-priority configured provider record
-            (the same store the Providers screen manages).
-            Returns (openai_compatible_base_url, auth_headers_or_None, model_or_None).
-            """
-            try:
-                # Lazy import to avoid a circular import at module load time.
-                from backend.server import _list_configured_provider_records
-                # Records arrive already sorted strictly by priority (#524/#535).
-                # Do NOT re-sort here: the previous local sort treated string
-                # priorities as 0 and silently undid the upstream ordering.
-                records = await _list_configured_provider_records()
-                for rec in records:
-                    base = str(rec.get("base_url") or "").strip().rstrip("/")
-                    if not base:
-                        continue
-                    rtype = str(rec.get("type") or "").lower()
-                    key = str(rec.get("api_key") or "").strip()
-                    if rtype != "ollama" and not key:
-                        continue
-                    if not base.endswith("/v1"):
-                        base = f"{base}/v1"
-                    headers = {"Authorization": f"Bearer {key}"} if key else None
-                    model = str(rec.get("default_model") or "").strip() or None
-                    log.info(
-                        "Brain provider resolved from provider setup: %s base=%s model=%s",
-                        rec.get("provider_id"), base, model,
-                    )
-                    return base, headers, model
-            except Exception:
-                log.exception("Brain provider resolution failed — falling back to local Ollama")
-            return (
-                os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
-                None,
-                None,
-            )
+        # Delegates to the module-level _resolve_brain_provider (#522), which is
+        # independently unit-tested and supports env override + failover via
+        # exclude_base_urls.
 
         # Try AgentRunner for actual execution (bypass deprecation via flag)
         try:
@@ -1103,7 +1248,17 @@ class WorkflowOrchestrator:
                 # token for internal/system runs (no user_id) — never let a
                 # user-initiated run borrow the service account's repo access.
                 gh_token = _resolve_push_token(req.github_token, req.user_id)
-                brain_base, brain_headers, brain_model = await _resolve_brain_provider()
+                # Provider failover (#522): on each retry we exclude the base
+                # URLs that already failed so _resolve_brain_provider returns the
+                # NEXT provider in priority order. Failed URLs accumulate on the
+                # run across phase retries.
+                _prev_failed = run.llm_provenance.get("_failed_execute", "")
+                failed_urls: set[str] = (
+                    set(u for u in _prev_failed.split(",") if u) if _prev_failed else set()
+                )
+                brain_base, brain_headers, brain_model = await _resolve_brain_provider(
+                    exclude_base_urls=failed_urls,
+                )
                 # Record provider provenance for failover tracking.
                 run.llm_provenance["execute"] = (brain_model or brain_base.split("/")[-1] or "unknown")
                 runner = AgentRunner(
@@ -1113,15 +1268,23 @@ class WorkflowOrchestrator:
                     github_token=gh_token,
                     email=req.user_id,
                 )
-                result = await runner.run(
-                    instruction=instruction,
-                    history=[],
-                    requested_model=brain_model,
-                    auto_commit=False,
-                    max_steps=req.max_steps,
-                    user_id=req.user_id,
-                    session_id=req.session_id,
-                )
+                try:
+                    result = await runner.run(
+                        instruction=instruction,
+                        history=[],
+                        requested_model=brain_model,
+                        auto_commit=False,
+                        max_steps=req.max_steps,
+                        user_id=req.user_id,
+                        session_id=req.session_id,
+                    )
+                except Exception:
+                    # Mark this provider's URL as failed so the retry (driven by
+                    # _run_phase_with_timeout) fails over to the next provider,
+                    # then re-raise so the retry loop actually fires.
+                    failed_urls.add(brain_base.rstrip("/"))
+                    run.llm_provenance["_failed_execute"] = ",".join(sorted(failed_urls))
+                    raise
                 run.execution = ExecutionResult(
                     output=result.get("summary", ""),
                     changed_files=[
@@ -1135,14 +1298,12 @@ class WorkflowOrchestrator:
             finally:
                 _wo._BYPASS.reset(_token)
         except Exception as exc:
-            log.exception("Execution failed: %s", exc)
-            run.execution = ExecutionResult(
-                output=f"Execution error: {exc}",
-                changed_files=[],
-                tool_calls=[],
-                artifacts=[],
-                duration_ms=0,
-            )
+            log.exception("Execution failed (attempt provider=%s): %s",
+                          run.llm_provenance.get("execute"), exc)
+            # Re-raise so _run_phase_with_timeout's retry/backoff + provider
+            # failover loop engages. Only the final exhausted attempt should
+            # surface as a failed run (handled by the retry wrapper).
+            raise
 
     async def _handle_verify(self, run: WorkflowRun, req: ExecutionRequest) -> None:
         """Verify execution results."""

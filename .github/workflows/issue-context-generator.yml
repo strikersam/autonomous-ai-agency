@@ -187,8 +187,15 @@ jobs:
           echo "pr_url=$PR_URL"    >> "$GITHUB_OUTPUT"
           echo "Draft PR: #$PR_NUM — $PR_URL"
 
-      # ── 7. Close issue — draft PR created ────────────────────────────────────
-      - name: Close issue with draft PR reference
+      # ── 7. Comment + dispatch auto-implementation — issue STAYS OPEN ──────────
+      # REGRESSION FIX (2026-06-13): previously this step closed the issue with
+      # reason "completed" immediately after the context doc draft PR was made.
+      # That broke issue→implementation-PR autonomy: the Process Quick Note
+      # workflow only picks up *open* issues, so a closed issue could never be
+      # auto-implemented. We now (a) leave the issue OPEN, (b) trigger the
+      # implementation workflow directly via workflow_dispatch so a real
+      # code PR follows the context PR without manual intervention.
+      - name: Comment + dispatch auto-implementation
         if: steps.pr.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
@@ -204,16 +211,20 @@ jobs:
 
           **Draft PR:** ${PR_URL}
 
-          The PR is in **draft** status (no code-review bots triggered). Next steps:
-          - **Auto-implement:** trigger the _Process Quick Note_ workflow with issue \`${ISSUE_NUM}\`
-          - **Manual:** open the branch in Claude Code or your editor and implement against the plan
-
-          The branch \`claude/context-issue-${ISSUE_NUM}\` is ready. When implementation is complete, mark the PR as ready for review.
+          The implementation workflow has been **auto-dispatched** for this issue. A
+          code PR will follow on branch \`claude/context-issue-${ISSUE_NUM}\`. This
+          issue stays **open** until implementation is verified, then it is closed
+          automatically by the Process Quick Note pipeline.
           MSG
           )"
-          gh issue close "$ISSUE_NUM" \
+
+          # Auto-trigger the implementation workflow for this specific issue.
+          # Non-fatal: if dispatch fails (e.g. workflow quarantined), the issue
+          # simply remains open for the scheduled run / manual trigger to pick up.
+          gh workflow run process-quick-note.yml \
             --repo "$REPO" \
-            --reason completed
+            -f issue_number="$ISSUE_NUM" \
+            2>&1 || echo "::warning::Could not auto-dispatch process-quick-note (issue left open for scheduled pickup)."
 
       # ── 8. Failure fallback ───────────────────────────────────────────────────
       - name: Comment — context generation failed
