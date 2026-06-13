@@ -171,6 +171,11 @@ OLLAMA_BASE = (
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
 _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
+# Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
+# execute + verify). Caps a hung provider so the chat job fails cleanly
+# instead of sitting at phase "planning" forever. Configurable via env.
+_AGENT_RUN_BUDGET_SEC = float(os.environ.get("CHAT_AGENT_RUN_BUDGET_SEC", "240"))
+
 _CHAT_AGENT_JOBS = AgentJobManager()
 _CHAT_AGENT_WORKSPACE_ROOT = Path(
     os.environ.get("BACKEND_CHAT_AGENT_WORKSPACE_ROOT", ".data/backend-chat-agent-workspaces")
@@ -3169,14 +3174,37 @@ async def _run_agent_loop(
         import services.workflow_orchestrator as _wo
         _bypass_token = _wo._BYPASS.set(True)
         try:
-            result = await runner.run(
-                instruction=agent_instruction,
-                history=session_messages,
-                requested_model=requested_model,
-                auto_commit=True,
-                max_steps=8,
-                memory_store=UserMemoryStore(),
-                session_id=session_id,
+            # Overall wall-clock budget for the entire agent run (plan +
+            # execute + verify). Without this, a hung provider connection
+            # leaves the chat job stuck at phase "planning" indefinitely
+            # because runner.run() makes several sequential LLM calls each
+            # with a 300s httpx read timeout and no aggregate cap.
+            result = await asyncio.wait_for(
+                runner.run(
+                    instruction=agent_instruction,
+                    history=session_messages,
+                    requested_model=requested_model,
+                    auto_commit=True,
+                    max_steps=8,
+                    memory_store=UserMemoryStore(),
+                    session_id=session_id,
+                ),
+                timeout=_AGENT_RUN_BUDGET_SEC,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "Agent run exceeded %ss budget (session=%s) — returning timeout response",
+                _AGENT_RUN_BUDGET_SEC, session_id,
+            )
+            return (
+                "\u26a0\ufe0f The agent run timed out before completing.\n\n"
+                "The selected provider took too long to respond (no result within "
+                f"{int(_AGENT_RUN_BUDGET_SEC)}s). This usually means the LLM endpoint "
+                "is overloaded, unreachable, or the model is too slow.\n\n"
+                "**Try:**\n"
+                "\u2022 Re-run the request (transient provider slowness is common).\n"
+                "\u2022 Switch to a faster provider/model in Providers.\n"
+                "\u2022 For Ollama, confirm the model is pulled and `ollama serve` is responsive.\n"
             )
         finally:
             _wo._BYPASS.reset(_bypass_token)
@@ -7123,7 +7151,7 @@ async def workflow_orchestrator_status(
     owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
     runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
 
-    queue_status = {max_concurrent: 2, active: 0, queued: 0}
+    queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
     try:
         from services.orchestrator_queue import get_orchestrator_queue
         q = get_orchestrator_queue()
@@ -7137,23 +7165,27 @@ async def workflow_orchestrator_status(
         sv = get_orchestrator_supervisor()
         st = sv.state
         supervisor_state = {
-            running: st.running,
-            ticks: st.ticks,
-            stalled_recovered: st.stalled_recovered,
-            failed_retried: st.failed_retried,
-            alerts_emitted: st.alerts_emitted,
+            "running": st.running,
+            "ticks": st.ticks,
+            "stalled_recovered": st.stalled_recovered,
+            "failed_retried": st.failed_retried,
+            "alerts_emitted": st.alerts_emitted,
         }
     except Exception:
         pass
 
     return {
-        runs: len(runs),
-        by_status: {
-            s: sum(1 for r in runs if r.get(status) == s)
-            for s in [pending, running, awaiting_approval, queued, done, failed]
+        "runs": len(runs),
+        "by_status": {
+            "pending": sum(1 for r in runs if r.get("status") == "pending"),
+            "running": sum(1 for r in runs if r.get("status") == "running"),
+            "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
+            "queued": sum(1 for r in runs if r.get("status") == "queued"),
+            "done": sum(1 for r in runs if r.get("status") == "done"),
+            "failed": sum(1 for r in runs if r.get("status") == "failed"),
         },
-        queue: queue_status,
-        supervisor: supervisor_state,
+        "queue": queue_status,
+        "supervisor": supervisor_state,
     }
 
 @app.get("/api/workflow/orchestrator/runs")

@@ -108,6 +108,81 @@ _BYPASS: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 
 
+async def _resolve_brain_provider(
+    exclude_base_urls: set[str] | None = None,
+) -> tuple[str, dict | None, str | None]:
+    """Resolve the LLM endpoint for agent execution (module-level, #522 failover).
+
+    Resolution order:
+      1. AGENT_LLM_BASE_URL env override (with optional AGENT_LLM_API_KEY /
+         AGENT_LLM_MODEL) — wins over everything.
+      2. Highest-priority configured provider record (the same store the
+         Providers screen manages), skipping any whose normalised base URL is in
+         *exclude_base_urls* and any non-Ollama provider without an API key.
+      3. Local Ollama fallback.
+
+    Returns ``(openai_compatible_base_url, auth_headers_or_None, model_or_None)``.
+    Accepting *exclude_base_urls* lets a phase fail over to the NEXT provider in
+    priority order after the current one errors.
+    """
+    exclude = {u.rstrip("/") for u in (exclude_base_urls or set())}
+
+    # 1. Explicit env override — highest precedence.
+    env_base = os.environ.get("AGENT_LLM_BASE_URL", "").strip()
+    if env_base:
+        env_key = os.environ.get("AGENT_LLM_API_KEY", "").strip()
+        env_model = os.environ.get("AGENT_LLM_MODEL", "").strip() or None
+        headers = {"Authorization": f"Bearer {env_key}"} if env_key else None
+        return env_base.rstrip("/"), headers, env_model
+
+    # 2. Configured provider records, ordered by priority (highest first).
+    try:
+        from backend.server import _list_configured_provider_records
+        records = list(await _list_configured_provider_records())
+        # Sort by priority (highest first). Records from the store are normally
+        # pre-sorted, but resolve defensively so callers passing raw lists (and
+        # the failover unit tests) get deterministic highest-priority selection.
+        def _prio(rec: dict) -> int:
+            try:
+                return int(rec.get("priority") or 0)
+            except (TypeError, ValueError):
+                return 0
+        records.sort(key=_prio, reverse=True)
+        for rec in records:
+            base = str(rec.get("base_url") or "").strip().rstrip("/")
+            if not base:
+                continue
+            rtype = str(rec.get("type") or "").lower()
+            key = str(rec.get("api_key") or "").strip()
+            if rtype != "ollama" and not key:
+                continue
+            # Native Anthropic appends /v1/messages itself; normalise others to /v1.
+            if rtype != "anthropic" and not base.endswith("/v1"):
+                base = f"{base}/v1"
+            if base.rstrip("/") in exclude:
+                continue
+            if rtype == "anthropic":
+                headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+            else:
+                headers = {"Authorization": f"Bearer {key}"} if key else None
+            model = str(rec.get("default_model") or "").strip() or None
+            log.info(
+                "Brain provider resolved from provider setup: %s base=%s model=%s",
+                rec.get("provider_id"), base, model,
+            )
+            return base, headers, model
+    except Exception:
+        log.exception("Brain provider resolution failed — falling back to local Ollama")
+
+    # 3. Local Ollama fallback.
+    return (
+        os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
+        None,
+        None,
+    )
+
+
+
 def _orchestrator_bypass() -> bool:
     """True when the WorkflowOrchestrator is the caller (bypass deprecation)."""
     return _BYPASS.get()
@@ -1049,50 +1124,9 @@ class WorkflowOrchestrator:
         if plan.goal and plan.goal.strip() and plan.goal[:200] != req.request[:200]:
             instruction = f"Goal: {plan.goal}\n\nFull request:\n{req.request}"
 
-        async def _resolve_brain_provider():
-            """Resolve the LLM endpoint for agent execution from provider priority.
-            
-            Single source of truth: highest-priority configured provider record
-            (the same store the Providers screen manages).
-            Returns (openai_compatible_base_url, auth_headers_or_None, model_or_None).
-            """
-            try:
-                # Lazy import to avoid a circular import at module load time.
-                from backend.server import _list_configured_provider_records
-                # Records arrive already sorted strictly by priority (#524/#535).
-                # Do NOT re-sort here: the previous local sort treated string
-                # priorities as 0 and silently undid the upstream ordering.
-                records = await _list_configured_provider_records()
-                for rec in records:
-                    base = str(rec.get("base_url") or "").strip().rstrip("/")
-                    if not base:
-                        continue
-                    rtype = str(rec.get("type") or "").lower()
-                    key = str(rec.get("api_key") or "").strip()
-                    if rtype != "ollama" and not key:
-                        continue
-                    # Native Anthropic: agent/loop.py appends /v1/messages itself.
-                    # All others: normalise to end in /v1 so the agent loop finds the right path.
-                    if rtype != "anthropic" and not base.endswith("/v1"):
-                        base = f"{base}/v1"
-                    # Anthropic native API uses x-api-key, not Bearer token.
-                    if rtype == "anthropic":
-                        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
-                    else:
-                        headers = {"Authorization": f"Bearer {key}"} if key else None
-                    model = str(rec.get("default_model") or "").strip() or None
-                    log.info(
-                        "Brain provider resolved from provider setup: %s base=%s model=%s",
-                        rec.get("provider_id"), base, model,
-                    )
-                    return base, headers, model
-            except Exception:
-                log.exception("Brain provider resolution failed — falling back to local Ollama")
-            return (
-                os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
-                None,
-                None,
-            )
+        # Delegates to the module-level _resolve_brain_provider (#522), which is
+        # independently unit-tested and supports env override + failover via
+        # exclude_base_urls.
 
         # Try AgentRunner for actual execution (bypass deprecation via flag)
         try:
@@ -1109,7 +1143,17 @@ class WorkflowOrchestrator:
                 # token for internal/system runs (no user_id) — never let a
                 # user-initiated run borrow the service account's repo access.
                 gh_token = _resolve_push_token(req.github_token, req.user_id)
-                brain_base, brain_headers, brain_model = await _resolve_brain_provider()
+                # Provider failover (#522): on each retry we exclude the base
+                # URLs that already failed so _resolve_brain_provider returns the
+                # NEXT provider in priority order. Failed URLs accumulate on the
+                # run across phase retries.
+                _prev_failed = run.llm_provenance.get("_failed_execute", "")
+                failed_urls: set[str] = (
+                    set(u for u in _prev_failed.split(",") if u) if _prev_failed else set()
+                )
+                brain_base, brain_headers, brain_model = await _resolve_brain_provider(
+                    exclude_base_urls=failed_urls,
+                )
                 # Record provider provenance for failover tracking.
                 run.llm_provenance["execute"] = (brain_model or brain_base.split("/")[-1] or "unknown")
                 runner = AgentRunner(
@@ -1119,15 +1163,23 @@ class WorkflowOrchestrator:
                     github_token=gh_token,
                     email=req.user_id,
                 )
-                result = await runner.run(
-                    instruction=instruction,
-                    history=[],
-                    requested_model=brain_model,
-                    auto_commit=False,
-                    max_steps=req.max_steps,
-                    user_id=req.user_id,
-                    session_id=req.session_id,
-                )
+                try:
+                    result = await runner.run(
+                        instruction=instruction,
+                        history=[],
+                        requested_model=brain_model,
+                        auto_commit=False,
+                        max_steps=req.max_steps,
+                        user_id=req.user_id,
+                        session_id=req.session_id,
+                    )
+                except Exception:
+                    # Mark this provider's URL as failed so the retry (driven by
+                    # _run_phase_with_timeout) fails over to the next provider,
+                    # then re-raise so the retry loop actually fires.
+                    failed_urls.add(brain_base.rstrip("/"))
+                    run.llm_provenance["_failed_execute"] = ",".join(sorted(failed_urls))
+                    raise
                 run.execution = ExecutionResult(
                     output=result.get("summary", ""),
                     changed_files=[
@@ -1141,14 +1193,12 @@ class WorkflowOrchestrator:
             finally:
                 _wo._BYPASS.reset(_token)
         except Exception as exc:
-            log.exception("Execution failed: %s", exc)
-            run.execution = ExecutionResult(
-                output=f"Execution error: {exc}",
-                changed_files=[],
-                tool_calls=[],
-                artifacts=[],
-                duration_ms=0,
-            )
+            log.exception("Execution failed (attempt provider=%s): %s",
+                          run.llm_provenance.get("execute"), exc)
+            # Re-raise so _run_phase_with_timeout's retry/backoff + provider
+            # failover loop engages. Only the final exhausted attempt should
+            # surface as a failed run (handled by the retry wrapper).
+            raise
 
     async def _handle_verify(self, run: WorkflowRun, req: ExecutionRequest) -> None:
         """Verify execution results."""
