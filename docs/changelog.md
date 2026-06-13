@@ -86,6 +86,10 @@
 
 ## [Unreleased]
 
+### Added
+- **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
+- **CompanyScreen: Systems tab — category grouping, confidence scores, detection method badges.** Previously the systems tab showed a flat list. Now systems are grouped by category (CMS, CRM, analytics, payment_gateway, etc.) with a color-coded category header. Each detected system shows: version if available, detection method badges (html/dns/ssl/headers/script/cookie in distinct colours), and a confidence mini-bar + percentage score. Summary counts at top: "N systems detected across M categories", with separate counters for auto-detected vs connected systems. Empty state message directs users to run a scan.
+
 ### Changed
 - **Mobile-first CSS hardening.** Added a global mobile baseline so the dashboard and chat UIs never overflow horizontally on small screens: `max-width: 100vw` on the `html, body, #root` root containers and a `img, video, iframe { max-width: 100%; height: auto; }` rule in both `frontend/src/index.css` and `webui/frontend/src/styles.css` (the latter also gains `overflow-x: hidden` on `html, body`). Wrapped the three previously-unwrapped data tables in horizontally scrollable containers so wide tables scroll instead of clipping on phones: `frontend/src/pages/LogsPage.js` (Provider Performance) and both tables in `frontend/src/v5/screens/AdminOnboardingPanel.jsx` (user-onboarding and audit-log).
 

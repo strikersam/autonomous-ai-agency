@@ -161,12 +161,4 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
           <div key={d.label ?? i} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <span style={{ width: 9, height: 9, borderRadius: 3, background: d.color || ACCENT, flexShrink: 0 }} />
             <span style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1 }}>{d.label}</span>
-            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{d.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export default { Sparkline, BarChart, Donut };
+            <span style={{ fontSize: 11, fontFamily: 'var(--font-
