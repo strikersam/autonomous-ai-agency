@@ -410,17 +410,24 @@ function DashboardScreen() {
       .slice(0, 6);
   }, [data.tasks]);
 
-  // Build task status distribution for the AgentActivityWidget donut.
+  // Build task status distribution for Donut chart
   const taskDonutData = React.useMemo(() => {
     const all = data.tasks?.tasks || [];
-    const counts = { done: 0, in_progress: 0, todo: 0, in_review: 0, blocked: 0, failed: 0 };
+    const STATUS_COLORS = {
+      done: '#46d9a4',
+      running: '#5da2ff',
+      pending: '#ffbd66',
+      failed: '#ff6b7d',
+    };
+    const counts = { done: 0, running: 0, pending: 0, failed: 0 };
     all.forEach(t => {
-      const s = normalizeStatus(t.status);
-      counts[s] = (counts[s] || 0) + 1;
+      const s = t.status || 'pending';
+      if (s in counts) counts[s]++;
+      else counts.pending++;
     });
     return Object.entries(counts)
       .filter(([, v]) => v > 0)
-      .map(([k, v]) => ({ label: k.replace(/_/g, ' '), value: v, color: STATUS_COLORS[k] || 'var(--accent)' }));
+      .map(([k, v]) => ({ label: k, value: v, color: STATUS_COLORS[k] || 'var(--accent)' }));
   }, [data.tasks]);
 
   // Build last-7-day agent activity sparkline from /api/activity
