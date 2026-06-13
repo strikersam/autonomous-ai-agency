@@ -108,6 +108,11 @@ WEAK_ADMIN_SECRETS = frozenset({
 # Comma-separated origins, or * (default). Example: https://app.example.com,https://other.com
 _raw_cors = os.environ.get("CORS_ORIGINS", "*").strip()
 CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()] or ["*"]
+# Browsers refuse credentialed requests when Access-Control-Allow-Origin is "*",
+# so only enable credentials when an explicit origin allow-list is configured.
+# This keeps the admin session cookie usable cross-origin in production while
+# never sending credentials to an open-wildcard origin.
+CORS_ALLOW_CREDENTIALS = "*" not in CORS_ORIGINS
 
 # Refuse example / default keys from .env templates (must not be used in production)
 WEAK_API_KEYS = frozenset({
@@ -380,6 +385,7 @@ app = FastAPI(title="Qwen3-Coder Proxy", version="1.0.0", docs_url=None, redoc_u
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1969,10 +1975,4 @@ async def agent_chat(body: AgentChatRequest, auth: AuthContext = Depends(verify_
     return {"session_id": session_id, "session": updated, "result": result}
 
 
-# ─── Entry point ────────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    import uvicorn
-    log.info("Starting Qwen3-Coder Proxy on port %d", PROXY_PORT)
-    log.info("Loaded %d env API key(s), %d key-store key(s)", len(VALID_API_KEYS), len(KEY_STORE))
-    uvicorn.run("proxy:app", host="0.0.0.0", port=PROXY_PORT, log_level=LOG_LEVEL.lower())
+# ─── Entry point ───────────────────────────────────�
