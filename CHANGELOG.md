@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Critical-flow E2E tests** (`tests/e2e/test_critical_flows.py`): Playwright + httpx coverage for the five journeys that must never break — login, company onboarding/scan kickoff, task creation + status polling (via `/api/tasks/`), direct-mode chat through the OpenAI-compatible proxy (`/v1/chat/completions`), and admin-dashboard load (with JS-error assertion). Targets the backend on :8001 and the proxy on :8000; every test self-skips (never hard-fails) when Playwright or the live servers are unavailable, keeping the offline unit suite green.
 - **Agency Core Autonomy Hardening** (#468): Replaced BackgroundAgent `_process()` no-op stub with real AgentRunner dispatch. Added Doctor diagnostics module with public/authenticated split and one-click fixes. Added AutonomyTracker KPI singleton. Added 21 Golden Path contract tests.
 - **RTK-style Output Filtering** (#463): Added `output_filter.py` with command-specific compressors for 60-90% token reduction. Fixed #462.
 - **Telegram Bot Service Manager & Log Monitoring** (#486): `telegram_service.py` integrates bot lifecycle into service_manager. `log_watcher.py` scans logs for errors and files GitHub issues automatically.
