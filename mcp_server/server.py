@@ -354,4 +354,4 @@ if __name__ == "__main__":
     import uvicorn
     logging.basicConfig(level=logging.INFO)
     port = int(os.environ.get("PORT", "8008"))
-    uvicorn.run("mcp_server.server:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("mcp_server.server:app", host="0.0.0.0", port=port, reload=False)  # nosec B104 — server bind to all interfaces is intentional

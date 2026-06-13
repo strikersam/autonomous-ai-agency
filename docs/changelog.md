@@ -109,24 +109,6 @@
 - **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
 
 ### Added
-- Scanner: subdomain enumeration layer — probes common subdomains (shop, api, cdn, checkout, account, etc.) to narrow the BuiltWith technology-count gap
-- SEO: one-click CTO-level PDF audit report generation
-
-
-### Added
-- **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
-- **CompanyScreen: Systems tab — category grouping, confidence scores, detection method badges.** Previously the systems tab showed a flat list. Now systems are grouped by category (CMS, CRM, analytics, payment_gateway, etc.) with a color-coded category header. Each detected system shows: version if available, detection method badges (html/dns/ssl/headers/script/cookie in distinct colours), and a confidence mini-bar + percentage score. Summary counts at top: "N systems detected across M categories", with separate counters for auto-detected vs connected systems. Empty state message directs users to run a scan.
-
-### Changed
-- **Mobile-first CSS hardening.** Added a global mobile baseline so the dashboard and chat UIs never overflow horizontally on small screens: `max-width: 100vw` on the `html, body, #root` root containers and a `img, video, iframe { max-width: 100%; height: auto; }` rule in both `frontend/src/index.css` and `webui/frontend/src/styles.css` (the latter also gains `overflow-x: hidden` on `html, body`). Wrapped the three previously-unwrapped data tables in horizontally scrollable containers so wide tables scroll instead of clipping on phones: `frontend/src/pages/LogsPage.js` (Provider Performance) and both tables in `frontend/src/v5/screens/AdminOnboardingPanel.jsx` (user-onboarding and audit-log).
-
-### Fixed
-- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
-
-### Fixed
-- **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
-
-### Added
 - **`GET /api/scheduler/tick/last` — Cloudflare cron keepalive monitoring endpoint.** Tracks `_last_cron_tick_at` (updated on each authenticated `POST /api/scheduler/tick` from the Cloudflare Worker). Public endpoint (no auth) returns last tick timestamp, seconds since last tick, staleness flag (>120s = stale), and human-readable message. Monitoring tools can poll this to confirm the Worker's `scheduled()` handler is successfully reaching Render.
 
 ### Fixed

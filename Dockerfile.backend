@@ -7,7 +7,7 @@
 FROM node:20-slim AS frontend-build
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci --no-audit --prefer-offline
 COPY frontend/ ./
 # CI=false so build-time ESLint warnings don't fail the production build.
 RUN CI=false npm run build
