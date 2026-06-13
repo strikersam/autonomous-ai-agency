@@ -5702,8 +5702,22 @@ async def scheduler_tick(request: Request):
     return {"ok": True, "fired": fired, "total_jobs": len(scheduler.list())}
 
 
-@app.get("/api/scheduler/tick/last")
-async def scheduler_tick_last() -> dict:
+
+class SchedulerTickLastResponse(BaseModel):
+    """Public keepalive-monitoring response for GET /api/scheduler/tick/last.
+
+    Intentionally public — no auth required.  Monitoring tools and the
+    Cloudflare Worker itself call this endpoint to confirm the cron
+    ``scheduled()`` handler is successfully reaching the Render backend.
+    """
+    last_tick_at: Optional[str] = Field(default=None, description="ISO 8601 timestamp of last tick, or null")
+    seconds_since_last_tick: Optional[float] = Field(default=None, description="Elapsed seconds since last tick, or null")
+    stale: bool = Field(default=True, description="True when >120s since last tick")
+    message: str = Field(default="No tick received yet since server start", description="Human-readable status")
+
+
+@app.get("/api/scheduler/tick/last", response_model=SchedulerTickLastResponse)
+async def scheduler_tick_last() -> SchedulerTickLastResponse:
     """Return the last Cloudflare Cron tick timestamp for keepalive monitoring.
 
     Public — no auth required. Monitoring tools and the Cloudflare Worker itself
@@ -5712,24 +5726,24 @@ async def scheduler_tick_last() -> dict:
     """
     tick_at = _last_cron_tick_at
     if tick_at is None:
-        return {
-            "last_tick_at": None,
-            "seconds_since_last_tick": None,
-            "stale": True,
-            "message": "No tick received yet since server start",
-        }
+        return SchedulerTickLastResponse(
+            last_tick_at=None,
+            seconds_since_last_tick=None,
+            stale=True,
+            message="No tick received yet since server start",
+        )
     now = datetime.now(timezone.utc)
     delta = (now - tick_at).total_seconds()
     stale = delta > 120
-    return {
-        "last_tick_at": tick_at.isoformat(),
-        "seconds_since_last_tick": round(delta, 1),
-        "stale": stale,
-        "message": (
+    return SchedulerTickLastResponse(
+        last_tick_at=tick_at.isoformat(),
+        seconds_since_last_tick=round(delta, 1),
+        stale=stale,
+        message=(
             "Keepalive is healthy" if not stale
             else f"No tick received in {round(delta)}s — keepalive may be down"
         ),
-    }
+    )
 
 
     active = await get_active_provider()
