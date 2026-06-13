@@ -442,6 +442,16 @@ class WorkflowRun:
     _request: Any = None
 
     def as_dict(self) -> dict[str, Any]:
+        def _dump(val):
+            """Safely serialize phase output — handles both Pydantic models and raw dicts."""
+            if val is None:
+                return None
+            if hasattr(val, 'model_dump'):
+                return val.model_dump()
+            if isinstance(val, dict):
+                return val
+            return str(val)
+
         return {
             "run_id": self.run_id,
             "started_at": self.started_at,
@@ -455,17 +465,17 @@ class WorkflowRun:
             "last_heartbeat": self.last_heartbeat,
             "retry_count": self.retry_count,
             "llm_provenance": self.llm_provenance,
-            "classify": self.classify.model_dump() if self.classify else None,
-            "plan": self.plan.model_dump() if self.plan else None,
-            "specialist": self.specialist.model_dump() if self.specialist else None,
-            "preflight": self.preflight.model_dump() if self.preflight else None,
-            "bound_context": self.bound_context.model_dump() if self.bound_context else None,
-            "execution": self.execution.model_dump() if self.execution else None,
-            "verification": self.verification.model_dump() if self.verification else None,
-            "judge": self.judge.model_dump() if self.judge else None,
-            "summary": self.summary.model_dump() if self.summary else None,
-            "persist": self.persist.model_dump() if self.persist else None,
-            "monitor": self.monitor.model_dump() if self.monitor else None,
+            "classify": _dump(self.classify),
+            "plan": _dump(self.plan),
+            "specialist": _dump(self.specialist),
+            "preflight": _dump(self.preflight),
+            "bound_context": _dump(self.bound_context),
+            "execution": _dump(self.execution),
+            "verification": _dump(self.verification),
+            "judge": _dump(self.judge),
+            "summary": _dump(self.summary),
+            "persist": _dump(self.persist),
+            "monitor": _dump(self.monitor),
             "error": self.error,
             "_request": self._request.model_dump() if self._request and hasattr(self._request, 'model_dump') else None,
         }
