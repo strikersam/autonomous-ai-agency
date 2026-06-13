@@ -9,6 +9,9 @@
   "observability": {
     "enabled": true
   },
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   // The React SPA is built by the CI/CD workflow (GitHub Actions) before wrangler runs.
   // No build.command here — the workflow handles: npm install + npm run build + _redirects cleanup.
   "assets": {

@@ -120,7 +120,32 @@ def clear_error_log_buffer() -> None:
 
 _ensure_error_log_capture()
 
-SCHEDULER = AgentScheduler()
+def _scheduler_on_fire(job) -> None:
+    """Called by APScheduler when a cron fires. Dispatches to the orchestrator."""
+    import asyncio
+    from services.workflow_orchestrator import get_workflow_orchestrator, ExecutionRequest
+    async def _dispatch():
+        try:
+            orch = get_workflow_orchestrator()
+            req = ExecutionRequest(
+                request=job.instruction,
+                auto_approve=True,
+                user_id="scheduler",
+            )
+            run = await orch.execute(req)
+            log.info("Scheduler fired job %s → run %s", job.job_id, run.run_id)
+        except Exception as exc:
+            log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_dispatch())
+        else:
+            loop.run_until_complete(_dispatch())
+    except Exception as exc:
+        log.error("Scheduler on_fire loop error: %s", exc)
+
+SCHEDULER = AgentScheduler(on_fire=_scheduler_on_fire)
 set_scheduler(SCHEDULER)
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
@@ -5627,6 +5652,38 @@ async def health():
         mongo_ok = True
     except Exception:
         mongo_ok = False
+    return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok}
+
+
+@app.post("/api/scheduler/tick")
+async def scheduler_tick(request: Request):
+    """Called by Cloudflare Cron every minute. Protected by CRON_SECRET header."""
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    incoming = request.headers.get("x-cron-secret", "")
+    if cron_secret and incoming != cron_secret:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Invalid cron secret")
+    scheduler = get_scheduler()
+    fired = []
+    try:
+        jobs = scheduler.list()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        for job in jobs:
+            next_run = getattr(job, "next_run_time", None)
+            if next_run is None:
+                continue
+            if next_run.tzinfo is None:
+                next_run = next_run.replace(tzinfo=timezone.utc)
+            if next_run <= now:
+                try:
+                    scheduler.trigger(job.job_id)
+                    fired.append(job.job_id)
+                except Exception as exc:
+                    log.warning("tick: failed to trigger %s: %s", job.job_id, exc)
+    except Exception as exc:
+        log.error("scheduler_tick error: %s", exc)
+    return {"ok": True, "fired": fired, "total_jobs": len(scheduler.list())}
 
     active = await get_active_provider()
     active_type = str((active or {}).get("type", "ollama")).lower()

@@ -27,11 +27,23 @@ export default {
       const target = BACKEND_ORIGIN + url.pathname + url.search;
       const proxied = new Request(target, request);
       proxied.headers.set("X-Forwarded-Host", url.host);
-      // redirect: "manual" so backend 3xx responses (e.g. OAuth login) are handed
-      // back to the browser instead of being followed server-side.
       return fetch(proxied, { redirect: "manual" });
     }
 
     return env.ASSETS.fetch(request);
+  },
+
+  async scheduled(event, env, ctx) {
+    // Cloudflare Cron fires every minute — pings the Render backend tick endpoint
+    // to keep APScheduler alive and fire overdue scheduled jobs.
+    const secret = env.CRON_SECRET || "";
+    ctx.waitUntil(
+      fetch(BACKEND_ORIGIN + "/api/scheduler/tick", {
+        method: "POST",
+        headers: { "x-cron-secret": secret },
+      })
+        .then(r => r.ok ? console.log("tick ok") : console.warn("tick", r.status))
+        .catch(e => console.error("tick error", e))
+    );
   },
 };
