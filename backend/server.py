@@ -7118,58 +7118,47 @@ async def workflow_orchestrator_approve(
 async def workflow_orchestrator_status(
     user: dict = Depends(get_current_user),
 ):
-    """Return orchestrator queue depth, active runs, and supervisor state (#522).
+    """Return orchestrator queue depth, active runs, and supervisor state (#522)."""
+    orchestrator = get_workflow_orchestrator()
+    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+    runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
 
-    TEMPORARY DIAGNOSTIC: wrapped in try/except to expose the root cause
-    of the persistent 500 error.  Will be removed once the crash is identified."""
-    import traceback as _tb
+    queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
     try:
-        orchestrator = get_workflow_orchestrator()
-        owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
-        runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
+        from services.orchestrator_queue import get_orchestrator_queue
+        q = get_orchestrator_queue()
+        queue_status = q.status()
+    except Exception:
+        pass
 
-        queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
-        try:
-            from services.orchestrator_queue import get_orchestrator_queue
-            q = get_orchestrator_queue()
-            queue_status = q.status()
-        except Exception:
-            pass
-
-        supervisor_state = {}
-        try:
-            from services.orchestrator_supervisor import get_orchestrator_supervisor
-            sv = get_orchestrator_supervisor()
-            st = sv.state
-            supervisor_state = {
-                "running": st.running,
-                "ticks": st.ticks,
-                "stalled_recovered": st.stalled_recovered,
-                "failed_retried": st.failed_retried,
-                "alerts_emitted": st.alerts_emitted,
-            }
-        except Exception:
-            pass
-
-        return {
-            "runs": len(runs),
-            "by_status": {
-                "pending": sum(1 for r in runs if r.get("status") == "pending"),
-                "running": sum(1 for r in runs if r.get("status") == "running"),
-                "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
-                "queued": sum(1 for r in runs if r.get("status") == "queued"),
-                "done": sum(1 for r in runs if r.get("status") == "done"),
-                "failed": sum(1 for r in runs if r.get("status") == "failed"),
-            },
-            "queue": queue_status,
-            "supervisor": supervisor_state,
+    supervisor_state = {}
+    try:
+        from services.orchestrator_supervisor import get_orchestrator_supervisor
+        sv = get_orchestrator_supervisor()
+        st = sv.state
+        supervisor_state = {
+            "running": st.running,
+            "ticks": st.ticks,
+            "stalled_recovered": st.stalled_recovered,
+            "failed_retried": st.failed_retried,
+            "alerts_emitted": st.alerts_emitted,
         }
-    except Exception as _exc:
-        return {
-            "error": str(_exc),
-            "traceback": _tb.format_exc(),
-            "error_type": type(_exc).__name__,
-        }
+    except Exception:
+        pass
+
+    return {
+        "runs": len(runs),
+        "by_status": {
+            "pending": sum(1 for r in runs if r.get("status") == "pending"),
+            "running": sum(1 for r in runs if r.get("status") == "running"),
+            "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
+            "queued": sum(1 for r in runs if r.get("status") == "queued"),
+            "done": sum(1 for r in runs if r.get("status") == "done"),
+            "failed": sum(1 for r in runs if r.get("status") == "failed"),
+        },
+        "queue": queue_status,
+        "supervisor": supervisor_state,
+    }
 
 @app.get("/api/workflow/orchestrator/runs")
 async def workflow_orchestrator_list_runs(
