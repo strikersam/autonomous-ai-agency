@@ -9,8 +9,8 @@ from __future__ import annotations
 
 __version__ = "5.0.0"
 
-APP_NAME = "Agency Core"
-APP_TAGLINE = "Autonomous AI Platform"
+APP_NAME = "Autonomous AI Agency"
+APP_TAGLINE = "Your AI-powered workforce"
 
-# Human-facing label, e.g. "Agency Core v5.0".
+# Human-facing label, e.g. "Autonomous AI Agency v5.0".
 APP_LABEL = f"{APP_NAME} v{'.'.join(__version__.split('.')[:2])}"

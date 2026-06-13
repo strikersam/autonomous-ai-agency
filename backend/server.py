@@ -7215,6 +7215,55 @@ async def workflow_orchestrator_get_run(
     run = _wfo_owned_run_or_404(orchestrator, run_id, user)
     return {"run": run.as_dict()}
 
+
+@app.delete("/api/workflow/orchestrator/runs/{run_id}")
+async def workflow_orchestrator_cancel_run(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Cancel a single orchestrator run (removes from memory).
+
+    Admin users can cancel any run; non-admin users can only cancel their own runs."""
+    orchestrator = get_workflow_orchestrator()
+    _wfo_owned_run_or_404(orchestrator, run_id, user)
+    orchestrator.cancel_run(run_id)
+    return {"ok": True, "run_id": run_id, "cancelled": 1}
+
+
+@app.delete("/api/workflow/orchestrator/runs")
+async def workflow_orchestrator_cancel_runs_bulk(
+    status: str | None = None,
+    run_ids: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """Bulk-cancel orchestrator runs by status or explicit run_id list.
+
+    Query params:
+      status=failed,queued  — cancels all runs matching that status (admin only)
+      run_ids=id1,id2,id3   — cancels specific runs (ownership enforced per run)
+
+    Admin only for status-based cleanup; run_ids honours per-run ownership."""
+    orchestrator = get_workflow_orchestrator()
+    is_admin = _wfo_is_admin(user)
+    count = 0
+
+    if status:
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Bulk status cleanup requires admin")
+        for s in status.split(","):
+            count += orchestrator.cancel_runs_bulk(status=s.strip())
+    elif run_ids:
+        for rid in run_ids.split(","):
+            rid = rid.strip()
+            if not rid:
+                continue
+            _wfo_owned_run_or_404(orchestrator, rid, user)
+            if orchestrator.cancel_run(rid):
+                count += 1
+
+    return {"ok": True, "cancelled": count}
+
+
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.
 get_secrets_store(db=get_db())

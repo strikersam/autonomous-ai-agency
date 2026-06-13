@@ -41,7 +41,7 @@ def check_services():
 
 def main():
     print("\n" + "="*60)
-    print("🚀 Local LLM Server - Ngrok Tunnel")
+    print("🚀 Autonomous AI Agency - Ngrok Tunnel")
     print("="*60 + "\n")
 
     # Check services

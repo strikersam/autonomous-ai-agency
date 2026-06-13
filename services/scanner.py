@@ -1244,7 +1244,7 @@ class RepoScanner:
         """
         self.company_id = company_id
         self.github_token = github_token
-        self.user_agent = "AgencyCore/1.0 (Company Graph Repo Scanner)"
+        self.user_agent = "AutonomousAIAgency/1.0 (Company Graph Repo Scanner)"
         self.timeout = 30.0
 
     async def scan_repo(
