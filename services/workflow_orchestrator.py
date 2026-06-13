@@ -452,10 +452,24 @@ class WorkflowOrchestrator:
             run.phase_attempts[phase.value] = attempt + 1
             try:
                 started = time.time()
-                await asyncio.wait_for(
-                    handler(run, req),
-                    timeout=_PHASE_TIMEOUT_SEC,
-                )
+                # Periodic heartbeat — update last_heartbeat every 30s while the
+                # phase runs so the supervisor knows it is not stalled (#522).
+                async def _heartbeat():
+                    while True:
+                        await asyncio.sleep(30)
+                        run.last_heartbeat = time.time()
+                heartbeat_task = asyncio.create_task(_heartbeat())
+                try:
+                    await asyncio.wait_for(
+                        handler(run, req),
+                        timeout=_PHASE_TIMEOUT_SEC,
+                    )
+                finally:
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
                 elapsed = time.time() - started
                 run.last_heartbeat = time.time()
                 log.debug(
@@ -572,7 +586,7 @@ class WorkflowOrchestrator:
                 # LLM-bearing phases (PLAN, EXECUTE, VERIFY, JUDGE) get the full
                 # timeout/retry treatment; lightweight phases (CLASSIFY, PERSIST)
                 # run directly.
-                _LLM_PHASES = {Phase.PLAN, Phase.EXECUTE, Phase.VERIFY, Phase.JUDGE}
+                _LLM_PHASES = {Phase.PLAN, Phase.BIND_CONTEXT, Phase.EXECUTE, Phase.VERIFY, Phase.JUDGE}
                 if phase in _LLM_PHASES:
                     await self._run_phase_with_timeout(run, req, phase, handler)
                 else:
