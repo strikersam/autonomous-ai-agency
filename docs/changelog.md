@@ -86,6 +86,27 @@
 
 ## [Unreleased]
 
+### Added
+- **SEO audit: browser-fetch path (bot-protection bypass) + demoable UI + honest revenue model.**
+  - *Browser-use fetch backend* (`services/seo_fetch.py`): pluggable page fetchers — default `HttpxFetcher`,
+    a `BrowserFetcher` that renders pages with a real headless Chromium (browser-use / Playwright; local by
+    default, Browserbase only as an explicit `SEO_BROWSER_BACKEND=browserbase` opt-in), and a `ResilientFetcher`
+    that auto-escalates from httpx to a browser when a bot-block (Akamai/Cloudflare 403/challenge) is detected.
+    New `SeoAuditRequest.fetch_mode` (`auto`/`http`/`browser`, default `auto`). This lets the engine actually
+    crawl bot-protected enterprise sites (e.g. luxury retail) instead of recording a block page.
+  - *Honest revenue-at-risk model* (`services/seo_audit.py`): replaced the linear-sum-clipped-to-35% model
+    (which saturated the cap on almost any site) with a content-dependent diminishing-returns curve
+    `share = 35% × (1 − e^(−pressure/50))`, where pressure = Σ(severity × type × page-coverage). The dollar
+    figure now tracks what was measured; the Markdown report carries an explicit "model estimate, not a
+    measured loss" methodology note.
+  - *UI* (`frontend/src/v5/screens/CompanyScreen.jsx`, `frontend/src/api.js`): a new **SEO Audit** tab on the
+    company page — run an audit (URL, fetch mode, max pages, optional organic-revenue baseline), health score,
+    six pillar scores, revenue-at-risk with caveat, full findings table, **Download CSV/JSON/Markdown/URLs/Issues**
+    buttons, and one-click **Delegate to task board**.
+  - *Tests:* `tests/test_seo_fetch.py` (bot-block detection, httpx→FetchResult normalisation, auto-escalation,
+    backend selection). Note: the live Akamai bypass must be verified in an environment with Playwright browsers
+    installed; it cannot be exercised where the Chromium binary download is blocked.
+
 ### Fixed
 - **Schedule duplication blocked: activate_company now idempotent.** Calling activate_company multiple times (retry, restart, onboarding re-trigger) created duplicate schedules for the same company. Added check: if a schedule with the same name already exists, skip creation and record it in the result with note=already_exists. Live evidence: 43 schedules across 2 companies reduced to 6 unique schedules after fix.
 

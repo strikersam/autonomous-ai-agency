@@ -397,6 +397,37 @@ export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/
 export const deleteCompany = (id) => API.delete(`/api/company/${id}`);
 export const getPublicDoctorReport = () => API.get('/api/company/doctor/public');
 
+// ── SEO / GEO / AIO Audit (v5.1) ──────────────────────────────────────────────
+export const getSeoChecks = () => API.get('/api/seo/checks');
+export const runSeoAudit = (companyId, request) =>
+  API.post(`/api/company/${companyId}/seo/audit`, request);
+export const listSeoAudits = (companyId) =>
+  API.get(`/api/company/${companyId}/seo/audits`);
+export const getSeoAudit = (companyId, auditId) =>
+  API.get(`/api/company/${companyId}/seo/audits/${auditId}`);
+export const delegateSeoFindings = (companyId, auditId, data = {}) =>
+  API.post(`/api/company/${companyId}/seo/audits/${auditId}/delegate`, data);
+// Export endpoint returns text (csv/markdown/urls/issues) or JSON; fetch as blob.
+export const exportSeoAudit = (companyId, auditId, fmt) =>
+  API.get(`/api/company/${companyId}/seo/audits/${auditId}/export`, {
+    params: { fmt },
+    responseType: 'blob',
+  });
+
+// Trigger a browser download of an exported audit (csv / json / markdown / urls / issues).
+export async function downloadSeoExport(companyId, auditId, fmt) {
+  const resp = await exportSeoAudit(companyId, auditId, fmt);
+  const ext = fmt === 'json' ? 'json' : (fmt === 'markdown' ? 'md' : 'csv');
+  const url = window.URL.createObjectURL(new Blob([resp.data]));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `seo-audit-${auditId}-${fmt}.${ext}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 // Wake company runtimes (Docker containers)
 export const wakeCompanyRuntimes = (companyId = '') =>
   API.post('/runtimes/wake-company-runtimes', null, { params: companyId ? { company_id: companyId } : {} });
