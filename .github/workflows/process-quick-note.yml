@@ -185,11 +185,20 @@ jobs:
             COMMENTS=0
             echo "WARN: gh api returned non-array response — discarding captured comments" >&2
           fi
-          # Guard against malformed (non-array) response so we never write garbage to the JSONL.
-          if [ "$(jq -r 'type' /tmp/issue_comments.jsonl 2>/dev/null)" != '"array"' ]; then
+          # Validate JSONL shape (one JSON object per line, not a single array).
+          # `gh api ... --jq '.[] | ...'` flattens to a stream of objects. Plain
+          # `jq` only reads the first top-level value, so we iterate per-line.
+          bad_line=0
+          if [ -s /tmp/issue_comments.jsonl ]; then
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              echo "$line" | jq -e 'type == "object"' >/dev/null 2>&1 || { bad_line=1; break; }
+            done < /tmp/issue_comments.jsonl
+          fi
+          if [ "$bad_line" -ne 0 ]; then
             : > /tmp/issue_comments.jsonl
             COMMENTS=0
-            echo "WARN: gh api returned non-array response — discarding captured comments" >&2
+            echo "WARN: comments JSONL had a malformed line — discarded" >&2
           fi
           echo "comment_count=$COMMENTS" >> "$GITHUB_OUTPUT"
           echo "Captured body ($(wc -c < /tmp/issue_body.txt) chars) and $COMMENTS user comments for issue #$PICK_NUM"
