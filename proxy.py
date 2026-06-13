@@ -60,7 +60,7 @@ from agent.watchdog import ResourceWatchdog
 from agent.quick_note import QuickNoteQueue, set_quick_note_queue, start_processor
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from handlers.anthropic_compat import handle_anthropic_messages
-from key_store import issue_new_api_key, load_key_store
+from key_store import RateLimitError, issue_new_api_key, load_key_store
 from service_manager import WindowsServiceManager
 from webui.config_store import JsonConfigStore
 from webui.providers import ProviderManager
@@ -293,7 +293,16 @@ async def verify_api_key(
             detail="Missing API key. Set Authorization: Bearer <key> or x-api-key: <key>",
         )
 
-    rec = KEY_STORE.lookup_plain_key(key)
+    _client = getattr(request, "client", None) if request else None
+    client_ip = getattr(_client, "host", None) if _client else None
+    try:
+        rec = KEY_STORE.lookup_plain_key(key, client_ip=client_ip)
+    except RateLimitError as exc:
+        log.warning("Failed-key-lookup rate limit hit: %s", exc)
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed authentication attempts. Try again later.",
+        ) from exc
     if rec:
         # FreeBuff routes are unlimited by default (free-NVIDIA agent via Telegram);
         # specific key_ids may also be exempted. Everything else is rate-limited.

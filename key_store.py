@@ -7,11 +7,14 @@ Legacy env-based API_KEYS in proxy.py still works for bootstrapping.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import logging
 import os
 import secrets
 import threading
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,6 +26,40 @@ class KeyRecord:
     email: str
     department: str
     created: str
+
+
+log = logging.getLogger("qwen-proxy")
+
+
+class RateLimitError(Exception):
+    """Raised when an IP exceeds the failed-key-lookup rate limit."""
+
+
+# In-memory failed-lookup tracker: ip -> list[monotonic-ish timestamps].
+_failed_attempts: dict[str, list[float]] = defaultdict(list)
+_RATE_WINDOW = 60  # seconds
+_RATE_MAX = 20  # max failed lookups per IP per window
+_rate_lock = threading.Lock()
+
+
+def _check_rate_limit(ip: str) -> None:
+    """Raise RateLimitError if *ip* has too many recent failed lookups."""
+    if not ip:
+        return
+    now = time.time()
+    with _rate_lock:
+        attempts = [t for t in _failed_attempts[ip] if now - t < _RATE_WINDOW]
+        _failed_attempts[ip] = attempts
+        if len(attempts) >= _RATE_MAX:
+            raise RateLimitError(f"Too many failed key lookups from {ip}")
+
+
+def _record_failed(ip: str) -> None:
+    """Record a failed key lookup for *ip*."""
+    if not ip:
+        return
+    with _rate_lock:
+        _failed_attempts[ip].append(time.time())
 
 
 class KeyStore:
@@ -108,7 +145,18 @@ class KeyStore:
             self._load_unlocked()
             self._mtime = self._path.stat().st_mtime
 
-    def lookup_plain_key(self, plain_key: str) -> KeyRecord | None:
+    def lookup_plain_key(
+        self, plain_key: str, *, client_ip: str | None = None
+    ) -> KeyRecord | None:
+        """Look up a plaintext key by its SHA-256 hash.
+
+        When *client_ip* is provided, failed lookups are rate-limited
+        (max ``_RATE_MAX`` per ``_RATE_WINDOW`` seconds per IP) to blunt
+        brute-force / credential-stuffing attempts. Raises ``RateLimitError``
+        once the threshold is exceeded.
+        """
+        if client_ip:
+            _check_rate_limit(client_ip)
         self._maybe_reload()
         # CodeQL: py/weak-cryptographic-hash — SHA-256 is appropriate for API key
         # lookup (not password storage). Keys are 256-bit random tokens with
@@ -116,7 +164,20 @@ class KeyStore:
         # as a key identifier, not a password verifier.
         h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()  # nosec B303 — SHA-256 for API key lookup
         with self._lock:
-            return self._by_hash.get(h)
+            # Constant-time scan to avoid leaking which (if any) hash matched
+            # via timing. dict.get short-circuits on hash-bucket order; an
+            # explicit compare_digest pass over the candidate keeps the secret
+            # comparison timing-safe.
+            match: KeyRecord | None = None
+            for stored_hash, rec in self._by_hash.items():
+                if hmac.compare_digest(stored_hash, h):
+                    match = rec
+            # Fast-path fallback (dict membership) in case of any edge case.
+            if match is None:
+                match = self._by_hash.get(h)
+        if match is None and client_ip:
+            _record_failed(client_ip)
+        return match
 
     def add_key(
         self,

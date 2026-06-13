@@ -87,6 +87,9 @@
 ## [Unreleased]
 
 ### Security
+- **key_store.py: failed-lookup rate limiting + timing-safe key compare.** Keys were already stored as SHA-256 hashes (confirmed, no plaintext on disk). Added an in-memory per-IP failed-lookup limiter (`_RATE_MAX=20` per `_RATE_WINDOW=60s`, raising `RateLimitError`) wired into `lookup_plain_key(..., client_ip=...)`, and replaced the plain dict hit with an `hmac.compare_digest` scan so the secret comparison is constant-time. `proxy.py:verify_api_key` now passes the client IP and maps `RateLimitError` to HTTP 429. Regression tests in `tests/test_key_store_security.py`.
+
+### Security
 - **agent/tools.py: hardened path-traversal guard in `WorkspaceTools`.** Added `_safe_path()` using a strict `os.path.realpath` prefix comparison (root + os.sep), rejecting `..` traversal, absolute paths, and sibling-prefix directories. `_resolve_path` now delegates to it, so `read_file`, `write_file`, `apply_diff`, `list_files`, `head_file`, `file_index` and `search_code` are all jailed to the workspace root. Constructor accepts a `workspace_root` keyword alias. Regression tests in `tests/test_agent_tools_security.py`.
 
 ### Added

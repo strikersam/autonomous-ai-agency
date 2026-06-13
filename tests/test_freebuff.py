@@ -103,7 +103,7 @@ async def test_verify_api_key_skips_limiter_for_exempt_key(monkeypatch):
 
     monkeypatch.setenv("FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS", "kid_bot")
     rec = SimpleNamespace(email="bot@x.com", department="ops", key_id="kid_bot")
-    monkeypatch.setattr(proxy.KEY_STORE, "lookup_plain_key", lambda k: rec)
+    monkeypatch.setattr(proxy.KEY_STORE, "lookup_plain_key", lambda k, **_: rec)
 
     called: dict = {"limited": False}
 
@@ -142,7 +142,7 @@ async def test_verify_api_key_skips_limiter_on_freebuff_path(monkeypatch):
     monkeypatch.delenv("FREEBUFF_UNLIMITED", raising=False)
     monkeypatch.delenv("FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS", raising=False)
     rec = SimpleNamespace(email="u@x.com", department="eng", key_id="kid_normal")
-    monkeypatch.setattr(proxy.KEY_STORE, "lookup_plain_key", lambda k: rec)
+    monkeypatch.setattr(proxy.KEY_STORE, "lookup_plain_key", lambda k, **_: rec)
 
     called: dict = {"limited": False}
 
@@ -161,7 +161,7 @@ async def test_verify_api_key_enforces_limiter_for_non_exempt_key(monkeypatch):
 
     monkeypatch.delenv("FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS", raising=False)
     rec = SimpleNamespace(email="u@x.com", department="eng", key_id="kid_normal")
-    monkeypatch.setattr(proxy.KEY_STORE, "lookup_plain_key", lambda k: rec)
+    monkeypatch.setattr(proxy.KEY_STORE, "lookup_plain_key", lambda k, **_: rec)
 
     called: dict = {"limited": False}
 
