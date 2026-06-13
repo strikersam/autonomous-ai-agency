@@ -113,7 +113,7 @@ With Autonomous AI Agency:
 ## How it works — the 5-minute version
 
 1. **Paste your website URL.** `https://acme-store.com`
-2. **Agency Core scans it.** A BuiltWith-parity technology scanner detects your tech stack, business systems, and integrations (Shopify, Stripe, Google Analytics, GitHub, Intercom, Salesforce, …). It fuses four evidence sources — headless-browser HTML fingerprinting (Playwright, with `curl_cffi` Chrome impersonation to clear bot walls), DNS records (MX/NS/TXT/CNAME), TLS-certificate issuer + Subject Alternative Names, and high-signal response headers (CF-Ray, X-Served-By, X-Amz-Cf-Id, Server, X-Powered-By) — so it identifies CDN/host/cert providers even on sites whose HTML is bot-walled, with highest-confidence-wins merging.
+2. **Autonomous AI Agency scans it.** Playwright + HTTP fingerprinting detects your tech stack, business systems, and integrations (Shopify, Stripe, Google Analytics, GitHub, Intercom, Salesforce, …).
 3. **It asks you the right questions.** AI-generated onboarding questions based on what it found — not generic forms.
 4. **Specialists are auto-provisioned.** A fleet of agents is assembled from 34 specialist families — exactly the ones your business needs, with the right runtimes and skills bound.
 5. **Schedules activate.** Health scans, security audits, code quality checks, SEO monitoring, graph sync — all running on their own cadence without manual setup.

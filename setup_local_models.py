@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup wizard for local-llm-server.
+Setup wizard for the Autonomous AI Agency.
 Scans local models, configures services, and starts the proxy.
 """
 

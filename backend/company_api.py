@@ -2,7 +2,7 @@
 Company Graph API Router
 
 Provides all endpoints for managing companies, their graphs, and related entities.
-This is the canonical API for the Agency Core v5 Company Graph.
+This is the canonical API for the Autonomous AI Agency Company Graph.
 """
 
 from __future__ import annotations

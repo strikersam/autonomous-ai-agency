@@ -87,10 +87,8 @@
 ## [Unreleased]
 
 ### Changed
-- **ECC skill enabled.** `ecc-harness-patterns` re-enabled in skill_bindings.py (was off since 2026-06-10). Cross-harness orchestration now available to engineering/devops/architecture runs.
-
-### Fixed
-- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
+- **Brand rename to "Autonomous AI Agency."** Replaced all user-visible occurrences of the legacy names *Agency Core*, *LLM Relay*, and *Local LLM Server* across the frontend (login screen, dashboard, control plane, onboarding, activation gate, setup wizard, nav), marketing/landing HTML (`index.html`, `docs/index.html`, GitHub Pages pages), admin templates, the web UI, README, launcher/daemon/tunnel CLI banners, and `version.py`/`version.js` brand constants. GitHub repo URLs, deployment URLs, env-var names, logger names, and package names were intentionally left unchanged. Updated `scripts/bump_version.py` and `tests/test_version_consistency.py` to track the new brand label.
+- **Login screen refresh.** New headline ("Autonomous AI Agency"), subheadline ("Your AI-powered workforce — plan, execute, and deliver across any codebase or workflow."), three value bullets (multi-agent execution with provider failover; technology intelligence across 1,000+ platforms; connect any repo, any team, any tool), and a "Sign in" CTA. Desktop split-panel continues to stack into a single centered column on mobile.
 
 ### Fixed
 - **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.

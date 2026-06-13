@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Agency Core doctor — fast environment & CI-parity diagnostics.
+"""Autonomous AI Agency doctor — fast environment & CI-parity diagnostics.
 
 Answers the operator questions "why didn't this run?" and "why did CI fail but
 local pass?" by checking the things that actually differ between a laptop and the

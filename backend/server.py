@@ -1421,11 +1421,11 @@ async def lifespan(app_: "FastAPI"):
     bg: Optional[BackgroundServices] = None
     try:
         await ensure_bootstrap()
-        log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
+        log.info("Autonomous AI Agency started — provider=%s", LLM_PROVIDER)
     except Exception as exc:
         log.warning("MongoDB bootstrap deferred (no DB connection): %s", exc)
         log.info(
-            "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
+            "Autonomous AI Agency started in limited mode — set MONGO_URL to enable full features"
         )
 
     if run_background_in_web():
