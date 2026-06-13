@@ -43,10 +43,15 @@
 /* ── Reset & base ────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Mobile-first: media elements never overflow their container. */
+img, video, iframe { max-width: 100%; height: auto; }
+
 html, body {
   margin: 0;
   padding: 0;
   height: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
   background:
     radial-gradient(1200px 900px at 20% 0%,  rgba(122,162,255,0.22), transparent 50%),
     radial-gradient(1000px 700px at 90% 10%, rgba(115,231,197,0.12), transparent 55%),
