@@ -1,9 +1,10 @@
 name: Process Quick Note
 
 # Triggered on schedule, manually, push of sentinel file, or by the self-retry mechanism.
-# QUARANTINED 2026-05-22: auto-triggers disabled pending Agency Core stabilization.
-# See docs/architecture/agency-core-audit-2026-05-22.md. Re-enable by restoring the
-# `schedule:` and `push:` blocks below.
+# Triggers were re-enabled 2026-06-14 after PR #588 closed the agency-core-audit-2026-05-22.md
+# stabilization work. The schedule (every 4 h) picks up open quick-note issues that have not
+# exhausted their retry budget. The push trigger on .github/workflows/.trigger-quick-note
+# allows manual sentinel-poke re-runs. workflow_dispatch remains for one-off reprocessing.
 on:
   schedule:
     - cron: '0 */4 * * *'

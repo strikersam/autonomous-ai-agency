@@ -54,7 +54,7 @@ def _is_safe_url(url: str) -> bool:
         if not hostname:
             return False
         # Block obvious internal hostnames
-        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):  # nosec B104 — blocklist lookup, not a bind
             return False
         if hostname.endswith(".local") or hostname.endswith(".internal"):
             return False
@@ -91,7 +91,7 @@ def _is_blocked_host(url: str) -> bool:
     host = (parsed.hostname or "").lower()
     if not host:
         return True  # e.g. file:// or malformed → fail closed (block)
-    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith((".local", ".internal")):
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith((".local", ".internal")):  # nosec B104 — blocklist lookup, not a bind
         return True
     try:
         ip = ipaddress.ip_address(host)  # only classifies literal-IP hosts

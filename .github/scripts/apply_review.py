@@ -389,7 +389,7 @@ def main() -> None:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
 
-    result_path = Path("/tmp/review_apply_result.json")
+    result_path = Path("/tmp/review_apply_result.json")  # nosec B108 — ephemeral CI artifact, OK in workflow runner
 
     def _skip(reason: str) -> None:
         log.info(reason)
