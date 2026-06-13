@@ -407,21 +407,25 @@ export const getSeoAudit = (companyId, auditId) =>
   API.get(`/api/company/${companyId}/seo/audits/${auditId}`);
 export const delegateSeoFindings = (companyId, auditId, data = {}) =>
   API.post(`/api/company/${companyId}/seo/audits/${auditId}/delegate`, data);
-// Export endpoint returns text (csv/markdown/urls/issues) or JSON; fetch as blob.
+// Export endpoint returns text (csv/markdown/urls/issues), JSON, or a PDF; fetch as blob.
 export const exportSeoAudit = (companyId, auditId, fmt) =>
   API.get(`/api/company/${companyId}/seo/audits/${auditId}/export`, {
     params: { fmt },
     responseType: 'blob',
   });
 
-// Trigger a browser download of an exported audit (csv / json / markdown / urls / issues).
+const SEO_EXPORT_EXT = { json: 'json', markdown: 'md', pdf: 'pdf' };
+const SEO_EXPORT_MIME = { pdf: 'application/pdf' };
+
+// Trigger a browser download of an exported audit (csv / json / markdown / urls / issues / pdf).
 export async function downloadSeoExport(companyId, auditId, fmt) {
   const resp = await exportSeoAudit(companyId, auditId, fmt);
-  const ext = fmt === 'json' ? 'json' : (fmt === 'markdown' ? 'md' : 'csv');
-  const url = window.URL.createObjectURL(new Blob([resp.data]));
+  const ext = SEO_EXPORT_EXT[fmt] || 'csv';
+  const blobOpts = SEO_EXPORT_MIME[fmt] ? { type: SEO_EXPORT_MIME[fmt] } : undefined;
+  const url = window.URL.createObjectURL(new Blob([resp.data], blobOpts));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `seo-audit-${auditId}-${fmt}.${ext}`;
+  a.download = fmt === 'pdf' ? `seo-audit-${auditId}.pdf` : `seo-audit-${auditId}-${fmt}.${ext}`;
   document.body.appendChild(a);
   a.click();
   a.remove();

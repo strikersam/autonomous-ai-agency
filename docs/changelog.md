@@ -87,6 +87,30 @@
 ## [Unreleased]
 
 ### Added
+- **SEO audit: one-click CTO-level PDF report (issue #533 follow-up).**
+  - *Renderer* (`services/seo_report_pdf.py`, new): `report_to_pdf(report: SeoAuditReport) -> bytes`
+    builds a multi-section reportlab PDF — cover page, executive summary (pillar scores, $ at risk
+    by priority band or findings-by-priority, top 5 highest-impact findings), a methodology section
+    that derives the revenue-model formula and a cross-baseline sensitivity table from the audit's
+    own findings, one deep-dive section per pillar (technical/content/aio/geo/social/security) with
+    a findings table and the engine's own delegation-plan instructions as "recommended fix" text,
+    and three appendices (full findings table, WSJF-prioritised fix roadmap with score breakdown,
+    worst pages by issue count). Fully generic and data-driven — no hardcoded per-company or
+    per-category prose; works with or without a `monthly_organic_revenue` baseline and for
+    failed/empty audits.
+  - *Shared revenue-model helpers* (`services/seo_audit.py`): extracted `compute_pressure()` and
+    `loss_share_from_pressure()` from `_compute_report` so the PDF's sensitivity table can never
+    drift from the engine's own at-risk calculation (behaviour-preserving refactor).
+  - *API:* `GET /api/company/{company_id}/seo/audits/{audit_id}/export?fmt=pdf` returns the PDF as
+    `application/pdf` with a `Content-Disposition: attachment` header.
+  - *UI:* a prominent **"📄 Generate PDF Report"** button in the SEO Audit tab's download row
+    (`frontend/src/v5/screens/CompanyScreen.jsx`, `frontend/src/api.js`) downloads the report for
+    any onboarded company's stored audit with one click.
+  - *Dependency:* added `reportlab>=4.2.0` to `requirements.txt`.
+  - *Tests:* `tests/test_seo_report_pdf.py` (revenue-modeled, baseline-free, and failed/empty audits
+    all render valid PDFs), plus `TestRevenueModelHelpers` in `tests/test_seo_audit.py` and an
+    export-endpoint coverage test in `tests/test_seo_api.py`.
+
 - **SEO audit: browser-fetch path (bot-protection bypass) + demoable UI + honest revenue model.**
   - *Browser-use fetch backend* (`services/seo_fetch.py`): pluggable page fetchers — default `HttpxFetcher`,
     a `BrowserFetcher` that renders pages with a real headless Chromium (browser-use / Playwright; local by

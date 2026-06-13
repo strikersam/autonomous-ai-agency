@@ -554,6 +554,48 @@ class TestExports:
         assert len(lines) == len(mock_report.issues) + 1
 
 
+class TestRevenueModelHelpers:
+    def test_compute_pressure_formula(self):
+        from models.seo_audit import SeoIssueReportRow
+        from services.seo_audit import _PRIORITY_WEIGHT, _TYPE_FACTOR, compute_pressure
+
+        row = SeoIssueReportRow(
+            check_code="x", issue_name="X", issue_type="issue", issue_priority="high",
+            urls_affected=5, percent_of_total=50.0, description="d", how_to_fix="f",
+        )
+        pressures, total = compute_pressure([row], total_pages=10)
+        expected = _PRIORITY_WEIGHT["high"] * _TYPE_FACTOR["issue"] * min(1.0, 5 / 10)
+        assert pressures == [expected]
+        assert total == expected
+
+    def test_compute_pressure_caps_url_coverage_at_one(self):
+        from models.seo_audit import SeoIssueReportRow
+        from services.seo_audit import _PRIORITY_WEIGHT, _TYPE_FACTOR, compute_pressure
+
+        row = SeoIssueReportRow(
+            check_code="x", issue_name="X", issue_type="warning", issue_priority="medium",
+            urls_affected=100, percent_of_total=100.0, description="d", how_to_fix="f",
+        )
+        pressures, _total = compute_pressure([row], total_pages=10)
+        expected = _PRIORITY_WEIGHT["medium"] * _TYPE_FACTOR["warning"] * 1.0
+        assert pressures == [expected]
+
+    def test_loss_share_from_pressure_zero(self):
+        from services.seo_audit import loss_share_from_pressure
+
+        assert loss_share_from_pressure(0) == 0.0
+
+    def test_loss_share_from_pressure_approaches_but_never_reaches_cap(self):
+        from services.seo_audit import MAX_REVENUE_LOSS_SHARE, loss_share_from_pressure
+
+        # At 10x the pressure scale, e^-10 is small but nonzero, so the share
+        # is strictly below the cap (large enough pressure can underflow to
+        # exactly the cap due to floating point - use a moderate value here).
+        share = loss_share_from_pressure(500)
+        assert share < MAX_REVENUE_LOSS_SHARE
+        assert share > MAX_REVENUE_LOSS_SHARE * 0.99
+
+
 class TestDelegationPlan:
     def test_plan_groups_by_category(self, mock_report):
         plan = mock_report.delegation_plan
