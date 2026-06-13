@@ -1071,7 +1071,9 @@ class WorkflowOrchestrator:
                     key = str(rec.get("api_key") or "").strip()
                     if rtype != "ollama" and not key:
                         continue
-                    if not base.endswith("/v1"):
+                    # Native Anthropic: agent/loop.py appends /v1/messages itself.
+                    # All others: normalise to end in /v1 so the agent loop finds the right path.
+                    if rtype != "anthropic" and not base.endswith("/v1"):
                         base = f"{base}/v1"
                     # Anthropic native API uses x-api-key, not Bearer token.
                     if rtype == "anthropic":
