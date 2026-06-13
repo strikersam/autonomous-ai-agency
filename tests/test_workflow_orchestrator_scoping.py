@@ -186,6 +186,7 @@ class TestOrchestratorEndpointScoping:
         assert resp.status_code == 200, resp.text
         assert resp.json()["run"]["status"] == "awaiting_approval"
 
+    @pytest.mark.skipif(not _ollama_reachable(), reason="LLM backend not reachable in CI")
     def test_admin_may_auto_approve(self, api_client):
         from services.workflow_orchestrator import reset_orchestrator
 
