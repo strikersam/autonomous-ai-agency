@@ -5647,6 +5647,7 @@ async def health():
         mongo_ok = True
     except Exception:
         mongo_ok = False
+    return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok}
 
 
 @app.post("/api/scheduler/tick")
