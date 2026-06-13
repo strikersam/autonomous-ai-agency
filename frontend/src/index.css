@@ -62,13 +62,6 @@
   padding: 0;
 }
 
-/* Mobile-first media baseline: never let media force horizontal overflow. */
-img,
-video {
-  max-width: 100%;
-  height: auto;
-}
-
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
@@ -88,7 +81,6 @@ body,
   color: var(--text-primary);
   font-size: 16px;
   overflow-x: clip;
-  max-width: 100vw;
 }
 
 body {
@@ -623,4 +615,26 @@ input[type="radio"] {
 
 .wiki-content ul,
 .wiki-content ol {
-  pad
+  padding-left: 1.2rem;
+}
+
+.wiki-content code {
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 767px) {
+  .app-page {
+    padding-bottom: calc(var(--safe-bottom) + 1rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
