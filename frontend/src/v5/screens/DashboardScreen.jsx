@@ -410,44 +410,17 @@ function DashboardScreen() {
       .slice(0, 6);
   }, [data.tasks]);
 
-  // Build task status distribution for Donut chart.
-  // Backend status strings are inconsistent across versions/endpoints
-  // (`in_progress` vs `In Progress` vs `in-progress`, `completed` vs `done`,
-  // `pending` vs `todo`, etc.). Normalize to a canonical bucket so the donut
-  // counts what the user actually sees in the Tasks widget.
+  // Build task status distribution for the AgentActivityWidget donut.
   const taskDonutData = React.useMemo(() => {
     const all = data.tasks?.tasks || [];
-    const BUCKETS = ['done', 'in_progress', 'todo', 'failed', 'blocked', 'in_review'];
-    const STATUS_COLORS = {
-      done: '#46d9a4',
-      in_progress: '#5da2ff',
-      todo: 'var(--text-muted)',
-      failed: '#ff6b7d',
-      blocked: '#ff6b7d',
-      in_review: '#ffbd66',
-    };
-    const ALIASES = {
-      done: ['done', 'completed', 'complete', 'success', 'succeeded'],
-      in_progress: ['in_progress', 'in-progress', 'in progress', 'inprogress', 'running', 'active', 'executing', 'started'],
-      todo: ['todo', 'to do', 'pending', 'queued', 'queue', 'not_started', 'not-started', 'waiting'],
-      failed: ['failed', 'failure', 'error', 'errored', 'cancelled', 'canceled'],
-      blocked: ['blocked', 'paused', 'on_hold', 'on-hold'],
-      in_review: ['in_review', 'in-review', 'in review', 'review', 'awaiting_review', 'awaiting-review'],
-    };
-    const aliasIndex = new Map();
-    for (const [bucket, aliases] of Object.entries(ALIASES)) {
-      for (const a of aliases) aliasIndex.set(a.toLowerCase().replace(/[\s_-]+/g, ''), bucket);
-    }
-    const counts = Object.fromEntries(BUCKETS.map(b => [b, 0]));
-    for (const t of all) {
-      const raw = (t?.status || '').toString();
-      const key = raw.toLowerCase().replace(/[\s_-]+/g, '');
-      const bucket = aliasIndex.get(key) || 'todo';
-      counts[bucket]++;
-    }
-    return BUCKETS
-      .filter(b => counts[b] > 0)
-      .map(b => ({ label: b.replace(/_/g, ' '), value: counts[b], color: STATUS_COLORS[b] || 'var(--accent)' }));
+    const counts = { done: 0, in_progress: 0, todo: 0, in_review: 0, blocked: 0, failed: 0 };
+    all.forEach(t => {
+      const s = normalizeStatus(t.status);
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => ({ label: k.replace(/_/g, ' '), value: v, color: STATUS_COLORS[k] || 'var(--accent)' }));
   }, [data.tasks]);
 
   // Build last-7-day agent activity sparkline from /api/activity

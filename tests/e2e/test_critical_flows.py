@@ -155,9 +155,8 @@ def test_login_flow():
             body = page.locator("body").inner_text().lower()
             assert any(k in body for k in ("dashboard", "tasks", "agents", "chat", "agency")), \
                 "Authenticated shell did not render expected navigation"
-            # Ignore benign network-abort console noise; fail only on real JS errors.
             fatal = [e for e in console_errors if "Failed to load resource" not in e and "net::" not in e]
-            assert len(fatal) == 0, f"Login screen logged JS errors: {fatal[:3]}"
+            assert not fatal, f"Login screen logged JS errors: {fatal[:3]}"
         finally:
             ctx.close()
             browser.close()
@@ -205,35 +204,26 @@ def test_company_onboarding_scan_flow():
                 'button[type="submit"]:visible'
             ).first
             assert scan_btn.count(), "No scan/onboard button found on the onboarding screen"
-            # Clicking kicks the scan; we don't wait for full completion (the scan
-            # can take 30s+), only that the action landed. Capture the actual API
-            # response (POST to /api/company/{id}/onboarding/start, per api.js) and
-            # assert it returned 2xx. The previous `assert "error" not in body or
-            # "scanning" in body or "scan" in body` was a tautology — the onboarding
-            # page itself contains the word "scan", so the assertion always passed
-            # and never caught a real failure. Fall back to a UI signal if no
-            # network call was observed (e.g. the page was in a cached state).
-            api_responses = []
+            # Real behavior check: capture the POST to /onboarding/start and
+            # assert it succeeded (or, defensively, that the UI advanced into a
+            # "scanning / in progress / started" state). The previous assertion
+            # was a tautology that always passed.
+            api_responses: list = []
             page.on(
                 "response",
-                lambda r: api_responses.append(r)
-                if (r.request.method == "POST" and "/onboarding/start" in r.url)
-                else None,
+                lambda r: api_responses.append(r) if (r.request.method == "POST" and "/onboarding/start" in r.url) else None,
             )
             scan_btn.click()
             page.wait_for_timeout(3000)
             if api_responses:
                 last = api_responses[-1]
-                assert last.status < 400, \
-                    f"onboarding/start failed: HTTP {last.status} {last.status_text}"
+                assert last.status < 400, f"onboarding/start returned {last.status}"
             else:
                 body = page.locator("body").inner_text().lower()
-                assert any(k in body for k in (
-                    "scanning", "in progress", "started", "loading", "kickoff",
-                )), "Scan kickoff produced no /onboarding/start POST and no success UI"
-            # Ignore benign network-abort console noise; fail only on real JS errors.
+                assert any(k in body for k in ("scanning", "in progress", "started", "loading", "kickoff")), \
+                    "Scan kickoff surfaced an error state"
             fatal = [e for e in console_errors if "Failed to load resource" not in e and "net::" not in e]
-            assert len(fatal) == 0, f"Onboarding screen logged JS errors: {fatal[:3]}"
+            assert not fatal, f"Onboarding screen logged JS errors: {fatal[:3]}"
         finally:
             ctx.close()
             browser.close()
@@ -342,9 +332,9 @@ def test_admin_dashboard_loads():
             body = page.locator("body").inner_text().lower()
             assert any(k in body for k in ("admin", "key", "user", "health", "portal", "manage")), \
                 "Admin portal did not render expected content"
-            # Ignore benign network-abort console noise; fail only on real JS errors.
+            # Ignore benign network noise (offline resources, missing favicon, etc.)
             fatal = [e for e in console_errors if "Failed to load resource" not in e and "net::" not in e]
-            assert len(fatal) == 0, f"Admin dashboard logged JS errors: {fatal[:3]}"
+            assert not fatal, f"Admin dashboard logged JS errors: {fatal[:3]}"
         finally:
             ctx.close()
             browser.close()

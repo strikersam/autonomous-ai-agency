@@ -71,7 +71,7 @@ export function Sparkline({ values = [], height = 56, stroke = ACCENT, fill = 'r
 
 /**
  * BarChart — labelled vertical bars.
- * @param {{ data?: ChartDatum[], height?: number, accent?: string }} props
+ * @param {{ data: ChartDatum[], height?: number, accent?: string }} props
  */
 export function BarChart({ data = [], height = 120, accent = ACCENT }) {
   const rows = (data || []).filter((d) => d && Number.isFinite(d.value));
@@ -117,8 +117,8 @@ export function BarChart({ data = [], height = 120, accent = ACCENT }) {
 }
 
 /**
- * Donut — proportional ring. Renders a center total and a compact legend.
- * @param {{ data?: ChartDatum[], size?: number, thickness?: number, centerLabel?: string }} props
+ * Donut — proportional ring.
+ * @param {{ data: ChartDatum[], size?: number, thickness?: number, centerLabel?: string }} props
  */
 export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
   const rows = (data || []).filter((d) => d && Number.isFinite(d.value) && d.value > 0);
@@ -130,12 +130,12 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
   const cy = size / 2;
   const circ = 2 * Math.PI * r;
 
-  // Build the ring segments via a single .reduce() pass so the running offset
-  // lives on the accumulator instead of mutating a closure variable inside .map().
-  const segments = rows.reduce(
+  // Single pass: build SVG segments while threading the running dash offset
+  // through the accumulator. Avoids mutating a closure-captured `let offset`
+  // inside `rows.map(...)` (a side-effect-in-map smell).
+  const { elements: segments } = rows.reduce(
     (acc, d) => {
-      const frac = d.value / total;
-      const dash = frac * circ;
+      const dash = (d.value / total) * circ;
       acc.elements.push(
         <circle
           key={d.label}
@@ -156,7 +156,7 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
       return acc;
     },
     { elements: [], offset: 0 },
-  ).elements;
+  );
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
