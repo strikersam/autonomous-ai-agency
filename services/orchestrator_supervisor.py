@@ -24,7 +24,7 @@ from typing import Any
 log = logging.getLogger("qwen-proxy")
 
 _SUPERVISOR_INTERVAL_SEC = int(os.environ.get("SUPERVISOR_INTERVAL_SEC", "30"))
-_STALL_TIMEOUT_SEC = int(os.environ.get("ORCHESTRATOR_STALL_TIMEOUT_SEC", "300"))
+_STALL_TIMEOUT_SEC = int(os.environ.get("ORCHESTRATOR_STALL_TIMEOUT_SEC", "90"))
 _MAX_RETRIES = int(os.environ.get("ORCHESTRATOR_MAX_RETRIES", "3"))
 
 

@@ -977,20 +977,24 @@ class WorkflowOrchestrator:
         skill_ids: list[str] = []
         memory_keys: list[str] = []
         company_graph: dict[str, Any] = {}
+        loop = asyncio.get_event_loop()
 
-        # Bind skills from Phase 1 SkillBindings.
-        # recommend_for_company requires BOTH system_types and specialist_families
-        # and returns a list of dicts (skill.as_dict() + score/reasons) — not
-        # RuntimeSkill objects.  Pass the classified domain as a system hint and
-        # the selected specialists' families so the recommender actually fires.
+        # Skill bindings — recommend_for_company is synchronous; run in executor
+        # so it cannot block the event loop and prevent asyncio.wait_for cancellation.
         try:
             from services.skill_bindings import get_skill_bindings
             sb = get_skill_bindings()
             classify = run.classify
             domain = classify.domain if classify else "general"
             families = list(run.specialist.families) if run.specialist else []
-            recommended = sb.recommend_for_company(
-                system_types=[domain], specialist_families=families
+            recommended = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: sb.recommend_for_company(
+                        system_types=[domain], specialist_families=families
+                    ),
+                ),
+                timeout=10.0,
             )
             skill_ids = [
                 r["skill_id"] for r in recommended
@@ -1008,18 +1012,23 @@ class WorkflowOrchestrator:
             try:
                 from services.company_graph_store import CompanyGraphStore
                 store = CompanyGraphStore()
-                company = await store.get_company(req.company_id)
+                company = await asyncio.wait_for(
+                    store.get_company(req.company_id), timeout=8.0
+                )
                 if company:
                     company_graph = company.model_dump() if hasattr(company, 'model_dump') else {}
             except Exception as exc:
                 log.debug("Company Graph load failed (non-fatal): %s", exc)
 
-        # Load user memory
+        # Load user memory — synchronous; run in executor
         if req.user_id:
             try:
                 from agent.user_memory import UserMemoryStore
                 mem_store = UserMemoryStore()
-                memories = mem_store.recall_all(req.user_id)
+                memories = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: mem_store.recall_all(req.user_id)),
+                    timeout=8.0,
+                )
                 memory_keys = list(memories.keys()) if memories else []
             except Exception:
                 pass

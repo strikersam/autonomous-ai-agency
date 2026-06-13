@@ -86,6 +86,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
+
 ### Added
 - **`GET /api/scheduler/tick/last` — Cloudflare cron keepalive monitoring endpoint.** Tracks `_last_cron_tick_at` (updated on each authenticated `POST /api/scheduler/tick` from the Cloudflare Worker). Public endpoint (no auth) returns last tick timestamp, seconds since last tick, staleness flag (>120s = stale), and human-readable message. Monitoring tools can poll this to confirm the Worker's `scheduled()` handler is successfully reaching Render.
 
