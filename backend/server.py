@@ -5683,7 +5683,6 @@ async def scheduler_tick(request: Request):
     fired = []
     try:
         jobs = scheduler.list()
-        from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
         for job in jobs:
             next_run = getattr(job, "next_run_time", None)
