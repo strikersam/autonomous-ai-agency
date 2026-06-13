@@ -93,6 +93,9 @@
 - **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
 
 ### Fixed
+- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
+
+### Fixed
 - **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
 
 ### Added
