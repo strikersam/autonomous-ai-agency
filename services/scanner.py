@@ -376,6 +376,39 @@ class WebsiteScanner:
                         all_systems_map[s.name] = s
                 detected_systems = list(all_systems_map.values())
 
+            # 3b. Subdomain layer — scan common subdomains for additional tech signals.
+            # Each responding subdomain is scanned with the same HTML + header detection
+            # pipeline, potentially revealing different tech stacks (e.g. shop.gucci.com
+            # may run Shopify while the main site runs a custom stack).
+            subdomain_results = await self._scan_subdomains(domain)
+            for sub_data in subdomain_results:
+                sub_systems = await asyncio.to_thread(
+                    self._detect_systems_generic,
+                    sub_data["html"],
+                    sub_data["headers"],
+                    {},
+                )
+                sub_header_systems = self._analyze_response_headers(sub_data["headers"])
+                for s in (*sub_systems, *sub_header_systems):
+                    # Mark origin subdomain in evidence source
+                    s = DetectedSystem(
+                        name=s.name,
+                        category=s.category,
+                        confidence=max(0.0, s.confidence - 0.05),  # slight penalty for subdomain signal
+                        evidence=s.evidence,
+                        version=s.version,
+                        metadata={**(s.metadata or {}), "source_subdomain": sub_data["subdomain"]},
+                    )
+                    existing = all_systems_map.get(s.name)
+                    if existing is None or s.confidence > existing.confidence:
+                        all_systems_map[s.name] = s
+            if subdomain_results:
+                detected_systems = list(all_systems_map.values())
+                log.info(
+                    f"Subdomain scan found {len(subdomain_results)} responding subdomains, "
+                    f"total systems now {len(detected_systems)}"
+                )
+
             stack_inference = await self._infer_stack(soup, html, headers, website_url)
             
             # 3. Sitemap discovery
@@ -398,6 +431,56 @@ class WebsiteScanner:
                 scan_id=scan_id, website_url=website_url, company_id=self.company_id, status="failed",
                 errors=[str(e)], started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
             )
+
+    async def _scan_subdomains(self, domain: str) -> list[dict]:
+        """Try common subdomains and scan each for additional tech signals.
+
+        For each subdomain that returns an HTTP < 400 response, captures up to
+        200 KB of HTML and the full response headers.  The caller merges these
+        results into the main ``all_systems_map`` to expose tech stacks that
+        only appear on sub-domains (e.g. shop.brand.com running Shopify while
+        the root site runs a custom stack).
+
+        Returns a list of dicts:
+            {"subdomain": str, "url": str, "html": str, "headers": dict}
+        """
+        common = [
+            "www", "shop", "store", "blog", "api",
+            "cdn", "assets", "checkout", "account", "static",
+            "media", "images",
+        ]
+        results: list[dict] = []
+        async with httpx.AsyncClient(
+            timeout=5,
+            follow_redirects=True,
+            headers={"User-Agent": self.user_agent},
+        ) as client:
+            async def _probe(sub: str) -> dict | None:
+                url = f"https://{sub}.{domain}"
+                if not _is_safe_url(url):
+                    return None
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code < 400:
+                        return {
+                            "subdomain": sub,
+                            "url": str(resp.url),
+                            "html": resp.text[:200_000],
+                            "headers": dict(resp.headers),
+                        }
+                except Exception:
+                    pass
+                return None
+
+            tasks = [_probe(sub) for sub in common]
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    result = await coro
+                    if result is not None:
+                        results.append(result)
+                except Exception:
+                    pass
+        return results
 
     async def _render_html(self, url: str) -> Optional[tuple[str, dict, dict]]:
         """Render a page with a real headless browser (Playwright/Chromium) and

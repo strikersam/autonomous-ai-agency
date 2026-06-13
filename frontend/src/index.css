@@ -659,3 +659,23 @@ input[type="radio"] {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Mobile horizontal-overflow hardening (Priority 4) ─────────────── */
+@media (max-width: 600px) {
+  /* Dropdowns and popovers must not bleed past the viewport edge */
+  [style*="position:absolute"],
+  [style*="position: absolute"] {
+    max-width: min(var(--max-popover, 320px), calc(100vw - 24px)) !important;
+  }
+
+  /* Task board: stack columns vertically on very small screens */
+  .task-board-columns {
+    flex-direction: column !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Flex rows that contain fixed-min-width children: let them wrap */
+  .mobile-wrap {
+    flex-wrap: wrap !important;
+  }
+}
