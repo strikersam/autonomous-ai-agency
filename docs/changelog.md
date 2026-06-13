@@ -87,6 +87,9 @@
 ## [Unreleased]
 
 ### Fixed
+- **Anthropic API calls no longer 404.** Seed records for `anthropic-claude` had `base_url` ending in `/v1`; the orchestrator resolver then appended `/v1/messages`, producing `https://api.anthropic.com/v1/v1/messages`. Changed both seed records to `https://api.anthropic.com` to match the env default.
+
+### Fixed
 - **Scheduler now actually fires jobs.** Two root causes fixed: (1) AgentScheduler was created without an on_fire callback so cron events had nowhere to go; wired to orchestrator execute with auto_approve. (2) Render free tier spins down after inactivity killing APScheduler; added Cloudflare cron trigger (every minute) in wrangler.jsonc and a Worker scheduled handler that pings /api/scheduler/tick on the Render backend. APScheduler now stays alive and overdue jobs are dispatched on every tick.
 
 ### Added
