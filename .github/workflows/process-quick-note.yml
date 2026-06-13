@@ -59,10 +59,9 @@ jobs:
             NUM=$(gh issue list \
               --repo "$REPO" \
               --state open \
-              --search "quick-note: in:title -label:quick-note:exhausted" \
-              --json number \
+              --json number,labels \
               --limit 100 \
-              --jq 'sort_by(.number) | .[0].number // empty')
+              --jq '[.[] | select((.labels // []) | map(.name) | index("quick-note:exhausted") == null)] | sort_by(.number) | .[0].number // empty')
           fi
           if [ -z "$NUM" ]; then
             echo "No pending quick-note issues found — nothing to do."
@@ -111,7 +110,9 @@ jobs:
           BODY=$(gh issue view "$NUM" \
             --repo "$REPO" --json body -q .body)
 
-          # Extract first https:// URL from body
+          # Extract first https:// URL from body (may be empty — that's OK;
+          # the implement agent falls back to the issue body + comments and
+          # does its own web research via the LLM when the URL is absent).
           URL=$(echo "$BODY" | grep -oE 'https?://[^[:space:]>)]+' | head -1)
 
           # Extract Task: line
@@ -138,6 +139,70 @@ jobs:
           echo "Resolved #$NUM → URL=$URL task=$TASK retry=$RETRY"
 
       # ── 4. Comment "processing started" ───────────────────────────────────
+      - name: Capture issue body + comments
+        id: capture
+        if: steps.pick.outputs.found == 'true' && steps.auto_test.outputs.is_automation_test != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          PICK_NUM: ${{ steps.pick.outputs.number }}
+        run: |
+          # Body fetch (warn + post to issue on failure so the agent doesn't
+          # silently work with empty context). The warning comment write is
+          # wrapped in `|| true` so a rate-limited warning cannot itself
+          # fail the step (self-deadlock avoidance).
+          if gh issue view "$PICK_NUM" --repo "$REPO" --json body -q .body > /tmp/issue_body.txt 2>/tmp/body_err; then
+            :
+          else
+            echo "WARN: gh issue view body failed: $(cat /tmp/body_err 2>/dev/null)" >&2
+            gh issue comment "$PICK_NUM" --repo "$REPO" --body "WARN: Could not fetch issue body. Implement agent will rely on comments + URL only." 2>/dev/null || true
+            : > /tmp/issue_body.txt
+          fi
+          echo "body_chars=$(wc -c < /tmp/issue_body.txt)" >> "$GITHUB_OUTPUT"
+
+          : > /tmp/issue_comments.jsonl
+          PAGE=1
+          URL="repos/$REPO/issues/$PICK_NUM/comments?per_page=100"
+          COMMENTS=0
+          while [ -n "$URL" ]; do
+            PAGE_OUT=$(gh api "$URL" --jq '.[] | select(.user.type == "User") | {author: .user.login, created: .created_at, body: .body}' 2>/tmp/capture_err) || {
+              echo "WARN: gh api failed for page $PAGE: $(cat /tmp/capture_err 2>/dev/null)" >&2
+              gh issue comment "$PICK_NUM" --repo "$REPO" --body "WARN: Could not fetch issue comments (page $PAGE). Implement agent will use body + any earlier comments only." 2>/dev/null || true
+              break
+            }
+            # No more pages once gh returns empty (saves 3-4 rate-limited calls per
+            # 1-page issue that previously burned through 5 calls before this fix).
+            [ -z "$PAGE_OUT" ] && break
+            echo "$PAGE_OUT" >> /tmp/issue_comments.jsonl
+            COMMENTS=$((COMMENTS + $(echo "$PAGE_OUT" | wc -l)))
+            PAGE=$((PAGE + 1))
+            [ $PAGE -gt 5 ] && { echo "comment_truncated=true" >> "$GITHUB_OUTPUT"; break; }
+            URL="repos/$REPO/issues/$PICK_NUM/comments?per_page=100&page=$PAGE"
+          done
+          # Guard against malformed (non-array) response so we never write garbage to the JSONL.
+          if [ "$(jq -r 'type' /tmp/issue_comments.jsonl 2>/dev/null)" != '"array"' ]; then
+            : > /tmp/issue_comments.jsonl
+            COMMENTS=0
+            echo "WARN: gh api returned non-array response — discarding captured comments" >&2
+          fi
+          # Validate JSONL shape (one JSON object per line, not a single array).
+          # `gh api ... --jq '.[] | ...'` flattens to a stream of objects. Plain
+          # `jq` only reads the first top-level value, so we iterate per-line.
+          bad_line=0
+          if [ -s /tmp/issue_comments.jsonl ]; then
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              echo "$line" | jq -e 'type == "object"' >/dev/null 2>&1 || { bad_line=1; break; }
+            done < /tmp/issue_comments.jsonl
+          fi
+          if [ "$bad_line" -ne 0 ]; then
+            : > /tmp/issue_comments.jsonl
+            COMMENTS=0
+            echo "WARN: comments JSONL had a malformed line — discarded" >&2
+          fi
+          echo "comment_count=$COMMENTS" >> "$GITHUB_OUTPUT"
+          echo "Captured body ($(wc -c < /tmp/issue_body.txt) chars) and $COMMENTS user comments for issue #$PICK_NUM"
+
       - name: Comment — processing started
         if: steps.pick.outputs.found == 'true' && steps.auto_test.outputs.is_automation_test != 'true'
         env:
@@ -183,16 +248,14 @@ jobs:
         run: |
           URL="$ISSUE_URL"
           if [ -z "$URL" ]; then
-            gh issue comment "$ISSUE_NUM" \
-              --repo "$REPO" \
-              --body "$(cat <<'MSG'
-          ❌ No URL found in the issue body.
+            echo "No URL in issue body -- proceeding with body + comments as sole context."
+            cat > /tmp/note_content.txt <<STUB
+          Source: issue body (no URL provided)
 
-          Please include a full `https://` link and reopen the issue.
-          If the share link requires a login, paste the article text directly into the issue body instead.
-          MSG
-          )"
-            exit 1
+          $(cat /tmp/issue_body.txt 2>/dev/null || echo '(no body captured)')
+          STUB
+            echo "fetch_chars=$(wc -c < /tmp/note_content.txt)" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           python3 .github/scripts/fetch_url.py "$URL" || true
@@ -254,11 +317,15 @@ jobs:
           ISSUE_URL: ${{ steps.issue.outputs.url }}
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
           ISSUE_TASK: ${{ steps.issue.outputs.task }}
+          ISSUE_BODY_FILE: /tmp/issue_body.txt
+          ISSUE_COMMENTS_FILE: /tmp/issue_comments.jsonl
         run: |
           python3 .github/scripts/implement_agent.py \
             "$ISSUE_URL" \
             "$ISSUE_NUM" \
             "$ISSUE_TASK" \
+            --body-file "$ISSUE_BODY_FILE" \
+            --comments-file "$ISSUE_COMMENTS_FILE" \
             2>&1 | tee /tmp/impl_output.txt
 
           if [ -f /tmp/impl_result.json ]; then
