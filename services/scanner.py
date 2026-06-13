@@ -805,6 +805,45 @@ class WebsiteScanner:
 
         return systems
 
+    @staticmethod
+    def _decode_der_cert(der: bytes) -> dict:
+        """Decode a raw DER certificate into the same dict shape that
+        ``ssl.getpeercert()`` produces (``issuer`` tuple-of-tuples +
+        ``subjectAltName``), used when the cert could not be verified (expired,
+        self-signed, hostname mismatch) so SSL-based detection still works.
+
+        Degrades to ``{}`` on any error -- never raises into the scan.
+        """
+        try:
+            from cryptography import x509
+            from cryptography.x509.oid import NameOID, ExtensionOID
+
+            crt = x509.load_der_x509_certificate(der)
+
+            issuer_rdns: list = []
+            _oid_map = {
+                NameOID.ORGANIZATION_NAME: "organizationName",
+                NameOID.COMMON_NAME: "commonName",
+            }
+            for oid, label in _oid_map.items():
+                for attr in crt.issuer.get_attributes_for_oid(oid):
+                    issuer_rdns.append(((label, attr.value),))
+
+            san_entries: list = []
+            try:
+                ext = crt.extensions.get_extension_for_oid(
+                    ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+                )
+                for name in ext.value.get_values_for_type(x509.DNSName):
+                    san_entries.append(("DNS", name))
+            except Exception:
+                pass
+
+            return {"issuer": tuple(issuer_rdns), "subjectAltName": tuple(san_entries)}
+        except Exception as e:
+            log.debug("DER cert decode failed: %s", e)
+            return {}
+
     def _analyze_ssl_cert(self, domain: str) -> List[DetectedSystem]:
         """Inspect the TLS certificate (issuer + Subject Alternative Names) to
         infer hosting/CDN/cert platforms — BuiltWith-style off-HTML evidence.
@@ -829,14 +868,41 @@ class WebsiteScanner:
             ))
 
         try:
-            ctx = _ssl.create_default_context()
-            # We only read cert metadata; tolerate hostname/expiry mismatches so
-            # detection still works on misconfigured or wildcard certs.
-            ctx.check_hostname = False
-            ctx.verify_mode = _ssl.CERT_NONE
-            with _socket.create_connection((domain, 443), timeout=min(self.timeout, 10)) as sock:
-                with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                    cert = ssock.getpeercert()
+            timeout = min(self.timeout, 10)
+
+            # IMPORTANT: CPython's ``getpeercert()`` returns an EMPTY dict ``{}``
+            # whenever ``verify_mode == CERT_NONE`` -- the parsed issuer/SAN
+            # fields are only populated when the cert is actually verified. A
+            # previous version disabled verification "to tolerate misconfigured
+            # certs", which silently made this whole analysis a no-op (it never
+            # returned any systems). We therefore do a verified handshake FIRST
+            # (the common case -- valid public certs) to get the parsed dict, and
+            # only fall back to DER decoding for the unverified case (expired/
+            # self-signed/hostname-mismatch certs) so detection still works.
+            cert: dict = {}
+            der: Optional[bytes] = None
+
+            verify_ctx = _ssl.create_default_context()
+            try:
+                with _socket.create_connection((domain, 443), timeout=timeout) as sock:
+                    with verify_ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                        cert = ssock.getpeercert() or {}
+                        der = ssock.getpeercert(binary_form=True)
+            except Exception:
+                # Verification failed -- retry without it so we can still read the
+                # raw cert (DER form is populated even with CERT_NONE).
+                unverified = _ssl.create_default_context()
+                unverified.check_hostname = False
+                unverified.verify_mode = _ssl.CERT_NONE
+                with _socket.create_connection((domain, 443), timeout=timeout) as sock:
+                    with unverified.wrap_socket(sock, server_hostname=domain) as ssock:
+                        der = ssock.getpeercert(binary_form=True)
+
+            # If the verified path gave us no parsed dict, decode the DER blob
+            # into the same shape using `cryptography` (a production dependency).
+            if not cert and der:
+                cert = self._decode_der_cert(der)
+
             if not cert:
                 return systems
 
