@@ -7119,47 +7119,50 @@ async def workflow_orchestrator_status(
     user: dict = Depends(get_current_user),
 ):
     """Return orchestrator queue depth, active runs, and supervisor state (#522)."""
-    orchestrator = get_workflow_orchestrator()
-    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
-    runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
-
-    queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
+    import traceback as _tb
     try:
-        from services.orchestrator_queue import get_orchestrator_queue
-        q = get_orchestrator_queue()
-        queue_status = q.status()
-    except Exception:
-        pass
+        orchestrator = get_workflow_orchestrator()
+        owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+        runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
 
-    supervisor_state = {}
-    try:
-        from services.orchestrator_supervisor import get_orchestrator_supervisor
-        sv = get_orchestrator_supervisor()
-        st = sv.state
-        supervisor_state = {
-            "running": st.running,
-            "ticks": st.ticks,
-            "stalled_recovered": st.stalled_recovered,
-            "failed_retried": st.failed_retried,
-            "alerts_emitted": st.alerts_emitted,
+        queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
+        try:
+            from services.orchestrator_queue import get_orchestrator_queue
+            q = get_orchestrator_queue()
+            queue_status = q.status()
+        except Exception:
+            pass
+
+        supervisor_state = {}
+        try:
+            from services.orchestrator_supervisor import get_orchestrator_supervisor
+            sv = get_orchestrator_supervisor()
+            st = sv.state
+            supervisor_state = {
+                "running": st.running,
+                "ticks": st.ticks,
+                "stalled_recovered": st.stalled_recovered,
+                "failed_retried": st.failed_retried,
+                "alerts_emitted": st.alerts_emitted,
+            }
+        except Exception:
+            pass
+
+        return {
+            "runs": len(runs),
+            "by_status": {
+                "pending": sum(1 for r in runs if r.get("status") == "pending"),
+                "running": sum(1 for r in runs if r.get("status") == "running"),
+                "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
+                "queued": sum(1 for r in runs if r.get("status") == "queued"),
+                "done": sum(1 for r in runs if r.get("status") == "done"),
+                "failed": sum(1 for r in runs if r.get("status") == "failed"),
+            },
+            "queue": queue_status,
+            "supervisor": supervisor_state,
         }
-    except Exception:
-        pass
-
-    return {
-        "runs": len(runs),
-        "by_status": {
-            "pending": sum(1 for r in runs if r.get("status") == "pending"),
-            "running": sum(1 for r in runs if r.get("status") == "running"),
-            "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
-            "queued": sum(1 for r in runs if r.get("status") == "queued"),
-            "done": sum(1 for r in runs if r.get("status") == "done"),
-            "failed": sum(1 for r in runs if r.get("status") == "failed"),
-        },
-        "queue": queue_status,
-        "supervisor": supervisor_state,
-    }
-
+    except Exception as _exc:
+        return {"error": str(_exc), "traceback": _tb.format_exc()}
 @app.get("/api/workflow/orchestrator/runs")
 async def workflow_orchestrator_list_runs(
     limit: int = 50,
