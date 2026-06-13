@@ -298,6 +298,38 @@ function SeoAuditPanel({ companyId, defaultUrl }) {
   );
 }
 
+function exportSystemsCSV(systems, companyName) {
+  const headers = ['Name', 'Category', 'Confidence', 'Detection Methods', 'Version'];
+  const rows = (systems || []).map(s => [
+    s.name || s.app_name || '',
+    s.category || '',
+    s.confidence ? `${Math.round(s.confidence * 100)}%` : '',
+    Array.isArray(s.detectionMethods) ? s.detectionMethods.join('|') : (s.source || ''),
+    s.version || ''
+  ]);
+  const csv = [headers, ...rows]
+    .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${companyName || 'scan'}-technologies.csv`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function Skeleton({ width = '100%', height = 16, style = {} }) {
+  return (
+    <div style={{
+      width, height, borderRadius: 6,
+      background: 'linear-gradient(90deg, var(--color-surface-2, rgba(255,255,255,0.04)) 25%, var(--color-surface-3, rgba(255,255,255,0.08)) 50%, var(--color-surface-2, rgba(255,255,255,0.04)) 75%)',
+      backgroundSize: '200% 100%',
+      animation: 'shimmer 1.5s infinite',
+      ...style
+    }} />
+  );
+}
+
 function CompanyScreen() {
   const storedId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
   const [companies, setCompanies] = React.useState([]);
@@ -401,6 +433,7 @@ function CompanyScreen() {
     })),
     environments: company.domain ? [{ name: 'Production', url: company.domain, status: 'healthy' }] : [],
     specialists: specialists.map(s => ({
+      id: s.id || s.specialist_id || s.name || s.role,
       name: s.name || s.role || 'Specialist',
       status: s.status || 'idle',
       lastRun: s.last_used_at || s.lastRun || '—',
@@ -419,7 +452,17 @@ function CompanyScreen() {
     return (
       <div style={{ padding: '20px 16px 48px', maxWidth: 960, margin: '0 auto' }}>
         <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>Company Graph</div>
-        <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading companies...</div>
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Skeleton height={32} width="40%" />
+          <Skeleton height={16} />
+          <Skeleton height={16} width="70%" />
+          <Skeleton height={200} style={{ marginTop: 8 }} />
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Skeleton height={120} style={{ flex: 1 }} />
+            <Skeleton height={120} style={{ flex: 1 }} />
+            <Skeleton height={120} style={{ flex: 1 }} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -566,7 +609,7 @@ function CompanyScreen() {
           {(d.specialists || []).map(sp => {
             const statusColor = sp.status === 'active' || sp.status === 'running' ? '#5da2ff' : 'var(--text-muted)';
             return (
-              <div key={sp.name} style={{
+              <div key={sp.id} style={{
                 borderRadius: 16, border: `1px solid ${sp.status !== 'idle' ? `${statusColor}25` : 'rgba(255,255,255,0.09)'}`,
                 background: sp.status !== 'idle' ? `${statusColor}05` : 'rgba(255,255,255,0.03)',
                 padding: '16px', cursor: 'pointer', transition: 'all 0.2s ease',
@@ -655,6 +698,11 @@ function CompanyScreen() {
                   {totalConnected} connected
                 </span>
               )}
+              <button onClick={() => exportSystemsCSV(allSystems, d?.name)}
+                style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 10px', borderRadius: 6,
+                  background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                Export CSV
+              </button>
             </div>
             {/* Per-category groups */}
             {cats.map(cat => {
@@ -751,5 +799,4 @@ function CompanyScreen() {
   );
 }
 
-export { CompanyScreen };
-export default CompanyScreen;
+exp

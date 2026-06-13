@@ -161,4 +161,46 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
           <div key={d.label ?? i} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <span style={{ width: 9, height: 9, borderRadius: 3, background: d.color || ACCENT, flexShrink: 0 }} />
             <span style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1 }}>{d.label}</span>
-            <span style={{ fontSize: 11, fontFamily: 'var(--font-
+            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{d.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ExecutionTimeline — a Gantt-style bar showing agent phase durations.
+ * @param {Array<{phase: string, duration_ms: number}>} log
+ */
+export function ExecutionTimeline({ log = [] }) {
+  const phases = (log || []).filter(e => e.phase && e.duration_ms > 0);
+  if (!phases.length) return null;
+  const total = phases.reduce((s, e) => s + e.duration_ms, 0) || 1;
+  const colors = { plan: '#3b82f6', execute: '#22c55e', verify: '#a855f7', failed: '#ef4444' };
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Execution timeline</div>
+      <div style={{ display: 'flex', height: 20, borderRadius: 4, overflow: 'hidden', gap: 1 }}>
+        {phases.map((e, i) => (
+          <div key={i}
+            title={`${e.phase}: ${(e.duration_ms/1000).toFixed(1)}s`}
+            style={{
+              flex: e.duration_ms / total,
+              background: colors[e.phase] || '#6b7280',
+              minWidth: 3,
+              transition: 'flex 0.3s'
+            }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
+        {phases.map((e, i) => (
+          <span key={i} style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            <span style={{ display:'inline-block', width:8, height:8, borderRadius:2, background: colors[e.phase]||'#6b7280', marginRight:3 }} />
+            {e.phase} {(e.duration_ms/1000).toFixed(1)}s
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}

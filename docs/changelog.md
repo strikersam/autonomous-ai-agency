@@ -87,6 +87,16 @@
 ## [Unreleased]
 
 ### Added
+- **E2E Playwright test suite expansion — screenshot capture + mobile variants.** `tests/e2e/test_critical_flows.py` now creates `docs/screenshots/web/` and `docs/screenshots/mobile/` directories and captures full-page screenshots at each key screen (login, dashboard, scan-results, task-board, chat, admin). Three new mobile tests (`test_mobile_login_screenshot`, `test_mobile_dashboard_screenshot`, `test_mobile_scan_results_screenshot`) run the same flows at 390×844 (iPhone 14) viewport. New `tests/e2e/conftest.py` registers the `e2e` marker and provides `base_url`, `proxy_url`, and `mobile_page` fixtures.
+- **GitHub Actions E2E job.** `.github/workflows/ci.yml` gains an `e2e` job (gated by `vars.RUN_E2E == 'true'`, needs `test`) that installs Playwright/chromium, starts both services, runs the E2E suite, and uploads `docs/screenshots/` as a build artifact (14-day retention).
+- **ExecutionTimeline Gantt chart in task detail.** `frontend/src/v5/components/Charts.jsx` gains `ExecutionTimeline({ log })` — a proportional color-coded bar (plan=blue, execute=green, verify=purple, failed=red) with a legend showing each phase's wall-clock time. Used in `TaskDetailPanel.jsx` just above the execution log accordion.
+- **CSV export for scan results.** `CompanyScreen.jsx` gains `exportSystemsCSV()` helper and an "Export CSV" button in the systems-tab summary bar that downloads `<company>-technologies.csv` with columns: Name, Category, Confidence, Detection Methods, Version.
+- **Skeleton loading screens in CompanyScreen.** The "Loading companies…" plain-text spinner is replaced with an animated shimmer skeleton layout (heading + body lines + image block + 3 cards). Uses the `Skeleton` component added inline, driven by the existing `shimmer` keyframe in `frontend/src/index.css`.
+- **README screenshots section.** Added `## Screenshots` between "What you get" and "Who is this for?" sections with web and mobile table layouts referencing `docs/screenshots/`.
+- **Placeholder PNG assets.** `docs/screenshots/web/` and `docs/screenshots/mobile/` seeded with minimal dark-background PNGs so screenshot paths don't 404 before the first live E2E run.
+
+
+### Added
 - Scanner: subdomain enumeration layer — probes common subdomains (shop, api, cdn, checkout, account, etc.) to narrow the BuiltWith technology-count gap
 - SEO: one-click CTO-level PDF audit report generation
 

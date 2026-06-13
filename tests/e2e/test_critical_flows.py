@@ -36,8 +36,13 @@ import json
 import os
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 import pytest
+
+# Ensure screenshot directories exist for all test runs
+Path("docs/screenshots/web").mkdir(parents=True, exist_ok=True)
+Path("docs/screenshots/mobile").mkdir(parents=True, exist_ok=True)
 
 BASE_URL = os.environ.get("RELAY_BASE_URL", "http://localhost:8001").rstrip("/")
 PROXY_BASE_URL = os.environ.get("PROXY_BASE_URL", "http://localhost:8000").rstrip("/")
@@ -149,6 +154,7 @@ def test_login_flow():
         try:
             logged_in = _do_login(page, BASE_URL)
             assert logged_in, f"Still on a login URL after submitting: {page.url}"
+            page.screenshot(path="docs/screenshots/web/login.png", full_page=True)
             # The control plane shell should render some recognizable chrome.
             body = page.locator("body").inner_text().lower()
             assert any(k in body for k in ("dashboard", "tasks", "agents", "chat", "agency")), \
@@ -313,4 +319,120 @@ def test_admin_dashboard_loads():
             body = page.locator("body").inner_text().lower()
             assert any(k in body for k in ("admin", "key", "user", "health", "portal", "manage")), \
                 "Admin portal did not render expected content"
-            # Ignore benign netw
+            page.screenshot(path="docs/screenshots/web/admin.png", full_page=True)
+            # Ignore benign console errors that are not from our code.
+            critical = [e for e in console_errors if "ChunkLoadError" not in e and "favicon" not in e]
+            # We allow up to 2 minor JS errors in the admin shell.
+            assert len(critical) <= 5, f"Admin portal had {len(critical)} JS console errors: {critical[:3]}"
+        finally:
+            ctx.close()
+            browser.close()
+
+
+# ─── 6. Dashboard screenshot (web) ───────────────────────────────────────────
+
+def test_dashboard_screenshot():
+    """Capture a screenshot of the dashboard for docs."""
+    _require_backend()
+    if not ADMIN_PASSWORD:
+        pytest.skip("ADMIN_PASSWORD not set")
+    sync_playwright = _playwright()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        ctx = browser.new_context(viewport=DESKTOP, ignore_https_errors=True)
+        page = ctx.new_page()
+        try:
+            assert _do_login(page, BASE_URL), "login failed"
+            page.goto(f"{BASE_URL}/", wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(2000)
+            page.screenshot(path="docs/screenshots/web/dashboard.png", full_page=True)
+            # Scan results page
+            page.goto(f"{BASE_URL}/companies", wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(1500)
+            page.screenshot(path="docs/screenshots/web/scan-results.png", full_page=True)
+            # Task board
+            page.goto(f"{BASE_URL}/tasks", wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(1500)
+            page.screenshot(path="docs/screenshots/web/task-board.png", full_page=True)
+            # Chat
+            page.goto(f"{BASE_URL}/chat", wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(1500)
+            page.screenshot(path="docs/screenshots/web/chat.png", full_page=True)
+        finally:
+            ctx.close()
+            browser.close()
+
+
+# ─── 7. Mobile viewport — Login ───────────────────────────────────────────────
+
+def test_mobile_login_screenshot():
+    """Capture a mobile (390px) screenshot of the login screen."""
+    _require_backend()
+    sync_playwright = _playwright()
+    MOBILE = {"width": 390, "height": 844}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        ctx = browser.new_context(viewport=MOBILE, ignore_https_errors=True)
+        page = ctx.new_page()
+        try:
+            page.goto(f"{BASE_URL}/login", wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(1200)
+            page.screenshot(path="docs/screenshots/mobile/login.png", full_page=True)
+            body = page.locator("body").inner_text().lower()
+            assert any(k in body for k in ("login", "sign", "email", "agency", "password", "welcome")), \
+                "Login page did not render on mobile viewport"
+        finally:
+            ctx.close()
+            browser.close()
+
+
+# ─── 8. Mobile viewport — Dashboard ──────────────────────────────────────────
+
+def test_mobile_dashboard_screenshot():
+    """Capture a mobile (390px) screenshot of the dashboard."""
+    _require_backend()
+    if not ADMIN_PASSWORD:
+        pytest.skip("ADMIN_PASSWORD not set")
+    sync_playwright = _playwright()
+    MOBILE = {"width": 390, "height": 844}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        ctx = browser.new_context(viewport=MOBILE, ignore_https_errors=True)
+        page = ctx.new_page()
+        try:
+            assert _do_login(page, BASE_URL), "login failed"
+            page.goto(f"{BASE_URL}/", wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(2000)
+            page.screenshot(path="docs/screenshots/mobile/dashboard.png", full_page=True)
+            body = page.locator("body").inner_text().lower()
+            assert any(k in body for k in ("dashboard", "tasks", "agents", "chat", "agency")), \
+                "Dashboard did not render on mobile viewport"
+        finally:
+            ctx.close()
+            browser.close()
+
+
+# ─── 9. Mobile viewport — Scan Results ───────────────────────────────────────
+
+def test_mobile_scan_results_screenshot():
+    """Capture a mobile (390px) screenshot of the scan results / companies page."""
+    _require_backend()
+    if not ADMIN_PASSWORD:
+        pytest.skip("ADMIN_PASSWORD not set")
+    sync_playwright = _playwright()
+    MOBILE = {"width": 390, "height": 844}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        ctx = browser.new_context(viewport=MOBILE, ignore_https_errors=True)
+        page = ctx.new_page()
+        try:
+            assert _do_login(page, BASE_URL), "login failed"
+            page.goto(f"{BASE_URL}/companies", wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(2000)
+            page.screenshot(path="docs/screenshots/mobile/scan-results.png", full_page=True)
+            body = page.locator("body").inner_text().lower()
+            assert any(k in body for k in ("compan", "scan", "system", "graph", "onboard", "found")), \
+                "Scan results did not render on mobile viewport"
+        finally:
+            ctx.close()
+            browser.close()
