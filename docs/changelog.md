@@ -87,6 +87,11 @@
 ## [Unreleased]
 
 ### Added
+- Scanner: subdomain enumeration layer — probes common subdomains (shop, api, cdn, checkout, account, etc.) to narrow the BuiltWith technology-count gap
+- SEO: one-click CTO-level PDF audit report generation
+
+
+### Added
 - **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
 - **CompanyScreen: Systems tab — category grouping, confidence scores, detection method badges.** Previously the systems tab showed a flat list. Now systems are grouped by category (CMS, CRM, analytics, payment_gateway, etc.) with a color-coded category header. Each detected system shows: version if available, detection method badges (html/dns/ssl/headers/script/cookie in distinct colours), and a confidence mini-bar + percentage score. Summary counts at top: "N systems detected across M categories", with separate counters for auto-detected vs connected systems. Empty state message directs users to run a scan.
 
