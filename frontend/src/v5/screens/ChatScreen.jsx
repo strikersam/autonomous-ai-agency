@@ -101,7 +101,7 @@ function AgentPicker({ selected, onSelect, onOpen, forceClose }) {
             position:'absolute', left:0, zIndex:50,
             ...(placement.up ? { bottom:'calc(100% + 6px)' } : { top:'calc(100% + 6px)' }),
             background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
-            borderRadius:16, padding:8, minWidth:240, maxHeight:placement.maxH, overflowY:'auto',
+            borderRadius:16, padding:8, minWidth:240, maxWidth:'min(340px, calc(100vw - 24px))', maxHeight:placement.maxH, overflowY:'auto',
             boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
           }}>
             <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Chat with</div>
@@ -384,7 +384,7 @@ function ModelPicker({ selected, onSelect, onOpen, forceClose }) {
             position:'absolute', left:0, zIndex:50,
             ...(placement.up ? { bottom:'calc(100% + 6px)' } : { top:'calc(100% + 6px)' }),
             background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
-            borderRadius:16, padding:8, minWidth:280, maxHeight:placement.maxH, overflowY:'auto',
+            borderRadius:16, padding:8, minWidth:280, maxWidth:'min(380px, calc(100vw - 24px))', maxHeight:placement.maxH, overflowY:'auto',
             boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
           }}>
             <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Model & Provider</div>

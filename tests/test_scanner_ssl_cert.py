@@ -32,7 +32,7 @@ def _make_self_signed_der(common_name: str, org: str, sans: list[str]) -> bytes:
         x509.NameAttribute(NameOID.COMMON_NAME, common_name),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, org),
     ])
-    now = datetime.datetime.now(datetime.UTC)
+    now = datetime.datetime.utcnow()
     builder = (
         x509.CertificateBuilder()
         .subject_name(name)
@@ -126,7 +126,4 @@ def test_analyze_ssl_cert_maps_decoded_cert_to_systems(monkeypatch):
 
 class _RaisingCtx:
     check_hostname = True
-    verify_mode = None
-
-    def wrap_socket(self, sock, server_hostname=None):
-        raise OSError("verification failed (simulated)")
+    veri

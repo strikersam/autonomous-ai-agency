@@ -2,7 +2,7 @@
 import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
 import { ErrorBoundary } from '../components/ErrorBoundary';
-import { Donut, Sparkline } from '../components/Charts';
+import { Donut, BarChart, Sparkline } from '../components/Charts';
 
 // dashboard.jsx — Resilient Dashboard wired to the real backend
 // Each widget fetches independently via useSafeData (Promise.allSettled) so a
@@ -234,8 +234,20 @@ function TasksWidget({ tasks, loading, error, onRetry, title = 'Open Tasks' }) {
 function CostWidget({ data, loading, error, onRetry }) {
   const hasRatio = data.localRatio != null;
   const barW = `${Math.round((data.localRatio || 0) * 100)}%`;
+  const trend = data.trend || [];
+  const hasTrend = trend.length >= 2;
   return (
     <Widget title="Cost & Usage" loading={loading} error={error} onRetry={onRetry}>
+      {/* Request-volume trend sparkline — real time-series from observability metrics */}
+      {hasTrend && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Request volume</span>
+            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)' }}>{trend.length} buckets</span>
+          </div>
+          <Sparkline values={trend} height={48} />
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: hasRatio ? 12 : 0 }}>
         {[
           { label: 'Cost saved (24h)', value: data.saved, color: '#46d9a4' },
@@ -283,6 +295,20 @@ function MonitoringWidget({ signals, loading, error, onRetry }) {
           </div>
         ))}
       </div>
+    </Widget>
+  );
+}
+
+function TaskDistributionWidget({ breakdown, total, loading, error, onRetry }) {
+  return (
+    <Widget title="Task Distribution" loading={loading} error={error} onRetry={onRetry}>
+      {total === 0 && !loading && !error ? (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+          No tasks tracked yet — create one from the Tasks screen to see the breakdown.
+        </div>
+      ) : (
+        <Donut data={breakdown} centerLabel="tasks" />
+      )}
     </Widget>
   );
 }
@@ -365,44 +391,24 @@ function DashboardScreen() {
       .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status, priority: t.priority }));
   }, [data.tasks]);
 
-  // Build task status distribution for Donut chart.
-  // Backend status strings are inconsistent across versions/endpoints
-  // (`in_progress` vs `In Progress` vs `in-progress`, `completed` vs `done`,
-  // `pending` vs `todo`, etc.). Normalize to a canonical bucket so the donut
-  // counts what the user actually sees in the Tasks widget.
+  // Build task status distribution for Donut chart
   const taskDonutData = React.useMemo(() => {
     const all = data.tasks?.tasks || [];
-    const BUCKETS = ['done', 'in_progress', 'todo', 'failed', 'blocked', 'in_review'];
     const STATUS_COLORS = {
       done: '#46d9a4',
-      in_progress: '#5da2ff',
-      todo: 'var(--text-muted)',
+      running: '#5da2ff',
+      pending: '#ffbd66',
       failed: '#ff6b7d',
-      blocked: '#ff6b7d',
-      in_review: '#ffbd66',
     };
-    const ALIASES = {
-      done: ['done', 'completed', 'complete', 'success', 'succeeded'],
-      in_progress: ['in_progress', 'in-progress', 'in progress', 'inprogress', 'running', 'active', 'executing', 'started'],
-      todo: ['todo', 'to do', 'pending', 'queued', 'queue', 'not_started', 'not-started', 'waiting'],
-      failed: ['failed', 'failure', 'error', 'errored', 'cancelled', 'canceled'],
-      blocked: ['blocked', 'paused', 'on_hold', 'on-hold'],
-      in_review: ['in_review', 'in-review', 'in review', 'review', 'awaiting_review', 'awaiting-review'],
-    };
-    const aliasIndex = new Map();
-    for (const [bucket, aliases] of Object.entries(ALIASES)) {
-      for (const a of aliases) aliasIndex.set(a.toLowerCase().replace(/[\s_-]+/g, ''), bucket);
-    }
-    const counts = Object.fromEntries(BUCKETS.map(b => [b, 0]));
-    for (const t of all) {
-      const raw = (t?.status || '').toString();
-      const key = raw.toLowerCase().replace(/[\s_-]+/g, '');
-      const bucket = aliasIndex.get(key) || 'todo';
-      counts[bucket]++;
-    }
-    return BUCKETS
-      .filter(b => counts[b] > 0)
-      .map(b => ({ label: b.replace(/_/g, ' '), value: counts[b], color: STATUS_COLORS[b] || 'var(--accent)' }));
+    const counts = { done: 0, running: 0, pending: 0, failed: 0 };
+    all.forEach(t => {
+      const s = t.status || 'pending';
+      if (s in counts) counts[s]++;
+      else counts.pending++;
+    });
+    return Object.entries(counts)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => ({ label: k, value: v, color: STATUS_COLORS[k] || 'var(--accent)' }));
   }, [data.tasks]);
 
   // Build last-7-day agent activity sparkline from /api/activity
@@ -473,18 +479,43 @@ function DashboardScreen() {
   // Backend exposes a 24h window only (total_requests/tokens/savings); there is
   // no monthly spend figure and no cloud/local split, so we don't fabricate them.
   const costData = React.useMemo(() => {
-    const s = data.metrics?.summary_24h || {};
+    const m = data.metrics || {};
+    const s = m.summary_24h || m.summary || {};
     const saved = s.total_savings_usd || 0;
     const requests = s.total_requests || 0;
     const tokens = s.total_tokens || 0;
+    // Real time-series for the request-volume sparkline (observability metrics
+    // expose `time_series` / `buckets`; fall back gracefully if absent).
+    const series = m.time_series || m.buckets || [];
+    const trend = Array.isArray(series) ? series.map((b) => Number(b.requests) || 0) : [];
     return {
       saved: `$${saved.toFixed(2)}`,
       requests,
       tokens: fmtTokens(tokens),
       avgTokens: requests ? fmtTokens(Math.round(tokens / requests)) : '—',
       localRatio: null, // no cloud/local split in metrics yet — bar hidden
+      trend,
     };
   }, [data.metrics]);
+
+  // Task status breakdown for the distribution donut.
+  const taskBreakdown = React.useMemo(() => {
+    const all = data.tasks?.tasks || [];
+    const buckets = {
+      in_progress: { label: 'In progress', value: 0, color: '#5da2ff' },
+      todo: { label: 'To do', value: 0, color: '#6e7786' },
+      in_review: { label: 'In review', value: 0, color: '#ffbd66' },
+      done: { label: 'Done', value: 0, color: '#46d9a4' },
+      blocked: { label: 'Blocked', value: 0, color: '#ff6b7d' },
+      failed: { label: 'Failed', value: 0, color: '#ff6b7d' },
+    };
+    all.forEach((t) => {
+      const b = buckets[t.status] || buckets.todo;
+      b.value += 1;
+    });
+    const rows = Object.values(buckets).filter((b) => b.value > 0);
+    return { rows, total: all.length };
+  }, [data.tasks]);
 
   // Map /api/health + /api/stats to MonitoringWidget signals
   const monitoringSignals = React.useMemo(() => {
@@ -553,6 +584,15 @@ function DashboardScreen() {
         <ErrorBoundary onRetry={fetchAll} resetKey={String(states.tasks?.error || '')}>
           <TasksWidget
             tasks={openTasks}
+            loading={states.tasks?.loading}
+            error={states.tasks?.error}
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.tasks?.error || '')}>
+          <TaskDistributionWidget
+            breakdown={taskBreakdown.rows}
+            total={taskBreakdown.total}
             loading={states.tasks?.loading}
             error={states.tasks?.error}
             onRetry={fetchAll}

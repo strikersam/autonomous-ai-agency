@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup wizard for local-llm-server.
+Setup wizard for the Autonomous AI Agency.
 Scans local models, configures services, and starts the proxy.
 """
 
@@ -22,7 +22,7 @@ class LocalLLMSetup:
     def welcome(self):
         """Show welcome screen."""
         print("\n" + "="*60)
-        print("🚀 Local LLM Server Setup Wizard")
+        print("🚀 Autonomous AI Agency Setup Wizard")
         print("="*60)
         print("\nThis wizard will:")
         print("  1. Scan for local models")

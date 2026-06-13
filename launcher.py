@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local LLM Server Launcher - One-button service start with web UI.
+Autonomous AI Agency Launcher - One-button service start with web UI.
 Run this once, then access the UI at http://localhost:3000
 """
 
@@ -142,7 +142,7 @@ class ServiceManager:
 
 
 # FastAPI app
-app = FastAPI(title="Local LLM Server Launcher")
+app = FastAPI(title="Autonomous AI Agency Launcher")
 manager = ServiceManager()
 
 
@@ -153,7 +153,7 @@ HTML_UI = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local LLM Server Launcher</title>
+    <title>Autonomous AI Agency Launcher</title>
     <style>
         * {
             margin: 0;
@@ -401,7 +401,7 @@ HTML_UI = """
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 Local LLM Server</h1>
+            <h1>🚀 Autonomous AI Agency</h1>
             <p>One-click service launcher</p>
         </div>
 
@@ -626,7 +626,7 @@ if __name__ == "__main__":
     import uvicorn
 
     print("\n" + "="*60)
-    print("🚀 Local LLM Server Launcher")
+    print("🚀 Autonomous AI Agency Launcher")
     print("="*60)
     print("\n📱 Opening launcher UI at http://localhost:3000")
     print("   Click 'START ALL SERVICES' to begin\n")

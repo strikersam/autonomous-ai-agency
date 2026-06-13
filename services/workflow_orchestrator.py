@@ -442,6 +442,16 @@ class WorkflowRun:
     _request: Any = None
 
     def as_dict(self) -> dict[str, Any]:
+        def _dump(val):
+            """Safely serialize phase output — handles both Pydantic models and raw dicts."""
+            if val is None:
+                return None
+            if hasattr(val, 'model_dump'):
+                return val.model_dump()
+            if isinstance(val, dict):
+                return val
+            return str(val)
+
         return {
             "run_id": self.run_id,
             "started_at": self.started_at,
@@ -455,18 +465,19 @@ class WorkflowRun:
             "last_heartbeat": self.last_heartbeat,
             "retry_count": self.retry_count,
             "llm_provenance": self.llm_provenance,
-            "classify": self.classify.model_dump() if self.classify else None,
-            "plan": self.plan.model_dump() if self.plan else None,
-            "specialist": self.specialist.model_dump() if self.specialist else None,
-            "preflight": self.preflight.model_dump() if self.preflight else None,
-            "bound_context": self.bound_context.model_dump() if self.bound_context else None,
-            "execution": self.execution.model_dump() if self.execution else None,
-            "verification": self.verification.model_dump() if self.verification else None,
-            "judge": self.judge.model_dump() if self.judge else None,
-            "summary": self.summary.model_dump() if self.summary else None,
-            "persist": self.persist.model_dump() if self.persist else None,
-            "monitor": self.monitor.model_dump() if self.monitor else None,
+            "classify": _dump(self.classify),
+            "plan": _dump(self.plan),
+            "specialist": _dump(self.specialist),
+            "preflight": _dump(self.preflight),
+            "bound_context": _dump(self.bound_context),
+            "execution": _dump(self.execution),
+            "verification": _dump(self.verification),
+            "judge": _dump(self.judge),
+            "summary": _dump(self.summary),
+            "persist": _dump(self.persist),
+            "monitor": _dump(self.monitor),
             "error": self.error,
+            "_request": self._request.model_dump() if self._request and hasattr(self._request, 'model_dump') else None,
         }
 
 
@@ -526,10 +537,24 @@ class WorkflowOrchestrator:
             run.phase_attempts[phase.value] = attempt + 1
             try:
                 started = time.time()
-                await asyncio.wait_for(
-                    handler(run, req),
-                    timeout=_PHASE_TIMEOUT_SEC,
-                )
+                # Periodic heartbeat — update last_heartbeat every 30s while the
+                # phase runs so the supervisor knows it is not stalled (#522).
+                async def _heartbeat():
+                    while True:
+                        await asyncio.sleep(30)
+                        run.last_heartbeat = time.time()
+                heartbeat_task = asyncio.create_task(_heartbeat())
+                try:
+                    await asyncio.wait_for(
+                        handler(run, req),
+                        timeout=_PHASE_TIMEOUT_SEC,
+                    )
+                finally:
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
                 elapsed = time.time() - started
                 run.last_heartbeat = time.time()
                 log.debug(
@@ -646,7 +671,7 @@ class WorkflowOrchestrator:
                 # LLM-bearing phases (PLAN, EXECUTE, VERIFY, JUDGE) get the full
                 # timeout/retry treatment; lightweight phases (CLASSIFY, PERSIST)
                 # run directly.
-                _LLM_PHASES = {Phase.PLAN, Phase.EXECUTE, Phase.VERIFY, Phase.JUDGE}
+                _LLM_PHASES = {Phase.PLAN, Phase.BIND_CONTEXT, Phase.EXECUTE, Phase.VERIFY, Phase.JUDGE}
                 if phase in _LLM_PHASES:
                     await self._run_phase_with_timeout(run, req, phase, handler)
                 else:
@@ -747,6 +772,23 @@ class WorkflowOrchestrator:
                 run.retry_count = snapshot.get("retry_count", 0)
                 run.llm_provenance = snapshot.get("llm_provenance", {})
                 run.phase_attempts = snapshot.get("phase_attempts", {})
+                run.approved = snapshot.get("approved", False)
+                run.error = snapshot.get("error")
+                # Restore phase outputs so skip detection works on retry.
+                # Without this every resume re-runs all phases from scratch.
+                for _attr in ("classify","plan","specialist","preflight",
+                              "bound_context","execution","verification",
+                              "judge","summary","persist","monitor"):
+                    _val = snapshot.get(_attr)
+                    if _val is not None:
+                        setattr(run, _attr, _val)
+                # Restore _request so supervisor can requeue without losing the original task.
+                _req_dict = snapshot.get("_request")
+                if _req_dict and isinstance(_req_dict, dict):
+                    try:
+                        run._request = ExecutionRequest(**_req_dict)
+                    except Exception:
+                        pass
                 self._runs[run_id] = run
                 # Re-enqueue queued/pending runs so they resume execution.
                 if run.status in ("queued", "running", "pending") and run._request is not None:
@@ -789,6 +831,60 @@ class WorkflowOrchestrator:
 
     def get_run(self, run_id: str) -> WorkflowRun | None:
         return self._runs.get(run_id)
+
+    def cancel_run(self, run_id: str) -> bool:
+        """Cancel a run by removing it from memory entirely.
+
+        Marks the run as cancelled and clears _request BEFORE deleting from the
+        dict so the supervisor (which snapshots runs) cannot re-queue a stale
+        reference even if it processes the run concurrently.
+
+        Returns True if the run existed, False otherwise.
+        """
+        run = self._runs.get(run_id)
+        if run is None:
+            return False
+        run.status = "cancelled"
+        run._request = None
+        del self._runs[run_id]
+        log.info("WorkflowOrchestrator: run=%s CANCELLED (removed)", run_id)
+        return True
+
+    def cancel_runs_bulk(self, run_ids: list[str] | None = None, *, status: str | None = None) -> int:
+        """Cancel multiple runs at once.
+
+        If ``run_ids`` is provided, cancels those specific runs.
+        If ``status`` is provided, cancels all runs matching that status.
+        Returns the number of runs cancelled.
+
+        Each run is marked cancelled + _request cleared BEFORE dict deletion
+        so concurrent supervisor ticks cannot re-queue stale snapshots.
+        """
+        if run_ids:
+            to_cancel = [rid for rid in run_ids if rid in self._runs]
+            for rid in to_cancel:
+                r = self._runs[rid]
+                r.status = "cancelled"
+                r._request = None
+                del self._runs[rid]
+                log.info("WorkflowOrchestrator: run=%s CANCELLED (bulk)", rid)
+            return len(to_cancel)
+        if status:
+            to_cancel = [
+                rid for rid, r in self._runs.items()
+                if r.status == status
+            ]
+            for rid in to_cancel:
+                r = self._runs[rid]
+                r.status = "cancelled"
+                r._request = None
+                del self._runs[rid]
+                log.info(
+                    "WorkflowOrchestrator: run=%s CANCELLED (bulk, status=%s)",
+                    rid, status,
+                )
+            return len(to_cancel)
+        return 0
 
     def list_runs(
         self, limit: int = 50, *, owner_id: str | None = None
@@ -1052,20 +1148,24 @@ class WorkflowOrchestrator:
         skill_ids: list[str] = []
         memory_keys: list[str] = []
         company_graph: dict[str, Any] = {}
+        loop = asyncio.get_event_loop()
 
-        # Bind skills from Phase 1 SkillBindings.
-        # recommend_for_company requires BOTH system_types and specialist_families
-        # and returns a list of dicts (skill.as_dict() + score/reasons) — not
-        # RuntimeSkill objects.  Pass the classified domain as a system hint and
-        # the selected specialists' families so the recommender actually fires.
+        # Skill bindings — recommend_for_company is synchronous; run in executor
+        # so it cannot block the event loop and prevent asyncio.wait_for cancellation.
         try:
             from services.skill_bindings import get_skill_bindings
             sb = get_skill_bindings()
             classify = run.classify
             domain = classify.domain if classify else "general"
             families = list(run.specialist.families) if run.specialist else []
-            recommended = sb.recommend_for_company(
-                system_types=[domain], specialist_families=families
+            recommended = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: sb.recommend_for_company(
+                        system_types=[domain], specialist_families=families
+                    ),
+                ),
+                timeout=10.0,
             )
             skill_ids = [
                 r["skill_id"] for r in recommended
@@ -1083,18 +1183,23 @@ class WorkflowOrchestrator:
             try:
                 from services.company_graph_store import CompanyGraphStore
                 store = CompanyGraphStore()
-                company = await store.get_company(req.company_id)
+                company = await asyncio.wait_for(
+                    store.get_company(req.company_id), timeout=8.0
+                )
                 if company:
                     company_graph = company.model_dump() if hasattr(company, 'model_dump') else {}
             except Exception as exc:
                 log.debug("Company Graph load failed (non-fatal): %s", exc)
 
-        # Load user memory
+        # Load user memory — synchronous; run in executor
         if req.user_id:
             try:
                 from agent.user_memory import UserMemoryStore
                 mem_store = UserMemoryStore()
-                memories = mem_store.recall_all(req.user_id)
+                memories = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: mem_store.recall_all(req.user_id)),
+                    timeout=8.0,
+                )
                 memory_keys = list(memories.keys()) if memories else []
             except Exception:
                 pass

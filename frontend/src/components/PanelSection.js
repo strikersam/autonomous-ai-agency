@@ -5,7 +5,7 @@ export default function PanelSection() {
         <div className="cl-card w-full min-w-0 p-6">
           <div className="cl-header mb-6">
             <div className="cl-internal-x0fvpz">
-              <h1 className="cl-headerTitle text-2xl font-bold">Sign in to Agency Core v5.0</h1>
+              <h1 className="cl-headerTitle text-2xl font-bold">Sign in to the Autonomous AI Agency</h1>
               <p className="cl-headerSubtitle text-muted-foreground mt-2">
                 Welcome back! Please sign in to continue
               </p>
@@ -87,7 +87,7 @@ export default function PanelSection() {
             <div className="cl-footer mt-6 flex flex-col items-center">
               <div className="cl-footerAction cl-footerAction__signIn flex items-center gap-2 text-sm text-muted-foreground">
                 <span className="cl-footerActionText">Don't have an account?</span>
-                <a className="cl-footerActionLink underline" href="https://strikersam.github.io/local-llm-server/">Open LLM Relay</a>
+                <a className="cl-footerActionLink underline" href="https://strikersam.github.io/local-llm-server/">Open the Agency</a>
               </div>
               <div className="cl-internal-1dauvpw flex flex-col items-center mt-4">
                 <div className="cl-internal-dt53uo flex items-center gap-2">
