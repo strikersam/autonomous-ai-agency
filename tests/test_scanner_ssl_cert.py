@@ -126,7 +126,4 @@ def test_analyze_ssl_cert_maps_decoded_cert_to_systems(monkeypatch):
 
 class _RaisingCtx:
     check_hostname = True
-    verify_mode = None
-
-    def wrap_socket(self, sock, server_hostname=None):
-        raise OSError("verification failed (simulated)")
+    veri
