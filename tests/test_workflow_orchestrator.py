@@ -6,6 +6,7 @@ and SkillBindings integration.
 from __future__ import annotations
 
 import os
+import socket
 import pytest
 
 
@@ -233,9 +234,26 @@ class TestDeprecationWarnings:
             )
 
 
-# ── Test: Golden path execution (no LLM required) ─────────────────────────────
+# ── Test: Golden path execution (requires LLM backend) ──────────────────────
 
 
+def _ollama_reachable() -> bool:
+    """True when the LLM backend resolved by _resolve_brain_provider is reachable."""
+    ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+    host = ollama_base.replace("http://", "").replace("https://", "").split(":")[0]
+    try:
+        port = int(ollama_base.rsplit(":", 1)[-1].rstrip("/"))
+    except ValueError:
+        port = 11434
+    try:
+        s = socket.create_connection((host, port), timeout=2.0)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(not _ollama_reachable(), reason="LLM backend not reachable in CI")
 class TestGoldenPathExecution:
     """End-to-end execution through the golden path."""
 
@@ -391,6 +409,7 @@ class TestApprovalGate:
         assert run.verification is not None
         assert run.verification.passed is False
 
+    @pytest.mark.skipif(not _ollama_reachable(), reason="LLM backend not reachable in CI")
     async def test_approve_non_waiting_run_raises(self):
         from services.workflow_orchestrator import (
             ExecutionRequest,

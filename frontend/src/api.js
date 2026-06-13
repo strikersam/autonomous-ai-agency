@@ -390,7 +390,7 @@ export const listSpecialists = (id) => API.get(`/api/company/${id}/specialists`)
 export const provisionSpecialist = (id, data) => API.post(`/api/company/${id}/specialists`, data);
 export const matchSpecialists = (id, systems) => API.post(`/api/company/${id}/specialists/match`, systems);
 export const getOnboardingProgress = (id) => API.get(`/api/company/${id}/onboarding`);
-export const startOnboarding = (id, data) => API.post(`/api/company/${id}/onboarding/start`, data);
+export const startOnboarding = (id, data, config) => API.post(`/api/company/${id}/onboarding/start`, data, config);
 export const pauseOnboarding = (id) => API.post(`/api/company/${id}/onboarding/pause`);
 export const resumeOnboarding = (id) => API.post(`/api/company/${id}/onboarding/resume`);
 export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/cancel`);

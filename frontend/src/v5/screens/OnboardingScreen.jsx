@@ -586,30 +586,58 @@ function DoneStep({ onFinish, onRestart, onBack, companyId, companyName }) {
 
   React.useEffect(() => {
     if (!companyId) { setSpecialists([]); return; }
-    // Trigger specialist provisioning from scans already saved, then list results.
+
+    let settled = false;
+    const finish = (list, err) => {
+      if (settled) return;
+      settled = true;
+      setSpecialists(list);
+      if (err) setSpecsError(err);
+    };
+
+    // Load whatever specialists exist for the company. This is the single
+    // source of truth for the loading state — it runs regardless of whether
+    // provisioning succeeds, hangs, or errors, so the UI never sticks on
+    // "Loading specialists..." forever.
+    const loadSpecialists = (errPrefix) =>
+      api.listSpecialists(companyId)
+        .then(res => {
+          const list = Array.isArray(res?.data?.specialists) ? res.data.specialists : [];
+          finish(list.map(sp => ({
+            name: sp.name,
+            desc: sp.description || 'Specialist ready and active.',
+            icon: sp.icon || '🤖',
+          })), errPrefix || '');
+        })
+        .catch(e => {
+          finish([], (errPrefix ? errPrefix + ' ' : '') +
+            (api.fmtErr(e?.response?.data?.detail) || e?.message || 'Something went wrong.'));
+        });
+
+    // Hard safety net: if neither provisioning nor listing settle within
+    // 30s (e.g. the backend onboarding lock is held by a stuck scan), stop
+    // showing the spinner and surface a recoverable message.
+    const watchdog = setTimeout(() => {
+      finish([], 'Provisioning is taking longer than expected. Your specialists may still ' +
+        'be created in the background — check the Agent Roster shortly.');
+    }, 30000);
+
+    // Trigger specialist provisioning from scans already saved, then list
+    // results. Bound the provisioning request itself so a hung backend call
+    // cannot block the listing fallback.
     api.startOnboarding(companyId, {
       skip_website_scan: true,
       skip_repo_scan: true,
       auto_provision_specialists: true,
-    })
+    }, { timeout: 25000 })
+      .then(() => loadSpecialists())
       .catch((e) => {
-        setSpecsError('Specialist provisioning failed: ' + (e?.response?.data?.detail?.message || e?.message || 'Unknown error. Check that your LLM providers are reachable.'));
+        const prefix = 'Specialist provisioning reported an issue: ' +
+          (e?.response?.data?.detail?.message || e?.message || 'Unknown error. Check that your LLM providers are reachable.');
+        // Still try to list — provisioning may have partially succeeded.
+        loadSpecialists(prefix);
       })
-      .finally(() => {
-        api.listSpecialists(companyId)
-          .then(res => {
-            const list = Array.isArray(res?.data?.specialists) ? res.data.specialists : [];
-            setSpecialists(list.map(sp => ({
-              name: sp.name,
-              desc: sp.description || 'Specialist ready and active.',
-              icon: sp.icon || '🤖',
-            })));
-          })
-          .catch(e => {
-            setSpecialists([]);
-            setSpecsError((api.fmtErr(e?.response?.data?.detail) || e?.message || 'Something went wrong.'));
-          });
-      });
+      .finally(() => clearTimeout(watchdog));
   }, [companyId]);
 
   return (
