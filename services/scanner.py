@@ -923,7 +923,6 @@ class WebsiteScanner:
         if not cert:
             return systems
 
-        # Issuer organisation / common name.
         issuer_parts = []
         for rdn in cert.get('issuer', ()):  # tuple of tuples
             for k, v in rdn:
@@ -948,8 +947,6 @@ class WebsiteScanner:
                 add_sys(sid, stype, name, 0.85, 'SSL issuer', issuer)
                 break
 
-        # Subject Alternative Names — wildcard/secondary SANs frequently leak
-        # the underlying SaaS/CDN host the cert was minted for.
         san_map = [
             ('cloudflaressl.com', ('cloudflare', 'custom', 'Cloudflare')),
             ('sni.cloudflaressl', ('cloudflare', 'custom', 'Cloudflare')),
