@@ -86,6 +86,9 @@
 
 ## [Unreleased]
 
+### Added
+- **`GET /api/scheduler/tick/last` — Cloudflare cron keepalive monitoring endpoint.** Tracks `_last_cron_tick_at` (updated on each authenticated `POST /api/scheduler/tick` from the Cloudflare Worker). Public endpoint (no auth) returns last tick timestamp, seconds since last tick, staleness flag (>120s = stale), and human-readable message. Monitoring tools can poll this to confirm the Worker's `scheduled()` handler is successfully reaching Render.
+
 ### Fixed
 - **Anthropic brain calls now authenticated correctly.** The brain resolver used `Authorization: Bearer` for all provider types including `type=anthropic`, which requires `x-api-key` + `anthropic-version` headers. This caused silent 401s that appeared as stalled runs. Fixed with a type check in the resolver.
 

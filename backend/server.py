@@ -5666,6 +5666,9 @@ async def health():
     return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok}
 
 
+_last_cron_tick_at: Optional[datetime] = None
+
+
 @app.post("/api/scheduler/tick")
 async def scheduler_tick(request: Request):
     """Called by Cloudflare Cron every minute. Protected by CRON_SECRET header."""
@@ -5674,11 +5677,12 @@ async def scheduler_tick(request: Request):
     if cron_secret and incoming != cron_secret:
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="Invalid cron secret")
+    global _last_cron_tick_at
+    _last_cron_tick_at = datetime.now(timezone.utc)
     scheduler = get_scheduler()
     fired = []
     try:
         jobs = scheduler.list()
-        from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
         for job in jobs:
             next_run = getattr(job, "next_run_time", None)
@@ -5695,6 +5699,51 @@ async def scheduler_tick(request: Request):
     except Exception as exc:
         log.error("scheduler_tick error: %s", exc)
     return {"ok": True, "fired": fired, "total_jobs": len(scheduler.list())}
+
+
+
+class SchedulerTickLastResponse(BaseModel):
+    """Public keepalive-monitoring response for GET /api/scheduler/tick/last.
+
+    Intentionally public — no auth required.  Monitoring tools and the
+    Cloudflare Worker itself call this endpoint to confirm the cron
+    ``scheduled()`` handler is successfully reaching the Render backend.
+    """
+    last_tick_at: Optional[str] = Field(default=None, description="ISO 8601 timestamp of last tick, or null")
+    seconds_since_last_tick: Optional[float] = Field(default=None, description="Elapsed seconds since last tick, or null")
+    stale: bool = Field(default=True, description="True when >120s since last tick")
+    message: str = Field(default="No tick received yet since server start", description="Human-readable status")
+
+
+@app.get("/api/scheduler/tick/last", response_model=SchedulerTickLastResponse)
+async def scheduler_tick_last() -> SchedulerTickLastResponse:
+    """Return the last Cloudflare Cron tick timestamp for keepalive monitoring.
+
+    Public — no auth required. Monitoring tools and the Cloudflare Worker itself
+    can call this to confirm the cron is successfully reaching the backend.
+    Returns nulls when the server has just started and no tick has arrived yet.
+    """
+    tick_at = _last_cron_tick_at
+    if tick_at is None:
+        return SchedulerTickLastResponse(
+            last_tick_at=None,
+            seconds_since_last_tick=None,
+            stale=True,
+            message="No tick received yet since server start",
+        )
+    now = datetime.now(timezone.utc)
+    delta = (now - tick_at).total_seconds()
+    stale = delta > 120
+    return SchedulerTickLastResponse(
+        last_tick_at=tick_at.isoformat(),
+        seconds_since_last_tick=round(delta, 1),
+        stale=stale,
+        message=(
+            "Keepalive is healthy" if not stale
+            else f"No tick received in {round(delta)}s — keepalive may be down"
+        ),
+    )
+
 
     active = await get_active_provider()
     active_type = str((active or {}).get("type", "ollama")).lower()
