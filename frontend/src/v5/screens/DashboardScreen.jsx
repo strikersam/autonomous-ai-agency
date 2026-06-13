@@ -2,7 +2,7 @@
 import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
 import { ErrorBoundary } from '../components/ErrorBoundary';
-import { Donut, BarChart, Sparkline } from '../components/Charts';
+import { Donut, Sparkline } from '../components/Charts';
 
 // dashboard.jsx — Resilient Dashboard wired to the real backend
 // Each widget fetches independently via useSafeData (Promise.allSettled) so a
