@@ -327,6 +327,7 @@ SYSTEM = textwrap.dedent("""
     - Never create backup files (proxy_original.py, any_file_backup.py, etc.).
     - Never hardcode secrets.
     - If the feature is already implemented, signal IMPLEMENTATION_COMPLETE immediately without changing any files.
+    - DRAFT PR AWARENESS: if you discover the existing PR for this issue is in **draft** state, treat it as "yet to be implemented" -- do NOT signal IMPLEMENTATION_COMPLETE on a draft PR. The PR is a planning doc that needs real code commits. Only signal completion when pytest passes AND the code changes you made are committed to the branch AND the PR will be ready for review after this run.
 """).strip()
 
 
