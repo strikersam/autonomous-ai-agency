@@ -97,3 +97,9 @@ render-env-vars.txt
 
 # Local credentials / memory files — never commit credentials
 memory/test_credentials.md
+
+# Ephemeral audit / triage artifacts — do not commit
+bandit-report.json
+gucci-audit/
+triage-sweep-*.bundle
+triage-sweep-*.patch
