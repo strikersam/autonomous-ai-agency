@@ -392,6 +392,7 @@ class WorkflowRun:
             "persist": self.persist.model_dump() if self.persist else None,
             "monitor": self.monitor.model_dump() if self.monitor else None,
             "error": self.error,
+            "_request": self._request.model_dump() if self._request and hasattr(self._request, 'model_dump') else None,
         }
 
 
@@ -686,6 +687,23 @@ class WorkflowOrchestrator:
                 run.retry_count = snapshot.get("retry_count", 0)
                 run.llm_provenance = snapshot.get("llm_provenance", {})
                 run.phase_attempts = snapshot.get("phase_attempts", {})
+                run.approved = snapshot.get("approved", False)
+                run.error = snapshot.get("error")
+                # Restore phase outputs so skip detection works on retry.
+                # Without this every resume re-runs all phases from scratch.
+                for _attr in ("classify","plan","specialist","preflight",
+                              "bound_context","execution","verification",
+                              "judge","summary","persist","monitor"):
+                    _val = snapshot.get(_attr)
+                    if _val is not None:
+                        setattr(run, _attr, _val)
+                # Restore _request so supervisor can requeue without losing the original task.
+                _req_dict = snapshot.get("_request")
+                if _req_dict and isinstance(_req_dict, dict):
+                    try:
+                        run._request = ExecutionRequest(**_req_dict)
+                    except Exception:
+                        pass
                 self._runs[run_id] = run
                 # Re-enqueue queued/pending runs so they resume execution.
                 if run.status in ("queued", "running", "pending") and run._request is not None:
@@ -991,20 +1009,24 @@ class WorkflowOrchestrator:
         skill_ids: list[str] = []
         memory_keys: list[str] = []
         company_graph: dict[str, Any] = {}
+        loop = asyncio.get_event_loop()
 
-        # Bind skills from Phase 1 SkillBindings.
-        # recommend_for_company requires BOTH system_types and specialist_families
-        # and returns a list of dicts (skill.as_dict() + score/reasons) — not
-        # RuntimeSkill objects.  Pass the classified domain as a system hint and
-        # the selected specialists' families so the recommender actually fires.
+        # Skill bindings — recommend_for_company is synchronous; run in executor
+        # so it cannot block the event loop and prevent asyncio.wait_for cancellation.
         try:
             from services.skill_bindings import get_skill_bindings
             sb = get_skill_bindings()
             classify = run.classify
             domain = classify.domain if classify else "general"
             families = list(run.specialist.families) if run.specialist else []
-            recommended = sb.recommend_for_company(
-                system_types=[domain], specialist_families=families
+            recommended = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: sb.recommend_for_company(
+                        system_types=[domain], specialist_families=families
+                    ),
+                ),
+                timeout=10.0,
             )
             skill_ids = [
                 r["skill_id"] for r in recommended
@@ -1022,18 +1044,23 @@ class WorkflowOrchestrator:
             try:
                 from services.company_graph_store import CompanyGraphStore
                 store = CompanyGraphStore()
-                company = await store.get_company(req.company_id)
+                company = await asyncio.wait_for(
+                    store.get_company(req.company_id), timeout=8.0
+                )
                 if company:
                     company_graph = company.model_dump() if hasattr(company, 'model_dump') else {}
             except Exception as exc:
                 log.debug("Company Graph load failed (non-fatal): %s", exc)
 
-        # Load user memory
+        # Load user memory — synchronous; run in executor
         if req.user_id:
             try:
                 from agent.user_memory import UserMemoryStore
                 mem_store = UserMemoryStore()
-                memories = mem_store.recall_all(req.user_id)
+                memories = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: mem_store.recall_all(req.user_id)),
+                    timeout=8.0,
+                )
                 memory_keys = list(memories.keys()) if memories else []
             except Exception:
                 pass

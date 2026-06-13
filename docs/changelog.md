@@ -86,6 +86,12 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
+
+### Fixed
+- **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
+
 ### Added
 - **`GET /api/scheduler/tick/last` — Cloudflare cron keepalive monitoring endpoint.** Tracks `_last_cron_tick_at` (updated on each authenticated `POST /api/scheduler/tick` from the Cloudflare Worker). Public endpoint (no auth) returns last tick timestamp, seconds since last tick, staleness flag (>120s = stale), and human-readable message. Monitoring tools can poll this to confirm the Worker's `scheduled()` handler is successfully reaching Render.
 
@@ -1652,3 +1658,12 @@
 
 
 
+
+- **Parameterised SEO audit skill + runner script.**
+  `scripts/run_seo_audit.py` — standalone CLI that accepts `--website-url`, `--max-pages`,
+  `--max-depth`, `--output-dir`, `--timeout-seconds`, and `--monthly-organic-revenue` parameters;
+  crawls any public site using curl_cffi Chrome-120 TLS impersonation (bypasses Akamai/Cloudflare);
+  writes executive PDF (reportlab), JSON, Markdown, findings CSV, pages CSV, and issues CSV.
+  `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
+  quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
+  revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).
