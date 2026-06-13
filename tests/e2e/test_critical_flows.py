@@ -146,6 +146,8 @@ def test_login_flow():
         browser = p.chromium.launch(headless=True)
         ctx = browser.new_context(viewport=DESKTOP, ignore_https_errors=True)
         page = ctx.new_page()
+        console_errors: list[str] = []
+        page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
         try:
             logged_in = _do_login(page, BASE_URL)
             assert logged_in, f"Still on a login URL after submitting: {page.url}"
@@ -153,6 +155,9 @@ def test_login_flow():
             body = page.locator("body").inner_text().lower()
             assert any(k in body for k in ("dashboard", "tasks", "agents", "chat", "agency")), \
                 "Authenticated shell did not render expected navigation"
+            # Ignore benign network-abort console noise; fail only on real JS errors.
+            fatal = [e for e in console_errors if "Failed to load resource" not in e and "net::" not in e]
+            assert len(fatal) == 0, f"Login screen logged JS errors: {fatal[:3]}"
         finally:
             ctx.close()
             browser.close()
@@ -169,6 +174,8 @@ def test_company_onboarding_scan_flow():
         browser = p.chromium.launch(headless=True)
         ctx = browser.new_context(viewport=DESKTOP, ignore_https_errors=True)
         page = ctx.new_page()
+        console_errors: list[str] = []
+        page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
         try:
             assert _do_login(page, BASE_URL), "login failed"
             page.goto(f"{BASE_URL}/onboarding", wait_until="domcontentloaded", timeout=20000)
@@ -224,6 +231,9 @@ def test_company_onboarding_scan_flow():
                 assert any(k in body for k in (
                     "scanning", "in progress", "started", "loading", "kickoff",
                 )), "Scan kickoff produced no /onboarding/start POST and no success UI"
+            # Ignore benign network-abort console noise; fail only on real JS errors.
+            fatal = [e for e in console_errors if "Failed to load resource" not in e and "net::" not in e]
+            assert len(fatal) == 0, f"Onboarding screen logged JS errors: {fatal[:3]}"
         finally:
             ctx.close()
             browser.close()
