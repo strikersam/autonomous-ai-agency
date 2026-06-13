@@ -64,7 +64,7 @@ echo "Starting $SERVICE_NAME (this may take a few minutes on first run)…"
 systemctl start "$SERVICE_NAME"
 
 echo ""
-echo "✓ LLM Relay auto-start installed and running"
+echo "✓ Autonomous AI Agency auto-start installed and running"
 echo ""
 echo "  Status:  systemctl status $SERVICE_NAME"
 echo "  Logs:    journalctl -u $SERVICE_NAME -f"

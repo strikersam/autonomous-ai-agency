@@ -228,7 +228,7 @@ class ServiceDaemon:
 
 
 # === FastAPI App ===
-app = FastAPI(title="Local LLM Server Daemon")
+app = FastAPI(title="Autonomous AI Agency Daemon")
 daemon = ServiceDaemon()
 
 # Enable CORS for GitHub Pages origin and localhost
@@ -350,7 +350,7 @@ async def stop_tunnel():
 
 if __name__ == "__main__":
     print("\n" + "="*70)
-    print("🚀 Local LLM Server Service Daemon")
+    print("🚀 Autonomous AI Agency Service Daemon")
     print("="*70)
     print("\n📱 Daemon listening on http://localhost:3001")
     print("   GitHub Pages UI can now control your services")
