@@ -1073,7 +1073,11 @@ class WorkflowOrchestrator:
                         continue
                     if not base.endswith("/v1"):
                         base = f"{base}/v1"
-                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                    # Anthropic native API uses x-api-key, not Bearer token.
+                    if rtype == "anthropic":
+                        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+                    else:
+                        headers = {"Authorization": f"Bearer {key}"} if key else None
                     model = str(rec.get("default_model") or "").strip() or None
                     log.info(
                         "Brain provider resolved from provider setup: %s base=%s model=%s",
