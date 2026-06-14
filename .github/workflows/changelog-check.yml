@@ -40,7 +40,7 @@ jobs:
 
           # Check if CHANGELOG.md was modified in this PR
 
-          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep 'docs/changelog\.md' || true)
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep 'CHANGELOG\.md' || true)
 
           if [ -z "$CHANGED" ]; then
             echo "::error::CHANGELOG.md was not updated in this PR."
