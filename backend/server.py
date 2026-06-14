@@ -5566,6 +5566,7 @@ async def observability_dashboard(user: dict = Depends(get_current_user)):
     return {"url": langfuse_base, "configured": bool(langfuse_pk)}
 
 
+
 @app.get("/api/observability/metrics")
 async def observability_metrics(user: dict = Depends(get_current_user)):
     """Fetch basic usage metrics from the local_metrics collection."""
@@ -5587,6 +5588,8 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
         },
     ]
     cursor = get_db().local_metrics.aggregate(pipeline)
+    if asyncio.iscoroutine(cursor):
+        cursor = await cursor
     agg = await cursor.to_list(length=1)
     summary = (
         agg[0]
@@ -5606,6 +5609,11 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
 
 
 
+
+@app.get("/api/metrics")
+async def dashboard_metrics(user: dict = Depends(get_current_user)):
+    """Alias for /api/observability/metrics — the dashboard calls this shorter path."""
+    return await observability_metrics(user=user)
 
 @app.get("/api/observability/traces")
 async def observability_traces(
@@ -7328,23 +7336,11 @@ if _FRONTEND_BUILD.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
         index = _FRONTEND_BUILD / "index.html"
         if index.exists():
             return HTMLResponse(index.read_text())
         return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
-
-_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
-
-if _FRONTEND_BUILD.exists():
-    app.mount(
-        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
