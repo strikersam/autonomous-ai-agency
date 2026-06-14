@@ -56,7 +56,7 @@ def test_scanner_file_has_no_bare_systems_at_end():
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def test_brain_skips_paid_when_free_configured(monkeypatch):
@@ -239,4 +239,4 @@ def test_onboarding_imports_cleanly():
     """
     sys.modules.pop("services.onboarding", None)
     import services.onboarding  # noqa: F401
-    assert hasattr(services.onboarding, "OnboardingService") or True
+    # Import succeeded — that is the actual regression assertion.
