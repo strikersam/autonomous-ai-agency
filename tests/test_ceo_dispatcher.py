@@ -205,33 +205,49 @@ class _FakeSwarm:
         return MagicMock(workers=workers)
 
 
-def _patch_ceo_with_fake_swarm(fake: _FakeSwarm):
+class _FakeRoutingDecision:
+    def __init__(self, runtime_id: str) -> None:
+        self.selected_runtime_id = runtime_id
+
+
+class _FakeTaskResult:
+    def __init__(self, success: bool = True, output: str = "", error: str | None = None) -> None:
+        self.success = success
+        self.output = output
+        self.error = error
+
+
+class _FakeRuntimeManager:
+    """Mimics RuntimeManager.execute() returning (TaskResult, RoutingDecision)."""
+
+    def __init__(self, *, raise_on_execute: Exception | None = None,
+                 per_runtime_output: dict[str, str] | None = None) -> None:
+        self.execute_calls: list[Any] = []
+        self._raise = raise_on_execute
+        self._per_runtime = per_runtime_output or {}
+        self._started = True
+
+    async def execute(self, spec):
+        self.execute_calls.append(spec)
+        if self._raise:
+            raise self._raise
+        pref = getattr(spec, "provider_preference", None) or "internal_agent"
+        output = self._per_runtime.get(pref, f"done via {pref}: {spec.task_id}")
+        return _FakeTaskResult(success=True, output=output), _FakeRoutingDecision(pref)
+
+
+def _patch_ceo_with_fake_runtime_manager(fake: _FakeRuntimeManager):
     """Patch the internals the CEO touches, returning a stack of mocks."""
     return [
-        patch("services.ceo_dispatcher._spec_to_task_spec",
-              side_effect=lambda st: MagicMock(
-                  task_id=st.task_id, instruction=st.instruction,
-                  task_type=st.role, dependencies=st.dependencies,
-                  model=st.model, max_steps=st.max_steps,
-              )),
-        patch("agent.coordinator.MultiAgentSwarm", return_value=fake),
+        patch("runtimes.manager.get_runtime_manager", return_value=fake),
     ]
 
 
 @pytest.mark.asyncio
 async def test_delegate_low_complexity_single_specialist(monkeypatch):
     """Low complexity should NOT fan out — just one specialist task."""
-    fake = _FakeSwarm()
-    monkeypatch.setattr("services.workflow_orchestrator._BYPASS",
-                        __import__("contextvars").ContextVar("bypass", default=False))
-
-    with patch("agent.coordinator.MultiAgentSwarm", return_value=fake), \
-         patch("services.ceo_dispatcher._spec_to_task_spec",
-               side_effect=lambda st: MagicMock(
-                   task_id=st.task_id, instruction=st.instruction,
-                   task_type=st.role, dependencies=st.dependencies,
-                   model=st.model, max_steps=st.max_steps,
-               )):
+    fake = _FakeRuntimeManager()
+    with patch("runtimes.manager.get_runtime_manager", return_value=fake):
         ceo = CEODispatcher()
         result = await ceo.delegate("Quick lint fix", complexity="low")
 
@@ -239,60 +255,53 @@ async def test_delegate_low_complexity_single_specialist(monkeypatch):
     assert len(result.specialists) == 1
     assert result.specialists[0]["status"] == "ok"
     assert result.verdict == "OK"
+    # RuntimeManager.execute was called once (one specialist)
+    assert len(fake.execute_calls) == 1
 
 
 @pytest.mark.asyncio
 async def test_delegate_medium_complexity_fans_out(monkeypatch):
-    """Medium complexity should fan out (scout + dev with dependency)."""
-    fake = _FakeSwarm()
-    monkeypatch.setattr(
-        "services.workflow_orchestrator._BYPASS",
-        __import__("contextvars").ContextVar("bypass", default=False),
-    )
+    """Medium complexity should fan out to 2 specialists via RuntimeManager.
 
-    with patch("agent.coordinator.MultiAgentSwarm", return_value=fake), \
-         patch("services.ceo_dispatcher._spec_to_task_spec",
-               side_effect=lambda st: MagicMock(
-                   task_id=st.task_id, instruction=st.instruction,
-                   task_type=st.role, dependencies=st.dependencies,
-                   model=st.model, max_steps=st.max_steps,
-               )):
+    Verifies the actual runtime distribution: each sub-task is routed to its
+    ROLE_RUNTIME_PREFERENCE runtime (scout→internal_agent, dev→claude_code).
+    """
+    fake = _FakeRuntimeManager(
+        per_runtime_output={
+            "internal_agent": "scout analysis done",
+            "claude_code": "dev implementation done",
+        }
+    )
+    with patch("runtimes.manager.get_runtime_manager", return_value=fake):
         ceo = CEODispatcher()
         result = await ceo.delegate(
             "Refactor the auth layer", complexity="medium",
         )
 
     assert result.fanout_used is True
-    # Two sub-tasks: scout and dev
     assert len(result.specialists) == 2
     roles = {s["role"] for s in result.specialists}
     assert "scout" in roles
     assert "dev" in roles
-    # The fake swarm recorded a single run() call with both tasks
-    assert len(fake.run_calls) == 1
-    assert len(fake.run_calls[0]["tasks"]) == 2
-    # The dev task has the scout as a dependency
-    dev_task = next(t for t in fake.run_calls[0]["tasks"] if t.task_type == "dev")
-    scout_task_id = next(t.task_id for t in fake.run_calls[0]["tasks"] if t.task_type == "scout")
-    assert scout_task_id in dev_task.dependencies
+    # CRITICAL: each sub-task was routed to its preferred runtime, not just
+    # the same ollama_base. This is the fix for the "fan-out doesn't actually
+    # use different runtimes" ship-blocker.
+    runtimes_used = {s["runtime_id"] for s in result.specialists}
+    assert "internal_agent" in runtimes_used  # scout's preferred runtime
+    assert "claude_code" in runtimes_used     # dev's preferred runtime
+    # RuntimeManager.execute was called twice (once per sub-task)
+    assert len(fake.execute_calls) == 2
+    # Each call carried the right provider_preference
+    prefs = [getattr(c, "provider_preference", None) for c in fake.execute_calls]
+    assert "internal_agent" in prefs
+    assert "claude_code" in prefs
 
 
 @pytest.mark.asyncio
 async def test_delegate_high_complexity_fans_out(monkeypatch):
     """High complexity should also fan out (same as medium, but explicit)."""
-    fake = _FakeSwarm()
-    monkeypatch.setattr(
-        "services.workflow_orchestrator._BYPASS",
-        __import__("contextvars").ContextVar("bypass", default=False),
-    )
-
-    with patch("agent.coordinator.MultiAgentSwarm", return_value=fake), \
-         patch("services.ceo_dispatcher._spec_to_task_spec",
-               side_effect=lambda st: MagicMock(
-                   task_id=st.task_id, instruction=st.instruction,
-                   task_type=st.role, dependencies=st.dependencies,
-                   model=st.model, max_steps=st.max_steps,
-               )):
+    fake = _FakeRuntimeManager()
+    with patch("runtimes.manager.get_runtime_manager", return_value=fake):
         ceo = CEODispatcher()
         result = await ceo.delegate("Big migration", complexity="high")
 
@@ -301,16 +310,17 @@ async def test_delegate_high_complexity_fans_out(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_delegate_handles_swarm_failure(monkeypatch):
-    """If the swarm raises, the CEO records the failure rather than crashing."""
-    fake = _FakeSwarm()
-    fake._raise = RuntimeError("LLM backend down")
+async def test_delegate_uses_swarm_fallback_when_runtime_manager_unavailable(monkeypatch):
+    """If RuntimeManager is unavailable, fall back to MultiAgentSwarm (best effort)."""
+    fake_swarm = _FakeSwarm()
     monkeypatch.setattr(
         "services.workflow_orchestrator._BYPASS",
         __import__("contextvars").ContextVar("bypass", default=False),
     )
 
-    with patch("agent.coordinator.MultiAgentSwarm", return_value=fake), \
+    with patch("runtimes.manager.get_runtime_manager",
+               side_effect=ImportError("not installed")), \
+         patch("agent.coordinator.MultiAgentSwarm", return_value=fake_swarm), \
          patch("services.ceo_dispatcher._spec_to_task_spec",
                side_effect=lambda st: MagicMock(
                    task_id=st.task_id, instruction=st.instruction,
@@ -318,8 +328,44 @@ async def test_delegate_handles_swarm_failure(monkeypatch):
                    model=st.model, max_steps=st.max_steps,
                )):
         ceo = CEODispatcher()
-        with pytest.raises(RuntimeError, match="LLM backend down"):
-            await ceo.delegate("Anything", complexity="high")
+        result = await ceo.delegate("Anything", complexity="high")
+
+    assert result.fanout_used is True
+    assert len(result.specialists) == 2
+    assert result.verdict == "OK"
+    # Swarm fallback was used
+    assert len(fake_swarm.run_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_delegate_propagates_runtime_errors():
+    """If a RuntimeManager.execute() call fails for a task, that task is
+    marked as error (the others continue). Verdict reflects partial success."""
+    from runtimes.base import TaskSpec as RT_TaskSpec
+
+    class _PartialFailMgr:
+        def __init__(self):
+            self._started = True
+            self._call_count = 0
+
+        async def execute(self, spec):
+            self._call_count += 1
+            # First call (scout) succeeds, second call (dev) fails
+            if self._call_count == 1:
+                return _FakeTaskResult(success=True, output="scout ok"), _FakeRoutingDecision("internal_agent")
+            raise RuntimeError("dev runtime down")
+
+    fake = _PartialFailMgr()
+    with patch("runtimes.manager.get_runtime_manager", return_value=fake):
+        ceo = CEODispatcher()
+        result = await ceo.delegate("Complex task", complexity="medium")
+
+    assert result.fanout_used is True
+    # PARTIAL: one succeeded, one failed
+    assert result.verdict == "PARTIAL"
+    statuses = {s["status"] for s in result.specialists}
+    assert "ok" in statuses
+    assert "error" in statuses
 
 
 @pytest.mark.asyncio
@@ -335,23 +381,28 @@ async def test_wake_sleeping_runtimes_handles_missing_manager():
 
 
 @pytest.mark.asyncio
-async def test_wake_sleeping_runtimes_returns_available_ids(monkeypatch):
-    """Available runtimes are reported as woken."""
+async def test_wake_sleeping_runtimes_uses_parallel_wake(monkeypatch):
+    """Available runtimes are reported as woken via parallel wake_all."""
     fake_mgr = MagicMock()
     fake_mgr._started = True
-    fake_mgr.list_runtimes.return_value = [
-        {"runtime_id": "internal_agent", "available": True},
-        {"runtime_id": "hermes", "available": False},
-    ]
-    async def _get_health(rid):
-        return {"available": rid == "internal_agent"}
-    fake_mgr.get_runtime_health = AsyncMock(side_effect=_get_health)
+
+    async def _wake_all():
+        return {
+            "woken": ["internal_agent", "hermes"],
+            "still_sleeping": ["goose"],
+            "woken_count": 2,
+            "still_sleeping_count": 1,
+            "details": {},
+        }
+    fake_mgr.wake_all_sleeping_runtimes = AsyncMock(side_effect=_wake_all)
     monkeypatch.setattr("runtimes.manager.get_runtime_manager", lambda: fake_mgr)
 
     ceo = CEODispatcher()
     woken = await ceo.wake_sleeping_runtimes()
     assert "internal_agent" in woken
-    assert "hermes" not in woken  # still sleeping
+    assert "hermes" in woken
+    # Parallel wake was used (not serial per-runtime loops)
+    assert fake_mgr.wake_all_sleeping_runtimes.called
 
 
 # ── WorkflowOrchestrator integration tests ────────────────────────────────────
@@ -384,7 +435,11 @@ def test_execution_request_worktree_path_excluded_from_dump():
 
 @pytest.mark.asyncio
 async def test_handle_execute_routes_medium_complexity_to_ceo(monkeypatch):
-    """Medium complexity triggers CEO delegation, not single AgentRunner."""
+    """Medium complexity triggers CEO delegation, not single AgentRunner.
+
+    Verifies the verdict-based fallback path: when the CEO returns OK,
+    the execution is populated from the CEO result and AgentRunner is NOT called.
+    """
     from services.workflow_orchestrator import ClassifyOutput, PlanOutput, SpecialistSelection
 
     # Patch the CEO dispatcher to a mock that records the call
@@ -476,8 +531,59 @@ async def test_handle_execute_routes_low_complexity_to_agent_runner(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_handle_execute_falls_back_when_ceo_fails(monkeypatch):
-    """If CEO delegation raises, fall through to single AgentRunner path."""
+async def test_handle_execute_falls_back_on_ceo_failed_verdict(monkeypatch):
+    """If CEO delegation returns verdict=FAILED, fall through to single AgentRunner
+    (since MultiAgentSwarm/RuntimeManager swallows per-task errors as payloads)."""
+    from services.workflow_orchestrator import ClassifyOutput, PlanOutput, SpecialistSelection
+
+    # CEO returns FAILED verdict (all specialists errored)
+    fake_ceo = MagicMock()
+    fake_ceo.delegate = AsyncMock(return_value=CEOResult(
+        goal="test",
+        specialists=[
+            {"task_id": "t1", "role": "scout", "runtime_id": "x", "status": "error", "error": "boom"},
+            {"task_id": "t2", "role": "dev", "runtime_id": "x", "status": "error", "error": "boom"},
+        ],
+        summary="CEO[fan-out]: 0/2",
+        total_duration_s=0.1,
+        complexity="medium",
+        fanout_used=True,
+        runtimes_woken=[],
+        verdict="FAILED",
+    ))
+    monkeypatch.setattr(
+        "services.workflow_orchestrator._get_ceo_dispatcher",
+        lambda: fake_ceo,
+    )
+
+    # AgentRunner returns a stub (fallback path)
+    fake_runner_instance = MagicMock()
+    fake_runner_instance.run = AsyncMock(return_value={
+        "summary": "fallback ok", "steps": [{"changed_files": ["b.py"]}],
+    })
+    monkeypatch.setattr("agent.loop.AgentRunner", lambda **kw: fake_runner_instance)
+
+    orch = WorkflowOrchestrator()
+    run = WorkflowRun()
+    run.classify = ClassifyOutput(domain="testing", task_type="bug_fix", complexity="medium")
+    run.plan = PlanOutput(goal="Fix the bug", steps=[])
+    run.specialist = SpecialistSelection()
+    req = ExecutionRequest(request="Fix the bug")
+
+    from services.workflow_orchestrator import ExecutionResult
+    await orch._handle_execute(run, req)
+
+    # CEO was called (verdict=FALLBACK)
+    assert fake_ceo.delegate.called
+    # AgentRunner WAS called (fallback engaged on FAILED verdict)
+    assert fake_runner_instance.run.called
+    assert isinstance(run.execution, ExecutionResult)
+    assert "b.py" in run.execution.changed_files
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_falls_back_when_ceo_raises(monkeypatch):
+    """If CEO delegation raises (availability error), fall through to AgentRunner."""
     from services.workflow_orchestrator import ClassifyOutput, PlanOutput, SpecialistSelection
 
     # CEO raises
@@ -594,23 +700,17 @@ def test_runtime_manager_is_available_for_routing():
 
 
 @pytest.mark.asyncio
-async def test_end_to_end_ceo_delegation(monkeypatch, tmp_path):
-    """Real CEODispatcher delegates to a real (patched) swarm and merges results."""
-    monkeypatch.setattr(
-        "services.workflow_orchestrator._BYPASS",
-        __import__("contextvars").ContextVar("bypass", default=False),
-    )
+async def test_end_to_end_ceo_delegation_via_runtime_manager(monkeypatch, tmp_path):
+    """Real CEODispatcher delegates to RuntimeManager.execute() per sub-task
+    and verifies the actual runtime distribution happens."""
     monkeypatch.setenv("OLLAMA_BASE", "http://localhost:11434")
-
-    # Build a fake swarm whose run() returns 2 worker results
-    fake = _FakeSwarm()
-    with patch("agent.coordinator.MultiAgentSwarm", return_value=fake), \
-         patch("services.ceo_dispatcher._spec_to_task_spec",
-               side_effect=lambda st: MagicMock(
-                   task_id=st.task_id, instruction=st.instruction,
-                   task_type=st.role, dependencies=st.dependencies,
-                   model=st.model, max_steps=st.max_steps,
-               )):
+    fake = _FakeRuntimeManager(
+        per_runtime_output={
+            "internal_agent": "scout: found 3 files",
+            "claude_code": "dev: implemented 3 fixes",
+        }
+    )
+    with patch("runtimes.manager.get_runtime_manager", return_value=fake):
         ceo = CEODispatcher()
         result = await ceo.delegate(
             "Refactor the API",
@@ -627,3 +727,10 @@ async def test_end_to_end_ceo_delegation(monkeypatch, tmp_path):
     assert statuses == {"ok"}
     # Summary mentions fan-out
     assert "fan-out" in result.summary
+    # CRITICAL: actual runtime distribution happened (not all on one ollama_base)
+    runtimes_used = [s["runtime_id"] for s in result.specialists]
+    assert "internal_agent" in runtimes_used
+    assert "claude_code" in runtimes_used
+    # Dependencies respected: dev got scout's summary in its instruction
+    dev_call = next(c for c in fake.execute_calls if getattr(c, "provider_preference", "") == "claude_code")
+    assert "scout" in dev_call.instruction.lower() or "found 3 files" in dev_call.instruction
