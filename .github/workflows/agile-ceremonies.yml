@@ -1,0 +1,60 @@
+name: Agile Ceremonies
+
+# Autonomous agile ceremonies: a daily standup digest, a weekly backlog
+# retrospective, and a weekly WSJF-allocated sprint plan, written to the job
+# summary so the team can review without a dashboard.
+
+on:
+  schedule:
+    - cron: '0 8 * * 1-5'   # weekday standup, 08:00 UTC
+    - cron: '0 17 * * 5'    # Friday backlog retro, 17:00 UTC
+    - cron: '0 7 * * 1'     # Monday sprint planning, 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      ceremony:
+        description: 'Ceremony to run'
+        required: false
+        type: choice
+        options: ['standup', 'retro', 'plan']
+        default: 'standup'
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: agile-ceremonies
+  cancel-in-progress: true
+
+jobs:
+  ceremony:
+    name: Run scheduled ceremony
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install minimal deps
+        run: pip install httpx --quiet
+
+      - name: Determine ceremony
+        id: ceremony
+        run: |
+          case "${{ github.event.schedule }}" in
+            '0 8 * * 1-5') echo "name=standup" >> "$GITHUB_OUTPUT" ;;
+            '0 17 * * 5') echo "name=retro" >> "$GITHUB_OUTPUT" ;;
+            '0 7 * * 1') echo "name=plan" >> "$GITHUB_OUTPUT" ;;
+            *) echo "name=${{ github.event.inputs.ceremony || 'standup' }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Run ceremony
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PORTFOLIO_REPO: ${{ github.repository }}
+        run: python3 .github/scripts/agile_ceremonies.py ${{ steps.ceremony.outputs.name }}

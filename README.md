@@ -115,7 +115,7 @@ With Agency Core:
 1. **Paste your website URL.** `https://acme-store.com`
 2. **Agency Core scans it.** Playwright + HTTP fingerprinting detects your tech stack, business systems, and integrations (Shopify, Stripe, Google Analytics, GitHub, Intercom, Salesforce, …).
 3. **It asks you the right questions.** AI-generated onboarding questions based on what it found — not generic forms.
-4. **Specialists are auto-provisioned.** A fleet of agents is assembled from 34 specialist families — exactly the ones your business needs, with the right runtimes and skills bound.
+4. **Specialists are auto-provisioned.** A fleet of agents is assembled from 35 specialist families — exactly the ones your business needs, with the right runtimes and skills bound.
 5. **Schedules activate.** Health scans, security audits, code quality checks, SEO monitoring, graph sync — all running on their own cadence without manual setup.
 6. **You talk to the CEO in plain English.** "Fix the memory leak in issue #142." "Write the Q3 launch post." "Plan next sprint." The CEO decomposes the job, delegates to the right specialist, and returns a result with evidence — PR link, test output, diff, reasoning trace.
 7. **You approve what matters.** Agents never merge code, deploy, or send external messages without your explicit sign-off. Low-risk tasks (formatting docs) can be auto-approved. High-stakes decisions (production deployments) always pause for you.
@@ -124,7 +124,7 @@ With Agency Core:
 flowchart LR
     A["🌐 One URL"] --> B["🔍 Scan & fingerprint"]
     B --> C["🧠 Build Company Graph"]
-    C --> D["👔 CEO + 34 specialist families"]
+    C --> D["👔 CEO + 35 specialist families"]
     D --> E["💬 Plain-English instructions"]
     E --> F["⚙️ Plan → Execute → Verify"]
     F --> G["✅ PR · diff · test output"]
@@ -212,6 +212,7 @@ You see it in the morning: "PR merged, page restored at 3:12 AM"
 
 - **Agentic agile**: standups, retrospectives, sprint reviews, backlog grooming — coached cadence, automated artifacts
 - **Portfolio management**: roadmapping, prioritisation, resource allocation, strategy tracking
+- **Delivery management**: sprint planning, release coordination, cross-team unblocking
 - **Product**: turn a brief into user stories, acceptance criteria, and a prioritised backlog
 
 ### Business & domain specialists (auto-provisioned from the URL scan)
@@ -227,7 +228,7 @@ You see it in the morning: "PR merged, page restored at 3:12 AM"
 | Research / market data | **Trading & market research** · **Research** |
 | Cloud / infra / CI | **Platform operations** · **DevOps** · **Security** · **CI/fix** |
 
-> **34 specialist families total** — engineering + business + domain. Each family has typed I/O contracts, an optimal runtime, and bound Skills.
+> **35 specialist families total** — engineering + business + domain. Each family has typed I/O contracts, an optimal runtime, and bound Skills.
 
 ---
 
@@ -535,7 +536,7 @@ The dashboard is responsive — sign in, run the setup wizard, and monitor agent
 ├──────────────────────────────────────────────────────────────────────┤
 │  AgentRunner — plan → execute → verify → judge → summarise           │
 │  ├─ CEO agent (orchestrator + domain classifier)                     │
-│  ├─ 34 specialist families (engineering + business + domain)         │
+│  ├─ 35 specialist families (engineering + business + domain)         │
 │  └─ Workflow engine (persisted state machine, HITL gates)            │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Task Dispatcher — async poll loop + crash-recovery reconciler        │
