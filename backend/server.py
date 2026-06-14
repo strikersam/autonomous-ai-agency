@@ -4841,8 +4841,14 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
 async def update_provider(
     provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
 ):
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    # The deprecated path emits a PydanticDeprecatedSince20 warning in v2 and
+    # will be removed in a future release. The test in
+    # tests/test_brain_priority_scanner.py pins the round-trip via model_dump;
+    # this handler must use the same API or the test will pass but the real
+    # PUT will silently fail to persist priority.
     updates = {}
-    for k, v in body.dict(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
         await get_db().providers.update_many(
