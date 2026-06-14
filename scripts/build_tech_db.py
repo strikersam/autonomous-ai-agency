@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate services/technologies.json — the website scanner's signature database.
+# -*- coding: utf-8 -*-
+r"""Generate services/technologies.json — the website scanner's signature database.
 
 Source of truth is the Wappalyzer fingerprint dataset bundled with the
 `python-Wappalyzer` package (a snapshot of the open-source Wappalyzer technology

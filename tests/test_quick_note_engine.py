@@ -21,8 +21,11 @@ def _before(text: str, primary: str, fallback: str) -> bool:
 
 
 def test_implement_agent_nvidia_primary() -> None:
+    """implement_agent.py uses NVIDIA NIM exclusively — the Anthropic/Opus
+    fallback was removed (it burned paid credits whenever NVIDIA failed)."""
     text = (_SCRIPTS / "implement_agent.py").read_text()
-    assert _before(text, "Using NVIDIA NIM as the primary engine", "Anthropic Claude Opus fallback")
+    assert "Using NVIDIA NIM as the primary engine" in text
+    assert "Anthropic Claude Opus fallback" not in text
 
 
 def test_implement_agent_primary_model_is_a_coder() -> None:

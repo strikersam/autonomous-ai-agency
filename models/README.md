@@ -1,1 +1,1 @@
-# Agency Core v5 — Company Graph
+# Autonomous AI Agency — Company Graph

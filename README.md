@@ -1,24 +1,24 @@
 <div align="center">
 
-# Agency Core
+# Autonomous AI Agency
 
 **Your first AI hire comes with an entire agency.**
 
 Self-hosted · Privacy-first · One URL to start
 
-[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/strikersam/local-llm-server/releases/tag/v5.0.0)
-[![CI](https://github.com/strikersam/local-llm-server/actions/workflows/ci.yml/badge.svg)](https://github.com/strikersam/local-llm-server/actions/workflows/ci.yml)
-[![Deploy](https://github.com/strikersam/local-llm-server/actions/workflows/deploy-backend.yml/badge.svg)](https://github.com/strikersam/local-llm-server/actions/workflows/deploy-backend.yml)
+[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/strikersam/autonomous-ai-agency/releases/tag/v5.0.0)
+[![CI](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml/badge.svg)](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml)
+[![Deploy](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/deploy-backend.yml/badge.svg)](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/deploy-backend.yml)
 [![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**[Live Demo](https://strikersam.github.io/local-llm-server/) · [API Docs](https://local-llm-server.onrender.com/docs) · [Changelog](docs/changelog.md)**
+**[Live Demo](https://strikersam.github.io/autonomous-ai-agency/) · [API Docs](https://autonomous-ai-agency.onrender.com/docs) · [Changelog](docs/changelog.md)**
 
 </div>
 
 ---
 
-## The problem Agency Core solves
+## The problem Autonomous AI Agency solves
 
 You're running a small or medium-sized company. You know AI could help — but the reality is messy:
 
@@ -27,7 +27,7 @@ You're running a small or medium-sized company. You know AI could help — but t
 - **Monthly SaaS bills are stacking up.** Copilot + Notion AI + Jasper + SEO tool + monitoring tool = hundreds of dollars a month per person, and they don't talk to each other.
 - **"AI agents" are mostly demos.** They hallucinate, they can't commit code, they don't remember yesterday, and they crash silently. Where AI agents genuinely help is running the full operations of a company — autonomously, end to end — in a managed platform that brings only the decisions that matter to you for approval.
 
-Agency Core is the answer to all of this. It is a **self-hosted AI agency** — a platform that provisions a full fleet of specialist agents for your business from a single website URL, runs them 24x7 on hardware you control, and brings only the decisions that matter to you for approval.
+Autonomous AI Agency is the answer to all of this. It is a **self-hosted AI agency** — a platform that provisions a full fleet of specialist agents for your business from a single website URL, runs them 24x7 on hardware you control, and brings only the decisions that matter to you for approval.
 
 ---
 
@@ -38,7 +38,7 @@ Paste one URL. Walk away. Come back to a working AI team.
 ```text
 https://yourcompany.com
        ↓
-  [Agency Core]
+  [Autonomous AI Agency]
        ↓
   CEO agent + specialist fleet
   running 24x7 on your server
@@ -57,7 +57,7 @@ No config files. No integration wiring. No per-seat pricing. No data leaving you
 
 You ship fast but quality suffers. PRs pile up. Docs go stale. Dependencies rot. The security audit you've been meaning to run has been in the backlog for six months.
 
-With Agency Core:
+With Autonomous AI Agency:
 - A **Dev specialist** reviews every PR while you sleep and leaves inline comments
 - A **Security specialist** runs a daily CVE scan and opens fix PRs automatically
 - A **Docs specialist** keeps your README and API docs in sync with code changes — on every push
@@ -71,11 +71,11 @@ With Agency Core:
 
 You're running Shopify or a custom store. Your team spends half their time on tasks a machine could do: updating product descriptions, checking for broken pages, triaging support tickets, monitoring SEO rankings.
 
-With Agency Core:
+With Autonomous AI Agency:
 - An **E-commerce specialist** monitors your storefront every 30 minutes for uptime issues, TLS expiry, and stack changes
 - A **PIM specialist** keeps product descriptions, attributes, and taxonomy consistent
 - A **Support specialist** triages incoming tickets, drafts responses, and flags edge cases for human review
-- An **SEO specialist** watches ranking changes, identifies content gaps, and queues blog topics
+- An **SEO specialist** runs Screaming Frog-class site audits (103 checks across SEO/GEO/AEO/AIO pillars), quantifies findings as revenue-at-risk, can auto-fix issues when your repo is connected (dry-run diffs by default; `apply=true` writes changes), and delegates the rest as WSJF-prioritized tasks — see [docs/seo-audit.md](docs/seo-audit.md)
 - A **Content specialist** writes product copy and blog drafts from a brief you drop in plain English
 
 **Result:** Your ops team focuses on decisions, not repetitive maintenance.
@@ -86,7 +86,7 @@ With Agency Core:
 
 You manage multiple companies' tech stacks. Right now that means 10 sets of credentials, 10 monitoring setups, 10 different runbooks.
 
-With Agency Core:
+With Autonomous AI Agency:
 - **Each client gets their own company profile** with its own agent fleet, knowledge graph, and schedules
 - **Agents are isolated per tenant** — no cross-contamination of client data or context
 - **One dashboard** to see the health of all clients, with per-client HITL approval flows
@@ -100,7 +100,7 @@ With Agency Core:
 
 Your company's knowledge lives in Slack threads, email chains, and the heads of people who might leave next month.
 
-With Agency Core:
+With Autonomous AI Agency:
 - The **Knowledge specialist** reads your code, docs, Slack exports, and past decisions and builds a living internal wiki — updated automatically when things change
 - The **Research specialist** monitors industry trends, competitor moves, and technology updates and drops weekly digests
 - The **Portfolio manager** tracks initiatives, surfaces blockers, and runs weekly stand-up summaries
@@ -113,7 +113,7 @@ With Agency Core:
 ## How it works — the 5-minute version
 
 1. **Paste your website URL.** `https://acme-store.com`
-2. **Agency Core scans it.** Playwright + HTTP fingerprinting detects your tech stack, business systems, and integrations (Shopify, Stripe, Google Analytics, GitHub, Intercom, Salesforce, …).
+2. **Autonomous AI Agency scans it.** Playwright + HTTP fingerprinting detects your tech stack, business systems, and integrations (Shopify, Stripe, Google Analytics, GitHub, Intercom, Salesforce, …).
 3. **It asks you the right questions.** AI-generated onboarding questions based on what it found — not generic forms.
 4. **Specialists are auto-provisioned.** A fleet of agents is assembled from 34 specialist families — exactly the ones your business needs, with the right runtimes and skills bound.
 5. **Schedules activate.** Health scans, security audits, code quality checks, SEO monitoring, graph sync — all running on their own cadence without manual setup.
@@ -138,7 +138,7 @@ flowchart LR
 
 ## The 24x7 agency — your agents never go idle
 
-The defining feature of Agency Core is not what agents can do — it's that they keep doing it, automatically, even when you're not watching.
+The defining feature of Autonomous AI Agency is not what agents can do — it's that they keep doing it, automatically, even when you're not watching.
 
 ### What runs automatically after onboarding
 
@@ -253,7 +253,7 @@ The **Skill Registry** discovers new skills automatically from GitHub repositori
 
 ## HITL approval gates — you stay in control
 
-Agency Core never merges code, deploys, or sends external messages without your explicit sign-off.
+Autonomous AI Agency never merges code, deploys, or sends external messages without your explicit sign-off.
 
 1. **Agent reaches a decision gate** → pauses, surfaces exactly what will happen (the diff, the deploy command, the email body)
 2. **You choose**: Approve · Deny · Redirect (send back with comments)
@@ -282,7 +282,7 @@ Three capabilities landed in June 2026, each verified end-to-end against the liv
 Drop a task from anywhere — no laptop needed.
 
 1. Use an iOS Shortcut or share sheet to POST a URL + instruction
-2. Agency Core's **Quick Note processor** enqueues it with capped-backoff retry
+2. Autonomous AI Agency's **Quick Note processor** enqueues it with capped-backoff retry
 3. The CEO routes it to the right specialist as a normal task
 4. You see it on the Task Board when you open your laptop
 
@@ -352,18 +352,18 @@ gh workflow run bulk-issue-context.yml \
 
 ### Your data never leaves your server
 
-Agency Core runs entirely on hardware you control. There is no cloud relay, no usage telemetry, no shared inference endpoint. Your code, your prompts, your company graph — all local.
+Autonomous AI Agency runs entirely on hardware you control. There is no cloud relay, no usage telemetry, no shared inference endpoint. Your code, your prompts, your company graph — all local.
 
 ### What it costs to run
 
-| What you'd pay elsewhere | Agency Core equivalent | Monthly cost |
+| What you'd pay elsewhere | Autonomous AI Agency equivalent | Monthly cost |
 |---|---|---|
 | GitHub Copilot (5 seats) | Dev specialist on Qwen3-Coder | $0 (local GPU) or ~$5 (NIM) |
 | Notion AI | Knowledge specialist | $0 |
 | Jasper / Copy.ai | Content specialist | $0 |
 | Snyk / Dependabot Pro | Security specialist | $0 |
 | A part-time DevOps engineer | Platform ops + CI/fix specialists | $0 |
-| **Total comparison** | **Agency Core on a $10 VPS** | **~$10/month** |
+| **Total comparison** | **Autonomous AI Agency on a $10 VPS** | **~$10/month** |
 
 > Marginal inference cost is electricity. Scale a 50-person team for the same server bill.
 
@@ -555,6 +555,27 @@ The dashboard is responsive — sign in, run the setup wizard, and monitor agent
 
 ---
 
+## Feature maturity — what's stable vs. beta
+
+We'd rather under-promise. Here's the honest split (see `docs/architecture/feature-maturity-matrix.md` and `docs/support-matrix.md` for the full breakdown):
+
+| Area | Maturity | Notes |
+|---|---|---|
+| OpenAI-compatible proxy (`/v1/chat/completions`) | **Stable** | Used daily by Claude Code, Cursor, Aider, Continue. |
+| Multi-provider routing + failover | **Stable** | Bedrock -> NIM -> DeepSeek -> Anthropic -> Ollama chain with per-provider cooldown. |
+| Technology scanner (HTML + DNS + TLS + headers) | **Stable** | BuiltWith-parity off-HTML evidence; headless escalation for bot-walled sites is best-effort and needs Chromium installed in the deployment. |
+| Task workflow + dispatcher + HITL gates | **Stable** | Persisted state machine, crash-recovery reconciler. |
+| Scheduled tasks / persistent schedule store | **Stable** | Reconciles on boot; nothing silently skipped. |
+| Skill bindings + dynamic skill registry | **Stable** | GitHub discovery with ETag caching and rate-limit semaphores. |
+| Langfuse observability + local TCO cost model | **Stable** | Cost figures are an estimated commercial-equivalent model, not a billed invoice. |
+| Telegram bot remote control | **Beta** | Works; long-running 24x7 deployment paths are still hardening. |
+| Multi-agent orchestration (CEO -> specialists) | **Beta** | Plan->execute->verify loop is solid for single-specialist jobs; deep multi-hop swarms are experimental. |
+| External agent runtimes (Goose / Hermes / OpenHands) | **Experimental** | Optional sidecars; the Doctor reports them as warnings, never gating, when absent. |
+
+If a screen or capability isn't listed above, treat it as experimental.
+
+---
+
 ## Setup
 
 ### What you need
@@ -569,8 +590,8 @@ No Kubernetes. No cloud account. A Raspberry Pi 5 can run the core services.
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/strikersam/local-llm-server.git
-cd local-llm-server
+git clone https://github.com/strikersam/autonomous-ai-agency.git
+cd autonomous-ai-agency
 python -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
@@ -650,8 +671,8 @@ Required secrets:
 ```
 
 Live demo:
-- **Frontend**: `https://strikersam.github.io/local-llm-server/`
-- **API**: `https://local-llm-server.onrender.com/docs`
+- **Frontend**: `https://strikersam.github.io/autonomous-ai-agency/`
+- **API**: `https://autonomous-ai-agency.onrender.com/docs` (pending Render service rename; currently still served at `https://local-llm-server.onrender.com/docs` until the Render dashboard service is renamed)
 
 > Render free tier sleeps after 15 min of inactivity (~30 s cold start). Upgrade to Starter ($7/mo) for always-on in production.
 
@@ -746,7 +767,7 @@ MIT — see [LICENSE](LICENSE)
 
 <div align="center">
 
-**Agency Core** — the AI team that works while you sleep, on a server you own.
+**Autonomous AI Agency** — the AI team that works while you sleep, on a server you own.
 
 <sub>Built for engineers and operators who want the leverage of frontier AI without the cloud bill, the privacy compromise, or the headcount.</sub>
 

@@ -64,12 +64,12 @@ function AppRoutes() {
       {/* Pre-auth setup wizard — configure backend URL before logging in */}
       <Route path="/bootstrap" element={<SetupWizardPage />} />
 
-      {/* V5.0 Agency Core — primary authenticated UI */}
+      {/* V5.0 Autonomous AI Agency — primary authenticated UI */}
       <Route
         path="/v5/*"
         element={
           <ProtectedRoute>
-            <Suspense fallback={<LoadingScreen message="Loading Agency Core" />}>
+            <Suspense fallback={<LoadingScreen message="Loading the Agency" />}>
               <V5App />
             </Suspense>
           </ProtectedRoute>
@@ -88,7 +88,7 @@ function AppRoutes() {
         }
       />
 
-      {/* Default: redirect authenticated users to Agency Core v5 */}
+      {/* Default: redirect authenticated users to the Agency v5 */}
       <Route
         path="/*"
         element={user ? <Navigate to="/v5" replace /> : <Navigate to="/login" replace />}

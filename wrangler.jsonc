@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "local-llm-server",
+  "name": "autonomous-ai-agency",
   "main": "worker/index.js",
   "compatibility_date": "2026-05-27",
   "compatibility_flags": [
@@ -9,14 +9,25 @@
   "observability": {
     "enabled": true
   },
-  // The React SPA is built by the CI/CD workflow (GitHub Actions) before wrangler runs.
-  // No build.command here — the workflow handles: npm install + npm run build + _redirects cleanup.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   "assets": {
     "directory": "frontend/build",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Force backend paths through the Worker first. Without this, SPA not_found_handling
-    // serves index.html for navigation requests to these paths instead of proxying them.
     "run_worker_first": ["/api/*", "/v1/*", "/runtimes/*"]
+  },
+  // ─────────────────────────────────────────────────────────────────────────
+  // vars: Cloudflare Workers env (read inside the worker as env.VAR_NAME).
+  // The workflow's vars.* reads the GitHub Actions vars CONTEXT (a separate
+  // scope: repo/org variables set on github.com).
+  // ─────────────────────────────────────────────────────────────────────────
+  // PRIMARY_PRODUCTION_URL is the current Cloudflare worker URL (derived
+  // from the `name` field above). The previous `local-llm-server.strikersam
+  // .workers.dev` URL 404s after the rebrand and is no longer referenced
+  // anywhere in the codebase.
+  "vars": {
+    "PRIMARY_PRODUCTION_URL": "https://autonomous-ai-agency.strikersam.workers.dev"
   }
 }

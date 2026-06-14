@@ -3,7 +3,7 @@ import { APP_NAME, APP_LABEL } from '../version';
 import { useAuth } from '../AuthContext';
 
 
-// nav.jsx — Agency Core navigation (clean, all screens)
+// nav.jsx — Autonomous AI Agency navigation (clean, all screens)
 
 const NAV_ITEMS = [
   { id:'chat',       label:'Chat',       icon:'MessageSquare',  desc:'Unified assistant',      section:'WORKSPACE' },
