@@ -2474,7 +2474,7 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": GOOGLE_BASE_URL,
             "api_key": GOOGLE_API_KEY,
-            "default_model": "gemma-4",
+            "default_model": "gemini-2.5-flash",
             "is_default": LLM_PROVIDER == "google",
             "priority": 75,
             "status": "configured" if GOOGLE_API_KEY else "unconfigured",
@@ -2517,7 +2517,7 @@ async def seed_default_providers():
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -2528,7 +2528,7 @@ async def seed_default_providers():
             "api_key": ANTHROPIC_API_KEY,
             "default_model": ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 50,
+            "priority": -90,  # paid last-resort — never preferred over free cloud
             "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
         },
         {
@@ -2567,10 +2567,22 @@ async def seed_default_providers():
             new_status = p.get("status", "")
             if new_status and new_status != existing.get("status", ""):
                 update["status"] = new_status
-            # Sync priority so the fallback ordering is always correct
-            new_priority = p.get("priority")
-            if new_priority is not None and existing.get("priority") != new_priority:
-                update["priority"] = new_priority
+            # NOTE: priority is intentionally NOT synced here so user edits from the
+            # Providers UI persist across restarts. Priority is only set on first insert.
+            #
+            # ONE-TIME MIGRATION: force Anthropic providers to negative priority so free
+            # cloud providers (Google, OpenRouter, etc.) are always preferred as the brain.
+            # This only fires when the existing priority is still in the old paid-first range.
+            paid_provider_ids = {"anthropic", "anthropic-claude", "anthropic-universal"}
+            if p["provider_id"] in paid_provider_ids:
+                existing_prio = existing.get("priority", 0)
+                new_prio = p.get("priority", 0)  # already negative in seed defaults
+                if existing_prio > new_prio:
+                    update["priority"] = new_prio
+                    log.info(
+                        "Migrated %s priority %d → %d (free providers now preferred)",
+                        p["provider_id"], existing_prio, new_prio,
+                    )
             if update:
                 await get_db().providers.update_one(
                     {"provider_id": p["provider_id"]}, {"$set": update}
@@ -2620,7 +2632,7 @@ def _builtin_provider_records() -> list[dict]:
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -7282,31 +7294,4 @@ except Exception as _mcp_err:
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
 
 _FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
-
-if _FRONTEND_BUILD.exists():
-    app.mount(
-        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
-
-
-_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
-
-if _FRONTEND_BUILD.exists():
-    app.mount(
-        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 

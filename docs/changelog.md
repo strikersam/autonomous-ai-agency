@@ -86,6 +86,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Provider priority override bug**: `seed_default_providers` no longer resets user-edited priorities on every restart — UI priority changes now persist across server restarts.
+- **Anthropic as brain**: Anthropic providers demoted to priority -90/-80 (below all free cloud providers). Google Gemini (priority 75), OpenRouter (30), and others now win as the orchestrator brain.
+- **Google Gemini model name**: Fixed wrong model `gemma-4` → `gemini-2.5-flash` in seed defaults so the highest-priority free provider actually works.
+- **CI agent Anthropic fallback removed**: `implement_agent.py` no longer falls back to Claude Opus when NVIDIA NIM fails — this was the root cause of €20 credit drain. Runs now fail cleanly instead of burning paid API credits.
+- **`implement_agent.py` file truncation**: Restored full script from upstream (was cut off mid-line at 622/695 lines).
+- **Onboarding zero-specialist regression**: `start_onboarding` `detect_systems` step now falls back to `{"backend", "frontend", "analytics"}` when website/repo scanning yields no detectable system types (bot-protected or blocked sites). Previously the provisioning loop received an empty list and created zero specialists.
+- **Invalid `system_type="ecommerce"` in repo scanner**: `_detect_systems_from_github_data` was emitting `system_type="ecommerce"` which is not in the `SystemType` Literal — Pydantic validation would fail on any e-commerce-topic repo. Changed to `"OMS"` (the nearest valid type).
+
 ### Changed
 - **remote-admin/: brand rename to "Autonomous AI Agency".** Replaced user-visible "Local LLM" / "LLM Relay v4" branding across `index.html`, `setup-wizard.html`, and `v4-dashboard.html` (page titles, breadcrumb, hero eyebrow, setup copy). Functional references (GitHub Pages URL and on-disk repo-path placeholders) left intact.
 
@@ -1683,3 +1692,4 @@
   `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
   quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
   revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).
+                                                                                                                                                                                                                                                                                                                                     
