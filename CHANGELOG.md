@@ -25,4 +25,5 @@ All notable changes to this project will be documented in this file.
 - **PR #466**: Agent now accepts command/task/text as instruction aliases in spawn_subagent.
 
 ### Changed
+- **NVIDIA NIM model list curated from live endpoint testing.** Tested 10 candidate models against https://integrate.api.nvidia.com/v1 — only 3 returned OK (Nemotron Super 49B tool_calls=True 3.7s, Llama 4 Maverick 1.3s, Llama 3.3 70B tool_calls=True 6.0s); 7 returned 404/APIStatusError/BadRequest. Updated NVIDIA_CANDIDATE_MODELS in implement_agent.py, apply_review.py, and review_agent.py to the 3 live models, removed dead entries. Updated _default_agent_role_models() and _get_nim_provider_record() in backend/server.py to reference live Nemotron Super 49B. Hardened 429 rate-limit fallback with exponential backoff + jitter, timeout detection, and 404/422 model dropout.
 - **PR #459**: Deploy CI switched to wrangler-action v3 with --config wrangler.jsonc.

@@ -37,13 +37,12 @@ RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file p
 
 # NVIDIA NIM is the primary engine for council review.
 # Opus-via-Anthropic is only an optional fallback when configured.
+# Live-verified 2026-06-14: only 3 of 10 tested models are reachable.
 OPUS_MODEL = "claude-opus-4-6"
 NVIDIA_CANDIDATE_MODELS = [
-    "qwen/qwen3-coder-480b-a35b-instruct",
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
     "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "meta/llama-4-maverick-17b-128e-instruct",
     "meta/llama-3.3-70b-instruct",
-    "qwen/qwen2.5-coder-32b-instruct",
 ]
 # Keep the old name as an alias so existing code that references CANDIDATE_MODELS still works
 CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
