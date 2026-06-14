@@ -86,6 +86,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Restored master CI: three files truncated mid-write by a prior commit (`2a86f5f`/`4b4276f`) broke Python collection, e2e collection, and the frontend Jest suite.**
+  `tests/test_scanner_ssl_cert.py` (`_RaisingCtx` was cut off mid-class, `NameError: name 'veri' is not defined`),
+  `tests/e2e/test_critical_flows.py` (admin-dashboard test truncated mid-`try`, `SyntaxError`),
+  `tests/test_orchestrator_failover.py` (`test_phase_attempts_incremented_on_each_retry` truncated mid-statement, `NameError`),
+  and `frontend/src/pages/ControlPlanePage.js` (14 stray trailing NUL bytes broke the Babel/Jest parser for
+  `controlPlanePage.test.js`, `appRouting.test.jsx`, and `setupWizard.test.js`) are all restored to their
+  intended content.
+
 ### Added
 - Scanner: subdomain enumeration layer — probes common subdomains (shop, api, cdn, checkout, account, etc.) to narrow the BuiltWith technology-count gap
 - **SEO audit: one-click CTO-level PDF report (issue #533 follow-up).**

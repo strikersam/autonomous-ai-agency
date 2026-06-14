@@ -313,4 +313,9 @@ def test_admin_dashboard_loads():
             body = page.locator("body").inner_text().lower()
             assert any(k in body for k in ("admin", "key", "user", "health", "portal", "manage")), \
                 "Admin portal did not render expected content"
-            # Ignore benign netw
+            # Ignore benign network-abort console noise; fail only on real JS errors.
+            fatal = [e for e in console_errors if "Failed to load resource" not in e and "net::" not in e]
+            assert len(fatal) == 0, f"Admin dashboard logged JS errors: {fatal[:3]}"
+        finally:
+            ctx.close()
+            browser.close()

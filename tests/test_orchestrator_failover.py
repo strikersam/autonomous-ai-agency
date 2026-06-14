@@ -332,4 +332,12 @@ class TestOrchestratorProviderFailover:
         )
 
         orchestrator = WorkflowOrchestrator()
-        req = ExecutionReques
+        req = ExecutionRequest(request="phase attempts", auto_approve=True)
+
+        with patch("agent.loop.AgentRunner.run", _runner_run):
+            with patch("backend.server._list_configured_provider_records", records):
+                run = await orchestrator.execute(req)
+
+        assert run.llm_provenance["execute"] == "c"
+        assert run.phase_attempts.get("execute", 0) == 3
+        assert call_count == 3
