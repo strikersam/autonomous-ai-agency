@@ -114,6 +114,65 @@ class RuntimeManager:
         health = self._health.get_health(runtime_id)
         return health.as_dict() if health else None
 
+    async def wake_all_sleeping_runtimes(self) -> dict[str, Any]:
+        """Actively wake every sleeping/circuit-open runtime.
+
+        The default health service only re-probes a runtime after its
+        circuit-breaker recovers (CB_RECOVERY_SEC). This method short-circuits
+        that wait by force-probing every registered runtime once and recording
+        success so the routing engine can select it on the next decision.
+
+        Returns a summary with counts of woken, still-sleeping, and the
+        per-runtime state. Never raises — a missing runtime must not block
+        an orchestrator or CEO request.
+        """
+        woken: list[str] = []
+        still_sleeping: list[str] = []
+        details: dict[str, dict[str, Any]] = {}
+        try:
+            adapters = self._registry.all()
+            for adapter in adapters:
+                rid = adapter.RUNTIME_ID
+                try:
+                    before = self._health.get_health(rid)
+                    before_available = bool(before and before.available)
+                    if not before_available:
+                        await self._health._poll_one(rid)
+                    after = self._health.get_health(rid)
+                    after_available = bool(after and after.available)
+                    details[rid] = {
+                        "before_available": before_available,
+                        "after_available": after_available,
+                    }
+                    if after_available:
+                        woken.append(rid)
+                    else:
+                        still_sleeping.append(rid)
+                except Exception as exc:
+                    log.debug("wake_all_sleeping_runtimes: %s probe failed: %s", rid, exc)
+                    details[rid] = {"error": str(exc)}
+                    still_sleeping.append(rid)
+        except Exception as exc:
+            log.warning("wake_all_sleeping_runtimes failed: %s", exc)
+        log.info(
+            "wake_all_sleeping_runtimes: woken=%d still_sleeping=%d",
+            len(woken), len(still_sleeping),
+        )
+        return {
+            "woken": woken,
+            "still_sleeping": still_sleeping,
+            "details": details,
+            "woken_count": len(woken),
+            "still_sleeping_count": len(still_sleeping),
+        }
+
+    def is_available_for_routing(self, runtime_id: str) -> bool:
+        """True if the runtime is healthy enough for the router to select it."""
+        try:
+            return bool(self._health.is_available(runtime_id))
+        except Exception:
+            return False
+
 
 _runtime_manager: RuntimeManager | None = None
 
