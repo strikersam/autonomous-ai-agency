@@ -86,6 +86,16 @@
 
 ## [Unreleased]
 
+### Fixed
+- **CI auto-fix workflow used a retired Claude model ID**: `.github/workflows/ci-failure-autofix.yml` called the Anthropic API with `claude-sonnet-4-20250514` (original Claude Sonnet 4), which Anthropic retires on the Claude API on 2026-06-15 — the workflow's own header comment already said "Claude Sonnet 4.6". Updated to `claude-sonnet-4-6` to match. Added `tests/test_daily_2026_06_14.py` to guard against retired Claude 4 model IDs in `.github/workflows/` and `.github/scripts/`.
+- **Provider priority override bug**: `seed_default_providers` no longer resets user-edited priorities on every restart — UI priority changes now persist across server restarts.
+- **Anthropic as brain**: Anthropic providers demoted to priority -90/-80 (below all free cloud providers). Google Gemini (priority 75), OpenRouter (30), and others now win as the orchestrator brain.
+- **Google Gemini model name**: Fixed wrong model `gemma-4` → `gemini-2.5-flash` in seed defaults so the highest-priority free provider actually works.
+- **CI agent Anthropic fallback removed**: `implement_agent.py` no longer falls back to Claude Opus when NVIDIA NIM fails — this was the root cause of €20 credit drain. Runs now fail cleanly instead of burning paid API credits.
+- **`implement_agent.py` file truncation**: Restored full script from upstream (was cut off mid-line at 622/695 lines).
+- **Onboarding zero-specialist regression**: `start_onboarding` `detect_systems` step now falls back to `{"backend", "frontend", "analytics"}` when website/repo scanning yields no detectable system types (bot-protected or blocked sites). Previously the provisioning loop received an empty list and created zero specialists.
+- **Invalid `system_type="ecommerce"` in repo scanner**: `_detect_systems_from_github_data` was emitting `system_type="ecommerce"` which is not in the `SystemType` Literal — Pydantic validation would fail on any e-commerce-topic repo. Changed to `"OMS"` (the nearest valid type).
+
 ### Changed
 - **remote-admin/: brand rename to "Autonomous AI Agency".** Replaced user-visible "Local LLM" / "LLM Relay v4" branding across `index.html`, `setup-wizard.html`, and `v4-dashboard.html` (page titles, breadcrumb, hero eyebrow, setup copy). Functional references (GitHub Pages URL and on-disk repo-path placeholders) left intact.
 
@@ -94,24 +104,6 @@
 
 ### Security
 - **agent/tools.py: hardened path-traversal guard in `WorkspaceTools`.** Added `_safe_path()` using a strict `os.path.realpath` prefix comparison (root + os.sep), rejecting `..` traversal, absolute paths, and sibling-prefix directories. `_resolve_path` now delegates to it, so `read_file`, `write_file`, `apply_diff`, `list_files`, `head_file`, `file_index` and `search_code` are all jailed to the workspace root. Constructor accepts a `workspace_root` keyword alias. Regression tests in `tests/test_agent_tools_security.py`.
-
-### Added
-- **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
-- **CompanyScreen: Systems tab — category grouping, confidence scores, detection method badges.** Previously the systems tab showed a flat list. Now systems are grouped by category (CMS, CRM, analytics, payment_gateway, etc.) with a color-coded category header. Each detected system shows: version if available, detection method badges (html/dns/ssl/headers/script/cookie in distinct colours), and a confidence mini-bar + percentage score. Summary counts at top: "N systems detected across M categories", with separate counters for auto-detected vs connected systems. Empty state message directs users to run a scan.
-
-### Changed
-- **Mobile-first CSS hardening.** Added a global mobile baseline so the dashboard and chat UIs never overflow horizontally on small screens: `max-width: 100vw` on the `html, body, #root` root containers and a `img, video, iframe { max-width: 100%; height: auto; }` rule in both `frontend/src/index.css` and `webui/frontend/src/styles.css` (the latter also gains `overflow-x: hidden` on `html, body`). Wrapped the three previously-unwrapped data tables in horizontally scrollable containers so wide tables scroll instead of clipping on phones: `frontend/src/pages/LogsPage.js` (Provider Performance) and both tables in `frontend/src/v5/screens/AdminOnboardingPanel.jsx` (user-onboarding and audit-log).
-
-### Fixed
-- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
-
-### Fixed
-- **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
-
-### Added
-- Scanner: subdomain enumeration layer — probes common subdomains (shop, api, cdn, checkout, account, etc.) to narrow the BuiltWith technology-count gap
-- SEO: one-click CTO-level PDF audit report generation
-
 
 ### Added
 - **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
@@ -1701,3 +1693,4 @@
   `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
   quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
   revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).
+                                                                                                                                                                                                                                                                                                                                     
