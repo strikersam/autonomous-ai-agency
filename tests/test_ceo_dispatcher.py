@@ -49,13 +49,14 @@ from services.workflow_orchestrator import (
 
 
 def test_should_fan_out_respects_threshold():
-    """Default threshold is 'low' so EVERY request fans out (the user wants
-    more swarming, not less — see CEO_FANOUT_COMPLEXITY env to raise)."""
-    assert _should_fan_out("low") is True
+    """Default threshold is 'medium' so medium/high complexity tasks fan out,
+    but low complexity doesn't pay the 2x-concurrent cost (see
+    CEO_FANOUT_COMPLEXITY env to lower the threshold back to 'low')."""
+    assert _should_fan_out("low") is False
     assert _should_fan_out("medium") is True
     assert _should_fan_out("high") is True
     # Unknown complexity has rank 0, so it should NOT fan out by default
-    assert _should_fan_out("unknown") is False  # rank 0 < rank 0 for 'low'
+    assert _should_fan_out("unknown") is False  # rank 0 < rank 1 for 'medium'
 
 
 def test_decompose_returns_scout_and_dev():

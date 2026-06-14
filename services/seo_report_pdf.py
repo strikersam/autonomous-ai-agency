@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import io
 from datetime import datetime, timezone
-from xml.sax.saxutils import escape as _esc
+from html import escape as _esc
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
