@@ -62,6 +62,22 @@
 
 ## [Unreleased]
 
+### Changed
+- **remote-admin/: brand rename to "Autonomous AI Agency".** Replaced user-visible "Local LLM" / "LLM Relay v4" branding across `index.html`, `setup-wizard.html`, and `v4-dashboard.html` (page titles, breadcrumb, hero eyebrow, setup copy). Functional references (GitHub Pages URL and on-disk repo-path placeholders) left intact.
+
+### Security
+- **key_store.py: failed-lookup rate limiting + timing-safe key compare.** Keys were already stored as SHA-256 hashes (confirmed, no plaintext on disk). Added an in-memory per-IP failed-lookup limiter (`_RATE_MAX=20` per `_RATE_WINDOW=60s`, raising `RateLimitError`) wired into `lookup_plain_key(..., client_ip=...)`, and replaced the plain dict hit with an `hmac.compare_digest` scan so the secret comparison is constant-time. `proxy.py:verify_api_key` now passes the client IP and maps `RateLimitError` to HTTP 429. Regression tests in `tests/test_key_store_security.py`.
+
+### Security
+- **agent/tools.py: hardened path-traversal guard in `WorkspaceTools`.** Added `_safe_path()` using a strict `os.path.realpath` prefix comparison (root + os.sep), rejecting `..` traversal, absolute paths, and sibling-prefix directories. `_resolve_path` now delegates to it, so `read_file`, `write_file`, `apply_diff`, `list_files`, `head_file`, `file_index` and `search_code` are all jailed to the workspace root. Constructor accepts a `workspace_root` keyword alias. Regression tests in `tests/test_agent_tools_security.py`.
+
+### Added
+- **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
+- **CompanyScreen: Systems tab — category grouping, confidence scores, detection method badges.** Previously the systems tab showed a flat list. Now systems are grouped by category (CMS, CRM, analytics, payment_gateway, etc.) with a color-coded category header. Each detected system shows: version if available, detection method badges (html/dns/ssl/headers/script/cookie in distinct colours), and a confidence mini-bar + percentage score. Summary counts at top: "N systems detected across M categories", with separate counters for auto-detected vs connected systems. Empty state message directs users to run a scan.
+
+### Changed
+- **Mobile-first CSS hardening.** Added a global mobile baseline so the dashboard and chat UIs never overflow horizontally on small screens: `max-width: 100vw` on the `html, body, #root` root containers and a `img, video, iframe { max-width: 100%; height: auto; }` rule in both `frontend/src/index.css` and `webui/frontend/src/styles.css` (the latter also gains `overflow-x: hidden` on `html, body`). Wrapped the three previously-unwrapped data tables in horizontally scrollable containers so wide tables scroll instead of clipping on phones: `frontend/src/pages/LogsPage.js` (Provider Performance) and both tables in `frontend/src/v5/screens/AdminOnboardingPanel.jsx` (user-onboarding and audit-log).
+
 ### Fixed
 - **Deploys unfrozen: Worker secret upload now honors wrangler.jsonc.** Every deploy since the brain-pinning change failed with "Required Worker name missing" because the wrangler-action secrets input runs `secret put` without `--config`. Replaced with an explicit `npx -y wrangler@4 secret put AGENT_LLM_API_KEY --config wrangler.jsonc` step; the first green deploy activates the env-pinned Claude brain.
 
