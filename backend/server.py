@@ -4794,6 +4794,7 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
+    priority: int = None
 
 
 @app.get("/api/providers")
@@ -7294,4 +7295,31 @@ except Exception as _mcp_err:
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
 
 _FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
+
+if _FRONTEND_BUILD.exists():
+    app.mount(
+        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
+    )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        index = _FRONTEND_BUILD / "index.html"
+        if index.exists():
+            return HTMLResponse(index.read_text())
+        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
+
+
+_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
+
+if _FRONTEND_BUILD.exists():
+    app.mount(
+        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
+    )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        index = _FRONTEND_BUILD / "index.html"
+        if index.exists():
+            return HTMLResponse(index.read_text())
+        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
