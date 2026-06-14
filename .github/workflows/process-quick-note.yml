@@ -19,8 +19,13 @@ on:
         type: string
 
 concurrency:
-  group: quick-note-processor
-  cancel-in-progress: false
+  # Per-issue concurrency group. The shared "quick-note-processor" group
+  # was a single-bottleneck that re-introduced head-of-line blocking at
+  # the runner level. With per-issue groups, runner B for the same issue
+  # is serialized out (or canceled if cancel-in-progress:true) by the
+  # winner, while runner C for a different issue proceeds in parallel.
+  group: quick-note-issue-${{ steps.pick.outputs.number || 'unbound' }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -35,6 +40,15 @@ permissions:
 jobs:
   process:
     runs-on: ubuntu-latest
+    # IMPORTANT: the `QN_ATOMIC_CLAIM` shell env var (read by the
+    # label-removal `if [ "${QN_ATOMIC_CLAIM:-false}" = "true" ]` lines
+    # in the 5 terminal paths below) is populated from the GitHub
+    # Actions `vars` context HERE, NOT from wrangler.jsonc. Those two
+    # are separate scopes; do not conflate them when editing. Job-level
+    # env ensures all 17 steps see the same value — step-level env
+    # would NOT propagate across the 5 terminal paths.
+    env:
+      QN_ATOMIC_CLAIM: ${{ vars.QN_ATOMIC_CLAIM }}
 
     steps:
       # ── 1. Checkout ───────────────────────────────────────────────────────
@@ -55,13 +69,32 @@ jobs:
             NUM="$ISSUE_NUMBER_OVERRIDE"
             echo "Manual override — using issue #$NUM"
           else
-            # Oldest open quick-note that has not exhausted retries
+            # Pick the OLDEST open quick-note, but skip head-of-line blockers:
+            #   1. issues already marked in-progress by another runner
+            #   2. issues touched within the last 30 min (just retried - let it cook)
+            # This stops issue #1 from blocking issues #2, #3, ... when it
+            # keeps failing. We only fall back to "oldest of everything" if
+            # every candidate is blocked, so the pipeline never deadlocks.
+            # We also use --limit 1000 (gh's max) to avoid truncating large
+            # backlogs, and `try/catch` in the jq filter so a single malformed
+            # timestamp can't kill the whole expression.
             NUM=$(gh issue list \
               --repo "$REPO" \
               --state open \
-              --json number,labels \
-              --limit 100 \
-              --jq '[.[] | select((.labels // []) | map(.name) | index("quick-note:exhausted") == null)] | sort_by(.number) | .[0].number // empty')
+              --json number,labels,title,updatedAt \
+              --limit 1000 \
+              --jq 'try [
+                .[]
+                | select((.labels // []) | map(.name) | index("quick-note:exhausted") == null)
+                | select((.labels // []) | map(.name) | index("quick-note:in-progress") == null)
+                | (try (.updatedAt // "" | fromdateiso8601) catch null) as $updated
+                | if $updated == null then {number, age: 999999, fresh: true}
+                  else (now - $updated) as $age | {number, age: $age, fresh: ($age > 1800)}
+                  end
+              ]
+              | (map(select(.fresh)) | sort_by(.number) | .[0].number // empty)
+                // (sort_by(.number) | .[0].number // empty)
+              catch []')
           fi
           if [ -z "$NUM" ]; then
             echo "No pending quick-note issues found — nothing to do."
@@ -70,6 +103,44 @@ jobs:
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "number=$NUM" >> "$GITHUB_OUTPUT"
           fi
+
+      # ── 2a. Atomic claim (feature-flagged) ─────────────────────────────────
+      # If QN_ATOMIC_CLAIM=true is set on the workflow (env on master or
+      # per-run via workflow_dispatch), label the picked issue as
+      # `quick-note:in-progress` BEFORE any expensive step runs, then
+      # release the label in every terminal path (and in an `if: always()`
+      # crash-safe step at the end of the job) so a runner that OOMs or
+      # hits the 6h timeout never leaves the issue stuck.
+      #
+      # ROLLOUT: `vars.QN_ATOMIC_CLAIM` reads the GitHub Actions `vars`
+      # context — repo/org-level variables configured in Settings →
+      # Variables on GitHub.com. It is NOT the Cloudflare Workers `vars`
+      # block in wrangler.jsonc (those are separate and worker-internal).
+      # To enable in prod: set the variable at the repo or org level.
+      # To roll back: unset it. The pick-step filter still skips any
+      # `quick-note:in-progress` issue regardless of the flag, so a
+      # partially-rolled-out state is safe.
+      # per-run via workflow_dispatch), label the picked issue as
+      # in-progress BEFORE any expensive step runs. The next pick cycle
+      # (and the concurrency group) will skip it, breaking head-of-line
+      # blocking at the runner level. The label is removed in 5
+      # terminal-state steps below.
+      - name: Claim issue (label-based, feature-flagged)
+        id: claim
+        if: steps.pick.outputs.found == 'true' && vars.QN_ATOMIC_CLAIM == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          PICK_NUM: ${{ steps.pick.outputs.number }}
+        run: |
+          gh label create "quick-note:in-progress" \
+            --repo "$REPO" \
+            --color "fbca04" \
+            --description "Currently being processed by an agent runner" \
+            2>/dev/null || true
+          gh issue edit "$PICK_NUM" --repo "$REPO" \
+            --add-label "quick-note:in-progress" 2>/dev/null || true
+          echo "claimed=true" >> "$GITHUB_OUTPUT"
 
       # ── 2b. Automation-test short-circuit ──────────────────────────────────
       # Self-test issues have no URL and no implementable body, but they exist
@@ -389,6 +460,11 @@ jobs:
           REPO: ${{ github.repository }}
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
+          # Release the in-progress claim (atomic-claim feature flag only).
+          if [ "${QN_ATOMIC_CLAIM:-false}" = "true" ]; then
+            gh issue edit "$ISSUE_NUM" --repo "$REPO" \
+              --remove-label "quick-note:in-progress" 2>/dev/null || true
+          fi
           IMPL_SUMMARY=$(python3 -c "
           import json
           try:
@@ -636,6 +712,12 @@ jobs:
           REVIEW_APPLIED: ${{ steps.review_apply.outputs.applied }}
           REVIEW_VERDICT: ${{ steps.review.outputs.verdict }}
         run: |
+          # Release the in-progress claim so the next run can pick this issue
+          # (only runs if the atomic-claim feature flag is on).
+          if [ "${QN_ATOMIC_CLAIM:-false}" = "true" ]; then
+            gh issue edit "$ISSUE_NUM" --repo "$REPO" \
+              --remove-label "quick-note:in-progress" 2>/dev/null || true
+          fi
           IMPL_SUMMARY=$(python3 -c "
           import json
           try:
@@ -676,6 +758,11 @@ jobs:
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
+          # Release the in-progress claim (atomic-claim feature flag only).
+          if [ "${QN_ATOMIC_CLAIM:-false}" = "true" ]; then
+            gh issue edit "$ISSUE_NUM" --repo "$REPO" \
+              --remove-label "quick-note:in-progress" 2>/dev/null || true
+          fi
           gh issue comment "$ISSUE_NUM" \
             --repo "$REPO" \
             --body "$(cat <<MSG
@@ -699,6 +786,11 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           REVIEW_VERDICT: ${{ steps.review.outputs.verdict }}
         run: |
+          # Release the in-progress claim (atomic-claim feature flag only).
+          if [ "${QN_ATOMIC_CLAIM:-false}" = "true" ]; then
+            gh issue edit "$ISSUE_NUM" --repo "$REPO" \
+              --remove-label "quick-note:in-progress" 2>/dev/null || true
+          fi
           gh issue comment "$ISSUE_NUM" \
             --repo "$REPO" \
             --body "$(cat <<MSG
@@ -743,6 +835,11 @@ jobs:
           ISSUE_RETRY: ${{ steps.issue.outputs.retry }}
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
+          # Release the in-progress claim (atomic-claim feature flag only).
+          if [ "${QN_ATOMIC_CLAIM:-false}" = "true" ]; then
+            gh issue edit "$ISSUE_NUM" --repo "$REPO" \
+              --remove-label "quick-note:in-progress" 2>/dev/null || true
+          fi
           RETRY="$ISSUE_RETRY"
           NEW_RETRY=$((RETRY + 1))
           MAX_RETRIES=3
@@ -798,3 +895,27 @@ jobs:
           MSG
           )"
           fi
+
+      # 17. ALWAYS-release the claim (crash-safe cleanup)
+      # Runs on EVERY outcome (success, failure, cancellation, timeout) so a
+      # runner that dies between the claim step and any terminal step still
+      # releases the in-progress label. Without this, a runner that OOMs or
+      # hits the 6h timeout leaves the issue tagged in-progress forever, and
+      # the pick-filter then blocks it indefinitely.
+      - name: ALWAYS-release the claim (crash-safe cleanup)
+        if: always() && vars.QN_ATOMIC_CLAIM == 'true' && steps.pick.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          PICK_NUM: ${{ steps.pick.outputs.number }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          gh issue edit "$PICK_NUM" --repo "$REPO" \
+            --remove-label "quick-note:in-progress" 2>/tmp/rel_err || {
+            echo "::error::Failed to release in-progress label on issue #$PICK_NUM: $(cat /tmp/rel_err 2>/dev/null)"
+            gh issue comment "$PICK_NUM" --repo "$REPO" \
+              --body "CRITICAL: A runner died before it could release the quick-note:in-progress label on this issue. The next scheduled run will skip it until a human removes the label manually." \
+              2>/dev/null || true
+          }
+          echo "Released quick-note:in-progress on issue #$PICK_NUM (outcome: $OUTCOME)" \
+            >> "$GITHUB_STEP_SUMMARY"

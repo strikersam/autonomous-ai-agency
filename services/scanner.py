@@ -43,6 +43,11 @@ import socket
 from urllib.parse import urlparse
 
 
+
+# Hostnames that are NEVER legitimate scan targets (blocklist, not bind addresses).
+# 0.0.0.0 is in this set so an attacker cannot use it to bypass the SSRF check via the wildcard interface.
+_BLOCKED_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})  # nosec B104 — blocklist constant, not a bind
+
 def _is_safe_url(url: str) -> bool:
     """Block SSRF: reject loopback, link-local, private, and non-HTTP schemes."""
     try:
@@ -54,7 +59,7 @@ def _is_safe_url(url: str) -> bool:
         if not hostname:
             return False
         # Block obvious internal hostnames
-        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):  # nosec B104 — blocklist lookup, not a bind
+        if hostname in _BLOCKED_HOSTNAMES:  # nosec B104 — blocklist lookup, not a bind
             return False
         if hostname.endswith(".local") or hostname.endswith(".internal"):
             return False
@@ -91,7 +96,7 @@ def _is_blocked_host(url: str) -> bool:
     host = (parsed.hostname or "").lower()
     if not host:
         return True  # e.g. file:// or malformed → fail closed (block)
-    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith((".local", ".internal")):  # nosec B104 — blocklist lookup, not a bind
+    if host in _BLOCKED_HOSTNAMES or host.endswith((".local", ".internal")):  # nosec B104 — blocklist lookup, not a bind
         return True
     try:
         ip = ipaddress.ip_address(host)  # only classifies literal-IP hosts
@@ -1745,7 +1750,7 @@ class RepoScanner:
         ecommerce_keywords = ['ecommerce', 'shop', 'store', 'woocommerce', 'shopify', 'magento']
         if any(kw in [t.lower() for t in topics] for kw in ecommerce_keywords):
             systems.append(DetectedSystem(
-                system_type="ecommerce",
+                system_type="OMS",
                 name="E-commerce Platform",
                 confidence=0.7,
                 evidence=[
@@ -1789,7 +1794,7 @@ class RepoScanner:
                         location="repository",
                         confidence=0.7
                     )
-                ]
-            ))
-        
+                ]                )
+            )
+
         return systems

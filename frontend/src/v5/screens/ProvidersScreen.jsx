@@ -87,12 +87,16 @@ function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, onEdit,
   };
 
   return (
-    <div style={{ borderRadius:18, border:`1px solid ${isDefault?'rgba(70,217,164,0.30)':'rgba(255,255,255,0.10)'}`, background:isDefault?'rgba(70,217,164,0.05)':'rgba(255,255,255,0.03)', padding:'14px' }}>
+    <div style={{ borderRadius:18, border:`1px solid ${provider.is_brain?'rgba(245,166,35,0.35)':isDefault?'rgba(70,217,164,0.30)':'rgba(255,255,255,0.10)'}`, background:provider.is_brain?'rgba(245,166,35,0.04)':isDefault?'rgba(70,217,164,0.05)':'rgba(255,255,255,0.03)', padding:'14px' }}>
       <div style={{ display:'flex', alignItems:'flex-start', gap:9, marginBottom:9 }}>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:2 }}>
             <span style={{ fontSize:14, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>{provider.name || provider.provider_id}</span>
             {isDefault && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#46d9a4', background:'rgba(70,217,164,0.10)', border:'1px solid rgba(70,217,164,0.22)' }}>★ default</span>}
+            {provider.is_brain && <span title={provider.role_reason || 'Used as the brain for agent execution'} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#f5a623', background:'rgba(245,166,35,0.12)', border:'1px solid rgba(245,166,35,0.30)', fontWeight:700, letterSpacing:'0.04em' }}>🧠 BRAIN</span>}
+            {provider.role === 'fallback' && <span title={provider.role_reason || 'Paid fallback — only used when no free provider is configured'} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#ffbd66', background:'rgba(255,189,102,0.10)', border:'1px solid rgba(255,189,102,0.22)' }}>fallback</span>}
+            {provider.role === 'sub-agent' && <span title={provider.role_reason || 'Reachable backup used by failover'} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#c4b5fd', background:'rgba(196,181,253,0.08)', border:'1px solid rgba(196,181,253,0.20)' }}>sub-agent</span>}
+            {provider.role === 'unconfigured' && <span title={provider.role_reason || 'Missing base URL or API key'} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#ff6b7d', background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)' }}>unconfigured</span>}
             <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', textTransform:'uppercase', letterSpacing:'0.08em' }}>{provider.type || 'openai-compatible'}</span>
           </div>
           <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{provider.base_url || '—'}</div>
