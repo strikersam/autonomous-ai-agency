@@ -11,9 +11,7 @@ These tests pin down the fixes so they cannot silently regress.
 from __future__ import annotations
 
 import asyncio
-import importlib
 import os
-import sys
 import textwrap
 from pathlib import Path
 
@@ -28,8 +26,13 @@ def test_scanner_imports_cleanly():
     which triggered NameError on import — breaking the whole company-onboarding
     flow (zero systems detected). The fix simply removes the orphan line.
     """
-    # Clear any cached import from previous tests in the same session.
-    sys.modules.pop("services.scanner", None)
+    # Re-popping services.scanner from sys.modules here would create a second
+    # WebsiteScanner class object, breaking monkeypatch.setattr(scanner_mod.
+    # WebsiteScanner, ...) in later tests whose code imported the original
+    # class via `from services.scanner import WebsiteScanner` (e.g.
+    # services/onboarding.py). The module is already imported by the time the
+    # suite reaches this test, so importing it again is a cheap no-op that
+    # still proves the module is loadable.
     import services.scanner  # noqa: F401  — must not raise
     # The module must be loadable AND have the public class we expect.
     assert hasattr(services.scanner, "WebsiteScanner")
