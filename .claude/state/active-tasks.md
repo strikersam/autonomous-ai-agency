@@ -47,6 +47,7 @@
 | 6 | GitHub OAuth URL missing `redirect_uri`; no timeout on httpx clients in login flows | 2026-06-06 | 2026-06-06 | `claude/social-login-google-github-BBGoT` | `BUG_FIXED` |
 | 7 | Google login still "Invalid OAuth state" — session cookie doesn't survive Cloudflare↔Render hop + Render cold-start SESSION_SECRET rotation. Moved login state to server-side `oauth_states` collection | 2026-06-06 | 2026-06-06 | `claude/social-login-oauth-state-store` | `BUG_FIXED` |
 | 8 | Social login 500 "Internal server error" — `_valid_login_state` subtracted naive MongoDB `created_at` from aware `now()` → TypeError (unhandled). Normalised naive datetime to tz-aware | 2026-06-06 | 2026-06-06 | `claude/social-login-naive-datetime-fix` | `BUG_FIXED` |
+| 9 | `.github/workflows/ci-failure-autofix.yml` called Anthropic API with `claude-sonnet-4-20250514` (original Claude Sonnet 4) — Anthropic retires this model on the Claude API 2026-06-15, would break the autofix workflow starting tomorrow. Updated to `claude-sonnet-4-6` to match the workflow's own header comment | 2026-06-14 | 2026-06-14 | `claude/nifty-pasteur-hvjqzn` | `BUG_FIXED` |
 
 ---
 
@@ -94,3 +95,4 @@
 |------|------------|--------|--------|
 | 2026-06-05 | claude-sonnet-4-6 (Opus agent) | claude/llm-server-roadmap-pr-COcKN | Created roadmap TODO from 6 OSS repos research |
 | 2026-06-05 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Built dynamic session planning workflow |
+| 2026-06-14 | claude-sonnet-4-6 | claude/nifty-pasteur-hvjqzn | Daily automation: researched Anthropic/Claude Code/Codex 2026-06 industry news; found Claude Sonnet 4 / Opus 4 retire on the Claude API 2026-06-15 — fixed `.github/workflows/ci-failure-autofix.yml` (`claude-sonnet-4-20250514` → `claude-sonnet-4-6`), added `tests/test_daily_2026_06_14.py` regression guard |

@@ -87,6 +87,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **CI auto-fix workflow used a retired Claude model ID**: `.github/workflows/ci-failure-autofix.yml` called the Anthropic API with `claude-sonnet-4-20250514` (original Claude Sonnet 4), which Anthropic retires on the Claude API on 2026-06-15 — the workflow's own header comment already said "Claude Sonnet 4.6". Updated to `claude-sonnet-4-6` to match. Added `tests/test_daily_2026_06_14.py` to guard against retired Claude 4 model IDs in `.github/workflows/` and `.github/scripts/`.
 - **Provider priority override bug**: `seed_default_providers` no longer resets user-edited priorities on every restart — UI priority changes now persist across server restarts.
 - **Anthropic as brain**: Anthropic providers demoted to priority -90/-80 (below all free cloud providers). Google Gemini (priority 75), OpenRouter (30), and others now win as the orchestrator brain.
 - **Google Gemini model name**: Fixed wrong model `gemma-4` → `gemini-2.5-flash` in seed defaults so the highest-priority free provider actually works.
