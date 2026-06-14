@@ -62,6 +62,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Agentic-agile PR review follow-ups (CodeRabbit).** `.github/scripts/agile_ceremonies.py`: `_load()` now returns `types.ModuleType`; `_write_summary()` uses `log.info()` via `logging.getLogger("qwen-proxy")` instead of `print()`. `.github/workflows/agile-ceremonies.yml`: checkout step sets `persist-credentials: false`. `.claude/state/NEXT_ACTION.md`: plan heading updated from "NOT YET IMPLEMENTED" to "IMPLEMENTED" to match the session's DONE status.
+- **`frontend/src/v5/screens/CompanyScreen.jsx` missing default export.** A bad auto-merge on master had truncated the file's final line to a literal `exp`, so `react-scripts build` failed with "Attempted import error: './screens/CompanyScreen' does not contain a default export". Restored `export default CompanyScreen;`.
+- **`proxy.py` `/v1/models` alias entries still said `owned_by: "llm-relay-alias"`** after the `local-llm-server` → `autonomous-ai-agency` brand rename, while `tests/test_daily_automation_2026_05_14.py` expected `"autonomous-ai-agency-alias"`. Updated the alias-entry `owned_by` value to match.
+
 ### Added
 - **Autonomous agile ceremonies (`agents/agile_ceremonies.py`).** New `generate_standup()` builds a daily standup report (Completed / In progress / Planned / Blockers + active sprint health) from `.claude/state/active-tasks.md` and any active `AgileSprint`s. `generate_sprint_retro()` derives a `Retrospective` from sprint metrics (complete / on-track / at-risk / off-track + scope-creep detection) and stores it on the sprint. `generate_backlog_retro()` mines the task tracker's done/blocked/deferred rows and bug log for retro material. `plan_next_sprint()` runs WSJF capacity allocation against the portfolio, creates the sprint in `PLANNING` status, and adds a `UserStory` per committed initiative. `AgileSprint` gained a `stories` property. 17 new tests in `tests/test_agile_ceremonies.py`.
 - **Scheduled agile ceremonies digest (`.github/workflows/agile-ceremonies.yml`).** New `.github/scripts/agile_ceremonies.py` CLI (standup / retro / plan) runs on a cron — weekday standup (08:00 UTC), Friday backlog retro (17:00 UTC), Monday WSJF sprint plan (07:00 UTC) — and writes the markdown digest to the job summary; `workflow_dispatch` supports manual runs of any ceremony. Documented in `.claude/skills/agentic-agile/SKILL.md`.

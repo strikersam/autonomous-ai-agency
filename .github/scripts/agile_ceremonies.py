@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import logging
 import os
 import sys
 import types
@@ -23,8 +24,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 TASKS_FILE = ROOT / ".claude" / "state" / "active-tasks.md"
 
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+log = logging.getLogger("qwen-proxy")
 
-def _load(name: str, rel: str):
+
+def _load(name: str, rel: str) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(name, ROOT / rel)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
@@ -33,7 +37,7 @@ def _load(name: str, rel: str):
 
 
 def _write_summary(markdown: str) -> None:
-    print(markdown)
+    log.info(markdown)
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as f:

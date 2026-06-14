@@ -27,7 +27,7 @@ workflows? If not, make sure these exist and they all do their work properly."
   role exists** — documented gap in
   `docs/architecture/tailored-onboarding-and-roles.md` (Phase 3 "Role Registry").
 
-## Plan (NOT YET IMPLEMENTED — confirm before starting)
+## Plan (IMPLEMENTED)
 
 ### Part A — Autonomous agile ceremonies
 
