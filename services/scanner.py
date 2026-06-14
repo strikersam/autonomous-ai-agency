@@ -18,7 +18,7 @@ Usage:
 
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import logging
 import secrets
@@ -43,6 +43,11 @@ import socket
 from urllib.parse import urlparse
 
 
+
+# Hostnames that are NEVER legitimate scan targets (blocklist, not bind addresses).
+# 0.0.0.0 is in this set so an attacker cannot use it to bypass the SSRF check via the wildcard interface.
+_BLOCKED_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})  # nosec B104 — blocklist constant, not a bind
+
 def _is_safe_url(url: str) -> bool:
     """Block SSRF: reject loopback, link-local, private, and non-HTTP schemes."""
     try:
@@ -54,7 +59,7 @@ def _is_safe_url(url: str) -> bool:
         if not hostname:
             return False
         # Block obvious internal hostnames
-        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        if hostname in _BLOCKED_HOSTNAMES:  # nosec B104 — blocklist lookup, not a bind
             return False
         if hostname.endswith(".local") or hostname.endswith(".internal"):
             return False
@@ -91,7 +96,7 @@ def _is_blocked_host(url: str) -> bool:
     host = (parsed.hostname or "").lower()
     if not host:
         return True  # e.g. file:// or malformed → fail closed (block)
-    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith((".local", ".internal")):
+    if host in _BLOCKED_HOSTNAMES or host.endswith((".local", ".internal")):  # nosec B104 — blocklist lookup, not a bind
         return True
     try:
         ip = ipaddress.ip_address(host)  # only classifies literal-IP hosts
@@ -213,10 +218,14 @@ class WebsiteScanner:
         include_sitemap: bool = True,
         max_pages: int = 20
     ) -> WebsiteScanResult:
-        import dns.resolver
+        # NOTE: do not import dns.resolver here. It is only needed by
+        # _analyze_dns, which imports it inside its own guarded try/except — an
+        # un-guarded import at method entry would turn a missing/broken
+        # dnspython into a hard 500 for the whole scan instead of degrading to
+        # an empty DNS result.
         scan_id = f"scan_{secrets.token_hex(8)}"
-        started_at = datetime.utcnow()
-        
+        started_at = datetime.now(timezone.utc)
+
         try:
             if not website_url.startswith(("http://", "https://")):
                 website_url = f"https://{website_url}"
@@ -226,7 +235,7 @@ class WebsiteScanner:
                 return WebsiteScanResult(
                     scan_id=scan_id, website_url=website_url, company_id=self.company_id,
                     status="failed", errors=["Blocked: only http/https schemes allowed"],
-                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                    started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
                 )
             
             _safe_url = parsed._replace(fragment="").geturl()
@@ -236,13 +245,16 @@ class WebsiteScanner:
                 return WebsiteScanResult(
                     scan_id=scan_id, website_url=website_url, company_id=self.company_id,
                     status="failed", errors=["Blocked: target URL is not a safe public address (SSRF protection)"],
-                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                    started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
                 )
 
             domain = parsed.hostname.replace('www.', '') if parsed.hostname else ""
 
-            # 1. DNS Analysis (BuiltWith-level off-site detection)
-            dns_systems = self._analyze_dns(domain)
+            # 1. DNS + TLS-certificate Analysis (BuiltWith-level off-site
+            #    detection). Both are network/CPU work, so run them in worker
+            #    threads to keep the event loop responsive.
+            dns_systems = await asyncio.to_thread(self._analyze_dns, domain)
+            ssl_systems = await asyncio.to_thread(self._analyze_ssl_cert, domain)
 
             # 2. On-Site Analysis
             html = ""
@@ -286,7 +298,7 @@ class WebsiteScanner:
                 return WebsiteScanResult(
                     scan_id=scan_id, website_url=website_url, company_id=self.company_id,
                     status="failed", errors=[f"All fetch clients failed: {fetch_error}"],
-                    started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                    started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
                 )
 
             soup = BeautifulSoup(html, 'html.parser') if html else BeautifulSoup("", 'html.parser')
@@ -296,15 +308,18 @@ class WebsiteScanner:
             # page can't block the event loop and stall concurrent requests.
             html_systems = await asyncio.to_thread(self._detect_systems_generic, html, headers, cookies)
             
-            # Merge DNS systems and HTML systems, keeping highest confidence
+            # Explicit high-signal response-header detection (CDN/infra/security
+            # headers BuiltWith reports) on top of the regex DB pass.
+            header_systems = self._analyze_response_headers(headers)
+
+            # Merge all evidence sources, keeping the highest-confidence record
+            # per system: HTML signatures, DNS, TLS cert, response headers.
             all_systems_map = {sys.name: sys for sys in html_systems}
-            for dns_sys in dns_systems:
-                if dns_sys.name in all_systems_map:
-                    if dns_sys.confidence > all_systems_map[dns_sys.name].confidence:
-                        all_systems_map[dns_sys.name] = dns_sys
-                else:
-                    all_systems_map[dns_sys.name] = dns_sys
-                    
+            for extra_sys in (*dns_systems, *ssl_systems, *header_systems):
+                existing = all_systems_map.get(extra_sys.name)
+                if existing is None or extra_sys.confidence > existing.confidence:
+                    all_systems_map[extra_sys.name] = extra_sys
+
             detected_systems = list(all_systems_map.values())
 
             # Headless fallback. JS-rendered and bot-protected sites (e.g. luxury
@@ -313,7 +328,22 @@ class WebsiteScanner:
             # fetch looks blocked/empty — render the page with a real browser
             # (Playwright/Chromium) and re-run the same signature detection on the
             # fully-rendered DOM. No-ops gracefully when the browser isn't present.
-            if not detected_systems or status_code == 0 or status_code >= 400:
+            # Escalate when detection is *thin*, not only when it found literally
+            # nothing: bot-protected storefronts (gucci.com behind Akamai) leak a
+            # couple of signals from the challenge page, so a `not detected_systems`
+            # gate never fired and PIM/CRM/etc. behind the JS wall stayed invisible.
+            import os as _os
+            try:
+                _render_min = int(_os.environ.get("SCANNER_RENDER_MIN_SYSTEMS", "5"))
+            except ValueError:
+                _render_min = 5
+            _blocked_or_thin = (
+                len(detected_systems) < _render_min
+                or status_code == 0
+                or status_code >= 400
+                or _looks_like_bot_challenge(html or "")
+            )
+            if _blocked_or_thin:
                 rendered = await self._render_html(_safe_url)
                 if rendered:
                     r_html, r_headers, r_cookies = rendered
@@ -340,12 +370,49 @@ class WebsiteScanner:
             # available), ask builtwith.com what it already knows about the
             # domain from its own crawl. Free, no API key, off-page — so it works
             # even when the target site refuses us. Merged at lower confidence.
-            if not detected_systems:
+            try:
+                _bw_min = int(_os.environ.get("SCANNER_BUILTWITH_MIN_SYSTEMS", "5"))
+            except ValueError:
+                _bw_min = 5
+            if len(detected_systems) < _bw_min:
                 bw_systems = await self._query_builtwith(domain)
                 for s in bw_systems:
                     if s.name not in all_systems_map:
                         all_systems_map[s.name] = s
                 detected_systems = list(all_systems_map.values())
+
+            # 3b. Subdomain layer — scan common subdomains for additional tech signals.
+            # Each responding subdomain is scanned with the same HTML + header detection
+            # pipeline, potentially revealing different tech stacks (e.g. shop.gucci.com
+            # may run Shopify while the main site runs a custom stack).
+            subdomain_results = await self._scan_subdomains(domain)
+            for sub_data in subdomain_results:
+                sub_systems = await asyncio.to_thread(
+                    self._detect_systems_generic,
+                    sub_data["html"],
+                    sub_data["headers"],
+                    {},
+                )
+                sub_header_systems = self._analyze_response_headers(sub_data["headers"])
+                for s in (*sub_systems, *sub_header_systems):
+                    # Mark origin subdomain in evidence source
+                    s = DetectedSystem(
+                        name=s.name,
+                        system_type=s.system_type,
+                        confidence=max(0.0, s.confidence - 0.05),  # slight penalty for subdomain signal
+                        evidence=s.evidence,
+                        version=s.version,
+                        configuration={**(s.configuration or {}), "source_subdomain": sub_data["subdomain"]},
+                    )
+                    existing = all_systems_map.get(s.name)
+                    if existing is None or s.confidence > existing.confidence:
+                        all_systems_map[s.name] = s
+            if subdomain_results:
+                detected_systems = list(all_systems_map.values())
+                log.info(
+                    f"Subdomain scan found {len(subdomain_results)} responding subdomains, "
+                    f"total systems now {len(detected_systems)}"
+                )
 
             stack_inference = await self._infer_stack(soup, html, headers, website_url)
             
@@ -355,7 +422,7 @@ class WebsiteScanner:
                 sitemap_urls = await self._discover_sitemap(soup, website_url)
             
             pages_scanned = 1 + len(sitemap_urls) if sitemap_urls else 1
-            completed_at = datetime.utcnow()
+            completed_at = datetime.now(timezone.utc)
             
             return WebsiteScanResult(
                 scan_id=scan_id, website_url=website_url, company_id=self.company_id, status="success",
@@ -367,8 +434,58 @@ class WebsiteScanner:
             log.error(f"Error scanning website {website_url}: {e}")
             return WebsiteScanResult(
                 scan_id=scan_id, website_url=website_url, company_id=self.company_id, status="failed",
-                errors=[str(e)], started_at=started_at.isoformat(), completed_at=datetime.utcnow().isoformat()
+                errors=[str(e)], started_at=started_at.isoformat(), completed_at=datetime.now(timezone.utc).isoformat()
             )
+
+    async def _scan_subdomains(self, domain: str) -> list[dict]:
+        """Try common subdomains and scan each for additional tech signals.
+
+        For each subdomain that returns an HTTP < 400 response, captures up to
+        200 KB of HTML and the full response headers.  The caller merges these
+        results into the main ``all_systems_map`` to expose tech stacks that
+        only appear on sub-domains (e.g. shop.brand.com running Shopify while
+        the root site runs a custom stack).
+
+        Returns a list of dicts:
+            {"subdomain": str, "url": str, "html": str, "headers": dict}
+        """
+        common = [
+            "www", "shop", "store", "blog", "api",
+            "cdn", "assets", "checkout", "account", "static",
+            "media", "images",
+        ]
+        results: list[dict] = []
+        async with httpx.AsyncClient(
+            timeout=5,
+            follow_redirects=True,
+            headers={"User-Agent": self.user_agent},
+        ) as client:
+            async def _probe(sub: str) -> dict | None:
+                url = f"https://{sub}.{domain}"
+                if not _is_safe_url(url):
+                    return None
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code < 400:
+                        return {
+                            "subdomain": sub,
+                            "url": str(resp.url),
+                            "html": resp.text[:200_000],
+                            "headers": dict(resp.headers),
+                        }
+                except Exception:
+                    pass
+                return None
+
+            tasks = [_probe(sub) for sub in common]
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    result = await coro
+                    if result is not None:
+                        results.append(result)
+                except Exception:
+                    pass
+        return results
 
     async def _render_html(self, url: str) -> Optional[tuple[str, dict, dict]]:
         """Render a page with a real headless browser (Playwright/Chromium) and
@@ -627,12 +744,21 @@ class WebsiteScanner:
         return list(systems_map.values())
 
     def _analyze_dns(self, domain: str) -> List[DetectedSystem]:
-        import dns.resolver
-        systems = []
-        
+        systems: List[DetectedSystem] = []
+
         if not domain:
             return systems
-            
+
+        # Soft import: if dnspython is unavailable, degrade to an empty DNS
+        # result rather than crashing the whole scan (the static/headless tiers
+        # still run). dnspython is a production dependency (backend/requirements
+        # .txt); this guard just keeps a dependency drift from 500-ing scans.
+        try:
+            import dns.resolver
+        except ImportError:
+            log.warning("dnspython not installed — skipping DNS analysis (no MX/NS/TXT/CNAME detection)")
+            return systems
+
         def add_sys(sys_id, sys_type, name, conf, ev_type, ev_val):
             systems.append(DetectedSystem(
                 system_type=sys_type, name=name, confidence=conf,
@@ -767,6 +893,245 @@ class WebsiteScanner:
 
         return systems
 
+    @staticmethod
+    def _decode_der_cert(der: bytes) -> dict:
+        """Parse a DER-encoded X.509 certificate and return a dict in the same
+        shape as ``ssl.getpeercert()``: ``{'issuer': ((('organizationName', 'O'),
+        ('commonName', 'CN'),), ...), 'subjectAltName': (('DNS', 'host'), ...)}``.
+
+        Used as a fallback for the unverified-cert path where ``getpeercert()``
+        returns an empty dict (CPython only populates the parsed form when the
+        cert is *verified*). Degrades to ``{}`` on any parse failure so the
+        scanner can never 500 on a malformed cert.
+        """
+        if not der:
+            return {}
+        try:
+            from cryptography import x509
+            from cryptography.x509.oid import NameOID
+            cert = x509.load_der_x509_certificate(der)
+        except Exception:
+            return {}
+
+        oid_to_name = {
+            NameOID.COMMON_NAME: 'commonName',
+            NameOID.ORGANIZATION_NAME: 'organizationName',
+            NameOID.ORGANIZATIONAL_UNIT_NAME: 'organizationalUnitName',
+            NameOID.SERIAL_NUMBER: 'serialNumber',
+            NameOID.COUNTRY_NAME: 'countryName',
+            NameOID.STATE_OR_PROVINCE_NAME: 'stateOrProvinceName',
+            NameOID.LOCALITY_NAME: 'localityName',
+            NameOID.EMAIL_ADDRESS: 'emailAddress',
+        }
+
+        def _name_to_rdn(name) -> tuple:
+            rdn = tuple(
+                (oid_to_name.get(attr.oid, attr.oid.dotted_string), str(attr.value))
+                for attr in name
+            )
+            return rdn if rdn else ()
+
+        try:
+            issuer = (_name_to_rdn(cert.issuer),)
+        except Exception:
+            issuer = ()
+
+        sans: list = []
+        try:
+            san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            for dns in san_ext.value.get_values_for_type(x509.DNSName):
+                sans.append(('DNS', dns))
+        except Exception:
+            pass
+
+        result: dict = {}
+        if issuer and any(issuer[0]):
+            result['issuer'] = issuer
+        if sans:
+            result['subjectAltName'] = tuple(sans)
+        return result
+
+    def _fetch_ssl_cert(self, domain: str) -> dict:
+        """Fetch the TLS cert for ``domain`` and return it in the same dict
+        shape as ``ssl.getpeercert()``. Tries a verified handshake first; on
+        any failure (expired cert, hostname mismatch, connection blocked) falls
+        back to an unverified handshake and decodes the raw DER via
+        ``_decode_der_cert`` — CPython only populates the parsed form when the
+        cert is *verified*, so an unverified cert otherwise yields an empty
+        dict and zero detections. Returns ``{}`` on any failure.
+        """
+        import ssl as _ssl
+        import socket as _socket
+        # First try: verified handshake (populates parsed cert dict).
+        try:
+            ctx = _ssl.create_default_context()
+            with _socket.create_connection((domain, 443), timeout=min(self.timeout, 10)) as sock:
+                with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert = ssock.getpeercert()
+                    if cert:
+                        return cert
+        except Exception:
+            pass
+        # Second try: unverified handshake + DER decode (CPython returns an
+        # empty dict from getpeercert(binary_form=False) under CERT_NONE).
+        try:
+            ctx = _ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
+            with _socket.create_connection((domain, 443), timeout=min(self.timeout, 10)) as sock:
+                with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                    der = ssock.getpeercert(binary_form=True)
+                    if der:
+                        return self._decode_der_cert(der)
+        except Exception:
+            pass
+        return {}
+
+    def _analyze_ssl_cert(self, domain: str) -> List[DetectedSystem]:
+        """Inspect the TLS certificate (issuer + Subject Alternative Names) to
+        infer hosting/CDN/cert platforms — BuiltWith-style off-HTML evidence.
+
+        Many platforms terminate TLS with their own certs whose issuer or SANs
+        reveal the provider even when the HTML is bot-walled (e.g. Cloudflare,
+        Let's Encrypt via a PaaS, Google Trust Services on GCP, Amazon on
+        CloudFront/ELB). Degrades to an empty list on any error so it can never
+        500 or hang the scan.
+        """
+        systems: List[DetectedSystem] = []
+        if not domain:
+            return systems
+
+        def add_sys(sys_id, sys_type, name, conf, ev_type, ev_val):
+            systems.append(DetectedSystem(
+                system_type=sys_type, name=name, confidence=conf,
+                evidence=[Evidence(type=ev_type, value=str(ev_val)[:200], location="SSL", confidence=conf)]
+            ))
+
+        cert = self._fetch_ssl_cert(domain)
+        if not cert:
+            return systems
+
+        issuer_parts = []
+        for rdn in cert.get('issuer', ()):  # tuple of tuples
+            for k, v in rdn:
+                if k in ('organizationName', 'commonName'):
+                    issuer_parts.append(str(v))
+        issuer = " ".join(issuer_parts).lower()
+
+        issuer_map = [
+            ("let's encrypt", ('letsencrypt', 'custom', "Let's Encrypt")),
+            ('cloudflare',    ('cloudflare',  'custom', 'Cloudflare')),
+            ('amazon',        ('aws',         'custom', 'Amazon Web Services')),
+            ('google trust',  ('gcp',         'custom', 'Google Cloud')),
+            ('digicert',      ('digicert',    'custom', 'DigiCert')),
+            ('sectigo',       ('sectigo',     'custom', 'Sectigo')),
+            ('globalsign',    ('globalsign',  'custom', 'GlobalSign')),
+            ('microsoft',     ('azure',       'custom', 'Microsoft Azure')),
+            ('gts ',          ('gcp',         'custom', 'Google Cloud')),
+            ('entrust',       ('entrust',     'custom', 'Entrust')),
+        ]
+        for needle, (sid, stype, name) in issuer_map:
+            if needle in issuer:
+                add_sys(sid, stype, name, 0.85, 'SSL issuer', issuer)
+                break
+
+        san_map = [
+            ('cloudflaressl.com', ('cloudflare', 'custom', 'Cloudflare')),
+            ('sni.cloudflaressl', ('cloudflare', 'custom', 'Cloudflare')),
+            ('myshopify.com',     ('shopify',    'CMS',    'Shopify')),
+            ('shopify',           ('shopify',    'CMS',    'Shopify')),
+            ('herokuapp.com',     ('heroku',     'custom', 'Heroku')),
+            ('netlify',           ('netlify',    'custom', 'Netlify')),
+            ('vercel',            ('vercel',     'custom', 'Vercel')),
+            ('wpengine',          ('wpengine',   'custom', 'WP Engine')),
+            ('squarespace',       ('squarespace','CMS',    'Squarespace')),
+            ('wixsite',           ('wix',        'CMS',    'Wix')),
+            ('fastly',            ('fastly',     'custom', 'Fastly')),
+            ('akamai',            ('akamai',     'custom', 'Akamai')),
+            ('amazonaws.com',     ('aws',        'custom', 'Amazon Web Services')),
+            ('cloudfront.net',    ('cloudfront', 'custom', 'AWS CloudFront')),
+            ('azure',             ('azure',      'custom', 'Microsoft Azure')),
+            ('hubspot',           ('hubspot',    'marketing_automation', 'HubSpot')),
+            ('zendesk',           ('zendesk',    'support', 'Zendesk')),
+        ]
+        for typ, san in cert.get('subjectAltName', ()):
+            if typ != 'DNS':
+                continue
+            san_l = str(san).lower()
+            for needle, (sid, stype, name) in san_map:
+                if needle in san_l:
+                    add_sys(sid, stype, name, 0.8, 'SSL SAN', san_l)
+
+        return systems
+
+    def _analyze_response_headers(self, headers: Any) -> List[DetectedSystem]:
+        """Explicit high-signal response-header detection beyond the
+        technologies.json header specs — covers CDN/infra/security headers
+        BuiltWith reports (Server, Via, X-Powered-By, X-Served-By, CF-Ray,
+        X-Cache, X-Amz-*, etc.). Complements the regex DB pass; never throws.
+        """
+        systems: List[DetectedSystem] = []
+        try:
+            hdr = {str(k).lower(): str(v).lower() for k, v in dict(headers or {}).items()}
+        except Exception:
+            return systems
+
+        # Valid SystemType literals (kept in sync with models/company_graph.py::SystemType);
+        # rule entries below may use shorthand categories that aren't valid SystemType
+        # values (e.g. 'frontend'), so unrecognised types fall back to 'custom'.
+        valid_types = ['CMS', 'CRM', 'OMS', 'PIM', 'DAM', 'ERP', 'HRM', 'LMS', 'analytics', 'payment_gateway', 'shipping', 'tax', 'inventory', 'marketing_automation', 'email_service', 'search', 'database', 'cache', 'cdc', 'message_queue', 'api_gateway', 'auth', 'billing', 'support', 'chat', 'video', 'voice', 'iot', 'ai_ml', 'custom']
+
+        def add_sys(sys_id, sys_type, name, conf, hname, hval):
+            systems.append(DetectedSystem(
+                system_type=sys_type if sys_type in valid_types else 'custom', name=name, confidence=conf,
+                evidence=[Evidence(type='header', value=f'{hname}: {str(hval)[:120]}',
+                                   location='headers', confidence=conf)]
+            ))
+
+        # (header name, substring-or-empty, system tuple). Empty substring =
+        # presence-only signal (the header existing is itself the evidence).
+        rules = [
+            ('cf-ray',          '',            ('cloudflare', 'custom', 'Cloudflare')),
+            ('cf-cache-status', '',            ('cloudflare', 'custom', 'Cloudflare')),
+            ('x-served-by',     'cache',       ('fastly',     'custom', 'Fastly')),
+            ('x-fastly-request-id', '',        ('fastly',     'custom', 'Fastly')),
+            ('x-cache',         'cloudfront',  ('cloudfront', 'custom', 'AWS CloudFront')),
+            ('via',             'cloudfront',  ('cloudfront', 'custom', 'AWS CloudFront')),
+            ('x-amz-cf-id',     '',            ('cloudfront', 'custom', 'AWS CloudFront')),
+            ('x-amz-request-id','',            ('aws_s3',     'custom', 'Amazon S3')),
+            ('x-azure-ref',     '',            ('azure',      'custom', 'Microsoft Azure')),
+            ('x-akamai-transformed', '',       ('akamai',     'custom', 'Akamai')),
+            ('x-iinfo',         '',            ('imperva',    'custom', 'Imperva')),
+            ('x-sucuri-id',     '',            ('sucuri',     'custom', 'Sucuri')),
+            ('x-vercel-id',     '',            ('vercel',     'custom', 'Vercel')),
+            ('x-nf-request-id', '',            ('netlify',    'custom', 'Netlify')),
+            ('x-shopify-stage', '',            ('shopify',    'CMS',    'Shopify')),
+            ('x-shopid',        '',            ('shopify',    'CMS',    'Shopify')),
+            ('x-drupal-cache',  '',            ('drupal',     'CMS',    'Drupal')),
+            ('x-generator',     'drupal',      ('drupal',     'CMS',    'Drupal')),
+            ('x-powered-by',    'php',         ('php',        'custom', 'PHP')),
+            ('x-powered-by',    'asp.net',     ('aspnet',     'custom', 'ASP.NET')),
+            ('x-powered-by',    'express',     ('express',    'custom', 'Express.js')),
+            ('x-powered-by',    'next.js',     ('nextjs',     'custom', 'Next.js')),
+            ('x-powered-by',    'wp engine',   ('wpengine',   'custom', 'WP Engine')),
+            ('x-aspnet-version','',            ('aspnet',     'custom', 'ASP.NET')),
+            ('server',          'cloudflare',  ('cloudflare', 'custom', 'Cloudflare')),
+            ('server',          'nginx',       ('nginx',      'custom', 'Nginx')),
+            ('server',          'apache',      ('apache',     'custom', 'Apache')),
+            ('server',          'microsoft-iis',('iis',       'custom', 'Microsoft IIS')),
+            ('server',          'litespeed',   ('litespeed',  'custom', 'LiteSpeed')),
+            ('server',          'gws',         ('gcp',        'custom', 'Google Cloud')),
+            ('server',          'awselb',      ('aws_elb',    'custom', 'AWS Elastic Load Balancing')),
+            ('server',          'cowboy',      ('heroku',     'custom', 'Heroku')),
+        ]
+        for hname, needle, (sid, stype, name) in rules:
+            val = hdr.get(hname)
+            if val is None:
+                continue
+            if needle == '' or needle in val:
+                add_sys(sid, stype, name, 0.9 if needle == '' else 0.85, hname, val)
+        return systems
+
     def _detect_systems_generic(self, html: str, headers: Any, cookies: Any) -> List[DetectedSystem]:
         """
         Replicates builtwith.builtwith() data-driven logic natively using the
@@ -787,12 +1152,33 @@ class WebsiteScanner:
             except re.error:
                 return False
 
+        def _match_snippet(pattern, value):
+            """Like _match but returns the matched text so evidence shown in the
+            UI ("detected via html") is human-readable, never raw regex source."""
+            if not value:
+                return None
+            bare = str(pattern).split("\\;")[0]
+            if not bare:
+                return value[:80]
+            try:
+                m = re.search(bare, value, re.IGNORECASE)
+            except re.error:
+                return None
+            if not m:
+                return None
+            snippet = m.group(0).strip()
+            if not snippet:
+                return str(bare)[:80]
+            return (snippet[:117] + "...") if len(snippet) > 120 else snippet
+
         systems_map = {}
         headers_dict = {str(k).lower(): str(v).lower() for k, v in dict(headers).items()}
         cookies_dict = {str(k).lower(): str(v).lower() for k, v in dict(cookies).items()}
         
         # Limit html size to prevent catastrophic backtracking on minified bundles
-        html_safe = html[:100000].lower() if html else ""
+        # 100KB silently dropped signatures deep in heavy storefront pages
+        # (e.g. gucci.com); 500KB keeps regexes safe but sees the whole document.
+        html_safe = html[:500000].lower() if html else ""
         
         # Extract meta tags once
         metas = {}
@@ -848,8 +1234,9 @@ class WebsiteScanner:
                 if not isinstance(patterns, list):
                     patterns = [patterns]
                 for pattern in patterns:
-                    if _match(pattern, html_safe):
-                        add_sys(app_name, app_spec, 0.90, 'html', pattern)
+                    snippet = _match_snippet(pattern, html_safe)
+                    if snippet is not None:
+                        add_sys(app_name, app_spec, 0.90, 'html', snippet)
                         matched = True
                         break
 
@@ -940,6 +1327,51 @@ class WebsiteScanner:
         if 'x-amz-cf-id' in headers_dict: add_stack(hosting, 'AWS'); add_stack(infrastructure, 'AWS CloudFront')
         if 'cloudflare' in headers_dict.get('server', ''): add_stack(infrastructure, 'Cloudflare')
         if 'akamai' in headers_dict.get('server', '') or 'x-cache' in headers_dict: add_stack(infrastructure, 'Akamai')
+        # Render.com detection (common PaaS for Python/Node backends)
+        if 'onrender.com' in headers_dict.get('x-render-origin-server', '') \
+                or 'render' in headers_dict.get('server', '').lower() \
+                or 'x-render-id' in headers_dict:
+            add_stack(hosting, 'Render')
+        # FastAPI / Python backend signals
+        if 'fastapi' in headers_dict.get('x-powered-by', '').lower() \
+                or headers_dict.get('server', '').lower().startswith('uvicorn') \
+                or 'uvicorn' in headers_dict.get('via', '').lower():
+            add_stack(frameworks, 'FastAPI')
+            add_stack(languages, 'Python')
+        # Generic Python ASGI/WSGI
+        if 'gunicorn' in headers_dict.get('server', '').lower() \
+                or 'waitress' in headers_dict.get('server', '').lower() \
+                or 'hypercorn' in headers_dict.get('server', '').lower():
+            add_stack(languages, 'Python')
+        # React — broader pattern: CRA bundles use static/js/main.*.js
+        if 'react' in html_lower \
+                or 'static/js/main.' in html_lower \
+                or '__webpack_require__' in html_lower \
+                or 'data-reactroot' in html_lower \
+                or '_reactfiber' in html_lower:
+            add_stack(frameworks, 'React')
+            add_stack(languages, 'JavaScript')
+        # Vite / modern bundlers
+        if 'vite' in html_lower or '/@vite/' in html_lower or '/assets/index.' in html_lower:
+            add_stack(frameworks, 'Vite')
+            add_stack(languages, 'JavaScript')
+        # Tailwind CSS
+        if 'tailwind' in html_lower or 'tw-' in html_lower:
+            add_stack(frameworks, 'Tailwind CSS')
+        # MongoDB / document DB hints in error messages or meta
+        if 'mongodb' in html_lower or 'mongoose' in html_lower:
+            add_stack(databases, 'MongoDB')
+        # SQLite hint (often in dev/small backends)
+        if 'sqlite' in html_lower:
+            add_stack(databases, 'SQLite')
+        # OpenAI-compatible API signals
+        if '/v1/chat/completions' in html_lower or 'openai-compatible' in html_lower \
+                or 'ollama' in html_lower:
+            add_stack(frameworks, 'OpenAI-compatible API')
+        # GitHub Pages / Actions signals
+        if 'github.io' in headers_dict.get('x-github-request-id', '') \
+                or 'github' in headers_dict.get('server', '').lower():
+            add_stack(hosting, 'GitHub Pages')
             
         return StackInference(
             frameworks=frameworks, languages=languages, libraries=libraries,
@@ -973,15 +1405,17 @@ class RepoScanner:
     - Detect dependencies
     """
 
-    def __init__(self, company_id: Optional[str] = None):
+    def __init__(self, company_id: Optional[str] = None, github_token: Optional[str] = None):
         """
         Initialize the repository scanner.
         
         Args:
             company_id: Optional company ID for context
+            github_token: Optional GitHub personal access token for authenticated API calls
         """
         self.company_id = company_id
-        self.user_agent = "AgencyCore/1.0 (Company Graph Repo Scanner)"
+        self.github_token = github_token
+        self.user_agent = "AutonomousAIAgency/1.0 (Company Graph Repo Scanner)"
         self.timeout = 30.0
 
     async def scan_repo(
@@ -998,7 +1432,7 @@ class RepoScanner:
             RepoScanResult with inferred stack and detected systems
         """
         scan_id = f"repo_scan_{secrets.token_hex(8)}"
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
         
         try:
             # Normalize URL
@@ -1024,7 +1458,7 @@ class RepoScanner:
                     files_scanned=0,
                     errors=[f"Provider {provider} not yet fully supported"],
                     started_at=started_at.isoformat(),
-                    completed_at=datetime.utcnow().isoformat()
+                    completed_at=datetime.now(timezone.utc).isoformat()
                 )
                 
         except Exception as e:
@@ -1036,7 +1470,7 @@ class RepoScanner:
                 status="failed",
                 errors=[str(e)],
                 started_at=started_at.isoformat(),
-                completed_at=datetime.utcnow().isoformat()
+                completed_at=datetime.now(timezone.utc).isoformat()
             )
 
     def _detect_provider(self, repo_url: str) -> str:
@@ -1101,7 +1535,7 @@ class RepoScanner:
                 status="failed",
                 errors=["Invalid GitHub repository URL"],
                 started_at=started_at.isoformat(),
-                completed_at=datetime.utcnow().isoformat()
+                completed_at=datetime.now(timezone.utc).isoformat()
             )
         
         owner = parts[0]
@@ -1111,10 +1545,17 @@ class RepoScanner:
         # Note: This requires a GitHub token for private repos
         github_api_url = f"https://api.github.com/repos/{owner}/{repo_name}"
         
+        # Build headers with optional GitHub token for authenticated API calls.
+        # Without a token, GitHub's unauthenticated rate limit is 60 requests/hour
+        # (which is easily exhausted), causing 403/rate-limit errors.
+        _req_headers = {"User-Agent": self.user_agent}
+        if self.github_token:
+            _req_headers["Authorization"] = f"Bearer {self.github_token}"
+        
         try:
             async with httpx.AsyncClient(
                 timeout=self.timeout,
-                headers={"User-Agent": self.user_agent}
+                headers=_req_headers
             ) as client:
                 # Get repo info
                 response = await client.get(github_api_url)
@@ -1135,7 +1576,7 @@ class RepoScanner:
                     # Detect systems
                     detected_systems = self._detect_systems_from_github_data(repo_data)
                     
-                    completed_at = datetime.utcnow()
+                    completed_at = datetime.now(timezone.utc)
                     
                     return RepoScanResult(
                         scan_id=scan_id,
@@ -1161,7 +1602,7 @@ class RepoScanner:
                         status="failed",
                         errors=["Repository not found"],
                         started_at=started_at.isoformat(),
-                        completed_at=datetime.utcnow().isoformat()
+                        completed_at=datetime.now(timezone.utc).isoformat()
                     )
                 elif response.status_code == 403:
                     return RepoScanResult(
@@ -1171,7 +1612,7 @@ class RepoScanner:
                         status="failed",
                         errors=["Rate limit exceeded or private repository without auth"],
                         started_at=started_at.isoformat(),
-                        completed_at=datetime.utcnow().isoformat()
+                        completed_at=datetime.now(timezone.utc).isoformat()
                     )
                 else:
                     return RepoScanResult(
@@ -1181,7 +1622,7 @@ class RepoScanner:
                         status="failed",
                         errors=[f"GitHub API error: {response.status_code}"],
                         started_at=started_at.isoformat(),
-                        completed_at=datetime.utcnow().isoformat()
+                        completed_at=datetime.now(timezone.utc).isoformat()
                     )
                     
         except Exception as e:
@@ -1193,7 +1634,7 @@ class RepoScanner:
                 status="failed",
                 errors=[str(e)],
                 started_at=started_at.isoformat(),
-                completed_at=datetime.utcnow().isoformat()
+                completed_at=datetime.now(timezone.utc).isoformat()
             )
 
     def _infer_stack_from_url(self, repo_url: str) -> StackInference:
@@ -1314,7 +1755,7 @@ class RepoScanner:
         ecommerce_keywords = ['ecommerce', 'shop', 'store', 'woocommerce', 'shopify', 'magento']
         if any(kw in [t.lower() for t in topics] for kw in ecommerce_keywords):
             systems.append(DetectedSystem(
-                system_type="ecommerce",
+                system_type="OMS",
                 name="E-commerce Platform",
                 confidence=0.7,
                 evidence=[
@@ -1358,7 +1799,7 @@ class RepoScanner:
                         location="repository",
                         confidence=0.7
                     )
-                ]
-            ))
-        
+                ]                )
+            )
+
         return systems

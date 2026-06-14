@@ -3,8 +3,10 @@ name: "Security Scan"
 on:
   push:
     branches: [master]
+    paths-ignore: ["docs/context/**"]
   pull_request:
     branches: [master]
+    paths-ignore: ["docs/context/**"]
   schedule:
     - cron: '30 2 * * 1'   # Weekly on Monday at 02:30 UTC
   workflow_dispatch:

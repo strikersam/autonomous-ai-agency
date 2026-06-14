@@ -14,9 +14,22 @@ import logging
 import secrets
 import time
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 log = logging.getLogger("qwen-proxy")
+
+
+class FailureCategory(Enum):
+    """Classified failure types for targeted self-healing (E2)."""
+    SYNTAX_ERROR = "syntax_error"
+    TEST_FAILURE = "test_failure"
+    LINT_ERROR = "lint_error"
+    TIMEOUT = "timeout"
+    IMPORT_ERROR = "import_error"
+    OOM = "out_of_memory"
+    NETWORK = "network_error"
+    UNKNOWN = "unknown"
 
 
 @dataclass
@@ -62,13 +75,25 @@ class SelfHealingAgent:
         test_name = failure_info.get("test", "unknown-test")
         error = failure_info.get("error", "")
         workflow = failure_info.get("workflow", "ci")
+        test_file = failure_info.get("file", "")
+        category = self._classify_failure(error)
+        hint = self._failure_category_hint(category.value)
+
+        description_parts = [
+            f"Test `{test_name}` failed in workflow `{workflow}`.",
+            "",
+            f"**Failure category:** {category.value}",
+            f"**Suggested fix:** {hint}",
+        ]
+        if test_file:
+            description_parts.append(f"**File:** `{test_file}`")
+        if error:
+            description_parts.append(f"\n**Error details:**\n```\n{error[:6000]}\n```")
+
         event = self._make_event(
             source="ci",
             title=f"CI failure: {test_name} in {workflow}",
-            description=(
-                f"Test `{test_name}` failed in workflow `{workflow}`.\n\n"
-                f"Error:\n```\n{error[:2000]}\n```"
-            ),
+            description="\n".join(description_parts),
             severity="high",
         )
         log.info("SelfHealingAgent: CI failure — %s", event.title)
@@ -121,6 +146,46 @@ class SelfHealingAgent:
         )
         self._events.append(event)
         return event
+
+    @staticmethod
+    def _classify_failure(description: str) -> FailureCategory:
+        """E2: Classify a failure from its description text.
+
+        Order matters: specific checks (syntax_error, import_error,
+        lint_error, timeout, OOM, network) are evaluated before the
+        generic test_failure check to avoid mis-classification.
+        """
+        lowered = description.lower()
+        if "syntax error" in lowered or "syntaxerror" in lowered:
+            return FailureCategory.SYNTAX_ERROR
+        if "modulenotfound" in lowered or "importerror" in lowered or "no module" in lowered:
+            return FailureCategory.IMPORT_ERROR
+        if "lint" in lowered or "flake8" in lowered or "mypy" in lowered or "type error" in lowered:
+            return FailureCategory.LINT_ERROR
+        if "timeout" in lowered or "timed out" in lowered:
+            return FailureCategory.TIMEOUT
+        if "memory" in lowered or "oom" in lowered or "killed" in lowered:
+            return FailureCategory.OOM
+        if "network" in lowered or "connection" in lowered or "unreachable" in lowered:
+            return FailureCategory.NETWORK
+        if "test fail" in lowered or "assertion" in lowered or ("test_" in lowered and "fail" in lowered):
+            return FailureCategory.TEST_FAILURE
+        return FailureCategory.UNKNOWN
+
+    @staticmethod
+    def _failure_category_hint(category: str) -> str:
+        """E2: Return a corrective hint for each failure category."""
+        hints = {
+            "syntax_error": "Fix the syntax error. Run `python -m py_compile <file>` to verify.",
+            "test_failure": "Fix the failing test. Run `pytest -x <test>` to verify the fix.",
+            "lint_error": "Fix the lint/type error. Run the linter to verify.",
+            "timeout": "The operation timed out. Add retry logic or increase the timeout.",
+            "import_error": "Fix the import. Check that the module exists and the path is correct.",
+            "out_of_memory": "Reduce memory usage. Split large operations or free resources.",
+            "network_error": "The network request failed. Add retry with backoff or check the endpoint.",
+            "unknown": "Investigate the failure and apply the minimum fix.",
+        }
+        return hints.get(category, hints["unknown"])
 
     async def _dispatch_fix(self, event: HealingEvent) -> None:
         from agent.improvement_loop import (

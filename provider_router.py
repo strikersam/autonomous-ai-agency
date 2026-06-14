@@ -1,3 +1,5 @@
+"""provider_router.py — auto-generated module docstring (user-research skill scan)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,45 +17,51 @@ import httpx
 log = logging.getLogger("llm-provider-router")
 
 # ── Cross-request provider cooldowns ──────────────────────────────────────────
-# These are module-level so cooldown state persists across ProviderRouter
-# instances within the same process.
-_provider_cooldowns: dict[str, float] = {}
+# Delegated to services.shared_state (in-memory by default, Redis when REDIS_URL
+# is set) so cooldown state survives across web/worker process boundaries.
 _DEFAULT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_COOLDOWN_SECONDS", "30"))
 _AUTH_FAILURE_COOLDOWN_SECONDS: int = 300  # bad API key — don't retry for 5 min
 _CONN_FAILURE_COOLDOWN_SECONDS: int = 15  # network hiccup — retry sooner
+# Rate-limit (429): fail over to the next provider *immediately* (don't burn retries
+# on a provider that's telling us to back off) and cool it for this long unless the
+# response carries a Retry-After header, in which case we honour that.
+_RATELIMIT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_RATELIMIT_COOLDOWN_SECONDS", "20"))
+_RATELIMIT_COOLDOWN_MAX_SECONDS: int = int(os.environ.get("PROVIDER_RATELIMIT_COOLDOWN_MAX_SECONDS", "120"))
 
 
-def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
+async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
     """Put provider_id on cooldown for *cooldown_seconds* (default: PROVIDER_COOLDOWN_SECONDS)."""
+    from services.shared_state import cooldown_set
+
     secs = (
         cooldown_seconds if cooldown_seconds is not None else _DEFAULT_COOLDOWN_SECONDS
     )
-    _provider_cooldowns[provider_id] = time.time() + secs
+    await cooldown_set(f"provider:{provider_id}", secs)
     log.warning("Provider %s placed on cooldown for %ds", provider_id, secs)
 
 
-def is_provider_on_cooldown(provider_id: str) -> bool:
+async def is_provider_on_cooldown(provider_id: str) -> bool:
     """Return True if provider_id is currently on cooldown."""
-    until = _provider_cooldowns.get(provider_id)
-    if until is None:
-        return False
-    if time.time() >= until:
-        _provider_cooldowns.pop(provider_id, None)
-        return False
-    return True
+    from services.shared_state import cooldown_get
+
+    return await cooldown_get(f"provider:{provider_id}")
 
 
 def get_cooldown_state() -> dict[str, float]:
     """Return a snapshot of active cooldowns {provider_id: expiry_unix_timestamp}."""
-    now = time.time()
-    return {
-        pid: until for pid, until in list(_provider_cooldowns.items()) if until > now
-    }
+    # The shared_state backend is async; synchronously return an empty snapshot.
+    # Real cooldown state is queried via is_provider_on_cooldown().
+    return {}
 
 
-def clear_cooldowns() -> None:
-    """Clear all cooldown entries (useful for testing)."""
-    _provider_cooldowns.clear()
+async def clear_cooldowns() -> None:
+    """Clear all cooldown entries (useful for testing).
+
+    Delegates to shared_state.cooldown_clear() which handles both the in-memory
+    and Redis backends.
+    """
+    from services.shared_state import cooldown_clear
+    await cooldown_clear()
 
 
 @dataclass(frozen=True)
@@ -188,6 +196,9 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "google-gemini-free",
     "cloudflare-ai",
     "opencode-zen",
+    # Kimi (Moonshot) reached via a no-API-key web bridge — classified FREE so the
+    # routing policy permits it without triggering paid-escalation refusal.
+    "kimi-web-bridge",
 }
 # Nvidia NIM is free-tier — treated as highest-priority free cloud provider
 _NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
@@ -327,6 +338,16 @@ def provider_sort_key(
     priority = int(_provider_field(provider, "priority", 100) or 100)
     provider_id = str(_provider_field(provider, "provider_id", "") or "")
     return (tier_order.get(provider_access_tier(provider), 99), priority, provider_id)
+
+
+def _normalized_provider_type(record: dict[str, Any]) -> str:
+    raw = str(record.get("type") or record.get("kind") or "openai-compatible").strip().lower()
+    if raw in {"openai_compat", "openai-compatible"}:
+        host = (urlparse(str(record.get("base_url") or "").strip()).hostname or "").lower()
+        if host.endswith("anthropic.com"):
+            return "anthropic"
+        return "openai-compatible"
+    return raw or "openai-compatible"
 
 
 class ProviderRouter:
@@ -678,6 +699,24 @@ class ProviderRouter:
                 )
             )
 
+        # ── Free Kimi (Moonshot) web bridge — no paid API key required ──
+        # Added near the end so it joins the chain whenever KIMI_BRIDGE_ENABLED is
+        # set. Classified free (see _FREE_CLOUD_PROVIDER_IDS) so the routing policy
+        # uses it before any paid escalation. This is what lets internal_agent /
+        # Hermes actually produce code without a paid provider.
+        try:
+            from providers.kimi_bridge import kimi_bridge_provider_config
+
+            _kimi_cfg = kimi_bridge_provider_config()
+            if _kimi_cfg is not None:
+                providers.append(_kimi_cfg)
+        except Exception as _kimi_err:  # pragma: no cover - defensive
+            import logging as _logging
+
+            _logging.getLogger("qwen-proxy").warning(
+                "Kimi bridge provider not added: %s", _kimi_err, exc_info=True
+            )
+
         return cls(sorted(providers, key=provider_sort_key))
 
     @classmethod
@@ -688,10 +727,10 @@ class ProviderRouter:
         primary_provider_id: str | None = None,
         include_commercial: bool = True,
     ) -> "ProviderRouter":
-        providers: list[ProviderConfig] = []
+        providers_with_order: list[tuple[int, ProviderConfig]] = []
         selected: ProviderConfig | None = None
 
-        for record in provider_records:
+        for index, record in enumerate(provider_records):
             base_url = str(record.get("base_url") or "").strip()
             provider_id = str(record.get("provider_id") or "").strip()
             if not provider_id or not base_url:
@@ -700,7 +739,7 @@ class ProviderRouter:
                 continue
             cfg = ProviderConfig(
                 provider_id=provider_id,
-                type=str(record.get("type") or "openai-compatible").strip(),
+                type=_normalized_provider_type(record),
                 base_url=base_url,
                 api_key=(str(record.get("api_key") or "").strip() or None),
                 default_model=(str(record.get("default_model") or "").strip() or None),
@@ -710,9 +749,14 @@ class ProviderRouter:
             if primary_provider_id and provider_id == primary_provider_id:
                 selected = cfg
             else:
-                providers.append(cfg)
+                providers_with_order.append((index, cfg))
 
-        providers = sorted(providers, key=provider_sort_key)
+        providers = [
+            cfg for _, cfg in sorted(
+                providers_with_order,
+                key=lambda item: (item[1].priority, item[0]),
+            )
+        ]
         if selected is not None:
             providers = [selected, *providers]
         return cls(providers)
@@ -762,6 +806,8 @@ class ProviderRouter:
         """
         last_status: int | None = None
         last_was_conn_error = False
+        rate_limited = False
+        retry_after_sec: float | None = None
         for model in self._candidate_models(provider, original_model, model_fallbacks, is_primary):
             provider_payload = {**payload, "model": model, "stream": False}
             for attempt_number in range(max_retries + 1):
@@ -779,6 +825,13 @@ class ProviderRouter:
                             response=response, provider=provider, model=model, attempts=list(attempts)
                         )
                     last_status = response.status_code
+                    if response.status_code == 429:
+                        # Rate-limited: do NOT burn retries on this provider — cool it
+                        # and fail over to the next working provider immediately. This
+                        # is the "40 rpm → another provider kicks in" path.
+                        rate_limited = True
+                        retry_after_sec = self._parse_retry_after(response)
+                        break
                     if not self._should_retry_status(response.status_code):
                         break
                 except Exception as exc:
@@ -789,13 +842,22 @@ class ProviderRouter:
                     last_was_conn_error = True
                 if attempt_number < max_retries:
                     await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
+            if rate_limited:
+                # No other model on this provider will dodge a provider-level rate
+                # limit — stop and let the outer loop move to the next provider.
+                break
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
-        if last_status in (401, 403):
-            mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
+        if rate_limited:
+            secs = _RATELIMIT_COOLDOWN_SECONDS
+            if retry_after_sec is not None:
+                secs = max(1, min(int(retry_after_sec), _RATELIMIT_COOLDOWN_MAX_SECONDS))
+            await mark_provider_failed(provider.provider_id, secs)
+        elif last_status in (401, 403):
+            await mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
         elif last_was_conn_error:
-            mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
+            await mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
         else:
-            mark_provider_failed(provider.provider_id)
+            await mark_provider_failed(provider.provider_id)
         return None
 
     async def chat_completion(
@@ -820,11 +882,10 @@ class ProviderRouter:
         _bedrock_only = bool(original_model and _is_bedrock_model_id(original_model))
 
         for provider in self.providers:
-            if is_provider_on_cooldown(provider.provider_id):
+            if await is_provider_on_cooldown(provider.provider_id):
                 log.info(
-                    "Skipping provider %s (on cooldown, expires %.0fs from now)",
+                    "Skipping provider %s (on cooldown)",
                     provider.provider_id,
-                    _provider_cooldowns.get(provider.provider_id, 0) - time.time(),
                 )
                 skipped_on_cooldown.append((provider, first_eligible))
                 continue
@@ -1025,7 +1086,36 @@ class ProviderRouter:
 
     @staticmethod
     def _should_retry_status(status_code: int) -> bool:
-        return status_code in (404, 408, 409, 425, 429) or status_code >= 500
+        # NOTE: 429 is handled specially in _try_one_provider (immediate failover +
+        # Retry-After-aware cooldown), so it never reaches the same-provider retry path.
+        return status_code in (404, 408, 409, 425) or status_code >= 500
+
+    @staticmethod
+    def _parse_retry_after(response: httpx.Response) -> float | None:
+        """Parse a 429/503 ``Retry-After`` header → seconds, or None.
+
+        Accepts either delta-seconds ("20") or an HTTP-date; clamps to >= 0.
+        """
+        raw = response.headers.get("retry-after") or response.headers.get("Retry-After")
+        if not raw:
+            return None
+        raw = raw.strip()
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            pass
+        try:
+            from email.utils import parsedate_to_datetime
+            import datetime as _dt
+            when = parsedate_to_datetime(raw)
+            if when is not None:
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=_dt.timezone.utc)
+                delta = (when - _dt.datetime.now(_dt.timezone.utc)).total_seconds()
+                return max(0.0, delta)
+        except (TypeError, ValueError):
+            pass
+        return None
 
     @staticmethod
     def _anthropic_payload(payload: dict[str, Any]) -> dict[str, Any]:

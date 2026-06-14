@@ -187,31 +187,31 @@ class TestProviderCooldown:
     def test_cooldown_does_not_pin_broken_provider(self):
         """A provider on cooldown should not be permanently pinned —
         cooldowns expire."""
-        clear_cooldowns()
-        mark_provider_failed("test-provider", cooldown_seconds=1)
-        assert is_provider_on_cooldown("test-provider") is True
+        asyncio.run(clear_cooldowns())
+        asyncio.run(mark_provider_failed("test-provider", cooldown_seconds=1))
+        assert asyncio.run(is_provider_on_cooldown("test-provider")) is True
         time.sleep(1.1)
-        assert is_provider_on_cooldown("test-provider") is False
-        clear_cooldowns()
+        assert asyncio.run(is_provider_on_cooldown("test-provider")) is False
+        asyncio.run(clear_cooldowns())
 
     def test_different_providers_have_independent_cooldowns(self):
-        clear_cooldowns()
-        mark_provider_failed("provider-a", cooldown_seconds=10)
-        mark_provider_failed("provider-b", cooldown_seconds=1)
-        assert is_provider_on_cooldown("provider-a") is True
-        assert is_provider_on_cooldown("provider-b") is True
+        asyncio.run(clear_cooldowns())
+        asyncio.run(mark_provider_failed("provider-a", cooldown_seconds=10))
+        asyncio.run(mark_provider_failed("provider-b", cooldown_seconds=1))
+        assert asyncio.run(is_provider_on_cooldown("provider-a")) is True
+        assert asyncio.run(is_provider_on_cooldown("provider-b")) is True
         time.sleep(1.1)
-        assert is_provider_on_cooldown("provider-a") is True
-        assert is_provider_on_cooldown("provider-b") is False
-        clear_cooldowns()
+        assert asyncio.run(is_provider_on_cooldown("provider-a")) is True
+        assert asyncio.run(is_provider_on_cooldown("provider-b")) is False
+        asyncio.run(clear_cooldowns())
 
     def test_cooldown_clears_all_state(self):
-        clear_cooldowns()
-        mark_provider_failed("p1", cooldown_seconds=100)
-        mark_provider_failed("p2", cooldown_seconds=100)
-        clear_cooldowns()
-        assert is_provider_on_cooldown("p1") is False
-        assert is_provider_on_cooldown("p2") is False
+        asyncio.run(clear_cooldowns())
+        asyncio.run(mark_provider_failed("p1", cooldown_seconds=100))
+        asyncio.run(mark_provider_failed("p2", cooldown_seconds=100))
+        asyncio.run(clear_cooldowns())
+        assert asyncio.run(is_provider_on_cooldown("p1")) is False
+        assert asyncio.run(is_provider_on_cooldown("p2")) is False
 
 
 # ── Planner / verifier / judge separation ─────────────────────────────────────

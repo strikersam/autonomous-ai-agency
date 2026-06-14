@@ -26,7 +26,7 @@ Usage:
 
 from __future__ import annotations
 from typing import List, Optional, Dict, Any, get_args
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import secrets
 
@@ -83,15 +83,18 @@ class SpecialistService:
         if existing:
             # Return first existing specialist of this family
             return SpecialistProvisionResult(
-                request_id=f"req_{secrets.token_hex(8)}",
-                specialist=existing[0],
-                status="skipped",
-                message="Specialist already provisioned",
-                provisioned_at=datetime.utcnow()
-            )
+            request_id=f"req_{secrets.token_hex(8)}",
+            specialist=existing[0],
+            status="skipped",
+            message="Specialist already provisioned",
+            provisioned_at=datetime.now(timezone.utc)
+        )
         
         # Auto-resolve runtime if not explicitly provided
         resolved_runtime = request.runtime or self._resolve_runtime(request.specialist_family)
+
+        # Auto-bind skills based on specialist family
+        bound_skills = self._auto_bind_skills(request.specialist_family)
 
         # Create new specialist
         specialist = Specialist(
@@ -103,8 +106,9 @@ class SpecialistService:
             system_types=request.system_types or [],
             model_preference=request.model_preference,
             runtime=resolved_runtime,
+            bound_skills=bound_skills,
             is_provisioned=True,
-            provisioned_at=datetime.utcnow(),
+            provisioned_at=datetime.now(timezone.utc),
             status="available",
             config=request.config or {}
         )
@@ -121,7 +125,7 @@ class SpecialistService:
             specialist=created,
             status="success",
             message="Specialist provisioned successfully",
-            provisioned_at=datetime.utcnow()
+            provisioned_at=datetime.now(timezone.utc)
         )
 
     async def provision_specialists_for_company(
@@ -143,17 +147,26 @@ class SpecialistService:
         # SystemType values OR the framework-derived pseudo-types the onboarding
         # detector emits ("frontend"/"backend", from inferred-stack frameworks).
         system_to_family: Dict[str, List[SpecialistFamily]] = {
-            "CMS": ["frontend", "docs", "backend"],
-            "CRM": ["operations", "analytics", "backend"],
-            "analytics": ["analytics", "data", "backend"],
-            "payment_gateway": ["backend", "security", "operations"],
-            "ERP": ["operations", "backend", "data"],
+            "CMS": ["frontend", "docs", "content"],
+            "CRM": ["crm", "analytics", "operations"],
+            "analytics": ["analytics", "data", "seo"],
+            "payment_gateway": ["backend", "security", "oms"],
+            "ERP": ["operations", "oms", "data"],
             "HRM": ["operations", "docs", "backend"],
-            "LMS": ["docs", "operations", "frontend"],
-            "marketing_automation": ["operations", "analytics", "backend"],
-            "chat": ["operations", "frontend", "backend"],
-            "support": ["operations", "docs", "backend"],
+            "LMS": ["docs", "content", "frontend"],
+            "marketing_automation": ["marketing", "analytics", "content"],
+            "chat": ["support", "operations", "frontend"],
+            "support": ["support", "crm", "docs"],
             "database": ["backend", "data", "infra"],
+            # E-commerce / retail systems → commerce domain specialists.
+            "ecommerce_platform": ["ecommerce", "merchandising", "oms"],
+            "pim": ["pim", "merchandising", "data"],
+            "dam": ["dam", "content", "frontend"],
+            "search": ["seo", "merchandising", "analytics"],
+            "payment": ["backend", "security", "oms"],
+            "shipping": ["oms", "operations", "backend"],
+            "tax": ["oms", "operations", "backend"],
+            "inventory": ["oms", "merchandising", "data"],
             # Framework-derived pseudo-types (not SystemType literals) — map to the
             # matching specialist directly so e.g. a React site gets a frontend
             # specialist and an Express API gets a backend specialist.
@@ -214,7 +227,7 @@ class SpecialistService:
             specialist = specialist.model_copy(update={
                 "is_provisioned": False,
                 "status": "deprovisioned",
-                "updated_at": datetime.utcnow()
+                "updated_at": datetime.now(timezone.utc)
             })
             await self.store.update_specialist(specialist)
         
@@ -245,7 +258,7 @@ class SpecialistService:
         
         specialist = specialist.model_copy(update={
             "status": "available",
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.now(timezone.utc)
         })
         
         await self.store.update_specialist(specialist)
@@ -274,7 +287,7 @@ class SpecialistService:
         specialist = specialist.model_copy(update={
             "status": "disabled",
             "disabled_reason": reason,
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.now(timezone.utc)
         })
         
         await self.store.update_specialist(specialist)
@@ -463,7 +476,7 @@ class SpecialistService:
         if specialist:
             specialist = specialist.model_copy(update={
                 "success_count": specialist.success_count + 1,
-                "last_activity": datetime.utcnow()
+                "last_activity": datetime.now(timezone.utc)
             })
             await self.store.update_specialist(specialist)
 
@@ -484,7 +497,7 @@ class SpecialistService:
             specialist = specialist.model_copy(update={
                 "error_count": specialist.error_count + 1,
                 "last_error": error,
-                "last_activity": datetime.utcnow()
+                "last_activity": datetime.now(timezone.utc)
             })
             await self.store.update_specialist(specialist)
 
@@ -539,6 +552,57 @@ class SpecialistService:
         return stats
 
     # =========================================================================
+    # SKILL BINDING
+    # =========================================================================
+
+    def _auto_bind_skills(self, family: str) -> list[str]:
+        """Auto-bind relevant skills to a specialist based on its family.
+
+        Uses the SkillBindings service to determine which skills are relevant
+        and returns the capability strings they add.
+
+        Args:
+            family: SpecialistFamily value
+
+        Returns:
+            List of skill IDs that were bound
+        """
+        try:
+            from services.skill_bindings import get_skill_bindings
+            bindings = get_skill_bindings()
+            skills = bindings.list_for_family(family)
+            return [s.skill_id for s in skills if s.is_enabled]
+        except ImportError:
+            return []
+        except Exception as exc:
+            log.warning("Failed to auto-bind skills for family '%s': %s", family, exc)
+            return []
+
+    async def get_bound_skills(self, specialist_id: str) -> list[dict[str, Any]]:
+        """Get the details of skills bound to a specialist.
+
+        Args:
+            specialist_id: Specialist ID
+
+        Returns:
+            List of skill dicts
+        """
+        try:
+            from services.skill_bindings import get_skill_bindings
+            bindings = get_skill_bindings()
+            specialist = await self.store.get_specialist(specialist_id)
+            if not specialist or not specialist.bound_skills:
+                return []
+            result = []
+            for skill_id in specialist.bound_skills:
+                skill = bindings.get(skill_id)
+                if skill:
+                    result.append(skill.as_dict())
+            return result
+        except ImportError:
+            return []
+
+    # =========================================================================
     # HELPER METHODS
     # =========================================================================
 
@@ -580,7 +644,19 @@ class SpecialistService:
             "architecture": "Architecture Specialist",
             "product": "Product Specialist",
             "design": "Design Specialist",
-            "ux": "UX Specialist"
+            "ux": "UX Specialist",
+            "seo": "SEO Specialist",
+            "content": "Content Strategist",
+            "marketing": "Marketing Specialist",
+            "merchandising": "Merchandising Specialist",
+            "pim": "PIM Specialist",
+            "oms": "Order Management Specialist",
+            "dam": "Digital Asset Management Specialist",
+            "crm": "CRM Operations Specialist",
+            "support": "Support Operations Specialist",
+            "trading": "Trading & Market Research Specialist",
+            "research": "Research Specialist",
+            "platform": "Platform Operations Specialist",
         }
         return names.get(family, f"{family.title()} Specialist")
 
@@ -608,7 +684,20 @@ class SpecialistService:
             "architecture": ["system_design", "microservices", "scalability", "reliability", "security"],
             "product": ["product_management", "requirements", "prioritization", "roadmapping", "user_stories"],
             "design": ["ui_design", "ux_design", "prototyping", "user_research", "visual_design"],
-            "ux": ["user_experience", "usability_testing", "user_research", "wireframing", "prototyping"]
+            "ux": ["user_experience", "usability_testing", "user_research", "wireframing", "prototyping"],
+            "seo": ["keyword_research", "on_page_seo", "technical_seo", "serp_analysis", "content_optimization",
+                    "site_audit", "issue_remediation", "geo_optimization", "aio_optimization"],
+            "content": ["content_strategy", "copywriting", "editorial_calendar", "blog_writing", "product_descriptions"],
+            "marketing": ["campaign_management", "email_marketing", "social_media", "ab_testing", "attribution"],
+            "merchandising": ["catalog_management", "pricing_strategy", "promotions", "assortment_planning", "category_management"],
+            "pim": ["product_data_modeling", "attribute_management", "catalog_sync", "data_quality", "taxonomy"],
+            "oms": ["order_processing", "fulfillment", "inventory_sync", "returns_management", "shipping_integration"],
+            "dam": ["asset_ingestion", "metadata_tagging", "rights_management", "asset_delivery", "media_optimization"],
+            "crm": ["lead_management", "pipeline_ops", "segmentation", "customer_journey", "data_hygiene"],
+            "support": ["ticket_triage", "knowledge_base", "sla_monitoring", "escalation", "csat_analysis"],
+            "trading": ["market_analysis", "signal_research", "backtesting", "risk_assessment", "portfolio_rebalancing"],
+            "research": ["literature_review", "competitive_analysis", "data_gathering", "synthesis", "report_writing"],
+            "platform": ["service_health", "incident_response", "capacity_planning", "observability", "on_call_ops"],
         }
         return capabilities.get(family, [])
 
@@ -636,7 +725,19 @@ class SpecialistService:
             "architecture": ["lucidchart", "drawio", "miro", "visio", "excalidraw"],
             "product": ["jira", "trello", "asana", "productboard", "aha"],
             "design": ["figma", "sketch", "adobe_xd", "photoshop", "illustrator"],
-            "ux": ["figma", "sketch", "adobe_xd", "optimal_workshop", "hotjar"]
+            "ux": ["figma", "sketch", "adobe_xd", "optimal_workshop", "hotjar"],
+            "seo": ["google_search_console", "ahrefs", "semrush", "screaming_frog", "lighthouse", "seo_audit_engine"],
+            "content": ["markdown", "notion", "wordpress", "grammarly", "surfer_seo"],
+            "marketing": ["hubspot", "mailchimp", "google_ads", "meta_ads", "ga4"],
+            "merchandising": ["shopify_admin", "akeneo", "excel", "looker", "tableau"],
+            "pim": ["akeneo", "salsify", "pimcore", "inriver", "csv_import"],
+            "oms": ["shopify_admin", "netsuite", "shipstation", "fulfil", "stripe_api"],
+            "dam": ["bynder", "cloudinary", "aprimo", "widen", "s3"],
+            "crm": ["salesforce", "hubspot", "pipedrive", "zoho_crm", "segment"],
+            "support": ["zendesk", "intercom", "freshdesk", "jira_service_management", "slack"],
+            "trading": ["pandas", "ccxt", "tradingview", "backtrader", "numpy"],
+            "research": ["web_search", "arxiv", "notion", "zotero", "pandas"],
+            "platform": ["datadog", "prometheus", "grafana", "pagerduty", "kubernetes"],
         }
         return tools.get(family, [])
 

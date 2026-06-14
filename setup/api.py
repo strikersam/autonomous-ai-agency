@@ -342,7 +342,7 @@ async def detect_configured_providers():
     return {
         "nvidia_nim": {
             "configured": bool(nvidia_key),
-            "base_url": os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1",
+            "base_url": os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com",
             "default_model": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
         },
         "openai": {"configured": bool(openai_key)},
@@ -379,7 +379,7 @@ def _require_onboarding_gate(request: Request) -> None:
             status_code=403,
             detail={
                 "code": "instance_not_activated",
-                "message": "This LLM Relay instance has not been activated. "
+                "message": "This Autonomous AI Agency instance has not been activated. "
                            "Email strikersam@gmail.com with your Instance ID to request an activation code.",
             },
         )

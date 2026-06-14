@@ -23,7 +23,7 @@ function Explain({ term, children }) {
         <div style={{
           position:'absolute', bottom:'calc(100% + 6px)', left:0, zIndex:99,
           background:'rgba(12,15,20,0.98)', border:'1px solid rgba(93,162,255,0.25)',
-          borderRadius:12, padding:'10px 12px', minWidth:220, maxWidth:280,
+          borderRadius:12, padding:'10px 12px', minWidth:220, maxWidth:'min(280px, calc(100vw - 24px))',
           fontSize:12, color:'var(--text-secondary)', lineHeight:1.6,
           boxShadow:'0 12px 32px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.15s ease-out',
         }}>
@@ -270,31 +270,61 @@ function SkillsScreen() {
   const [filter,      setFilter]      = React.useState('all');
   const [search,      setSearch]      = React.useState('');
   const [tab,         setTab]         = React.useState('catalogue'); // 'catalogue' | 'recommended' | 'registry'
+  const userPickedTab = React.useRef(false); // becomes true once the user clicks a tab
+  const [companyId,   setCompanyId]   = React.useState(null);
 
-  // Load auto-recommendations based on detected tech stack + workflows
+  // Resolve current company ID from the companies list.
+  // listCompanies() is NOT a single-company API — admins get every company and
+  // a normal user can own several — so only auto-select when there is exactly
+  // one company. With multiple, leave it unset (the user picks) rather than
+  // silently loading recommendations for an arbitrary tenant.
+  React.useEffect(() => {
+    const resolve = async () => {
+      try {
+        const { data } = await api.listCompanies();
+        const companies = data.companies || [];
+        if (companies.length === 1) {
+          setCompanyId(companies[0].id);
+        }
+      } catch { /* silent */ }
+    };
+    resolve();
+  }, []);
+
+  // Load auto-recommendations and registry skills from company skill APIs
   React.useEffect(() => {
     const load = async () => {
+      // Load recommended skills from company skill API
       try {
-        const { data } = await api.autoRecommendSkills();
-        setRecommended(data.recommendations || []);
+        const { data } = companyId
+          ? await api.autoRecommendCompanySkills(companyId)
+          : await api.autoRecommendCompanySkills();
+        const recs = data.recommendations || [];
+        setRecommended(recs);
         setTechStack(data.tech_stack || []);
-        setWfTypes(data.workflow_types || []);
+        if (data.workflow_types) setWfTypes(data.workflow_types);
+        // Domain-aware default: if we have real recommendations and the user hasn't
+        // manually chosen a tab, show them instead of the commerce demo catalogue.
+        if (!userPickedTab.current && recs.length > 0) setTab('recommended');
       } catch { /* non-critical */ }
+      // Load registry skills from company skill API
       try {
-        const { data } = await api.listSkills();
+        const { data } = await api.listCompanySkills();
         if ((data.skills || []).length > 0) setLiveSkills(data.skills);
       } catch { /* non-critical */ }
     };
     load();
-  }, []);
+  }, [companyId]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await api.refreshSkills();
-      const { data } = await api.listSkills();
+      const { data } = await api.listCompanySkills();
       setLiveSkills(data.skills || []);
-      const { data: rec } = await api.autoRecommendSkills();
+      const recPromise = companyId
+        ? api.autoRecommendCompanySkills(companyId)
+        : api.autoRecommendCompanySkills();
+      const { data: rec } = await recPromise;
       setRecommended(rec.recommendations || []);
     } catch { /* ignore */ }
     finally { setRefreshing(false); }
@@ -339,9 +369,27 @@ function SkillsScreen() {
         </div>
       </div>
 
-      {/* Honest preview notice — these templates are illustrative and not yet persisted/activated */}
+      {/* Honest preview notice — templates are illustrative; registry comes from the backend */}
       <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 }}>
-        <strong style={{ color:'var(--accent)' }}>Catalogue Preview.</strong> The commerce skill templates below are <strong>demo illustrations</strong> — toggling is session-only and does not persist or activate anything. A backend catalogue endpoint is planned. The <strong>Recommended</strong> and <strong>Registry</strong> tabs above call live APIs and reflect real backend data.
+        <strong style={{ color:'var(--accent)' }}>Catalogue Preview.</strong> The commerce skill templates below are <strong>demo illustrations</strong> — toggling is session-only. The <strong>Recommended</strong> and <strong>Registry</strong> tabs call live backend APIs (<code>/api/company/skills</code>) and reflect real specialist skill bindings.
+      </div>
+
+      {/* Tab switcher — without this the Recommended/Registry (live, domain-aware)
+          skills were unreachable and users only ever saw the commerce demo catalogue. */}
+      <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+        {[
+          { id:'recommended', label:'Recommended' },
+          { id:'registry', label:'Registry' },
+          { id:'catalogue', label:'Catalogue (demo)' },
+        ].map(t => (
+          <button key={t.id} onClick={()=>{ userPickedTab.current = true; setTab(t.id); }} style={{
+            padding:'6px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer',
+            fontFamily:'var(--font-mono)', letterSpacing:'0.04em',
+            background: tab===t.id ? 'rgba(93,162,255,0.14)' : 'rgba(255,255,255,0.04)',
+            border:`1px solid ${tab===t.id ? 'rgba(93,162,255,0.40)' : 'rgba(255,255,255,0.12)'}`,
+            color: tab===t.id ? '#fff' : 'var(--text-secondary)', transition:'all 0.15s',
+          }}>{t.label}</button>
+        ))}
       </div>
 
       {/* How it works visual */}

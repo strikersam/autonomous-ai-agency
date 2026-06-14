@@ -29,6 +29,8 @@ OLLAMA_FALLBACK_BASE = os.environ.get(
 )
 # Free cloud providers — tried in priority order before local Ollama
 _NVIDIA_KEY = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+# NOTE: keep /v1 in the base URL — _chat_with_openai_compat appends /chat/completions
+# directly without injecting /v1, so the base must already contain /v1.
 _NVIDIA_BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
 _NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct")
 

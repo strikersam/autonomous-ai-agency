@@ -65,6 +65,9 @@ logging.basicConfig(
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
 TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+# Telegram tokens MUST not contain any whitespace — a common copy-paste error
+# from BotFather. Strip all whitespace (not just leading/trailing) defensively.
+TELEGRAM_BOT_TOKEN = "".join(TELEGRAM_BOT_TOKEN.split())
 PROXY_BASE_URL: str = os.environ.get("PROXY_BASE_URL", "http://localhost:8000").rstrip("/")
 PROXY_ADMIN_SECRET: str = os.environ.get("ADMIN_SECRET", "").strip()
 PROXY_API_KEY: str = os.environ.get("TELEGRAM_PROXY_API_KEY", "").strip()
@@ -72,12 +75,39 @@ PROXY_API_KEY: str = os.environ.get("TELEGRAM_PROXY_API_KEY", "").strip()
 _raw_allowed = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()
 _raw_admins = os.environ.get("TELEGRAM_ADMIN_USER_IDS", "").strip()
 
-ALLOWED_USER_IDS: set[int] = {
-    int(x.strip()) for x in _raw_allowed.split(",") if x.strip().lstrip("-").isdigit()
-}
-ADMIN_USER_IDS: set[int] = {
-    int(x.strip()) for x in _raw_admins.split(",") if x.strip().lstrip("-").isdigit()
-}
+
+def _parse_user_ids(raw: str) -> set[int]:
+    """Extract numeric Telegram user IDs from a raw env value, tolerantly.
+
+    Accepts comma/space/semicolon separators and ignores wrapping quotes,
+    brackets, or stray characters (e.g. ``"123, 456"``, ``[123 456]``,
+    ``@name`` is dropped — usernames are not valid IDs). Splits on separators,
+    strips wrapping quotes/brackets, and validates each token is purely numeric.
+    """
+    import re as _re
+    if not raw:
+        return set()
+    # Split on common separators: comma, semicolon, whitespace
+    tokens = _re.split(r'[,;\s]+', raw.strip())
+    result = set()
+    for token in tokens:
+        if not token:
+            continue
+        # Strip surrounding quotes, brackets, parentheses
+        cleaned = token.strip().strip('"\'[](){}')
+        # Only accept tokens that are purely numeric (with optional leading minus)
+        if _re.match(r'^-?\d+$', cleaned):
+            result.add(int(cleaned))
+        elif cleaned:
+            log.debug(
+                "Rejected Telegram user ID token %r (cleaned as %r) — must be purely numeric.",
+                token, cleaned,
+            )
+    return result
+
+
+ALLOWED_USER_IDS: set[int] = _parse_user_ids(_raw_allowed)
+ADMIN_USER_IDS: set[int] = _parse_user_ids(_raw_admins)
 
 APPROVAL_TIMEOUT_SECONDS = 30
 MAX_COMMANDS_PER_MINUTE = 5
@@ -86,6 +116,8 @@ MAX_COMMANDS_PER_MINUTE = 5
 _pending_approvals: dict[int, dict] = {}
 # In-memory rate limiter: user_id → [timestamps]
 _rate_buckets: dict[int, list[float]] = defaultdict(list)
+# In-memory FreeBuff session state: user_id → {task, models, model}
+_freebuff_state: dict[int, dict] = {}
 
 
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
@@ -234,6 +266,305 @@ async def _send_message(bot_token: str, chat_id: int, text: str, parse_mode: str
         )
 
 
+async def _send_keyboard(
+    bot_token: str, chat_id: int, text: str, keyboard: list[list[dict]], parse_mode: str = "Markdown"
+) -> None:
+    """Send a message with an inline keyboard (list of button rows)."""
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode,
+        "reply_markup": {"inline_keyboard": keyboard},
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json=payload,
+        )
+
+
+async def _edit_message(
+    bot_token: str,
+    chat_id: int,
+    message_id: int,
+    text: str,
+    keyboard: list[list[dict]] | None = None,
+    parse_mode: str = "Markdown",
+) -> None:
+    """Edit an existing message's text and (optionally) its inline keyboard."""
+    payload: dict = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": parse_mode,
+    }
+    if keyboard is not None:
+        payload["reply_markup"] = {"inline_keyboard": keyboard}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(
+            f"https://api.telegram.org/bot{bot_token}/editMessageText",
+            json=payload,
+        )
+
+
+async def _answer_callback(bot_token: str, callback_id: str, text: str = "") -> None:
+    """Acknowledge a callback query so Telegram stops the button's loading spinner."""
+    payload = {"callback_query_id": callback_id}
+    if text:
+        payload["text"] = text
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(
+            f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
+            json=payload,
+        )
+
+
+# ─── FreeBuff (free-NVIDIA coding agent) ────────────────────────────────────────
+
+def _parse_callback(data: str) -> tuple[str, str | None]:
+    """Parse callback_data of the form ``fb:<action>[:<arg>]``.
+
+    Returns ``(action, arg)``; ``arg`` is None when absent. Non-FreeBuff data
+    yields ``("", None)``.
+    """
+    if not data or not data.startswith("fb:"):
+        return "", None
+    parts = data.split(":", 2)
+    action = parts[1] if len(parts) > 1 else ""
+    arg = parts[2] if len(parts) > 2 else None
+    return action, arg
+
+
+def _model_keyboard(models: list[str]) -> list[list[dict]]:
+    """Build an inline keyboard mapping each free model to ``fb:model:<idx>``.
+
+    Model IDs (e.g. ``nvidia/nemotron-3-super-120b-a12b``) can exceed Telegram's
+    64-byte callback_data limit, so we send the index and resolve it server-side
+    from the per-user stored model list.
+    """
+    return [[{"text": m, "callback_data": f"fb:model:{i}"}] for i, m in enumerate(models)]
+
+
+def _review_keyboard() -> list[list[dict]]:
+    """Accept / reject keyboard shown after a FreeBuff plan is generated."""
+    return [[
+        {"text": "✅ Accept & run", "callback_data": "fb:accept"},
+        {"text": "❌ Reject", "callback_data": "fb:reject"},
+    ]]
+
+
+# ── FreeBuff backend: embedded (in-process agent) or HTTP (proxy) ───────────────
+# Embedded mode runs FreeBuffAgent directly in this process — no proxy server
+# needed — so the bot is a single self-contained 24x7 worker (Render/Docker).
+# HTTP mode (default) talks to a running proxy at PROXY_BASE_URL.
+
+def _embedded() -> bool:
+    return os.environ.get("FREEBUFF_EMBEDDED", "").strip().lower() in {"true", "1", "yes"}
+
+
+def _freebuff_max_steps() -> int:
+    try:
+        return max(1, min(20, int(os.environ.get("FREEBUFF_MAX_STEPS", "10"))))
+    except ValueError:
+        return 10
+
+
+async def _fb_models() -> list[str]:
+    """Return the free model list (embedded or via proxy)."""
+    if _embedded():
+        from agent.loop import FreeBuffAgent
+        return FreeBuffAgent.available_models()
+    data = await _proxy_get("/freebuff/models", use_admin=False)
+    return data.get("models", [])
+
+
+async def _fb_plan(task: str, model: str) -> dict:
+    """Generate a read-only plan (embedded or via proxy). Shape: {model, plan}."""
+    if _embedded():
+        from agent.loop import FreeBuffAgent
+        agent = FreeBuffAgent(model=model)
+        plan = await agent.plan(
+            instruction=task, history=[], requested_model=model,
+            max_steps=_freebuff_max_steps(),
+        )
+        return {"model": agent.resolve_model(model), "plan": plan.model_dump()}
+    return await _proxy_post(
+        "/freebuff/plan", {"instruction": task, "model": model}, use_admin=False,
+    )
+
+
+async def _fb_run(task: str, model: str) -> dict:
+    """Execute a FreeBuff task (embedded or via proxy). Shape: {result: {...}}."""
+    if _embedded():
+        return await _embedded_run(task, model)
+    return await _proxy_post(
+        "/freebuff/run",
+        {"instruction": task, "model": model, "auto_commit": True, "open_pr": True},
+        use_admin=False,
+    )
+
+
+async def _embedded_run(task: str, model: str) -> dict:
+    """Run FreeBuffAgent in-process against a fresh clone, committing + opening a PR.
+
+    Clones FREEBUFF_REPO_URL with the GitHub token so the agent edits a real
+    checkout and its existing auto-push/PR path can open a draft PR. Returns the
+    same ``{"result": {...}}`` shape as the proxy endpoint so callers are agnostic.
+    """
+    import re
+    import shutil
+
+    from agent.loop import FreeBuffAgent
+
+    repo_url = os.environ.get("FREEBUFF_REPO_URL", "").strip()
+    base_branch = os.environ.get("FREEBUFF_BASE_BRANCH", "master").strip() or "master"
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT")
+    workspace_root: str | None = None
+
+    if repo_url and token:
+        m = re.search(r"github\.com[:/]([^/]+)/([^/#?.]+)", repo_url)
+        if m:
+            from agent.github_tools import LocalWorkspace
+            owner, repo = m.group(1), m.group(2)
+            try:
+                ws = LocalWorkspace(owner, repo, token)
+                if ws.path.exists():
+                    shutil.rmtree(ws.path, ignore_errors=True)
+                await ws.clone_or_pull()
+                workspace_root = str(ws.path)
+            except Exception as exc:  # clone failure → run without PR, still report
+                log.warning("FreeBuff clone failed (%s) — running without PR", exc)
+
+    agent = FreeBuffAgent(
+        model=model,
+        workspace_root=workspace_root,
+        github_token=token,
+        repo_url=repo_url or None,
+        base_branch=base_branch,
+    )
+
+    # Allow the agent run even when the host process runs in orchestrator mode
+    # (e.g. embedded in the backend web service). FreeBuff is a sanctioned,
+    # user-invoked path, so we set the orchestrator bypass for the duration of
+    # this run — the same mechanism TaskExecutionCoordinator uses. Harmless when
+    # the process is already in legacy mode (dedicated worker).
+    bypass_token = None
+    try:
+        from services.workflow_orchestrator import _BYPASS
+        bypass_token = _BYPASS.set(True)
+    except Exception:
+        _BYPASS = None  # type: ignore[assignment]
+    try:
+        result = await agent.run(
+            instruction=task, history=[], requested_model=model,
+            auto_commit=True, max_steps=_freebuff_max_steps(),
+        )
+    finally:
+        if bypass_token is not None and _BYPASS is not None:
+            _BYPASS.reset(bypass_token)
+    return {"result": result}
+
+
+async def cmd_freebuff(user_id: int, chat_id: int, bot_token: str, task: str) -> None:
+    """Start a FreeBuff flow: fetch free models and present a picker keyboard."""
+    if not _is_admin(user_id):
+        await _send_message(bot_token, chat_id, "Permission denied. Admin only.")
+        return
+    if not task:
+        await _send_message(bot_token, chat_id, "Usage: /freebuff <task description>")
+        return
+    try:
+        models = await _fb_models()
+    except Exception as exc:
+        await _send_message(bot_token, chat_id, f"Could not load FreeBuff models: {exc}")
+        return
+    if not models:
+        await _send_message(bot_token, chat_id, "No free models available.")
+        return
+    _freebuff_state[user_id] = {"task": task, "models": models, "model": None}
+    await _send_keyboard(
+        bot_token,
+        chat_id,
+        f"*FreeBuff task:* `{task[:200]}`\n\nPick a free NVIDIA model:",
+        _model_keyboard(models),
+    )
+
+
+async def _process_callback(bot_token: str, callback: dict) -> None:
+    """Handle an inline-button press for the FreeBuff accept/reject/model flow."""
+    callback_id = callback.get("id", "")
+    user_id = callback.get("from", {}).get("id", 0)
+    message = callback.get("message", {}) or {}
+    chat_id = message.get("chat", {}).get("id", 0)
+    message_id = message.get("message_id", 0)
+    data = callback.get("data", "")
+
+    if not _is_allowed(user_id) or not _is_admin(user_id):
+        await _answer_callback(bot_token, callback_id, "Not allowed.")
+        return
+
+    action, arg = _parse_callback(data)
+    if not action:
+        await _answer_callback(bot_token, callback_id)
+        return
+
+    state = _freebuff_state.get(user_id)
+    if not state:
+        await _answer_callback(bot_token, callback_id, "Session expired. Start with /freebuff.")
+        return
+
+    if action == "model":
+        models = state.get("models", [])
+        try:
+            model = models[int(arg)]
+        except (TypeError, ValueError, IndexError):
+            await _answer_callback(bot_token, callback_id, "Invalid model.")
+            return
+        state["model"] = model
+        await _answer_callback(bot_token, callback_id, f"Planning with {model}…")
+        await _edit_message(bot_token, chat_id, message_id, f"Generating plan with `{model}`…")
+        try:
+            result = await _fb_plan(state["task"], model)
+            plan = result.get("plan", {})
+            steps = plan.get("steps", [])
+            lines = [f"*Plan* (`{model}`)", f"_{plan.get('goal', state['task'])[:300]}_", ""]
+            for i, step in enumerate(steps[:10], start=1):
+                lines.append(f"{i}. {str(step.get('description', ''))[:160]}")
+            await _edit_message(bot_token, chat_id, message_id, "\n".join(lines), _review_keyboard())
+        except Exception as exc:
+            await _edit_message(bot_token, chat_id, message_id, f"Plan failed: {exc}")
+        return
+
+    if action == "reject":
+        _freebuff_state.pop(user_id, None)
+        await _answer_callback(bot_token, callback_id, "Rejected.")
+        await _edit_message(bot_token, chat_id, message_id, "❌ FreeBuff task rejected.")
+        return
+
+    if action == "accept":
+        model = state.get("model")
+        if not model:
+            await _answer_callback(bot_token, callback_id, "Pick a model first.")
+            return
+        await _answer_callback(bot_token, callback_id, "Running…")
+        await _edit_message(bot_token, chat_id, message_id, f"Running FreeBuff with `{model}`… (this may take a while)")
+        try:
+            result = await _fb_run(state["task"], model)
+            summary = result.get("result", {}).get("summary", str(result))
+            pr_url = (result.get("result", {}) or {}).get("pr_url")
+            text = f"*FreeBuff result* (`{model}`)\n```\n{summary[:3000]}\n```"
+            if pr_url:
+                text += f"\n\nPR: {pr_url}"
+            await _edit_message(bot_token, chat_id, message_id, text)
+        except Exception as exc:
+            await _edit_message(bot_token, chat_id, message_id, f"FreeBuff run failed: {exc}")
+        finally:
+            _freebuff_state.pop(user_id, None)
+        return
+
+    await _answer_callback(bot_token, callback_id)
+
+
 async def _process_update(bot_token: str, update: dict) -> None:
     message = update.get("message") or update.get("edited_message")
     if not message:
@@ -290,6 +621,7 @@ async def _process_update(bot_token: str, update: dict) -> None:
             "\n*Admin only:*\n"
             "/start|stop|restart <svc> — control ollama|proxy|tunnel|stack\n"
             "/agent <task> — run agent task (requires confirmation)\n"
+            "/freebuff <task> — free-NVIDIA coding agent (pick model, review, accept)\n"
             "/keylist — list API keys\n"
         )
 
@@ -305,13 +637,25 @@ async def _process_update(bot_token: str, update: dict) -> None:
     elif cmd in ("/start", "/stop", "/restart"):
         action = cmd[1:]
         target = parts[1].lower() if len(parts) > 1 else ""
-        if not target:
+        if cmd == "/start" and not target:
+            # Bare /start is the Telegram "begin" tap — greet + show help.
+            response = (
+                "👋 *FreeBuff bot online.*\n"
+                "Send `/freebuff <task>` to edit the repo (pick a model → review → accept).\n"
+                "Use /help for all commands."
+            )
+        elif not target:
             response = f"Usage: {cmd} <ollama|proxy|tunnel|stack>"
         else:
             response = await cmd_control(user_id, action, target)
 
     elif cmd == "/keylist":
         response = await cmd_keylist(user_id)
+
+    elif cmd == "/freebuff":
+        task = " ".join(parts[1:]) if len(parts) > 1 else ""
+        await cmd_freebuff(user_id, chat_id, bot_token, task)
+        return
 
     elif cmd == "/agent":
         if not _is_admin(user_id):
@@ -336,15 +680,70 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
 # ─── Long-poll main loop ───────────────────────────────────────────────────────
 
+async def _tg_call(method: str, params: dict | None = None) -> dict:
+    """Call a Telegram Bot API method and return the parsed JSON (best-effort)."""
+    try:
+        async with httpx.AsyncClient(timeout=35.0) as client:
+            r = await client.get(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}",
+                params=params or {},
+            )
+        return r.json()
+    except Exception as exc:  # network / decode errors shouldn't crash startup
+        return {"ok": False, "description": f"request failed: {exc}"}
+
+
 async def run_bot() -> None:
+    # Re-parse allowlists from the environment at startup so the bot is robust to
+    # import order (e.g. when launched in-process by the web service after env is set).
+    global ALLOWED_USER_IDS, ADMIN_USER_IDS, TELEGRAM_BOT_TOKEN
+    ALLOWED_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ALLOWED_USER_IDS", ""))
+    ADMIN_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ADMIN_USER_IDS", ""))
+
     if not TELEGRAM_BOT_TOKEN:
-        log.error("TELEGRAM_BOT_TOKEN is not set. Set it in .env and restart.")
+        log.warning(
+            "TELEGRAM_BOT_TOKEN is not set — telegram bot is disabled. "
+            "Set TELEGRAM_BOT_TOKEN in the environment to enable it."
+        )
         return
+    # Defensively strip any internal whitespace from the token (common copy-paste error).
+    safe_token = "".join(TELEGRAM_BOT_TOKEN.split())
+    if safe_token != TELEGRAM_BOT_TOKEN:
+        TELEGRAM_BOT_TOKEN = safe_token  # allow the global to be reassigned
+        log.warning(
+            "TELEGRAM_BOT_TOKEN contained whitespace — stripped to %d chars. "
+            "Fix the env var to avoid this warning.",
+            len(TELEGRAM_BOT_TOKEN),
+        )
     if not ALLOWED_USER_IDS:
-        log.error("TELEGRAM_ALLOWED_USER_IDS is empty. No one can use the bot.")
+        raw = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "")
+        log.error(
+            "TELEGRAM_ALLOWED_USER_IDS produced no numeric IDs (got %r, length=%d). "
+            "Use the NUMERIC id from @userinfobot (e.g. 8120976), comma-separated — "
+            "not your @username, and without quotes. No one can use the bot.",
+            raw,
+            len(raw),
+        )
         return
 
-    log.info("Bot starting. Allowed users: %s  Admin users: %s", ALLOWED_USER_IDS, ADMIN_USER_IDS)
+    # Verify the token and identify the bot — surfaces a bad token immediately
+    # in the logs instead of silently failing to receive messages.
+    me = await _tg_call("getMe")
+    if not me.get("ok"):
+        log.error("Telegram getMe failed (%s). Check TELEGRAM_BOT_TOKEN.", me.get("description"))
+        return
+    bot_username = me.get("result", {}).get("username", "?")
+    log.info(
+        "Bot @%s online. Allowed users: %s  Admin users: %s",
+        bot_username, ALLOWED_USER_IDS, ADMIN_USER_IDS,
+    )
+
+    # If this bot was previously set up with a webhook (or is being "reused"),
+    # getUpdates is rejected with HTTP 409 until the webhook is removed. Clear it
+    # so long-polling works for the reused bot.
+    dw = await _tg_call("deleteWebhook")
+    log.info("Cleared any existing webhook (deleteWebhook ok=%s).", dw.get("ok"))
+
     offset = 0
 
     while True:
@@ -352,18 +751,34 @@ async def run_bot() -> None:
             async with httpx.AsyncClient(timeout=35.0) as client:
                 r = await client.get(
                     f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates",
-                    params={"offset": offset, "timeout": 30, "allowed_updates": ["message"]},
+                    params={
+                        "offset": offset,
+                        "timeout": 30,
+                        "allowed_updates": ["message", "callback_query"],
+                    },
                 )
             data = r.json()
             if not data.get("ok"):
-                log.error("getUpdates error: %s", data)
+                desc = str(data.get("description", ""))
+                if data.get("error_code") == 409 or "conflict" in desc.lower() or "webhook" in desc.lower():
+                    log.error(
+                        "getUpdates conflict: %s — another process/instance is polling "
+                        "this bot token, or a webhook is set. Stop the other bot that uses "
+                        "this token. Re-clearing webhook and retrying.", desc,
+                    )
+                    await _tg_call("deleteWebhook")
+                else:
+                    log.error("getUpdates error: %s", data)
                 await asyncio.sleep(5)
                 continue
 
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
                 try:
-                    await _process_update(TELEGRAM_BOT_TOKEN, update)
+                    if update.get("callback_query"):
+                        await _process_callback(TELEGRAM_BOT_TOKEN, update["callback_query"])
+                    else:
+                        await _process_update(TELEGRAM_BOT_TOKEN, update)
                 except Exception as exc:
                     log.exception("Error processing update %d: %s", update.get("update_id"), exc)
 

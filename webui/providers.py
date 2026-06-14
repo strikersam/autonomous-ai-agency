@@ -25,7 +25,7 @@ class ProviderCreate(BaseModel):
     api_key: str | None = Field(default=None, min_length=1, max_length=4096)
     default_model: str | None = Field(default=None, max_length=200)
     default_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    kind: Literal["openai_compat"] = "openai_compat"
+    kind: Literal["openai_compat", "anthropic"] = "openai_compat"
 
 
 class ProviderUpdate(BaseModel):
@@ -34,13 +34,14 @@ class ProviderUpdate(BaseModel):
     api_key: str | None = Field(default=None, min_length=1, max_length=4096)
     default_model: str | None = Field(default=None, max_length=200)
     default_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    kind: Literal["openai_compat", "anthropic"] | None = None
 
 
 class ProviderRecord(BaseModel):
     provider_id: str
     name: str
     base_url: str
-    kind: Literal["openai_compat"] = "openai_compat"
+    kind: Literal["openai_compat", "anthropic"] = "openai_compat"
     default_model: str | None = None
     default_temperature: float = 0.2
     has_api_key: bool = False
@@ -54,7 +55,7 @@ class ProviderSecret(BaseModel):
     api_key: str | None
     default_model: str | None
     default_temperature: float
-    kind: Literal["openai_compat"] = "openai_compat"
+    kind: Literal["openai_compat", "anthropic"] = "openai_compat"
 
 
 def _normalize_base_url(url: str) -> str:
@@ -80,7 +81,7 @@ class ProviderManager:
                     api_key=item.get("api_key") or None,
                     default_model=item.get("default_model") or None,
                     default_temperature=float(item.get("default_temperature") or 0.2),
-                    kind="openai_compat",
+                    kind=str(item.get("kind") or "openai_compat"),
                 )
         return None
 
@@ -121,6 +122,8 @@ class ProviderManager:
                 item["default_model"] = body.default_model
             if body.default_temperature is not None:
                 item["default_temperature"] = body.default_temperature
+            if body.kind is not None:
+                item["kind"] = body.kind
             item["updated_at"] = _now()
             self._store.save("providers", items)
             return self._to_public(item, include_base=True)
@@ -152,7 +155,7 @@ class ProviderManager:
         if nvidia_key:
             nvidia_base = (
                 os.environ.get("NVIDIA_BASE_URL")
-                or "https://integrate.api.nvidia.com/v1"
+                or "https://integrate.api.nvidia.com"
             ).rstrip("/")
             seeded.append(
                 {
@@ -218,7 +221,7 @@ class ProviderManager:
             provider_id=str(item.get("provider_id") or ""),
             name=str(item.get("name") or ""),
             base_url=str(item.get("base_url") or "") if include_base else "",
-            kind="openai_compat",
+            kind=str(item.get("kind") or "openai_compat"),
             default_model=item.get("default_model") or None,
             default_temperature=float(item.get("default_temperature") or 0.2),
             has_api_key=bool(api_key),

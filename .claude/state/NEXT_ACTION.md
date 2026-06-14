@@ -1,23 +1,20 @@
-# NEXT ACTION — Friday Maintenance 2026-06-04
+# Agent State — agency-cycle-fresh-2026-06-10
 
-**Session:** `agency-cycle-fresh-2026-06-04`
-**Status:** Ready — fresh cycle started
-**Last updated:** 2026-06-04T00:00:00Z
+**Session:** `agency-cycle-fresh-2026-06-10`
+**Status:** ready
+**Last updated:** 2026-06-10T08:30:14.173Z
 
-## Completed this session
-- Fetched 0 open PRs — nothing to merge
-- Audited all 21 workflow files — all action versions valid, no issues found
-- Agent state confirmed healthy (status: ready)
-- Branch `fix/session-resume-provider-mismatch` confirmed merged/cleaned
-- Changelog updated
-- Agent state files reset for fresh cycle
-- agency-cycle.yml triggered via workflow_dispatch
+## Next Step
 
-## Next cycle tasks
-1. Monitor agency-cycle.yml run for test failures or security issues
-2. If CI fails, investigate and push fixes
+**ID:** agency-cycle-001
+**Name:** Run agency-cycle workflow
+**Description:** CEO assessment, pytest baseline, bandit scan — trigger agency-cycle.yml after Friday maintenance.
+**Resume command:** `python scripts/ai_runner.py resume`
 
-## Resume command
-```
-python scripts/ai_runner.py resume
-```
+## Completed steps
+
+- weekly-maintenance-2026-06-10
+
+## Notes
+
+Fresh start after Friday maintenance sweep. Merged PR #501 (skill registry prod fix); re-ran flaky Playwright jobs on PR #498 (shell-quote 1.8.3→1.8.4 dev-dep bump).

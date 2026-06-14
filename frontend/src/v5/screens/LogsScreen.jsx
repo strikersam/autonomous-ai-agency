@@ -33,25 +33,37 @@ function ActivityRow({ entry }) {
   const sessionId = entry.session_id || entry.job_id || entry.source_run_id || '—';
   const agent     = entry.actor || entry.agent_id || entry.metadata?.agent || null;
   const ts        = entry.created_at || entry.timestamp;
+  const [expanded, setExpanded] = React.useState(false);
+  const messageText = entry.message || '';
+  const hasLongMessage = messageText.length > 80 || messageText.includes('\n');
 
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 16px', borderBottom:'1px solid rgba(255,255,255,0.04)', transition:'background 0.15s' }}
+    <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 16px', borderBottom:'1px solid rgba(255,255,255,0.04)', transition:'background 0.15s', cursor: hasLongMessage ? 'pointer' : 'default' }}
+    onClick={hasLongMessage ? () => setExpanded(e => !e) : undefined}
     onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.02)'}
     onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-      <span style={{ width:6, height:6, borderRadius:'50%', background:statusColor, flexShrink:0 }}/>
+      <span style={{ width:6, height:6, borderRadius:'50%', background:statusColor, flexShrink:0, marginTop:7 }}/>
       <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:12, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-          {model !== '—' ? model : (entry.message || entry.event_type || 'Activity')}
+        <div style={{ fontSize:12, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace: expanded ? 'normal' : 'nowrap' }}>
+          {model !== '—' ? model : (entry.event_type || 'Activity')}
           {agent && <span style={{ marginLeft:6, fontSize:10, fontFamily:'var(--font-mono)', color:'var(--accent)' }}>@{agent}</span>}
         </div>
-        <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{provider} · {sessionId}</div>
+        {messageText && (
+          <div style={{ fontSize:11, color:'var(--text-tertiary)', lineHeight:1.5, wordBreak:'break-word', whiteSpace: expanded ? 'pre-wrap' : 'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginTop:2 }}>
+            {expanded ? messageText : (hasLongMessage ? messageText.slice(0, 80) + '…' : messageText)}
+          </div>
+        )}
+        {hasLongMessage && !expanded && (
+          <div style={{ fontSize:9, color:'var(--accent)', marginTop:3, fontFamily:'var(--font-mono)' }}>click to expand ▾</div>
+        )}
+        <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', lineHeight:1.4, whiteSpace: expanded ? 'normal' : 'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{provider} · {sessionId}</div>
       </div>
       {latencyMs > 0 && <SparkBar value={latencyMs} max={20000} color={latencyMs > 10000 ? '#ffbd66' : '#46d9a4'}/>}
-      <div style={{ textAlign:'right', flexShrink:0, minWidth:80 }}>
+      <div style={{ textAlign:'right', flexShrink:0, minWidth:80, marginTop:2 }}>
         {tokens > 0 && <div style={{ fontSize:11, fontWeight:600, color:'var(--text-secondary)' }}>{tokens.toLocaleString()} tok</div>}
         {latencyMs > 0 && <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{latencyMs < 1000 ? `${latencyMs}ms` : `${(latencyMs/1000).toFixed(1)}s`}</div>}
       </div>
-      <div style={{ textAlign:'right', flexShrink:0 }}>
+      <div style={{ textAlign:'right', flexShrink:0, marginTop:2 }}>
         <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{relTime(ts)}</div>
       </div>
     </div>

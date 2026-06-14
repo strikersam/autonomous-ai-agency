@@ -1,3 +1,25 @@
+# ── Stage 1: build the React SPA from source ──────────────────────────────────
+# The backend serves the built SPA from ../frontend/build. frontend/build/ is
+# gitignored (untracked), so we must NOT depend on it existing in the build
+# context — building it here from the tracked frontend/ source makes the image
+# self-contained for BOTH the Render production build (which uses this
+# Dockerfile from a clean checkout) and the Browser E2E CI job.
+FROM node:20-slim AS frontend-build
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+# Use `npm ci` for deterministic, reproducible installs from the lock file.
+# `--legacy-peer-deps` handles real peer dependency conflicts (e.g. eslint v9 vs
+# eslint-config-* plugins that haven't published v9-compatible ranges yet).
+# The original CI error ("Missing: yaml@2.9.0 from lock file" in Browser E2E
+# run 27482207784) was a transient npm cache issue. The cache-clean step below
+# defensively clears any stale metadata before npm ci runs.
+RUN npm cache clean --force && \
+    npm ci --no-audit --prefer-offline --legacy-peer-deps
+COPY frontend/ ./
+# CI=false so build-time ESLint warnings don't fail the production build.
+RUN CI=false npm run build
+
+# ── Stage 2: the Python backend ───────────────────────────────────────────────
 FROM python:3.11-slim
 
 # git is required by mcp_server workspace tools (clone_repo, git_commit, etc.)
@@ -40,8 +62,18 @@ COPY version.py version.py
 COPY activation.py activation.py
 COPY activation_api.py activation_api.py
 COPY infra_cost.py infra_cost.py
+COPY telegram_bot.py telegram_bot.py
 COPY models/ models/
 COPY services/ services/
+# Ship the skill library so /api/skills (SkillRegistry._index_local) finds the
+# .claude/skills/*/SKILL.md descriptors at runtime. Without this the Skills
+# screen shows 0 skills in production: the dir is resolved relative to the repo
+# root but was never copied into the image, so _index_local() early-returns.
+COPY .claude/ .claude/
+# The built SPA from stage 1 (backend/server.py `_FRONTEND_BUILD` serves it at
+# /login and every UI route). Built from source in-image, so this never depends
+# on the gitignored frontend/build/ existing in the build context.
+COPY --from=frontend-build /frontend/build/ frontend/build/
 
 EXPOSE 8001
 

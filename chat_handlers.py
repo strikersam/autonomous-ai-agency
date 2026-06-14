@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -708,3 +709,158 @@ def _normalize_response_format(payload: dict) -> dict:
 
     # Unknown / text / etc — pass through unchanged
     return payload
+
+
+def _parse_tool_calls_from_response(response_text: str) -> list[dict[str, Any]]:
+    """Parse OpenAI tool_calls from a model response.
+
+    Handles:
+    - Direct JSON tool_calls arrays embedded in the text
+    - Function-call format: ``<function_name>(<json_args>)``
+    - Markdown code-fenced JSON
+
+    Returns a list of OpenAI-format tool_call dicts suitable for
+    injecting into the response ``choices[0].message.tool_calls``.
+    """
+    import re as _re
+
+    # Try parsing as direct JSON array of tool_calls
+    try:
+        parsed = json.loads(response_text.strip())
+        if isinstance(parsed, list):
+            calls = []
+            for item in parsed:
+                if isinstance(item, dict) and "name" in item:
+                    calls.append({
+                        "id": f"call_{uuid.uuid4().hex[:12]}",
+                        "type": "function",
+                        "function": {
+                            "name": item.get("name", ""),
+                            "arguments": json.dumps(item.get("arguments", item.get("args", {}))),
+                        },
+                    })
+            if calls:
+                return calls
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Try extracting JSON from markdown fences
+    fence = _re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?```", response_text)
+    if fence:
+        try:
+            parsed = json.loads(fence.group(1).strip())
+            if isinstance(parsed, list):
+                return _parse_tool_calls_from_response(json.dumps(parsed))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Try function-call format: tool_name({...})
+    func_match = _re.findall(
+        r'(\w+)\((\{[^}]*\})\)',
+        response_text,
+    )
+    if func_match:
+        calls = []
+        for name, args_str in func_match:
+            try:
+                args = json.loads(args_str)
+            except (json.JSONDecodeError, ValueError):
+                args = {"raw": args_str}
+            calls.append({
+                "id": f"call_{uuid.uuid4().hex[:12]}",
+                "type": "function",
+                "function": {
+                    "name": name.strip(),
+                    "arguments": json.dumps(args),
+                },
+            })
+        return calls
+
+    return []
+
+
+def _normalize_tool_choice(payload: dict, model: str = "") -> dict:
+    """Normalize the ``tool_choice`` parameter for the upstream backend.
+
+    OpenAI supports:
+    - ``"none"`` — model does not call any tool
+    - ``"auto"`` — model decides whether to call a tool
+    - ``"required"`` — model must call a tool
+    - ``{"type": "function", "function": {"name": "..."}}`` — force a specific tool
+
+    For Ollama/local models that don't support ``tool_choice`` natively,
+    we translate it into a system-prompt instruction so the model still
+    honours the intent.
+    """
+    tc = payload.get("tool_choice")
+    if tc is None:
+        return payload
+
+    # Cloud models: forward tool_choice as-is (return a copy to avoid
+    # mutating the caller's dict)
+    if "/" in (model or ""):
+        return dict(payload)
+
+    # Local models: inject tool_choice as a system instruction
+    copied = dict(payload)
+    instruction = ""
+
+    if isinstance(tc, str):
+        if tc == "none":
+            instruction = "Do NOT call any tools. Respond with a text message only."
+        elif tc == "required":
+            instruction = "You MUST call a tool. Select the most appropriate tool and call it immediately."
+        elif tc == "auto":
+            instruction = "You may call a tool if needed."
+    elif isinstance(tc, dict):
+        fn = tc.get("function", {})
+        name = fn.get("name", "")
+        if name:
+            instruction = f"You MUST call the tool '{name}'. Do not respond with anything else."
+
+    if instruction:
+        msgs = list(copied.get("messages") or [])
+        if msgs and msgs[0].get("role") == "system":
+            msgs[0] = {"role": "system", "content": f"{msgs[0].get('content', '')}\n\n{instruction}"}
+        else:
+            msgs.insert(0, {"role": "system", "content": instruction})
+        copied["messages"] = msgs
+
+    # Remove tool_choice from payload for Ollama compat
+    copied.pop("tool_choice", None)
+    return copied
+
+
+def _inject_tool_results_as_messages(
+    original_payload: dict,
+    response_data: dict,
+    tool_results: list[dict[str, str]],
+) -> dict:
+    """Inject tool call results as follow-up messages for multi-turn execution.
+
+    When the model returns a tool call, we execute it and add the result
+    as a new message so the model can continue reasoning.
+    """
+    copied = dict(original_payload)
+    msgs = list(copied.get("messages") or [])
+
+    # Add assistant message with tool calls
+    choices = response_data.get("choices", [])
+    if choices:
+        assistant_msg = {
+            "role": "assistant",
+            "content": choices[0].get("message", {}).get("content") or None,
+            "tool_calls": choices[0].get("message", {}).get("tool_calls", []),
+        }
+        msgs.append(assistant_msg)
+
+    # Add tool result messages
+    for result in tool_results:
+        msgs.append({
+            "role": "tool",
+            "tool_call_id": result.get("id", ""),
+            "content": result.get("result", ""),
+        })
+
+    copied["messages"] = msgs
+    return copied

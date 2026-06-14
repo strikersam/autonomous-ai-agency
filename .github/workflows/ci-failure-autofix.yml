@@ -12,14 +12,10 @@ name: CI Failure Auto-Fix
 #   - Fix is applied with `git apply` against the current master checkout
 #   - Patches >200 lines open an issue instead of auto-applying
 
-# QUARANTINED 2026-05-22: auto-trigger disabled pending Agency Core stabilization.
-# See docs/architecture/agency-core-audit-2026-05-22.md. This workflow auto-committed
-# AI-generated patches to branches and was a major source of unverified churn.
-# Re-enable by restoring the `workflow_run:` block below.
 on:
-  # workflow_run:
-  #   workflows: ["CI"]
-  #   types: [completed]   (QUARANTINED)
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
   workflow_dispatch: {}
 
 jobs:
@@ -175,7 +171,17 @@ jobs:
           with urllib.request.urlopen(req, timeout=120) as resp:
               body = json.loads(resp.read())
 
-          diff_text = body["content"][0]["text"].strip()
+          # Handle both streaming and non-streaming response formats
+          if "content" in body and isinstance(body["content"], list):
+              diff_text = "".join(
+                  block.get("text", "") for block in body["content"]
+                  if block.get("type") == "text"
+              ).strip()
+          elif "choices" in body:
+              diff_text = body["choices"][0]["message"]["content"].strip()
+          else:
+              diff_text = body.get("completion", "").strip()
+
           pathlib.Path("/tmp/autofix.patch").write_text(diff_text)
           print(f"Claude response ({len(diff_text)} chars):\n{diff_text[:300]}")
           PYEOF

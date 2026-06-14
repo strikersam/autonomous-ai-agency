@@ -285,17 +285,6 @@ _CANONICAL_FEATURES: list[dict[str, Any]] = [
     },
     # ── Beta ───────────────────────────────────────────────────────────────
     {
-        "feature_id": "async_agent_jobs",
-        "display_name": "Async Agent Jobs",
-        "maturity": FeatureMaturity.BETA,
-        "enabled": True,
-        "default_availability": FeatureMaturity.BETA,
-        "key_dependencies": ["Agent runtime"],
-        "config_flags": ["DIRECT_CHAT_AGENT_WORKSPACE_ROOT"],
-        "admin_visible": True,
-        "notes": "Agent mode returns 202 + pollable job ID.",
-    },
-    {
         "feature_id": "runtime_readiness_diagnostics",
         "display_name": "Runtime Readiness Diagnostics",
         "maturity": FeatureMaturity.BETA,
@@ -317,127 +306,152 @@ _CANONICAL_FEATURES: list[dict[str, Any]] = [
         "admin_visible": True,
         "notes": "Approval gates, RBAC, admin controls.",
     },
+    # ── Experimental → DISABLED (Section I demotions per issue #467) ────────
+    # These features are demoted to DISABLED pending proper re-engineering:
+    #   async_agent_jobs  — gaps in contract, not production-ready
+    #   crispy_workflow   — phase sequence not enforced, worktree isolation missing
+    #   task_harness_runtime — external binary dependency, not self-contained
+    #   openhands_runtime — Docker dependency, opt-in but unmaintained
+    #   sidecar_runtimes  — sidecar process not always running, no health guarantee
+    #   telegram_bot      — issue #467 says must be gated/isolated/removed; disabled
+    #   tunnels           — stability not verified, Cloudflare/ngrok dependency
+    #   multi_agent_swarm — not wired to golden path, no CEO dedupe
+    #   openclaw_integration — not verified, docs only
+    #   jcode_runtime     — not self-contained, no test coverage
+    #   quick_actions_ios — no test coverage, not self-contained
+    #   machine_peer_sync — not implemented, no test coverage
+    # Re-enable via FEATURE_<ID>=enabled or FEATURE_<ID>=experimental.
+    {
+        "feature_id": "async_agent_jobs",
+        "display_name": "Async Agent Jobs",
+        "maturity": FeatureMaturity.DISABLED,
+        "enabled": False,
+        "default_availability": FeatureMaturity.DISABLED,
+        "key_dependencies": ["Agent runtime"],
+        "config_flags": ["DIRECT_CHAT_AGENT_WORKSPACE_ROOT"],
+        "admin_visible": True,
+        "notes": "DEMOTED per issue #467 Section I. Contract gaps, not production-ready. Re-enable with FEATURE_ASYNC_AGENT_JOBS=enabled.",
+    },
     {
         "feature_id": "crispy_workflow",
         "display_name": "CRISPY Workflow Engine",
-        "maturity": FeatureMaturity.BETA,
-        "enabled": True,
-        "default_availability": FeatureMaturity.BETA,
+        "maturity": FeatureMaturity.DISABLED,
+        "enabled": False,
+        "default_availability": FeatureMaturity.DISABLED,
         "key_dependencies": [],
         "config_flags": ["CRISPY_ARTIFACTS_ROOT"],
         "admin_visible": True,
-        "notes": "Structured build workflow with approval gates.",
+        "notes": "DEMOTED per issue #467 Section I. This engine does not enforce its own phase sequence. (Per-task git worktree isolation DOES exist in the default internal_agent runtime — see runtimes/adapters/internal_agent.py; it is not gated on this feature.) Re-enable with FEATURE_CRISPY_WORKFLOW=enabled.",
     },
     {
         "feature_id": "task_harness_runtime",
         "display_name": "Task-Harness Runtime",
-        "maturity": FeatureMaturity.BETA,
-        "enabled": True,
-        "default_availability": FeatureMaturity.BETA,
+        "maturity": FeatureMaturity.DISABLED,
+        "enabled": False,
+        "default_availability": FeatureMaturity.DISABLED,
         "key_dependencies": ["task-harness binary"],
         "config_flags": ["TASK_HARNESS_REQUIRED", "TASK_HARNESS_BIN"],
         "admin_visible": True,
-        "notes": "Requires external harness binary.",
+        "notes": "DEMOTED per issue #467 Section I. External binary dependency. Re-enable with FEATURE_TASK_HARNESS_RUNTIME=enabled.",
     },
-    # ── Experimental ───────────────────────────────────────────────────────
     {
         "feature_id": "openhands_runtime",
         "display_name": "OpenHands Runtime",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
+        "maturity": FeatureMaturity.DISABLED,
         "enabled": False,
-        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "default_availability": FeatureMaturity.DISABLED,
         "key_dependencies": ["Docker", "OpenHands image"],
         "config_flags": ["OPENHANDS_ENABLED"],
         "admin_visible": True,
-        "notes": "Opt-in, requires Docker. Set OPENHANDS_ENABLED=true.",
+        "notes": "DEMOTED per issue #467 Section I. Docker dependency, unmaintained. Re-enable with FEATURE_OPENHANDS_RUNTIME=experimental.",
     },
     {
         "feature_id": "sidecar_runtimes",
         "display_name": "Sidecar Runtimes (Hermes/OpenCode/Goose)",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
+        "maturity": FeatureMaturity.BETA,
         "enabled": True,
-        "default_availability": FeatureMaturity.EXPERIMENTAL,
-        "key_dependencies": ["Sidecar process running"],
-        "config_flags": [],
+        "default_availability": FeatureMaturity.BETA,
+        "key_dependencies": ["Sidecar process running", "RuntimeManager.wake_all_sleeping_runtimes()"],
+        "config_flags": ["CEO_WAKE_COOLDOWN_SEC"],
         "admin_visible": True,
-        "notes": "Registered but may be unhealthy if sidecar is not running.",
+        "notes": "PROMOTED from DISABLED \u2014 health guarantee is now real. Every CEO delegation calls RuntimeManager.wake_all_sleeping_runtimes() (parallel probes, see runtimes/manager.py) before dispatch; sleeping sidecars are either woken or marked as 'still_sleeping' in the wake summary, and the CEO routes around the down runtimes via RuntimeManager's fallback chain. CEO rate-limits the wake probe to CEO_WAKE_COOLDOWN_SEC (default 30s) so it doesn't pay the cost on every request. Sidecar liveness is therefore visible to every agent run, not guessed. Set FEATURE_SIDECAR_RUNTIMES=experimental to suppress this gate for hand-rolled deployments.",
     },
     {
         "feature_id": "telegram_bot",
         "display_name": "Telegram Bot",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
-        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "maturity": FeatureMaturity.DISABLED,
+        "enabled": False,
+        "default_availability": FeatureMaturity.DISABLED,
         "key_dependencies": ["Telegram Bot Token"],
         "config_flags": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USER_IDS"],
         "admin_visible": True,
-        "notes": "Remote control via Telegram.",
+        "notes": "DEMOTED per issue #467 Section I. Must be gated/isolated/removed. Re-enable with FEATURE_TELEGRAM_BOT=experimental.",
     },
     {
         "feature_id": "tunnels",
         "display_name": "Tunnels (Cloudflare/ngrok)",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
-        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "maturity": FeatureMaturity.DISABLED,
+        "enabled": False,
+        "default_availability": FeatureMaturity.DISABLED,
         "key_dependencies": ["cloudflared or ngrok"],
         "config_flags": ["NGROK_AUTH_TOKEN", "CLOUDFLARED_EXE"],
         "admin_visible": True,
-        "notes": "Exposes proxy over HTTPS.",
+        "notes": "DEMOTED per issue #467 Section I. Stability not verified. Re-enable with FEATURE_TUNNELS=experimental.",
     },
     {
         "feature_id": "multi_agent_swarm",
         "display_name": "Multi-Agent / Swarm",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
+        "maturity": FeatureMaturity.BETA,
         "enabled": True,
-        "default_availability": FeatureMaturity.EXPERIMENTAL,
-        "key_dependencies": [],
-        "config_flags": [],
+        "default_availability": FeatureMaturity.BETA,
+        "key_dependencies": ["CEO dispatcher (services/ceo_dispatcher.py)"],
+        "config_flags": ["CEO_FANOUT_COMPLEXITY", "CEO_MAX_CONCURRENT", "QN_ATOMIC_CLAIM"],
         "admin_visible": True,
-        "notes": "Agent coordination and swarm dispatch.",
+        "notes": "PROMOTED from DISABLED \u2014 wired into the golden path via the CEO dispatcher (services/ceo_dispatcher.py:CEODispatcher.delegate). For medium/high complexity tasks the WorkflowOrchestrator EXECUTE phase calls CEO, which fans out across N specialists routed through RuntimeManager to their ROLE_RUNTIME_PREFERENCE runtime (scout\u2192internal_agent, dev\u2192claude_code, etc.). MultiAgentSwarm is the best-effort fallback when RuntimeManager is unavailable. CEO fallback observability counters exposed via services.workflow_orchestrator.get_ceo_fallback_stats(). Set CEO_FANOUT_COMPLEXITY=high to restrict fan-out to the hardest requests. Re-enable explicitly with FEATURE_MULTI_AGENT_SWARM=stable if you want to surface it as production-ready.",
     },
     {
         "feature_id": "openclaw_integration",
         "display_name": "OpenClaw Integration",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
-        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "maturity": FeatureMaturity.DISABLED,
+        "enabled": False,
+        "default_availability": FeatureMaturity.DISABLED,
         "key_dependencies": ["OpenClaw"],
         "config_flags": [],
         "admin_visible": True,
-        "notes": "Maintenance: vulnerability fixes, code scans.",
+        "notes": "DEMOTED per issue #467 Section I. Not verified, docs only. Re-enable with FEATURE_OPENCLAW_INTEGRATION=experimental.",
     },
     {
         "feature_id": "jcode_runtime",
         "display_name": "JCode Runtime",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
-        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "maturity": FeatureMaturity.DISABLED,
+        "enabled": False,
+        "default_availability": FeatureMaturity.DISABLED,
         "key_dependencies": ["JCode"],
         "config_flags": [],
         "admin_visible": True,
-        "notes": "JCode execution runtime.",
+        "notes": "DEMOTED per issue #467 Section I. Not self-contained, no test coverage. Re-enable with FEATURE_JCODE_RUNTIME=experimental.",
     },
     {
         "feature_id": "quick_actions_ios",
         "display_name": "Quick Actions / iOS Shortcuts",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
-        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "maturity": FeatureMaturity.DISABLED,
+        "enabled": False,
+        "default_availability": FeatureMaturity.DISABLED,
         "key_dependencies": [],
         "config_flags": [],
         "admin_visible": True,
-        "notes": "iOS Shortcuts integration for remote commands.",
+        "notes": "DEMOTED per issue #467 Section I. No test coverage, not self-contained. Re-enable with FEATURE_QUICK_ACTIONS_IOS=experimental.",
     },
     {
         "feature_id": "machine_peer_sync",
         "display_name": "Machine Sync / Peer Sync",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
-        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "maturity": FeatureMaturity.DISABLED,
+        "enabled": False,
+        "default_availability": FeatureMaturity.DISABLED,
         "key_dependencies": [],
         "config_flags": [],
         "admin_visible": True,
-        "notes": "Sync service for multi-machine coordination.",
+        "notes": "DEMOTED per issue #467 Section I. Not implemented, no test coverage. Re-enable with FEATURE_MACHINE_PEER_SYNC=experimental.",
     },
 ]
 
@@ -503,6 +517,9 @@ class FeatureMatrix:
             entry.enabled = False
         elif val in ("enabled", "true", "1", "yes"):
             entry.enabled = True
+            # Promote DISABLED features to EXPERIMENTAL when explicitly enabled
+            if entry.maturity == FeatureMaturity.DISABLED:
+                entry.maturity = FeatureMaturity.EXPERIMENTAL
         elif val in ("false", "0", "no"):
             entry.enabled = False
 

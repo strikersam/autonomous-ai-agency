@@ -494,7 +494,7 @@ export default function ChatApp() {
         {/* ── CENTRE: Chat ──────────────────────────────────────────────────── */}
         <div className={`main ${mobileTab === "chat" ? "mobile-active" : ""}`}>
           <div className="topbar">
-            <div className="brand">local-llm-server</div>
+            <div className="brand">Autonomous AI Agency</div>
             <div className="topbar-badges">
               {mode === "auto" ? (
                 <span className="badge-auto pill">⚡ Auto</span>

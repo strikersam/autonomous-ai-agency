@@ -20,7 +20,15 @@ hard-CAPTCHA site returned nothing — that's an honest outcome, not a bug.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+
+# Make the repo root importable when run as `python scripts/verify_scanner_live.py`
+# from anywhere (pytest adds this via pytest.ini `pythonpath=.`, but a bare run
+# does not — without it `import services.scanner` fails with ModuleNotFoundError).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 # Default target set: a well-behaved control + the motivating bot-protected cases.
 DEFAULT_TARGETS = [

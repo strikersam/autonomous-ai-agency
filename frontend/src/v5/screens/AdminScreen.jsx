@@ -124,6 +124,73 @@ function NewKeyForm({ onCreate, onClose }) {
   );
 }
 
+
+// ── Companies cleanup panel ──────────────────────────────────────────────────
+function CompaniesPanel({ onActionError }) {
+  const [companies, setCompanies] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [busy, setBusy] = React.useState(null);
+  const [confirmDelete, setConfirmDelete] = React.useState(null);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.listCompanies({ limit: 200 });
+      setCompanies(data?.companies || []);
+    } catch (e) {
+      onActionError(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Failed to load companies.');
+    } finally { setLoading(false); }
+  }, [onActionError]);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const handleDelete = async (companyId, name) => {
+    setBusy(companyId);
+    try {
+      await api.deleteCompany(companyId);
+      setCompanies(c => c.filter(x => x.id !== companyId));
+      setConfirmDelete(null);
+    } catch (e) {
+      onActionError(api.fmtErr(e?.response?.data?.detail) || e?.message || `Failed to delete ${name}.`);
+    } finally { setBusy(null); }
+  };
+
+  if (loading) return <div style={{ padding:'20px 16px', fontSize:13, color:'var(--text-muted)' }}>Loading companies…</div>;
+
+  return (
+    <div>
+      <p style={{ fontSize:13, color:'var(--text-muted)', lineHeight:1.6, marginBottom:14 }}>
+        Review and manage all companies. Deleting a company removes all associated specialists, scans, workflows, and graph data permanently.
+      </p>
+      {companies.length === 0 ? (
+        <div style={{ padding:'20px 16px', fontSize:13, color:'var(--text-muted)' }}>No companies found.</div>
+      ) : (
+        <div style={{ borderRadius:14, border:'1px solid rgba(255,255,255,0.09)', overflow:'hidden' }}>
+          {companies.map((c, i) => (
+            <div key={c.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', borderBottom:i<companies.length-1?'1px solid rgba(255,255,255,0.05)':'none', background: confirmDelete===c.id?'rgba(255,107,125,0.05)':'transparent', transition:'background 0.2s' }}>
+              <div style={{ width:32, height:32, borderRadius:10, background:'linear-gradient(135deg,rgba(93,162,255,0.20),rgba(93,162,255,0.05))', border:'1px solid rgba(93,162,255,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, flexShrink:0 }}>🏢</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.name}</div>
+                <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{c.domain || '—'}{' · '}{c.business_category || 'other'}{' · '}{c.id?.slice(0,8) || '—'}</div>
+              </div>
+              {confirmDelete === c.id ? (
+                <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                  <button onClick={() => handleDelete(c.id, c.name)} disabled={busy===c.id} style={{ padding:'5px 12px', borderRadius:8, background:'rgba(255,107,125,0.15)', border:'1px solid rgba(255,107,125,0.30)', color:'#ff6b7d', fontSize:11, fontWeight:700, cursor:'pointer', opacity:busy===c.id?0.5:1 }}>
+                    {busy===c.id?'Deleting…':'Confirm delete'}
+                  </button>
+                  <button onClick={() => setConfirmDelete(null)} style={{ padding:'5px 10px', borderRadius:8, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-muted)', fontSize:11, cursor:'pointer' }}>Cancel</button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmDelete(c.id)} style={{ padding:'5px 10px', borderRadius:8, background:'rgba(255,107,125,0.06)', border:'1px solid rgba(255,107,125,0.18)', color:'#ff6b7d', fontSize:11, cursor:'pointer', flexShrink:0 }}>Delete</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main AdminScreen ───────────────────────────────────────────────────────────
 function AdminScreen() {
   const [tab, setTab] = React.useState('users');
@@ -184,6 +251,7 @@ function AdminScreen() {
               { label:'Users', value:users.length, color:'var(--accent)' },
               { label:'Onboarding', value:allowedCount, color:'#46d9a4' },
               { label:'API keys', value:keys.length, color:'#c4b5fd' },
+              { label:'Companies', value:'—', color:'#ffbd66' },
             ].map(s=>(
               <div key={s.label} style={{ padding:'7px 12px', borderRadius:11, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', textAlign:'center' }}>
                 <div style={{ fontSize:18, fontWeight:800, color:s.color, letterSpacing:'-0.03em' }}>{s.value}</div>
@@ -193,9 +261,9 @@ function AdminScreen() {
           </div>
         </div>
         <div style={{ display:'flex', gap:4 }}>
-          {['activation','users','api-keys'].map(t=>(
+          {['activation','users','companies','api-keys'].map(t=>(
             <button key={t} onClick={()=>{ setTab(t); setActionErr(null); setRoleNote(null); }} style={{ padding:'7px 16px', borderRadius:'10px 10px 0 0', fontSize:12, fontWeight:600, cursor:'pointer', textTransform:'capitalize', transition:'all 0.15s', background:tab===t?'rgba(10,12,15,0.90)':'rgba(255,255,255,0.03)', border:`1px solid ${tab===t?'rgba(255,255,255,0.10)':'rgba(255,255,255,0.06)'}`, borderBottom:tab===t?'1px solid rgba(10,12,15,0.90)':'1px solid rgba(255,255,255,0.06)', color:tab===t?'#fff':'var(--text-muted)' }}>
-              {t==='api-keys'?'API Keys':t==='activation'?'🔐 Activation':'Users'}
+              {t==='api-keys'?'API Keys':t==='activation'?'🔐 Activation':t==='companies'?'🏢 Companies':'Users'}
             </button>
           ))}
         </div>
@@ -231,6 +299,14 @@ function AdminScreen() {
             </div>
           </div>
         )}
+
+        
+        {tab === 'companies' && (
+          <div style={{ padding:'14px 16px', overflowY:'auto', height:'100%' }} className="scrollbar-hide">
+            <CompaniesPanel onActionError={(e)=>setActionErr(e)}/>
+          </div>
+        )}
+
 
         {tab === 'api-keys' && (
           <div style={{ padding:'14px', overflowY:'auto', height:'100%' }}>

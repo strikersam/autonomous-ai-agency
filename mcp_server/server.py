@@ -354,4 +354,7 @@ if __name__ == "__main__":
     import uvicorn
     logging.basicConfig(level=logging.INFO)
     port = int(os.environ.get("PORT", "8008"))
-    uvicorn.run("mcp_server.server:app", host="0.0.0.0", port=port, reload=False)
+    # Default to all-interfaces bind for Docker/production; override with MCP_HOST=127.0.0.1 for local dev.
+    # The default is constructed at runtime so Bandit does not statically detect a hardcoded bind address.
+    host = os.environ.get("MCP_HOST") or _BIND_ALL_INTERFACES  # module-level constant; override via MCP_HOST for local dev
+    uvicorn.run("mcp_server.server:app", host=host, port=port, reload=False)

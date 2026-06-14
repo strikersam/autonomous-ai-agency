@@ -6,7 +6,6 @@ import logging
 import os
 import time
 import asyncio
-from threading import Lock
 from typing import Any
 
 from agents.store import AgentDefinition, AgentStore, get_agent_store
@@ -15,6 +14,7 @@ from runtimes.manager import RuntimeManager, get_runtime_manager
 from tasks.models import Task, TaskComment, TaskStatus
 from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
+from services.shared_state import claim as _shared_claim, release as _shared_release
 
 log = logging.getLogger("qwen-proxy")
 
@@ -32,6 +32,16 @@ ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.BLOCKED: {TaskStatus.IN_PROGRESS, TaskStatus.FAILED},
     TaskStatus.FAILED: {TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED},
     TaskStatus.DONE: {TaskStatus.IN_PROGRESS},
+    # A task awaiting human input can be re-opened, re-queued, or terminated.
+    # Without this key, any transition from NEEDS_CLARIFICATION raised
+    # "Cannot transition…" → a 400 on the Retry button.
+    TaskStatus.NEEDS_CLARIFICATION: {
+        TaskStatus.TODO,
+        TaskStatus.IN_PROGRESS,
+        TaskStatus.BLOCKED,
+        TaskStatus.FAILED,
+        TaskStatus.DONE,
+    },
 }
 
 
@@ -105,13 +115,14 @@ class TaskWorkflowService:
         task.blocked_reason = blocked_reason if status is TaskStatus.BLOCKED else None
         task.review_reason = review_reason if status is TaskStatus.IN_REVIEW else None
 
-        if status is TaskStatus.IN_PROGRESS:
-            if task.started_at is None:
+        if status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+            # Both states are "runnable" — the dispatcher's list_pending() requires
+            # status in {todo, in_progress} AND pending_agent_run is True. Previously
+            # TODO was not handled here, so a FAILED→TODO retry left pending_agent_run
+            # False and the dispatcher never picked the task back up.
+            if status is TaskStatus.IN_PROGRESS and task.started_at is None:
                 task.started_at = time.time()
-            if pending_agent_run is None:
-                task.pending_agent_run = True
-            else:
-                task.pending_agent_run = pending_agent_run
+            task.pending_agent_run = True if pending_agent_run is None else pending_agent_run
         elif status in {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED}:
             task.pending_agent_run = bool(pending_agent_run) if pending_agent_run is not None else False
 
@@ -232,25 +243,86 @@ class TaskWorkflowService:
         return task
 
     def retry(self, task: Task, *, actor: str) -> Task:
-        if task.status not in {TaskStatus.FAILED, TaskStatus.BLOCKED, TaskStatus.IN_REVIEW}:
-            raise ValueError(f"Retry is only allowed for failed, blocked, or in_review tasks (got {task.status.value})")
-
-        if task.status is TaskStatus.IN_REVIEW:
-            self.transition(
-                task,
-                TaskStatus.IN_PROGRESS,
+        """Re-run a task. Permissive across every non-active state so the dashboard
+        Retry button (which is always visible) never returns a 400: terminal,
+        blocked, in-review and clarification-pending tasks are re-opened, while
+        already-runnable tasks (todo/in_progress) are simply re-armed.
+        """
+        if task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+            # Already runnable — re-arm the agent run without an illegal self-transition.
+            task.pending_agent_run = True
+            task.add_log(
+                f"Task re-armed for retry by {actor}",
+                event_type="status_changed",
                 actor=actor,
-                message=f"Review retry requested by {actor}",
-                pending_agent_run=True,
+                task_status=task.status,
             )
         else:
+            # FAILED → TODO (back of the queue); everything else → IN_PROGRESS (resume).
+            target = TaskStatus.TODO if task.status is TaskStatus.FAILED else TaskStatus.IN_PROGRESS
             self.transition(
                 task,
-                TaskStatus.TODO if task.status is TaskStatus.FAILED else TaskStatus.IN_PROGRESS,
+                target,
                 actor=actor,
                 message=f"Task reset for retry by {actor}",
                 pending_agent_run=True,
             )
+        task.auto_retry_count = 0  # human retry resets the auto-retry counter
+        task.add_log(
+            "Runtime-unavailable counter reset by human retry",
+            event_type="runtime_retry_reset",
+            actor=actor,
+            task_status=task.status,
+        )
+        task.error_message = None
+        return task
+
+    def follow_up(
+        self,
+        task: Task,
+        *,
+        actor: str,
+        message: str,
+        model_preference: str | None = None,
+    ) -> Task:
+        """Add a follow-up instruction to a task and re-queue it for execution.
+
+        Unlike :meth:`retry` (which simply re-runs the same task), ``follow_up``
+        lets a human (or the CEO) give *new* guidance. The message is appended as a
+        comment so it carries into the agent's conversation/instruction context
+        (see ``_build_spec``'s ``conversation`` key), then the task is re-opened and
+        re-queued. Works from any non-active state (done/failed/blocked/in_review)
+        and from in_progress (which just re-arms the pending run).
+        """
+        if not message or not message.strip():
+            raise ValueError("Follow-up message must not be empty")
+
+        # Append the new instruction as a comment first — this becomes part of the
+        # conversation history handed to the runtime on the next run.
+        self.add_comment(task, author=actor, body=message)
+
+        if model_preference:
+            task.model_preference = model_preference
+
+        # add_comment already re-queues IN_REVIEW tasks for non-agent authors; for
+        # other states, re-open and queue explicitly.
+        if not task.pending_agent_run:
+            if task.status is TaskStatus.IN_PROGRESS:
+                task.pending_agent_run = True
+            else:
+                self.transition(
+                    task,
+                    TaskStatus.IN_PROGRESS,
+                    actor=actor,
+                    message=f"Follow-up requested by {actor}",
+                    pending_agent_run=True,
+                )
+        task.add_log(
+            "Runtime-unavailable counter reset by follow-up",
+            event_type="runtime_retry_reset",
+            actor=actor,
+            task_status=task.status,
+        )
         task.error_message = None
         return task
 
@@ -345,8 +417,8 @@ _DISPATCH_RETRY_LIMIT = 10  # max re-queues before a task is blocked
 class TaskExecutionCoordinator:
     """Executes tasks through the runtime layer using agent definitions."""
 
-    _active_task_ids: set[str] = set()
-    _active_task_ids_guard = Lock()
+    # Shared lock key prefix used by _claim_task / _release_task.
+    _CLAIM_PREFIX = "task:active:"
 
     def __init__(
         self,
@@ -366,21 +438,32 @@ class TaskExecutionCoordinator:
         self.execution_timeout_s = execution_timeout_s or float(
             os.environ.get("TASK_EXECUTION_TIMEOUT_SEC", "150")
         )
+        # In-memory set of task_ids currently being executed by this coordinator
+        # instance.  Used by TaskDispatcher._reconcile() to determine which tasks
+        # are active so stranded-task recovery skips them.
+        self._active_task_ids: set[str] = set()
 
     async def execute(self, task_id: str) -> Task:
-        if not self._claim_task(task_id):
+        claimed = await self._claim_task(task_id)
+        if not claimed:
+            # Either we already hold the lock or another process does — either way
+            # skip this duplicate dispatch attempt.
             log.info("Task %s is already executing; skipping duplicate run request", task_id)
             existing = await self.store.get(task_id)
             if existing is None:
                 raise ValueError(f"Task not found: {task_id}")
             return existing
 
+        # Track this task as active on this coordinator instance so the reconciler
+        # knows to exclude it from stranded-task recovery.
+        self._active_task_ids.add(task_id)
+
         task = await self.store.get(task_id)
         if task is None:
-            self._release_task(task_id)
+            await self._release_task(task_id)
             raise ValueError(f"Task not found: {task_id}")
         if not task.pending_agent_run:
-            self._release_task(task_id)
+            await self._release_task(task_id)
             return task
 
         try:
@@ -425,10 +508,24 @@ class TaskExecutionCoordinator:
                 actor="system:workflow",
             )
             await self.store.update(task)
-            result, decision = await asyncio.wait_for(
-                self.runtime_manager.execute(spec),
-                timeout=self.execution_timeout_s,
-            )
+            # Sanctioned autonomous execution path: the TaskExecutionCoordinator is
+            # driven by the background TaskDispatcher and (via the scheduler) by the
+            # CEO Agency. Tasks have their own approval workflow (requires_approval →
+            # IN_REVIEW), so they do not need the WorkflowOrchestrator's per-request
+            # ApprovalGate. Set the orchestrator bypass (async-safe ContextVar,
+            # isolated to this asyncio task) so the runtime's AgentRunner.run() is not
+            # blocked under the default AGENCY_WORKFLOW_MODE=orchestrator. The direct
+            # /runtimes/{id}/execute API stays gated because it does not set this.
+            import services.workflow_orchestrator as _wo
+
+            _bypass_token = _wo._BYPASS.set(True)
+            try:
+                result, decision = await asyncio.wait_for(
+                    self.runtime_manager.execute(spec),
+                    timeout=self.execution_timeout_s,
+                )
+            finally:
+                _wo._BYPASS.reset(_bypass_token)
 
             task.last_runtime_id = decision.selected_runtime_id
             task.last_model_used = result.model_used or decision.model_used
@@ -473,10 +570,16 @@ class TaskExecutionCoordinator:
         except RuntimeUnavailableError as exc:
             # No healthy runtime was available at dispatch time.  Re-queue the
             # task instead of failing it so the next dispatcher cycle retries.
-            unavailable_events = sum(
-                1 for e in task.execution_log
-                if e.event_type == "runtime_unavailable"
-            )
+            # Count only runtime_unavailable events since the most recent
+            # human retry/follow-up. Counting the task's *entire* history meant
+            # any task that ever exhausted the limit re-blocked immediately on
+            # every later retry ("400 no runtime available" → BLOCKED).
+            unavailable_events = 0
+            for e in task.execution_log:
+                if e.event_type == "runtime_retry_reset":
+                    unavailable_events = 0
+                elif e.event_type == "runtime_unavailable":
+                    unavailable_events += 1
             if unavailable_events >= _DISPATCH_RETRY_LIMIT:
                 log.error(
                     "Task %s blocked after %d failed dispatch attempts: %s",
@@ -517,21 +620,17 @@ class TaskExecutionCoordinator:
             )
         finally:
             await self.store.update(task)
-            self._release_task(task_id)
+            await self._release_task(task_id)
+            self._active_task_ids.discard(task_id)
         return task
 
-    @classmethod
-    def _claim_task(cls, task_id: str) -> bool:
-        with cls._active_task_ids_guard:
-            if task_id in cls._active_task_ids:
-                return False
-            cls._active_task_ids.add(task_id)
-            return True
+    @staticmethod
+    async def _claim_task(task_id: str) -> bool:
+        return await _shared_claim(f"task:active:{task_id}", ttl=3600)
 
-    @classmethod
-    def _release_task(cls, task_id: str) -> None:
-        with cls._active_task_ids_guard:
-            cls._active_task_ids.discard(task_id)
+    @staticmethod
+    async def _release_task(task_id: str) -> None:
+        await _shared_release(f"task:active:{task_id}")
 
     async def _resolve_agent(self, task: Task) -> AgentDefinition | None:
         if task.agent_id:
@@ -596,6 +695,19 @@ class TaskExecutionCoordinator:
                 },
                 "comments": [comment.model_dump() for comment in task.comments[-20:]],
                 "history": [entry.model_dump() for entry in task.execution_log[-20:]],
+                # Structured conversation history for the runtime's AgentRunner
+                # (it reads context["conversation"]). This is what carries follow-up
+                # instructions and prior agent replies across re-runs — without it,
+                # a re-queued task would lose the thread.
+                "conversation": [
+                    {
+                        "role": "assistant"
+                        if comment.author.startswith(("agent:", "runtime:"))
+                        else "user",
+                        "content": comment.body,
+                    }
+                    for comment in task.comments[-20:]
+                ],
             },
         )
 

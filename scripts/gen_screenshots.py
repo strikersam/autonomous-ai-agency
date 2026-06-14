@@ -65,7 +65,7 @@ tr:hover td { background: #18181b; }
 <div class="main">
   <div class="page-header">
     <div class="page-title">Traces <span style="color:#52525b;font-size:14px;font-weight:400;">1,842 total</span></div>
-    <div style="color:#71717a;font-size:13px;">Project: Local LLM Server &nbsp;|&nbsp; Last 7 days</div>
+    <div style="color:#71717a;font-size:13px;">Project: Autonomous AI Agency &nbsp;|&nbsp; Last 7 days</div>
   </div>
   <div class="filter-bar">
     <input class="filter-input" value="" placeholder="Search traces..." />
@@ -473,7 +473,7 @@ body { background: #17212b; font-family: -apple-system, BlinkMacSystemFont, 'Seg
   <div class="chat-header">
     <div class="bot-avatar">L</div>
     <div>
-      <div class="bot-name">Local LLM Server</div>
+      <div class="bot-name">Autonomous AI Agency</div>
       <div class="bot-status">online</div>
     </div>
   </div>

@@ -154,7 +154,11 @@ class AgentCoordinator:
 
 
 class MultiAgentSwarm:
-    """Dependency-aware multi-agent task runner with capability routing."""
+    """Dependency-aware multi-agent task runner with capability routing.
+
+    DEPRECATED: Use WorkflowOrchestrator.execute() instead.
+    This parallel execution path is blocked in orchestrator mode.
+    """
 
     def __init__(
         self,
@@ -178,6 +182,15 @@ class MultiAgentSwarm:
         department: str | None = None,
         key_id: str | None = None,
     ) -> CoordinatorResult:
+        # DEPRECATION: MultiAgentSwarm.run() bypasses WorkflowOrchestrator
+        from services.workflow_orchestrator import emit_deprecation, is_legacy_mode
+        if not is_legacy_mode():
+            raise RuntimeError(
+                "MultiAgentSwarm.run() is blocked in orchestrator mode. "
+                "Use WorkflowOrchestrator.execute() instead. "
+                "Set AGENCY_WORKFLOW_MODE=legacy to bypass (deprecated)."
+            )
+        emit_deprecation("MultiAgentSwarm.run()")
         started = time.monotonic()
         if not agents:
             agents = [AgentSpec(agent_id="default-worker", capabilities=["general", "code", "research", "writing"])]

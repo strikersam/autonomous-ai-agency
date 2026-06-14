@@ -1,3 +1,4 @@
+"""doctor.py — Agent-side doctor diagnostics: environment, provider, and workspace checks."""
 from __future__ import annotations
 import shutil
 import subprocess
@@ -41,7 +42,7 @@ class DirectChatDoctor:
             issues.append(PreflightIssue(
                 code="missing_github_token",
                 message="No GitHub token available for this user.",
-                fix_hint="Add a GitHub token in Settings or set GH_TOKEN/GITHUB_TOKEN."
+                fix_hint="Add a GitHub token in Settings or set GH_TOKEN/GH_PAT/GITHUB_TOKEN."
             ))
 
         # 3. Git repo access check (via git ls-remote) — done BEFORE the GitHub API

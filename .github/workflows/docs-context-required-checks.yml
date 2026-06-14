@@ -1,0 +1,112 @@
+name: CI (docs-context stub)
+
+# Companion to ci.yml / security-gate.yml / codeql: those workflows ignore
+# docs/context/** paths, but branch protection on master requires their
+# check names. Without this stub, docs-only context PRs (the auto-generated
+# implementation plans the agency loop produces) can never satisfy required
+# checks and are permanently unmergeable.
+#
+# This is GitHub's documented pattern for "skipped but required checks":
+# a same-named success check for the path class the real workflows skip.
+# See: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/defining-the-mergeability-of-pull-requests/troubleshooting-required-status-checks#handling-skipped-but-required-checks
+
+on:
+  pull_request:
+    branches: ["main", "master"]
+    paths: ["docs/context/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Docs-only guard
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.check.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.sha }} --quiet
+          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qv '^docs/context/'; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    name: Test (Python 3.13)
+    needs: guard
+    if: needs.guard.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "docs/context-only change — real CI intentionally skipped"
+
+  frontend:
+    name: Frontend test + build
+    needs: guard
+    if: needs.guard.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "docs/context-only change — skipped"
+
+  lint:
+    name: Lint check
+    needs: guard
+    if: needs.guard.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "docs/context-only change — skipped"
+
+  secrets:
+    name: Secret / Credential Scan
+    needs: guard
+    if: needs.guard.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "docs/context-only change — skipped"
+
+  cve:
+    name: Dependency CVE Audit
+    needs: guard
+    if: needs.guard.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "docs/context-only change — skipped"
+
+  bandit:
+    name: Bandit SAST
+    needs: guard
+    if: needs.guard.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "docs/context-only change — skipped"
+
+  codeql-python:
+    name: Analyze (python)
+    needs: guard
+    if: needs.guard.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "docs/context-only change — skipped"
+
+  codeql-js:
+    name: Analyze (javascript-typescript)
+    needs: guard
+    if: needs.guard.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "docs/context-only change — skipped"
+
+  security-gate:
+    name: Security Gate — No New Alerts
+    needs: guard
+    if: needs.guard.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "docs/context-only change — no code, no new alerts"

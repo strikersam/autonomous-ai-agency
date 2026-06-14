@@ -3,8 +3,11 @@ name: E2E — Live server tests (no mocks)
 on:
   push:
     branches: ["**"]
+    # Pure-docs context commits (auto-generated issue plans) don't need E2E.
+    paths-ignore: ["docs/context/**"]
   pull_request:
     branches: ["main", "master"]
+    paths-ignore: ["docs/context/**"]
 
 # Least-privilege token — this job only reads the repo; it writes nothing to
 # GitHub (no deployments, no packages, no issues). Satisfies CodeQL rule
@@ -20,11 +23,13 @@ jobs:
   e2e:
     name: End-to-end live server
     runs-on: ubuntu-latest
+    # Skip on draft PRs (e.g. auto-generated context plans).
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       STORAGE_BACKEND: sqlite
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
-      ADMIN_PASSWORD: WikiAdmin2026!
+      ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-e2e-admin-do-not-use-in-production' }}
       SECRET_KEY: e2e-ci-secret-do-not-use-in-production
       OLLAMA_BASE: http://localhost:11434
       LANGFUSE_SECRET_KEY: ""
@@ -162,7 +167,7 @@ jobs:
       DB_NAME: e2e_mongodb
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
-      ADMIN_PASSWORD: WikiAdmin2026!
+      ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-e2e-admin-do-not-use-in-production' }}
       SECRET_KEY: e2e-ci-secret-do-not-use-in-production
       OLLAMA_BASE: http://localhost:11434
       LANGFUSE_SECRET_KEY: ""

@@ -356,6 +356,53 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["bedrock", "claude", "claude4", "fast"],
     ),
+    # ── Anthropic API — Claude 5 family (Mythos-class tier, above Opus) ──────
+    # Fable 5: most intelligent generally available model; standard safeguards.
+    "claude-fable-5": ModelCapability(
+        name="claude-fable-5",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "math",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["anthropic", "claude", "claude5", "flagship", "mythos-class"],
+    ),
+    # Mythos 5: same underlying model as Fable 5, fewer dual-use safeguards;
+    # ONLY available to Anthropic-approved organizations. Gated behind
+    # ROUTER_ALLOW_MYTHOS=1 so it never enters routing by default.
+    "claude-mythos-5": ModelCapability(
+        name="claude-mythos-5",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "math",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["anthropic", "claude", "claude5", "flagship", "mythos-class", "restricted", "approved-orgs-only"],
+    ),
 }
 
 
@@ -369,6 +416,11 @@ def get_registry() -> dict[str, ModelCapability]:
         ROUTER_EXTRA_MODELS=my-model:7b:coder:code_generation+tool_use,llama3:8b:general:conversation
     """
     registry = dict(_DEFAULT_REGISTRY)
+
+    # claude-mythos-5 requires an Anthropic-approved organization; keep it
+    # out of the default routing pool unless explicitly enabled.
+    if os.environ.get("ROUTER_ALLOW_MYTHOS", "0").strip().lower() not in ("1", "true", "yes", "on"):
+        registry.pop("claude-mythos-5", None)
 
     raw = os.environ.get("ROUTER_EXTRA_MODELS", "").strip()
     if raw:

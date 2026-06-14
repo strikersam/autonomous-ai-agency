@@ -1,0 +1,19 @@
+apiVersion: v2
+name: local-llm-server
+description: Self-hosted OpenAI-compatible AI proxy and multi-agent platform
+type: application
+version: 0.1.0
+appVersion: "5.0.0"
+keywords:
+  - llm
+  - ollama
+  - openai
+  - anthropic
+  - proxy
+  - agent
+home: https://github.com/strikersam/local-llm-server
+sources:
+  - https://github.com/strikersam/local-llm-server
+maintainers:
+  - name: strikersam
+    email: strikersam@gmail.com

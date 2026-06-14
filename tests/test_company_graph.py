@@ -372,3 +372,16 @@ class TestGraphEndpointServiceContract:
         score = await svc.calculate_graph_completeness(company.id)
         assert isinstance(score, float)
         assert 0.0 <= score <= 1.0
+
+
+class TestMalformedCompanyId:
+    """Regression: GET /api/company/<non-objectid> returned 500 in production
+    because MongoDBStore.get_company raised ValueError on invalid ObjectId."""
+
+    def test_mongodb_get_company_returns_none_for_invalid_objectid(self):
+        import asyncio
+        from services.company_graph_store import MongoDBStore
+
+        store = MongoDBStore()
+        result = asyncio.run(store.get_company("companies"))  # not a valid ObjectId
+        assert result is None

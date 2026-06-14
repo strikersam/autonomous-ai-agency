@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import pytest
-from db.sqlite_store import SQLiteStore
+from db.sqlite_store import SQLiteStore, _Collection, _COLLECTIONS
 
 
 @pytest.fixture
@@ -202,3 +202,65 @@ def test_get_store_returns_sqlite(monkeypatch, tmp_path):
     from db.sqlite_store import SQLiteStore
     assert isinstance(store, SQLiteStore)
     db.reset_store()
+
+
+# ── subscript access (Mongo-compatibility) ────────────────────────────────────
+# Regression: SQLiteStore exposed collections only via attribute access
+# (__getattr__), so Mongo-style subscript access — db["tasks"], used by
+# TaskStore/AgentStore — raised "TypeError: 'SQLiteStore' object is not
+# subscriptable" under STORAGE_BACKEND=sqlite, crash-looping the TaskDispatcher
+# and failing the Browser E2E job.
+
+@pytest.mark.asyncio
+async def test_subscript_access_returns_collection(store) -> None:
+    """db['tasks'] must work like db.tasks (motor exposes both)."""
+    attr_coll = store.tasks
+    item_coll = store["tasks"]
+    assert type(item_coll) is type(attr_coll)
+    # round-trips through the subscript-accessed collection
+    await item_coll.insert_one({"task_id": "t1", "status": "todo"})
+    doc = await store["tasks"].find_one({"task_id": "t1"})
+    assert doc and doc["status"] == "todo"
+
+
+@pytest.mark.asyncio
+async def test_taskstore_works_on_sqlite_backend(store) -> None:
+    """TaskStore(db=SQLiteStore) must not raise 'not subscriptable'.
+
+    This is the exact path the TaskDispatcher exercises (list_pending) that
+    crash-looped in the Browser E2E backend container."""
+    from tasks.store import TaskStore
+    ts = TaskStore(db=store)
+    # list_pending hits self._db["tasks"].find(...)
+    pending = await ts.list_pending(limit=5)
+    assert pending == []
+
+# ── B608 SQL injection guard regression tests ──────────────────────────────
+
+@pytest.mark.asyncio
+async def test_non_whitelisted_table_rejected(tmp_path):
+    """B608 guard: _Collection.__init__ must reject names outside _COLLECTIONS.
+
+    Prevents SQL injection via dynamic table names in the f-string SQL paths
+    (find/insert/update/delete/aggregate) of _Collection. Includes a realistic
+    SQLi payload to confirm the guard catches what the f-string would interpolate.
+    """
+    store = SQLiteStore(str(tmp_path / "test.db"))
+    # Benign non-whitelisted name
+    with pytest.raises(ValueError, match="refusing to bind to non-whitelisted table"):
+        _Collection(store, "malicious_table")
+    # Realistic SQLi payload — the exact kind of string that would be catastrophic
+    # if interpolated into the f-string SQL in _all_docs / insert_one / etc.
+    with pytest.raises(ValueError, match="refusing to bind to non-whitelisted table"):
+        _Collection(store, "users; DROP TABLE users;--")
+    # Attribute-access path must also fail closed
+    with pytest.raises(AttributeError, match="refusing to bind to non-whitelisted table"):
+        store.__getattr__("users; DROP TABLE users;--")
+
+@pytest.mark.asyncio
+async def test_whitelisted_collections_accepted(tmp_path):
+    """B608 guard: all collections in _COLLECTIONS must still be instantiable."""
+    store = SQLiteStore(str(tmp_path / "test.db"))
+    for name in _COLLECTIONS:
+        col = _Collection(store, name)
+        assert col._name == name, f"_name should equal {name!r}"

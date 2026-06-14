@@ -83,6 +83,233 @@ function CompanyHeader({ data, isPreview }) {
   );
 }
 
+function healthColor(score) {
+  return score >= 80 ? '#46d9a4' : score >= 60 ? '#ffbd66' : '#ff6b7d';
+}
+
+const PRIORITY_COLOR = { high: '#ff6b7d', medium: '#ffbd66', low: '#8aa0b6' };
+
+// SEO / GEO / AIO audit panel — runs a real crawl, shows the health score,
+// pillar scores, revenue-at-risk (model estimate, clearly labelled), the full
+// findings table, downloadable exports, and a one-click delegate-to-task-board.
+function SeoAuditPanel({ companyId, defaultUrl }) {
+  const [url, setUrl] = React.useState(defaultUrl || '');
+  const [fetchMode, setFetchMode] = React.useState('auto');
+  const [revenue, setRevenue] = React.useState('');
+  const [maxPages, setMaxPages] = React.useState(50);
+  const [report, setReport] = React.useState(null);
+  const [running, setRunning] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+  const [msg, setMsg] = React.useState(null);
+  const [downloadingFmt, setDownloadingFmt] = React.useState(null);
+  const mounted = React.useRef(true);
+  React.useEffect(() => () => { mounted.current = false; }, []);
+  React.useEffect(() => { setUrl(u => u || defaultUrl || ''); }, [defaultUrl]);
+
+  const loadAudits = React.useCallback(async () => {
+    if (!companyId) return;
+    try {
+      const { data } = await api.listSeoAudits(companyId);
+      const list = data.audits || (Array.isArray(data) ? data : []);
+      if (mounted.current && list.length) {
+        const full = await api.getSeoAudit(companyId, list[0].audit_id);
+        if (mounted.current) setReport(full.data);
+      }
+    } catch { /* no audits stored yet */ }
+  }, [companyId]);
+  React.useEffect(() => { loadAudits(); }, [loadAudits]);
+
+  const run = async () => {
+    setErr(null); setMsg(null); setRunning(true);
+    try {
+      const body = { website_url: url, fetch_mode: fetchMode, max_pages: Number(maxPages) || 50 };
+      if (Number(revenue) > 0) body.monthly_organic_revenue = Number(revenue);
+      const { data } = await api.runSeoAudit(companyId, body);
+      if (!mounted.current) return;
+      setReport(data);
+      if (data.status !== 'success') setErr(data.error || `Audit finished with status: ${data.status}`);
+    } catch (e) {
+      setErr(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Audit failed.');
+    } finally { if (mounted.current) setRunning(false); }
+  };
+
+  const download = async (fmt) => {
+    setErr(null);
+    setDownloadingFmt(fmt);
+    try { await api.downloadSeoExport(companyId, report.audit_id, fmt); }
+    catch (e) { setErr('Download failed: ' + (api.fmtErr(e?.response?.data?.detail) || e?.message || '')); }
+    finally { if (mounted.current) setDownloadingFmt(null); }
+  };
+
+  const delegate = async () => {
+    setErr(null); setMsg(null);
+    try {
+      const { data } = await api.delegateSeoFindings(companyId, report.audit_id, { min_priority: 'medium' });
+      setMsg(`Created ${data.created} prioritized task(s) on the board.`);
+    } catch (e) { setErr('Delegate failed: ' + (api.fmtErr(e?.response?.data?.detail) || e?.message || '')); }
+  };
+
+  const rows = report?.rows || [];
+  const pillars = report?.pillar_scores || {};
+  const baseline = report?.monthly_organic_revenue || 0;
+  const loss = report?.estimated_monthly_revenue_loss || 0;
+  const sharePct = baseline > 0 ? (loss / baseline * 100) : 0;
+  const inputStyle = {
+    padding: '8px 10px', borderRadius: 8, fontSize: 12,
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
+    color: 'var(--text-primary)', outline: 'none',
+  };
+  const dlBtn = {
+    padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+    background: 'rgba(93,162,255,0.10)', border: '1px solid rgba(93,162,255,0.22)', color: 'var(--accent)',
+  };
+
+  return (
+    <div style={{ animation: 'fadeSlideUp 0.3s ease-out', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Run controls */}
+      <Card>
+        <SectionHeader label="Run SEO / GEO / AIO Audit" icon="🔍"/>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+          <div style={{ flex: '2 1 240px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>WEBSITE URL</label>
+            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.example.com" style={inputStyle}/>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>FETCH MODE</label>
+            <select value={fetchMode} onChange={e => setFetchMode(e.target.value)} style={inputStyle}>
+              <option value="auto">auto (browser on block)</option>
+              <option value="http">http (fast)</option>
+              <option value="browser">browser (bot-bypass)</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 110 }}>
+            <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>MAX PAGES</label>
+            <input type="number" value={maxPages} onChange={e => setMaxPages(e.target.value)} style={inputStyle}/>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 170 }}>
+            <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>MONTHLY ORGANIC $ (opt.)</label>
+            <input type="number" value={revenue} onChange={e => setRevenue(e.target.value)} placeholder="e.g. 1000000" style={inputStyle}/>
+          </div>
+          <button onClick={run} disabled={running || !url || !companyId} style={{
+            padding: '9px 18px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+            cursor: running ? 'wait' : 'pointer',
+            background: running ? 'rgba(93,162,255,0.20)' : 'var(--accent)',
+            border: '1px solid rgba(93,162,255,0.40)', color: running ? 'var(--accent)' : '#04101f',
+            opacity: (!url || !companyId) ? 0.5 : 1,
+          }}>{running ? 'Crawling…' : '▶ Run Audit'}</button>
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+          Bot-protected sites (Akamai/Cloudflare) need <b>browser</b> or <b>auto</b> mode (real Chromium via
+          browser-use/Playwright). The dollar figure is a transparent <b>model estimate</b>, not a measured loss.
+        </div>
+        {err && <div style={{ marginTop: 8, fontSize: 12, color: '#ff6b7d' }}>{err}</div>}
+        {msg && <div style={{ marginTop: 8, fontSize: 12, color: '#46d9a4' }}>{msg}</div>}
+      </Card>
+
+      {!report && !running && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>
+          No audit yet — run one above to see findings, scores and downloadable reports.
+        </div>
+      )}
+
+      {report && (
+        <>
+          {/* Scores + revenue */}
+          <Card>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'center' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 34, fontWeight: 800, color: healthColor(report.health_score), lineHeight: 1 }}>{report.health_score}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>HEALTH / 100</div>
+              </div>
+              <div style={{ height: 40, width: 1, background: 'rgba(255,255,255,0.10)' }}/>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                <div><b style={{ color: '#fff' }}>{report.pages_crawled}</b> pages crawled · <b style={{ color: '#fff' }}>{report.total_issues}</b> issue occurrences</div>
+                <div style={{ marginTop: 3 }}>Status: <b style={{ color: report.status === 'success' ? '#46d9a4' : '#ffbd66' }}>{report.status}</b> · {report.website_url}</div>
+              </div>
+              {baseline > 0 && (
+                <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#ffbd66' }}>${Number(loss).toLocaleString()}/mo</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>est. revenue at risk · {sharePct.toFixed(1)}% of baseline (model)</div>
+                </div>
+              )}
+            </div>
+            {/* Pillar scores */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 8, marginTop: 14 }}>
+              {Object.entries(pillars).map(([p, s]) => (
+                <div key={p} style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', textAlign: 'center' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: healthColor(s) }}>{s}</div>
+                  <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>{p}</div>
+                </div>
+              ))}
+            </div>
+            {baseline > 0 && (
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.5 }}>
+                ⓘ Revenue-at-risk is the supplied ${Number(baseline).toLocaleString()}/mo baseline × an at-risk share
+                derived from finding severity, type and page-coverage via a diminishing-returns curve (35% cap).
+                It is a prioritisation signal — not a guaranteed amount.
+              </div>
+            )}
+            {/* Downloads + delegate */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+              <button
+                style={{ ...dlBtn, background: 'rgba(255,189,102,0.14)', borderColor: 'rgba(255,189,102,0.35)', color: '#ffbd66', fontWeight: 700 }}
+                onClick={() => download('pdf')}
+                disabled={downloadingFmt != null}
+                title="CTO-level PDF: executive summary, methodology, pillar deep-dives with $ recommendations, WSJF roadmap and worst-pages appendices"
+              >
+                {downloadingFmt === 'pdf' ? '⏳ Generating PDF…' : '📄 Generate PDF Report'}
+              </button>
+              <button style={dlBtn} onClick={() => download('csv')} disabled={downloadingFmt != null}>⬇ CSV (findings)</button>
+              <button style={dlBtn} onClick={() => download('issues')} disabled={downloadingFmt != null}>⬇ CSV (issues)</button>
+              <button style={dlBtn} onClick={() => download('urls')} disabled={downloadingFmt != null}>⬇ CSV (URLs)</button>
+              <button style={dlBtn} onClick={() => download('markdown')} disabled={downloadingFmt != null}>⬇ Markdown report</button>
+              <button style={dlBtn} onClick={() => download('json')} disabled={downloadingFmt != null}>⬇ JSON</button>
+              <button style={{ ...dlBtn, marginLeft: 'auto', background: 'rgba(70,217,164,0.10)', borderColor: 'rgba(70,217,164,0.25)', color: '#46d9a4' }} onClick={delegate}>→ Delegate to task board</button>
+            </div>
+          </Card>
+
+          {/* Findings table */}
+          <Card>
+            <SectionHeader label={`Findings (${rows.length} types)`} icon="◈"/>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'left' }}>
+                    <th style={{ padding: '6px 8px' }}>Priority</th>
+                    <th style={{ padding: '6px 8px' }}>Issue</th>
+                    <th style={{ padding: '6px 8px' }}>Pillar</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>URLs</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>%</th>
+                    {baseline > 0 && <th style={{ padding: '6px 8px', textAlign: 'right' }}>$/mo</th>}
+                    <th style={{ padding: '6px 8px' }}>Fix</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, 60).map((r, i) => (
+                    <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                      <td style={{ padding: '6px 8px' }}>
+                        <span style={{ color: PRIORITY_COLOR[r.issue_priority] || 'var(--text-muted)', fontWeight: 700, textTransform: 'capitalize' }}>{r.issue_priority}</span>
+                      </td>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{r.issue_name}</td>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{r.pillar}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--text-secondary)' }}>{r.urls_affected}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--text-muted)' }}>{r.percent_of_total}%</td>
+                      {baseline > 0 && <td style={{ padding: '6px 8px', textAlign: 'right', color: '#ffbd66' }}>{Number(r.estimated_monthly_revenue_loss || 0).toLocaleString()}</td>}
+                      <td style={{ padding: '6px 8px' }}>{r.auto_fixable ? <span style={{ color: '#46d9a4' }}>auto</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rows.length > 60 && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8 }}>Showing top 60 of {rows.length}. Download CSV/Markdown for the full report.</div>}
+              {rows.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>No findings recorded.</div>}
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
 function CompanyScreen() {
   const storedId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
   const [companies, setCompanies] = React.useState([]);
@@ -94,7 +321,8 @@ function CompanyScreen() {
   const [loadingCompany, setLoadingCompany] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [activeTab, setActiveTab] = React.useState('overview');
-  const tabs = ['overview', 'systems', 'specialists', 'priorities'];
+  const tabs = ['overview', 'systems', 'specialists', 'priorities', 'seo'];
+  const tabLabel = (t) => (t === 'seo' ? 'SEO Audit' : t);
   const mounted = React.useRef(true);
   React.useEffect(() => () => { mounted.current = false; }, []);
 
@@ -120,7 +348,8 @@ function CompanyScreen() {
         setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps — mount-only auto-select, re-trigger not desired
+    // Mount-only auto-select; re-trigger not desired.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load selected company details
@@ -156,12 +385,26 @@ function CompanyScreen() {
     domain: company.domain || '',
     industry: company.business_category || company.industry || '',
     since: '',
-    systems: (graph?.systems || []).map(sys => ({
-      name: sys.name || sys.system_type || 'System',
-      category: sys.category || sys.system_type || 'Platform',
-      status: sys.status || 'connected',
-      icon: sys.icon || '⚙',
-    })),
+    systems: [
+      ...(graph?.systems || []).map((sys, i) => ({
+        id: sys.id || `sys-${i}`,
+        name: sys.name || sys.system_type || 'System',
+        category: sys.category || sys.system_type || 'Platform',
+        status: sys.status || 'connected',
+        icon: sys.icon || '⚙',
+      })),
+      ...(graph?.detected_systems || []).map((ds, i) => ({
+        id: ds.id || `det-${i}`,
+        name: ds.name || 'Detected System',
+        category: ds.system_type || 'Platform',
+        status: ds.is_active ? 'connected' : 'inactive',
+        icon: '🔍',
+        confidence: ds.confidence ?? null,
+        detectionMethods: (ds.evidence || []).map(e => e.type).filter(Boolean),
+        version: ds.version || null,
+        isDetected: true,
+      })),
+    ],
     repos: (graph?.repos || company.repos || []).map(r => ({
       name: r.name || r.full_name || r.url || 'repo',
       branch: r.default_branch || r.branch || 'main',
@@ -170,6 +413,7 @@ function CompanyScreen() {
     })),
     environments: company.domain ? [{ name: 'Production', url: company.domain, status: 'healthy' }] : [],
     specialists: specialists.map(s => ({
+      id: s.id || s.specialist_id || s.name || s.role,
       name: s.name || s.role || 'Specialist',
       status: s.status || 'idle',
       lastRun: s.last_used_at || s.lastRun || '—',
@@ -253,7 +497,7 @@ function CompanyScreen() {
               background: activeTab === t ? 'rgba(93,162,255,0.15)' : 'rgba(255,255,255,0.04)',
               border: `1px solid ${activeTab === t ? 'rgba(93,162,255,0.35)' : 'rgba(255,255,255,0.08)'}`,
               color: activeTab === t ? '#fff' : 'var(--text-muted)',
-            }}>{t}</button>
+            }}>{tabLabel(t)}</button>
           ))}
         </div>
       )}
@@ -265,7 +509,7 @@ function CompanyScreen() {
             <SectionHeader label="Systems & Tools" icon="⚙"/>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {(d.systems || []).map(sys => (
-                <div key={sys.name} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <div key={sys.id} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                   <span style={{ fontSize: 16, flexShrink: 0 }}>{sys.icon}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{sys.name}</div>
@@ -335,7 +579,7 @@ function CompanyScreen() {
           {(d.specialists || []).map(sp => {
             const statusColor = sp.status === 'active' || sp.status === 'running' ? '#5da2ff' : 'var(--text-muted)';
             return (
-              <div key={sp.name} style={{
+              <div key={sp.id} style={{
                 borderRadius: 16, border: `1px solid ${sp.status !== 'idle' ? `${statusColor}25` : 'rgba(255,255,255,0.09)'}`,
                 background: sp.status !== 'idle' ? `${statusColor}05` : 'rgba(255,255,255,0.03)',
                 padding: '16px', cursor: 'pointer', transition: 'all 0.2s ease',
@@ -373,30 +617,116 @@ function CompanyScreen() {
         </div>
       )}
 
-      {!loadingCompany && activeTab === 'systems' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeSlideUp 0.3s ease-out' }}>
-          {(d.systems || []).map(sys => (
-            <div key={sys.name} style={{
-              borderRadius: 14, border: '1px solid rgba(255,255,255,0.09)',
-              background: 'rgba(255,255,255,0.03)', padding: '14px 16px',
-              display: 'flex', alignItems: 'center', gap: 12,
-            }}>
-              <span style={{ fontSize: 24, flexShrink: 0 }}>{sys.icon || '⚙'}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{sys.name}</span>
-                  <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}>{sys.category}</span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Connected · Last synced: 5 min ago</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                <StatusDotC status={sys.status}/>
-                <span style={{ fontSize: 11, color: '#46d9a4' }}>Connected</span>
-              </div>
+      {!loadingCompany && activeTab === 'systems' && (() => {
+        const allSystems = d.systems || [];
+        // Group by category
+        const grouped = {};
+        allSystems.forEach(sys => {
+          const cat = sys.category || 'Other';
+          if (!grouped[cat]) grouped[cat] = [];
+          grouped[cat].push(sys);
+        });
+        const cats = Object.keys(grouped).sort();
+        const totalDetected = allSystems.filter(s => s.isDetected).length;
+        const totalConnected = allSystems.filter(s => !s.isDetected).length;
+        const catColorMap = {
+          CMS: '#c4b5fd', CRM: '#5da2ff', analytics: '#46d9a4',
+          payment_gateway: '#ffbd66', email_service: '#ff6b7d',
+          marketing_automation: '#f97316', search: '#7c9dff',
+          auth: '#46d9a4', api_gateway: '#5da2ff', shipping: '#ffbd66',
+          OMS: '#c4b5fd', PIM: '#f97316', DAM: '#5da2ff',
+          ERP: '#ffbd66', HRM: '#ff6b7d', LMS: '#7c9dff',
+          support: '#46d9a4', chat: '#c4b5fd', ai_ml: '#5da2ff',
+          database: '#ffbd66', cache: '#ff6b7d', billing: '#f97316',
+        };
+        function confidenceColor(c) {
+          if (c == null) return 'var(--text-muted)';
+          if (c >= 0.8) return '#46d9a4';
+          if (c >= 0.5) return '#ffbd66';
+          return '#ff6b7d';
+        }
+        function methodBadge(method) {
+          const colors = { html: '#5da2ff', dns: '#46d9a4', ssl: '#c4b5fd', headers: '#ffbd66', script: '#f97316', cookie: '#ff6b7d', meta: '#7c9dff' };
+          const c = colors[method] || 'var(--text-muted)';
+          return (
+            <span key={method} style={{ fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase', padding: '1px 5px', borderRadius: 4, color: c, background: `${c}18`, border: `1px solid ${c}30` }}>{method}</span>
+          );
+        }
+        return (
+          <div style={{ animation: 'fadeSlideUp 0.3s ease-out' }}>
+            {/* Summary bar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{allSystems.length} systems detected</span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>across {cats.length} categories</span>
+              {totalDetected > 0 && (
+                <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 999, color: '#c4b5fd', background: 'rgba(196,181,253,0.10)', border: '1px solid rgba(196,181,253,0.20)' }}>
+                  {totalDetected} auto-detected
+                </span>
+              )}
+              {totalConnected > 0 && (
+                <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 999, color: '#46d9a4', background: 'rgba(70,217,164,0.10)', border: '1px solid rgba(70,217,164,0.20)' }}>
+                  {totalConnected} connected
+                </span>
+              )}
             </div>
-          ))}
-        </div>
-      )}
+            {/* Per-category groups */}
+            {cats.map(cat => {
+              const catColor = catColorMap[cat] || 'var(--accent)';
+              const items = grouped[cat];
+              return (
+                <div key={cat} style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: catColor, flexShrink: 0 }}/>
+                    <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: catColor, letterSpacing: '0.16em', textTransform: 'uppercase' }}>{cat.replace(/_/g, ' ')}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>({items.length})</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {items.map(sys => (
+                      <div key={sys.id} style={{
+                        borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'rgba(255,255,255,0.025)', padding: '10px 14px',
+                        display: 'flex', alignItems: 'center', gap: 10,
+                      }}>
+                        <span style={{ fontSize: 18, flexShrink: 0 }}>{sys.icon || '⚙'}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{sys.name}</span>
+                            {sys.version && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>v{sys.version}</span>}
+                          </div>
+                          {sys.isDetected && (sys.detectionMethods || []).length > 0 && (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {[...new Set(sys.detectionMethods)].slice(0, 5).map(m => methodBadge(m))}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                          {sys.confidence != null && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                              <div style={{ width: 40, height: 3, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.round(sys.confidence * 100)}%`, height: '100%', background: confidenceColor(sys.confidence), borderRadius: 999 }}/>
+                              </div>
+                              <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: confidenceColor(sys.confidence) }}>{Math.round(sys.confidence * 100)}%</span>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <StatusDotC status={sys.status}/>
+                            <span style={{ fontSize: 10, color: sys.status === 'inactive' ? '#ff6b7d' : '#46d9a4' }}>{sys.status === 'inactive' ? 'Inactive' : sys.isDetected ? 'Detected' : 'Connected'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {allSystems.length === 0 && (
+              <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                No systems detected. Run a scan from the company header to discover your tech stack.
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {!loadingCompany && activeTab === 'priorities' && (
         <div style={{ maxWidth: 560, animation: 'fadeSlideUp 0.3s ease-out' }}>
@@ -425,6 +755,10 @@ function CompanyScreen() {
             ))}
           </div>
         </div>
+      )}
+
+      {!loadingCompany && activeTab === 'seo' && (
+        <SeoAuditPanel companyId={selectedCompanyId} defaultUrl={d.domain ? (/^https?:\/\//i.test(d.domain) ? d.domain : `https://${d.domain}`) : ''}/>
       )}
     </div>
   );

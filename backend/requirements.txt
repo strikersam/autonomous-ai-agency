@@ -16,7 +16,22 @@ aiosqlite>=0.22.1  # SQLite async adapter for STORAGE_BACKEND=sqlite
 
 beautifulsoup4>=4.14.3
 
+# Website-scanner detection deps. These MUST stay in sync with the scanner's
+# imports in services/scanner.py — the production image installs THIS file
+# (Dockerfile.backend), not the root requirements.txt that CI uses, so omitting
+# them makes prod silently return "No systems detected" while CI finds systems:
+#   - curl_cffi: Chrome TLS/JA3 impersonation for the anti-bot HTTP fetch
+#     (without it, gucci.com-class Akamai sites return a blocked/empty body).
+#   - dnspython: the MX/NS/TXT/CNAME analysis (_analyze_dns) that yields the
+#     ~11 "no-browser-needed" systems (Akamai, Microsoft 365, Salesforce, …).
+curl_cffi>=0.15.0
+dnspython>=2.8.0
+
 # Headless-browser rendering for the website scanner (JS-rendered / bot-protected
 # sites). The Chromium binary is installed in the Docker image (see Dockerfile.backend);
 # where it is absent the scanner gracefully falls back to static-HTML detection.
 playwright>=1.60.0
+
+# CTO-level PDF export for SEO/GEO/AEO/AIO audit reports (services/seo_report_pdf.py).
+# Must stay in sync with the root requirements.txt entry.
+reportlab>=4.2.0,<5

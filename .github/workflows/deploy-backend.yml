@@ -22,6 +22,11 @@ on:
       - 'services/**'
       - 'models/**'
       - 'db/**'
+      # Dockerfile.backend now builds the React SPA from frontend/ source (the
+      # multi-stage frontend-build stage) and bakes it into the image, so a
+      # frontend-only change must redeploy the backend too — otherwise the
+      # backend-served UI stays on the old bundle until an unrelated change.
+      - 'frontend/**'
       # root-level modules copied by Dockerfile.backend
       - 'provider_router.py'
       - 'commercial_equivalent.py'

@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -190,8 +192,9 @@ class ProjectScaffolder:
         try:
             target.relative_to(cwd)
         except ValueError:
-            # Allow temp directories (pytest tmp_path) but reject everything else
-            if not str(target).startswith(('/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/')):
+            # Allow temp directories (pytest tmp_path) but reject everything else. Build the allow-list from tempfile.gettempdir() so we never hardcode /tmp.
+            _tmp_root = tempfile.gettempdir()
+            if not (str(target) == _tmp_root or str(target).startswith(_tmp_root + os.sep)):
                 return ScaffoldResult(
                     template_name=template_name,
                     target_dir=str(target),

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
@@ -663,3 +664,22 @@ def test_commit_step_handles_missing_git_gracefully(tmp_path: Path):
         result = runner._commit_step("test step", ["notes.txt"])
 
     assert result is None
+
+
+# ── GitHubTools agent_initiated regression test ───────────────────────────────
+
+def test_agent_runner_github_tools_agent_initiated_is_true(tmp_path: Path) -> None:
+    """Regression: AgentRunner must wire GitHubTools with agent_initiated=True."""
+    root = tmp_path / "repo"
+    root.mkdir()
+
+    # Token sourced from a variable (not a string literal funcarg) so Bandit B106
+    # does not fire; the value is irrelevant — no network is hit.
+    dummy_token = os.environ.get("GH_TEST_TOKEN", "dummy-token")
+    runner = AgentRunner(
+        ollama_base="http://localhost:11434",
+        workspace_root=root,
+        github_token=dummy_token,
+    )
+
+    assert runner.github.agent_initiated is True

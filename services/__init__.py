@@ -1,5 +1,5 @@
 """
-Agency Core Services
+Autonomous AI Agency Services
 """
 
 # Company Graph Services

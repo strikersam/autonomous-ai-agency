@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import secrets
 import asyncio
@@ -149,7 +149,7 @@ class OnboardingService:
                 completed_steps=1,
                 progress_percent=100 / len(self.ONBOARDING_STEPS),
                 status="in_progress",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
                 steps=[],
                 errors=[]
             )
@@ -165,7 +165,7 @@ class OnboardingService:
             progress.steps.append({
                 "name": "create_company",
                 "status": "completed",
-                "completed_at": datetime.utcnow().isoformat(),
+                "completed_at": datetime.now(timezone.utc).isoformat(),
                 "message": f"Company {company.name} created"
             })
             
@@ -189,7 +189,7 @@ class OnboardingService:
                     progress.steps.append({
                         "name": "scan_websites",
                         "status": "completed",
-                        "completed_at": datetime.utcnow().isoformat(),
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
                         "message": f"Scanned {len(scanned_websites)} websites",
                         "details": {"websites": [w.url for w in scanned_websites]}
                     })
@@ -213,7 +213,7 @@ class OnboardingService:
                     progress.steps.append({
                         "name": "scan_repositories",
                         "status": "completed",
-                        "completed_at": datetime.utcnow().isoformat(),
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
                         "message": f"Scanned {len(scanned_repos)} repositories",
                         "details": {"repositories": [r.url for r in scanned_repos]}
                     })
@@ -261,21 +261,32 @@ class OnboardingService:
                         if stack.databases:
                             detected_system_types.add("database")
                 
+                # If nothing was detected (bot-protected site, scan blocked, etc.),
+                # fall back to a baseline set so we always provision at least a few
+                # useful specialists rather than leaving the company with zero.
+                if not detected_system_types:
+                    log.info(
+                        "No system types detected for company %s — using baseline fallback "
+                        "(backend, frontend, analytics) so provisioning is not skipped.",
+                        company_id,
+                    )
+                    detected_system_types = {"backend", "frontend", "analytics"}
+
                 progress.steps.append({
                     "name": "detect_systems",
                     "status": "completed",
-                    "completed_at": datetime.utcnow().isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                     "message": f"Detected {len(detected_system_types)} system types",
                     "details": {"system_types": list(detected_system_types)}
                 })
-                
+
                 # Step 5: Provision specialists
                 if auto_provision_specialists:
                     progress.current_step = "provision_specialists"
                     progress.completed_steps = 5
                     progress.progress_percent = (5 / len(self.ONBOARDING_STEPS)) * 100
                     await self._update_progress(progress)
-                    
+
                     provision_results = await self.specialist_service.provision_specialists_for_company(
                         company_id=company_id,
                         system_types=list(detected_system_types)
@@ -284,7 +295,7 @@ class OnboardingService:
                     progress.steps.append({
                         "name": "provision_specialists",
                         "status": "completed",
-                        "completed_at": datetime.utcnow().isoformat(),
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
                         "message": f"Provisioned {len(provision_results)} specialists",
                         "details": {"specialists": [r.specialist.name if r.specialist else "Unknown" for r in provision_results]}
                     })
@@ -301,7 +312,7 @@ class OnboardingService:
                     progress.steps.append({
                         "name": "create_workflows",
                         "status": "completed",
-                        "completed_at": datetime.utcnow().isoformat(),
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
                         "message": f"Created {len(workflows)} initial workflows",
                         "details": {"workflows": [w.name for w in workflows]}
                     })
@@ -311,7 +322,7 @@ class OnboardingService:
                 progress.completed_steps = len(self.ONBOARDING_STEPS)
                 progress.progress_percent = 100.0
                 progress.status = "completed"
-                progress.completed_at = datetime.utcnow()
+                progress.completed_at = datetime.now(timezone.utc)
                 
                 # Update company onboarding status
                 company = company.model_copy(update={
@@ -323,9 +334,41 @@ class OnboardingService:
                 progress.steps.append({
                     "name": "complete",
                     "status": "completed",
-                    "completed_at": datetime.utcnow().isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                     "message": "Onboarding completed successfully"
                 })
+
+                # Refresh dynamic skills based on detected tech stack
+                try:
+                    from agent.skill_registry import get_skill_registry_safe
+                    sr = get_skill_registry_safe()
+                    if sr:
+                        await sr.refresh_remote_force()
+                        # Collect detected systems for recommendations
+                        tech_stack = []
+                        for website in websites:
+                            if website.inferred_stack:
+                                for fw in (website.inferred_stack.frameworks or []):
+                                    tech_stack.append(fw)
+                                if website.inferred_stack.cms:
+                                    tech_stack.append(website.inferred_stack.cms)
+                                if website.inferred_stack.analytics:
+                                    tech_stack.extend(website.inferred_stack.analytics)
+                            if website.detected_systems:
+                                for ds in website.detected_systems:
+                                    tech_stack.append(ds.name)
+                        for repo in repos:
+                            if repo.inferred_stack:
+                                for fw in (repo.inferred_stack.frameworks or []):
+                                    tech_stack.append(fw)
+                                for db in (repo.inferred_stack.databases or []):
+                                    tech_stack.append(db)
+                        if tech_stack:
+                            recs = sr.recommend(tech_stack=tech_stack, limit=5)
+                            log.info("Onboarding: refreshed dynamic skills for %s — %d recommendations from %d detected techs",
+                                     company_id, len(recs), len(set(tech_stack)))
+                except Exception as exc:
+                    log.debug("Onboarding: skill refresh skipped for %s: %s", company_id, exc)
                 
                 log.info(f"Completed onboarding for company {company_id}")
 
@@ -341,7 +384,7 @@ class OnboardingService:
                     progress.steps.append({
                         "name": "activate_agency",
                         "status": activation.get("status", "unknown"),
-                        "completed_at": datetime.utcnow().isoformat(),
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
                         "message": (
                             f"Agency activated: {len(activation.get('specialists', []))} specialists, "
                             f"{len(activation.get('runtimes_started', []))} runtimes, "
@@ -361,7 +404,7 @@ class OnboardingService:
                     progress.steps.append({
                         "name": "activate_agency",
                         "status": "skipped",
-                        "completed_at": datetime.utcnow().isoformat(),
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
                         "message": "CompanyAgency service not available — skipped",
                     })
                 except Exception as exc:
@@ -372,14 +415,14 @@ class OnboardingService:
                     progress.steps.append({
                         "name": "activate_agency",
                         "status": "failed",
-                        "completed_at": datetime.utcnow().isoformat(),
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
                         "message": f"Agency activation failed: {exc}",
                     })
                 
             except Exception as e:
                 progress.status = "failed"
                 progress.errors.append(str(e))
-                progress.completed_at = datetime.utcnow()
+                progress.completed_at = datetime.now(timezone.utc)
                 
                 # Update company onboarding status
                 company = company.model_copy(update={
@@ -436,7 +479,7 @@ class OnboardingService:
                 completed_steps=len(self.ONBOARDING_STEPS),
                 progress_percent=100.0,
                 status="completed",
-                completed_at=datetime.utcnow()
+                completed_at=datetime.now(timezone.utc)
             )
         
         # For in_progress or failed, try to get actual progress
@@ -468,7 +511,7 @@ class OnboardingService:
                 completed_steps=completed_steps,
                 progress_percent=progress_percent,
                 status="in_progress",
-                started_at=datetime.utcnow()
+                started_at=datetime.now(timezone.utc)
             )
         
         # Paused / cancelled are explicit states — report them faithfully
@@ -529,7 +572,7 @@ class OnboardingService:
         next_step_index = progress.completed_steps
         if next_step_index >= len(self.ONBOARDING_STEPS):
             progress.status = "completed"
-            progress.completed_at = datetime.utcnow()
+            progress.completed_at = datetime.now(timezone.utc)
             return progress
         
         next_step = self.ONBOARDING_STEPS[next_step_index]["name"]
@@ -602,7 +645,7 @@ class OnboardingService:
         progress.completed_steps = len(self.ONBOARDING_STEPS)
         progress.progress_percent = 100.0
         progress.status = "completed"
-        progress.completed_at = datetime.utcnow()
+        progress.completed_at = datetime.now(timezone.utc)
         progress.current_step = "complete"
         
         company = company.model_copy(update={
@@ -682,7 +725,7 @@ class OnboardingService:
             completed_steps=0,
             progress_percent=0.0,
             status="cancelled",
-            completed_at=datetime.utcnow()
+            completed_at=datetime.now(timezone.utc)
         )
 
     # =========================================================================
@@ -717,7 +760,7 @@ class OnboardingService:
             scan_status="success",
             inferred_stack=scan_result.inferred_stack,
             detected_systems=scan_result.detected_systems,
-            last_scanned=datetime.utcnow()
+            last_scanned=datetime.now(timezone.utc)
         )
         
         created = await self.graph_service.add_website(
@@ -730,7 +773,7 @@ class OnboardingService:
             "scan_status": "success",
             "inferred_stack": scan_result.inferred_stack,
             "detected_systems": scan_result.detected_systems,
-            "last_scanned": datetime.utcnow()
+            "last_scanned": datetime.now(timezone.utc)
         })
         
         await self.store.update_website(created, company_id)
@@ -769,7 +812,7 @@ class OnboardingService:
             name=url.split('/')[-1],
             full_name=url,
             inferred_stack=scan_result.inferred_stack,
-            last_scanned=datetime.utcnow()
+            last_scanned=datetime.now(timezone.utc)
         )
         
         created = await self.graph_service.add_repo(
@@ -781,7 +824,7 @@ class OnboardingService:
         # Update with scan results
         created = created.model_copy(update={
             "inferred_stack": scan_result.inferred_stack,
-            "last_scanned": datetime.utcnow()
+            "last_scanned": datetime.now(timezone.utc)
         })
         
         await self.store.update_repo(created)
@@ -955,10 +998,10 @@ class OnboardingService:
 _onboarding_service: OnboardingService | None = None
 
 
-def get_onboarding_service() -> OnboardingService:
+def get_onboarding_service() -> "OnboardingService":
     """
     Get the singleton Onboarding service instance.
-    
+
     Returns:
         The singleton OnboardingService instance.
     """
@@ -968,10 +1011,10 @@ def get_onboarding_service() -> OnboardingService:
     return _onboarding_service
 
 
-def set_onboarding_service(service: OnboardingService) -> None:
+def set_onboarding_service(service: "OnboardingService") -> None:
     """
     Set the singleton Onboarding service instance (for testing).
-    
+
     Args:
         service: The OnboardingService instance to use.
     """

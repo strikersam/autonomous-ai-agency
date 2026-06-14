@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import backend.server as server
+
+_ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]  # nosec B105 — test credential only
 
 
 def _auth_headers(client) -> dict[str, str]:
     login = client.post(
         "/api/auth/login",
-        json={"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"},
+        json={"email": "admin@llmrelay.local", "password": _ADMIN_PASSWORD},
     )
-    assert login.status_code == 200
+    assert login.status_code == 200, (
+        f"Login failed ({login.status_code}): {login.text!r}. "
+        "Check that ADMIN_PASSWORD env var matches the value set in CI."
+    )
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 

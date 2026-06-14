@@ -1,3 +1,5 @@
+"""check_auto.py — auto-generated module docstring (user-research skill scan)."""
+
 import re
 import os
 import subprocess

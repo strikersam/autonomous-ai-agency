@@ -122,6 +122,13 @@ class CompanyGraphStore:
         else:
             return await self._sqlite_store.list_companies(owner_id, limit, offset, search)
 
+    async def count_companies(self) -> int:
+        """Count total companies in the store."""
+        if self.backend == "mongodb":
+            return await self._mongodb_store.count_companies()
+        else:
+            return await self._sqlite_store.count_companies()
+
     # =========================================================================
     # COMPANY GRAPH OPERATIONS
     # =========================================================================
@@ -450,9 +457,18 @@ class MongoDBStore:
         return company
 
     async def get_company(self, company_id: str) -> Company | None:
-        """Get a company by ID from MongoDB."""
+        """Get a company by ID from MongoDB.
+
+        A malformed ID is a lookup miss, not a server error: return None so
+        callers raise their own 404 instead of a 500 (seen in production on
+        GET /api/company/<non-objectid>).
+        """
         db = self._get_db()
-        doc = await db.companies.find_one({"_id": self._to_object_id(company_id)})
+        try:
+            oid = self._to_object_id(company_id)
+        except ValueError:
+            return None
+        doc = await db.companies.find_one({"_id": oid})
         return self._prepare_result(doc, Company)
 
     async def update_company(self, company: Company) -> Company:
@@ -506,6 +522,11 @@ class MongoDBStore:
         async for doc in cursor:
             companies.append(self._prepare_result(doc, Company))
         return companies
+
+    async def count_companies(self) -> int:
+        """Count total companies in MongoDB."""
+        db = self._get_db()
+        return await db.companies.count_documents({})
 
     # Company Graph Operations
     async def create_company_graph(self, graph: CompanyGraph) -> CompanyGraph:
@@ -993,6 +1014,7 @@ class SQLiteStore:
                 model_preference TEXT,
                 runtime TEXT,
                 system_types TEXT NOT NULL DEFAULT '[]',
+                bound_skills TEXT NOT NULL DEFAULT '[]',
                 is_provisioned INTEGER NOT NULL DEFAULT 0,
                 provisioned_at TEXT,
                 status TEXT NOT NULL DEFAULT 'available',
@@ -1049,6 +1071,12 @@ class SQLiteStore:
         columns = {row[1] for row in await cursor.fetchall()}  # row[1] == column name
         if "data" not in columns:
             await conn.execute("ALTER TABLE websites ADD COLUMN data TEXT")
+
+        # Migration: add bound_skills column to pre-existing specialists tables
+        cursor = await conn.execute("PRAGMA table_info(specialists)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "bound_skills" not in columns:
+            await conn.execute("ALTER TABLE specialists ADD COLUMN bound_skills TEXT NOT NULL DEFAULT '[]'")
 
         await conn.commit()
         log.info(f"SQLite schema initialized at {self._db_path}")
@@ -1174,6 +1202,13 @@ class SQLiteStore:
         async for row in cursor:
             companies.append(self._prepare_result(row, Company))
         return companies
+
+    async def count_companies(self) -> int:
+        """Count total companies in SQLite."""
+        conn = await self._get_connection()
+        cursor = await conn.execute("SELECT COUNT(*) FROM companies")
+        row = await cursor.fetchone()
+        return row[0] if row else 0
 
     # Website Operations
     @staticmethod
@@ -1396,14 +1431,14 @@ class SQLiteStore:
         doc = self._prepare_doc(specialist)
         await conn.execute("""
             INSERT INTO specialists (id, company_id, name, family, capabilities, tools,
-                                     model_preference, runtime, system_types, is_provisioned,
-                                     provisioned_at, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     model_preference, runtime, system_types, bound_skills,
+                                     is_provisioned, provisioned_at, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             doc["id"], doc.get("company_id"), doc["name"], doc["family"],
             doc.get("capabilities", "[]"), doc.get("tools", "[]"),
             doc.get("model_preference"), doc.get("runtime"),
-            doc.get("system_types", "[]"),
+            doc.get("system_types", "[]"), doc.get("bound_skills", "[]"),
             1 if doc.get("is_provisioned", False) else 0,
             doc.get("provisioned_at"), doc.get("status", "available"),
             doc["created_at"], doc["updated_at"]
@@ -1428,14 +1463,14 @@ class SQLiteStore:
         await conn.execute("""
             UPDATE specialists 
             SET company_id = ?, name = ?, family = ?, capabilities = ?, tools = ?,
-                model_preference = ?, runtime = ?, system_types = ?,
+                model_preference = ?, runtime = ?, system_types = ?, bound_skills = ?,
                 is_provisioned = ?, provisioned_at = ?, status = ?, updated_at = ?
             WHERE id = ?
         """, (
             doc.get("company_id"), doc["name"], doc["family"],
             doc.get("capabilities", "[]"), doc.get("tools", "[]"),
             doc.get("model_preference"), doc.get("runtime"),
-            doc.get("system_types", "[]"),
+            doc.get("system_types", "[]"), doc.get("bound_skills", "[]"),
             1 if doc.get("is_provisioned", False) else 0,
             doc.get("provisioned_at"), doc.get("status", "available"),
             doc["updated_at"], doc["id"]
@@ -1589,7 +1624,7 @@ class SQLiteStore:
             company=company,
             websites=websites,
             repos=repos,
-            systems=[],
+            systems=[],  # BusinessSystems — use detected_systems for now
             specialists=specialists,
             workflows=[],
             knowledge=knowledge,
@@ -1597,8 +1632,8 @@ class SQLiteStore:
             approval_policies=[],
             detected_systems=detected_systems,
             version="1.0",
-            is_complete=False,
-            completeness_score=0.0
+            is_complete=len(detected_systems) > 0 and len(specialists) > 0,
+            completeness_score=1.0 if (len(detected_systems) > 0 and len(specialists) > 0) else 0.5 if (len(detected_systems) > 0 or len(specialists) > 0) else 0.0
         )
 
     async def create_company_graph(self, graph: CompanyGraph) -> CompanyGraph:

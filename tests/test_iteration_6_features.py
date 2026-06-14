@@ -18,9 +18,11 @@ from urllib.parse import urlparse
 # Use the public backend URL for testing
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001")
 
-# Test credentials from test_credentials.md
+# Test credentials — ADMIN_PASSWORD must be set in the environment.
+# On Render, ADMIN_PASSWORD is injected automatically into the container.
+# Locally: export ADMIN_PASSWORD=$(cat ~/.llm-relay-secret)
 ADMIN_EMAIL = "admin@llmrelay.local"
-ADMIN_PASSWORD = "WikiAdmin2026!"
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]  # raises KeyError if not set
 
 
 def _server_reachable(url: str, timeout: float = 1.0) -> bool:

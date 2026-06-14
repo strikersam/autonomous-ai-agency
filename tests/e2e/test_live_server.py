@@ -13,7 +13,7 @@ Usage (CI):
 Usage (local):
     RELAY_BASE_URL=http://localhost:8000 \\
     ADMIN_EMAIL=admin@llmrelay.local \\
-    ADMIN_PASSWORD=WikiAdmin2026! \\
+    ADMIN_PASSWORD=<your-password> \\
     python tests/e2e/test_live_server.py
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ except ImportError:
 
 BASE = os.environ.get("RELAY_BASE_URL", "http://localhost:8000").rstrip("/")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 PASS = "\033[32m✓\033[0m"
 FAIL = "\033[31m✗\033[0m"
@@ -409,6 +409,7 @@ def test_company_lifecycle(c: httpx.Client, h: dict) -> None:
     Runs against whatever STORAGE_BACKEND the server is using (CI runs this on
     both sqlite and mongodb), so backend-specific bugs surface here too.
     """
+
     Suite.section("11 · Company graph lifecycle")
 
     domain = f"e2e-{uuid.uuid4().hex[:8]}.example.com"
@@ -450,6 +451,155 @@ def test_company_lifecycle(c: httpx.Client, h: dict) -> None:
         ok("DELETE /api/company/{id} → cleaned up")
     else:
         skip("DELETE /api/company/{id}", f"status {r.status_code}")
+
+
+def test_orchestrator_flow(c: httpx.Client, h: dict) -> None:
+    """Workflow Orchestrator — execute→approve→resume→verify golden path.
+
+    E2E coverage for Phase 2: exercises the 11-phase golden path, ApprovalGate,
+    approve_and_resume, and the list/get API endpoints.  Since no LLM provider
+    is available in CI, we verify the endpoint shape and graceful degradation
+    (status=awaiting_approval or done with error message), never 5xx.
+    """
+    Suite.section("12 · Workflow Orchestrator (golden path)")
+
+    # ── 12a: Execute — should reach ApprovalGate or complete ──────────────────
+    r = req("POST", c, "/api/workflow/orchestrator/execute", headers=h, timeout=15.0, json={
+        "request": "Run pytest -x and report results",
+        "auto_approve": False,
+        "max_steps": 5,
+    })
+    # Accept 200 (Phase 2 endpoint), 404 (not yet deployed), or 503 (no provider).
+    check(r.status_code in (200, 404, 503),
+          "POST /api/workflow/orchestrator/execute → 200/404/503 (never 5xx)", r)
+
+    if r.status_code == 404:
+        skip("Workflow Orchestrator execute", "endpoint not deployed yet")
+        skip("Workflow Orchestrator approve", "endpoint not deployed")
+        skip("Workflow Orchestrator list", "endpoint not deployed")
+        skip("Workflow Orchestrator get", "endpoint not deployed")
+        return
+
+    if r.status_code == 503:
+        ok("POST /api/workflow/orchestrator/execute → 503 (no LLM provider — graceful degradation)")
+        skip("Workflow Orchestrator approve", "no LLM provider")
+        skip("Workflow Orchestrator list", "no LLM provider")
+        skip("Workflow Orchestrator get", "no LLM provider")
+        return
+
+    body = r.json()
+    run_id = body.get("run_id") or body.get("run", {}).get("run_id", "")
+    status = body.get("status", "")
+
+    check(
+        bool(run_id) or bool(status),
+        "execute response must include run_id or status",
+        r,
+    )
+    ok(f"POST /api/workflow/orchestrator/execute → status={status}")
+
+    # ── 12b: Approve (if paused at ApprovalGate) ──────────────────────────────
+    if status == "awaiting_approval" and run_id:
+        r2 = req("POST", c, f"/api/workflow/orchestrator/approve/{run_id}", headers=h, timeout=15.0, json={
+            "approved_by": "e2e-test",
+        })
+        check(r2.status_code in (200, 202, 503),
+              f"POST /api/workflow/orchestrator/approve/{run_id[:8]}… → 200/202/503", r2)
+        approve_body = r2.json()
+        final_status = approve_body.get("status", "")
+        ok(f"POST /api/workflow/orchestrator/approve/{{run_id}} → approve_and_resume status={final_status}")
+    else:
+        ok("Workflow Orchestrator approve — already completed or auto-approved")
+
+    # ── 12c: List runs ────────────────────────────────────────────────────────
+    r3 = req("GET", c, "/api/workflow/orchestrator/runs", headers=h)
+    check(r3.status_code in (200, 404, 503),
+          "GET /api/workflow/orchestrator/runs → 200/404/503", r3)
+    if r3.status_code == 200:
+        runs = r3.json()
+        if isinstance(runs, list):
+            ok(f"GET /api/workflow/orchestrator/runs → {len(runs)} run(s)")
+        elif isinstance(runs, dict):
+            ok(f"GET /api/workflow/orchestrator/runs → {runs.get('status', 'ok')}")
+    else:
+        ok(f"GET /api/workflow/orchestrator/runs → {r3.status_code} (not yet deployed)")
+
+    # ── 12d: Get specific run ─────────────────────────────────────────────────
+    if run_id:
+        r4 = req("GET", c, f"/api/workflow/orchestrator/runs/{run_id}", headers=h)
+        check(r4.status_code in (200, 404, 503),
+              f"GET /api/workflow/orchestrator/runs/{run_id[:8]}… → 200/404/503", r4)
+        if r4.status_code == 200:
+            run_data = r4.json()
+            ok(f"GET /api/workflow/orchestrator/runs/{{id}} → status={run_data.get('status', '?')}")
+        else:
+            ok(f"GET /api/workflow/orchestrator/runs/{{id}} → {r4.status_code}")
+
+
+def test_doctor_public(c: httpx.Client) -> None:
+    """Public doctor endpoint — system-level diagnostics (no auth).
+
+    Phase 3: the public endpoint must return 200 with system checks
+    (git, storage, ollama, runtimes, workflow_mode) even with no token.
+    """
+    Suite.section("13 · Doctor — public diagnostics")
+
+    r = req("GET", c, "/api/doctor/public")
+    if r.status_code == 404:
+        skip("Public doctor", "endpoint not deployed (Phase 3 not yet live)")
+        return
+
+    check(r.status_code == 200, "GET /api/doctor/public → 200 (no auth)", r)
+    body = r.json()
+
+    # Must include system-level fields
+    check("ready" in body, "public doctor must have 'ready' field", r)
+    check("checks" in body, "public doctor must have 'checks' array", r)
+    check("summary" in body, "public doctor must have 'summary'", r)
+
+    checks = body.get("checks", [])
+    check_ids = {ch.get("id", "") for ch in checks if isinstance(ch, dict)}
+
+    ok(f"GET /api/doctor/public → ready={body.get('ready')}, {len(checks)} check(s)")
+
+    # Verify expected check categories are present
+    expected = {"git_binary", "storage", "ollama", "runtimes", "workflow_mode"}
+    found = expected & check_ids
+    if found:
+        ok(f"Doctor public checks: {', '.join(sorted(found))}")
+    if expected - found:
+        skip("Doctor public checks", f"missing: {', '.join(sorted(expected - found))}")
+
+
+def test_doctor_diagnostics(c: httpx.Client, h: dict) -> None:
+    """Authenticated doctor diagnostics — user-specific checks.
+
+    Phase 3: the diagnostics endpoint requires auth and returns preflight,
+    company graph, workspace, skills, and orchestrator status.
+    """
+    Suite.section("14 · Doctor — authenticated diagnostics")
+
+    r = req("GET", c, "/api/doctor/diagnostics", headers=h)
+    if r.status_code == 404:
+        skip("Doctor diagnostics", "endpoint not deployed (Phase 3 not yet live)")
+        return
+
+    check(r.status_code == 200, "GET /api/doctor/diagnostics → 200 (with auth)", r)
+    body = r.json()
+
+    check("ready" in body, "diagnostics must have 'ready' field", r)
+    check("checks" in body, "diagnostics must have 'checks' array", r)
+
+    checks = body.get("checks", [])
+    check_ids = {ch.get("id", "") for ch in checks if isinstance(ch, dict)}
+
+    ok(f"GET /api/doctor/diagnostics → ready={body.get('ready')}, {len(checks)} check(s)")
+
+    # Diagnotics must be auth-protected
+    r2 = req("GET", c, "/api/doctor/diagnostics", retries=1)
+    check(r2.status_code == 401,
+          "GET /api/doctor/diagnostics (no auth) → 401", r2)
+    ok("GET /api/doctor/diagnostics (no token) → 401 ✓")
 
 
 # ─── main ─────────────────────────────────────────────────────────────────────
@@ -498,6 +648,9 @@ def main() -> int:
         test_activation_api(c, h)
         test_platform_info(c, h)
         test_company_lifecycle(c, h)
+        test_orchestrator_flow(c, h)
+        test_doctor_public(c)
+        test_doctor_diagnostics(c, h)
 
     print(f"\n{'═' * 60}")
     total = Suite.passed + Suite.failed + Suite.skipped

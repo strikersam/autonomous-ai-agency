@@ -6,6 +6,10 @@
                     {
                         "type": "command",
                         "command": "bash -c 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); cd \"$ROOT\"; .claude/hooks/graphify-refresh --session'"
+                    },
+                    {
+                        "type": "command",
+                        "command": "bash -c 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); cd \"$ROOT\"; .claude/hooks/session-plan-bootstrap --session'"
                     }
                 ]
             }

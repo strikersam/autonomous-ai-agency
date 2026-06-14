@@ -3,6 +3,7 @@ name: Changelog check
 on:
   pull_request:
     branches: ["main", "master"]
+    paths-ignore: ["docs/context/**"]
 
 permissions:
   contents: read
@@ -11,8 +12,11 @@ jobs:
   changelog:
     name: Require changelog entry
     runs-on: ubuntu-latest
-    # Dependabot PRs never touch changelog — exempt them
-    if: github.actor != 'dependabot[bot]'
+    # Skip Dependabot PRs (never touch changelog) and draft PRs (e.g.
+    # auto-generated context plans, which only add docs/context/*.md).
+    if: >
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.draft == false
 
     steps:
       - uses: actions/checkout@v4
@@ -34,14 +38,14 @@ jobs:
               ;;
           esac
 
-          # Check if docs/changelog.md was modified in this PR
+          # Check if CHANGELOG.md was modified in this PR
 
-          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep 'docs/changelog\.md' || true)
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep 'CHANGELOG\.md' || true)
 
           if [ -z "$CHANGED" ]; then
-            echo "::error::docs/changelog.md was not updated in this PR."
+            echo "::error::CHANGELOG.md was not updated in this PR."
             echo ""
-            echo "Every PR that changes code behaviour must update docs/changelog.md."
+            echo "Every PR that changes code behaviour must update CHANGELOG.md."
             echo "Add an entry under ## [Unreleased] following Keep a Changelog format."
             echo ""
             echo "If this is a chore/docs/style/ci/test-only PR, prefix the PR title:"
@@ -55,14 +59,14 @@ jobs:
           # Also verify the [Unreleased] section has actual content
           python3 - <<'EOF'
           import re, sys
-          content = open("docs/changelog.md").read()
+          content = open("CHANGELOG.md").read()
           m = re.search(r"## \[Unreleased\](.*?)(?=## \[|\Z)", content, re.DOTALL)
           if not m:
-              print("::error::No [Unreleased] section found in docs/changelog.md")
+              print("::error::No [Unreleased] section found in CHANGELOG.md")
               sys.exit(1)
           body = m.group(1).strip()
           if not body or body == "_(nothing pending)_":
-              print("::error::[Unreleased] section in docs/changelog.md has no entries")
+              print("::error::[Unreleased] section in CHANGELOG.md has no entries")
               sys.exit(1)
-          print(f"✓ docs/changelog.md has {len(body.splitlines())} lines of unreleased content")
+          print(f"✓ CHANGELOG.md has {len(body.splitlines())} lines of unreleased content")
           EOF

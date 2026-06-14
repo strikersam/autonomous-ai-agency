@@ -26,8 +26,10 @@ UserStory = mod.UserStory
 SprintMetrics = mod.SprintMetrics
 SprintStatus = mod.SprintStatus
 StoryStatus = mod.StoryStatus
+SprintHealth = mod.SprintHealth
 AgileSprint = mod.AgileSprint
 AgileManager = mod.AgileManager
+Retrospective = mod.Retrospective
 
 
 class TestUserStory:
@@ -211,6 +213,62 @@ class TestAgileManager:
         s2 = mgr.create_sprint("S2")
         s2._historical_velocity = [8]
         assert mgr.predicted_velocity() == pytest.approx(32 / 3)
+
+
+class TestSprintHealth:
+    """Tests for SprintMetrics.health signal."""
+
+    def test_complete(self):
+        m = SprintMetrics(total_points=10, completed_points=10, days_remaining=3, average_velocity=2.0)
+        assert m.health == SprintHealth.COMPLETE
+
+    def test_on_track(self):
+        m = SprintMetrics(total_points=20, completed_points=15, days_remaining=5, average_velocity=2.0)
+        assert m.health == SprintHealth.ON_TRACK
+
+    def test_at_risk(self):
+        # 12 remaining / 5 days = 2.4 needed; velocity 2.0; within 25% (2.5) → at risk
+        m = SprintMetrics(total_points=20, completed_points=8, days_remaining=5, average_velocity=2.0)
+        assert m.health == SprintHealth.AT_RISK
+
+    def test_off_track(self):
+        # 18 remaining / 5 days = 3.6 needed; velocity 2.0; > 25% over → off track
+        m = SprintMetrics(total_points=20, completed_points=2, days_remaining=5, average_velocity=2.0)
+        assert m.health == SprintHealth.OFF_TRACK
+
+
+class TestScopeChange:
+    """Tests for committed-scope snapshot and scope_added."""
+
+    def test_scope_added_zero_before_start(self):
+        s = AgileSprint(sprint_id="sp1", name="S1")
+        s.add_story(UserStory(story_id="s1", title="A", story_points=5))
+        assert s.scope_added == 0
+
+    def test_scope_added_after_start(self):
+        s = AgileSprint(sprint_id="sp1", name="S1")
+        s.add_story(UserStory(story_id="s1", title="A", story_points=5))
+        s.start()
+        assert s.committed_points == 5
+        s.add_story(UserStory(story_id="s2", title="B", story_points=3))
+        assert s.scope_added == 3
+
+
+class TestRetrospective:
+    """Tests for sprint retrospective capture."""
+
+    def test_starts_empty(self):
+        s = AgileSprint(sprint_id="sp1", name="S1")
+        assert s.retrospective.is_empty is True
+
+    def test_add_notes_and_actions(self):
+        s = AgileSprint(sprint_id="sp1", name="S1")
+        s.add_retro_note(went_well="Good pairing", went_poorly="Flaky CI")
+        s.add_action_item("Stabilise CI")
+        assert s.retrospective.went_well == ["Good pairing"]
+        assert s.retrospective.went_poorly == ["Flaky CI"]
+        assert s.retrospective.action_items == ["Stabilise CI"]
+        assert s.retrospective.is_empty is False
 
 
 import pytest

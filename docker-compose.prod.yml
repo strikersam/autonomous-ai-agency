@@ -1,0 +1,251 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# local-llm-server — Docker Compose Production Stack
+#
+# Production-grade deployment with:
+#   - Health checks with proper dependency ordering
+#   - Named volumes for persistent storage (keys, state, model cache)
+#   - Resource limits on all services
+#   - Isolation network
+#   - Logging driver configuration
+#   - Restart policies
+#
+# Usage:
+#   cp .env.example .env.prod && $EDITOR .env.prod
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Makefile convenience targets:
+#   make prod-up      → docker compose -f docker-compose.prod.yml up -d
+#   make prod-down    → docker compose -f docker-compose.prod.yml down
+#   make prod-logs    → docker compose -f docker-compose.prod.yml logs -f
+#   make prod-status  → docker compose -f docker-compose.prod.yml ps
+#   make prod-restart → docker compose -f docker-compose.prod.yml restart proxy
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  llm-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+services:
+  # ── Ollama LLM runtime ─────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: llm-prod-ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"  # Only bind to localhost in production
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - llm-net
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: "32g"
+        reservations:
+          cpus: "4"
+          memory: "16g"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ── MongoDB ────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: llm-prod-mongo
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    networks:
+      - llm-net
+    environment:
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE:-agency_core}
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "4g"
+        reservations:
+          cpus: "1"
+          memory: "1g"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ── MCP Server ─────────────────────────────────────────────────────────────
+  mcp-server:
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
+    container_name: llm-prod-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8008:8008"
+    networks:
+      - llm-net
+    environment:
+      - PORT=8008
+      - MCP_WORKSPACE_BASE=/workspaces
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+    volumes:
+      - mcp_workspaces:/workspaces
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2g"
+        reservations:
+          cpus: "0.5"
+          memory: "512m"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ── Proxy (FastAPI + built web UI) ────────────────────────────────────────
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-prod-proxy
+    restart: unless-stopped
+    ports:
+      - "${PROXY_PORT:-8000}:8000"
+    env_file:
+      - ${ENV_FILE:-.env.example}
+    environment:
+      - OLLAMA_BASE=http://ollama:11434
+      - MONGO_URL=mongodb://mongo:27017
+      - MCP_SERVER_BASE_URL=http://mcp-server:8008
+      - CHAT_HISTORY_ENABLED=${CHAT_HISTORY_ENABLED:-true}
+      - CONTEXT_WINDOW_ENABLED=${CONTEXT_WINDOW_ENABLED:-true}
+      - PROMPT_CACHE_ENABLED=${PROMPT_CACHE_ENABLED:-true}
+      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4317}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PROXY_PORT=8000
+    volumes:
+      - proxy_data:/app/.data
+      - proxy_keys:/app/keys
+      - proxy_state:/app/.claude/state
+    networks:
+      - llm-net
+    depends_on:
+      ollama:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      mcp-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: "4g"
+        reservations:
+          cpus: "1"
+          memory: "1g"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ── OpenTelemetry Collector (optional, enabled with --profile observability) ─
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: llm-prod-jaeger
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16686:16686"  # Jaeger UI
+      - "4317:4317"               # OTLP gRPC
+    networks:
+      - llm-net
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    volumes:
+      - jaeger_data:/var/lib/jaeger
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: "1g"
+        reservations:
+          cpus: "0.25"
+          memory: "256m"
+    profiles:
+      - observability
+
+  # ── Cloudflare Tunnel (optional) ──────────────────────────────────────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: llm-prod-tunnel
+    restart: unless-stopped
+    command: tunnel --url http://proxy:8000
+    networks:
+      - llm-net
+    depends_on:
+      proxy:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    profiles:
+      - tunnel
+
+volumes:
+  ollama_data:
+    name: llm-prod-ollama-data
+  mongo_data:
+    name: llm-prod-mongo-data
+  mongo_config:
+    name: llm-prod-mongo-config
+  mcp_workspaces:
+    name: llm-prod-mcp-workspaces
+  proxy_data:
+    name: llm-prod-proxy-data
+  proxy_keys:
+    name: llm-prod-proxy-keys
+  proxy_state:
+    name: llm-prod-proxy-state
+  jaeger_data:
+    name: llm-prod-jaeger-data

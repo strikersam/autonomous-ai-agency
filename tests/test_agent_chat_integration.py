@@ -236,8 +236,10 @@ def test_agent_runner_singleton_uses_nim_when_key_set(
 # ---------------------------------------------------------------------------
 
 def test_risky_module_detection_emits_warning(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Legacy workflow mode set globally by conftest.py
+
     root = tmp_path / "repo"
     root.mkdir()
 

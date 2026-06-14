@@ -1,5 +1,5 @@
 """
-Company Graph - Canonical Core Model for Agency Core v5
+Company Graph - Canonical Core Model for the Autonomous AI Agency
 
 This module defines the typed, serializable models for the Company Graph,
 which serves as the single source of truth for company context, systems,
@@ -48,7 +48,10 @@ SpecialistFamily = Literal[
     "engineering", "qa", "docs", "analytics", "ecommerce",
     "operations", "agile", "portfolio", "security", "devops",
     "data", "ml", "frontend", "backend", "fullstack", "mobile",
-    "cloud", "infra", "architecture", "product", "design", "ux"
+    "cloud", "infra", "architecture", "product", "design", "ux",
+    # Business / domain specialists (Autonomous AI Agency — full domain coverage)
+    "seo", "content", "marketing", "merchandising", "pim", "oms",
+    "dam", "crm", "support", "trading", "research", "platform"
 ]
 
 # Workflow phases (aligned with CRISPY workflow)
@@ -760,6 +763,11 @@ class Specialist(BaseModel):
         default_factory=list,
         description="System types this specialist can work with"
     )
+    # Skill bindings
+    bound_skills: List[str] = Field(
+        default_factory=list,
+        description="Skill IDs bound to this specialist (from services/skill_bindings.py)"
+    )
     # Company-specific configuration
     company_id: str | None = Field(
         default=None,
@@ -1014,6 +1022,11 @@ class Company(BaseModel):
         default="",
         description="Company tagline or slogan"
     )
+    priorities: List[str] = Field(
+        default_factory=list,
+        description="Strategic priorities / goals captured during onboarding "
+        "(surfaced on the company page and used to seed agent work)"
+    )
     founded_year: int | None = Field(
         default=None,
         description="Year the company was founded"
@@ -1176,7 +1189,7 @@ class Company(BaseModel):
 
 class CompanyGraph(BaseModel):
     """
-    The complete Company Graph - canonical core model for Agency Core v5.
+    The complete Company Graph - canonical core model for the Autonomous AI Agency.
     
     This model represents the entire knowledge graph for a company, including
     all websites, repositories, systems, specialists, workflows, and knowledge.

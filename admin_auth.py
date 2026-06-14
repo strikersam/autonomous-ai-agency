@@ -1,6 +1,9 @@
+"""admin_auth.py — auto-generated module docstring (user-research skill scan)."""
+
 from __future__ import annotations
 
 import ctypes
+import hmac
 import os
 import secrets
 import threading
@@ -148,7 +151,10 @@ class AdminAuthManager:
         identity = self.windows.authenticate(username, password)
         if identity:
             return identity
-        if self.admin_secret and password.strip() == self.admin_secret.strip():
+        if self.admin_secret and hmac.compare_digest(
+            password.strip().encode("utf-8"),
+            self.admin_secret.strip().encode("utf-8"),
+        ):
             user = username.strip() or "admin-secret"
             return AdminIdentity(username=user, auth_source="secret")
         return None

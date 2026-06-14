@@ -316,6 +316,7 @@ function MetricsTab() {
           <div className="px-4 py-3 border-b" style={{ borderColor: C.border }}>
             <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#9A9AAE' }}>Provider Performance</span>
           </div>
+          <div className="overflow-x-auto">
           <table className="w-full text-[10px] font-mono">
             <thead>
               <tr className="border-b" style={{ borderColor: 'rgba(255,255,255,0.05)', color: C.tertiary }}>
@@ -343,6 +344,7 @@ function MetricsTab() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

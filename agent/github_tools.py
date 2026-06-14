@@ -54,9 +54,14 @@ class GitHubTools:
     Tokens should be fetched from SecretsStore, not hard-coded.
     """
 
-    def __init__(self, token: str | None = None) -> None:
+    def __init__(self, token: str | None = None, *, agent_initiated: bool = False) -> None:
         self.token = token
         self.base_url = "https://api.github.com"
+        # When True, every write through this client is treated as agent-initiated and
+        # is subject to the autonomy gate (no commits/pushes to protected branches, no
+        # merges). AgentRunner constructs its GitHubTools with this set; human/API code
+        # leaves it False. Per-call agent_initiated=True can still opt in explicitly.
+        self.agent_initiated = agent_initiated
 
     def _validate_repo_parts(self, owner: str, repo: str, branch: str | None = None, path: str | None = None) -> None:
         """Strictly validate GitHub parameters to prevent URL injection or SSRF."""
@@ -150,8 +155,11 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
-    async def commit_file(self, owner: str, repo: str, path: str, content: str, message: str, branch: str = "main") -> dict[str, Any]:
+    async def commit_file(self, owner: str, repo: str, path: str, content: str, message: str, branch: str = "main", *, agent_initiated: bool = False) -> dict[str, Any]:
         self._validate_repo_parts(owner, repo, branch=branch, path=path)
+        # Autonomy gate: agent-initiated commits may not target a protected branch.
+        from agent.autonomy_gate import assert_agent_can_write
+        assert_agent_can_write(branch, agent_initiated=agent_initiated or self.agent_initiated, action="commit")
         async with httpx.AsyncClient(timeout=10) as client:
             # Get existing SHA if file exists
             sha = None
@@ -181,9 +189,13 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
-    async def open_pull_request(self, owner: str, repo: str, title: str, head: str, base: str = "main", body: str = "") -> dict[str, Any]:
+    async def open_pull_request(self, owner: str, repo: str, title: str, head: str, base: str = "main", body: str = "", *, agent_initiated: bool = False) -> dict[str, Any]:
         self._validate_repo_parts(owner, repo, branch=head)
         """Open a pull request."""
+        # Autonomy gate: an agent-opened PR must come FROM an agent branch, not from a
+        # protected branch (head==main/master would mean it committed to master first).
+        from agent.autonomy_gate import assert_agent_can_write
+        assert_agent_can_write(head, agent_initiated=agent_initiated or self.agent_initiated, action="open a PR from")
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
                 f"{self.base_url}/repos/{owner}/{repo}/pulls",
@@ -253,8 +265,13 @@ class GitHubTools:
         pull_number: int,
         merge_method: str = "merge",
         commit_title: str | None = None,
+        *,
+        agent_initiated: bool = False,
     ) -> dict[str, Any]:
         """Merge an open pull request via the GitHub API."""
+        # Autonomy gate: agents never merge — a human merges proposed PRs.
+        from agent.autonomy_gate import assert_agent_can_merge
+        assert_agent_can_merge(agent_initiated=agent_initiated or self.agent_initiated)
         self._validate_repo_parts(owner, repo)
         if not isinstance(pull_number, int) or pull_number < 1:
             raise ValueError(f"pull_number must be a positive integer, got {pull_number!r}")
@@ -455,20 +472,25 @@ class LocalWorkspace:
             raise RuntimeError(f"git checkout -b failed: {err.strip()}")
         return {"branch": branch_name, "created": True}
 
-    async def push(self, branch: str | None = None) -> dict[str, Any]:
+    async def push(self, branch: str | None = None, *, agent_initiated: bool = False) -> dict[str, Any]:
         """Push the current branch.  Sets upstream on first push."""
         if branch is None:
             branch = await self.current_branch()
-        # Temporarily set token in remote URL, push, then clear it
+        from agent.autonomy_gate import assert_agent_can_write
+        assert_agent_can_write(branch, agent_initiated=agent_initiated, action="push")
+        # Temporarily set token in remote URL, push, then ALWAYS clear it — even if
+        # the push raises (network error, timeout, auth failure).  A leftover token
+        # in .git/config is a security risk.
         await self._run("git", "remote", "set-url", "origin", self.clone_url)
-        rc, out, err = await self._run(
-            "git", "push", "--set-upstream", "origin", branch
-        )
-        # Always clear the token from remote URL
-        await self._run("git", "remote", "set-url", "origin",
-                        f"https://github.com/{self.owner}/{self.repo}.git")
-        if rc != 0:
-            raise RuntimeError(f"git push failed: {err}")
+        try:
+            rc, _out, err = await self._run(
+                "git", "push", "--set-upstream", "origin", branch
+            )
+            if rc != 0:
+                raise RuntimeError(f"git push failed: {err}")
+        finally:
+            await self._run("git", "remote", "set-url", "origin",
+                            f"https://github.com/{self.owner}/{self.repo}.git")
         return {"pushed": True, "branch": branch}
 
 
@@ -505,7 +527,7 @@ async def _get_token(user: dict) -> str | None:
     except Exception as e:
         log.debug("Could not fetch GitHub token from secrets: %s", e)
     # Fallback: env var
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
 
 
 @github_router.get("/repos")
