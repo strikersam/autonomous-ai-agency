@@ -31,3 +31,7 @@ dnspython>=2.8.0
 # sites). The Chromium binary is installed in the Docker image (see Dockerfile.backend);
 # where it is absent the scanner gracefully falls back to static-HTML detection.
 playwright>=1.60.0
+
+# CTO-level PDF export for SEO/GEO/AEO/AIO audit reports (services/seo_report_pdf.py).
+# Must stay in sync with the root requirements.txt entry.
+reportlab>=4.2.0,<5

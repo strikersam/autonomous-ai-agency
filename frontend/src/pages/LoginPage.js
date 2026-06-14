@@ -145,7 +145,7 @@ export default function LoginPage() {
               <div className="app-kicker">Sign in</div>
               <h1 className="app-title text-[var(--text-primary)]">Autonomous AI Agency</h1>
               <p className="app-subtitle">
-                Your AI-powered workforce — plan, execute, and deliver across any codebase or workflow.
+                Sign in to your agency. Your AI-powered workforce — plan, execute, and deliver across any codebase or workflow.
               </p>
             </div>
 

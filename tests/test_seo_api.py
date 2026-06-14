@@ -59,6 +59,23 @@ class TestSeoApiSurface:
         )
         assert resp.status_code in (401, 403)
 
+    def test_export_pdf_requires_auth(self, client):
+        resp = client.get(
+            "/api/company/some_company/seo/audits/seoaudit_x/export",
+            params={"fmt": "pdf"},
+        )
+        assert resp.status_code in (401, 403)
+
+    def test_export_accepts_pdf_format(self):
+        # The export endpoint's fmt Literal must include "pdf" so FastAPI
+        # doesn't 422 on a valid request before the auth dependency runs.
+        import inspect
+        from backend import seo_api
+
+        sig = inspect.signature(seo_api.export_seo_audit, eval_str=True)
+        fmt_annotation = sig.parameters["fmt"].annotation
+        assert "pdf" in fmt_annotation.__args__
+
 
 class TestSkillBinding:
     def test_seo_audit_skill_registered(self):
