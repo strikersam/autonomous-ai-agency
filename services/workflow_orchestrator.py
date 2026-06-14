@@ -1620,7 +1620,7 @@ class WorkflowOrchestrator:
                     set(u for u in _prev_failed.split(",") if u) if _prev_failed else set()
                 )
                 brain_base, brain_headers, brain_model = await resolve_provider_for(
-                    task,
+                    "task",
                     exclude_base_urls=failed_urls,
                 )
                 # Record provider provenance for failover tracking.
