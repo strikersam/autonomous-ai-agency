@@ -2474,7 +2474,7 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": GOOGLE_BASE_URL,
             "api_key": GOOGLE_API_KEY,
-            "default_model": "gemma-4",
+            "default_model": "gemini-2.5-flash",
             "is_default": LLM_PROVIDER == "google",
             "priority": 75,
             "status": "configured" if GOOGLE_API_KEY else "unconfigured",
@@ -2517,7 +2517,7 @@ async def seed_default_providers():
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -2528,7 +2528,7 @@ async def seed_default_providers():
             "api_key": ANTHROPIC_API_KEY,
             "default_model": ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 50,
+            "priority": -90,  # paid last-resort — never preferred over free cloud
             "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
         },
         {
@@ -2567,10 +2567,22 @@ async def seed_default_providers():
             new_status = p.get("status", "")
             if new_status and new_status != existing.get("status", ""):
                 update["status"] = new_status
-            # Sync priority so the fallback ordering is always correct
-            new_priority = p.get("priority")
-            if new_priority is not None and existing.get("priority") != new_priority:
-                update["priority"] = new_priority
+            # NOTE: priority is intentionally NOT synced here so user edits from the
+            # Providers UI persist across restarts. Priority is only set on first insert.
+            #
+            # ONE-TIME MIGRATION: force Anthropic providers to negative priority so free
+            # cloud providers (Google, OpenRouter, etc.) are always preferred as the brain.
+            # This only fires when the existing priority is still in the old paid-first range.
+            paid_provider_ids = {"anthropic", "anthropic-claude", "anthropic-universal"}
+            if p["provider_id"] in paid_provider_ids:
+                existing_prio = existing.get("priority", 0)
+                new_prio = p.get("priority", 0)  # already negative in seed defaults
+                if existing_prio > new_prio:
+                    update["priority"] = new_prio
+                    log.info(
+                        "Migrated %s priority %d → %d (free providers now preferred)",
+                        p["provider_id"], existing_prio, new_prio,
+                    )
             if update:
                 await get_db().providers.update_one(
                     {"provider_id": p["provider_id"]}, {"$set": update}
@@ -2620,7 +2632,7 @@ def _builtin_provider_records() -> list[dict]:
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -4782,6 +4794,7 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
+    priority: Optional[int] = Field(default=None, ge=-100, le=1000)
 
 
 @app.get("/api/providers")
@@ -4807,6 +4820,24 @@ async def list_providers(user: dict = Depends(get_current_user)):
             p.pop("api_key", None)
             p["api_key_masked"] = ""
             providers.append(p)
+    # Tag every provider with its role (brain / sub-agent / fallback / unconfigured)
+    # so the Providers screen can show a clear "BRAIN" badge per the operator's
+    # request. The classification uses the same _resolve_brain_provider() logic
+    # the orchestrator itself uses, so the UI never disagrees with the runtime.
+    # Failure is non-fatal: every provider simply gets role="available" with
+    # reason="tagging skipped" so the screen still renders.
+    try:
+        from services.workflow_orchestrator import get_provider_role_tags
+        role_tags = await get_provider_role_tags()
+    except Exception as exc:
+        log.debug("list_providers: role tagging unavailable: %s", exc)
+        role_tags = {}
+    for p in providers:
+        tag = role_tags.get(p.get("provider_id") or "") or {}
+        p["is_brain"] = bool(tag.get("is_brain"))
+        p["role"] = tag.get("role") or "available"
+        p["role_reason"] = tag.get("reason") or ""
+
     return {"providers": providers}
 
 
@@ -4816,7 +4847,8 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
         raise HTTPException(status_code=409, detail="Provider ID already exists")
     if body.is_default:
         await get_db().providers.update_many({}, {"$set": {"is_default": False}})
-    doc = body.dict()
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    doc = body.model_dump()
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "configured"
     await get_db().providers.insert_one(doc)
@@ -4828,8 +4860,14 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
 async def update_provider(
     provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
 ):
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    # The deprecated path emits a PydanticDeprecatedSince20 warning in v2 and
+    # will be removed in a future release. The test in
+    # tests/test_brain_priority_scanner.py pins the round-trip via model_dump;
+    # this handler must use the same API or the test will pass but the real
+    # PUT will silently fail to persist priority.
     updates = {}
-    for k, v in body.dict(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
         await get_db().providers.update_many(

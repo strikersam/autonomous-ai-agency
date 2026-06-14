@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import pytest
-from db.sqlite_store import SQLiteStore
+from db.sqlite_store import SQLiteStore, _Collection, _COLLECTIONS
 
 
 @pytest.fixture
@@ -234,3 +234,33 @@ async def test_taskstore_works_on_sqlite_backend(store) -> None:
     # list_pending hits self._db["tasks"].find(...)
     pending = await ts.list_pending(limit=5)
     assert pending == []
+
+# ── B608 SQL injection guard regression tests ──────────────────────────────
+
+@pytest.mark.asyncio
+async def test_non_whitelisted_table_rejected(tmp_path):
+    """B608 guard: _Collection.__init__ must reject names outside _COLLECTIONS.
+
+    Prevents SQL injection via dynamic table names in the f-string SQL paths
+    (find/insert/update/delete/aggregate) of _Collection. Includes a realistic
+    SQLi payload to confirm the guard catches what the f-string would interpolate.
+    """
+    store = SQLiteStore(str(tmp_path / "test.db"))
+    # Benign non-whitelisted name
+    with pytest.raises(ValueError, match="refusing to bind to non-whitelisted table"):
+        _Collection(store, "malicious_table")
+    # Realistic SQLi payload — the exact kind of string that would be catastrophic
+    # if interpolated into the f-string SQL in _all_docs / insert_one / etc.
+    with pytest.raises(ValueError, match="refusing to bind to non-whitelisted table"):
+        _Collection(store, "users; DROP TABLE users;--")
+    # Attribute-access path must also fail closed
+    with pytest.raises(AttributeError, match="refusing to bind to non-whitelisted table"):
+        store.__getattr__("users; DROP TABLE users;--")
+
+@pytest.mark.asyncio
+async def test_whitelisted_collections_accepted(tmp_path):
+    """B608 guard: all collections in _COLLECTIONS must still be instantiable."""
+    store = SQLiteStore(str(tmp_path / "test.db"))
+    for name in _COLLECTIONS:
+        col = _Collection(store, name)
+        assert col._name == name, f"_name should equal {name!r}"
