@@ -390,7 +390,7 @@ def main() -> None:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
 
-    result_path = Path(tempfile.gettempdir()) / "review_apply_result.json"  # nosec — tempdir is the OS-provided secure temp location
+    result_path = Path("/tmp/review_apply_result.json")  # nosec B108 — ephemeral CI artifact, path matches the reader in process-quick-note.yml (lines ~511-512)
 
     def _skip(reason: str) -> None:
         log.info(reason)
