@@ -119,6 +119,52 @@ except ImportError:
     pass
 
 
+# ── CEO fallback observability (#P1) ───────────────────────────────────────────
+# Module-level counters so the operator can SEE when the CEO delegation layer
+# silently falls back to single AgentRunner. Without this, every CEO outage
+# looks like a successful run — the request still completes via the fallback,
+# but the operator has no signal that the multi-agent layer is broken.
+# Exposed via get_ceo_fallback_stats() for admin / health endpoints.
+import threading as _threading
+_ceo_fallback_lock = _threading.Lock()
+_ceo_fallback_stats: dict[str, int] = {
+    "verdict_non_ok": 0,        # CEO returned PARTIAL / FAILED verdict
+    "transport_error": 0,       # CEO raised one of _CEO_FALLBACK_EXCEPTIONS
+    "ceo_ok": 0,                # CEO returned OK verdict
+    "ceo_low_complexity_bypass": 0,  # low-complexity: skipped CEO entirely
+}
+
+
+def get_ceo_fallback_stats() -> dict[str, int]:
+    """Return a snapshot of CEO delegation outcomes for observability.
+
+    The four counters let the operator answer, at a glance:
+      - Is the CEO layer actually working? (ceo_ok should dominate)
+      - How often is the fallback path firing? (verdict_non_ok + transport_error)
+      - Is the low-complexity bypass being hit too aggressively?
+        (ceo_low_complexity_bypass should be a minority)
+    """
+    with _ceo_fallback_lock:
+        return dict(_ceo_fallback_stats)
+
+
+def reset_ceo_fallback_stats() -> None:
+    """Reset the counters (test helper)."""
+    with _ceo_fallback_lock:
+        for k in _ceo_fallback_stats:
+            _ceo_fallback_stats[k] = 0
+
+
+def _record_ceo_fallback(reason: str) -> None:
+    """Bump the named counter under the lock (best-effort, never raises)."""
+    try:
+        with _ceo_fallback_lock:
+            if reason in _ceo_fallback_stats:
+                _ceo_fallback_stats[reason] += 1
+    except Exception:  # pragma: no cover
+        pass
+
+
 # ── Orchestrator bypass flag (prevents circular deprecation block) ──────────
 # Uses contextvars.ContextVar for async/coroutine safety — each async task
 # gets its own isolated bypass flag. When the WorkflowOrchestrator itself
@@ -169,27 +215,72 @@ async def _resolve_brain_provider(
             except (TypeError, ValueError):
                 return 0
         records.sort(key=_prio, reverse=True)
-        for rec in records:
-            base = str(rec.get("base_url") or "").strip().rstrip("/")
-            if not base:
-                continue
-            rtype = str(rec.get("type") or "").lower()
-            key = str(rec.get("api_key") or "").strip()
-            if rtype != "ollama" and not key:
-                continue
-            # Native Anthropic appends /v1/messages itself; normalise others to /v1.
-            if rtype != "anthropic" and not base.endswith("/v1"):
-                base = f"{base}/v1"
-            if base.rstrip("/") in exclude:
-                continue
-            if rtype == "anthropic":
-                headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
-            else:
-                headers = {"Authorization": f"Bearer {key}"} if key else None
-            model = str(rec.get("default_model") or "").strip() or None
+
+        def _pick(allow_paid: bool) -> tuple[str, dict | None, str | None] | None:
+            for rec in records:
+                rtype = str(rec.get("type") or "").lower()
+                # Never auto-select a paid provider (Anthropic / emergent-anthropic)
+                # as the brain when a free alternative exists — the operator must
+                # opt in explicitly via AGENT_LLM_BASE_URL. Protects against
+                # silent credit burn when ANTHROPIC_API_KEY is set in the env.
+                is_paid = rtype in ("anthropic", "emergent-anthropic")
+                if is_paid and not allow_paid:
+                    continue
+                base = str(rec.get("base_url") or "").strip().rstrip("/")
+                if not base:
+                    continue
+                key = str(rec.get("api_key") or "").strip()
+                if rtype != "ollama" and not key:
+                    continue
+                # Native Anthropic appends /v1/messages itself; normalise others to /v1.
+                if rtype != "anthropic" and not base.endswith("/v1"):
+                    base = f"{base}/v1"
+                if base.rstrip("/") in exclude:
+                    continue
+                if rtype == "anthropic":
+                    headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+                else:
+                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                model = str(rec.get("default_model") or "").strip() or None
+                return base, headers, model
+            return None
+
+        def _has_usable_free_provider() -> bool:
+            """True iff any configured free (non-Anthropic, keyed) provider exists.
+
+            Used to decide whether the paid-fallback pass is even worth trying:
+            if a free provider is configured, we should never silently escalate
+            to a paid one — even if the failover retry temporarily excludes
+            every free endpoint. A transient free outage must fall through to
+            the local Ollama fallback, not burn credits.
+            """
+            for rec in records:
+                rtype = str(rec.get("type") or "").lower()
+                if rtype in ("anthropic", "emergent-anthropic"):
+                    continue
+                base = str(rec.get("base_url") or "").strip().rstrip("/")
+                if not base:
+                    continue
+                key = str(rec.get("api_key") or "").strip()
+                if rtype != "ollama" and not key:
+                    continue
+                return True
+            return False
+
+        # First pass: prefer free cloud providers (NVIDIA NIM, Google Gemini,
+        # OpenRouter, etc.) — never auto-select paid Anthropic.
+        picked = _pick(allow_paid=False)
+        if picked is None and not _has_usable_free_provider():
+            # No free provider is configured at all — only then allow paid
+            # (Anthropic) as a manual-only last-resort fallback. The operator
+            # can still disable it by setting AGENT_LLM_BASE_URL to another
+            # provider or by removing the ANTHROPIC_API_KEY env var.
+            picked = _pick(allow_paid=True)
+        if picked is not None:
+            base, headers, model = picked
             log.info(
-                "Brain provider resolved from provider setup: %s base=%s model=%s",
-                rec.get("provider_id"), base, model,
+                "Brain provider resolved from provider setup: base=%s model=%s",
+                base, model,
             )
             return base, headers, model
     except Exception:
@@ -207,6 +298,109 @@ async def _resolve_brain_provider(
 def _orchestrator_bypass() -> bool:
     """True when the WorkflowOrchestrator is the caller (bypass deprecation)."""
     return _BYPASS.get()
+
+
+async def get_provider_role_tags() -> dict[str, dict[str, Any]]:
+    """Classify every configured provider as brain / sub-agent / fallback.
+
+    Returns a dict keyed by ``provider_id`` with::
+
+        {
+          "<provider_id>": {
+            "is_brain": bool,            # currently selected as the brain
+            "role": "brain" | "sub-agent" | "fallback" | "available" | "unconfigured",
+            "reason": str,               # short human-readable explanation
+          },
+          ...
+        }
+
+    Roles map to what the operator sees in the Providers screen::
+
+        brain       — _resolve_brain_provider() picks this one right now.
+        sub-agent   — reachable, configured, but NOT the brain. Will be tried
+                      by provider-router failover when the brain is excluded
+                      by a transient failure (e.g. cooldown / 5xx).
+        fallback    — paid commercial provider (Anthropic) that the brain
+                      resolver only selects when no free provider is configured.
+                      Operators see a clear tag so they understand they will
+                      be billed if the brain resolver ever falls through to it.
+        available   — configured, reachable, but role unknown (e.g. env-override
+                      AGENT_LLM_BASE_URL is masking the resolution).
+        unconfigured — record exists but api_key / base_url is missing.
+
+    Never raises — a malformed provider record degrades to ``role="available"``
+    with ``reason`` explaining the issue, so the UI always renders something
+    useful.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    brain_record: dict | None = None
+    brain_base_norm: str | None = None
+    try:
+        brain_base, _hdrs, _model = await _resolve_brain_provider()
+        brain_base_norm = brain_base.rstrip("/")
+    except Exception as exc:
+        log.debug("get_provider_role_tags: brain resolution failed: %s", exc)
+
+    try:
+        from backend.server import _list_configured_provider_records
+        records = list(await _list_configured_provider_records())
+    except Exception as exc:
+        log.debug("get_provider_role_tags: provider list fetch failed: %s", exc)
+        records = []
+
+    def _norm(base: str) -> str:
+        return (base or "").rstrip("/")
+
+    for rec in records:
+        pid = str(rec.get("provider_id") or "").strip()
+        if not pid:
+            continue
+        rtype = str(rec.get("type") or "").lower()
+        base = _norm(str(rec.get("base_url") or ""))
+        key = str(rec.get("api_key") or "").strip()
+        is_paid = rtype in ("anthropic", "emergent-anthropic")
+
+        # Brain match: same normalised base URL, accounting for the /v1 suffix
+        # that _resolve_brain_provider appends for openai-compatible providers.
+        is_brain = False
+        if brain_base_norm and base:
+            for candidate in (base, f"{base}/v1"):
+                if candidate == brain_base_norm:
+                    is_brain = True
+                    break
+
+        if not base or (rtype != "ollama" and not key):
+            role = "unconfigured"
+            reason = "Missing base_url or API key"
+        elif is_brain:
+            role = "brain"
+            reason = "Used as the brain for agent execution"
+            brain_record = rec
+        elif is_paid:
+            role = "fallback"
+            reason = (
+                "Paid commercial fallback — only selected when no free provider "
+                "is configured. Will incur costs."
+            )
+        else:
+            role = "sub-agent"
+            reason = (
+                "Reachable backup — used by provider-router failover when the "
+                "brain is excluded (cooldown / 5xx)."
+            )
+        out[pid] = {"is_brain": is_brain, "role": role, "reason": reason}
+
+    # If the brain resolved to an env-override URL that doesn't match any
+    # configured record, surface that fact so the UI can label whichever
+    # provider is closest (e.g. the env override wins over all of them).
+    if brain_base_norm and brain_record is None:
+        log.info(
+            "get_provider_role_tags: brain resolved to %s which is not in the "
+            "configured provider records (likely AGENT_LLM_BASE_URL env override)",
+            brain_base_norm,
+        )
+
+    return out
 
 
 def is_legacy_mode() -> bool:
@@ -1306,6 +1500,7 @@ class WorkflowOrchestrator:
                 # to decide whether to use the CEO's output or fall through
                 # to the single AgentRunner path.
                 if ceo_result.verdict == "OK":
+                    _record_ceo_fallback("ceo_ok")
                     run.llm_provenance["ceo_verdict"] = ceo_result.verdict
                     run.llm_provenance["ceo_fanout"] = "true" if ceo_result.fanout_used else "false"
                     run.llm_provenance["ceo_runtimes_woken"] = ",".join(ceo_result.runtimes_woken)
@@ -1317,16 +1512,27 @@ class WorkflowOrchestrator:
                         duration_ms=int(ceo_result.total_duration_s * 1000),
                     )
                     return
+                # Verdict != OK — the CEO returned, but at least one specialist
+                # failed. Bump the counter and surface a loud warning so the
+                # operator can see the multi-agent layer is degraded, not just
+                # silently falling through.
+                _record_ceo_fallback("verdict_non_ok")
                 log.warning(
-                    "CEO delegation verdict=%s; falling back to single AgentRunner",
+                    "CEO delegation verdict=%s (%d/%d specialists ok); falling back to single AgentRunner",
                     ceo_result.verdict,
+                    sum(1 for s in ceo_result.specialists if s.get("status") == "ok"),
+                    len(ceo_result.specialists),
                 )
             except _CEO_FALLBACK_EXCEPTIONS as exc:
                 # Availability/transport error — fall through to single-runner
-                # path so the run can still succeed via AgentRunner.
+                # path so the run can still succeed via AgentRunner. The counter
+                # bump + WARNING-level log (not DEBUG) is the signal: the CEO
+                # layer is unreachable, every request is paying the single-runner
+                # cost instead of the parallel multi-agent one.
+                _record_ceo_fallback("transport_error")
                 log.warning(
-                    "CEO delegation unavailable, falling back to single AgentRunner: %s",
-                    exc,
+                    "CEO delegation unavailable (%s: %s); falling back to single AgentRunner",
+                    type(exc).__name__, exc,
                 )
             except Exception as exc:
                 # Logic bug or programming error — log full traceback and

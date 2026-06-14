@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import time
 import secrets
+from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -27,9 +28,27 @@ class TaskPriority(str, Enum):
     URGENT = "urgent"
 
 
+def _coerce_ts(v: Any) -> Any:
+    """Coerce ISO-8601 datetime strings (from DB) to float timestamps."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        try:
+            return datetime.fromisoformat(v).timestamp()
+        except (ValueError, TypeError):
+            pass
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            pass
+    return v
+
+
 class ExecutionLogEntry(BaseModel):
     """Single entry in a task's execution log."""
-    timestamp: float = Field(default_factory=time.time)
+    timestamp: Union[str, float] = Field(default_factory=time.time)
     event_type: str = "event"
     level: str = "info"           # info | warning | error
     message: str
@@ -41,14 +60,24 @@ class ExecutionLogEntry(BaseModel):
     raw_trace: dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _coerce_timestamp(cls, v: Any) -> Any:
+        return _coerce_ts(v)
+
 
 class TaskComment(BaseModel):
     """Comment or reply on a task."""
     comment_id: str = Field(default_factory=lambda: f"cmt_{secrets.token_hex(6)}")
     author: str                   # user email or "agent:<agent_id>"
     body: str = Field(..., min_length=1, max_length=10_000)
-    created_at: float = Field(default_factory=time.time)
+    created_at: Union[str, float] = Field(default_factory=time.time)
     reply_to: str | None = None   # parent comment_id for threads
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _coerce_ts(cls, v: Any) -> Any:
+        return _coerce_ts(v)
 
 
 class ApprovalCheckpoint(BaseModel):
@@ -58,8 +87,13 @@ class ApprovalCheckpoint(BaseModel):
     required: bool = True
     approved: bool | None = None    # None = pending
     approved_by: str | None = None
-    approved_at: float | None = None
+    approved_at: Union[str, float, None] = None
     reason: str | None = None       # approval or rejection reason
+
+    @field_validator("approved_at", mode="before")
+    @classmethod
+    def _coerce_ts(cls, v: Any) -> Any:
+        return _coerce_ts(v)
 
 
 class Task(BaseModel):
@@ -87,7 +121,7 @@ class Task(BaseModel):
     sprint_id: str | None = None      # links to an AgileSprint ID
 
     # Scheduling
-    due_date: float | None = None   # epoch timestamp
+    due_date: Union[str, float, None] = None   # epoch timestamp
 
     # Prompt / instructions
     prompt: str = Field(default="", max_length=32_000,
@@ -109,10 +143,10 @@ class Task(BaseModel):
     comments: list[TaskComment] = Field(default_factory=list)
 
     # Timestamps
-    created_at: float = Field(default_factory=time.time)
-    updated_at: float = Field(default_factory=time.time)
-    started_at: float | None = None
-    completed_at: float | None = None
+    created_at: Union[str, float] = Field(default_factory=time.time)
+    updated_at: Union[str, float] = Field(default_factory=time.time)
+    started_at: Union[str, float, None] = None
+    completed_at: Union[str, float, None] = None
 
     # Escalation
     escalation_count: int = 0
@@ -143,6 +177,11 @@ class Task(BaseModel):
     # task after it went BLOCKED.  Reset to 0 on a successful manual retry or
     # when the task completes successfully.
     auto_retry_count: int = 0
+
+    @field_validator("created_at", "updated_at", "started_at", "completed_at", "due_date", mode="before")
+    @classmethod
+    def _coerce_timestamps(cls, v: Any) -> Any:
+        return _coerce_ts(v)
 
     @field_validator("tags")
     @classmethod

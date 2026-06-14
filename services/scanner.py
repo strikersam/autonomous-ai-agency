@@ -398,11 +398,11 @@ class WebsiteScanner:
                     # Mark origin subdomain in evidence source
                     s = DetectedSystem(
                         name=s.name,
-                        category=s.category,
+                        system_type=s.system_type,
                         confidence=max(0.0, s.confidence - 0.05),  # slight penalty for subdomain signal
                         evidence=s.evidence,
                         version=s.version,
-                        metadata={**(s.metadata or {}), "source_subdomain": sub_data["subdomain"]},
+                        configuration={**(s.configuration or {}), "source_subdomain": sub_data["subdomain"]},
                     )
                     existing = all_systems_map.get(s.name)
                     if existing is None or s.confidence > existing.confidence:
@@ -1076,9 +1076,14 @@ class WebsiteScanner:
         except Exception:
             return systems
 
+        # Valid SystemType literals (kept in sync with models/company_graph.py::SystemType);
+        # rule entries below may use shorthand categories that aren't valid SystemType
+        # values (e.g. 'frontend'), so unrecognised types fall back to 'custom'.
+        valid_types = ['CMS', 'CRM', 'OMS', 'PIM', 'DAM', 'ERP', 'HRM', 'LMS', 'analytics', 'payment_gateway', 'shipping', 'tax', 'inventory', 'marketing_automation', 'email_service', 'search', 'database', 'cache', 'cdc', 'message_queue', 'api_gateway', 'auth', 'billing', 'support', 'chat', 'video', 'voice', 'iot', 'ai_ml', 'custom']
+
         def add_sys(sys_id, sys_type, name, conf, hname, hval):
             systems.append(DetectedSystem(
-                system_type=sys_type, name=name, confidence=conf,
+                system_type=sys_type if sys_type in valid_types else 'custom', name=name, confidence=conf,
                 evidence=[Evidence(type='header', value=f'{hname}: {str(hval)[:120]}',
                                    location='headers', confidence=conf)]
             ))
@@ -1107,7 +1112,7 @@ class WebsiteScanner:
             ('x-powered-by',    'php',         ('php',        'custom', 'PHP')),
             ('x-powered-by',    'asp.net',     ('aspnet',     'custom', 'ASP.NET')),
             ('x-powered-by',    'express',     ('express',    'custom', 'Express.js')),
-            ('x-powered-by',    'next.js',     ('nextjs',     'frontend', 'Next.js')),
+            ('x-powered-by',    'next.js',     ('nextjs',     'custom', 'Next.js')),
             ('x-powered-by',    'wp engine',   ('wpengine',   'custom', 'WP Engine')),
             ('x-aspnet-version','',            ('aspnet',     'custom', 'ASP.NET')),
             ('server',          'cloudflare',  ('cloudflare', 'custom', 'Cloudflare')),
@@ -1797,4 +1802,4 @@ class RepoScanner:
                 ]                )
             )
 
-       
+        return systems

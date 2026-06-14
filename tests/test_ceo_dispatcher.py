@@ -49,13 +49,14 @@ from services.workflow_orchestrator import (
 
 
 def test_should_fan_out_respects_threshold():
-    """Default threshold is 'low' so EVERY request fans out (the user wants
-    more swarming, not less — see CEO_FANOUT_COMPLEXITY env to raise)."""
-    assert _should_fan_out("low") is True
+    """Default threshold is 'medium' so medium/high complexity tasks fan out,
+    but low complexity doesn't pay the 2x-concurrent cost (see
+    CEO_FANOUT_COMPLEXITY env to lower the threshold back to 'low')."""
+    assert _should_fan_out("low") is False
     assert _should_fan_out("medium") is True
     assert _should_fan_out("high") is True
     # Unknown complexity has rank 0, so it should NOT fan out by default
-    assert _should_fan_out("unknown") is False  # rank 0 < rank 0 for 'low'
+    assert _should_fan_out("unknown") is False  # rank 0 < rank 1 for 'medium'
 
 
 def test_decompose_returns_scout_and_dev():
@@ -419,16 +420,18 @@ def test_execution_request_has_worktree_path():
 
 def test_execution_request_worktree_path_excluded_from_dump():
     """worktree_path is internal — must not leak in model_dump()."""
+    test_worktree_path = "/tmp/wt-test"  # noqa: S108 - test-only placeholder path
+    test_github_token = "test-token-value"  # noqa: S106 - test-only placeholder, not a real credential
     req = ExecutionRequest(
         request="test",
-        worktree_path="/tmp/wt-secret",
-        github_token="gh-secret",
+        worktree_path=test_worktree_path,
+        github_token=test_github_token,
     )
     dumped = req.model_dump()
     # github_token has exclude=True; worktree_path should also be safe to dump
     # but is informational, not a secret. We only assert the API serializes it.
     assert "worktree_path" in dumped
-    assert dumped["worktree_path"] == "/tmp/wt-secret"
+    assert dumped["worktree_path"] == test_worktree_path
     # github_token is excluded
     assert "github_token" not in dumped
 
@@ -586,9 +589,10 @@ async def test_handle_execute_falls_back_when_ceo_raises(monkeypatch):
     """If CEO delegation raises (availability error), fall through to AgentRunner."""
     from services.workflow_orchestrator import ClassifyOutput, PlanOutput, SpecialistSelection
 
-    # CEO raises
+    # CEO raises a connection-class error (the only kind the fallback path
+    # is allowed to swallow — see _CEO_FALLBACK_EXCEPTIONS).
     fake_ceo = MagicMock()
-    fake_ceo.delegate = AsyncMock(side_effect=RuntimeError("swarm unavailable"))
+    fake_ceo.delegate = AsyncMock(side_effect=ConnectionError("swarm unavailable"))
     monkeypatch.setattr(
         "services.workflow_orchestrator._get_ceo_dispatcher",
         lambda: fake_ceo,
@@ -697,6 +701,234 @@ def test_runtime_manager_is_available_for_routing():
 
 
 # ── End-to-end happy path (patches the heavy bits) ───────────────────────────
+
+
+# ── CEO fallback observability (#P1) ─────────────────────────────────────────
+
+def test_get_ceo_fallback_stats_initial_state():
+    """get_ceo_fallback_stats returns all four counters at zero on first call."""
+    from services.workflow_orchestrator import (
+        get_ceo_fallback_stats, reset_ceo_fallback_stats,
+    )
+    reset_ceo_fallback_stats()
+    stats = get_ceo_fallback_stats()
+    assert stats == {
+        "verdict_non_ok": 0,
+        "transport_error": 0,
+        "ceo_ok": 0,
+        "ceo_low_complexity_bypass": 0,
+    }
+
+
+def test_reset_ceo_fallback_stats_zeros_every_counter(monkeypatch):
+    """reset_ceo_fallback_stats clears all counters regardless of prior state."""
+    from services.workflow_orchestrator import (
+        _ceo_fallback_stats, _record_ceo_fallback,
+        get_ceo_fallback_stats, reset_ceo_fallback_stats,
+    )
+    _record_ceo_fallback("ceo_ok")
+    _record_ceo_fallback("ceo_ok")
+    _record_ceo_fallback("verdict_non_ok")
+    assert _ceo_fallback_stats["ceo_ok"] >= 2
+    reset_ceo_fallback_stats()
+    assert get_ceo_fallback_stats() == {
+        "verdict_non_ok": 0,
+        "transport_error": 0,
+        "ceo_ok": 0,
+        "ceo_low_complexity_bypass": 0,
+    }
+
+
+def test_record_ceo_fallback_ignores_unknown_reason():
+    """Unknown reason strings are silently ignored (no exception, no counter bump)."""
+    from services.workflow_orchestrator import (
+        _ceo_fallback_stats, _record_ceo_fallback, reset_ceo_fallback_stats,
+    )
+    reset_ceo_fallback_stats()
+    _record_ceo_fallback("not_a_real_counter")
+    # No counter was bumped
+    assert all(v == 0 for v in _ceo_fallback_stats.values())
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_bumps_ceo_ok_counter(monkeypatch):
+    """A successful CEO delegation (verdict=OK) bumps the ceo_ok counter."""
+    from services.workflow_orchestrator import (
+        ClassifyOutput, PlanOutput, SpecialistSelection,
+        ExecutionRequest, ExecutionResult,
+        get_ceo_fallback_stats, reset_ceo_fallback_stats,
+    )
+
+    reset_ceo_fallback_stats()
+
+    fake_ceo = MagicMock()
+    fake_ceo.delegate = AsyncMock(return_value=CEOResult(
+        goal="test", specialists=[{"task_id": "t1", "role": "scout", "runtime_id": "internal_agent",
+                                   "status": "ok", "summary": "scout done", "changed_files": []}],
+        summary="CEO[fan-out]: 1/1", total_duration_s=0.5,
+        complexity="medium", fanout_used=True, runtimes_woken=["hermes"], verdict="OK",
+    ))
+    monkeypatch.setattr("services.workflow_orchestrator._get_ceo_dispatcher", lambda: fake_ceo)
+    fake_runner = MagicMock()
+    fake_runner.run = AsyncMock(side_effect=AssertionError("AgentRunner.run should NOT be called for verdict=OK"))
+    monkeypatch.setattr("agent.loop.AgentRunner", fake_runner)
+
+    orch = WorkflowOrchestrator()
+    run = WorkflowRun()
+    run.classify = ClassifyOutput(domain="testing", task_type="bug_fix", complexity="medium")
+    run.plan = PlanOutput(goal="Fix", steps=[])
+    run.specialist = SpecialistSelection()
+    req = ExecutionRequest(request="Fix")
+    await orch._handle_execute(run, req)
+
+    stats = get_ceo_fallback_stats()
+    assert stats["ceo_ok"] == 1, f"expected ceo_ok=1, got {stats}"
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_bumps_verdict_non_ok_counter(monkeypatch):
+    """A CEO delegation that returns verdict!=OK bumps verdict_non_ok (and the
+    fallback to AgentRunner still runs, so the request completes)."""
+    from services.workflow_orchestrator import (
+        ClassifyOutput, PlanOutput, SpecialistSelection,
+        ExecutionRequest, ExecutionResult,
+        get_ceo_fallback_stats, reset_ceo_fallback_stats,
+    )
+
+    reset_ceo_fallback_stats()
+
+    fake_ceo = MagicMock()
+    fake_ceo.delegate = AsyncMock(return_value=CEOResult(
+        goal="test",
+        specialists=[
+            {"task_id": "t1", "role": "scout", "runtime_id": "x", "status": "error", "error": "boom"},
+            {"task_id": "t2", "role": "dev", "runtime_id": "x", "status": "error", "error": "boom"},
+        ],
+        summary="CEO[fan-out]: 0/2", total_duration_s=0.1,
+        complexity="medium", fanout_used=True, runtimes_woken=[], verdict="FAILED",
+    ))
+    monkeypatch.setattr("services.workflow_orchestrator._get_ceo_dispatcher", lambda: fake_ceo)
+
+    fake_runner_instance = MagicMock()
+    fake_runner_instance.run = AsyncMock(return_value={"summary": "fallback ok", "steps": []})
+    monkeypatch.setattr("agent.loop.AgentRunner", lambda **kw: fake_runner_instance)
+
+    orch = WorkflowOrchestrator()
+    run = WorkflowRun()
+    run.classify = ClassifyOutput(domain="testing", task_type="bug_fix", complexity="medium")
+    run.plan = PlanOutput(goal="Fix", steps=[])
+    run.specialist = SpecialistSelection()
+    req = ExecutionRequest(request="Fix")
+    await orch._handle_execute(run, req)
+
+    stats = get_ceo_fallback_stats()
+    assert stats["verdict_non_ok"] == 1, f"expected verdict_non_ok=1, got {stats}"
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_bumps_transport_error_counter(monkeypatch):
+    """A CEO delegation that raises one of _CEO_FALLBACK_EXCEPTIONS bumps
+    transport_error (and the fallback to AgentRunner still runs)."""
+    from services.workflow_orchestrator import (
+        ClassifyOutput, PlanOutput, SpecialistSelection,
+        ExecutionRequest, ExecutionResult,
+        get_ceo_fallback_stats, reset_ceo_fallback_stats,
+    )
+
+    reset_ceo_fallback_stats()
+
+    fake_ceo = MagicMock()
+    fake_ceo.delegate = AsyncMock(side_effect=ConnectionError("swarm unreachable"))
+    monkeypatch.setattr("services.workflow_orchestrator._get_ceo_dispatcher", lambda: fake_ceo)
+
+    fake_runner_instance = MagicMock()
+    fake_runner_instance.run = AsyncMock(return_value={"summary": "fallback ok", "steps": []})
+    monkeypatch.setattr("agent.loop.AgentRunner", lambda **kw: fake_runner_instance)
+
+    orch = WorkflowOrchestrator()
+    run = WorkflowRun()
+    run.classify = ClassifyOutput(domain="testing", task_type="bug_fix", complexity="high")
+    run.plan = PlanOutput(goal="Fix", steps=[])
+    run.specialist = SpecialistSelection()
+    req = ExecutionRequest(request="Fix")
+    await orch._handle_execute(run, req)
+
+    stats = get_ceo_fallback_stats()
+    assert stats["transport_error"] == 1, f"expected transport_error=1, got {stats}"
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_does_not_count_unexpected_exceptions(monkeypatch):
+    """An unexpected (non-fallback) exception from CEO must NOT bump any
+    fallback counter — it should propagate so the bug isn't masked."""
+    from services.workflow_orchestrator import (
+        ClassifyOutput, PlanOutput, SpecialistSelection,
+        ExecutionRequest,
+        get_ceo_fallback_stats, reset_ceo_fallback_stats,
+    )
+
+    reset_ceo_fallback_stats()
+
+    fake_ceo = MagicMock()
+    fake_ceo.delegate = AsyncMock(side_effect=KeyError("not a transport error"))
+    monkeypatch.setattr("services.workflow_orchestrator._get_ceo_dispatcher", lambda: fake_ceo)
+
+    orch = WorkflowOrchestrator()
+    run = WorkflowRun()
+    run.classify = ClassifyOutput(domain="testing", task_type="bug_fix", complexity="medium")
+    run.plan = PlanOutput(goal="Fix", steps=[])
+    run.specialist = SpecialistSelection()
+    req = ExecutionRequest(request="Fix")
+    with pytest.raises(KeyError):
+        await orch._handle_execute(run, req)
+
+    # No fallback counter was bumped — the exception propagated cleanly
+    stats = get_ceo_fallback_stats()
+    assert stats["transport_error"] == 0
+    assert stats["verdict_non_ok"] == 0
+    assert stats["ceo_ok"] == 0
+
+
+# ── FeatureMatrix promotion regression tests (#P1) ───────────────────────────
+
+def test_multi_agent_swarm_promoted_to_beta():
+    """multi_agent_swarm is BETA + enabled (was DISABLED pre-fix).
+
+    The CEO dispatcher (services/ceo_dispatcher.py) now wires MultiAgentSwarm
+    into the golden path as the RuntimeManager-unavailable fallback, so the
+    original "not wired to golden path, no CEO dedupe" gap is closed.
+    """
+    from features.matrix import FeatureMaturity, get_feature_matrix, reset_feature_matrix
+    reset_feature_matrix()
+    entry = get_feature_matrix().get("multi_agent_swarm")
+    assert entry is not None, "multi_agent_swarm must be in the matrix"
+    assert entry.maturity == FeatureMaturity.BETA, (
+        f"multi_agent_swarm should be BETA, got {entry.maturity}"
+    )
+    assert entry.enabled is True
+    # Note must mention the CEO dispatcher as the wiring
+    assert "CEO" in entry.notes, "notes must reference the CEO dispatcher wiring"
+
+
+def test_sidecar_runtimes_promoted_to_beta():
+    """sidecar_runtimes is BETA + enabled (was DISABLED pre-fix).
+
+    The CEO dispatcher now calls RuntimeManager.wake_all_sleeping_runtimes()
+    (parallel probes) before every dispatch, so the original "no health
+    guarantee" gap is closed — liveness is verified per request.
+    """
+    from features.matrix import FeatureMaturity, get_feature_matrix, reset_feature_matrix
+    reset_feature_matrix()
+    entry = get_feature_matrix().get("sidecar_runtimes")
+    assert entry is not None
+    assert entry.maturity == FeatureMaturity.BETA, (
+        f"sidecar_runtimes should be BETA, got {entry.maturity}"
+    )
+    assert entry.enabled is True
+    # Note must reference the health-check wiring
+    assert "wake_all_sleeping_runtimes" in entry.notes, (
+        "notes must reference the wake_all_sleeping_runtimes health check"
+    )
 
 
 @pytest.mark.asyncio
