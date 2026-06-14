@@ -52,6 +52,44 @@
   off-page fallback) can legitimately take 30-90s. With no client timeout, a hung
   backend call spins indefinitely on the frontend.
 
+### NEW — (1)'s dominant real-world cause: live scanner crashes on `master` (found via CI on this PR, 2026-06-14)
+
+This was discovered investigating a CI failure on **this PR's** "Live scanner
+verification (non-blocking)" check (run 27493537545, job 81263256455). The failure is
+**not** caused by this PR's docs-only diff — `services/scanner.py` is unchanged on this
+branch. It's a regression already live on `master` (introduced by `ba26ef8`, "feat:
+enable atomic-claim, add TTL sweeper, live provider test, rebrand to
+autonomous-ai-agency"), surfaced because PR checks run against the merge of this branch
+with `master`. **It is live in production right now** and is the most direct
+explanation yet for bug (1) on real company URLs:
+
+- **`services/scanner.py` `_analyze_response_headers`** (new in `ba26ef8`) — its
+  header-rules table maps `X-Powered-By: Next.js` to `('nextjs', 'frontend',
+  'Next.js')`, i.e. `system_type='frontend'`. `'frontend'` is **not** a valid
+  `SystemType` literal (`models/company_graph.py:38-44` lists CMS/CRM/.../custom — no
+  `frontend`). Any site sending `X-Powered-By: Next.js` (gucci.com, nike.com, and most
+  modern Next.js sites) triggers a Pydantic `ValidationError` constructing
+  `DetectedSystem(system_type='frontend', ...)`. That's caught by `scan_website`'s
+  top-level `except Exception` → `status="failed", errors=["1 validation error for
+  DetectedSystem\nsystem_type\n... input_value='frontend' ..."]`.
+- **`services/scanner.py` `scan_website`'s subdomain-merge loop** (new in `ba26ef8`,
+  ~line 399) rebuilds each detected system as `DetectedSystem(name=s.name,
+  category=s.category, confidence=..., evidence=s.evidence, version=s.version,
+  metadata={**(s.metadata or {}), "source_subdomain": ...})`. `DetectedSystem`
+  (`models/company_graph.py:384-413`, `extra: "forbid"`) has **no `category` field**
+  (the field is `system_type`) and **no `metadata` field** — `s.category` raises
+  `AttributeError: 'DetectedSystem' object has no attribute 'category'` immediately
+  (Python evaluates `s.category` before the also-invalid `metadata=` kwarg is reached).
+  Any scan where `_scan_subdomains` finds a responding subdomain with *any* detected
+  system (e.g. klarna.com → `store.klarna.com` returns 202) fails the whole scan the
+  same way.
+- Both land in the same broad `except Exception as e: ... status="failed",
+  errors=[str(e)]` in `scan_website` — exactly the generic-failure shape behind bug
+  (1). Verified live via the CI job: of the four representative real-world sites in
+  `tests/test_scanner_live.py`, **gucci.com, klarna.com, and nike.com all fail** this
+  way; only wikipedia.org (no Next.js header, no responding subdomain with detections)
+  succeeds.
+
 ### (4): Agent provisioning "loading forever" — blocking subprocess in async path
 
 - `DoneStep` (`frontend/src/v5/screens/OnboardingScreen.jsx:587-613`) calls
@@ -119,6 +157,30 @@
 
 Split into independently-revertible commits, in this order (each should keep
 `pytest -x` green and add a `docs/changelog.md` entry under `## [Unreleased]`):
+
+### A0. Fix live scanner crashes on real-world sites (`services/scanner.py`) — do first
+- `_analyze_response_headers`'s `rules` table: change the `x-powered-by`/`next.js` entry
+  from `('nextjs', 'frontend', 'Next.js')` to `('nextjs', 'custom', 'Next.js')` (matches
+  the `express`/`php`/`asp.net` entries in the same table, all `'custom'`). Then audit
+  every `sys_type` literal embedded in `_analyze_response_headers`'s `rules`,
+  `_analyze_ssl_cert`'s `issuer_map`/`san_map`, and the existing `cname_map` against the
+  `SystemType` literal (`models/company_graph.py:38-44`) — add a small unit test (e.g.
+  in `tests/test_scanner_live.py` or a new `tests/test_scanner_system_types.py`) that
+  iterates these tables and asserts every embedded type string is a valid `SystemType`,
+  so a future bad literal fails fast in CI instead of crashing live scans.
+- `scan_website`'s subdomain-merge loop (~`services/scanner.py:399-406`): fix the
+  re-wrap of each `DetectedSystem` — replace `category=s.category` with
+  `system_type=s.system_type`, and drop the unsupported `metadata=` kwarg (`DetectedSystem`
+  has `extra: "forbid"` and no `metadata` field). To preserve the "source subdomain"
+  provenance without a model change, fold it into the existing `evidence` entries
+  instead (e.g. append `f" (via {sub_data['subdomain']})"` to each `Evidence.location`,
+  or add a new `Evidence(type="subdomain", value=sub_data["subdomain"], ...)` entry) —
+  `Evidence` (`models/company_graph.py:155-165`) already has a free-text `location`
+  field for exactly this.
+- Add a regression test that runs `_analyze_response_headers({"x-powered-by":
+  "Next.js"})` and the subdomain-merge path against a fixture, asserting no exception
+  and a valid `DetectedSystem`. The existing `tests/test_scanner_live.py` (live network,
+  non-blocking CI job) should go from 3 failures to 0 once this is fixed.
 
 ### A. Fix error-message masking (`frontend/src/api.js`)
 - `fmtErr(detail)`: return `''` for `detail == null` instead of `'Something went
@@ -241,13 +303,17 @@ Implement the plan in docs/architecture/onboarding-flow-fixes-plan-2026-06-13.md
 branch claude/url-scan-agent-provision-bugs-lt6gk1 (already exists, checked out).
 
 Read that plan doc first — it contains the full context, root-cause findings (with
-exact file/line references), and a 5-part implementation plan (A-E). Do not re-derive
-the root causes; they're already confirmed. Implement parts A through E in order, each
-as its own commit with a docs/changelog.md entry under ## [Unreleased] (per
-CLAUDE.md's changelog rule — commits without one are rejected by the commit-msg hook
-unless prefixed chore:/docs:/style:/ci:/test:).
+exact file/line references), and a 6-part implementation plan (A0, A-E). Do not
+re-derive the root causes; they're already confirmed. Implement part A0 first (it fixes
+a live-on-master scanner crash, currently failing this PR's "Live scanner verification"
+CI check), then A through E in order, each as its own commit with a docs/changelog.md
+entry under ## [Unreleased] (per CLAUDE.md's changelog rule — commits without one are
+rejected by the commit-msg hook unless prefixed chore:/docs:/style:/ci:/test:).
 
 Key files you'll touch:
+- services/scanner.py (A0: fix invalid `system_type='frontend'` in
+  _analyze_response_headers, fix `category=s.category`/`metadata=` AttributeError in
+  the subdomain-merge loop)
 - frontend/src/api.js (fmtErr, axios timeout, new generateOnboardingQuestions /
   submitOnboardingAnswers clients)
 - frontend/src/v5/screens/OnboardingScreen.jsx (QuestionsStep AI wiring, DoneStep
@@ -257,6 +323,10 @@ Key files you'll touch:
 - services/onboarding.py (start_onboarding step 8 decoupling)
 - backend/company_api.py (list_companies draft filter, Company is_draft field usage)
 - models/company_graph.py (Company.is_draft field)
+
+After A0, run `pytest tests/test_scanner_live.py -v` (live network — may be slow) and
+confirm the 3 previously-failing real-world sites (gucci.com, klarna.com, nike.com) now
+pass.
 
 Before starting: run `pytest -x` to confirm baseline is green. Read agent/CLAUDE.md
 and router/CLAUDE.md only if you touch those areas (you shouldn't for this plan).
