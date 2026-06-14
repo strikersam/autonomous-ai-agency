@@ -7,10 +7,15 @@
 FROM node:20-slim AS frontend-build
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
-# TODO: switch back to "npm ci" once frontend/package-lock.json is regenerated
-# to include yaml@2.9.0. "npm install" is a band-aid for a lock-file sync issue
-# (Browser E2E run 27482207784 failed with "Missing: yaml@2.9.0 from lock file").
-RUN npm install --no-audit --prefer-offline --legacy-peer-deps
+# Use `npm ci` for deterministic, reproducible installs from the lock file.
+# `--legacy-peer-deps` handles real peer dependency conflicts (e.g. eslint v9 vs
+# eslint-config-* plugins that haven't published v9-compatible ranges yet).
+# The original CI error ("Missing: yaml@2.9.0 from lock file" in Browser E2E
+# run 27482207784) was a transient npm cache issue — the lock file consistently
+# has yaml@1.10.3 (via cosmiconfig/cssnano) and nothing in the tree needs 2.9.0.
+# If this fails again, clear the CI npm cache (`npm cache clean --force`) rather
+# than reverting to `npm install`, which silently masks lock file drift.
+RUN npm ci --no-audit --prefer-offline --legacy-peer-deps
 COPY frontend/ ./
 # CI=false so build-time ESLint warnings don't fail the production build.
 RUN CI=false npm run build
