@@ -273,6 +273,18 @@ input[type="radio"] {
   }
 }
 
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(70, 217, 164, 0.45);
+  }
+  50% {
+    opacity: 0.75;
+    box-shadow: 0 0 0 4px rgba(70, 217, 164, 0);
+  }
+}
+
 @keyframes pulseSlow {
   0%,
   100% {
@@ -645,5 +657,25 @@ input[type="radio"] {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ── Mobile horizontal-overflow hardening (Priority 4) ─────────────── */
+@media (max-width: 600px) {
+  /* Dropdowns and popovers must not bleed past the viewport edge */
+  [style*="position:absolute"],
+  [style*="position: absolute"] {
+    max-width: min(var(--max-popover, 320px), calc(100vw - 24px)) !important;
+  }
+
+  /* Task board: stack columns vertically on very small screens */
+  .task-board-columns {
+    flex-direction: column !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Flex rows that contain fixed-min-width children: let them wrap */
+  .mobile-wrap {
+    flex-wrap: wrap !important;
   }
 }

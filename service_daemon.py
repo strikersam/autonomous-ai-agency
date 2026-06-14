@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import asyncio
+import tempfile
 import subprocess
 import time
 from pathlib import Path
@@ -69,15 +70,20 @@ class ServiceDaemon:
         # sees the barrier before the filesystem operation.
         # expanduser() is safe — it only expands ~ and doesn't change path semantics.
         home_str = str(Path.home())
-        # Allowed prefixes: home directory or /tmp
+        # Allowed prefixes: home directory or the OS temp dir. tempfile.gettempdir() resolves the
+        # platform-correct location (TMPDIR on Linux/macOS, TEMP on Windows) and is the secure default.
+        tmp_str = tempfile.gettempdir()  # nosec B108 — resolved from TMPDIR/TEMP env, never hardcoded
         repo_clean = Path(repo_path).expanduser()
         models_clean = Path(models_path).expanduser()
         repo_str = str(repo_clean)
         models_str = str(models_clean)
-        if not (repo_str.startswith(home_str) or repo_str.startswith('/tmp')):
-            raise ValueError(f"repo_path must be under home directory or /tmp, got: {repo_str}")
-        if not (models_str.startswith(home_str) or models_str.startswith('/tmp')):
-            raise ValueError(f"models_path must be under home directory or /tmp, got: {models_str}")
+        # Path.is_relative_to handles trailing separators and cross-platform path quirks.
+        _tmp_path = Path(tmp_str)
+        _home_path = Path(home_str)
+        if not (Path(repo_str).is_relative_to(_home_path) or Path(repo_str).is_relative_to(_tmp_path)):
+            raise ValueError(f"repo_path must be under home directory or temp dir, got: {repo_str}")
+        if not (Path(models_str).is_relative_to(_home_path) or Path(models_str).is_relative_to(_tmp_path)):
+            raise ValueError(f"models_path must be under home directory or temp dir, got: {models_str}")
         resolved_repo = repo_clean.resolve()
         resolved_models = models_clean.resolve()
 
@@ -228,7 +234,7 @@ class ServiceDaemon:
 
 
 # === FastAPI App ===
-app = FastAPI(title="Local LLM Server Daemon")
+app = FastAPI(title="Autonomous AI Agency Daemon")
 daemon = ServiceDaemon()
 
 # Enable CORS for GitHub Pages origin and localhost
@@ -350,7 +356,7 @@ async def stop_tunnel():
 
 if __name__ == "__main__":
     print("\n" + "="*70)
-    print("🚀 Local LLM Server Service Daemon")
+    print("🚀 Autonomous AI Agency Service Daemon")
     print("="*70)
     print("\n📱 Daemon listening on http://localhost:3001")
     print("   GitHub Pages UI can now control your services")

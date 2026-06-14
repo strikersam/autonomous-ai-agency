@@ -101,6 +101,7 @@ function SeoAuditPanel({ companyId, defaultUrl }) {
   const [running, setRunning] = React.useState(false);
   const [err, setErr] = React.useState(null);
   const [msg, setMsg] = React.useState(null);
+  const [downloadingFmt, setDownloadingFmt] = React.useState(null);
   const mounted = React.useRef(true);
   React.useEffect(() => () => { mounted.current = false; }, []);
   React.useEffect(() => { setUrl(u => u || defaultUrl || ''); }, [defaultUrl]);
@@ -133,8 +134,11 @@ function SeoAuditPanel({ companyId, defaultUrl }) {
   };
 
   const download = async (fmt) => {
+    setErr(null);
+    setDownloadingFmt(fmt);
     try { await api.downloadSeoExport(companyId, report.audit_id, fmt); }
     catch (e) { setErr('Download failed: ' + (api.fmtErr(e?.response?.data?.detail) || e?.message || '')); }
+    finally { if (mounted.current) setDownloadingFmt(null); }
   };
 
   const delegate = async () => {
@@ -247,11 +251,19 @@ function SeoAuditPanel({ companyId, defaultUrl }) {
             )}
             {/* Downloads + delegate */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
-              <button style={dlBtn} onClick={() => download('csv')}>⬇ CSV (findings)</button>
-              <button style={dlBtn} onClick={() => download('issues')}>⬇ CSV (issues)</button>
-              <button style={dlBtn} onClick={() => download('urls')}>⬇ CSV (URLs)</button>
-              <button style={dlBtn} onClick={() => download('markdown')}>⬇ Markdown report</button>
-              <button style={dlBtn} onClick={() => download('json')}>⬇ JSON</button>
+              <button
+                style={{ ...dlBtn, background: 'rgba(255,189,102,0.14)', borderColor: 'rgba(255,189,102,0.35)', color: '#ffbd66', fontWeight: 700 }}
+                onClick={() => download('pdf')}
+                disabled={downloadingFmt != null}
+                title="CTO-level PDF: executive summary, methodology, pillar deep-dives with $ recommendations, WSJF roadmap and worst-pages appendices"
+              >
+                {downloadingFmt === 'pdf' ? '⏳ Generating PDF…' : '📄 Generate PDF Report'}
+              </button>
+              <button style={dlBtn} onClick={() => download('csv')} disabled={downloadingFmt != null}>⬇ CSV (findings)</button>
+              <button style={dlBtn} onClick={() => download('issues')} disabled={downloadingFmt != null}>⬇ CSV (issues)</button>
+              <button style={dlBtn} onClick={() => download('urls')} disabled={downloadingFmt != null}>⬇ CSV (URLs)</button>
+              <button style={dlBtn} onClick={() => download('markdown')} disabled={downloadingFmt != null}>⬇ Markdown report</button>
+              <button style={dlBtn} onClick={() => download('json')} disabled={downloadingFmt != null}>⬇ JSON</button>
               <button style={{ ...dlBtn, marginLeft: 'auto', background: 'rgba(70,217,164,0.10)', borderColor: 'rgba(70,217,164,0.25)', color: '#46d9a4' }} onClick={delegate}>→ Delegate to task board</button>
             </div>
           </Card>
@@ -401,6 +413,7 @@ function CompanyScreen() {
     })),
     environments: company.domain ? [{ name: 'Production', url: company.domain, status: 'healthy' }] : [],
     specialists: specialists.map(s => ({
+      id: s.id || s.specialist_id || s.name || s.role,
       name: s.name || s.role || 'Specialist',
       status: s.status || 'idle',
       lastRun: s.last_used_at || s.lastRun || '—',
@@ -566,7 +579,7 @@ function CompanyScreen() {
           {(d.specialists || []).map(sp => {
             const statusColor = sp.status === 'active' || sp.status === 'running' ? '#5da2ff' : 'var(--text-muted)';
             return (
-              <div key={sp.name} style={{
+              <div key={sp.id} style={{
                 borderRadius: 16, border: `1px solid ${sp.status !== 'idle' ? `${statusColor}25` : 'rgba(255,255,255,0.09)'}`,
                 background: sp.status !== 'idle' ? `${statusColor}05` : 'rgba(255,255,255,0.03)',
                 padding: '16px', cursor: 'pointer', transition: 'all 0.2s ease',

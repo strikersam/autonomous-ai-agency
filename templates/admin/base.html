@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{% block title %}Admin{% endblock %} | Local LLM Server</title>
+  <title>{% block title %}Admin{% endblock %} | Autonomous AI Agency</title>
   <style>
     :root {
       --bg: #f4efe6;
@@ -199,19 +199,9 @@
 <body>
   <header>
     <div class="brand">
-      <strong>Local LLM Server</strong>
+      <strong>Autonomous AI Agency</strong>
       <span>Admin control plane</span>
     </div>
     <nav>
       {% if request.session.get('admin_ok') %}
-      <a href="/admin/ui/">Dashboard</a>
-      <span class="muted"> | </span>
-      <a href="/admin/ui/logout">Log out</a>
-      {% endif %}
-    </nav>
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
-</body>
-</html>
+      <a href="/admin/ui/">Dashboard</a

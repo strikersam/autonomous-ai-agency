@@ -3,7 +3,12 @@ FROM node:20-alpine AS build
 WORKDIR /app/webui/frontend
 
 COPY webui/frontend/package.json webui/frontend/package-lock.json* ./
-RUN npm ci
+# Resilience flags: --no-audit skips the slow registry audit; --prefer-offline
+# falls back to the local npm cache when a single package is briefly unavailable;
+# --legacy-peer-deps handles peer-dep resolution diffs across npm versions. If
+# `npm ci` fails on a real lockfile drift, regenerate the lockfile in a tracked
+# PR rather than masking it here.
+RUN npm ci --no-audit --prefer-offline --legacy-peer-deps
 
 COPY webui/frontend/ ./
 

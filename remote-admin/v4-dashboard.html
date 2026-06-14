@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Autonomous AI Agency v4 — Continuous Improvement Dashboard</title>
+  <title>Autonomous AI Agency — Continuous Improvement Dashboard</title>
   <link rel="stylesheet" href="./styles.css" />
   <style>
     :root {
@@ -72,7 +72,7 @@
   <!-- Hero -->
   <div class="hero">
     <div>
-      <p class="eyebrow">Autonomous AI Agency v4</p>
+      <p class="eyebrow">Autonomous AI Agency</p>
       <h1>Continuous Improvement Dashboard</h1>
     </div>
     <div class="hero-links">
@@ -391,14 +391,4 @@
     }
   }
 
-  // ── Auto-load ─────────────────────────────────────────────────────────────────
-  document.addEventListener('DOMContentLoaded', () => {
-    const saved = localStorage.getItem('v4_base_url') || '';
-    if (saved) { document.getElementById('base-url').value = saved; loadAll(); }
-    document.getElementById('base-url').addEventListener('change', e => {
-      localStorage.setItem('v4_base_url', e.target.value);
-    });
-  });
-</script>
-</body>
-</html>
+  // ── Auto-load ───────────────────────────────────────────────────────────────�

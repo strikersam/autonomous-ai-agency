@@ -1,5 +1,5 @@
 /**
- * SetupWizardPage.js — Agency Core v5.0 first-run setup wizard (5 steps)
+ * SetupWizardPage.js — Autonomous AI Agency first-run setup wizard (5 steps)
  *
  * Steps:
  *   1 Provider Setup      — select Ollama / cloud providers
@@ -680,7 +680,7 @@ export default function SetupWizardPage({ onComplete }) {
             </div>
           ))}
         </nav>
-        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono uppercase tracking-[0.16em]">Agency Core v5.0 · AI Control Plane</div>
+        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono uppercase tracking-[0.16em]">Autonomous AI Agency · AI Control Plane</div>
       </div>
 
       {/* Main */}
@@ -694,12 +694,12 @@ export default function SetupWizardPage({ onComplete }) {
                 <span>{backendConnected ? '🟢' : '🟡'}</span>
                 {backendConnected
                   ? `Connected to ${backendUrl}`
-                  : 'Connect to your local LLM Server'}
+                  : 'Connect to your Autonomous AI Agency backend'}
               </div>
               {!backendConnected && (
                 <>
                   <p className="text-xs text-gray-600 mb-3">
-                    Enter the URL of your running local-llm-server. Use{' '}
+                    Enter the URL of your running Autonomous AI Agency backend. Use{' '}
                     <code className="bg-white px-1 rounded">http://localhost:8000</code> if
                     running locally, or your ngrok/Cloudflare tunnel URL for remote access.
                   </p>
@@ -846,9 +846,9 @@ export default function SetupWizardPage({ onComplete }) {
                           className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                           value={repoPath}
                           onChange={e => setRepoPath(e.target.value)}
-                          placeholder="/path/to/local-llm-server"
+                          placeholder="/path/to/autonomous-ai-agency"
                         />
-                        <p className="text-xs text-gray-400 mt-0.5">Folder where local-llm-server is cloned</p>
+                        <p className="text-xs text-gray-400 mt-0.5">Folder where the Autonomous AI Agency is cloned</p>
                       </div>
                       <div>
                         <label className="text-sm font-medium text-gray-700">Models Folder</label>
@@ -1124,7 +1124,7 @@ export default function SetupWizardPage({ onComplete }) {
                 <p className="text-gray-500 text-sm mb-5">Enable the coding runtimes you have installed on this machine.</p>
                 <div className="space-y-3">
                   {[
-                    { key: 'hermes',   label: 'Hermes',   desc: 'Local LLM relay (built-in) — First Class', val: enableHermes,   set: setEnableHermes,   badge: 'Recommended' },
+                    { key: 'hermes',   label: 'Hermes',   desc: 'Local model relay (built-in) — First Class', val: enableHermes,   set: setEnableHermes,   badge: 'Recommended' },
                     { key: 'opencode', label: 'OpenCode', desc: 'VS Code-style agent runtime',              val: enableOpenCode, set: setEnableOpenCode },
                     { key: 'task-harness', label: 'Task Harness', desc: 'Compatible external harness for long-running, multi-file agent work', val: enableTaskHarness, set: setEnableTaskHarness },
                     { key: 'aider',    label: 'Aider',    desc: 'Git-native coding agent',                  val: enableAider,    set: setEnableAider },

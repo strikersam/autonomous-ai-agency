@@ -34,7 +34,7 @@ const typeColors     = { bug: '#ff6b7d', security: '#ffbd66', task: 'var(--accen
 function StageColumn({ stage, tasks, onApprove, onRetry, onCardClick }) {
   return (
     <div style={{
-      minWidth: 220, maxWidth: 260, flexShrink: 0,
+      minWidth: 'clamp(160px, 80vw, 220px)', maxWidth: 260, flexShrink: 0,
       display: 'flex', flexDirection: 'column', gap: 8,
     }}>
       <div style={{
@@ -482,7 +482,7 @@ function TaskBoardScreen() {
 
       {/* Board / Sprint view */}
       {viewMode === 'board' ? (
-        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', padding: '14px 20px 32px', display: 'flex', gap: 14 }} className="scrollbar-hide">
+        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', padding: '14px 20px 32px', display: 'flex', gap: 14 }} className="scrollbar-hide task-board-columns">
           {!loading && !error && rawTasks.length === 0 ? (
             <div style={{ margin: 'auto', padding: '48px 32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.8 }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>

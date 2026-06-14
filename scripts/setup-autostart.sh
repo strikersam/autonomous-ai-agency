@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-autostart.sh — Install the LLM Relay systemd service so the entire
+# setup-autostart.sh — Install the Autonomous AI Agency systemd service so the entire
 # docker-compose stack (proxy, MCP server, runtimes, Ollama, MongoDB) starts
 # automatically on boot with no manual intervention.
 #
@@ -64,7 +64,7 @@ echo "Starting $SERVICE_NAME (this may take a few minutes on first run)…"
 systemctl start "$SERVICE_NAME"
 
 echo ""
-echo "✓ LLM Relay auto-start installed and running"
+echo "✓ Autonomous AI Agency auto-start installed and running"
 echo ""
 echo "  Status:  systemctl status $SERVICE_NAME"
 echo "  Logs:    journalctl -u $SERVICE_NAME -f"
