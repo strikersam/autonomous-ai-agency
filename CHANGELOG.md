@@ -27,4 +27,6 @@ All notable changes to this project will be documented in this file.
 - **PR #466**: Agent now accepts command/task/text as instruction aliases in spawn_subagent.
 
 ### Changed
+- **Project rebranded from "Agency Core" to "Autonomous AI Agency".** Primary production URL `https://autonomous-ai-agency.strikersam.workers.dev` (Cloudflare worker `name`); GitHub repo renamed `strikersam/local-llm-server` → `strikersam/autonomous-ai-agency`; `wrangler.jsonc` `PRIMARY_PRODUCTION_URL` updated. The previous `local-llm-server.strikersam.workers.dev` URL is gone (Cloudflare worker subdomains are derived from `name`); any external bookmarks to it now 404.
+- **Breaking change: `proxy.py` `/v1/models` `owned_by` field renamed** for model-alias rows from `"llm-relay-alias"` to `"autonomous-ai-agency-alias"`. OpenAI-compatible clients that filter or group on `owned_by` will need to update their filters. Logging/analytics dashboards that key on the old value should add a regex alias. The raw model IDs and `id` field are unchanged.
 - **PR #459**: Deploy CI switched to wrangler-action v3 with --config wrangler.jsonc.

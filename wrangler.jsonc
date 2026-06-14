@@ -19,17 +19,15 @@
     "run_worker_first": ["/api/*", "/v1/*", "/runtimes/*"]
   },
   // ─────────────────────────────────────────────────────────────────────────
-  // vars block: Cloudflare Workers env (read inside the worker as
-  // `env.VAR_NAME`). These are informational only and DO NOT control the
-  // GitHub Actions workflow gates. The workflow's `vars.QN_ATOMIC_CLAIM`
-  // reads the GitHub Actions `vars` CONTEXT (a separate scope: repo/org
-  // variables set in GitHub Settings → Variables on github.com). To enable
-  // atomic-claim in prod, set the GitHub repo/org variable, not this one.
+  // vars: Cloudflare Workers env (read inside the worker as env.VAR_NAME).
+  // The workflow's vars.* reads the GitHub Actions vars CONTEXT (a separate
+  // scope: repo/org variables set on github.com).
   // ─────────────────────────────────────────────────────────────────────────
+  // PRIMARY_PRODUCTION_URL is the current Cloudflare worker URL (derived
+  // from the `name` field above). The previous `local-llm-server.strikersam
+  // .workers.dev` URL 404s after the rebrand and is no longer referenced
+  // anywhere in the codebase.
   "vars": {
-    "PRIMARY_PRODUCTION_URL": "https://autonomous-ai-agency.strikersam.workers.dev",
-    "LEGACY_PRODUCTION_URL": "https://local-llm-server.strikersam.workers.dev",
-    "QN_ATOMIC_CLAIM_WORKER_ENV": "true",
-    "SWEEPER_MAX_AGE_HOURS_WORKER_ENV": "4"
+    "PRIMARY_PRODUCTION_URL": "https://autonomous-ai-agency.strikersam.workers.dev"
   }
 }
