@@ -7,7 +7,7 @@ Covers three features implemented in this run:
      - Cloud/Nvidia models pass response_format through unchanged
   2. Claude alias model listing in /v1/models
      - Endpoint includes alias entries (claude-* names)
-     - alias entries carry owned_by="llm-relay-alias"
+     - alias entries carry owned_by="autonomous-ai-agency-alias"
   3. X-Token-Budget-Remaining response headers
      - TokenBudget.get() returns None for unknown sessions (no headers injected)
      - Budget headers present when session has a cap set
@@ -230,7 +230,7 @@ class TestModelsEndpointAliases:
         assert isinstance(result["data"], list)
 
     async def test_list_models_includes_alias_entries(self, monkeypatch):
-        """list_models_openai includes alias entries with owned_by=llm-relay-alias."""
+        """list_models_openai includes alias entries with owned_by=autonomous-ai-agency-alias."""
         from unittest.mock import AsyncMock, MagicMock, patch
         from router.model_router import reset_router
         reset_router()
@@ -250,7 +250,7 @@ class TestModelsEndpointAliases:
             )
             result = await list_models_openai(auth)
 
-        alias_entries = [e for e in result["data"] if e.get("owned_by") == "llm-relay-alias"]
+        alias_entries = [e for e in result["data"] if e.get("owned_by") == "autonomous-ai-agency-alias"]
         assert len(alias_entries) > 0, "No alias entries in /v1/models response"
 
     async def test_list_models_alias_entries_have_description(self, monkeypatch):
@@ -275,7 +275,7 @@ class TestModelsEndpointAliases:
             result = await list_models_openai(auth)
 
         for entry in result["data"]:
-            if entry.get("owned_by") == "llm-relay-alias":
+            if entry.get("owned_by") == "autonomous-ai-agency-alias":
                 assert "description" in entry
                 assert "Alias →" in entry["description"]
                 break

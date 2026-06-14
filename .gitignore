@@ -40,6 +40,10 @@ dist/
 test_reports/
 scratch/verification/report.md
 
+# Agent-workspace test pollution: some e2e agent-chat tests write a stub
+# src/main.py at the repo root if their workspace-root monkeypatch is bypassed
+/src/
+
 # Graphify knowledge graph — all output files are machine-specific, do not track
 graphify-out/graph.json
 graphify-out/.graphify_labels.json

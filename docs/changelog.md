@@ -87,6 +87,13 @@
 ## [Unreleased]
 
 ### Fixed
+- **Restored master CI: three files truncated mid-write by a prior commit (`2a86f5f`/`4b4276f`) broke Python collection, e2e collection, and the frontend Jest suite.**
+  `tests/test_scanner_ssl_cert.py` (`_RaisingCtx` was cut off mid-class, `NameError: name 'veri' is not defined`),
+  `tests/e2e/test_critical_flows.py` (admin-dashboard test truncated mid-`try`, `SyntaxError`),
+  `tests/test_orchestrator_failover.py` (`test_phase_attempts_incremented_on_each_retry` truncated mid-statement, `NameError`),
+  and `frontend/src/pages/ControlPlanePage.js` (14 stray trailing NUL bytes broke the Babel/Jest parser for
+  `controlPlanePage.test.js`, `appRouting.test.jsx`, and `setupWizard.test.js`) are all restored to their
+  intended content.
 - **Provider priority override bug**: `seed_default_providers` no longer resets user-edited priorities on every restart — UI priority changes now persist across server restarts.
 - **Anthropic as brain**: Anthropic providers demoted to priority -90/-80 (below all free cloud providers). Google Gemini (priority 75), OpenRouter (30), and others now win as the orchestrator brain.
 - **Google Gemini model name**: Fixed wrong model `gemma-4` → `gemini-2.5-flash` in seed defaults so the highest-priority free provider actually works.
@@ -94,6 +101,44 @@
 - **`implement_agent.py` file truncation**: Restored full script from upstream (was cut off mid-line at 622/695 lines).
 - **Onboarding zero-specialist regression**: `start_onboarding` `detect_systems` step now falls back to `{"backend", "frontend", "analytics"}` when website/repo scanning yields no detectable system types (bot-protected or blocked sites). Previously the provisioning loop received an empty list and created zero specialists.
 - **Invalid `system_type="ecommerce"` in repo scanner**: `_detect_systems_from_github_data` was emitting `system_type="ecommerce"` which is not in the `SystemType` Literal — Pydantic validation would fail on any e-commerce-topic repo. Changed to `"OMS"` (the nearest valid type).
+- **More master CI breakage from the same truncated-mid-write pattern**: `.github/scripts/implement_agent.py` (2968 trailing NUL bytes — `python -m py_compile` repo-wide syntax check failed with `SyntaxError: source code string cannot contain null bytes`, taking down the "Test (Python 3.13)" job for every PR) and `docs/changelog.md` (325 trailing NUL bytes, made the file appear binary to `grep`/diff tooling). Both restored by stripping the trailing NULs; the now-parsable `implement_agent.py` picked up 3 pre-existing low-severity Bandit findings (`B404`/`B603`x2 for its constant-argv `git`/`pytest` subprocess calls), annotated with `# nosec` following the `agent/loop.py` convention.
+- **`Dockerfile.backend` frontend-build stage**: line 16 had a literal `\n` (backslash + letter "n") instead of a shell line continuation, so `RUN npm cache clean --force && \n    npm ci ...` failed with `/bin/sh: 1: n: not found` — breaking the "Playwright browser tests" Docker build for every PR. Fixed to a real line continuation; verified `npm cache clean --force && npm ci --no-audit --prefer-offline --legacy-peer-deps` now installs cleanly.
+- **`tests/test_ceo_dispatcher.py::test_should_fan_out_respects_threshold`**: PR #615 changed the default `CEO_FANOUT_COMPLEXITY` from `"low"` to `"medium"` but left this test asserting the old `"low"` behaviour (`_should_fan_out("low") is True`), failing on master and blocking "Test (Python 3.13)" for every PR. Updated the assertions to match the new `"medium"` default.
+- **`services/seo_report_pdf.py` Bandit B406**: switched `xml.sax.saxutils.escape` to `html.escape` for PDF text sanitisation (same escaping semantics for our use case, avoids the "untrusted XML parsing" SAST finding).
+- **`agent/scaffolding.py` missing `import os`**: `ProjectScaffolder.apply()`'s path-traversal guard referenced `os.sep` without importing `os`, raising `NameError: name 'os' is not defined` for every scaffold call — failing all 5 `tests/test_scaffolding.py` tests plus `tests/test_features_api.py::test_scaffolding_apply` on master.
+- **`services/ceo_dispatcher.py::CEOResult` verdict now computed, not hardcoded**: `verdict` defaulted to the static string `"OK"` regardless of specialist outcomes. Added `__post_init__` that derives `OK`/`PARTIAL`/`FAILED` from the `specialists` statuses when no explicit `verdict` is passed (callers that already compute and pass a verdict are unaffected). Fixes `tests/test_ceo_dispatcher.py::test_ceo_result_default_verdict_logic`.
+- **`runtimes/manager.py::wake_all_sleeping_runtimes` now force-probes every runtime**: the implementation skipped re-polling a runtime that was already marked available, contradicting its own docstring ("force-probing every registered runtime once") and leaving `tests/test_ceo_dispatcher.py::test_wake_all_sleeping_runtimes_mixed_state` unable to observe the post-probe state for an already-awake runtime. Removed the conditional so every registered runtime is probed unconditionally.
+- **`tests/test_ceo_dispatcher.py::test_handle_execute_falls_back_when_ceo_raises`** asserted a fallback path for `RuntimeError`, but `_CEO_FALLBACK_EXCEPTIONS` in `services/workflow_orchestrator.py` only swallows connection-class errors (`ConnectionError`/`TimeoutError`/`OSError`/httpx connect errors). Updated the test to raise `ConnectionError`, matching the documented fallback contract. Also replaced hardcoded secret-like literals (`github_token="gh-secret"`, `worktree_path="/tmp/wt-secret"`) flagged by Ruff S106/S108 with clearly-named test placeholders.
+- **`tests/test_daily_automation_2026_05_14.py`** still asserted the pre-rebrand `owned_by="llm-relay-alias"` value for `/v1/models` alias entries; `proxy.py` now emits `"autonomous-ai-agency-alias"` (rebrand sweep, commit `14df847`). Updated all 4 occurrences to match.
+- **`tests/test_quick_note_engine.py::test_implement_agent_nvidia_primary`** asserted that an `"Anthropic Claude Opus fallback"` marker still existed (after the NVIDIA-primary marker) in `.github/scripts/implement_agent.py`, but that fallback was intentionally removed entirely. Rewrote the test to assert the NVIDIA-only invariant: the primary-engine marker is present and the removed-fallback marker is absent.
+- **`.github/scripts/implement_agent.py`**: replaced the remaining `print()`/`print(..., file=sys.stderr)` calls in `main()` with `log.info`/`log.warning`/`log.error`, consistent with the module's already-configured `logging.getLogger("implement_agent")` (format string preserves identical CI console output).
+- **`services/scanner.py` live-scan crashes on Next.js/Akamai storefronts (gucci.com, nike.com, klarna.com)**: the "Live scanner verification (non-blocking)" CI check was failing with two real bugs. (1) `_analyze_response_headers`'s `add_sys` passed rule-table category shorthand straight into `DetectedSystem(system_type=...)` with no validation — the `x-powered-by: next.js` rule used `'frontend'`, which is not a valid `SystemType` literal, so any Next.js-fronted site (gucci.com, nike.com) raised a Pydantic `literal_error` and the scan came back `status="failed"`. Changed the rule to `'custom'` and made `add_sys` fall back to `'custom'` for any unrecognised type, mirroring `_detect_systems_generic`'s validation. (2) The subdomain-merge loop rebuilt each `DetectedSystem` with `category=s.category` and `metadata={...}` — neither field exists on `DetectedSystem` (`extra="forbid"`), so any site with a responding subdomain (klarna.com) raised `AttributeError: 'DetectedSystem' object has no attribute 'category'`. Fixed to use the real fields `system_type=s.system_type` and `configuration={...}`. `tests/test_scanner_live.py` (5 tests) and `scripts/verify_scanner_live.py` now pass cleanly for gucci.com/nike.com/klarna.com (honest empty or partial results, no crash).
+
+### Added
+- Scanner: subdomain enumeration layer — probes common subdomains (shop, api, cdn, checkout, account, etc.) to narrow the BuiltWith technology-count gap
+- **SEO audit: one-click CTO-level PDF report (issue #533 follow-up).**
+  - *Renderer* (`services/seo_report_pdf.py`, new): `report_to_pdf(report: SeoAuditReport) -> bytes`
+    builds a multi-section reportlab PDF — cover page, executive summary (pillar scores, $ at risk
+    by priority band or findings-by-priority, top 5 highest-impact findings), a methodology section
+    that derives the revenue-model formula and a cross-baseline sensitivity table from the audit's
+    own findings, one deep-dive section per pillar (technical/content/aio/geo/social/security) with
+    a findings table and the engine's own delegation-plan instructions as "recommended fix" text,
+    and three appendices (full findings table, WSJF-prioritised fix roadmap with score breakdown,
+    worst pages by issue count). Fully generic and data-driven — no hardcoded per-company or
+    per-category prose; works with or without a `monthly_organic_revenue` baseline and for
+    failed/empty audits.
+  - *Shared revenue-model helpers* (`services/seo_audit.py`): extracted `compute_pressure()` and
+    `loss_share_from_pressure()` from `_compute_report` so the PDF's sensitivity table can never
+    drift from the engine's own at-risk calculation (behaviour-preserving refactor).
+  - *API:* `GET /api/company/{company_id}/seo/audits/{audit_id}/export?fmt=pdf` returns the PDF as
+    `application/pdf` with a `Content-Disposition: attachment` header.
+  - *UI:* a prominent **"📄 Generate PDF Report"** button in the SEO Audit tab's download row
+    (`frontend/src/v5/screens/CompanyScreen.jsx`, `frontend/src/api.js`) downloads the report for
+    any onboarded company's stored audit with one click.
+  - *Dependency:* added `reportlab>=4.2.0,<5` to `requirements.txt` and `backend/requirements.txt`.
+  - *Tests:* `tests/test_seo_report_pdf.py` (revenue-modeled, baseline-free, and failed/empty audits
+    all render valid PDFs), plus `TestRevenueModelHelpers` in `tests/test_seo_audit.py` and an
+    export-endpoint coverage test in `tests/test_seo_api.py`.
 
 ### Changed
 - **remote-admin/: brand rename to "Autonomous AI Agency".** Replaced user-visible "Local LLM" / "LLM Relay v4" branding across `index.html`, `setup-wizard.html`, and `v4-dashboard.html` (page titles, breadcrumb, hero eyebrow, setup copy). Functional references (GitHub Pages URL and on-disk repo-path placeholders) left intact.
@@ -1692,4 +1737,3 @@
   `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
   quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
   revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).
-                                                                                                                                                                                                                                                                                                                                     

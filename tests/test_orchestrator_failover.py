@@ -338,8 +338,10 @@ class TestOrchestratorProviderFailover:
             with patch("backend.server._list_configured_provider_records", records):
                 run = await orchestrator.execute(req)
 
-        assert run.phase_attempts["execute"] == 3
+        assert run.llm_provenance["execute"] == "c"
+        assert run.phase_attempts.get("execute", 0) == 3
         assert call_count == 3
+
 
 class TestProviderRoleTags:
     """Regression tests for the providers-list role badge (BRAIN/fallback/sub-agent).
@@ -449,4 +451,3 @@ class TestProviderRoleTags:
         assert all(not v["is_brain"] for v in tags.values())
         # The free non-paid record still gets role="sub-agent".
         assert tags["nvidia-nim"]["role"] == "sub-agent"
-

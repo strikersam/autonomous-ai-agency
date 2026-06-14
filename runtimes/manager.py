@@ -136,8 +136,7 @@ class RuntimeManager:
                 try:
                     before = self._health.get_health(rid)
                     before_available = bool(before and before.available)
-                    if not before_available:
-                        await self._health._poll_one(rid)
+                    await self._health._poll_one(rid)
                     after = self._health.get_health(rid)
                     after_available = bool(after and after.available)
                     details[rid] = {

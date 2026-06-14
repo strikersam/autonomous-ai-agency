@@ -104,7 +104,21 @@ class CEOResult:
     complexity: str = "medium"
     fanout_used: bool = False
     runtimes_woken: list[str] = field(default_factory=list)
-    verdict: str = "OK"  # OK | PARTIAL | FAILED
+    verdict: str | None = None  # OK | PARTIAL | FAILED
+
+    def __post_init__(self) -> None:
+        if self.verdict is not None:
+            return
+        if not self.specialists:
+            self.verdict = "OK"
+            return
+        ok_count = sum(1 for s in self.specialists if s.get("status") == "ok")
+        if ok_count == len(self.specialists):
+            self.verdict = "OK"
+        elif ok_count == 0:
+            self.verdict = "FAILED"
+        else:
+            self.verdict = "PARTIAL"
 
     def as_dict(self) -> dict[str, Any]:
         return {
