@@ -486,7 +486,7 @@ def main() -> None:
             if err_kind == "429_rate_limit":
                 retry_succeeded = False
                 for backoff_attempt in range(3):
-                    delay = (2 ** backoff_attempt) + random.uniform(0, 1)
+                    delay = (2 ** backoff_attempt) + random.uniform(0, 1)  # nosec B311 — jitter only, not crypto
                     log.warning(
                         f"Model {model} rate-limited (429) — retrying in {delay:.1f}s "
                         f"(attempt {backoff_attempt+1}/3)"
