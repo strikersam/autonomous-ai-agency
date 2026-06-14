@@ -32,6 +32,7 @@ from typing import Any
 
 log = logging.getLogger("agency.ceo")
 
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 # Role → preferred runtimes (first available wins, falls back through the list).
@@ -276,17 +277,162 @@ class CEODispatcher:
         workspace_root: str | None,
         ollama_base: str | None,
     ) -> list[dict[str, Any]]:
-        """Run sub-tasks through MultiAgentSwarm under the orchestrator bypass."""
-        from agent.coordinator import AgentSpec, MultiAgentSwarm, TaskSpec
-        from services.workflow_orchestrator import _BYPASS
+        """Run sub-tasks through RuntimeManager so each one is actually routed
+        to the runtime selected by ROLE_RUNTIME_PREFERENCE.
 
+        The previous implementation routed every sub-task through a single
+        MultiAgentSwarm with one ollama_base, so the "fan-out" was just N
+        concurrent calls to the SAME LLM endpoint — Hermes/Goose/claude_code
+        stayed sleeping regardless of fan-out. RuntimeManager.execute(spec)
+        honours spec.provider_preference, so passing the preferred runtime_id
+        per sub-task actually uses that runtime when it's healthy (and falls
+        back through the policy's fallback list when it isn't).
+        """
         if not sub_tasks:
             return []
 
-        # Construct swarm + agents + tasks directly. We do NOT go through
-        # agent.coordinate.build_swarm because that helper requires AgentConfig
-        # Pydantic models (which is fine for the API surface but unnecessary
-        # for the CEO's internal use).
+        # Try RuntimeManager first (real runtime routing). If it's unavailable
+        # for any reason, fall back to MultiAgentSwarm under the orchestrator
+        # bypass — better than failing the whole run.
+        try:
+            from runtimes.manager import get_runtime_manager
+            from runtimes.base import TaskSpec as RT_TaskSpec
+            mgr = get_runtime_manager()
+            return await self._run_via_runtime_manager(
+                mgr, sub_tasks,
+                ollama_base=ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
+                workspace_root=workspace_root or os.getcwd(),
+                github_token=github_token,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            log.warning(
+                "CEO: RuntimeManager unavailable (%s); falling back to MultiAgentSwarm",
+                exc,
+            )
+            return await self._run_via_swarm(
+                sub_tasks,
+                ollama_base=ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
+                workspace_root=workspace_root or os.getcwd(),
+                github_token=github_token,
+                user_id=user_id,
+            )
+
+    async def _run_via_runtime_manager(
+        self,
+        mgr: Any,
+        sub_tasks: list[SpecialistTask],
+        *,
+        ollama_base: str,
+        workspace_root: str,
+        github_token: str | None,
+        user_id: str | None,
+    ) -> list[dict[str, Any]]:
+        """Run sub-tasks via RuntimeManager with per-sub-task provider_preference.
+
+        Respects dependencies: tasks with no pending deps run in parallel up
+        to max_concurrent; tasks with deps run after their deps complete.
+        """
+        from runtimes.base import TaskSpec as RT_TaskSpec
+
+        sem = asyncio.Semaphore(self.max_concurrent)
+        results: dict[str, dict[str, Any]] = {}
+        remaining = list(sub_tasks)
+
+        while remaining:
+            # Find tasks whose deps are all done (or have no deps).
+            runnable = [
+                st for st in remaining
+                if all(d in results for d in st.dependencies)
+            ]
+            if not runnable:
+                # Circular or unresolvable deps — mark the rest as failed
+                for st in remaining:
+                    results[st.task_id] = {
+                        "task_id": st.task_id,
+                        "role": st.role,
+                        "runtime_id": st.runtime_id,
+                        "status": "error",
+                        "error": "Unresolvable dependencies",
+                    }
+                break
+
+            async def _run_one(st: SpecialistTask) -> dict[str, Any]:
+                async with sem:
+                    try:
+                        # Build context from completed dependencies so the
+                        # downstream task has the upstream's summary.
+                        dep_context = ""
+                        if st.dependencies:
+                            dep_lines = []
+                            for dep_id in st.dependencies:
+                                dep_result = results.get(dep_id, {})
+                                dep_summary = dep_result.get("summary", "")
+                                if dep_summary:
+                                    dep_lines.append(
+                                        f"[{dep_id}] {dep_summary[:300]}"
+                                    )
+                            if dep_lines:
+                                dep_context = (
+                                    "\n\nUpstream specialist results:\n"
+                                    + "\n".join(dep_lines)
+                                )
+                        spec = RT_TaskSpec(
+                            task_id=st.task_id,
+                            instruction=st.instruction + dep_context,
+                            task_type=st.role,
+                            provider_preference=st.runtime_id,  # ← routes to the right runtime
+                            model_preference=st.model,
+                            allow_paid_escalation=False,
+                        )
+                        result, decision = await mgr.execute(spec)
+                        entry: dict[str, Any] = {
+                            "task_id": st.task_id,
+                            "role": st.role,
+                            "runtime_id": decision.selected_runtime_id,  # actual runtime used
+                            "status": "ok" if result.success else "error",
+                            "summary": result.output or "",
+                            "changed_files": [],  # runtime results don't carry per-file diffs
+                        }
+                        if not result.success:
+                            entry["error"] = result.error or "runtime returned failure"
+                        return entry
+                    except Exception as exc:
+                        log.warning("CEO specialist %s via RuntimeManager failed: %s", st.task_id, exc)
+                        return {
+                            "task_id": st.task_id,
+                            "role": st.role,
+                            "runtime_id": st.runtime_id,
+                            "status": "error",
+                            "error": str(exc),
+                        }
+
+            batch = await asyncio.gather(*(_run_one(st) for st in runnable))
+            for entry in batch:
+                results[entry["task_id"]] = entry
+            remaining = [st for st in remaining if st.task_id not in results]
+
+        # Preserve original sub-task ordering in the output.
+        return [results[st.task_id] for st in sub_tasks if st.task_id in results]
+
+    async def _run_via_swarm(
+        self,
+        sub_tasks: list[SpecialistTask],
+        *,
+        ollama_base: str,
+        workspace_root: str,
+        github_token: str | None,
+        user_id: str | None,
+    ) -> list[dict[str, Any]]:
+        """Fallback: run via MultiAgentSwarm under the orchestrator bypass.
+
+        Used when RuntimeManager is unavailable. Note: this path uses a single
+        ollama_base for all sub-tasks, so it does NOT actually distribute
+        across runtimes. Keep it as a best-effort fallback, not the primary.
+        """
+        from agent.coordinator import AgentSpec, MultiAgentSwarm
+        from services.workflow_orchestrator import _BYPASS
+
         agents = [
             AgentSpec(
                 agent_id=st.task_id,
@@ -298,15 +444,11 @@ class CEODispatcher:
             for st in sub_tasks
         ]
         tasks_for_swarm = [_spec_to_task_spec(st) for st in sub_tasks]
-
         swarm = MultiAgentSwarm(
-            ollama_base=ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
-            workspace_root=workspace_root or os.getcwd(),
+            ollama_base=ollama_base,
+            workspace_root=workspace_root,
             github_token=github_token,
         )
-
-        # Run under the orchestrator bypass so MultiAgentSwarm.run() doesn't
-        # raise in default orchestrator mode.
         token = _BYPASS.set(True)
         try:
             coordinator = await swarm.run(
@@ -319,7 +461,6 @@ class CEODispatcher:
         finally:
             _BYPASS.reset(token)
 
-        # Normalize: collapse the swarm's per-worker payload into a flat list.
         out: list[dict[str, Any]] = []
         for worker in coordinator.workers:
             status = worker.get("status", "unknown")
