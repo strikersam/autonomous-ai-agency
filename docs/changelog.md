@@ -86,6 +86,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Autonomous agile ceremonies (`agents/agile_ceremonies.py`).** New `generate_standup()` builds a daily standup report (Completed / In progress / Planned / Blockers + active sprint health) from `.claude/state/active-tasks.md` and any active `AgileSprint`s. `generate_sprint_retro()` derives a `Retrospective` from sprint metrics (complete / on-track / at-risk / off-track + scope-creep detection) and stores it on the sprint. `generate_backlog_retro()` mines the task tracker's done/blocked/deferred rows and bug log for retro material. `plan_next_sprint()` runs WSJF capacity allocation against the portfolio, creates the sprint in `PLANNING` status, and adds a `UserStory` per committed initiative. `AgileSprint` gained a `stories` property. 17 new tests in `tests/test_agile_ceremonies.py`.
+
 ### Fixed
 - **Schedule duplication blocked: activate_company now idempotent.** Calling activate_company multiple times (retry, restart, onboarding re-trigger) created duplicate schedules for the same company. Added check: if a schedule with the same name already exists, skip creation and record it in the result with note=already_exists. Live evidence: 43 schedules across 2 companies reduced to 6 unique schedules after fix.
 
