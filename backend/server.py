@@ -4794,6 +4794,10 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
+    # When set, persists a new priority for the provider. The brain resolver
+    # sorts providers by priority (highest first) and prefers free providers
+    # over paid ones — so this controls failover order in #522.
+    priority: int = None
 
 
 @app.get("/api/providers")
