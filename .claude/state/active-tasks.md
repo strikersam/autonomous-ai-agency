@@ -32,6 +32,7 @@
 | 8 | FreeBuff always-on Telegram bot (24×7 Render/Docker, embedded mode) | `IN_PROGRESS` | `claude/freebuff-telegram-deploy` | embedded in-process agent + launcher + Dockerfile.telegram + render worker + deploy docs | 2026-06-06 |
 | 9 | SEO/GEO/AEO/AIO audit engine + repo fixer + revenue portfolio (#533, PR #534 plan) | `DONE` | `claude/cool-davinci-494siy` | 97-check engine, WSJF delegation, auto-fixer, API, 124 tests — see docs/seo-audit.md | 2026-06-12 |
 | 10 | SEO audit: browser-use fetch (Akamai bypass), honest revenue model, demoable UI tab + downloads | `IN_PROGRESS` | `claude/cool-davinci-494siy` | services/seo_fetch.py (httpx/Playwright/auto-escalate), diminishing-returns revenue curve, CompanyScreen SEO tab + CSV/JSON/MD downloads; 13 new fetch tests. Live Akamai bypass needs Playwright browsers in deploy | 2026-06-13 |
+| 11 | Fix specialist provisioning timeout + masked "something went wrong" errors (onboarding/SEO/gucci.com scan) | `DONE` | `claude/specialist-seo-scan-errors-pov08i` | onboarding.py Step 8 now backgrounded via asyncio.create_task; runtimes/control.py uses asyncio.to_thread for docker compose; api.js fmtErr() no longer masks e.message, added default/long-call axios timeouts; 1 new regression test | 2026-06-14 |
 
 ---
 

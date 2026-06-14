@@ -52,7 +52,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
     } catch (err) {
-      setError(fmtErr(err?.response?.data?.detail));
+      setError(fmtErr(err?.response?.data?.detail) || err?.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
