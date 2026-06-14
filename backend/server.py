@@ -4829,7 +4829,8 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
         raise HTTPException(status_code=409, detail="Provider ID already exists")
     if body.is_default:
         await get_db().providers.update_many({}, {"$set": {"is_default": False}})
-    doc = body.dict()
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    doc = body.model_dump()
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "configured"
     await get_db().providers.insert_one(doc)
