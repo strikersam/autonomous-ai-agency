@@ -343,3 +343,60 @@ def test_brain_env_override_wins_over_paid_provider(monkeypatch):
     )
     assert model == "my-free-model"
     assert headers and headers.get("Authorization") == "Bearer sk-free-PLACEHOLDER"
+
+
+# ─── 7. Integration test: PUT handler must write priority to MongoDB $set ───
+
+
+def test_put_handler_writes_priority_to_mongo_set(monkeypatch):
+    """The model-layer test above only proves the Pydantic field works. A
+    FastAPI body deserializer, a Pydantic validator, or a Mongo $set typo
+    in the handler could still silently drop the priority. This integration
+    test mocks get_db().providers.update_one and asserts the $set payload
+    actually contained {priority: 99} — the only way to pin the end-to-end
+    PUT→DB path the live UI exercises when an operator edits priority.
+    """
+    import asyncio as _asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    captured: dict = {}
+
+    # Mock get_db() to return a fake DB whose providers collection captures
+    # the $set payload that update_provider() actually writes.
+    fake_db = MagicMock()
+    fake_collection = MagicMock()
+    fake_update_result = MagicMock()
+    fake_update_result.matched_count = 1
+
+    async def _capture_update_one(filter_, update):
+        captured["filter"] = filter_
+        captured["update"] = update
+        return fake_update_result
+
+    fake_collection.update_one = _capture_update_one
+    fake_db.providers = fake_collection
+    fake_db.providers.update_many = AsyncMock(return_value=MagicMock(matched_count=0))
+
+    # Patch get_db on the backend.server module so the handler picks it up.
+    monkeypatch.setattr("backend.server.get_db", lambda: fake_db, raising=False)
+
+    # Build a minimal Request with an authenticated user, then call the handler directly.
+    from backend.server import update_provider, ProviderUpdate
+
+    body = ProviderUpdate(priority=99, default_model="nvidia/nemotron-3-super-120b-a12b")
+    user = {"_id": "u_test", "email": "admin@llmrelay.local"}
+
+    result = _asyncio.run(update_provider(provider_id="nvidia-nim", body=body, user=user))
+
+    # The handler must have called update_one with a $set containing {priority: 99}.
+    assert captured.get("update"), (
+        f"update_provider did not call update_one. Got captured: {captured!r}"
+    )
+    set_payload = captured["update"].get("$set", {})
+    assert set_payload.get("priority") == 99, (
+        f"update_provider must write priority to MongoDB $set. Got $set: {set_payload!r}"
+    )
+    # Other fields that were set on the body should also be present.
+    assert set_payload.get("default_model") == "nvidia/nemotron-3-super-120b-a12b"
+    # And the filter must target the right provider.
+    assert captured["filter"] == {"provider_id": "nvidia-nim"}
