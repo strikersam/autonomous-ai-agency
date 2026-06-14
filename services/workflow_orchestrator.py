@@ -169,27 +169,72 @@ async def _resolve_brain_provider(
             except (TypeError, ValueError):
                 return 0
         records.sort(key=_prio, reverse=True)
-        for rec in records:
-            base = str(rec.get("base_url") or "").strip().rstrip("/")
-            if not base:
-                continue
-            rtype = str(rec.get("type") or "").lower()
-            key = str(rec.get("api_key") or "").strip()
-            if rtype != "ollama" and not key:
-                continue
-            # Native Anthropic appends /v1/messages itself; normalise others to /v1.
-            if rtype != "anthropic" and not base.endswith("/v1"):
-                base = f"{base}/v1"
-            if base.rstrip("/") in exclude:
-                continue
-            if rtype == "anthropic":
-                headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
-            else:
-                headers = {"Authorization": f"Bearer {key}"} if key else None
-            model = str(rec.get("default_model") or "").strip() or None
+
+        def _pick(allow_paid: bool) -> tuple[str, dict | None, str | None] | None:
+            for rec in records:
+                rtype = str(rec.get("type") or "").lower()
+                # Never auto-select a paid provider (Anthropic / emergent-anthropic)
+                # as the brain when a free alternative exists — the operator must
+                # opt in explicitly via AGENT_LLM_BASE_URL. Protects against
+                # silent credit burn when ANTHROPIC_API_KEY is set in the env.
+                is_paid = rtype in ("anthropic", "emergent-anthropic")
+                if is_paid and not allow_paid:
+                    continue
+                base = str(rec.get("base_url") or "").strip().rstrip("/")
+                if not base:
+                    continue
+                key = str(rec.get("api_key") or "").strip()
+                if rtype != "ollama" and not key:
+                    continue
+                # Native Anthropic appends /v1/messages itself; normalise others to /v1.
+                if rtype != "anthropic" and not base.endswith("/v1"):
+                    base = f"{base}/v1"
+                if base.rstrip("/") in exclude:
+                    continue
+                if rtype == "anthropic":
+                    headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+                else:
+                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                model = str(rec.get("default_model") or "").strip() or None
+                return base, headers, model
+            return None
+
+        def _has_usable_free_provider() -> bool:
+            """True iff any configured free (non-Anthropic, keyed) provider exists.
+
+            Used to decide whether the paid-fallback pass is even worth trying:
+            if a free provider is configured, we should never silently escalate
+            to a paid one — even if the failover retry temporarily excludes
+            every free endpoint. A transient free outage must fall through to
+            the local Ollama fallback, not burn credits.
+            """
+            for rec in records:
+                rtype = str(rec.get("type") or "").lower()
+                if rtype in ("anthropic", "emergent-anthropic"):
+                    continue
+                base = str(rec.get("base_url") or "").strip().rstrip("/")
+                if not base:
+                    continue
+                key = str(rec.get("api_key") or "").strip()
+                if rtype != "ollama" and not key:
+                    continue
+                return True
+            return False
+
+        # First pass: prefer free cloud providers (NVIDIA NIM, Google Gemini,
+        # OpenRouter, etc.) — never auto-select paid Anthropic.
+        picked = _pick(allow_paid=False)
+        if picked is None and not _has_usable_free_provider():
+            # No free provider is configured at all — only then allow paid
+            # (Anthropic) as a manual-only last-resort fallback. The operator
+            # can still disable it by setting AGENT_LLM_BASE_URL to another
+            # provider or by removing the ANTHROPIC_API_KEY env var.
+            picked = _pick(allow_paid=True)
+        if picked is not None:
+            base, headers, model = picked
             log.info(
-                "Brain provider resolved from provider setup: %s base=%s model=%s",
-                rec.get("provider_id"), base, model,
+                "Brain provider resolved from provider setup: base=%s model=%s",
+                base, model,
             )
             return base, headers, model
     except Exception:

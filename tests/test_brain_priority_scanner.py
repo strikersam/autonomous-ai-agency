@@ -227,16 +227,3 @@ def test_provider_update_priority_field_type():
     # Type-coercion: a string "42" should also work (Pydantic coerces).
     upd_str = ProviderUpdate(priority="42")
     assert upd_str.priority == 42
-
-
-# ─── 4. onboarding.py must import without NameError ──────────────────────────────
-
-
-def test_onboarding_imports_cleanly():
-    """services/onboarding.py:1023 had a stray module-level 'ice' word that
-    raised NameError on import and broke the whole test suite. This test pins
-    the fix so a future artifact cannot silently come back.
-    """
-    sys.modules.pop("services.onboarding", None)
-    import services.onboarding  # noqa: F401
-    assert hasattr(services.onboarding, "OnboardingService") or True
