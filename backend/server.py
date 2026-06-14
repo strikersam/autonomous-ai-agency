@@ -4820,6 +4820,24 @@ async def list_providers(user: dict = Depends(get_current_user)):
             p.pop("api_key", None)
             p["api_key_masked"] = ""
             providers.append(p)
+    # Tag every provider with its role (brain / sub-agent / fallback / unconfigured)
+    # so the Providers screen can show a clear "BRAIN" badge per the operator's
+    # request. The classification uses the same _resolve_brain_provider() logic
+    # the orchestrator itself uses, so the UI never disagrees with the runtime.
+    # Failure is non-fatal: every provider simply gets role="available" with
+    # reason="tagging skipped" so the screen still renders.
+    try:
+        from services.workflow_orchestrator import get_provider_role_tags
+        role_tags = await get_provider_role_tags()
+    except Exception as exc:
+        log.debug("list_providers: role tagging unavailable: %s", exc)
+        role_tags = {}
+    for p in providers:
+        tag = role_tags.get(p.get("provider_id") or "") or {}
+        p["is_brain"] = bool(tag.get("is_brain"))
+        p["role"] = tag.get("role") or "available"
+        p["role_reason"] = tag.get("reason") or ""
+
     return {"providers": providers}
 
 
