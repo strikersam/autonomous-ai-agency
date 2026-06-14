@@ -307,11 +307,15 @@ async def start_runtime(runtime_id: str) -> dict[str, Any]:
 
     container_name = RUNTIME_CONTAINERS[runtime_id]
     try:
-        subprocess.run(
+        # Run off-thread with a short timeout: a blocking subprocess.run() call
+        # here would otherwise stall the entire FastAPI event loop (not just
+        # this request) for up to the timeout if `docker compose` hangs.
+        await asyncio.to_thread(
+            subprocess.run,
             ["docker", "compose", "up", "-d", "--no-deps", "--no-recreate", container_name],
             check=True,
             capture_output=True,
-            timeout=120,
+            timeout=10,
         )
         log.info("Started runtime: %s", runtime_id)
         return {
@@ -356,11 +360,13 @@ async def stop_runtime(runtime_id: str) -> dict[str, Any]:
 
     container_name = RUNTIME_CONTAINERS[runtime_id]
     try:
-        subprocess.run(
+        # Run off-thread with a short timeout — see start_runtime() for why.
+        await asyncio.to_thread(
+            subprocess.run,
             ["docker", "compose", "stop", container_name],
             check=True,
             capture_output=True,
-            timeout=60,
+            timeout=10,
         )
         log.info("Stopped runtime: %s", runtime_id)
         return {
