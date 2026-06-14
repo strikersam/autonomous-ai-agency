@@ -420,16 +420,18 @@ def test_execution_request_has_worktree_path():
 
 def test_execution_request_worktree_path_excluded_from_dump():
     """worktree_path is internal — must not leak in model_dump()."""
+    test_worktree_path = "/tmp/wt-test"  # noqa: S108 - test-only placeholder path
+    test_github_token = "test-token-value"  # noqa: S106 - test-only placeholder, not a real credential
     req = ExecutionRequest(
         request="test",
-        worktree_path="/tmp/wt-secret",
-        github_token="gh-secret",
+        worktree_path=test_worktree_path,
+        github_token=test_github_token,
     )
     dumped = req.model_dump()
     # github_token has exclude=True; worktree_path should also be safe to dump
     # but is informational, not a secret. We only assert the API serializes it.
     assert "worktree_path" in dumped
-    assert dumped["worktree_path"] == "/tmp/wt-secret"
+    assert dumped["worktree_path"] == test_worktree_path
     # github_token is excluded
     assert "github_token" not in dumped
 
@@ -587,9 +589,10 @@ async def test_handle_execute_falls_back_when_ceo_raises(monkeypatch):
     """If CEO delegation raises (availability error), fall through to AgentRunner."""
     from services.workflow_orchestrator import ClassifyOutput, PlanOutput, SpecialistSelection
 
-    # CEO raises
+    # CEO raises a connection-class error (the only kind the fallback path
+    # is allowed to swallow — see _CEO_FALLBACK_EXCEPTIONS).
     fake_ceo = MagicMock()
-    fake_ceo.delegate = AsyncMock(side_effect=RuntimeError("swarm unavailable"))
+    fake_ceo.delegate = AsyncMock(side_effect=ConnectionError("swarm unavailable"))
     monkeypatch.setattr(
         "services.workflow_orchestrator._get_ceo_dispatcher",
         lambda: fake_ceo,

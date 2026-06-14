@@ -359,15 +359,15 @@ def main() -> None:
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
 
     if not nvidia_key:
-        print("ERROR: NVIDIA_API_KEY not set — cannot run agent", file=sys.stderr)
+        log.error("ERROR: NVIDIA_API_KEY not set — cannot run agent")
         sys.exit(1)
 
     note_path = Path("/tmp/note_content.txt")  # nosec: B108
     url_content = note_path.read_text() if note_path.exists() else ""
 
-    print("Running baseline pytest...", flush=True)
+    log.info("Running baseline pytest...")
     baseline = _run_baseline_pytest()
-    print(f"Baseline pytest output:\n{baseline}", flush=True)
+    log.info(f"Baseline pytest output:\n{baseline}")
 
     claude_md = _read_claude_md()
 
@@ -438,7 +438,7 @@ def main() -> None:
 
     while turns < MAX_TURNS:
         turns += 1
-        print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}", flush=True)
+        log.info(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}")
 
         try:
             res = client.chat.completions.create(
@@ -449,21 +449,21 @@ def main() -> None:
                 messages=messages,  # type: ignore[arg-type]
             )
         except Exception as exc:
-            print(f"Model {model} error: {exc}", file=sys.stderr)
+            log.error(f"Model {model} error: {exc}")
             model_idx += 1
             if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
-                print("All NVIDIA candidate models exhausted — failing cleanly.", file=sys.stderr)
+                log.error("All NVIDIA candidate models exhausted — failing cleanly.")
                 break
             model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
             final_model = model
-            print(f"Switching to: {model}", file=sys.stderr)
+            log.warning(f"Switching to: {model}")
             turns -= 1
             continue
 
         msg = res.choices[0].message
 
         if msg.content:
-            print(f"[agent] {msg.content[:400]}", flush=True)
+            log.info(f"[agent] {msg.content[:400]}")
 
         # Serialise without null sentinel fields that NIM rejects with 422
         assistant_entry: dict = {"role": "assistant"}
@@ -486,16 +486,16 @@ def main() -> None:
             # Some models (e.g. Qwen3-coder) emit tool calls as XML text in content
             # instead of structured tool_calls. Detect and switch models.
             if "<tool_call>" in content or "<function=" in content:
-                print(f"[agent] {model} emitted XML tool calls in content — switching model", file=sys.stderr)
+                log.warning(f"[agent] {model} emitted XML tool calls in content — switching model")
                 messages.pop()  # discard the malformed assistant turn
                 model_idx += 1
                 if model_idx < len(NVIDIA_CANDIDATE_MODELS):
                     model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
                     final_model = model
-                    print(f"[agent] Switched to: {model}", flush=True)
+                    log.info(f"[agent] Switched to: {model}")
                     turns -= 1  # don't count this as a real turn
                 else:
-                    print("All candidate models exhausted.", file=sys.stderr)
+                    log.error("All candidate models exhausted.")
                     break
                 continue
             summary = content or summary
@@ -512,16 +512,16 @@ def main() -> None:
             except json.JSONDecodeError:
                 fn_args = {}
 
-            print(f"[tool] {fn_name}({list(fn_args.keys())})", flush=True)
+            log.info(f"[tool] {fn_name}({list(fn_args.keys())})")
             handler = TOOL_DISPATCH.get(fn_name)
             out = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
-            print(f"[tool result] {str(out)[:300]}", flush=True)
+            log.info(f"[tool result] {str(out)[:300]}")
 
             if fn_name == "bash":
                 cmd = fn_args.get("cmd", "")
                 if "pytest" in cmd:
                     last_pytest_passed = "[exit 0]" in out
-                    print(f"pytest exit 0: {last_pytest_passed}", flush=True)
+                    log.info(f"pytest exit 0: {last_pytest_passed}")
                 if "IMPLEMENTATION_COMPLETE" in out:
                     if last_pytest_passed:
                         success = True
@@ -544,7 +544,7 @@ def main() -> None:
     with open(RESULT_FILE, "w") as f:
         json.dump(result, f)
 
-    print(f"\n[agent] Done — success={success}, turns={turns}, model={final_model}", flush=True)
+    log.info(f"\n[agent] Done — success={success}, turns={turns}, model={final_model}")
     sys.exit(0 if success else 1)
 
 
