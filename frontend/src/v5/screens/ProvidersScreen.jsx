@@ -533,6 +533,88 @@ function ProvidersScreen() {
   const [actionErr, setActionErr] = React.useState(null);
   const [showCatalog, setShowCatalog] = React.useState(false);
 
+  // Paid-provider kill switch state
+  const [policy, setPolicy] = React.useState(null);  // null = loading
+  const [policyBusy, setPolicyBusy] = React.useState(false);
+  const [policyErr, setPolicyErr] = React.useState(null);
+  // Per-surface provider assignments
+  const [surfaces, setSurfaces] = React.useState(null);
+  const [surfaceBusy, setSurfaceBusy] = React.useState(null);  // which surface is saving
+
+  const loadSurfaces = React.useCallback(async () => {
+    try {
+      const { data } = await api.getProviderPolicy();
+      setSurfaces(data.surfaces || {});
+    } catch {
+      setSurfaces({});
+    }
+  }, []);
+
+  React.useEffect(() => { loadSurfaces(); }, [loadSurfaces]);
+
+
+  const loadPolicy = React.useCallback(async () => {
+    setPolicyErr(null);
+    try {
+      const { data } = await api.getProviderPolicy();
+      setPolicy(data);
+    } catch {
+      setPolicyErr('Could not load provider policy.');
+      setPolicy({ allow_paid: false });  // failsafe default
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const ac = new AbortController();
+    let cancelled = false;
+    const fetchPolicy = async () => {
+      setPolicyErr(null);
+      try {
+        const { data } = await api.getProviderPolicy();
+        if (!cancelled) setPolicy(data);
+      } catch {
+        if (!cancelled) {
+          setPolicyErr('Could not load provider policy.');
+          setPolicy({ allow_paid: false });
+        }
+      }
+    };
+    fetchPolicy();
+    return () => { cancelled = true; };
+  }, []);
+
+  const togglePolicy = async () => {
+    if (policyBusy || !policy) return;
+    const next = !policy.allow_paid;
+    setPolicyBusy(true); setPolicyErr(null);
+    try {
+      const { data } = await api.updateProviderPolicy({ allow_paid: next });
+      setPolicy(data);
+    } catch (e) {
+      setPolicyErr(api.fmtErr(e?.response?.data?.detail) || 'Failed to update policy.');
+    } finally { setPolicyBusy(false); }
+  };
+
+  
+  const saveSurface = async (surface, providerId) => {
+    if (!surfaces) return;
+    const prev = {...surfaces};
+    const next = {...surfaces, [surface]: providerId};
+    setSurfaces(next);
+    setSurfaceBusy(surface);
+    try {
+      const { data } = await api.updateProviderPolicy({
+        allow_paid: policy?.allow_paid ?? false,
+        surfaces: next,
+      });
+      setSurfaces(data.surfaces || next);
+    } catch {
+      setSurfaces(prev);  // revert on error
+    } finally {
+      setSurfaceBusy(null);
+    }
+  };
+
   const [data, states, refetch] = useSafeData(null, { providers: '/api/providers' }, { refreshMs: 0 });
   const providers = data.providers?.providers || [];
   const defaultProvider = providers.find(p => p.is_default) || providers[0];
@@ -587,8 +669,116 @@ function ProvidersScreen() {
 
       {tab === 'providers' && (
         <>
+          {/* Paid-Provider Kill Switch */}
+          <div style={{
+            borderRadius: 16,
+            border: `1px solid ${policy?.allow_paid ? 'rgba(255,189,102,0.25)' : 'rgba(70,217,164,0.18)'}`,
+            background: policy?.allow_paid ? 'rgba(255,189,102,0.05)' : 'rgba(70,217,164,0.04)',
+            padding: '14px 16px',
+            marginBottom: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+            transition: 'all 0.2s',
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '-0.02em' }}>Paid-provider kill switch</span>
+                {policy && (
+                  <span style={{
+                    fontSize: 9, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.10em',
+                    padding: '2px 7px', borderRadius: 999,
+                    background: policy.allow_paid ? 'rgba(255,189,102,0.12)' : 'rgba(70,217,164,0.10)',
+                    border: `1px solid ${policy.allow_paid ? 'rgba(255,189,102,0.30)' : 'rgba(70,217,164,0.22)'}`,
+                    color: policy.allow_paid ? '#ffbd66' : '#46d9a4',
+                    animation: policy.allow_paid ? 'pulse 2s infinite' : 'none',
+                  }}>
+                    {policy.allow_paid ? '⚠ Paid allowed' : 'Free only'}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                When <strong style={{ color: policy?.allow_paid ? '#ffbd66' : '#46d9a4' }}>off</strong>, Anthropic and other paid providers are <strong style={{ color: '#46d9a4' }}>never auto-selected</strong> — the platform uses free providers only.
+                When <strong style={{ color: '#ffbd66' }}>on</strong>, Anthropic can be used as a fallback when no free provider is reachable.
+              </div>
+              {policyErr && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#ff6b7d', fontFamily: 'var(--font-mono)' }}>{policyErr}</div>
+              )}
+            </div>
+            {policy === null ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                <div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.08)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+                Loading...
+              </div>
+            ) : (
+              <button
+                onClick={togglePolicy}
+                disabled={policyBusy}
+                style={{
+                  flexShrink: 0,
+                  padding: '9px 18px',
+                  borderRadius: 12,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: policyBusy ? 'not-allowed' : 'pointer',
+                  background: policy.allow_paid
+                    ? 'linear-gradient(135deg, #46d9a4, #2ecc71)'
+                    : 'linear-gradient(135deg, #ff6b7d, #e74c3c)',
+                  color: '#06111f',
+                  border: 'none',
+                  opacity: policyBusy ? 0.6 : 1,
+                  transition: 'all 0.15s',
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                {policyBusy ? 'Updating…' : policy.allow_paid ? 'Turn off' : 'Turn on'}
+              </button>
+            )}
+          </div>
+
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, marginBottom:12, flexWrap:'wrap' }}>
-            <div style={{ fontSize:12, color:'var(--text-muted)' }}>{providers.length} configured provider{providers.length===1?'':'s'}</div>
+            <div style={{ fontSize:12, color:'var(--text-muted)' }}>{providers.length} configured provider{providers.length===1?'':'s'}
+              {/* Per-surface provider assignment matrix */}
+              {surfaces && Object.keys(surfaces).length > 0 && (
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8 }}>
+                    Per-surface provider assignment
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 6 }}>
+                    {Object.entries(surfaces).map(([surface, providerId]) => (
+                      <div key={surface} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'capitalize', minWidth: 48, letterSpacing: '-0.01em' }}>{surface}</span>
+                        <select
+                          value={providerId || 'auto'}
+                          onChange={(e) => saveSurface(surface, e.target.value)}
+                          disabled={surfaceBusy === surface}
+                          style={{
+                            flex: 1, padding: '3px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.10)', color: '#fff', fontSize: 11,
+                            fontFamily: 'var(--font-mono)', outline: 'none', cursor: 'pointer',
+                            opacity: surfaceBusy === surface ? 0.5 : 1,
+                          }}
+                        >
+                          <option value="auto">Auto (priority)</option>
+                          {providers.map(p => (
+                            <option key={p.provider_id} value={p.provider_id}>
+                              {p.name || p.provider_id}
+                            </option>
+                          ))}
+                        </select>
+                        {surfaceBusy === surface && (
+                          <div style={{ width: 10, height: 10, border: '1.5px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.6s linear infinite', flexShrink: 0 }} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.4 }}>
+                    Assign specific providers to surfaces or leave "Auto" to use priority order.
+                  </div>
+                </div>
+              )}
+</div>
             <button onClick={()=>setShowAdd(o=>!o)} style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.30)', color:'var(--accent)' }}>+ Add provider</button>
           </div>
 

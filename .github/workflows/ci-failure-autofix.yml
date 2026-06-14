@@ -110,7 +110,20 @@ jobs:
           echo "Master branch has failing tests — skipping autofix to avoid masking pre-existing issues."
           exit 0
 
+      - name: Check provider policy (skip if paid providers disabled)
+        id: policy
+        run: |
+          # Respect the provider policy — skip Anthropic calls when allow_paid=false.
+          # Default: do not call Anthropic (safe). Override with PROVIDER_POLICY_ALLOW_PAID=true.
+          if [ "${PROVIDER_POLICY_ALLOW_PAID:-false}" = "true" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Paid providers disabled — skipping Claude auto-fix"
+          fi
+
       - name: Generate fix with Claude
+        if: steps.policy.outputs.skip != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |

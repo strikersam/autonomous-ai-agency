@@ -245,36 +245,24 @@ async def _resolve_brain_provider(
                 return base, headers, model
             return None
 
-        def _has_usable_free_provider() -> bool:
-            """True iff any configured free (non-Anthropic, keyed) provider exists.
-
-            Used to decide whether the paid-fallback pass is even worth trying:
-            if a free provider is configured, we should never silently escalate
-            to a paid one — even if the failover retry temporarily excludes
-            every free endpoint. A transient free outage must fall through to
-            the local Ollama fallback, not burn credits.
-            """
-            for rec in records:
-                rtype = str(rec.get("type") or "").lower()
-                if rtype in ("anthropic", "emergent-anthropic"):
-                    continue
-                base = str(rec.get("base_url") or "").strip().rstrip("/")
-                if not base:
-                    continue
-                key = str(rec.get("api_key") or "").strip()
-                if rtype != "ollama" and not key:
-                    continue
-                return True
-            return False
+        # Read the durable provider policy (default: allow_paid=False).
+        # This is the single source of truth — edited from the Providers
+        # screen. Paid providers (Anthropic) are NEVER auto-selected unless
+        # the operator explicitly flips the switch.
+        try:
+            from backend.server import _get_provider_policy
+            policy = await _get_provider_policy()
+            allow_paid = bool(policy.get("allow_paid", False))
+        except Exception:
+            allow_paid = False  # failsafe: never allow paid
 
         # First pass: prefer free cloud providers (NVIDIA NIM, Google Gemini,
         # OpenRouter, etc.) — never auto-select paid Anthropic.
         picked = _pick(allow_paid=False)
-        if picked is None and not _has_usable_free_provider():
-            # No free provider is configured at all — only then allow paid
-            # (Anthropic) as a manual-only last-resort fallback. The operator
-            # can still disable it by setting AGENT_LLM_BASE_URL to another
-            # provider or by removing the ANTHROPIC_API_KEY env var.
+        if picked is None and allow_paid:
+            # allow_paid=True in the policy — only then fall through to paid
+            # (Anthropic) as a last-resort. This gate stops silent credit burn
+            # when ANTHROPIC_API_KEY is set but the policy switch is OFF.
             picked = _pick(allow_paid=True)
         if picked is not None:
             base, headers, model = picked
@@ -292,6 +280,73 @@ async def _resolve_brain_provider(
         None,
         None,
     )
+
+async def resolve_provider_for(surface: str, exclude_base_urls: set[str] | None = None) -> tuple[str, dict | None, str | None]:
+    """Resolve the LLM endpoint for a given surface (brain/chat/task/sdlc/scanner/context/review).
+
+    Reads the durable provider policy. If the policy has an explicit provider_id
+    assigned to *surface*, that provider is used directly (skipping priority order).
+    If the value is "auto" (the default), falls through to _resolve_brain_provider
+    which uses the priority-ordered list.
+
+    Returns (openai_compatible_base_url, auth_headers_or_None, model_or_None).
+    """
+    try:
+        from backend.server import _get_provider_policy, _list_configured_provider_records
+        policy = await _get_provider_policy()
+        surfaces = policy.get("surfaces", {}) if isinstance(policy, dict) else {}
+        provider_id = (surfaces.get(surface) or "").strip()
+
+        if provider_id and provider_id != "auto":
+            # Honor the paid-provider kill switch. Even an explicit surface
+            # assignment must not bypass the allow_paid gate — this prevents
+            # silent credit burn when Anthropic is assigned to a surface but
+            # the operator has the kill switch OFF.
+            allow_paid = bool(policy.get("allow_paid", False))
+            records = list(await _list_configured_provider_records())
+            for rec in records:
+                if str(rec.get("provider_id") or "") == provider_id:
+                    rtype = str(rec.get("type") or "").lower()
+                    is_paid = rtype in ("anthropic", "emergent-anthropic")
+                    if is_paid and not allow_paid:
+                        log.warning(
+                            "resolve_provider_for(surface=%s): explicit provider %s is PAID but allow_paid=False — SKIPPING",
+                            surface, provider_id,
+                        )
+                        break
+                    base = str(rec.get("base_url") or "").strip().rstrip("/")
+                    key = str(rec.get("api_key") or "").strip()
+                    if not base or (rtype != "ollama" and not key):
+                        break
+                    # Honor exclude_base_urls even for explicit assignments so
+                    # the orchestrator's failover loop works correctly.
+                    if base.rstrip("/") in {u.rstrip("/") for u in (exclude_base_urls or set())}:
+                        log.info(
+                            "resolve_provider_for(surface=%s): explicit provider %s (%s) excluded by failover — falling to priority order",
+                            surface, provider_id, base,
+                        )
+                        break
+                    if rtype != "anthropic" and not base.endswith("/v1"):
+                        base = f"{base}/v1"
+                    if rtype == "anthropic":
+                        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+                    else:
+                        headers = {"Authorization": f"Bearer {key}"} if key else None
+                    model = str(rec.get("default_model") or "").strip() or None
+                    log.info(
+                        "resolve_provider_for(surface=%s): explicit provider %s → %s",
+                        surface, provider_id, base,
+                    )
+                    return base, headers, model
+            log.warning(
+                "resolve_provider_for(surface=%s): provider %s not found — falling to priority order",
+                surface, provider_id,
+            )
+    except Exception as exc:
+        log.debug("resolve_provider_for(surface=%s): policy lookup failed: %s", surface, exc)
+
+    # Fall through to the priority-ordered brain resolver.
+    return await _resolve_brain_provider(exclude_base_urls=exclude_base_urls)
 
 
 
@@ -1564,7 +1619,8 @@ class WorkflowOrchestrator:
                 failed_urls: set[str] = (
                     set(u for u in _prev_failed.split(",") if u) if _prev_failed else set()
                 )
-                brain_base, brain_headers, brain_model = await _resolve_brain_provider(
+                brain_base, brain_headers, brain_model = await resolve_provider_for(
+                    task,
                     exclude_base_urls=failed_urls,
                 )
                 # Record provider provenance for failover tracking.

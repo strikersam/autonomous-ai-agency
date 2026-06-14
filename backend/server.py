@@ -3473,6 +3473,21 @@ async def _build_provider_router(
     primary_provider_id: Optional[str],
     allow_commercial_fallback_once: bool = False,
 ) -> tuple[ProviderRouter, dict[str, bool], dict]:
+    # If no explicit provider is requested, resolve from the per-surface policy.
+    if not primary_provider_id:
+        try:
+            from services.workflow_orchestrator import resolve_provider_for
+            chat_base, chat_headers, chat_model = await resolve_provider_for(chat)
+            # Try to match the resolved base_url to a configured provider_id
+            records_for_match = await _list_configured_provider_records()
+            for r in records_for_match:
+                rbase = str(r.get("base_url") or "").strip().rstrip("/")
+                if rbase and chat_base.rstrip("/").startswith(rbase):
+                    primary_provider_id = str(r.get("provider_id") or "")
+                    break
+        except Exception:
+            log.debug("Surface-based provider resolution for chat failed — falling to priority order", exc_info=True)
+
     records = await _list_configured_provider_records()
     policy = _chat_provider_policy(
         allow_commercial_fallback_once=allow_commercial_fallback_once
@@ -4985,6 +5000,97 @@ async def provider_models(provider_id: str, user: dict = Depends(get_current_use
 
 
 # ─── Models Hub ─────────────────────────────────────────────────────────────────
+
+
+# --- Provider Policy (Paid-Provider Kill Switch) ----------------------------------------
+# Durable singleton controlling whether paid LLM providers (Anthropic) are
+# allowed. Stored in the providers collection with provider_id="provider_policy".
+# Edited from the Providers screen; read by every LLM call site and CI.
+
+
+# Canonical surface list — every surface that can be assigned a provider.
+# "auto" means use priority order (the default).
+_PROVIDER_SURFACES = [
+    "brain",    # main reasoning / planning provider
+    "ceo",      # CEO delegation layer
+    "chat",     # direct chat completions
+    "task",     # task execution (AgentRunner)
+    "sdlc",     # software dev lifecycle
+    "scanner",  # website / tech stack scanning
+    "context",  # context generation (CI)
+    "review",   # code review (CI)
+]
+
+
+class ProviderPolicyUpdate(BaseModel):
+    """Editable subset of the provider policy."""
+    allow_paid: bool = Field(
+        default=False,
+        description="When false, paid providers (Anthropic) are NEVER auto-selected",
+    )
+    surfaces: dict[str, str] = Field(
+        default_factory=lambda: {s: "auto" for s in _PROVIDER_SURFACES},
+        description="Per-surface provider assignment. 'auto' = use priority order.",
+    )
+
+
+async def _get_provider_policy() -> dict:
+    """Read the durable provider policy, falling back to a safe default.
+
+    Returns a dict with at least {'allow_paid': bool}. Never raises.
+    Failsafe: returns allow_paid=False when the DB is unreachable.
+    """
+    try:
+        doc = await get_db().providers.find_one({"provider_id": "provider_policy"})
+        if doc:
+            return {
+                "allow_paid": bool(doc.get("allow_paid", False)),
+                "surfaces": doc.get("surfaces") or {},
+            }
+    except Exception as exc:
+        log.debug("Provider policy lookup failed (non-fatal): %s", exc)
+    return {"allow_paid": False, "surfaces": {}}
+
+
+async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
+    """Persist the provider policy and return the new state.
+
+    Merges the incoming surfaces with existing ones so a partial PUT
+    (e.g. only {"brain": "nvidia-nim"}) never wipes the other surfaces."""
+    now = datetime.now(timezone.utc).isoformat()
+    # Merge surfaces: read existing, apply incoming deltas, write merged.
+    existing_surfaces = (await _get_provider_policy()).get("surfaces", {}) or {}
+    merged_surfaces = dict(existing_surfaces) if isinstance(existing_surfaces, dict) else {}
+    merged_surfaces.update(update.surfaces or {})
+    await get_db().providers.update_one(
+        {"provider_id": "provider_policy"},
+        {"$set": {"allow_paid": update.allow_paid, "surfaces": merged_surfaces, "updated_at": now}},
+        upsert=True,
+    )
+    return {"allow_paid": update.allow_paid, "surfaces": merged_surfaces}
+
+
+@app.get("/api/providers/policy")
+async def get_provider_policy(user: dict = Depends(get_current_user)):
+    """Return the durable provider policy (single source of truth for paid-provider gating)."""
+    return await _get_provider_policy()
+
+
+@app.put("/api/providers/policy")
+async def update_provider_policy(
+    body: ProviderPolicyUpdate,
+    user: dict = Depends(get_current_user),
+):
+    """Update the provider policy. Admin-only."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    result = await _set_provider_policy(body)
+    await log_activity(
+        "provider",
+        f"Provider policy updated: allow_paid={body.allow_paid}",
+        user_id=user["_id"],
+    )
+    return result
 
 
 @app.get("/api/models/catalog")

@@ -130,6 +130,19 @@ def main() -> None:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
 
+    # Gate Anthropic behind the provider policy (default: allow_paid=False).
+    # CI scripts must respect the kill switch so they never silently burn credits.
+    if anthropic_key:
+        try:
+            import sys as _sys, os as _os
+            _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+            from provider_policy import allow_paid
+            if not allow_paid():
+                print("Paid providers disabled by policy — skipping Anthropic", file=sys.stderr)
+                anthropic_key = ""
+        except ImportError:
+            pass  # policy module unavailable — respect the env var as-is
+
     if not anthropic_key and not nvidia_key:
         print("ERROR: neither ANTHROPIC_API_KEY nor NVIDIA_API_KEY set — defaulting to WARN", file=sys.stderr)
         with open(RESULT_FILE, "w") as f:

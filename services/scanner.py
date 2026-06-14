@@ -398,7 +398,7 @@ class WebsiteScanner:
                     # Mark origin subdomain in evidence source
                     s = DetectedSystem(
                         name=s.name,
-                        category=s.category,
+                        system_type=s.system_type,
                         confidence=max(0.0, s.confidence - 0.05),  # slight penalty for subdomain signal
                         evidence=s.evidence,
                         version=s.version,
