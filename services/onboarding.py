@@ -1020,4 +1020,3 @@ def set_onboarding_service(service: "OnboardingService") -> None:
     """
     global _onboarding_service
     _onboarding_service = service
-ice
