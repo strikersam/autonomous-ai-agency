@@ -1,27 +1,3 @@
-- **World-class SEO / GEO / AEO / AIO audit engine + repo-aware auto-fixer (issue #533, PR #534).**
-  *Engine:* `services/seo_audit.py` — async SSRF-safe crawler (robots.txt-aware, sitemap-seeded, up to 500 pages)
-  running a 102-check catalog (`services/seo_checks.py`) with full Screaming Frog issue-taxonomy parity
-  (Issue Name / Type / Priority / URLs / % of Total / Description / How To Fix / Help URL) plus
-  GEO (llms.txt, AI-crawler robots access, sitemaps, semantic landmarks, citable anchors) and
-  AIO/AEO (JSON-LD validity, Organization/Breadcrumb/FAQ schema, E-E-A-T, chunkability) pillars;
-  weighted 0-100 health score overall and per pillar.
-  *Revenue portfolio mechanism:* findings are quantified as estimated monthly revenue at risk
-  (capped at 35% of the `monthly_organic_revenue` baseline) and delegation packages are
-  WSJF-scored to slot directly into `agents/portfolio.py` Initiatives.
-  *Delegation:* every report includes an agent-ready delegation plan (priority, S/M/L effort,
-  suggested specialist family, instructions); `POST .../delegate` turns packages into real tasks.
-  *Auto-fixer:* `services/seo_fixer.py` — when a code repo is available, remediates fixable findings
-  with minimal targeted diffs (charset/viewport/lang, meta description, canonical, OG/Twitter tags,
-  noopener, protocol-relative URLs, image alt + Pillow-measured size attributes, lazy-loading,
-  robots.txt/sitemap.xml/llms.txt generation, platform-aware security-header suggestions);
-  dry-run by default, workspace-root jailed.
-  *API:* `backend/seo_api.py` — catalog, audit, list, full report, CSV/urls/issues/markdown/JSON
-  exports, delegate, fix. *Integration:* `seo-audit` runtime skill bound to seo/content/marketing/
-  analytics/frontend/ecommerce specialists; audits persisted to the Company Graph as KnowledgeItems;
-  SEO specialist family gains site_audit/issue_remediation/geo_optimization/aio_optimization.
-  *Tests:* 124 new tests across `tests/test_seo_audit.py`, `tests/test_seo_fixer.py`,
-  `tests/test_seo_api.py`. *Docs:* `docs/seo-audit.md`.
-
 - **Onboarding UX, logs, chat, admin fixes.** *Onboarding:* clickable breadcrumbs, restart button, Done back button. *Logs:* expandable messages (click to expand). *Chat:* ModelPicker two-step provider→model, mutual dropdown exclusion, repo URL input for code tasks. *Admin:* Companies tab with delete cleanup. *Backend:* DELETE /api/company/{id} endpoint.
 
 
@@ -87,78 +63,7 @@
 ## [Unreleased]
 
 ### Fixed
-- **CI auto-fix workflow used a retired Claude model ID**: `.github/workflows/ci-failure-autofix.yml` called the Anthropic API with `claude-sonnet-4-20250514` (original Claude Sonnet 4), which Anthropic retires on the Claude API on 2026-06-15 — the workflow's own header comment already said "Claude Sonnet 4.6". Updated to `claude-sonnet-4-6` to match. Added `tests/test_daily_2026_06_14.py` to guard against retired Claude 4 model IDs in `.github/workflows/` and `.github/scripts/`.
-- **Provider priority override bug**: `seed_default_providers` no longer resets user-edited priorities on every restart — UI priority changes now persist across server restarts.
-- **Anthropic as brain**: Anthropic providers demoted to priority -90/-80 (below all free cloud providers). Google Gemini (priority 75), OpenRouter (30), and others now win as the orchestrator brain.
-- **Google Gemini model name**: Fixed wrong model `gemma-4` → `gemini-2.5-flash` in seed defaults so the highest-priority free provider actually works.
-- **CI agent Anthropic fallback removed**: `implement_agent.py` no longer falls back to Claude Opus when NVIDIA NIM fails — this was the root cause of €20 credit drain. Runs now fail cleanly instead of burning paid API credits.
-- **`implement_agent.py` file truncation**: Restored full script from upstream (was cut off mid-line at 622/695 lines).
-- **Onboarding zero-specialist regression**: `start_onboarding` `detect_systems` step now falls back to `{"backend", "frontend", "analytics"}` when website/repo scanning yields no detectable system types (bot-protected or blocked sites). Previously the provisioning loop received an empty list and created zero specialists.
-- **Invalid `system_type="ecommerce"` in repo scanner**: `_detect_systems_from_github_data` was emitting `system_type="ecommerce"` which is not in the `SystemType` Literal — Pydantic validation would fail on any e-commerce-topic repo. Changed to `"OMS"` (the nearest valid type).
-
-### Changed
-- **remote-admin/: brand rename to "Autonomous AI Agency".** Replaced user-visible "Local LLM" / "LLM Relay v4" branding across `index.html`, `setup-wizard.html`, and `v4-dashboard.html` (page titles, breadcrumb, hero eyebrow, setup copy). Functional references (GitHub Pages URL and on-disk repo-path placeholders) left intact.
-
-### Security
-- **key_store.py: failed-lookup rate limiting + timing-safe key compare.** Keys were already stored as SHA-256 hashes (confirmed, no plaintext on disk). Added an in-memory per-IP failed-lookup limiter (`_RATE_MAX=20` per `_RATE_WINDOW=60s`, raising `RateLimitError`) wired into `lookup_plain_key(..., client_ip=...)`, and replaced the plain dict hit with an `hmac.compare_digest` scan so the secret comparison is constant-time. `proxy.py:verify_api_key` now passes the client IP and maps `RateLimitError` to HTTP 429. Regression tests in `tests/test_key_store_security.py`.
-
-### Security
-- **agent/tools.py: hardened path-traversal guard in `WorkspaceTools`.** Added `_safe_path()` using a strict `os.path.realpath` prefix comparison (root + os.sep), rejecting `..` traversal, absolute paths, and sibling-prefix directories. `_resolve_path` now delegates to it, so `read_file`, `write_file`, `apply_diff`, `list_files`, `head_file`, `file_index` and `search_code` are all jailed to the workspace root. Constructor accepts a `workspace_root` keyword alias. Regression tests in `tests/test_agent_tools_security.py`.
-
-### Added
-- **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
-- **CompanyScreen: Systems tab — category grouping, confidence scores, detection method badges.** Previously the systems tab showed a flat list. Now systems are grouped by category (CMS, CRM, analytics, payment_gateway, etc.) with a color-coded category header. Each detected system shows: version if available, detection method badges (html/dns/ssl/headers/script/cookie in distinct colours), and a confidence mini-bar + percentage score. Summary counts at top: "N systems detected across M categories", with separate counters for auto-detected vs connected systems. Empty state message directs users to run a scan.
-
-### Changed
-- **Mobile-first CSS hardening.** Added a global mobile baseline so the dashboard and chat UIs never overflow horizontally on small screens: `max-width: 100vw` on the `html, body, #root` root containers and a `img, video, iframe { max-width: 100%; height: auto; }` rule in both `frontend/src/index.css` and `webui/frontend/src/styles.css` (the latter also gains `overflow-x: hidden` on `html, body`). Wrapped the three previously-unwrapped data tables in horizontally scrollable containers so wide tables scroll instead of clipping on phones: `frontend/src/pages/LogsPage.js` (Provider Performance) and both tables in `frontend/src/v5/screens/AdminOnboardingPanel.jsx` (user-onboarding and audit-log).
-
-### Fixed
-- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
-
-### Fixed
-- **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
-
-### Added
-- **`GET /api/scheduler/tick/last` — Cloudflare cron keepalive monitoring endpoint.** Tracks `_last_cron_tick_at` (updated on each authenticated `POST /api/scheduler/tick` from the Cloudflare Worker). Public endpoint (no auth) returns last tick timestamp, seconds since last tick, staleness flag (>120s = stale), and human-readable message. Monitoring tools can poll this to confirm the Worker's `scheduled()` handler is successfully reaching Render.
-
-### Fixed
-- **Anthropic brain calls now authenticated correctly.** The brain resolver used `Authorization: Bearer` for all provider types including `type=anthropic`, which requires `x-api-key` + `anthropic-version` headers. This caused silent 401s that appeared as stalled runs. Fixed with a type check in the resolver.
-
-### Fixed
-- **Anthropic API calls no longer 404.** Seed records for `anthropic-claude` had `base_url` ending in `/v1`; the orchestrator resolver then appended `/v1/messages`, producing `https://api.anthropic.com/v1/v1/messages`. Changed both seed records to `https://api.anthropic.com` to match the env default.
-
-### Fixed
-- **Scheduler now actually fires jobs.** Two root causes fixed: (1) AgentScheduler was created without an on_fire callback so cron events had nowhere to go; wired to orchestrator execute with auto_approve. (2) Render free tier spins down after inactivity killing APScheduler; added Cloudflare cron trigger (every minute) in wrangler.jsonc and a Worker scheduled handler that pings /api/scheduler/tick on the Render backend. APScheduler now stays alive and overdue jobs are dispatched on every tick.
-
-### Added
-- **SEO audit: browser-fetch path (bot-protection bypass) + demoable UI + honest revenue model.**
-  - *Browser-use fetch backend* (`services/seo_fetch.py`): pluggable page fetchers — default `HttpxFetcher`,
-    a `BrowserFetcher` that renders pages with a real headless Chromium (browser-use / Playwright; local by
-    default, Browserbase only as an explicit `SEO_BROWSER_BACKEND=browserbase` opt-in), and a `ResilientFetcher`
-    that auto-escalates from httpx to a browser when a bot-block (Akamai/Cloudflare 403/challenge) is detected.
-    New `SeoAuditRequest.fetch_mode` (`auto`/`http`/`browser`, default `auto`). This lets the engine actually
-    crawl bot-protected enterprise sites (e.g. luxury retail) instead of recording a block page.
-  - *Honest revenue-at-risk model* (`services/seo_audit.py`): replaced the linear-sum-clipped-to-35% model
-    (which saturated the cap on almost any site) with a content-dependent diminishing-returns curve
-    `share = 35% × (1 − e^(−pressure/50))`, where pressure = Σ(severity × type × page-coverage). The dollar
-    figure now tracks what was measured; the Markdown report carries an explicit "model estimate, not a
-    measured loss" methodology note.
-  - *UI* (`frontend/src/v5/screens/CompanyScreen.jsx`, `frontend/src/api.js`): a new **SEO Audit** tab on the
-    company page — run an audit (URL, fetch mode, max pages, optional organic-revenue baseline), health score,
-    six pillar scores, revenue-at-risk with caveat, full findings table, **Download CSV/JSON/Markdown/URLs/Issues**
-    buttons, and one-click **Delegate to task board**.
-  - *Tests:* `tests/test_seo_fetch.py` (bot-block detection, httpx→FetchResult normalisation, auto-escalation,
-    backend selection). Note: the live Akamai bypass must be verified in an environment with Playwright browsers
-    installed; it cannot be exercised where the Chromium binary download is blocked.
-
-### Fixed
-- **Schedule duplication blocked: activate_company now idempotent.** Calling activate_company multiple times (retry, restart, onboarding re-trigger) created duplicate schedules for the same company. Added check: if a schedule with the same name already exists, skip creation and record it in the result with note=already_exists. Live evidence: 43 schedules across 2 companies reduced to 6 unique schedules after fix.
-
-### Fixed
-- **Agent brain now visible to FastAPI in Cloudflare Worker.** Env vars set via `--var` on deploy do not auto-populate process.env in Node.js; added `[env.production]` to wrangler.jsonc binding AGENT_LLM_BASE_URL, AGENT_LLM_MODEL, and AGENT_LLM_API_KEY so the orchestrator resolver can read them. Deploy now uses `--env production` and the secret upload targets the same environment.
-
-### Fixed
-- **Deploys unfrozen: Worker secret upload honors wrangler.jsonc.** Deploys failed with "Required Worker name missing" because the wrangler-action secrets input runs secret put without --config. Replaced with an explicit npx -y wrangler@4 secret put step; the first green deploy activates the env-pinned Claude brain.
+- **Deploys unfrozen: Worker secret upload now honors wrangler.jsonc.** Every deploy since the brain-pinning change failed with "Required Worker name missing" because the wrangler-action secrets input runs `secret put` without `--config`. Replaced with an explicit `npx -y wrangler@4 secret put AGENT_LLM_API_KEY --config wrangler.jsonc` step; the first green deploy activates the env-pinned Claude brain.
 
 ### Added
 - **Deploy pins the agent brain via env (immune to #537).** deploy-cloudflare.yml now passes AGENT_LLM_BASE_URL (Anthropic OpenAI-compat) and AGENT_LLM_MODEL=claude-sonnet-4-6 as Worker vars and uploads AGENT_LLM_API_KEY as a Worker secret from GitHub secrets on every deploy. The brain resolver checks env before provider records, so Claude stays the brain across restarts and instances; remove the vars to fall back to record-priority ordering (free models).
@@ -1684,13 +1589,3 @@
 
 
 
-
-- **Parameterised SEO audit skill + runner script.**
-  `scripts/run_seo_audit.py` — standalone CLI that accepts `--website-url`, `--max-pages`,
-  `--max-depth`, `--output-dir`, `--timeout-seconds`, and `--monthly-organic-revenue` parameters;
-  crawls any public site using curl_cffi Chrome-120 TLS impersonation (bypasses Akamai/Cloudflare);
-  writes executive PDF (reportlab), JSON, Markdown, findings CSV, pages CSV, and issues CSV.
-  `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
-  quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
-  revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).
-                                                                                                                                                                                                                                                                                                                                     
