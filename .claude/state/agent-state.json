@@ -1,16 +1,16 @@
 {
   "schema_version": "1",
-  "session_id": "agency-cycle-fresh-2026-06-03",
+  "session_id": "agency-cycle-fresh-2026-06-10",
   "status": "ready",
-  "last_updated": "2026-06-03T14:45:00Z",
-  "next_step": "Merge PR fix/session-resume-provider-mismatch, then trigger agency-cycle.yml workflow_dispatch",
+  "last_updated": "2026-06-10T08:30:14.173Z",
+  "next_step": {
+    "id": "agency-cycle-001",
+    "name": "Run agency-cycle workflow",
+    "description": "CEO assessment, pytest baseline, bandit scan \u2014 trigger agency-cycle.yml after Friday maintenance.",
+    "resume_command": "python scripts/ai_runner.py resume"
+  },
   "completed_steps": [
-    "weekly-maintenance-2026-06-03",
-    "security-consolidation-pr-368",
-    "resolve-143-codeql-alerts-pr-369",
-    "security-gate-and-openclaw-pr-369",
-    "session-resume-fixes"
+    "weekly-maintenance-2026-06-10"
   ],
-  "notes": "Session resumed and completed 2026-06-03. PAT confirmed working. Fixed test + production bug. All 1898 tests pass. Changes pushed to branch fix/session-resume-provider-mismatch (master protected, needs PR).",
-  "changed_files": ["direct_chat.py", "tests/test_direct_chat_async.py", "docs/changelog.md"]
+  "notes": "Fresh start after Friday maintenance sweep. Merged PR #501 (skill registry prod fix); re-ran flaky Playwright jobs on PR #498."
 }

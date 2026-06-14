@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Agency Core doctor — fast environment & CI-parity diagnostics.
+"""Autonomous AI Agency doctor — fast environment & CI-parity diagnostics.
 
 Answers the operator questions "why didn't this run?" and "why did CI fail but
 local pass?" by checking the things that actually differ between a laptop and the
@@ -169,13 +169,13 @@ CHECKS = (
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Agency Core environment & CI-parity doctor")
+    ap = argparse.ArgumentParser(description="Autonomous AI Agency environment & CI-parity doctor")
     ap.add_argument("--strict", action="store_true", help="exit 1 if any check FAILs")
     args = ap.parse_args()
 
     results = [c() for c in CHECKS]
     width = max(len(r.name) for r in results)
-    print("\nAgency Core doctor")
+    print("\nAutonomous AI Agency doctor")
     print("=" * 60)
     for r in results:
         print(f"  [{r.status:<4}] {r.name.ljust(width)}  {r.detail}")

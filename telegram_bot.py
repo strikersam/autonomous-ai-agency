@@ -696,12 +696,15 @@ async def _tg_call(method: str, params: dict | None = None) -> dict:
 async def run_bot() -> None:
     # Re-parse allowlists from the environment at startup so the bot is robust to
     # import order (e.g. when launched in-process by the web service after env is set).
-    global ALLOWED_USER_IDS, ADMIN_USER_IDS
+    global ALLOWED_USER_IDS, ADMIN_USER_IDS, TELEGRAM_BOT_TOKEN
     ALLOWED_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ALLOWED_USER_IDS", ""))
     ADMIN_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ADMIN_USER_IDS", ""))
 
     if not TELEGRAM_BOT_TOKEN:
-        log.error("TELEGRAM_BOT_TOKEN is not set. Set it in the environment and restart.")
+        log.warning(
+            "TELEGRAM_BOT_TOKEN is not set — telegram bot is disabled. "
+            "Set TELEGRAM_BOT_TOKEN in the environment to enable it."
+        )
         return
     # Defensively strip any internal whitespace from the token (common copy-paste error).
     safe_token = "".join(TELEGRAM_BOT_TOKEN.split())

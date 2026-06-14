@@ -25,6 +25,16 @@ services:
         sync: false
 
       # ================================================================
+      # Autonomous loop — log watcher auto-files GitHub issues for
+      # production errors; agents pick them up via the context-PR pipeline.
+      # GH token comes from GH_TOKEN/GITHUB_TOKEN (sync: false, dashboard).
+      # ================================================================
+      - key: LOG_WATCHER_AUTO_FILE
+        value: "1"
+      - key: GITHUB_REPOSITORY
+        value: "strikersam/local-llm-server"
+
+      # ================================================================
       # NVIDIA NIM - Free models, first priority (no local infra needed)
       # Set NVIDIA_API_KEY in the Render dashboard to your nvapi-... key
       # ================================================================

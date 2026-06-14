@@ -64,7 +64,45 @@ GITHUB_REGISTRIES: list[dict[str, str]] = [
         "skill_file": "SKILL.md",
         "structure": "subdirs",
     },
+    {
+        # 338 business/PM/engineering skills in nested category dirs
+        # (e.g. project-management/discovery/pre-mortem/SKILL.md).
+        # Indexed via the git-trees API (single request) and fetched from
+        # raw.githubusercontent.com to stay clear of API rate limits.
+        "id": "borghei-claude-skills",
+        "owner": "borghei",
+        "repo": "Claude-Skills",
+        "path": "",
+        "skill_file": "SKILL.md",
+        "structure": "nested",
+        "branch": "main",
+    },
+    # ── Curated from BehiSecc/awesome-claude-skills (issue #491) ───────────
+    # The awesome list itself is links, not skills; these are the two largest
+    # actual skill repos it references that we don't already index
+    # (anthropics/skills is already registered above via "anthropic-skills").
+    {
+        "id": "superpowers",
+        "owner": "obra",
+        "repo": "superpowers",
+        "path": "",
+        "skill_file": "SKILL.md",
+        "structure": "nested",
+        "branch": "main",
+    },
+    {
+        "id": "ai-skills-sanjay",
+        "owner": "sanjay3290",
+        "repo": "ai-skills",
+        "path": "",
+        "skill_file": "SKILL.md",
+        "structure": "nested",
+        "branch": "main",
+    },
 ]
+
+# Max skill files fetched per refresh for "nested" registries.
+NESTED_REGISTRY_FETCH_CAP = 400
 
 # Tech → Skill mapping
 # Tells the recommender which skills are most relevant for a given tech.
@@ -266,7 +304,11 @@ class SkillRegistry:
                  github_token: str | None = None) -> None:
         self._skills: dict[str, RegistrySkill] = {}
         self._last_remote_fetch: float = 0.0
-        self._local_dir = Path(local_skills_dir or ".claude/skills")
+        # Resolve relative to the repo root, not the process CWD — in
+        # production the server may start from a different working directory,
+        # which made the local skill index come up empty (0 skills loaded).
+        _default_dir = Path(__file__).resolve().parent.parent / ".claude" / "skills"
+        self._local_dir = Path(local_skills_dir) if local_skills_dir else _default_dir
         self._github_token = github_token
         self._semaphore = asyncio.Semaphore(self._MAX_CONCURRENT)
         self._etags: dict[str, str] = {}  # URL → ETag for conditional requests
@@ -450,6 +492,9 @@ class SkillRegistry:
         skill_file = reg.get("skill_file", "")  # empty for flat structure
         structure = reg.get("structure", "subdirs")
 
+        if structure == "nested":
+            return await self._fetch_nested_registry(client, reg)
+
         api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
         try:
             async with self._semaphore:
@@ -491,6 +536,112 @@ class SkillRegistry:
             if isinstance(res, RegistrySkill):
                 skills.append(res)
         return skills
+
+    async def _fetch_nested_registry(
+        self, client: httpx.AsyncClient, reg: dict[str, str]
+    ) -> list[RegistrySkill]:
+        """Fetch a registry whose skills live in arbitrarily nested directories.
+
+        Uses the git-trees API with ``recursive=1`` (a single request) to find
+        every ``<skill_file>`` path, then fetches file contents from
+        raw.githubusercontent.com, which is not subject to the 60 req/h
+        unauthenticated API limit. Fetch count is capped by
+        ``NESTED_REGISTRY_FETCH_CAP``.
+        """
+        owner, repo = reg["owner"], reg["repo"]
+        branch = reg.get("branch", "main")
+        skill_file = reg.get("skill_file", "SKILL.md")
+        prefix = reg.get("path", "")
+
+        tree_url = (
+            f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+        )
+        try:
+            async with self._semaphore:
+                headers = dict(client.headers)
+                if tree_url in self._etags:
+                    headers["If-None-Match"] = self._etags[tree_url]
+                r = await client.get(tree_url, headers=headers)
+            if r.status_code == 304:
+                return []
+            if r.status_code != 200:
+                if r.status_code == 403 and "rate limit" in (r.text or "").lower():
+                    log.warning("GitHub rate limit hit for %s/%s", owner, repo)
+                return []
+            if "ETag" in r.headers:
+                self._etags[tree_url] = r.headers["ETag"]
+            tree = r.json().get("tree", [])
+        except Exception:
+            return []
+
+        all_paths = [
+            e["path"] for e in tree
+            if isinstance(e, dict)
+            and e.get("type") == "blob"
+            and e.get("path", "").endswith("/" + skill_file)
+            and e.get("path", "").startswith(prefix)
+        ]
+        # Round-robin across top-level categories so the cap yields breadth
+        # (alphabetical truncation would drop entire categories).
+        by_cat: dict[str, list[str]] = {}
+        for p in all_paths:
+            by_cat.setdefault(p.split("/")[0], []).append(p)
+        paths: list[str] = []
+        while len(paths) < min(NESTED_REGISTRY_FETCH_CAP, len(all_paths)):
+            for cat in sorted(by_cat):
+                if by_cat[cat]:
+                    paths.append(by_cat[cat].pop(0))
+                    if len(paths) >= NESTED_REGISTRY_FETCH_CAP:
+                        break
+
+        tasks = [
+            self._fetch_nested_skill_file(client, reg, p, branch) for p in paths
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return [res for res in results if isinstance(res, RegistrySkill)]
+
+    async def _fetch_nested_skill_file(
+        self, client: httpx.AsyncClient, reg: dict[str, str],
+        path: str, branch: str,
+    ) -> RegistrySkill | None:
+        """Fetch one nested SKILL.md via raw.githubusercontent.com."""
+        owner, repo = reg["owner"], reg["repo"]
+        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+        try:
+            async with self._semaphore:
+                r = await client.get(raw_url)
+            if r.status_code != 200:
+                return None
+            raw = r.text
+        except Exception:
+            return None
+
+        # Strip YAML frontmatter so description comes from real prose.
+        body = raw
+        if body.startswith("---"):
+            end = body.find("\n---", 3)
+            if end != -1:
+                body = body[end + 4:].lstrip()
+
+        # path = "<categories...>/<skill-name>/SKILL.md"
+        parts = path.split("/")
+        name = parts[-2] if len(parts) >= 2 else parts[0]
+        categories = parts[:-2]  # everything above the skill dir
+        skill_id = f"github:{reg['id']}:{name}"
+
+        return RegistrySkill(
+            skill_id=skill_id,
+            name=_fmt_name(name),
+            description=_first_paragraph(body),
+            source=f"github:{reg['id']}",
+            registry_id=reg["id"],
+            url=f"https://github.com/{owner}/{repo}/blob/{branch}/{path}",
+            tags=sorted(set(_extract_tags(raw)) | set(categories)),
+            tech_relevance=_extract_tech_relevance(raw),
+            workflow_relevance=_extract_workflow_relevance(raw),
+            raw_content=raw[:4000],
+            fetched_at=time.time(),
+        )
 
     async def _fetch_flat_skill_file(
         self, client: httpx.AsyncClient, reg: dict[str, str],

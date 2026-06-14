@@ -379,7 +379,7 @@ def _require_onboarding_gate(request: Request) -> None:
             status_code=403,
             detail={
                 "code": "instance_not_activated",
-                "message": "This LLM Relay instance has not been activated. "
+                "message": "This Autonomous AI Agency instance has not been activated. "
                            "Email strikersam@gmail.com with your Instance ID to request an activation code.",
             },
         )

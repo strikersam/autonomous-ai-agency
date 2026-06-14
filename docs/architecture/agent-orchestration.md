@@ -88,17 +88,36 @@ The Judge agent (`.claude/agents/judge.md`) runs the release-readiness skill at 
 - Checks changelog
 - Produces `judge-verdict.json` with APPROVED / APPROVED_WITH_CONDITIONS / BLOCKED
 
-## Worktree Isolation (Future)
+## Worktree Isolation & Concurrency
 
-For parallel agent execution, git worktrees can isolate each agent's working tree:
+Per-task git worktree isolation **is implemented** (not a future capability).
+
+- **Concurrent dispatch.** `tasks/dispatcher.py` pulls up to
+  `TASK_DISPATCH_CONCURRENCY` (default 5) pending tasks and runs them together
+  via `asyncio.gather(*(self._execute_task(t.task_id) for t in tasks))`.
+- **Per-task isolation.** Before executing, `runtimes/adapters/internal_agent.py`
+  calls `_create_worktree(workspace, task_id)`, which runs
+  `git worktree add --detach <path> HEAD` so each concurrent task edits its own
+  working tree off the shared object store and cannot clobber another task's
+  in-flight changes. When the workspace is not a git repo (or worktree creation
+  fails) it falls back to a `tempfile.TemporaryDirectory` copy of the workspace.
+- **Cleanup.** `_remove_worktree(...)` removes the worktree (`git worktree remove
+  --force`, then `rmtree` as a safety net) in a `finally` block when the task ends.
+- **Claim lock.** A shared per-task claim (`task:active:<id>`, TTL 1h) prevents two
+  workers from executing the same task concurrently.
 
 ```bash
-git worktree add .worktrees/agent-1 HEAD
-git worktree add .worktrees/agent-2 HEAD
+# Effectively, per task:
+git worktree add --detach <workspace>/.worktrees/<task-slug> HEAD
+# … agent edits, commits, opens PR from inside the worktree …
+git worktree remove --force <path>
 ```
 
-Each agent writes to its own worktree; the Judge merges results.
-This is documented as a future capability — the current implementation is sequential.
+**Caveats / known limits.** Isolation is per *task*, keyed off `task_id`; ad-hoc
+runs without a task id share an `"adhoc"` slug. The fallback temp-copy path does
+not carry git history, so git-dependent steps degrade in non-repo workspaces.
+The Judge does not yet auto-merge results across worktrees — each task is expected
+to land its own branch/PR.
 
 ## OSS Inspirations (Clean-Room)
 

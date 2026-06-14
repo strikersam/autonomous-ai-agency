@@ -1,0 +1,183 @@
+name: Quick-Note Claim TTL Sweeper
+
+# Triggered every 2h (and manually). Force-removes `quick-note:in-progress`
+# labels that have been stuck for >4h, which means the runner that posted
+# the claim is dead and never released it. Without this sweeper, a crashed
+# runner would permanently block its issue from being picked up again
+# (the pick-step filter skips any issue tagged in-progress).
+#
+# The 4h TTL is intentionally longer than the 240s/agent budget the chat
+# pipeline uses (#468) so a legitimately-long run is never pre-empted.
+
+on:
+  schedule:
+    # Every hour so worst-case unblock latency is TTL+1h (~5h with the 4h
+    # default). Two-hour cadence left a 6h window where a stuck issue was
+    # invisible to the pipeline.
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      max_age_hours:
+        description: "Max label age (hours) before force-removal"
+        required: false
+        type: string
+        default: "4"
+      dry_run:
+        description: "If true, only report what would be released"
+        required: false
+        type: string
+        default: "false"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  sweep-stale-claims:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Force-remove stuck quick-note:in-progress labels
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          MAX_AGE_HOURS: ${{ github.event.inputs.max_age_hours || '4' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          # Find every still-open quick-note issue that carries the
+          # `quick-note:in-progress` label AND was updated more than
+          # MAX_AGE_HOURS ago (a fresh claim is always < 30 min old, so
+          # the 4h threshold leaves 8× headroom for legitimately-long
+          # agent runs to finish naturally).
+          CUTOFF=$(date -u -d "${MAX_AGE_HOURS} hours ago" +%FT%TZ)
+          echo "Cutoff: ${CUTOFF} (anything older than this is force-released)"
+
+          # gh issue list returns open issues with the label; we then
+          # filter to those whose updatedAt is older than the cutoff.
+          # gh's --jq can't do date math, so we pipe to a small Python
+          # helper for the comparison.
+          ISSUES_JSON=$(gh api \
+            "repos/${REPO}/issues?state=open&labels=quick-note:in-progress&per_page=100" \
+            --jq '[.[] | {number, updatedAt, title, html_url}]')
+
+          if [ -z "${ISSUES_JSON}" ] || [ "${ISSUES_JSON}" = "[]" ]; then
+            echo "No open issues with quick-note:in-progress label — nothing to sweep."
+            exit 0
+          fi
+
+          echo "Found $(echo "${ISSUES_JSON}" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))') stuck claim(s)."
+
+          # Iterate and force-release each one whose updatedAt < CUTOFF.
+          echo "${ISSUES_JSON}" | python3 << 'PYEOF'
+          import datetime as dt
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+
+          cutoff = dt.datetime.fromisoformat(os.environ["CUTOFF"].replace("Z", "+00:00"))
+          dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
+          repo = os.environ["REPO"]
+          token = os.environ["GH_TOKEN"]
+
+          issues = json.loads(sys.stdin.read())
+          released = 0
+          would_release = 0
+          skipped = 0
+          failed = 0
+
+          for issue in issues:
+              updated = dt.datetime.fromisoformat(issue["updatedAt"].replace("Z", "+00:00"))
+              age = cutoff - updated  # positive means older than cutoff
+              if age.total_seconds() <= 0:
+                  print(f"  ⏭  #{issue['number']} updated {issue['updatedAt']} — still fresh, skip")
+                  skipped += 1
+                  continue
+
+              if dry_run:
+                  print(f"  🔍 DRY-RUN: would force-release #{issue['number']} (last updated {issue['updatedAt']})")
+                  would_release += 1
+                  continue
+
+              print(f"  🧹 Force-releasing #{issue['number']} (last updated {issue['updatedAt']}, > {os.environ['MAX_AGE_HOURS']}h old)")
+
+              # Post the CRITICAL recovery comment FIRST so a concurrent
+              # pick-step that races the label-removal still finds an
+              # explanation in the issue timeline. The comment doesn't
+              # gate the pick filter (which is label-based), but it does
+              # close the confusing "label is off, no human action visible"
+              # window for anyone reading the issue.
+              crit = (
+                  f"⚠️ **Claim TTL sweeper** force-releasing this issue at "
+                  f"{dt.datetime.now(dt.timezone.utc).isoformat()}Z "
+                  f"(in-progress label stuck for >{os.environ['MAX_AGE_HOURS']}h, "
+                  f"previous runner died before always-release cleanup could post). "
+                  f"The label is being removed in a moment. The next scheduled "
+                  f"Process Quick Note run will pick the issue up. No human action "
+                  f"required."
+              )
+              comment_result = subprocess.run(
+                  ["gh", "issue", "comment", str(issue["number"]),
+                   "--repo", repo, "--body", crit],
+                  env={**os.environ, "GH_TOKEN": token},
+                  capture_output=True, text=True,
+              )
+              if comment_result.returncode != 0:
+                  # Comment failure is non-fatal — continue to the label
+                  # removal so the issue still gets unblocked.
+                  print(f"    ⚠️  gh issue comment failed (continuing to label removal): {comment_result.stderr.strip()}")
+
+              # 2. Remove the in-progress label. Treat "label not present"
+              #    as success — a re-run of the sweeper within minutes of
+              #    a successful sweep, or a race against the always-release
+              #    step, would otherwise mark every issue `failed`.
+              rm_result = subprocess.run(
+                  ["gh", "issue", "edit", str(issue["number"]),
+                   "--repo", repo, "--remove-label", "quick-note:in-progress"],
+                  env={**os.environ, "GH_TOKEN": token},
+                  capture_output=True, text=True,
+              )
+              if rm_result.returncode != 0:
+                  stderr = rm_result.stderr.strip()
+                  # Tolerate "label not on issue" / "no labels to remove".
+                  # The match must anchor on the issue-side ("on issue",
+                  # "from issue", "on this issue") so unrelated errors that
+                  # happen to mention "label" alongside "no"/"not"
+                  # ("not a valid label name", "not authorized to modify
+                  # label", "no such label in the repository") are NOT
+                  # misclassified as success — they would leave the issue
+                  # stuck and must surface as `failed`.
+                  # Note: pattern 3 omits "to add" because this sweeper only
+                  # removes; pattern 4 uses "set|present|applied" (closer
+                  # to gh's actual vocabulary than "attached").
+                  stderr_lc = stderr.lower()
+                  absence_patterns = [
+                      r"\b(no|not)\b[^\n]*\bon\b[^\n]*\bissue\b",
+                      r"\b(no|not)\b[^\n]*\bfrom\b[^\n]*\bissue\b",
+                      r"\b(no|not)\b[^\n]*\b(labels?)\b[^\n]*\bto remove\b",
+                      r"\b(labels?)\b[^\n]*\b(not|no)\b[^\n]*\b(set|present|applied)\b",
+                      r"\b(cannot|can'?t)\b[^\n]*\bfind\b[^\n]*\bon\b[^\n]*\bissue\b",
+                  ]
+                  already_absent = any(re.search(p, stderr_lc) for p in absence_patterns)
+                  if already_absent:
+                      print(f"    ⏭  label already absent on #{issue['number']} — treating as success")
+                      released += 1
+                      continue
+                  print(f"    ❌ gh issue edit failed: {stderr}")
+                  failed += 1
+                  continue
+
+              released += 1
+              print(f"    ✅ #{issue['number']} released")
+
+          print()
+          if would_release:
+              print(f"Summary: would_release={would_release} skipped={skipped}")
+          else:
+              print(f"Summary: released={released} skipped={skipped} failed={failed}")
+              if failed > 0:
+                  sys.exit(1)
+          PYEOF

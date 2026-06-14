@@ -136,7 +136,7 @@ echo "── Running tests ─────────────────�
 
 export API_KEYS="ci-test-key"
 export ADMIN_EMAIL="admin@llmrelay.local"
-export ADMIN_PASSWORD="WikiAdmin2026!"
+export ADMIN_PASSWORD="${ADMIN_PASSWORD:?ADMIN_PASSWORD env var must be set — no hardcoded fallback}"
 export SECRET_KEY="ci-test-secret-do-not-use"
 export OLLAMA_BASE="http://localhost:11434"
 export LANGFUSE_SECRET_KEY=""

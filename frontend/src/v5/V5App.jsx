@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { AppShell } from './AppShell';
 import ChatScreen from './screens/ChatScreen';
@@ -55,12 +56,39 @@ function AdminLocked() {
   );
 }
 
+const V5_SCREENS = [
+  'chat', 'dashboard', 'tasks', 'agents', 'schedules', 'skills', 'portfolio',
+  'intelligence', 'knowledge', 'providers', 'github', 'logs', 'company',
+  'onboarding', 'doctor', 'admin',
+];
+
+function screenFromPath(pathname) {
+  // "/v5/doctor" -> "doctor"; unknown or missing segment -> "chat"
+  const seg = (pathname.split('/')[2] || '').toLowerCase();
+  return V5_SCREENS.includes(seg) ? seg : 'chat';
+}
+
 export default function V5App() {
-  const [screen, setScreen] = React.useState('chat');
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Deep links: derive the initial screen from the URL so /v5/doctor opens
+  // Doctor (previously always opened Chat regardless of path).
+  const [screen, setScreen] = React.useState(() => screenFromPath(location.pathname));
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const agentRunning = true;
-  const go = (s) => setScreen(s);
+  const go = React.useCallback((s) => {
+    // Normalize: unknown/invalid targets fall back to chat so state and URL
+    // never disagree (e.g. a stale nav id would otherwise produce /v5/<bogus>
+    // while the shell renders the chat fallback).
+    const target = V5_SCREENS.includes(s) ? s : 'chat';
+    setScreen(target);
+    navigate(`/v5/${target === 'chat' ? '' : target}`, { replace: false });
+  }, [navigate]);
+  // Back/forward buttons and external URL changes keep the screen in sync.
+  React.useEffect(() => {
+    setScreen(screenFromPath(location.pathname));
+  }, [location.pathname]);
   const screens = {
     chat:         <ChatScreen />,
     dashboard:    <DashboardScreen dashboardState="healthy" />,

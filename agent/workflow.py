@@ -1,6 +1,6 @@
 """agent/workflow.py — Persisted workflow state machine.
 
-Implements the Agency Core execution pipeline:
+Implements the Autonomous AI Agency execution pipeline:
 
   CLASSIFY → PLAN → SELECT_SPECIALIST → PREFLIGHT →
   EXECUTE → VERIFY → JUDGE → SUMMARIZE → DONE (or FAILED/BLOCKED)

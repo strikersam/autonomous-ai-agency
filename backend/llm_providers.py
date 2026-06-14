@@ -1,3 +1,4 @@
+"""llm_providers.py — LLM provider adapters and provider selection for the backend."""
 from __future__ import annotations
 
 import logging
@@ -25,6 +26,16 @@ def normalize_base_url(base_url: str) -> str:
     return (base_url or "").strip().rstrip("/")
 
 
+def provider_type(provider: LlmProviderConfig) -> str:
+    raw = (provider.type or "").strip().lower()
+    if raw in {"openai_compat", "openai-compatible", "openai_compat"}:
+        host = (urlparse(normalize_base_url(provider.base_url)).hostname or "").lower()
+        if host.endswith("anthropic.com"):
+            return "anthropic"
+        return "openai-compatible"
+    return raw or "openai-compatible"
+
+
 def openai_compat_url(base_url: str, path: str) -> str:
     """Build an OpenAI-compatible URL for a provider base URL.
 
@@ -50,6 +61,47 @@ def _auth_headers(api_key: str | None) -> dict[str, str]:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return headers
+
+
+def _anthropic_headers(api_key: str | None) -> dict[str, str]:
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+    }
+    if api_key:
+        headers["x-api-key"] = api_key
+    return headers
+
+
+def _anthropic_payload(
+    *, messages: list[dict[str, Any]], model: str, temperature: float
+) -> dict[str, Any]:
+    system_parts: list[str] = []
+    anthropic_messages: list[dict[str, str]] = []
+    for message in messages:
+        role = str(message.get("role") or "user")
+        content = message.get("content")
+        if not isinstance(content, str):
+            continue
+        if role == "system":
+            system_parts.append(content)
+        elif role in {"user", "assistant"}:
+            anthropic_messages.append({"role": role, "content": content})
+    return {
+        "model": model,
+        "messages": anthropic_messages or [{"role": "user", "content": ""}],
+        "system": "\n\n".join(system_parts) if system_parts else None,
+        "max_tokens": 1024,
+        "temperature": float(temperature),
+    }
+
+
+def _anthropic_response_text(data: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for block in data.get("content") or []:
+        if isinstance(block, dict) and isinstance(block.get("text"), str):
+            parts.append(block["text"])
+    return _strip_think_tags("".join(parts))
 
 
 def _strip_think_tags(text: str) -> str:
@@ -87,13 +139,22 @@ async def chat_completion_text(
         "temperature": float(temperature),
         "stream": False,
     }
-
-    url = openai_compat_url(provider.base_url, "/chat/completions")
-    headers = _auth_headers(provider.api_key)
+    ptype = provider_type(provider)
+    url = (
+        f"{normalize_base_url(provider.base_url)}/v1/messages"
+        if ptype == "anthropic"
+        else openai_compat_url(provider.base_url, "/chat/completions")
+    )
+    headers = _anthropic_headers(provider.api_key) if ptype == "anthropic" else _auth_headers(provider.api_key)
 
     async def _do(c: httpx.AsyncClient) -> str:
-        resp = await c.post(url, json=payload, headers=headers)
-        if resp.status_code == 404 and provider.type == "ollama":
+        body = (
+            _anthropic_payload(messages=messages, model=use_model, temperature=float(temperature))
+            if ptype == "anthropic"
+            else payload
+        )
+        resp = await c.post(url, json=body, headers=headers)
+        if resp.status_code == 404 and ptype == "ollama":
             # Older Ollama builds may not expose the OpenAI-compatible surface.
             native_url = f"{normalize_base_url(provider.base_url)}/api/chat"
             native_payload: dict[str, Any] = {
@@ -116,6 +177,8 @@ async def chat_completion_text(
             raise ValueError("Unexpected Ollama /api/chat response shape")
         resp.raise_for_status()
         data = resp.json()
+        if ptype == "anthropic":
+            return _anthropic_response_text(data)
 
         # ── Extract content from OpenAI-compatible response ──────────────────
         choice = data["choices"][0]
@@ -154,9 +217,14 @@ async def list_openai_models(
     timeout_sec: float = 10.0,
     client: httpx.AsyncClient | None = None,
 ) -> list[str]:
-    url = openai_compat_url(provider.base_url, "/models")
-    headers = {}
-    if provider.api_key:
+    ptype = provider_type(provider)
+    url = (
+        f"{normalize_base_url(provider.base_url)}/v1/models"
+        if ptype == "anthropic"
+        else openai_compat_url(provider.base_url, "/models")
+    )
+    headers = _anthropic_headers(provider.api_key) if ptype == "anthropic" else {}
+    if provider.api_key and ptype != "anthropic":
         headers["Authorization"] = f"Bearer {provider.api_key}"
 
     async def _do(c: httpx.AsyncClient) -> list[str]:

@@ -1,217 +1,231 @@
-"""
-Harness Adapter — normalize API calls across different agent harnesses.
+"""agents/harness_adapter.py — ECC Cross-Harness Adapter
 
-Inspired by ECC's cross-harness architecture:
-https://github.com/affaan-m/ECC/blob/main/docs/architecture/cross-harness.md
+Normalises API differences across AI coding harnesses (Claude Code, Cursor,
+Codex, OpenCode, Gemini, Zed, GitHub Copilot) so the orchestrator can route
+requests regardless of which tool the user or agent is using.
 
-Supports: Claude Code, Cursor, Codex, OpenCode, Gemini, Zed, GitHub Copilot
+Inspired by ECC (https://github.com/affaan-m/ECC).
 """
 
 from __future__ import annotations
 
 import logging
-from enum import Enum
-from typing import Any, Optional
+from dataclasses import dataclass, field
+from typing import Any
 
-log = logging.getLogger("harness_adapter")
-
-
-class HarnessType(str, Enum):
-    """Supported agent harnesses"""
-
-    CLAUDE_CODE = "claude_code"
-    CURSOR = "cursor"
-    CODEX = "codex"
-    OPENCODE = "opencode"
-    GEMINI = "gemini"
-    ZED = "zed"
-    GITHUB_COPILOT = "github_copilot"
+log = logging.getLogger("qwen-proxy")
 
 
-class HarnessCapabilities:
-    """Declare capabilities per harness"""
+@dataclass(frozen=True)
+class HarnessSpec:
+    harness_id: str
+    display_name: str
+    context_key: str
+    supports: list[str] = field(default_factory=list)
+    default_model: str | None = None
+    is_active: bool = False
 
-    HARNESS_FEATURES = {
-        HarnessType.CLAUDE_CODE: {
-            "supports_streaming": True,
-            "supports_context_file": True,
-            "max_context_bytes": 50 * 1024 * 1024,  # 50MB
-            "model_preference": "reasoning",  # prefers deepseek-r1
-            "context_source": "workspace_tree",
-        },
-        HarnessType.CURSOR: {
-            "supports_streaming": True,
-            "supports_context_file": True,
-            "max_context_bytes": 25 * 1024 * 1024,  # 25MB
-            "model_preference": "speed",  # prefers qwen3-coder
-            "context_source": "editor_open_tabs",
-        },
-        HarnessType.CODEX: {
-            "supports_streaming": False,
-            "supports_context_file": True,
-            "max_context_bytes": 10 * 1024 * 1024,  # 10MB
-            "model_preference": "completion",
-            "context_source": "current_file",
-        },
-        HarnessType.OPENCODE: {
-            "supports_streaming": True,
-            "supports_context_file": False,
-            "max_context_bytes": 30 * 1024 * 1024,  # 30MB
-            "model_preference": "speed",
-            "context_source": "buffer",
-        },
-        HarnessType.GEMINI: {
-            "supports_streaming": True,
-            "supports_context_file": True,
-            "max_context_bytes": 40 * 1024 * 1024,  # 40MB
-            "model_preference": "balanced",
-            "context_source": "project_root",
-        },
-        HarnessType.ZED: {
-            "supports_streaming": True,
-            "supports_context_file": True,
-            "max_context_bytes": 20 * 1024 * 1024,  # 20MB
-            "model_preference": "speed",
-            "context_source": "editor_buffer",
-        },
-        HarnessType.GITHUB_COPILOT: {
-            "supports_streaming": True,
-            "supports_context_file": False,
-            "max_context_bytes": 35 * 1024 * 1024,  # 35MB
-            "model_preference": "balanced",
-            "context_source": "vscode_context",
-        },
-    }
+
+HARNESS_CATALOG: dict[str, HarnessSpec] = {
+    "claude_code": HarnessSpec(
+        harness_id="claude_code",
+        display_name="Claude Code",
+        context_key="workspace",
+        supports=["streaming", "tool_use", "multi_step"],
+        default_model="claude-sonnet-4-6",
+    ),
+    "cursor": HarnessSpec(
+        harness_id="cursor",
+        display_name="Cursor",
+        context_key="editor",
+        supports=["streaming", "streaming_chunks", "inline_edit"],
+        default_model="qwen3-coder:30b",
+    ),
+    "codex": HarnessSpec(
+        harness_id="codex",
+        display_name="OpenAI Codex CLI",
+        context_key="project",
+        supports=["completion", "streaming"],
+        default_model="qwen3-coder:30b",
+    ),
+    "opencode": HarnessSpec(
+        harness_id="opencode",
+        display_name="OpenCode",
+        context_key="workspace",
+        supports=["streaming", "tool_use", "multi_step"],
+        default_model="qwen3-coder:30b",
+    ),
+    "gemini_cli": HarnessSpec(
+        harness_id="gemini_cli",
+        display_name="Gemini CLI",
+        context_key="workspace",
+        supports=["streaming", "multi_modal"],
+        default_model="gemini-2.5-pro",
+    ),
+    "zed": HarnessSpec(
+        harness_id="zed",
+        display_name="Zed AI",
+        context_key="editor",
+        supports=["completion", "inline_edit"],
+        default_model="qwen3-coder:30b",
+    ),
+    "github_copilot": HarnessSpec(
+        harness_id="github_copilot",
+        display_name="GitHub Copilot",
+        context_key="editor",
+        supports=["completion", "inline_edit"],
+        default_model="qwen3-coder:30b",
+    ),
+    "aider": HarnessSpec(
+        harness_id="aider",
+        display_name="Aider",
+        context_key="workspace",
+        supports=["streaming", "tool_use", "multi_step"],
+        default_model="deepseek-r1:32b",
+    ),
+    "continue": HarnessSpec(
+        harness_id="continue",
+        display_name="Continue.dev",
+        context_key="editor",
+        supports=["streaming", "completion"],
+        default_model="qwen3-coder:30b",
+    ),
+    "telegram": HarnessSpec(
+        harness_id="telegram",
+        display_name="Telegram Bot",
+        context_key="chat",
+        supports=["streaming", "freebuff"],
+        default_model="nvidia/nemotron-3-super-120b-a12b",
+    ),
+}
 
 
 class HarnessAdapter:
-    """
-    Normalize API differences across harnesses.
+    """Adapt harness-native requests to the local-llm-server internal format.
 
-    Each harness has different:
-    - Request/response formats
-    - Context retrieval mechanisms
-    - Streaming capabilities
-    - Model routing preferences
+    Each harness submits requests in its own dialect; this adapter normalises
+    them to a common shape before the orchestrator or agent runner processes
+    them.  Also provides harness-aware model selection hints.
     """
 
-    def __init__(self, harness_type: str | HarnessType):
-        if isinstance(harness_type, str):
-            try:
-                self.harness = HarnessType(harness_type)
-            except ValueError:
-                log.warning(f"Unknown harness: {harness_type}, defaulting to claude_code")
-                self.harness = HarnessType.CLAUDE_CODE
-        else:
-            self.harness = harness_type
+    def __init__(self) -> None:
+        self._active: dict[str, HarnessSpec] = {}
 
-        self.capabilities = HarnessCapabilities.HARNESS_FEATURES.get(
-            self.harness,
-            HarnessCapabilities.HARNESS_FEATURES[HarnessType.CLAUDE_CODE],
+    def register_active(self, harness_id: str) -> None:
+        spec = HARNESS_CATALOG.get(harness_id)
+        if spec is None:
+            log.warning("Unknown harness %r — not registered", harness_id)
+            return
+        self._active[harness_id] = HarnessSpec(
+            harness_id=spec.harness_id,
+            display_name=spec.display_name,
+            context_key=spec.context_key,
+            supports=list(spec.supports),
+            default_model=spec.default_model,
+            is_active=True,
         )
+        log.info("Harness activated: %s (%s)", spec.display_name, harness_id)
 
-    def normalize_request(self, request: dict) -> dict:
-        """Convert harness-native request to local-llm-server format"""
-        if self.harness == HarnessType.CLAUDE_CODE:
-            return self._normalize_claude_code(request)
-        elif self.harness == HarnessType.CURSOR:
-            return self._normalize_cursor(request)
-        elif self.harness == HarnessType.CODEX:
-            return self._normalize_codex(request)
-        else:
-            log.warning(f"No normalization for {self.harness}, passing through")
+    def deregister(self, harness_id: str) -> None:
+        self._active.pop(harness_id, None)
+
+    @property
+    def active_harness_ids(self) -> list[str]:
+        return sorted(self._active)
+
+    def detect_harness(self, request_headers: dict[str, str]) -> str | None:
+        """Detect which harness sent this request from headers.
+
+        Check order: explicit header → user-agent heuristic → unknown.
+        """
+        explicit = request_headers.get("x-harness-id") or request_headers.get("x-client-id")
+        if explicit:
+            explicit = explicit.strip().lower()
+            if explicit in HARNESS_CATALOG:
+                return explicit
+
+        ua = (request_headers.get("user-agent") or "").lower()
+        if "claude-code" in ua or "claudecli" in ua:
+            return "claude_code"
+        if "cursor" in ua:
+            return "cursor"
+        if "codex" in ua:
+            return "codex"
+        if "opencode" in ua:
+            return "opencode"
+        if "gemini" in ua:
+            return "gemini_cli"
+        if "copilot" in ua:
+            return "github_copilot"
+        if "aider" in ua:
+            return "aider"
+        if "continue" in ua:
+            return "continue"
+        if "telegram" in ua:
+            return "telegram"
+
+        return None
+
+    def normalize_request(self, harness_id: str, request: dict[str, Any]) -> dict[str, Any]:
+        """Convert a harness-native request dict to the local-llm-server format."""
+        spec = HARNESS_CATALOG.get(harness_id)
+        if spec is None:
             return request
 
-    def denormalize_response(self, response: dict) -> dict:
-        """Convert local-llm-server response to harness-native format"""
-        if self.harness == HarnessType.CLAUDE_CODE:
-            return self._denormalize_claude_code(response)
-        elif self.harness == HarnessType.CURSOR:
-            return self._denormalize_cursor(response)
-        else:
-            return response
-
-    def get_model_preference(self) -> str:
-        """Get preferred model type for this harness"""
-        return self.capabilities.get("model_preference", "balanced")
-
-    def get_max_context(self) -> int:
-        """Get maximum context size for this harness"""
-        return self.capabilities.get("max_context_bytes", 10 * 1024 * 1024)
-
-    def supports_streaming(self) -> bool:
-        """Check if harness supports streaming responses"""
-        return self.capabilities.get("supports_streaming", False)
-
-    # ===== Claude Code Normalization =====
-
-    def _normalize_claude_code(self, request: dict) -> dict:
-        """Claude Code sends workspace context, minimal transformation needed"""
-        return {
-            **request,
-            "harness": self.harness.value,
-            "context_type": "workspace",
+        normalized: dict[str, Any] = {
+            "harness": harness_id,
+            "harness_display": spec.display_name,
+            "context_key": spec.context_key,
         }
 
-    def _denormalize_claude_code(self, response: dict) -> dict:
-        """Claude Code expects streaming delta format"""
-        return response
+        # Copy over common fields, preferring our mapping
+        for field in ("messages", "model", "temperature", "max_tokens", "stream"):
+            if field in request:
+                normalized[field] = request[field]
 
-    # ===== Cursor Normalization =====
+        # Harness-specific normalizations
+        if harness_id == "claude_code":
+            normalized.setdefault("model", spec.default_model or "claude-sonnet-4-6")
+        elif harness_id == "cursor":
+            normalized.setdefault("model", spec.default_model or "qwen3-coder:30b")
+        elif harness_id == "telegram":
+            normalized.setdefault("model", spec.default_model or "nvidia/nemotron-3-super-120b-a12b")
 
-    def _normalize_cursor(self, request: dict) -> dict:
-        """Cursor uses active editor tabs as context"""
+        return normalized
+
+    def model_hint(self, harness_id: str) -> str | None:
+        """Return the recommended model for this harness."""
+        spec = HARNESS_CATALOG.get(harness_id)
+        return spec.default_model if spec else None
+
+    def supports_feature(self, harness_id: str, feature: str) -> bool:
+        """Check whether a harness supports a specific capability."""
+        spec = HARNESS_CATALOG.get(harness_id)
+        return feature in (spec.supports if spec else [])
+
+    def as_dict(self) -> dict[str, Any]:
         return {
-            **request,
-            "harness": self.harness.value,
-            "context_type": "editor_tabs",
-            "context": request.get("context", {}).get("active_tabs"),
+            "active_harnesses": [
+                {
+                    "harness_id": h.harness_id,
+                    "display_name": h.display_name,
+                    "supports": h.supports,
+                    "is_active": h.is_active,
+                }
+                for h in self._active.values()
+            ],
+            "catalog_size": len(HARNESS_CATALOG),
+            "detectable": True,
         }
 
-    def _denormalize_cursor(self, response: dict) -> dict:
-        """Cursor expects completion format"""
-        return response
 
-    # ===== Codex Normalization =====
+# ── Singleton ─────────────────────────────────────────────────────────────────
 
-    def _normalize_codex(self, request: dict) -> dict:
-        """Codex uses current file as context"""
-        return {
-            **request,
-            "harness": self.harness.value,
-            "context_type": "current_file",
-            "stream": False,  # Codex doesn't support streaming
-            "streaming": False,  # Codex doesn't support streaming
-        }
-
-    def _denormalize_codex(self, response: dict) -> dict:
-        """Codex expects completion format"""
-        return response
+_adapter: HarnessAdapter | None = None
 
 
-def detect_harness() -> HarnessType:
-    """
-    Attempt to detect active harness from environment.
-
-    Checks:
-    - VSCODE_PID (Claude Code, Cursor, GitHub Copilot in VS Code)
-    - ZED_SOCKET (Zed IDE)
-    - GEMINI_SESSION_ID (Gemini IDE)
-    - CURSOR_SESSION_ID (Cursor)
-    """
-    import os
-
-    if os.getenv("CURSOR_SESSION_ID"):
-        return HarnessType.CURSOR
-    if os.getenv("ZED_SOCKET"):
-        return HarnessType.ZED
-    if os.getenv("GEMINI_SESSION_ID"):
-        return HarnessType.GEMINI
-    if os.getenv("VSCODE_PID"):
-        # Could be Claude Code, GitHub Copilot, or others in VS Code
-        return HarnessType.CLAUDE_CODE
-
-    # Default to Claude Code
-    log.info("Could not detect harness, defaulting to claude_code")
-    return HarnessType.CLAUDE_CODE
-# refresh diff for review resolution
+def get_harness_adapter() -> HarnessAdapter:
+    global _adapter
+    if _adapter is None:
+        _adapter = HarnessAdapter()
+    return _adapter

@@ -315,6 +315,7 @@ class SkillBindings:
             trigger_keywords=["harness", "cursor", "codex", "cross-harness", "ECC", "multi-IDE"],
             source="local",
             source_path=".claude/skills/ecc-harness-patterns/SKILL.md",
+            is_enabled=True,  # ECC enabled 2026-06-13
         ))
 
         self._register(RuntimeSkill(
@@ -331,6 +332,8 @@ class SkillBindings:
             specialist_families=[
                 "architecture", "docs", "analytics", "data", "engineering",
                 "content", "research", "crm", "support", "seo", "pim",
+                "marketing", "merchandising", "oms", "dam", "trading",
+                "design", "ux", "ecommerce",
             ],
             capabilities_added=["knowledge_graph_query", "relationship_tracing", "graph_export"],
             trigger_keywords=["knowledge graph", "obsidian", "graph", "BFS", "connected components"],
@@ -350,7 +353,7 @@ class SkillBindings:
                 SkillInput(name="action", type="str", default="query", description="Action: query, explain, path, report"),
             ],
             outputs=SkillOutput(type="str", description="Answer from the knowledge graph"),
-            specialist_families=["architecture", "engineering", "docs", "qa"],
+            specialist_families=["architecture", "engineering", "docs", "qa", "frontend", "backend", "fullstack", "mobile", "cloud", "infra", "platform", "ecommerce"],
             capabilities_added=["codebase_exploration", "token_efficient_context", "dependency_analysis"],
             trigger_keywords=["graphify", "codebase map", "knowledge graph", "token optimization", "code exploration", "codebase query"],
             source="local",
@@ -369,7 +372,7 @@ class SkillBindings:
                 SkillInput(name="changed_files", type="list[str]", default=[], description="List of files changed"),
             ],
             outputs=SkillOutput(type="dict", description="Council verdict with per-role findings"),
-            specialist_families=["security", "qa", "engineering", "architecture"],
+            specialist_families=["security", "qa", "engineering", "architecture", "frontend", "backend", "fullstack", "mobile", "cloud", "infra", "platform", "ecommerce"],
             capabilities_added=["multi_perspective_review", "security_audit", "correctness_check"],
             trigger_keywords=["council review", "code review", "security review", "PR review", "merge review", "pre-merge"],
             source="local",
@@ -384,7 +387,7 @@ class SkillBindings:
             safety=SkillSafety.EXECUTES_CODE,
             inputs=[SkillInput(name="workflow_definition", type="dict", description="Workflow with tasks, dependencies, and actions")],
             outputs=SkillOutput(type="dict", description="Workflow execution results"),
-            specialist_families=["engineering", "devops", "qa", "operations"],
+            specialist_families=["engineering", "devops", "qa", "operations", "cloud", "infra", "platform"],
             capabilities_added=["dag_execution", "workflow_orchestration", "task_pipeline"],
             trigger_keywords=["workflow", "pipeline", "DAG", "task orchestration", "topological", "dependency graph"],
             source="local",
@@ -454,7 +457,7 @@ class SkillBindings:
                 SkillInput(name="params", type="dict", description="Parameters for the action"),
             ],
             outputs=SkillOutput(type="dict", description="Initiative ranking, allocation, roadmap, or metrics"),
-            specialist_families=["portfolio", "product", "operations", "analytics"],
+            specialist_families=["portfolio", "product", "operations", "analytics", "design", "ux", "marketing"],
             capabilities_added=["wsjf_prioritization", "capacity_allocation", "roadmapping"],
             trigger_keywords=["portfolio", "initiative", "epic", "wsjf", "roadmap", "prioritization", "cost of delay", "capacity allocation"],
             source="local",
@@ -469,7 +472,7 @@ class SkillBindings:
             safety=SkillSafety.READ_ONLY,
             inputs=[SkillInput(name="period", type="str", default="month", description="Analysis period: day, week, month, quarter")],
             outputs=SkillOutput(type="dict", description="Financial metrics and recommendations"),
-            specialist_families=["portfolio", "analytics", "operations"],
+            specialist_families=["portfolio", "analytics", "operations", "trading", "merchandising", "ecommerce", "oms"],
             capabilities_added=["cost_analysis", "burn_rate", "roi_calculation"],
             trigger_keywords=["financial", "cost", "spend", "burn rate", "ROI", "budget", "runway", "CFO"],
             source="local",
@@ -484,7 +487,7 @@ class SkillBindings:
             safety=SkillSafety.SAFE,
             inputs=[SkillInput(name="action", type="str", description="Action: list, get, apply, stitch, create"), SkillInput(name="params", type="dict", description="Parameters: pattern name, variables, stitch chain")],
             outputs=SkillOutput(type="str", description="Rendered prompt or pattern content"),
-            specialist_families=["docs", "engineering", "qa", "product"],
+            specialist_families=["docs", "engineering", "qa", "product", "design", "ux", "marketing"],
             capabilities_added=["prompt_templating", "pattern_composition", "consistent_outputs"],
             trigger_keywords=["fabric pattern", "prompt pattern", "template", "stitch", "reusable prompt"],
             source="local",
@@ -747,6 +750,24 @@ class SkillBindings:
             source_path=".claude/skills/risky-module-review/SKILL.md",
         ))
 
+        self._register(RuntimeSkill(
+            skill_id="seo-audit",
+            name="SEO / GEO / AIO Site Audit",
+            description="Screaming Frog-class website audit: crawls a site, runs the full check catalog (page titles, meta descriptions, headings, content, images, links, canonicals, directives, hreflang, URL structure, security headers, response codes, validation, structured data) plus GEO (llms.txt, AI-crawler access, sitemaps) and AIO (schema.org, FAQ/HowTo, chunkability) pillars, prioritizes findings and produces a Screaming Frog-compatible report. The companion repo-aware fixer can remediate auto-fixable findings when a code repository is available.",
+            category=SkillCategory.ANALYTICS,
+            safety=SkillSafety.NETWORK,
+            inputs=[
+                SkillInput(name="website_url", type="str", description="Root URL to audit"),
+                SkillInput(name="max_pages", type="int", default=25, description="Crawl page budget (1-500)"),
+            ],
+            outputs=SkillOutput(type="dict", description="Audit summary: health score, pillar scores, prioritized findings"),
+            specialist_families=["seo", "content", "marketing", "analytics", "frontend", "ecommerce"],
+            capabilities_added=["site_audit", "issue_remediation", "geo_optimization", "aio_optimization"],
+            trigger_keywords=["seo", "audit", "crawl", "screaming frog", "meta description", "sitemap", "llms.txt", "geo", "aio", "ai overviews", "structured data"],
+            source="local",
+            source_path="services/seo_audit.py",
+        ))
+
         log.info("Registered %d core runtime skills", len(self._skills))
 
     # ------------------------------------------------------------------
@@ -970,6 +991,31 @@ def _execute_skill_impl(skill_id: str, params: dict[str, Any]) -> dict[str, Any]
 
     elif skill_id == "council-review":
         result["result"] = _run_council_review(params)
+
+    elif skill_id == "seo-audit":
+        from models.seo_audit import SeoAuditRequest
+        from services.seo_audit import run_audit_sync
+        report = run_audit_sync(SeoAuditRequest(
+            website_url=str(params.get("website_url", "")),
+            max_pages=int(params.get("max_pages", 25)),
+        ), company_id=params.get("company_id"))
+        result["success"] = report.status == "success"
+        result["result"] = {
+            "audit_id": report.audit_id,
+            "status": report.status,
+            "error": report.error,
+            "pages_crawled": report.pages_crawled,
+            "health_score": report.health_score,
+            "pillar_scores": report.pillar_scores,
+            "total_issues": report.total_issues,
+            "issues_by_priority": report.issues_by_priority,
+            "top_findings": [
+                {"issue": r.issue_name, "priority": r.issue_priority,
+                 "type": r.issue_type, "urls": r.urls_affected}
+                for r in report.rows[:10]
+            ],
+            "summary": report.summary,
+        }
 
     elif skill_id in ("risky-module-review", "implementation-planner",
                        "test-first-executor", "stop-slop-quality", "changelog-enforcer",

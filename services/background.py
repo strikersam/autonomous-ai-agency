@@ -86,6 +86,16 @@ async def start_background_services(
     scheduler.set_on_fire(task_automation.handle_scheduled_job)
     log.info("Scheduler automation wired to task workflow")
 
+    # Durable schedule persistence + boot rehydration (#505): without this, the
+    # in-memory scheduler loses every company cadence on redeploy.
+    try:
+        from agent.schedule_store import ScheduleStore
+
+        n = scheduler.attach_persistence(ScheduleStore())
+        log.info("Scheduler durable persistence attached (%d job(s) rehydrated)", n)
+    except Exception as exc:
+        log.warning("Scheduler durable persistence not attached: %s", exc)
+
     await runtime_manager.start()
     log.info(
         "RuntimeManager started (%d runtimes registered)",
@@ -100,12 +110,39 @@ async def start_background_services(
     log.info("Task dispatcher started in background")
 
     _schedule_self_bootstrap()
+    _start_ceo_agency()
 
     return BackgroundServices(
         runtime_manager=runtime_manager,
         dispatcher=dispatcher,
         dispatcher_task=dispatcher_task,
     )
+
+
+def _start_ceo_agency() -> None:
+    """Start the 24×7 CEO agency loop that *proactively* generates work.
+
+    Without this the dispatcher only ever runs reactively (quick notes, scheduled
+    cadences), so specialists sit idle between events — the proactive CEO that is
+    supposed to drive continuous improvement was never actually started in
+    production. Gated by ``AGENCY_CEO_ENABLED`` (default on); never crashes startup.
+    When the CEO LLM is unreachable (e.g. no local Ollama in the cloud) the cycle
+    falls back to rule-based directives, so work is still generated.
+    """
+    if os.environ.get("AGENCY_CEO_ENABLED", "true").strip().lower() in ("0", "false", "no", "off"):
+        log.info("CEO agency loop disabled (AGENCY_CEO_ENABLED=false)")
+        return
+    try:
+        from agent.agency import Agency, get_agency, set_agency
+
+        if get_agency() is not None:
+            return  # already started
+        agency = Agency()
+        set_agency(agency)
+        agency.start()
+        log.info("CEO agency loop started — proactive 24×7 work generation is live")
+    except Exception as exc:  # never let the CEO loop break startup
+        log.warning("CEO agency loop could not start: %s", exc)
 
 
 def _schedule_self_bootstrap() -> None:

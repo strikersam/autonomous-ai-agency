@@ -1,3 +1,4 @@
+"""server.py — Main backend FastAPI app: auth, dashboard, company graph, doctor, agents."""
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -119,7 +120,32 @@ def clear_error_log_buffer() -> None:
 
 _ensure_error_log_capture()
 
-SCHEDULER = AgentScheduler()
+def _scheduler_on_fire(job) -> None:
+    """Called by APScheduler when a cron fires. Dispatches to the orchestrator."""
+    import asyncio
+    from services.workflow_orchestrator import get_workflow_orchestrator, ExecutionRequest
+    async def _dispatch():
+        try:
+            orch = get_workflow_orchestrator()
+            req = ExecutionRequest(
+                request=job.instruction,
+                auto_approve=True,
+                user_id="scheduler",
+            )
+            run = await orch.execute(req)
+            log.info("Scheduler fired job %s → run %s", job.job_id, run.run_id)
+        except Exception as exc:
+            log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_dispatch())
+        else:
+            loop.run_until_complete(_dispatch())
+    except Exception as exc:
+        log.error("Scheduler on_fire loop error: %s", exc)
+
+SCHEDULER = AgentScheduler(on_fire=_scheduler_on_fire)
 set_scheduler(SCHEDULER)
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
@@ -145,6 +171,11 @@ OLLAMA_BASE = (
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
 _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
+# Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
+# execute + verify). Caps a hung provider so the chat job fails cleanly
+# instead of sitting at phase "planning" forever. Configurable via env.
+_AGENT_RUN_BUDGET_SEC = float(os.environ.get("CHAT_AGENT_RUN_BUDGET_SEC", "240"))
+
 _CHAT_AGENT_JOBS = AgentJobManager()
 _CHAT_AGENT_WORKSPACE_ROOT = Path(
     os.environ.get("BACKEND_CHAT_AGENT_WORKSPACE_ROOT", ".data/backend-chat-agent-workspaces")
@@ -1333,6 +1364,55 @@ def _start_in_web_bot_tasks() -> list:
     return tasks
 
 
+
+
+async def _startup_reliability_hooks() -> None:
+    """#522 + #505: Reliability startup — schedule hydration, orchestrator restore, queue + supervisor start."""
+    # Rehydrate persisted schedules so company cadences survive redeploys.
+    try:
+        hydrated = await SCHEDULER.hydrate()
+        if hydrated:
+            log.info("Startup: hydrated %d scheduled job(s) from durable store", hydrated)
+    except Exception:
+        log.warning("Startup: scheduler hydration failed (non-fatal)")
+
+    # Restore in-flight orchestrator runs from checkpoint store.
+    try:
+        from services.workflow_orchestrator import get_workflow_orchestrator
+        orchestrator = get_workflow_orchestrator()
+        restored = await orchestrator.restore_in_flight()
+        if restored:
+            log.info("Startup: restored %d in-flight orchestration run(s)", restored)
+    except Exception:
+        log.debug("Startup: orchestrator checkpoint restore skipped")
+
+    # Start the orchestrator FIFO queue and deterministic supervisor.
+    try:
+        from services.orchestrator_queue import start_orchestrator_queue
+        await start_orchestrator_queue()
+        log.info("Startup: orchestrator queue started")
+    except Exception:
+        log.debug("Startup: orchestrator queue start skipped")
+
+    try:
+        from services.orchestrator_supervisor import start_orchestrator_supervisor
+        await start_orchestrator_supervisor()
+        log.info("Startup: orchestrator supervisor started")
+    except Exception:
+        log.debug("Startup: orchestrator supervisor start skipped")
+
+    # Register the ECC harness adapter.
+    try:
+        from agents.harness_adapter import get_harness_adapter
+        adapter = get_harness_adapter()
+        adapter.register_active("claude_code")
+        adapter.register_active("cursor")
+        adapter.register_active("telegram")
+        log.info("Startup: ECC harness adapter registered (%d active)", len(adapter.active_harness_ids))
+    except Exception:
+        log.debug("Startup: harness adapter registration skipped")
+
+
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
     from services.background import start_background_services, run_background_in_web
@@ -1341,11 +1421,11 @@ async def lifespan(app_: "FastAPI"):
     bg: Optional[BackgroundServices] = None
     try:
         await ensure_bootstrap()
-        log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
+        log.info("Autonomous AI Agency started — provider=%s", LLM_PROVIDER)
     except Exception as exc:
         log.warning("MongoDB bootstrap deferred (no DB connection): %s", exc)
         log.info(
-            "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
+            "Autonomous AI Agency started in limited mode — set MONGO_URL to enable full features"
         )
 
     if run_background_in_web():
@@ -1363,6 +1443,9 @@ async def lifespan(app_: "FastAPI"):
     # FreeBuff Telegram bot — optionally run inside this web process so a single
     # free-tier service can host both the API and the phone-control bot.
     extra_tasks = _start_in_web_bot_tasks()
+
+    # #522 + #505: Reliability startup hooks
+    await _startup_reliability_hooks()
 
     yield
 
@@ -1796,6 +1879,89 @@ async def github_authorize_repos(
     return {"ok": True}
 
 
+
+
+# ─── ECC Harness Adapter API ──────────────────────────────────────────────
+
+@app.get("/api/harness/catalog")
+async def harness_catalog():
+    """Return the full ECC harness catalog with capabilities.
+
+    Public — no auth required (descriptive metadata only)."""
+    from agents.harness_adapter import HARNESS_CATALOG, get_harness_adapter
+    adapter = get_harness_adapter()
+    active_ids = set(adapter.active_harness_ids)
+    return {
+        "harnesses": [
+            {
+                "harness_id": h.harness_id,
+                "display_name": h.display_name,
+                "supports": h.supports,
+                "default_model": h.default_model,
+                "is_active": h.harness_id in active_ids,
+            }
+            for h in sorted(HARNESS_CATALOG.values(), key=lambda x: x.display_name)
+        ],
+        "active_count": len(active_ids),
+    }
+
+
+@app.get("/api/harness/active")
+async def harness_active(user: dict = Depends(get_current_user)):
+    """Return the currently active ECC harnesses with session metrics.
+
+    Authenticated — harness metrics may be user-specific in future."""
+    from agents.harness_adapter import get_harness_adapter
+    from services.harness_registry import get_harness_registry
+    adapter = get_harness_adapter()
+    registry = get_harness_registry()
+    return {
+        "adapter": adapter.as_dict(),
+        "registry": registry.as_dict(),
+    }
+
+
+class HarnessSessionBody(BaseModel):
+    harness_id: str
+    session_id: str
+    model: str | None = None
+
+
+@app.post("/api/harness/session/start")
+async def harness_session_start(
+    body: HarnessSessionBody,
+    user: dict = Depends(get_current_user),
+):
+    """Register a new harness session (called by the orchestrator on execute)."""
+    from services.harness_registry import get_harness_registry
+    registry = get_harness_registry()
+    record = registry.register_session(body.harness_id, body.session_id, body.model)
+    return record.model_dump()
+
+
+class HarnessSessionCloseBody(BaseModel):
+    session_id: str
+    tasks_completed: int = 0
+    success: bool = True
+    errors: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/harness/session/close")
+async def harness_session_close(
+    body: HarnessSessionCloseBody,
+    user: dict = Depends(get_current_user),
+):
+    """Close a harness session and aggregate its metrics."""
+    from services.harness_registry import get_harness_registry
+    registry = get_harness_registry()
+    registry.close_session(
+        body.session_id,
+        tasks_completed=body.tasks_completed,
+        success=body.success,
+        errors=body.errors,
+    )
+    return {"ok": True}
+
 @app.get("/api/github/status")
 async def github_status(user: dict = Depends(get_current_user)):
     oauth_enabled = bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET)
@@ -2193,6 +2359,17 @@ async def seed_default_providers():
     )
     defaults = [
         {
+            "provider_id": "anthropic-claude",
+            "name": "Claude (Sonnet 4.6)",
+            "type": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "api_key": ANTHROPIC_API_KEY,
+            "default_model": "claude-sonnet-4-6",
+            "is_default": False,
+            "priority": -50,
+            "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
+        },
+        {
             "provider_id": "nvidia-nim",
             "name": "Nvidia NIM (Free)",
             "type": "openai-compatible",
@@ -2297,7 +2474,7 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": GOOGLE_BASE_URL,
             "api_key": GOOGLE_API_KEY,
-            "default_model": "gemma-4",
+            "default_model": "gemini-2.5-flash",
             "is_default": LLM_PROVIDER == "google",
             "priority": 75,
             "status": "configured" if GOOGLE_API_KEY else "unconfigured",
@@ -2340,7 +2517,7 @@ async def seed_default_providers():
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -2351,7 +2528,7 @@ async def seed_default_providers():
             "api_key": ANTHROPIC_API_KEY,
             "default_model": ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 50,
+            "priority": -90,  # paid last-resort — never preferred over free cloud
             "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
         },
         {
@@ -2390,10 +2567,22 @@ async def seed_default_providers():
             new_status = p.get("status", "")
             if new_status and new_status != existing.get("status", ""):
                 update["status"] = new_status
-            # Sync priority so the fallback ordering is always correct
-            new_priority = p.get("priority")
-            if new_priority is not None and existing.get("priority") != new_priority:
-                update["priority"] = new_priority
+            # NOTE: priority is intentionally NOT synced here so user edits from the
+            # Providers UI persist across restarts. Priority is only set on first insert.
+            #
+            # ONE-TIME MIGRATION: force Anthropic providers to negative priority so free
+            # cloud providers (Google, OpenRouter, etc.) are always preferred as the brain.
+            # This only fires when the existing priority is still in the old paid-first range.
+            paid_provider_ids = {"anthropic", "anthropic-claude", "anthropic-universal"}
+            if p["provider_id"] in paid_provider_ids:
+                existing_prio = existing.get("priority", 0)
+                new_prio = p.get("priority", 0)  # already negative in seed defaults
+                if existing_prio > new_prio:
+                    update["priority"] = new_prio
+                    log.info(
+                        "Migrated %s priority %d → %d (free providers now preferred)",
+                        p["provider_id"], existing_prio, new_prio,
+                    )
             if update:
                 await get_db().providers.update_one(
                     {"provider_id": p["provider_id"]}, {"$set": update}
@@ -2408,12 +2597,22 @@ async def seed_default_providers():
 def _builtin_provider_records() -> list[dict]:
     """Return a minimal set of built-in provider records without touching MongoDB.
 
-    This is an intentional SUBSET (3 of 13 providers) covering the entries that
-    are always present regardless of operator configuration.  It is used as a
-    limited-mode fallback when MongoDB is unreachable — not as the authoritative
-    full catalog.  Full provider list lives in seed_default_providers().
+    This is an intentional SUBSET covering the entries that are always present
+    regardless of operator configuration. It is used as a limited-mode fallback 
+    when MongoDB is unreachable — not as the authoritative full catalog.
     """
     return [
+        {
+            "provider_id": "anthropic-claude",
+            "name": "Claude (Sonnet 4.6)",
+            "type": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "api_key": ANTHROPIC_API_KEY,
+            "default_model": "claude-sonnet-4-6",
+            "is_default": False,
+            "priority": -50,
+            "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
+        },
         {
             "provider_id": "ollama-local",
             "name": "Ollama (Local)",
@@ -2433,7 +2632,7 @@ def _builtin_provider_records() -> list[dict]:
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -2987,14 +3186,37 @@ async def _run_agent_loop(
         import services.workflow_orchestrator as _wo
         _bypass_token = _wo._BYPASS.set(True)
         try:
-            result = await runner.run(
-                instruction=agent_instruction,
-                history=session_messages,
-                requested_model=requested_model,
-                auto_commit=True,
-                max_steps=8,
-                memory_store=UserMemoryStore(),
-                session_id=session_id,
+            # Overall wall-clock budget for the entire agent run (plan +
+            # execute + verify). Without this, a hung provider connection
+            # leaves the chat job stuck at phase "planning" indefinitely
+            # because runner.run() makes several sequential LLM calls each
+            # with a 300s httpx read timeout and no aggregate cap.
+            result = await asyncio.wait_for(
+                runner.run(
+                    instruction=agent_instruction,
+                    history=session_messages,
+                    requested_model=requested_model,
+                    auto_commit=True,
+                    max_steps=8,
+                    memory_store=UserMemoryStore(),
+                    session_id=session_id,
+                ),
+                timeout=_AGENT_RUN_BUDGET_SEC,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "Agent run exceeded %ss budget (session=%s) — returning timeout response",
+                _AGENT_RUN_BUDGET_SEC, session_id,
+            )
+            return (
+                "\u26a0\ufe0f The agent run timed out before completing.\n\n"
+                "The selected provider took too long to respond (no result within "
+                f"{int(_AGENT_RUN_BUDGET_SEC)}s). This usually means the LLM endpoint "
+                "is overloaded, unreachable, or the model is too slow.\n\n"
+                "**Try:**\n"
+                "\u2022 Re-run the request (transient provider slowness is common).\n"
+                "\u2022 Switch to a faster provider/model in Providers.\n"
+                "\u2022 For Ollama, confirm the model is pulled and `ollama serve` is responsive.\n"
             )
         finally:
             _wo._BYPASS.reset(_bypass_token)
@@ -3214,10 +3436,21 @@ async def _list_configured_provider_records() -> list[dict]:
             continue
         if provider_type == "ollama" or status == "configured" or has_key:
             filtered.append(record)
-    # Always prepend Nvidia NIM from env when key is present — takes priority over DB records
+    # Nvidia NIM from env participates like any other record — priority governs.
+    # (Previously it was unconditionally prepended, which made UI ordering a lie:
+    # a user-promoted provider could never outrank it. See #524.)
     nim = _nvidia_nim_provider_record()
-    if nim:
-        filtered = [nim] + [r for r in filtered if r.get("provider_id") != "nvidia-nim"]
+    if nim and not any(r.get("provider_id") == "nvidia-nim" for r in filtered):
+        filtered.append(nim)
+    def _record_priority(r: dict) -> int:
+        try:
+            return int(float(r.get("priority")))
+        except (TypeError, ValueError):
+            return 100
+
+    filtered.sort(
+        key=lambda r: (_record_priority(r), str(r.get("provider_id") or ""))
+    )
     return filtered or [_fallback_local_provider_record()]
 
 
@@ -4466,7 +4699,48 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
         seen.add(key)
         deduped.append(entry)
     logs = deduped[:limit]
-    return {"logs": logs, "events": logs, "activity": logs}
+    
+    # Derive live platform alerts on read (no storage — restart/wipe-proof):
+    # failed orchestrator runs, runs awaiting approval, and an empty scheduler.
+    try:
+        from services.workflow_orchestrator import get_workflow_orchestrator
+        for run in (await get_workflow_orchestrator().list_runs(limit=25)) or []:
+            rid = run.get("run_id", "?")
+            status = run.get("status")
+            ts = run.get("started_at") or ""
+            if status == "failed":
+                logs.insert(0, {
+                    "id": f"alert-run-{rid}", "type": "error", "severity": "error",
+                    "title": f"Run failed: {rid}",
+                    "message": str(run.get("error") or "Execution failed")[:160],
+                    "created_at": ts,
+                })
+            elif status == "awaiting_approval":
+                logs.insert(0, {
+                    "id": f"alert-approval-{rid}", "type": "approval", "severity": "warning",
+                    "title": f"Run awaiting approval: {rid}",
+                    "message": str(run.get("request") or "")[:160],
+                    "created_at": ts,
+                })
+    except Exception as exc:  # never break the feed
+        log.debug("Activity: orchestrator alert derivation unavailable: %s", exc)
+    
+    try:
+        from agent.scheduler import get_scheduler
+        jobs = await get_scheduler().list() or []
+        if not jobs:
+            logs.insert(0, {
+                "id": "alert-schedules-empty", "type": "infra", "severity": "error",
+                "title": "No schedules registered — possible wipe after restart",
+                "message": "All scheduler jobs are missing. Recreate supervisor cadences (see GitHub issue #504 / epic).",
+                "created_at": "",
+            })
+    except Exception as exc:
+        log.debug("Activity: scheduler alert derivation unavailable: %s", exc)
+    
+    logs = logs[:limit]
+    # Return all key names AlertsBell reads: logs, events, activity, items, activities
+    return {"logs": logs, "events": logs, "activity": logs, "items": logs, "activities": logs}
 
 
 @app.get("/api/stats")
@@ -4520,6 +4794,7 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
+    priority: Optional[int] = Field(default=None, ge=-100, le=1000)
 
 
 @app.get("/api/providers")
@@ -4545,6 +4820,24 @@ async def list_providers(user: dict = Depends(get_current_user)):
             p.pop("api_key", None)
             p["api_key_masked"] = ""
             providers.append(p)
+    # Tag every provider with its role (brain / sub-agent / fallback / unconfigured)
+    # so the Providers screen can show a clear "BRAIN" badge per the operator's
+    # request. The classification uses the same _resolve_brain_provider() logic
+    # the orchestrator itself uses, so the UI never disagrees with the runtime.
+    # Failure is non-fatal: every provider simply gets role="available" with
+    # reason="tagging skipped" so the screen still renders.
+    try:
+        from services.workflow_orchestrator import get_provider_role_tags
+        role_tags = await get_provider_role_tags()
+    except Exception as exc:
+        log.debug("list_providers: role tagging unavailable: %s", exc)
+        role_tags = {}
+    for p in providers:
+        tag = role_tags.get(p.get("provider_id") or "") or {}
+        p["is_brain"] = bool(tag.get("is_brain"))
+        p["role"] = tag.get("role") or "available"
+        p["role_reason"] = tag.get("reason") or ""
+
     return {"providers": providers}
 
 
@@ -4554,7 +4847,8 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
         raise HTTPException(status_code=409, detail="Provider ID already exists")
     if body.is_default:
         await get_db().providers.update_many({}, {"$set": {"is_default": False}})
-    doc = body.dict()
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    doc = body.model_dump()
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "configured"
     await get_db().providers.insert_one(doc)
@@ -4566,8 +4860,14 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
 async def update_provider(
     provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
 ):
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    # The deprecated path emits a PydanticDeprecatedSince20 warning in v2 and
+    # will be removed in a future release. The test in
+    # tests/test_brain_priority_scanner.py pins the round-trip via model_dump;
+    # this handler must use the same API or the test will pass but the real
+    # PUT will silently fail to persist priority.
     updates = {}
-    for k, v in body.dict(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
         await get_db().providers.update_many(
@@ -4771,7 +5071,12 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
 try:
     from agent.skill_registry import SkillRegistry as _SkillRegistry, set_skill_registry
     _SKILL_REGISTRY = _SkillRegistry(
-        github_token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GITHUB_ACCESS_TOKEN")
+        github_token=(
+            os.environ.get("GH_TOKEN")  # render.yaml / preflight use GH_TOKEN
+            or os.environ.get("GITHUB_TOKEN")
+            or os.environ.get("GH_PAT")
+            or os.environ.get("GITHUB_ACCESS_TOKEN")
+        )
     )
     set_skill_registry(_SKILL_REGISTRY)
 except Exception as _sr_err:
@@ -5261,6 +5566,7 @@ async def observability_dashboard(user: dict = Depends(get_current_user)):
     return {"url": langfuse_base, "configured": bool(langfuse_pk)}
 
 
+
 @app.get("/api/observability/metrics")
 async def observability_metrics(user: dict = Depends(get_current_user)):
     """Fetch basic usage metrics from the local_metrics collection."""
@@ -5282,6 +5588,8 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
         },
     ]
     cursor = get_db().local_metrics.aggregate(pipeline)
+    if asyncio.iscoroutine(cursor):
+        cursor = await cursor
     agg = await cursor.to_list(length=1)
     summary = (
         agg[0]
@@ -5301,6 +5609,11 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
 
 
 
+
+@app.get("/api/metrics")
+async def dashboard_metrics(user: dict = Depends(get_current_user)):
+    """Alias for /api/observability/metrics — the dashboard calls this shorter path."""
+    return await observability_metrics(user=user)
 
 @app.get("/api/observability/traces")
 async def observability_traces(
@@ -5355,6 +5668,53 @@ async def ping() -> dict[str, object]:
     return {"status": "ok", "pong": True}
 
 
+@app.get("/api/kpi/public")
+async def get_public_kpis() -> dict:
+    """Public, read-only autonomy KPIs — no authentication required.
+
+    Surfaces the aggregate autonomy counters from agent/kpi.py so the public
+    site / public Doctor view can show a live read-only KPI strip (brief #6).
+    Only non-sensitive process-wide counts are exposed — no user, company, repo,
+    or task identifiers. Counters are cumulative since process start
+    (``uptime_seconds`` gives the window); fields that are not yet instrumented
+    are reported honestly rather than fabricated.
+    """
+    import datetime
+
+    try:
+        from agent.kpi import get_tracker
+        snapshot = get_tracker().snapshot().as_dict()
+    except Exception:  # pragma: no cover - defensive
+        log.exception("Public KPI snapshot unavailable")
+        return {
+            "available": False,
+            "error": "KPI service temporarily unavailable",
+            "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+
+    derived = {
+        "plans_started": snapshot.get("total_plans", 0),
+        "steps_applied": snapshot.get("steps_applied", 0),
+        "steps_failed": snapshot.get("steps_failed", 0),
+        "prs_opened": snapshot.get("prs_created", 0),
+        "commits_made": snapshot.get("commits_made", 0),
+        "approval_gates_passed": snapshot.get("approval_gates_passed", 0),
+        "approval_gates_rejected": snapshot.get("approval_gates_rejected", 0),
+        "safety_blocks": snapshot.get("safety_blocks", 0),
+        # Not yet instrumented in agent/kpi.py — surfaced as null, not faked, so the
+        # public view never overstates autonomy. (brief: regression-after-auto-merge)
+        "regressions_after_auto_merge": None,
+    }
+    return {
+        "available": True,
+        "window": "cumulative-since-process-start",
+        "uptime_seconds": snapshot.get("uptime_seconds", 0),
+        "metrics": snapshot,
+        "summary": derived,
+        "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
 @app.get("/api/status")
 async def system_status(user: dict = Depends(get_current_user)) -> dict[str, object]:
     """Authenticated system status summary for the Doctor screen."""
@@ -5377,6 +5737,87 @@ async def health():
         mongo_ok = True
     except Exception:
         mongo_ok = False
+    return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok}
+
+
+_last_cron_tick_at: Optional[datetime] = None
+
+
+@app.post("/api/scheduler/tick")
+async def scheduler_tick(request: Request):
+    """Called by Cloudflare Cron every minute. Protected by CRON_SECRET header."""
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    incoming = request.headers.get("x-cron-secret", "")
+    if cron_secret and incoming != cron_secret:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Invalid cron secret")
+    global _last_cron_tick_at
+    _last_cron_tick_at = datetime.now(timezone.utc)
+    scheduler = get_scheduler()
+    fired = []
+    try:
+        jobs = scheduler.list()
+        now = datetime.now(timezone.utc)
+        for job in jobs:
+            next_run = getattr(job, "next_run_time", None)
+            if next_run is None:
+                continue
+            if next_run.tzinfo is None:
+                next_run = next_run.replace(tzinfo=timezone.utc)
+            if next_run <= now:
+                try:
+                    scheduler.trigger(job.job_id)
+                    fired.append(job.job_id)
+                except Exception as exc:
+                    log.warning("tick: failed to trigger %s: %s", job.job_id, exc)
+    except Exception as exc:
+        log.error("scheduler_tick error: %s", exc)
+    return {"ok": True, "fired": fired, "total_jobs": len(scheduler.list())}
+
+
+
+class SchedulerTickLastResponse(BaseModel):
+    """Public keepalive-monitoring response for GET /api/scheduler/tick/last.
+
+    Intentionally public — no auth required.  Monitoring tools and the
+    Cloudflare Worker itself call this endpoint to confirm the cron
+    ``scheduled()`` handler is successfully reaching the Render backend.
+    """
+    last_tick_at: Optional[str] = Field(default=None, description="ISO 8601 timestamp of last tick, or null")
+    seconds_since_last_tick: Optional[float] = Field(default=None, description="Elapsed seconds since last tick, or null")
+    stale: bool = Field(default=True, description="True when >120s since last tick")
+    message: str = Field(default="No tick received yet since server start", description="Human-readable status")
+
+
+@app.get("/api/scheduler/tick/last", response_model=SchedulerTickLastResponse)
+async def scheduler_tick_last() -> SchedulerTickLastResponse:
+    """Return the last Cloudflare Cron tick timestamp for keepalive monitoring.
+
+    Public — no auth required. Monitoring tools and the Cloudflare Worker itself
+    can call this to confirm the cron is successfully reaching the backend.
+    Returns nulls when the server has just started and no tick has arrived yet.
+    """
+    tick_at = _last_cron_tick_at
+    if tick_at is None:
+        return SchedulerTickLastResponse(
+            last_tick_at=None,
+            seconds_since_last_tick=None,
+            stale=True,
+            message="No tick received yet since server start",
+        )
+    now = datetime.now(timezone.utc)
+    delta = (now - tick_at).total_seconds()
+    stale = delta > 120
+    return SchedulerTickLastResponse(
+        last_tick_at=tick_at.isoformat(),
+        seconds_since_last_tick=round(delta, 1),
+        stale=stale,
+        message=(
+            "Keepalive is healthy" if not stale
+            else f"No tick received in {round(delta)}s — keepalive may be down"
+        ),
+    )
+
 
     active = await get_active_provider()
     active_type = str((active or {}).get("type", "ollama")).lower()
@@ -6246,7 +6687,12 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
                 id=f"runtime_{rid}",
                 category="Runtime",
                 label=f"Runtime: {rid}",
-                status="pass" if available else ("warn" if circuit_open else "fail"),
+                # Sidecar runtimes (hermes/goose/aider/...) are optional beta
+                # features — their absence must not flip Doctor to not-ready.
+                # Only the internal agent runtime is required in the default path.
+                status="pass" if available else (
+                    "fail" if rid == "internal_agent" else "warn"
+                ),
                 detail=str(detail)[:200],
                 action={"label": "Check health", "href": f"/runtimes/{rid}/health"} if not available else None,
                 explanation="Circuit breaker is OPEN — runtime failed 3+ consecutive health checks." if circuit_open else None,
@@ -6339,7 +6785,10 @@ async def get_public_doctor() -> _DoctorReport:
     try:
         from db import get_store
         store = get_store()
-        count = await store.count_companies() if hasattr(store, 'count_companies') else 0
+        # NOTE: don't duck-type with hasattr() — MongoStore.__getattr__ proxies
+        # any attribute to a Motor *collection*, so store.count_companies is a
+        # collection named "count_companies", not a method (TypeError at call).
+        count = await store.companies.count_documents({})
         checks.append(_DoctorCheck(
             id="storage",
             category="Storage",
@@ -6645,6 +7094,13 @@ from services.company_graph_store import get_company_graph_store
 import backend.company_api as company_api_module
 app.include_router(company_api_module.router)
 
+# SEO / GEO / AIO Audit API (issue #533)
+try:
+    import backend.seo_api as seo_api_module
+    app.include_router(seo_api_module.router)
+except Exception as _seo_err:  # noqa: BLE001 - SEO API must not block startup
+    log.warning("SEO audit API not mounted: %s", _seo_err, exc_info=True)
+
 # Workflow Orchestrator API --- canonical execution backbone
 from services.workflow_orchestrator import (
     ExecutionRequest,
@@ -6715,13 +7171,68 @@ async def workflow_orchestrator_approve(
     # client-supplied string (audit-log integrity).
     approved_by = _wfo_resolve_user_id(user)
     try:
-        run = await orchestrator.approve_and_resume(run_id, approved_by=approved_by)
-        return {"status": run.status, "run": run.as_dict()}
+        # #522: approve_async enqueues the run via the FIFO queue instead of
+        # blocking inline. Returns 202 immediately; the run executes
+        # asynchronously when a concurrency slot opens.
+        run = await orchestrator.approve_async(run_id, approved_by=approved_by)
+        status_code = 202 if run.status == "queued" else 200
+        return JSONResponse(
+            {"status": run.status, "run": run.as_dict()},
+            status_code=status_code,
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
+
+
+
+@app.get("/api/workflow/orchestrator/status")
+async def workflow_orchestrator_status(
+    user: dict = Depends(get_current_user),
+):
+    """Return orchestrator queue depth, active runs, and supervisor state (#522)."""
+    orchestrator = get_workflow_orchestrator()
+    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+    runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
+
+    queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
+    try:
+        from services.orchestrator_queue import get_orchestrator_queue
+        q = get_orchestrator_queue()
+        queue_status = q.status()
+    except Exception:
+        pass
+
+    supervisor_state = {}
+    try:
+        from services.orchestrator_supervisor import get_orchestrator_supervisor
+        sv = get_orchestrator_supervisor()
+        st = sv.state
+        supervisor_state = {
+            "running": st.running,
+            "ticks": st.ticks,
+            "stalled_recovered": st.stalled_recovered,
+            "failed_retried": st.failed_retried,
+            "alerts_emitted": st.alerts_emitted,
+        }
+    except Exception:
+        pass
+
+    return {
+        "runs": len(runs),
+        "by_status": {
+            "pending": sum(1 for r in runs if r.get("status") == "pending"),
+            "running": sum(1 for r in runs if r.get("status") == "running"),
+            "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
+            "queued": sum(1 for r in runs if r.get("status") == "queued"),
+            "done": sum(1 for r in runs if r.get("status") == "done"),
+            "failed": sum(1 for r in runs if r.get("status") == "failed"),
+        },
+        "queue": queue_status,
+        "supervisor": supervisor_state,
+    }
 
 @app.get("/api/workflow/orchestrator/runs")
 async def workflow_orchestrator_list_runs(
@@ -6750,6 +7261,55 @@ async def workflow_orchestrator_get_run(
     run = _wfo_owned_run_or_404(orchestrator, run_id, user)
     return {"run": run.as_dict()}
 
+
+@app.delete("/api/workflow/orchestrator/runs/{run_id}")
+async def workflow_orchestrator_cancel_run(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Cancel a single orchestrator run (removes from memory).
+
+    Admin users can cancel any run; non-admin users can only cancel their own runs."""
+    orchestrator = get_workflow_orchestrator()
+    _wfo_owned_run_or_404(orchestrator, run_id, user)
+    orchestrator.cancel_run(run_id)
+    return {"ok": True, "run_id": run_id, "cancelled": 1}
+
+
+@app.delete("/api/workflow/orchestrator/runs")
+async def workflow_orchestrator_cancel_runs_bulk(
+    status: str | None = None,
+    run_ids: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """Bulk-cancel orchestrator runs by status or explicit run_id list.
+
+    Query params:
+      status=failed,queued  — cancels all runs matching that status (admin only)
+      run_ids=id1,id2,id3   — cancels specific runs (ownership enforced per run)
+
+    Admin only for status-based cleanup; run_ids honours per-run ownership."""
+    orchestrator = get_workflow_orchestrator()
+    is_admin = _wfo_is_admin(user)
+    count = 0
+
+    if status:
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Bulk status cleanup requires admin")
+        for s in status.split(","):
+            count += orchestrator.cancel_runs_bulk(status=s.strip())
+    elif run_ids:
+        for rid in run_ids.split(","):
+            rid = rid.strip()
+            if not rid:
+                continue
+            _wfo_owned_run_or_404(orchestrator, rid, user)
+            if orchestrator.cancel_run(rid):
+                count += 1
+
+    return {"ok": True, "cancelled": count}
+
+
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.
 get_secrets_store(db=get_db())
@@ -6776,23 +7336,11 @@ if _FRONTEND_BUILD.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
         index = _FRONTEND_BUILD / "index.html"
         if index.exists():
             return HTMLResponse(index.read_text())
         return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
-
-_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
-
-if _FRONTEND_BUILD.exists():
-    app.mount(
-        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 

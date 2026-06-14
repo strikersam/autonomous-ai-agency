@@ -1,5 +1,5 @@
 [Unit]
-Description=LLM Relay (local-llm-server) — Docker Compose stack
+Description=Autonomous AI Agency (local-llm-server) — Docker Compose stack
 Documentation=https://github.com/strikersam/local-llm-server
 After=network-online.target docker.service
 Wants=network-online.target

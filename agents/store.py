@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import secrets
 import time
-from typing import Any
+from datetime import datetime
+from typing import Any, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -38,11 +39,30 @@ class AgentDefinition(BaseModel):
     is_public:    bool = False                          # visible to whole workspace
     cost_policy:  str = "local_only"                   # local_only | allow_paid | budget_X
     tags:         list[str] = Field(default_factory=list)
-    created_at:   float = Field(default_factory=time.time)
-    updated_at:   float = Field(default_factory=time.time)
+    created_at:   Union[str, float] = Field(default_factory=time.time)
+    updated_at:   Union[str, float] = Field(default_factory=time.time)
     # Audit fields
-    last_used_at: float | None = None
+    last_used_at: Union[str, float, None] = None
     use_count:    int = 0
+
+    @field_validator("created_at", "updated_at", "last_used_at", mode="before")
+    @classmethod
+    def _coerce_timestamp(cls, v: Any) -> Any:
+        """Accept both ISO-8601 datetime strings (from DB) and float timestamps."""
+        if v is None:
+            return None
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v).timestamp()
+            except (ValueError, TypeError):
+                pass
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                pass
+        return v
 
     def touch(self) -> None:
         self.updated_at = time.time()

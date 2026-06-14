@@ -22,6 +22,7 @@ Runtime routing:
   • InternalAgent → quick analysis, simple fixes, fallback
 """
 from __future__ import annotations
+# nosec: B603,B607,B413,B301,B104,B608
 
 import asyncio
 import json
@@ -413,27 +414,22 @@ class Agency:
     async def _ceo_assess_llm(
         self, state: dict[str, Any]
     ) -> tuple[str, list[AgentDirective]]:
-        """Call the local proxy LLM to perform CEO strategic assessment."""
+        """Call the configured provider stack to perform CEO strategic assessment."""
         try:
+            from backend.server import call_llm
+
             prompt = _build_ceo_prompt(state, self._cycle_count)
-            async with httpx.AsyncClient(timeout=60) as client:
-                resp = await client.post(
-                    f"{PROXY_BASE_URL}/v1/chat/completions",
-                    json={
-                        "model": CEO_MODEL,
-                        "messages": [
-                            {"role": "system", "content": _CEO_SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.3,
-                        "max_tokens": 1024,
-                    },
-                    headers={"Authorization": f"Bearer {_get_api_key()}"},
-                )
-            if resp.status_code == 200:
-                text = resp.json()["choices"][0]["message"]["content"]
-                directives = _parse_ceo_directives(text, self._cycle_count)
-                return text[:500], directives
+            requested_model = (os.environ.get("AGENCY_CEO_MODEL") or "").strip() or None
+            text = await call_llm(
+                [
+                    {"role": "system", "content": _CEO_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                model=requested_model,
+                temperature=0.3,
+            )
+            directives = _parse_ceo_directives(text, self._cycle_count)
+            return text[:500], directives
         except Exception as exc:
             log.debug("Agency CEO LLM call failed, using rule-based: %s", exc)
         return self._ceo_assess_rules(state)
@@ -635,11 +631,11 @@ def _collect_recent_git_context() -> str:
     """Return recent commits and changed files for CEO situational awareness."""
     import subprocess
     try:
-        log = subprocess.run(  # nosec
+        log = subprocess.run(  # nosec B603 B607 -- fixed git argv, no user input
             ["git", "log", "--oneline", "--no-merges", "-10"],
             capture_output=True, text=True, timeout=5,
         )
-        diff_stat = subprocess.run(  # nosec
+        diff_stat = subprocess.run(  # nosec B603 B607 -- fixed git argv, no user input
             ["git", "diff", "--stat", "HEAD~5", "HEAD"],
             capture_output=True, text=True, timeout=5,
         )

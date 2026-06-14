@@ -25,7 +25,7 @@ def req(method, path, body=None, token=None):
 
 
 def login():
-    s, body = req("POST", "/api/auth/login", {"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"})
+    s, body = req("POST", "/api/auth/login", {"email": "admin@llmrelay.local", "password": os.environ["ADMIN_PASSWORD"]})
     assert s == 200, body
     return body["access_token"]
 

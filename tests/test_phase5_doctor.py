@@ -117,3 +117,36 @@ def test_doctor_survives_preflight_error(client):
     checks = resp.json()["checks"]
     setup_checks = [c for c in checks if c.get("category") == "Setup"]
     assert any(c["status"] == "warn" for c in setup_checks)
+
+
+# ---------------------------------------------------------------------------
+# Regression: public doctor storage check must not duck-type MongoStore
+# ---------------------------------------------------------------------------
+
+def test_public_doctor_storage_check_uses_real_collection_count(client):
+    """MongoStore.__getattr__ proxies any name to a Motor collection, so
+    hasattr(store, 'count_companies') was always True and calling it raised
+    'MotorCollection object is not callable' in production. The check must
+    count via store.companies.count_documents({})."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import db as db_module
+
+    class _ProxyStore:
+        """Mimics MongoStore: every attribute access yields a collection."""
+        def __getattr__(self, name):
+            coll = MagicMock(name=f"collection:{name}")
+            coll.count_documents = AsyncMock(return_value=7)
+            return coll
+
+    old = db_module._store
+    db_module._store = _ProxyStore()
+    try:
+        resp = client.get("/api/doctor/public")
+    finally:
+        db_module._store = old
+
+    assert resp.status_code == 200
+    storage = next(c for c in resp.json()["checks"] if c["id"] == "storage")
+    assert storage["status"] == "pass", storage["detail"]
+    assert "7 companies" in storage["detail"]

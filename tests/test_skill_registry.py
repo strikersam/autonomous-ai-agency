@@ -282,3 +282,82 @@ class TestRecommendLogic:
         content_with_tech = "This skill is built specifically for React."
         tech_list = _extract_tech_relevance(content_with_tech)
         assert "react" in tech_list
+
+# ---------------------------------------------------------------------------
+# Nested registry structure (borghei/Claude-Skills style)
+# ---------------------------------------------------------------------------
+
+class _FakeResp:
+    def __init__(self, status_code=200, json_data=None, text=""):
+        self.status_code = status_code
+        self._json = json_data
+        self.text = text
+        self.headers = {}
+
+    def json(self):
+        return self._json
+
+
+class _FakeClient:
+    """Stub httpx client for nested-registry fetch tests."""
+    headers: dict = {}
+
+    def __init__(self, tree, files):
+        self._tree = tree
+        self._files = files
+
+    async def get(self, url, headers=None):
+        if "/git/trees/" in url:
+            return _FakeResp(json_data={"tree": self._tree})
+        for path, content in self._files.items():
+            if url.endswith(path):
+                return _FakeResp(text=content)
+        return _FakeResp(status_code=404)
+
+
+def test_nested_registry_indexes_deeply_nested_skills():
+    import asyncio
+    from agent.skill_registry import SkillRegistry
+
+    reg_cfg = {
+        "id": "borghei-claude-skills",
+        "owner": "borghei",
+        "repo": "Claude-Skills",
+        "path": "",
+        "skill_file": "SKILL.md",
+        "structure": "nested",
+        "branch": "main",
+    }
+    tree = [
+        {"type": "blob", "path": "project-management/discovery/pre-mortem/SKILL.md"},
+        {"type": "blob", "path": "business-growth/churn-prevention/SKILL.md"},
+        {"type": "blob", "path": "README.md"},
+        {"type": "tree", "path": "project-management"},
+    ]
+    files = {
+        "project-management/discovery/pre-mortem/SKILL.md":
+            "---\nname: pre-mortem\n---\n# Pre-Mortem\n\nRisk analysis with Tigers and Elephants.",
+        "business-growth/churn-prevention/SKILL.md":
+            "# Churn Prevention\n\nReduce churn.",
+    }
+    sr = SkillRegistry(local_skills_dir="/nonexistent")
+    client = _FakeClient(tree, files)
+    skills = asyncio.run(sr._fetch_nested_registry(client, reg_cfg))
+    ids = {s.skill_id for s in skills}
+    assert "github:borghei-claude-skills:pre-mortem" in ids
+    assert "github:borghei-claude-skills:churn-prevention" in ids
+    pm = next(s for s in skills if s.skill_id.endswith(":pre-mortem"))
+    # frontmatter stripped; description from prose, categories become tags
+    assert "name: pre-mortem" not in pm.description
+    assert "project-management" in pm.tags
+
+
+def test_local_skills_dir_defaults_to_repo_root_not_cwd(tmp_path, monkeypatch) -> None:
+    """Production regression: server started from a non-repo CWD indexed
+    0 local skills because the default path was CWD-relative."""
+    from agent.skill_registry import SkillRegistry
+    monkeypatch.chdir(tmp_path)  # simulate foreign working directory
+    sr = SkillRegistry()
+    assert len(sr.list(source="local")) > 0, (
+        "expected repo .claude/skills to be indexed regardless of CWD"
+    )

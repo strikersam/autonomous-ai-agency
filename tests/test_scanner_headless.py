@@ -425,6 +425,66 @@ class TestBotProtectionResilience:
         names = {s.name for s in systems}
         assert "Salesforce Commerce Cloud" in names, names
 
+    def test_thin_static_detection_still_escalates_to_render(self, monkeypatch) -> None:
+        """gucci.com / workers.dev regression: a bot-walled or JS-rendered site
+        leaks a *couple* of signals statically, so `detected_systems` was non-empty
+        and the old `not detected_systems` gate skipped the headless + BuiltWith
+        fallbacks — the PIM/CRM behind the JS wall (e.g. Akeneo) stayed invisible.
+        Detection below SCANNER_RENDER_MIN_SYSTEMS must still escalate and merge."""
+        scanner = _scanner()
+        import services.scanner as scanner_mod
+        from models.company_graph import DetectedSystem, Evidence
+        monkeypatch.setattr(scanner_mod, "_is_safe_url", lambda url: True)
+        monkeypatch.setattr(scanner, "_analyze_dns", lambda domain: [])
+        monkeypatch.setenv("SCANNER_RENDER_MIN_SYSTEMS", "5")
+
+        def _sys(name: str) -> DetectedSystem:
+            return DetectedSystem(
+                system_type="custom", name=name, confidence=0.9,
+                evidence=[Evidence(type="html", value=name, location="page", confidence=0.9)],
+            )
+
+        def fake_detect(html, headers, cookies):
+            # The rendered DOM exposes a third system the thin static body hid.
+            if "RENDERED_DOM" in (html or ""):
+                return [_sys("Cloudflare"), _sys("Google Analytics"), _sys("Akeneo")]
+            return [_sys("Cloudflare"), _sys("Google Analytics")]  # only 2 statically
+
+        monkeypatch.setattr(scanner, "_detect_systems_generic", fake_detect)
+
+        class _Resp:
+            def __init__(self) -> None:
+                self.text = "<html><body>thin storefront</body></html>"
+                self.headers: dict = {}
+                self.cookies: dict = {}
+                self.status_code = 200
+
+        class _Session:
+            def __init__(self, *a, **k):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *a):
+                return False
+            async def get(self, *a, **k):
+                return _Resp()
+
+        fake = types.ModuleType("curl_cffi")
+        fake_req = types.ModuleType("curl_cffi.requests")
+        fake_req.AsyncSession = _Session
+        fake.requests = fake_req
+        monkeypatch.setitem(sys.modules, "curl_cffi", fake)
+        monkeypatch.setitem(sys.modules, "curl_cffi.requests", fake_req)
+
+        async def fake_render(url):
+            return ("<html>RENDERED_DOM</html>", {}, {})
+        monkeypatch.setattr(scanner, "_render_html", fake_render)
+
+        result = asyncio.run(scanner.scan_website("https://gucci.com"))
+        assert result.status == "success", result.errors
+        names = {s.name for s in result.detected_systems}
+        assert "Akeneo" in names, names  # only reachable via the rendered DOM
+
     def test_scan_website_falls_through_to_builtwith_when_live_blocked(self, monkeypatch) -> None:
         """Full flow for an Akamai-walled site: live fetch returns a bot wall,
         headless render of the *target* yields nothing, DNS is empty — so the

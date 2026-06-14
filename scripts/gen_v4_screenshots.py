@@ -150,7 +150,7 @@ def sidebar(active: str) -> str:
       <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="14" y="14" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/></svg>
     </div>
     <div class="sb-logo-text">
-      <div class="sb-logo-name">LLM Relay</div>
+      <div class="sb-logo-name">Autonomous AI Agency</div>
       <div class="sb-logo-ver">v4.0 · native black</div>
     </div>
   </div>
@@ -1141,7 +1141,7 @@ SETTINGS_BODY = """
       <div class="card-body" style="display:flex;flex-direction:column;gap:14px;">
         <div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Server name</div>
-          <input class="inp" value="LLM Relay" />
+          <input class="inp" value="Autonomous AI Agency" />
         </div>
         <div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Admin email</div>
@@ -1315,7 +1315,7 @@ body{{min-height:100vh;display:flex;align-items:stretch;}}
         </svg>
       </div>
       <div>
-        <div style="font-size:18px;font-weight:800;color:var(--text-primary);">LLM Relay</div>
+        <div style="font-size:18px;font-weight:800;color:var(--text-primary);">Autonomous AI Agency</div>
         <div style="font-size:10px;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;letter-spacing:0.12em;">v4.0 · native black</div>
       </div>
     </div>
@@ -1402,7 +1402,7 @@ body{{min-height:100vh;display:flex;flex-direction:column;align-items:center;jus
 </head><body>
 <div class="wizard-wrap">
   <div style="text-align:center;margin-bottom:28px;">
-    <div style="font-size:22px;font-weight:800;color:var(--text-primary);margin-bottom:4px;">Set up LLM Relay</div>
+    <div style="font-size:22px;font-weight:800;color:var(--text-primary);margin-bottom:4px;">Set up the Autonomous AI Agency</div>
     <div style="font-size:13px;color:var(--text-muted);">Step 1 of 5 · Choose your AI providers</div>
   </div>
   <!-- Steps -->
@@ -1490,7 +1490,7 @@ body{{min-height:100vh;display:flex;flex-direction:column;align-items:center;jus
 
 def build_screens() -> None:
     # 1. Dashboard
-    shot("v4-control-plane.png", page("home", "Dashboard", "LLM Relay v4.0", DASHBOARD_BODY,
+    shot("v4-control-plane.png", page("home", "Dashboard", "Autonomous AI Agency", DASHBOARD_BODY,
          '<button class="btn-secondary" style="font-size:12px;">Refresh</button>'))
 
     # 2. Chat (full-viewport layout)

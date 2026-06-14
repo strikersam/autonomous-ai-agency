@@ -188,6 +188,7 @@ function UserOnboardingTable() {
         <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'14px 0' }}>No users added yet. Add a user ID below.</div>
       ) : (
         <div style={{ borderRadius:12, border:'1px solid rgba(255,255,255,0.08)', overflow:'hidden', marginBottom:16 }}>
+          <div style={{ overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse' }}>
             <thead>
               <tr style={{ background:'rgba(255,255,255,0.03)' }}>
@@ -213,6 +214,7 @@ function UserOnboardingTable() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -250,7 +252,7 @@ function AuditLog() {
   if (!log.length) return <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'8px 0' }}>No events yet.</div>;
 
   return (
-    <div style={{ maxHeight:260, overflowY:'auto', borderRadius:12, border:'1px solid rgba(255,255,255,0.08)' }}>
+    <div style={{ maxHeight:260, overflowY:'auto', overflowX:'auto', borderRadius:12, border:'1px solid rgba(255,255,255,0.08)' }}>
       <table style={{ width:'100%', borderCollapse:'collapse' }}>
         <thead>
           <tr style={{ background:'rgba(255,255,255,0.03)', position:'sticky', top:0 }}>

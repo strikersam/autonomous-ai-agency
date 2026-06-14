@@ -36,6 +36,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           PR_NUMBER="${{ steps.pr.outputs.pr_number }}"
+          # SAFETY: never auto-merge a draft PR. Draft PRs created by
+          # issue-context-generator contain only a planning doc (docs/context/*.md)
+          # — they are "yet to be implemented" and must not be closed by housekeeping
+          # or auto-merge. Also skip PRs labelled quick-note:planning as belt-and-suspenders.
+          IS_DRAFT=$(gh pr view "$PR_NUMBER" --json isDraft -q '.isDraft' 2>/dev/null || echo "false")
+          HAS_PLANNING=$(gh pr view "$PR_NUMBER" --json labels -q '.labels[].name | select(. == "quick-note:planning")' 2>/dev/null || echo "")
+          if [ "$IS_DRAFT" = "true" ] || [ -n "$HAS_PLANNING" ]; then
+            echo "Skipping PR #$PR_NUMBER — draft PR (isDraft=$IS_DRAFT) or labelled quick-note:planning."
+            echo "Draft PRs are planning docs only and must be implemented by the agent before merge."
+            exit 0
+          fi
           echo "Auto-merging PR #$PR_NUMBER after successful CI..."
           gh pr merge "$PR_NUMBER" --squash --admin --delete-branch || {
             echo "::warning::Auto-merge failed (branch protection or conflicts). Manual merge may be needed."

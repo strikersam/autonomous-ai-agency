@@ -417,6 +417,28 @@ class CompanyAgencyService:
                         f"company:{company_id}:{schedule_def['name_suffix']}"
                     )
 
+                    # Idempotency: check if this schedule already exists.
+                    # If it does, skip creation and record it (don't error).
+                    existing_jobs = [
+                        j for j in self.scheduler.list()
+                        if j.name == schedule_name
+                    ]
+                    if existing_jobs:
+                        existing_job = existing_jobs[0]
+                        log.info(
+                            "CompanyAgency: schedule '%s' already exists (job_id=%s), skipping creation",
+                            schedule_name, existing_job.job_id,
+                        )
+                        result["schedules_created"].append({
+                            "job_id": existing_job.job_id,
+                            "name": schedule_name,
+                            "cron": schedule_def["cron"],
+                            "runtime": runtime_id,
+                            "status": existing_job.status,
+                            "note": "already_exists",
+                        })
+                        continue
+
                     # Build instruction with company context
                     instruction = (
                         f"Company: {company.name} (ID: {company_id})\n"
