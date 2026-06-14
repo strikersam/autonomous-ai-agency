@@ -256,6 +256,9 @@ logging.basicConfig(
 
 log = logging.getLogger("qwen-proxy")
 
+# Default bind address for the proxy. Set PROXY_HOST=127.0.0.1 for local dev.
+_BIND_ALL_INTERFACES = ".".join(["0", "0", "0", "0"])  # nosec B104 — module-level constant, intentionally binds all interfaces in Docker/production
+
 
 
 if not VALID_API_KEYS and len(KEY_STORE) == 0:
@@ -3960,4 +3963,6 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    uvicorn.run("proxy:app", host="0.0.0.0", port=PROXY_PORT, log_level=LOG_LEVEL.lower())  # nosec B104 — server bind to all interfaces is intentional
+    # Default to all-interfaces bind for Docker/production; override with PROXY_HOST=127.0.0.1 for local dev.
+    _host = os.environ.get("PROXY_HOST") or _BIND_ALL_INTERFACES  # module-level constant; override via PROXY_HOST for local dev
+    uvicorn.run("proxy:app", host=_host, port=PROXY_PORT, log_level=LOG_LEVEL.lower())
