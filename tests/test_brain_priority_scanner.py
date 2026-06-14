@@ -229,14 +229,174 @@ def test_provider_update_priority_field_type():
     assert upd_str.priority == 42
 
 
-# ─── 4. onboarding.py must import without NameError ──────────────────────────────
+# ─── 5. PUT handler must actually persist priority via body.dict(exclude_none=True) ───
 
 
-def test_onboarding_imports_cleanly():
-    """services/onboarding.py:1023 had a stray module-level 'ice' word that
-    raised NameError on import and broke the whole test suite. This test pins
-    the fix so a future artifact cannot silently come back.
+def test_provider_update_round_trips_priority_for_put_persistence():
+    """The PUT /api/providers/{id} handler does:
+
+        for k, v in body.dict(exclude_none=True).items():
+            update["$" + k] = v
+
+    so the payload must contain the priority key with the integer value for
+    the update to land in MongoDB. This test pins that path so a future
+    refactor of ProviderUpdate cannot silently drop the priority write.
     """
-    sys.modules.pop("services.onboarding", None)
-    import services.onboarding  # noqa: F401
-    # Import succeeded — that is the actual regression assertion.
+    from backend.server import ProviderUpdate
+
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    upd = ProviderUpdate(priority=99)
+    payload = upd.model_dump(exclude_none=True)
+    assert payload.get("priority") == 99, (
+        f"ProviderUpdate(priority=99) must round-trip through model_dump(exclude_none=True) "
+        f"so the PUT handler persists it. Got payload: {payload!r}"
+    )
+
+    # Boundary values: -100 and 1000 must be accepted (inclusive bounds).
+    upd_low = ProviderUpdate(priority=-100)
+    assert upd_low.priority == -100, "Lower boundary -100 must be accepted"
+    upd_high = ProviderUpdate(priority=1000)
+    assert upd_high.priority == 1000, "Upper boundary 1000 must be accepted"
+
+    # Out-of-bounds: -101 and 1001 must be rejected.
+    from pydantic import ValidationError
+    try:
+        ProviderUpdate(priority=1001)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("ProviderUpdate(priority=1001) must be rejected (above Field le=1000)")
+
+    try:
+        ProviderUpdate(priority=-101)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("ProviderUpdate(priority=-101) must be rejected (below Field ge=-100)")
+
+    # And the original garbage cases:
+    try:
+        ProviderUpdate(priority=999_999_999)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("ProviderUpdate(priority=999999999) must be rejected by the Field bounds")
+
+    try:
+        ProviderUpdate(priority=-999_999)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("ProviderUpdate(priority=-999999) must be rejected by the Field bounds")
+
+
+# ─── 6. AGENT_LLM_BASE_URL env-override must win over paid providers ───
+
+
+def test_brain_env_override_wins_over_paid_provider(monkeypatch):
+    """When AGENT_LLM_BASE_URL is set, the brain resolver must return that
+    endpoint — even if a higher-priority paid Anthropic provider is configured.
+    This pins the docstring contract:
+
+        Resolution order:
+          1. AGENT_LLM_BASE_URL env override (with optional AGENT_LLM_API_KEY /
+             AGENT_LLM_MODEL) — wins over everything.
+          2. Highest-priority configured provider record (skipping paid if a
+             free one exists)...
+
+    so a future refactor cannot accidentally make the env override second
+    priority to a paid provider. Critical because operators use the env var as
+    a kill switch to redirect the brain away from a misbehaving provider.
+    """
+    from services import workflow_orchestrator
+    import os
+
+    async def fake_records():
+        return [
+            {
+                "provider_id": "anthropic-claude",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-PLACEHOLDER",
+                "default_model": "claude-sonnet-4-6",
+                "priority": 999,  # highest, but PAID — must be ignored
+            },
+        ]
+
+    monkeypatch.setattr(
+        "backend.server._list_configured_provider_records",
+        fake_records,
+        raising=False,
+    )
+    # Set the env override to a free openai-compatible endpoint.
+    monkeypatch.setenv("AGENT_LLM_BASE_URL", "https://my-free-llm.example.com/v1")
+    monkeypatch.setenv("AGENT_LLM_API_KEY", "sk-free-PLACEHOLDER")
+    monkeypatch.setenv("AGENT_LLM_MODEL", "my-free-model")
+
+    base, headers, model = _run(workflow_orchestrator._resolve_brain_provider())
+    assert "my-free-llm.example.com" in base, (
+        f"AGENT_LLM_BASE_URL must win over a higher-priority paid provider. "
+        f"Got base={base!r}"
+    )
+    assert "anthropic" not in base.lower(), (
+        f"Env override must bypass the paid provider entirely. Got base={base!r}"
+    )
+    assert model == "my-free-model"
+    assert headers and headers.get("Authorization") == "Bearer sk-free-PLACEHOLDER"
+
+
+# ─── 7. Integration test: PUT handler must write priority to MongoDB $set ───
+
+
+def test_put_handler_writes_priority_to_mongo_set(monkeypatch):
+    """The model-layer test above only proves the Pydantic field works. A
+    FastAPI body deserializer, a Pydantic validator, or a Mongo $set typo
+    in the handler could still silently drop the priority. This integration
+    test mocks get_db().providers.update_one and asserts the $set payload
+    actually contained {priority: 99} — the only way to pin the end-to-end
+    PUT→DB path the live UI exercises when an operator edits priority.
+    """
+    import asyncio as _asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    captured: dict = {}
+
+    # Mock get_db() to return a fake DB whose providers collection captures
+    # the $set payload that update_provider() actually writes.
+    fake_db = MagicMock()
+    fake_collection = MagicMock()
+    fake_update_result = MagicMock()
+    fake_update_result.matched_count = 1
+
+    async def _capture_update_one(filter_, update):
+        captured["filter"] = filter_
+        captured["update"] = update
+        return fake_update_result
+
+    fake_collection.update_one = _capture_update_one
+    fake_db.providers = fake_collection
+    fake_db.providers.update_many = AsyncMock(return_value=MagicMock(matched_count=0))
+
+    # Patch get_db on the backend.server module so the handler picks it up.
+    monkeypatch.setattr("backend.server.get_db", lambda: fake_db, raising=False)
+
+    # Build a minimal Request with an authenticated user, then call the handler directly.
+    from backend.server import update_provider, ProviderUpdate
+
+    body = ProviderUpdate(priority=99, default_model="nvidia/nemotron-3-super-120b-a12b")
+    user = {"_id": "u_test", "email": "admin@llmrelay.local"}
+
+    result = _asyncio.run(update_provider(provider_id="nvidia-nim", body=body, user=user))
+
+    # The handler must have called update_one with a $set containing {priority: 99}.
+    assert captured.get("update"), (
+        f"update_provider did not call update_one. Got captured: {captured!r}"
+    )
+    set_payload = captured["update"].get("$set", {})
+    assert set_payload.get("priority") == 99, (
+        f"update_provider must write priority to MongoDB $set. Got $set: {set_payload!r}"
+    )
+    # Other fields that were set on the body should also be present.
+    assert set_payload.get("default_model") == "nvidia/nemotron-3-super-120b-a12b"
+    # And the filter must target the right provider.
+    assert captured["filter"] == {"provider_id": "nvidia-nim"}

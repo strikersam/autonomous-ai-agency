@@ -70,7 +70,8 @@ dollar amount.
 The company page (`frontend/src/v5/screens/CompanyScreen.jsx`) has an **SEO
 Audit** tab: enter a URL, pick the fetch mode, optionally a monthly organic-
 revenue baseline, and run. It shows the health score, six pillar scores,
-revenue-at-risk (with the caveat above), the full findings table, **Download
+revenue-at-risk (with the caveat above), the full findings table, a one-click
+**📄 Generate PDF Report** button (CTO-level write-up — see below), **Download
 CSV / JSON / Markdown / URLs / Issues** buttons, and a one-click **Delegate to
 task board**.
 
@@ -110,7 +111,7 @@ GET  /api/seo/checks                                          # full catalog (pu
 POST /api/company/{company_id}/seo/audit                      # run an audit
 GET  /api/company/{company_id}/seo/audits                     # list past audits
 GET  /api/company/{company_id}/seo/audits/{audit_id}          # full report
-GET  /api/company/{company_id}/seo/audits/{audit_id}/export   # ?fmt=csv|urls|issues|markdown|json
+GET  /api/company/{company_id}/seo/audits/{audit_id}/export   # ?fmt=csv|urls|issues|markdown|json|pdf
 POST /api/company/{company_id}/seo/audits/{audit_id}/delegate # create agent tasks
 POST /api/company/{company_id}/seo/fix                        # repo-aware auto-fix
 ```
@@ -137,6 +138,13 @@ Request options: `max_pages` (1–500, default 50), `max_depth`, `include_sitema
 - `fmt=markdown` — executive report: pillar scores, findings table,
   **delegation plan**, and per-page details (worst pages first)
 - `fmt=json` — the complete typed report object
+- `fmt=pdf` — **CTO-level PDF report** (`services/seo_report_pdf.py`): cover
+  page, executive summary, a methodology section explaining the revenue model
+  with a cross-baseline sensitivity table, one deep-dive per pillar with $
+  recommendations sourced from the delegation plan's own instructions, and
+  appendices for the full findings table, the WSJF-prioritised fix roadmap, and
+  the worst pages. Generated on demand from the stored report — nothing is
+  hardcoded per company.
 
 ### Delegation plan → agent tasks
 

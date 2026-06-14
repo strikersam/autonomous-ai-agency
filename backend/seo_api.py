@@ -7,7 +7,7 @@ Endpoints for the world-class SEO audit engine (issue #533):
 - POST /api/company/{company_id}/seo/audit                 run an audit
 - GET  /api/company/{company_id}/seo/audits                list past audits
 - GET  /api/company/{company_id}/seo/audits/{audit_id}     full report
-- GET  /api/company/{company_id}/seo/audits/{audit_id}/export   csv|json|markdown|urls|issues
+- GET  /api/company/{company_id}/seo/audits/{audit_id}/export   csv|json|markdown|urls|issues|pdf
 - POST /api/company/{company_id}/seo/audits/{audit_id}/delegate create agent tasks
 - POST /api/company/{company_id}/seo/fix                   repo-aware auto-fix
 
@@ -23,7 +23,7 @@ from pathlib import Path as FsPath
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from backend.company_api import _get_current_user_thunk, _resolve_user_id, get_company_access
@@ -47,6 +47,7 @@ from services.seo_audit import (
 )
 from services.seo_checks import list_checks
 from services.seo_fixer import run_fixes
+from services.seo_report_pdf import report_to_pdf
 
 log = logging.getLogger("seo_api")
 
@@ -137,7 +138,7 @@ async def get_seo_audit(
 async def export_seo_audit(
     company_id: str = Path(..., description="Company ID"),
     audit_id: str = Path(..., description="Audit ID"),
-    fmt: Literal["csv", "json", "markdown", "urls", "issues"] = Query(
+    fmt: Literal["csv", "json", "markdown", "urls", "issues", "pdf"] = Query(
         "csv", description="Export format"
     ),
     user: dict = Depends(_get_current_user_thunk),
@@ -149,6 +150,8 @@ async def export_seo_audit(
     - ``issues``    every individual issue occurrence
     - ``markdown``  full heavy report: findings, delegation plan, per-page details
     - ``json``      the complete report object
+    - ``pdf``       CTO-level report: cover, executive summary, methodology,
+                    pillar deep-dives, WSJF roadmap and worst-pages appendices
     """
     company = await get_company_access(company_id, user)
     report = get_report(audit_id)
@@ -161,6 +164,13 @@ async def export_seo_audit(
         return report
     if fmt == "markdown":
         return PlainTextResponse(report_to_markdown(report), media_type="text/markdown")
+    if fmt == "pdf":
+        return Response(
+            content=report_to_pdf(report),
+            media_type="application/pdf",
+            headers={"Content-Disposition":
+                     f'attachment; filename="seo-audit-{audit_id}.pdf"'},
+        )
     renderer = {"csv": report_to_csv, "urls": report_to_pages_csv,
                 "issues": report_to_issues_csv}[fmt]
     return PlainTextResponse(

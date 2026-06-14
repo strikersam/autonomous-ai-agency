@@ -13,7 +13,8 @@ COPY frontend/package.json frontend/package-lock.json ./
 # The original CI error ("Missing: yaml@2.9.0 from lock file" in Browser E2E
 # run 27482207784) was a transient npm cache issue. The cache-clean step below
 # defensively clears any stale metadata before npm ci runs.
-RUN npm cache clean --force && \n    npm ci --no-audit --prefer-offline --legacy-peer-deps
+RUN npm cache clean --force && \
+    npm ci --no-audit --prefer-offline --legacy-peer-deps
 COPY frontend/ ./
 # CI=false so build-time ESLint warnings don't fail the production build.
 RUN CI=false npm run build
