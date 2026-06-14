@@ -98,6 +98,27 @@ if WORKFLOW_MODE not in ("orchestrator", "legacy"):
     WORKFLOW_MODE = "orchestrator"
 
 
+# Narrow exception list for the CEO → AgentRunner fallback path. The CEO
+# may legitimately fail when a runtime is missing, an LLM endpoint is
+# unreachable, or the swarm cannot start; in those cases we want to fall
+# through to the single-runner path so the run can still succeed. Program
+# errors (KeyError, AttributeError, etc.) must NOT be swallowed.
+_CEO_FALLBACK_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
+try:
+    import httpx as _httpx  # type: ignore
+    _CEO_FALLBACK_EXCEPTIONS = _CEO_FALLBACK_EXCEPTIONS + (
+        _httpx.ConnectError,
+        _httpx.ReadTimeout,
+        _httpx.ConnectTimeout,
+    )
+except ImportError:
+    pass
+
+
 # ── Orchestrator bypass flag (prevents circular deprecation block) ──────────
 # Uses contextvars.ContextVar for async/coroutine safety — each async task
 # gets its own isolated bypass flag. When the WorkflowOrchestrator itself
@@ -193,6 +214,23 @@ def is_legacy_mode() -> bool:
     return WORKFLOW_MODE == "legacy" or _BYPASS.get()
 
 
+def _get_ceo_dispatcher():
+    """Lazy import + singleton for the CEO delegation layer.
+
+    Kept in workflow_orchestrator.py to avoid an import cycle: ceo_dispatcher
+    imports _BYPASS from this module, so importing ceo_dispatcher at top of
+    this file would create a cycle on first import.
+    """
+    from services.ceo_dispatcher import get_ceo_dispatcher as _g
+    return _g()
+
+
+def _merge_changed_files(specialists: list[dict]) -> list[str]:
+    """Re-export the canonical helper from ceo_dispatcher for backward compat."""
+    from services.ceo_dispatcher import _merge_changed_files as _impl
+    return _impl(specialists)
+
+
 def emit_deprecation(caller: str) -> None:
     """Log a deprecation warning when a parallel path is used."""
     log.warning(
@@ -267,6 +305,12 @@ class ExecutionRequest(BaseModel):
     # repo permissions — not the server-wide service account. exclude=True keeps
     # it out of every model_dump()/as_dict() so it never leaks in API output.
     github_token: str | None = Field(default=None, exclude=True, repr=False)
+    # Optional isolated workspace for this run (e.g. a git worktree path).
+    # When set, the orchestrator and AgentRunner use it as the workspace_root
+    # instead of os.getcwd() — addressing #504 worktree-isolation for
+    # concurrent runs. The caller is responsible for creating and cleaning
+    # up the worktree; the orchestrator just respects the path.
+    worktree_path: str | None = None
 
 
 class ClassifyOutput(BaseModel):
@@ -1212,10 +1256,15 @@ class WorkflowOrchestrator:
         )
 
     async def _handle_execute(self, run: WorkflowRun, req: ExecutionRequest) -> None:
-        """Execute the plan via the selected specialist(s)."""
+        """Execute the plan via the selected specialist(s).
+
+        For medium/high-complexity tasks, the CEO delegation layer fans the
+        request out across multiple specialists (scout + dev + reviewer)
+        running concurrently on the best-fit runtimes. For low-complexity
+        tasks, a single AgentRunner call avoids the fan-out overhead.
+        """
         plan = run.plan
         specialist = run.specialist
-        bound = run.bound_context
 
         if plan is None:
             run.execution = ExecutionResult(output="No plan to execute")
@@ -1229,11 +1278,64 @@ class WorkflowOrchestrator:
         if plan.goal and plan.goal.strip() and plan.goal[:200] != req.request[:200]:
             instruction = f"Goal: {plan.goal}\n\nFull request:\n{req.request}"
 
-        # Delegates to the module-level _resolve_brain_provider (#522), which is
-        # independently unit-tested and supports env override + failover via
-        # exclude_base_urls.
+        # CEO delegation for medium/high complexity: fan out to multiple
+        # specialists. For low complexity, fall through to the single-runner
+        # path (cheaper, avoids concurrency overhead).
+        classify = run.classify
+        complexity = classify.complexity if classify else "medium"
+        domain = classify.domain if classify else "general"
 
-        # Try AgentRunner for actual execution (bypass deprecation via flag)
+        if complexity in ("medium", "high"):
+            try:
+                ceo = _get_ceo_dispatcher()
+                gh_token = _resolve_push_token(req.github_token, req.user_id)
+                workspace_root = req.worktree_path or os.getcwd()
+                ceo_result = await ceo.delegate(
+                    instruction,
+                    complexity=complexity,
+                    domain=domain,
+                    specialists=list(specialist.specialist_names) if specialist and specialist.specialist_names else None,
+                    runtimes=None,
+                    user_id=req.user_id,
+                    github_token=gh_token,
+                    workspace_root=workspace_root,
+                )
+                # The swarm's internal try/except swallows per-task errors as
+                # status="error" payloads (it never re-raises), so an exception
+                # never escapes the CEO. We instead inspect CEOResult.verdict
+                # to decide whether to use the CEO's output or fall through
+                # to the single AgentRunner path.
+                if ceo_result.verdict == "OK":
+                    run.llm_provenance["ceo_verdict"] = ceo_result.verdict
+                    run.llm_provenance["ceo_fanout"] = "true" if ceo_result.fanout_used else "false"
+                    run.llm_provenance["ceo_runtimes_woken"] = ",".join(ceo_result.runtimes_woken)
+                    run.execution = ExecutionResult(
+                        output=ceo_result.summary,
+                        changed_files=_merge_changed_files(ceo_result.specialists),
+                        tool_calls=[],
+                        artifacts=[{"ceo": ceo_result.as_dict()}],
+                        duration_ms=int(ceo_result.total_duration_s * 1000),
+                    )
+                    return
+                log.warning(
+                    "CEO delegation verdict=%s; falling back to single AgentRunner",
+                    ceo_result.verdict,
+                )
+            except _CEO_FALLBACK_EXCEPTIONS as exc:
+                # Availability/transport error — fall through to single-runner
+                # path so the run can still succeed via AgentRunner.
+                log.warning(
+                    "CEO delegation unavailable, falling back to single AgentRunner: %s",
+                    exc,
+                )
+            except Exception as exc:
+                # Logic bug or programming error — log full traceback and
+                # surface as a real failure (do NOT silently fall back, which
+                # would mask the bug).
+                log.exception("CEO delegation failed unexpectedly")
+                raise
+
+        # Single-runner path: AgentRunner (bypass deprecation via flag)
         try:
             from agent.loop import AgentRunner
             import os as _os
