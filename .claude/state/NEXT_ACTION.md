@@ -1,8 +1,9 @@
 # Agent State — agentic-agile-workflows-8ymf4d
 
 **Session:** `agentic-agile-workflows-8ymf4d`
-**Status:** planned — awaiting user confirmation to implement
-**Last updated:** 2026-06-13T20:15:00Z
+**Status:** DONE — implemented, tested, pushed to `claude/agentic-agile-workflows-8ymf4d`
+(commits 594d071, 018fa4e). See `.claude/state/active-tasks.md` row #10.
+**Last updated:** 2026-06-14
 
 ## Context / Task
 
