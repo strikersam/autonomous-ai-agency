@@ -59,8 +59,8 @@ RESULT_FILE = "/tmp/impl_result.json"  # nosec: B108 - Predictable temp file pat
 MAX_TURNS = 120
 
 # Primary engine: NVIDIA NIM free-tier models (the real workhorse).
-# Optional fallback: Claude Opus via Anthropic, used only if NVIDIA fails and a key is set.
-OPUS_MODEL = "claude-opus-4-6"
+# Anthropic fallback has been REMOVED — it burns paid credits when NVIDIA fails.
+# If NVIDIA exhausts all models, the run fails cleanly and is retried next cycle.
 NVIDIA_CANDIDATE_MODELS = [
     ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
     ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
@@ -352,141 +352,14 @@ def _run_baseline_pytest() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Anthropic-native agent loop (Opus primary)
-# ---------------------------------------------------------------------------
-
-def _openai_tools_to_anthropic(tools: list[dict]) -> list[dict]:
-    """Convert OpenAI function-calling tool schemas to Anthropic tool schemas."""
-    result = []
-    for t in tools:
-        fn = t.get("function", {})
-        result.append({
-            "name": fn["name"],
-            "description": fn.get("description", ""),
-            "input_schema": fn.get("parameters", {"type": "object", "properties": {}}),
-        })
-    return result
-
-
-def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, str, int]:
-    """Run the implementation agent loop using Claude Opus via Anthropic SDK.
-
-    Returns (success, summary, turns_used).
-    """
-    import anthropic as _anthropic
-    client = _anthropic.Anthropic(api_key=anthropic_key)
-    anthropic_tools = _openai_tools_to_anthropic(TOOLS)
-
-    messages: list[dict] = [{"role": "user", "content": user_msg}]
-    success = False
-    last_pytest_passed = False
-    summary = "No implementation performed"
-    turns = 0
-
-    while turns < MAX_TURNS:
-        turns += 1
-        print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={OPUS_MODEL} (Anthropic)", flush=True)
-
-        try:
-            resp = client.messages.create(
-                model=OPUS_MODEL,
-                max_tokens=8192,
-                system=SYSTEM,
-                tools=anthropic_tools,  # type: ignore[arg-type]
-                messages=messages,      # type: ignore[arg-type]
-            )
-        except Exception as exc:
-            # Permanent failures (bad key, access denied, unknown model) must not be
-            # retried — they will never recover and would exhaust all 120 turns before
-            # NVIDIA fallback can run.
-            status = getattr(exc, "status_code", None)
-            if status in (401, 403, 404):
-                print(f"Anthropic permanent error ({status}): {exc} — falling back to NVIDIA", file=sys.stderr)
-                break
-            print(f"Anthropic transient error: {exc}", file=sys.stderr)
-            time.sleep(5)
-            continue  # retry transient errors (rate limit, server error, network)
-
-        # Build assistant content list
-        assistant_content: list[dict] = []
-        text_content = ""
-        tool_use_blocks: list = []
-
-        for block in resp.content:
-            if block.type == "text":
-                text_content = block.text
-                assistant_content.append({"type": "text", "text": block.text})
-                print(f"[agent] {block.text[:400]}", flush=True)
-            elif block.type == "tool_use":
-                tool_use_blocks.append(block)
-                assistant_content.append({
-                    "type": "tool_use",
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input,
-                })
-
-        messages.append({"role": "assistant", "content": assistant_content})
-
-        # No tool calls → terminal turn
-        if not tool_use_blocks:
-            summary = text_content or summary
-            if text_content and "IMPLEMENTATION_COMPLETE" in text_content and last_pytest_passed:
-                success = True
-                summary = text_content[:500]
-            break
-
-        # Execute tool calls and collect results
-        tool_results: list[dict] = []
-        for call in tool_use_blocks:
-            fn_name = call.name
-            fn_args = call.input if isinstance(call.input, dict) else {}
-            print(f"[tool] {fn_name}({list(fn_args.keys())})", flush=True)
-
-            handler = TOOL_DISPATCH.get(fn_name)
-            out = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
-            print(f"[tool result] {str(out)[:300]}", flush=True)
-
-            if fn_name == "bash":
-                cmd = fn_args.get("cmd", "")
-                if "pytest" in cmd:
-                    last_pytest_passed = "[exit 0]" in out
-                if "IMPLEMENTATION_COMPLETE" in out:
-                    if last_pytest_passed:
-                        success = True
-                        summary = f"Agent signaled completion after {turns} turns."
-                    else:
-                        out = (
-                            "[BLOCKED] IMPLEMENTATION_COMPLETE rejected: last pytest did not exit 0. "
-                            "Fix all test failures first."
-                        )
-
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": call.id,
-                "content": str(out),
-            })
-
-        messages.append({"role": "user", "content": tool_results})
-
-        if success:
-            break
-
-    if not success and turns >= MAX_TURNS:
-        summary = f"Agent hit turn limit ({MAX_TURNS}) without completing"
-
-    return success, summary, turns
-
-
-# ---------------------------------------------------------------------------
-# Main agent loop
+# Main agent loop — NVIDIA NIM only (Anthropic fallback removed to prevent
+# burning paid credits when free models fail. Fail cleanly instead.)
 # ---------------------------------------------------------------------------
 def main() -> None:
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
 
-    if not anthropic_key and not nvidia_key:
-        print("ERROR: neither ANTHROPIC_API_KEY nor NVIDIA_API_KEY set", file=sys.stderr)
+    if not nvidia_key:
+        print("ERROR: NVIDIA_API_KEY not set — cannot run agent", file=sys.stderr)
         sys.exit(1)
 
     note_path = Path("/tmp/note_content.txt")  # nosec: B108
@@ -520,9 +393,6 @@ def main() -> None:
     # THREAD_CAP = 60_000 chars. Tail-truncation preserves the most recent comments
     # (most likely to be relevant). If earlier context is critical, the LLM can
     # read /tmp/issue_comments.jsonl directly via the bash tool.
-    # 60K ≈ safe for NIM Nemotron Ultra (128K ctx) and Claude Sonnet (200K).
-    # Qwen3-Coder 480B's 32K window will still overflow; that is handled by the
-    # LLM client at the call site. Do not lower without re-running cost / quality audit.
     THREAD_CAP = 60_000
     if len(thread_block) > THREAD_CAP:
         head_chars = THREAD_CAP // 4
@@ -553,135 +423,122 @@ def main() -> None:
     turns = 0
     final_model = NVIDIA_CANDIDATE_MODELS[0][0]
 
-    # Primary engine: NVIDIA NIM. Opus-via-Anthropic is only an optional fallback
-    # (the Opus/Bedrock path is unreliable here), so NVIDIA does the real work.
-    if nvidia_key:
-        log.info("[agent] Using NVIDIA NIM as the primary engine")
-        client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
+    log.info("[agent] Using NVIDIA NIM as the primary engine")
+    client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
 
-        messages: list[dict] = [
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": user_msg},
-        ]
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": user_msg},
+    ]
 
-        last_pytest_passed = False
-        model_idx = 0
-        model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-        final_model = model
-        turns = 0  # fresh turn budget for NVIDIA fallback
+    last_pytest_passed = False
+    model_idx = 0
+    model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+    final_model = model
 
-        while turns < MAX_TURNS:
-            turns += 1
-            print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}", flush=True)
+    while turns < MAX_TURNS:
+        turns += 1
+        print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}", flush=True)
 
-            try:
-                res = client.chat.completions.create(
-                    model=model,
-                    max_tokens=8192,
-                    tools=TOOLS,  # type: ignore[arg-type]
-                    tool_choice="auto",
-                    messages=messages,  # type: ignore[arg-type]
-                )
-            except Exception as exc:
-                print(f"Model {model} error: {exc}", file=sys.stderr)
+        try:
+            res = client.chat.completions.create(
+                model=model,
+                max_tokens=8192,
+                tools=TOOLS,  # type: ignore[arg-type]
+                tool_choice="auto",
+                messages=messages,  # type: ignore[arg-type]
+            )
+        except Exception as exc:
+            print(f"Model {model} error: {exc}", file=sys.stderr)
+            model_idx += 1
+            if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
+                print("All NVIDIA candidate models exhausted — failing cleanly.", file=sys.stderr)
+                break
+            model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+            final_model = model
+            print(f"Switching to: {model}", file=sys.stderr)
+            turns -= 1
+            continue
+
+        msg = res.choices[0].message
+
+        if msg.content:
+            print(f"[agent] {msg.content[:400]}", flush=True)
+
+        # Serialise without null sentinel fields that NIM rejects with 422
+        assistant_entry: dict = {"role": "assistant"}
+        if msg.content:
+            assistant_entry["content"] = msg.content
+        if msg.tool_calls:
+            assistant_entry["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]
+        messages.append(assistant_entry)
+
+        # No tool calls → check for XML-format tool calls (Qwen3 quirk) then terminal turn
+        if not msg.tool_calls:
+            content = msg.content or ""
+            # Some models (e.g. Qwen3-coder) emit tool calls as XML text in content
+            # instead of structured tool_calls. Detect and switch models.
+            if "<tool_call>" in content or "<function=" in content:
+                print(f"[agent] {model} emitted XML tool calls in content — switching model", file=sys.stderr)
+                messages.pop()  # discard the malformed assistant turn
                 model_idx += 1
-                if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
+                if model_idx < len(NVIDIA_CANDIDATE_MODELS):
+                    model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+                    final_model = model
+                    print(f"[agent] Switched to: {model}", flush=True)
+                    turns -= 1  # don't count this as a real turn
+                else:
                     print("All candidate models exhausted.", file=sys.stderr)
                     break
-                model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-                final_model = model
-                print(f"Switching to: {model}", file=sys.stderr)
-                turns -= 1
                 continue
+            summary = content or summary
+            if content and "IMPLEMENTATION_COMPLETE" in content and last_pytest_passed:
+                success = True
+                summary = content[:500]
+            break
 
-            msg = res.choices[0].message
+        # Execute tool calls
+        for tc in msg.tool_calls:
+            fn_name = tc.function.name
+            try:
+                fn_args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                fn_args = {}
 
-            if msg.content:
-                print(f"[agent] {msg.content[:400]}", flush=True)
+            print(f"[tool] {fn_name}({list(fn_args.keys())})", flush=True)
+            handler = TOOL_DISPATCH.get(fn_name)
+            out = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
+            print(f"[tool result] {str(out)[:300]}", flush=True)
 
-            # Serialise without null sentinel fields that NIM rejects with 422
-            assistant_entry: dict = {"role": "assistant"}
-            if msg.content:
-                assistant_entry["content"] = msg.content
-            if msg.tool_calls:
-                assistant_entry["tool_calls"] = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                    }
-                    for tc in msg.tool_calls
-                ]
-            messages.append(assistant_entry)
-
-            # No tool calls → check for XML-format tool calls (Qwen3 quirk) then terminal turn
-            if not msg.tool_calls:
-                content = msg.content or ""
-                # Some models (e.g. Qwen3-coder) emit tool calls as XML text in content
-                # instead of structured tool_calls. Detect and switch models.
-                if "<tool_call>" in content or "<function=" in content:
-                    print(f"[agent] {model} emitted XML tool calls in content — switching model", file=sys.stderr)
-                    messages.pop()  # discard the malformed assistant turn
-                    model_idx += 1
-                    if model_idx < len(NVIDIA_CANDIDATE_MODELS):
-                        model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-                        final_model = model
-                        print(f"[agent] Switched to: {model}", flush=True)
-                        turns -= 1  # don't count this as a real turn
+            if fn_name == "bash":
+                cmd = fn_args.get("cmd", "")
+                if "pytest" in cmd:
+                    last_pytest_passed = "[exit 0]" in out
+                    print(f"pytest exit 0: {last_pytest_passed}", flush=True)
+                if "IMPLEMENTATION_COMPLETE" in out:
+                    if last_pytest_passed:
+                        success = True
+                        summary = f"Agent signaled completion after {turns} turns."
                     else:
-                        print("All candidate models exhausted.", file=sys.stderr)
-                        break
-                    continue
-                summary = content or summary
-                if content and "IMPLEMENTATION_COMPLETE" in content and last_pytest_passed:
-                    success = True
-                    summary = content[:500]
-                break
+                        out = (
+                            "[BLOCKED] IMPLEMENTATION_COMPLETE rejected: last pytest did not exit 0. "
+                            "Fix all test failures first, then signal completion."
+                        )
 
-            # Execute tool calls
-            for tc in msg.tool_calls:
-                fn_name = tc.function.name
-                try:
-                    fn_args = json.loads(tc.function.arguments)
-                except json.JSONDecodeError:
-                    fn_args = {}
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(out)})
 
-                print(f"[tool] {fn_name}({list(fn_args.keys())})", flush=True)
-                handler = TOOL_DISPATCH.get(fn_name)
-                out = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
-                print(f"[tool result] {str(out)[:300]}", flush=True)
+        if success:
+            break
 
-                if fn_name == "bash":
-                    cmd = fn_args.get("cmd", "")
-                    if "pytest" in cmd:
-                        last_pytest_passed = "[exit 0]" in out
-                        print(f"pytest exit 0: {last_pytest_passed}", flush=True)
-                    if "IMPLEMENTATION_COMPLETE" in out:
-                        if last_pytest_passed:
-                            success = True
-                            summary = f"Agent signaled completion after {turns} turns."
-                        else:
-                            out = (
-                                "[BLOCKED] IMPLEMENTATION_COMPLETE rejected: last pytest did not exit 0. "
-                                "Fix all test failures first, then signal completion."
-                            )
-
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(out)})
-
-            if success:
-                break
-
-        if not success and turns >= MAX_TURNS:
-            summary = f"Agent hit turn limit ({MAX_TURNS}) without completing"
-
-    # Optional fallback: Claude Opus via Anthropic, only if NVIDIA did not finish.
-    if not success and anthropic_key:
-        log.info("[agent] NVIDIA did not complete — trying Anthropic Claude Opus fallback")
-        final_model = OPUS_MODEL
-        try:
-            success, summary, turns = _run_anthropic_agent_loop(anthropic_key, user_msg)
-        except Exception as exc:
-            log.exception("[agent] Anthropic fallback failed: %s", exc)
+    if not success and turns >= MAX_TURNS:
+        summary = f"Agent hit turn limit ({MAX_TURNS}) without completing"
 
     result = {"success": success, "summary": summary, "turns": turns}
     with open(RESULT_FILE, "w") as f:
@@ -693,3 +550,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
