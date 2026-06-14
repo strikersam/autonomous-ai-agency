@@ -59,10 +59,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          find . -name "*.py" \
-            -not -path "./.venv/*" \
-            -not -path "./.git/*" \
-            -exec python -m py_compile {} +
+          python -m compileall -q -x '(\.venv|\.git)/' .
           printf '✓ Python syntax OK\n'
 
       - name: Configure Git for test subprocess calls
