@@ -738,7 +738,7 @@ Only providers with keys configured are tried. Set just the keys you have.
 | `devops` · `cloud` · `infra` | **Aider** | 🐳 Docker |
 | `analytics` · `data` | **Hermes** | 🐳 Docker |
 | Long-running workflows | **Task Harness** | 🐳 Docker |
-| `agile` · `portfolio` | **Internal Agent** | 🏠 Built-in |
+| `agile` · `portfolio` · `delivery` | **Internal Agent** | 🏠 Built-in |
 
 ⚡ **Wake All Runtimes** on the Runtimes page starts every container for a company's specialists in one click.
 

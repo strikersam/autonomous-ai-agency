@@ -1,16 +1,16 @@
 # Graph Report - autonomous-ai-agency  (2026-06-14)
 
 ## Corpus Check
-- 912 files · ~1,057,572 words
+- 912 files · ~1,057,786 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 16730 nodes · 36020 edges · 798 communities (708 shown, 90 thin omitted)
+- 16730 nodes · 36020 edges · 797 communities (706 shown, 91 thin omitted)
 - Extraction: 79% EXTRACTED · 21% INFERRED · 0% AMBIGUOUS · INFERRED: 7689 edges (avg confidence: 0.51)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b4716b78`
+- Built from commit: `e0abdc52`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -772,7 +772,6 @@
 - [[_COMMUNITY_Community 761|Community 761]]
 - [[_COMMUNITY_Community 763|Community 763]]
 - [[_COMMUNITY_Community 764|Community 764]]
-- [[_COMMUNITY_Community 765|Community 765]]
 - [[_COMMUNITY_Community 766|Community 766]]
 
 ## God Nodes (most connected - your core abstractions)
@@ -808,7 +807,7 @@
 - 1-file cycle: `services/kimi_bridge_server/app.py -> services/kimi_bridge_server/app.py`
 - 1-file cycle: `services/temporal_context.py -> services/temporal_context.py`
 
-## Communities (798 total, 90 thin omitted)
+## Communities (797 total, 91 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.40
@@ -1019,8 +1018,8 @@ Cohesion: 0.07
 Nodes (38): get_tool_registry(), Return the module-level ToolRegistry singleton.      On first call, registers, analyze_quantitative(), auto_register(), _classify_sentiment(), _extract_keywords(), Any, QualAnalysis (+30 more)
 
 ### Community 53 - "Community 53"
-Cohesion: 0.09
-Nodes (11): FeatureEntry, Any, One entry in the support matrix., Load canonical features and apply per-feature then bulk env overrides., Apply a config override string like 'stable', 'beta', 'disabled', 'enabled', 'tr, Return the feature entry if available, or raise FeatureUnavailableError., Return True if the feature is enabled and not disabled., Return a warning string for beta/experimental features, or None. (+3 more)
+Cohesion: 0.08
+Nodes (13): FeatureEntry, Any, One entry in the support matrix., Load canonical features and apply per-feature then bulk env overrides., Apply a config override string like 'stable', 'beta', 'disabled', 'enabled', 'tr, Return the feature entry if available, or raise FeatureUnavailableError., Return True if the feature is enabled and not disabled., Return a warning string for beta/experimental features, or None. (+5 more)
 
 ### Community 54 - "Community 54"
 Cohesion: 0.07
@@ -1210,10 +1209,6 @@ Nodes (10): Agent jobs created with workspace integration should         have a 
 Cohesion: 0.10
 Nodes (27): get_improvement_loop(), get_self_healing_agent(), HealingEvent, _now(), Any, agent/self_healing.py — Self-Healing Agent  Translates external failure signal, Called when a GitHub issue with a bug label is opened., Called from the v4 dashboard 'Report Bug' form. (+19 more)
 
-### Community 102 - "Community 102"
-Cohesion: 0.09
-Nodes (27): FailureCategory, Classified failure types for targeted self-healing (E2)., How to truncate messages when over the context limit., TruncationStrategy, get_current_trace_id(), get_tracer(), langfuse_metadata_with_trace(), Portable trace context that can be passed across async boundaries. (+19 more)
-
 ### Community 103 - "Community 103"
 Cohesion: 0.15
 Nodes (26): _anthropic_headers(), _anthropic_payload(), _anthropic_response_text(), _auth_headers(), chat_completion_text(), list_openai_models(), normalize_base_url(), openai_compat_url() (+18 more)
@@ -1223,8 +1218,8 @@ Cohesion: 0.08
 Nodes (17): Any, Path, agent/skills.py — Skill Library  Indexes and searches agent skills from local, Full-text search across name, description, and content., Register an MCP-hosted skill pack entry., Skill, Tests for agent/skills.py — Skill Library., test_as_dict() (+9 more)
 
 ### Community 105 - "Community 105"
-Cohesion: 0.08
-Nodes (10): FeatureMatrix, Central support matrix — single source of truth.      Loads the canonical featur, TestConfigOverrides, TestEnforcement, All features come from _CANONICAL_FEATURES., TestAdminVisibility, TestClassification, TestDisabledFeatures (+2 more)
+Cohesion: 0.09
+Nodes (9): FeatureMatrix, Central support matrix — single source of truth.      Loads the canonical featur, Render the matrix as a Markdown table for docs., TestConfigOverrides, TestRegistryLoads, TestClassification, TestDisabledFeatures, TestMatrixSerialization (+1 more)
 
 ### Community 106 - "Community 106"
 Cohesion: 0.10
@@ -1463,8 +1458,8 @@ Cohesion: 0.06
 Nodes (31): Any, Durable schedule persistence. Mongo-backed with in-memory fallback.      All met, Return all persisted schedule docs (for boot rehydration)., Persist (insert or update) a single schedule by job_id., Delete a persisted schedule., ScheduleStore, BackgroundServices, Path (+23 more)
 
 ### Community 165 - "Community 165"
-Cohesion: 0.10
-Nodes (16): CostAttributor, CostReport, get_cost_attributor(), Any, Tracks and attributes LLM costs per model, phase, and provider.      Usage::, Record a single LLM call's usage., Batch record multiple usage entries. Returns number recorded., Estimate USD cost for a given model and token count.          Looks up the per-m (+8 more)
+Cohesion: 0.06
+Nodes (34): FailureCategory, Classified failure types for targeted self-healing (E2)., How to truncate messages when over the context limit., TruncationStrategy, CostAttributor, CostReport, get_cost_attributor(), Any (+26 more)
 
 ### Community 166 - "Community 166"
 Cohesion: 0.16
@@ -1539,8 +1534,8 @@ Cohesion: 0.08
 Nodes (14): OrchestratorQueue, Any, _QueueEntry, services/orchestrator_queue.py — Async FIFO run queue with concurrency semaphore, Async FIFO queue that limits concurrent orchestrator run executions.      ``appr, Enqueue a run for async execution.  Returns immediately.          ``fn(*args, **, Enqueue a run and return a future that resolves when it completes., stop_orchestrator_queue() (+6 more)
 
 ### Community 184 - "Community 184"
-Cohesion: 0.10
-Nodes (14): _NoOpSpan, _NoOpTracer, otel_middleware_factory(), otel_status_error(), otel_status_ok(), Any, Exception, Create a FastAPI-compatible OTEL middleware.      Usage::          from services (+6 more)
+Cohesion: 0.07
+Nodes (23): get_tracer(), _NoOpSpan, _NoOpTracer, otel_middleware_factory(), otel_status_error(), otel_status_ok(), Any, Exception (+15 more)
 
 ### Community 185 - "Community 185"
 Cohesion: 0.08
@@ -3442,10 +3437,6 @@ Nodes (3): Roadmap, Runbook: `make doctor`, What it checks and why
 Cohesion: 1.00
 Nodes (3): login(), main(), req()
 
-### Community 686 - "Community 686"
-Cohesion: 0.20
-Nodes (3): Replay a dream's narrative by ID., Total number of recorded memories., The threshold for triggering consolidation.
-
 ### Community 687 - "Community 687"
 Cohesion: 0.29
 Nodes (4): The feature matrix can produce a markdown table for docs., Every config flag referenced in the matrix should be documented., The matrix should cover the key areas from the spec., TestSupportMatrixDocsSync
@@ -3489,7 +3480,7 @@ Nodes (8): Any, TaskResult, TaskSpec, Selects a runtime for the given task, exec
 ## Knowledge Gaps
 - **2754 isolated node(s):** `duplicate.sh script`, `heartbeat.sh script`, `Any`, `Ed25519PublicKey`, `Path` (+2749 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **90 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **91 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
