@@ -4794,7 +4794,7 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
-    priority: int = None
+    priority: Optional[int] = Field(default=None, ge=-100, le=1000)
 
 
 @app.get("/api/providers")

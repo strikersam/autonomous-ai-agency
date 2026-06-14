@@ -56,7 +56,7 @@ def test_scanner_file_has_no_bare_systems_at_end():
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def test_brain_skips_paid_when_free_configured(monkeypatch):
@@ -227,3 +227,119 @@ def test_provider_update_priority_field_type():
     # Type-coercion: a string "42" should also work (Pydantic coerces).
     upd_str = ProviderUpdate(priority="42")
     assert upd_str.priority == 42
+
+
+# ─── 5. PUT handler must actually persist priority via body.dict(exclude_none=True) ───
+
+
+def test_provider_update_round_trips_priority_for_put_persistence():
+    """The PUT /api/providers/{id} handler does:
+
+        for k, v in body.dict(exclude_none=True).items():
+            update["$" + k] = v
+
+    so the payload must contain the priority key with the integer value for
+    the update to land in MongoDB. This test pins that path so a future
+    refactor of ProviderUpdate cannot silently drop the priority write.
+    """
+    from backend.server import ProviderUpdate
+
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    upd = ProviderUpdate(priority=99)
+    payload = upd.model_dump(exclude_none=True)
+    assert payload.get("priority") == 99, (
+        f"ProviderUpdate(priority=99) must round-trip through model_dump(exclude_none=True) "
+        f"so the PUT handler persists it. Got payload: {payload!r}"
+    )
+
+    # Boundary values: -100 and 1000 must be accepted (inclusive bounds).
+    upd_low = ProviderUpdate(priority=-100)
+    assert upd_low.priority == -100, "Lower boundary -100 must be accepted"
+    upd_high = ProviderUpdate(priority=1000)
+    assert upd_high.priority == 1000, "Upper boundary 1000 must be accepted"
+
+    # Out-of-bounds: -101 and 1001 must be rejected.
+    from pydantic import ValidationError
+    try:
+        ProviderUpdate(priority=1001)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("ProviderUpdate(priority=1001) must be rejected (above Field le=1000)")
+
+    try:
+        ProviderUpdate(priority=-101)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("ProviderUpdate(priority=-101) must be rejected (below Field ge=-100)")
+
+    # And the original garbage cases:
+    try:
+        ProviderUpdate(priority=999_999_999)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("ProviderUpdate(priority=999999999) must be rejected by the Field bounds")
+
+    try:
+        ProviderUpdate(priority=-999_999)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("ProviderUpdate(priority=-999999) must be rejected by the Field bounds")
+
+
+# ─── 6. AGENT_LLM_BASE_URL env-override must win over paid providers ───
+
+
+def test_brain_env_override_wins_over_paid_provider(monkeypatch):
+    """When AGENT_LLM_BASE_URL is set, the brain resolver must return that
+    endpoint — even if a higher-priority paid Anthropic provider is configured.
+    This pins the docstring contract:
+
+        Resolution order:
+          1. AGENT_LLM_BASE_URL env override (with optional AGENT_LLM_API_KEY /
+             AGENT_LLM_MODEL) — wins over everything.
+          2. Highest-priority configured provider record (skipping paid if a
+             free one exists)...
+
+    so a future refactor cannot accidentally make the env override second
+    priority to a paid provider. Critical because operators use the env var as
+    a kill switch to redirect the brain away from a misbehaving provider.
+    """
+    from services import workflow_orchestrator
+    import os
+
+    async def fake_records():
+        return [
+            {
+                "provider_id": "anthropic-claude",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-PLACEHOLDER",
+                "default_model": "claude-sonnet-4-6",
+                "priority": 999,  # highest, but PAID — must be ignored
+            },
+        ]
+
+    monkeypatch.setattr(
+        "backend.server._list_configured_provider_records",
+        fake_records,
+        raising=False,
+    )
+    # Set the env override to a free openai-compatible endpoint.
+    monkeypatch.setenv("AGENT_LLM_BASE_URL", "https://my-free-llm.example.com/v1")
+    monkeypatch.setenv("AGENT_LLM_API_KEY", "sk-free-PLACEHOLDER")
+    monkeypatch.setenv("AGENT_LLM_MODEL", "my-free-model")
+
+    base, headers, model = _run(workflow_orchestrator._resolve_brain_provider())
+    assert "my-free-llm.example.com" in base, (
+        f"AGENT_LLM_BASE_URL must win over a higher-priority paid provider. "
+        f"Got base={base!r}"
+    )
+    assert "anthropic" not in base.lower(), (
+        f"Env override must bypass the paid provider entirely. Got base={base!r}"
+    )
+    assert model == "my-free-model"
+    assert headers and headers.get("Authorization") == "Bearer sk-free-PLACEHOLDER"
