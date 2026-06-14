@@ -83,6 +83,31 @@ _PRIORITY_WEIGHT: Dict[str, float] = {"high": 14.0, "medium": 7.0, "low": 3.0}
 MAX_REVENUE_LOSS_SHARE = 0.35
 REVENUE_PRESSURE_SCALE = 50.0
 
+
+def compute_pressure(
+    rows: List[SeoIssueReportRow], total_pages: int
+) -> tuple[list[float], float]:
+    """Return (per-row issue pressure, total pressure) for the revenue model.
+
+    pressure_i = PRIORITY_WEIGHT[priority] * TYPE_FACTOR[type] * min(1, urls/total_pages)
+    """
+    pressures = [
+        _PRIORITY_WEIGHT[row.issue_priority]
+        * _TYPE_FACTOR[row.issue_type]
+        * min(1.0, row.urls_affected / total_pages)
+        for row in rows
+    ]
+    return pressures, sum(pressures)
+
+
+def loss_share_from_pressure(total_pressure: float) -> float:
+    """Map aggregate issue pressure to an at-risk revenue share via the
+    diminishing-returns curve (asymptotic to MAX_REVENUE_LOSS_SHARE)."""
+    if total_pressure <= 0:
+        return 0.0
+    return MAX_REVENUE_LOSS_SHARE * (1.0 - math.exp(-total_pressure / REVENUE_PRESSURE_SCALE))
+
+
 _VALID_HEAD_ELEMENTS = {
     "title", "meta", "link", "script", "style", "base", "noscript", "template", "head",
 }
@@ -1186,16 +1211,8 @@ class SeoAuditEngine:
         total_loss = 0.0
         loss_share = 0.0
         if revenue > 0 and rows:
-            pressures = [
-                _PRIORITY_WEIGHT[row.issue_priority]
-                * _TYPE_FACTOR[row.issue_type]
-                * min(1.0, row.urls_affected / total_pages)
-                for row in rows
-            ]
-            total_pressure = sum(pressures)
-            loss_share = MAX_REVENUE_LOSS_SHARE * (
-                1.0 - math.exp(-total_pressure / REVENUE_PRESSURE_SCALE)
-            )
+            pressures, total_pressure = compute_pressure(rows, total_pages)
+            loss_share = loss_share_from_pressure(total_pressure)
             total_loss = round(revenue * loss_share, 2)
             # Attribute the modeled loss across findings by their pressure share.
             rows = [

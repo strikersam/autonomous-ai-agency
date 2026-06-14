@@ -2474,7 +2474,7 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": GOOGLE_BASE_URL,
             "api_key": GOOGLE_API_KEY,
-            "default_model": "gemma-4",
+            "default_model": "gemini-2.5-flash",
             "is_default": LLM_PROVIDER == "google",
             "priority": 75,
             "status": "configured" if GOOGLE_API_KEY else "unconfigured",
@@ -2517,7 +2517,7 @@ async def seed_default_providers():
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -2528,7 +2528,7 @@ async def seed_default_providers():
             "api_key": ANTHROPIC_API_KEY,
             "default_model": ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 50,
+            "priority": -90,  # paid last-resort — never preferred over free cloud
             "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
         },
         {
@@ -2567,10 +2567,22 @@ async def seed_default_providers():
             new_status = p.get("status", "")
             if new_status and new_status != existing.get("status", ""):
                 update["status"] = new_status
-            # Sync priority so the fallback ordering is always correct
-            new_priority = p.get("priority")
-            if new_priority is not None and existing.get("priority") != new_priority:
-                update["priority"] = new_priority
+            # NOTE: priority is intentionally NOT synced here so user edits from the
+            # Providers UI persist across restarts. Priority is only set on first insert.
+            #
+            # ONE-TIME MIGRATION: force Anthropic providers to negative priority so free
+            # cloud providers (Google, OpenRouter, etc.) are always preferred as the brain.
+            # This only fires when the existing priority is still in the old paid-first range.
+            paid_provider_ids = {"anthropic", "anthropic-claude", "anthropic-universal"}
+            if p["provider_id"] in paid_provider_ids:
+                existing_prio = existing.get("priority", 0)
+                new_prio = p.get("priority", 0)  # already negative in seed defaults
+                if existing_prio > new_prio:
+                    update["priority"] = new_prio
+                    log.info(
+                        "Migrated %s priority %d → %d (free providers now preferred)",
+                        p["provider_id"], existing_prio, new_prio,
+                    )
             if update:
                 await get_db().providers.update_one(
                     {"provider_id": p["provider_id"]}, {"$set": update}
@@ -2620,7 +2632,7 @@ def _builtin_provider_records() -> list[dict]:
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -4782,6 +4794,7 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
+    priority: Optional[int] = Field(default=None, ge=-100, le=1000)
 
 
 @app.get("/api/providers")
@@ -4807,6 +4820,24 @@ async def list_providers(user: dict = Depends(get_current_user)):
             p.pop("api_key", None)
             p["api_key_masked"] = ""
             providers.append(p)
+    # Tag every provider with its role (brain / sub-agent / fallback / unconfigured)
+    # so the Providers screen can show a clear "BRAIN" badge per the operator's
+    # request. The classification uses the same _resolve_brain_provider() logic
+    # the orchestrator itself uses, so the UI never disagrees with the runtime.
+    # Failure is non-fatal: every provider simply gets role="available" with
+    # reason="tagging skipped" so the screen still renders.
+    try:
+        from services.workflow_orchestrator import get_provider_role_tags
+        role_tags = await get_provider_role_tags()
+    except Exception as exc:
+        log.debug("list_providers: role tagging unavailable: %s", exc)
+        role_tags = {}
+    for p in providers:
+        tag = role_tags.get(p.get("provider_id") or "") or {}
+        p["is_brain"] = bool(tag.get("is_brain"))
+        p["role"] = tag.get("role") or "available"
+        p["role_reason"] = tag.get("reason") or ""
+
     return {"providers": providers}
 
 
@@ -4816,7 +4847,8 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
         raise HTTPException(status_code=409, detail="Provider ID already exists")
     if body.is_default:
         await get_db().providers.update_many({}, {"$set": {"is_default": False}})
-    doc = body.dict()
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    doc = body.model_dump()
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "configured"
     await get_db().providers.insert_one(doc)
@@ -4828,8 +4860,14 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
 async def update_provider(
     provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
 ):
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    # The deprecated path emits a PydanticDeprecatedSince20 warning in v2 and
+    # will be removed in a future release. The test in
+    # tests/test_brain_priority_scanner.py pins the round-trip via model_dump;
+    # this handler must use the same API or the test will pass but the real
+    # PUT will silently fail to persist priority.
     updates = {}
-    for k, v in body.dict(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
         await get_db().providers.update_many(
@@ -5528,6 +5566,7 @@ async def observability_dashboard(user: dict = Depends(get_current_user)):
     return {"url": langfuse_base, "configured": bool(langfuse_pk)}
 
 
+
 @app.get("/api/observability/metrics")
 async def observability_metrics(user: dict = Depends(get_current_user)):
     """Fetch basic usage metrics from the local_metrics collection."""
@@ -5549,6 +5588,8 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
         },
     ]
     cursor = get_db().local_metrics.aggregate(pipeline)
+    if asyncio.iscoroutine(cursor):
+        cursor = await cursor
     agg = await cursor.to_list(length=1)
     summary = (
         agg[0]
@@ -5568,6 +5609,11 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
 
 
 
+
+@app.get("/api/metrics")
+async def dashboard_metrics(user: dict = Depends(get_current_user)):
+    """Alias for /api/observability/metrics — the dashboard calls this shorter path."""
+    return await observability_metrics(user=user)
 
 @app.get("/api/observability/traces")
 async def observability_traces(
@@ -7147,47 +7193,50 @@ async def workflow_orchestrator_status(
     user: dict = Depends(get_current_user),
 ):
     """Return orchestrator queue depth, active runs, and supervisor state (#522)."""
-    orchestrator = get_workflow_orchestrator()
-    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
-    runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
-
-    queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
+    import traceback as _tb
     try:
-        from services.orchestrator_queue import get_orchestrator_queue
-        q = get_orchestrator_queue()
-        queue_status = q.status()
-    except Exception:
-        pass
+        orchestrator = get_workflow_orchestrator()
+        owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+        runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
 
-    supervisor_state = {}
-    try:
-        from services.orchestrator_supervisor import get_orchestrator_supervisor
-        sv = get_orchestrator_supervisor()
-        st = sv.state
-        supervisor_state = {
-            "running": st.running,
-            "ticks": st.ticks,
-            "stalled_recovered": st.stalled_recovered,
-            "failed_retried": st.failed_retried,
-            "alerts_emitted": st.alerts_emitted,
+        queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
+        try:
+            from services.orchestrator_queue import get_orchestrator_queue
+            q = get_orchestrator_queue()
+            queue_status = q.status()
+        except Exception:
+            pass
+
+        supervisor_state = {}
+        try:
+            from services.orchestrator_supervisor import get_orchestrator_supervisor
+            sv = get_orchestrator_supervisor()
+            st = sv.state
+            supervisor_state = {
+                "running": st.running,
+                "ticks": st.ticks,
+                "stalled_recovered": st.stalled_recovered,
+                "failed_retried": st.failed_retried,
+                "alerts_emitted": st.alerts_emitted,
+            }
+        except Exception:
+            pass
+
+        return {
+            "runs": len(runs),
+            "by_status": {
+                "pending": sum(1 for r in runs if r.get("status") == "pending"),
+                "running": sum(1 for r in runs if r.get("status") == "running"),
+                "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
+                "queued": sum(1 for r in runs if r.get("status") == "queued"),
+                "done": sum(1 for r in runs if r.get("status") == "done"),
+                "failed": sum(1 for r in runs if r.get("status") == "failed"),
+            },
+            "queue": queue_status,
+            "supervisor": supervisor_state,
         }
-    except Exception:
-        pass
-
-    return {
-        "runs": len(runs),
-        "by_status": {
-            "pending": sum(1 for r in runs if r.get("status") == "pending"),
-            "running": sum(1 for r in runs if r.get("status") == "running"),
-            "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
-            "queued": sum(1 for r in runs if r.get("status") == "queued"),
-            "done": sum(1 for r in runs if r.get("status") == "done"),
-            "failed": sum(1 for r in runs if r.get("status") == "failed"),
-        },
-        "queue": queue_status,
-        "supervisor": supervisor_state,
-    }
-
+    except Exception as _exc:
+        return {"error": str(_exc), "traceback": _tb.format_exc()}
 @app.get("/api/workflow/orchestrator/runs")
 async def workflow_orchestrator_list_runs(
     limit: int = 50,
@@ -7290,23 +7339,11 @@ if _FRONTEND_BUILD.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
         index = _FRONTEND_BUILD / "index.html"
         if index.exists():
             return HTMLResponse(index.read_text())
         return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
-
-_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
-
-if _FRONTEND_BUILD.exists():
-    app.mount(
-        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 

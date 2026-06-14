@@ -1,0 +1,28 @@
+# ── Source-code line endings ───────────────────────────────────────────────────
+# Normalize all source files to LF on commit/checkout. This prevents the
+# CRLF↔LF drift that bloated the proxy.py diff in PR #594 by ~4000 lines of
+# pure line-ending noise (every line "deleted" and re-added with different
+# endings). Windows contributors will see LF inside their editors, which is
+# what the rest of the toolchain (pytest, ruff, mypy, bandit, esbuild) expects.
+* text=auto eol=lf
+
+# ── Explicit overrides for files that MUST be platform-native ───────────────
+# Windows shell scripts and PowerShell files need CRLF so they run on Windows.
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+
+# ── Files that must never be line-ending normalized ─────────────────────────
+# Git LFS pointer files, minified bundles, generated artifacts.
+*.min.js        binary
+*.min.css       binary
+*.wasm          binary
+*.pyc           binary
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.pdf           binary
+*.zip           binary
+*.tar.gz        binary

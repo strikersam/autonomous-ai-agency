@@ -6,13 +6,13 @@
 
 Self-hosted · Privacy-first · One URL to start
 
-[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/strikersam/local-llm-server/releases/tag/v5.0.0)
-[![CI](https://github.com/strikersam/local-llm-server/actions/workflows/ci.yml/badge.svg)](https://github.com/strikersam/local-llm-server/actions/workflows/ci.yml)
-[![Deploy](https://github.com/strikersam/local-llm-server/actions/workflows/deploy-backend.yml/badge.svg)](https://github.com/strikersam/local-llm-server/actions/workflows/deploy-backend.yml)
+[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/strikersam/autonomous-ai-agency/releases/tag/v5.0.0)
+[![CI](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml/badge.svg)](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml)
+[![Deploy](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/deploy-backend.yml/badge.svg)](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/deploy-backend.yml)
 [![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**[Live Demo](https://strikersam.github.io/local-llm-server/) · [API Docs](https://local-llm-server.onrender.com/docs) · [Changelog](docs/changelog.md)**
+**[Live Demo](https://strikersam.github.io/autonomous-ai-agency/) · [API Docs](https://autonomous-ai-agency.onrender.com/docs) · [Changelog](docs/changelog.md)**
 
 </div>
 
@@ -590,8 +590,8 @@ No Kubernetes. No cloud account. A Raspberry Pi 5 can run the core services.
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/strikersam/local-llm-server.git
-cd local-llm-server
+git clone https://github.com/strikersam/autonomous-ai-agency.git
+cd autonomous-ai-agency
 python -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
@@ -671,8 +671,8 @@ Required secrets:
 ```
 
 Live demo:
-- **Frontend**: `https://strikersam.github.io/local-llm-server/`
-- **API**: `https://local-llm-server.onrender.com/docs`
+- **Frontend**: `https://strikersam.github.io/autonomous-ai-agency/`
+- **API**: `https://autonomous-ai-agency.onrender.com/docs` (pending Render service rename; currently still served at `https://local-llm-server.onrender.com/docs` until the Render dashboard service is renamed)
 
 > Render free tier sleeps after 15 min of inactivity (~30 s cold start). Upgrade to Starter ($7/mo) for always-on in production.
 

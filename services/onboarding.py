@@ -261,6 +261,17 @@ class OnboardingService:
                         if stack.databases:
                             detected_system_types.add("database")
                 
+                # If nothing was detected (bot-protected site, scan blocked, etc.),
+                # fall back to a baseline set so we always provision at least a few
+                # useful specialists rather than leaving the company with zero.
+                if not detected_system_types:
+                    log.info(
+                        "No system types detected for company %s — using baseline fallback "
+                        "(backend, frontend, analytics) so provisioning is not skipped.",
+                        company_id,
+                    )
+                    detected_system_types = {"backend", "frontend", "analytics"}
+
                 progress.steps.append({
                     "name": "detect_systems",
                     "status": "completed",
@@ -268,14 +279,14 @@ class OnboardingService:
                     "message": f"Detected {len(detected_system_types)} system types",
                     "details": {"system_types": list(detected_system_types)}
                 })
-                
+
                 # Step 5: Provision specialists
                 if auto_provision_specialists:
                     progress.current_step = "provision_specialists"
                     progress.completed_steps = 5
                     progress.progress_percent = (5 / len(self.ONBOARDING_STEPS)) * 100
                     await self._update_progress(progress)
-                    
+
                     provision_results = await self.specialist_service.provision_specialists_for_company(
                         company_id=company_id,
                         system_types=list(detected_system_types)
@@ -987,10 +998,10 @@ class OnboardingService:
 _onboarding_service: OnboardingService | None = None
 
 
-def get_onboarding_service() -> OnboardingService:
+def get_onboarding_service() -> "OnboardingService":
     """
     Get the singleton Onboarding service instance.
-    
+
     Returns:
         The singleton OnboardingService instance.
     """
@@ -1000,10 +1011,10 @@ def get_onboarding_service() -> OnboardingService:
     return _onboarding_service
 
 
-def set_onboarding_service(service: OnboardingService) -> None:
+def set_onboarding_service(service: "OnboardingService") -> None:
     """
     Set the singleton Onboarding service instance (for testing).
-    
+
     Args:
         service: The OnboardingService instance to use.
     """

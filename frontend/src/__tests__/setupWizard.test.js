@@ -291,7 +291,7 @@ describe('localStorage draft fallback', () => {
     // getSetupState won't be called if no URL, so no need to mock
     renderWizard();
 
-    await screen.findByText(/connect to your local llm server/i);
+    await screen.findByText(/connect to your autonomous ai agency/i);
     expect(screen.getByText(/steps will be saved locally/i)).toBeInTheDocument();
   });
 
@@ -324,7 +324,7 @@ describe('localStorage draft fallback', () => {
     renderWizard();
 
     // Banner shows because no backend
-    await screen.findByText(/connect to your local llm server/i);
+    await screen.findByText(/connect to your autonomous ai agency/i);
     // localStorage was applied (draft loaded but user still needs to connect for step 4)
     // The draft is loaded internally; no visible assertion needed beyond "not crashing"
     expect(screen.getAllByText('🧠 Setup Wizard').length).toBeGreaterThan(0);
@@ -339,7 +339,7 @@ describe('Backend connection banner', () => {
     renderWizard();
 
     // Banner appears
-    await screen.findByText(/connect to your local llm server/i);
+    await screen.findByText(/connect to your autonomous ai agency/i);
 
     const input = screen.getByPlaceholderText('http://localhost:8000');
     const connectBtn = screen.getByRole('button', { name: /connect/i });
@@ -358,7 +358,7 @@ describe('Backend connection banner', () => {
     mockNoBackend();
     renderWizard();
 
-    await screen.findByText(/connect to your local llm server/i);
+    await screen.findByText(/connect to your autonomous ai agency/i);
 
     // Now mock a successful connection
     mockSetupState();
