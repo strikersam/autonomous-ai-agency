@@ -1,11 +1,22 @@
-"""Live-test each NVIDIA NIM model candidate for availability and function calling."""
-import os, json, time
-from openai import OpenAI
+"""Live-test each NVIDIA NIM model candidate for availability and function calling.
+
+This is an optional diagnostics script, not a required test. CI may not have the
+`openai` package installed and may not have a live NVIDIA_API_KEY — both conditions
+skip cleanly without failing the test run.
+"""
+import os, json, time, sys, sys
+
+# ── Graceful skip when openai isn't available (CI doesn't install it) ──
+try:
+    from openai import OpenAI
+except ImportError:
+    print("SKIP: openai package not installed (run `pip install openai` to use this script)")
+    sys.exit(0)
 
 nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
 if not nvidia_key:
-    print("NVIDIA_API_KEY not set")
-    exit(1)
+    print("SKIP: NVIDIA_API_KEY not set — no live endpoint to test against")
+    sys.exit(0)
 
 client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key, timeout=15)
 

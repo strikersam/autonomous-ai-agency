@@ -17,7 +17,7 @@ Writes /tmp/impl_result.json with {"success": bool, "summary": str}
 import json
 import logging
 import os
-import random
+import random  # nosec B311 — used only for jitter in rate-limit backoff, not crypto
 import subprocess  # nosec B404 - used for constant-argv git/pytest calls below
 import sys
 import textwrap
