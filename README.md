@@ -555,6 +555,27 @@ The dashboard is responsive — sign in, run the setup wizard, and monitor agent
 
 ---
 
+## Feature maturity — what's stable vs. beta
+
+We'd rather under-promise. Here's the honest split (see `docs/architecture/feature-maturity-matrix.md` and `docs/support-matrix.md` for the full breakdown):
+
+| Area | Maturity | Notes |
+|---|---|---|
+| OpenAI-compatible proxy (`/v1/chat/completions`) | **Stable** | Used daily by Claude Code, Cursor, Aider, Continue. |
+| Multi-provider routing + failover | **Stable** | Bedrock -> NIM -> DeepSeek -> Anthropic -> Ollama chain with per-provider cooldown. |
+| Technology scanner (HTML + DNS + TLS + headers) | **Stable** | BuiltWith-parity off-HTML evidence; headless escalation for bot-walled sites is best-effort and needs Chromium installed in the deployment. |
+| Task workflow + dispatcher + HITL gates | **Stable** | Persisted state machine, crash-recovery reconciler. |
+| Scheduled tasks / persistent schedule store | **Stable** | Reconciles on boot; nothing silently skipped. |
+| Skill bindings + dynamic skill registry | **Stable** | GitHub discovery with ETag caching and rate-limit semaphores. |
+| Langfuse observability + local TCO cost model | **Stable** | Cost figures are an estimated commercial-equivalent model, not a billed invoice. |
+| Telegram bot remote control | **Beta** | Works; long-running 24x7 deployment paths are still hardening. |
+| Multi-agent orchestration (CEO -> specialists) | **Beta** | Plan->execute->verify loop is solid for single-specialist jobs; deep multi-hop swarms are experimental. |
+| External agent runtimes (Goose / Hermes / OpenHands) | **Experimental** | Optional sidecars; the Doctor reports them as warnings, never gating, when absent. |
+
+If a screen or capability isn't listed above, treat it as experimental.
+
+---
+
 ## Setup
 
 ### What you need

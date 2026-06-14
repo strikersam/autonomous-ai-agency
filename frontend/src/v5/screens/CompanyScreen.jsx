@@ -387,6 +387,10 @@ function CompanyScreen() {
         category: ds.system_type || 'Platform',
         status: ds.is_active ? 'connected' : 'inactive',
         icon: '🔍',
+        confidence: ds.confidence ?? null,
+        detectionMethods: (ds.evidence || []).map(e => e.type).filter(Boolean),
+        version: ds.version || null,
+        isDetected: true,
       })),
     ],
     repos: (graph?.repos || company.repos || []).map(r => ({
@@ -397,6 +401,7 @@ function CompanyScreen() {
     })),
     environments: company.domain ? [{ name: 'Production', url: company.domain, status: 'healthy' }] : [],
     specialists: specialists.map(s => ({
+      id: s.id || s.specialist_id || s.name || s.role,
       name: s.name || s.role || 'Specialist',
       status: s.status || 'idle',
       lastRun: s.last_used_at || s.lastRun || '—',
@@ -562,7 +567,7 @@ function CompanyScreen() {
           {(d.specialists || []).map(sp => {
             const statusColor = sp.status === 'active' || sp.status === 'running' ? '#5da2ff' : 'var(--text-muted)';
             return (
-              <div key={sp.name} style={{
+              <div key={sp.id} style={{
                 borderRadius: 16, border: `1px solid ${sp.status !== 'idle' ? `${statusColor}25` : 'rgba(255,255,255,0.09)'}`,
                 background: sp.status !== 'idle' ? `${statusColor}05` : 'rgba(255,255,255,0.03)',
                 padding: '16px', cursor: 'pointer', transition: 'all 0.2s ease',
@@ -600,30 +605,116 @@ function CompanyScreen() {
         </div>
       )}
 
-      {!loadingCompany && activeTab === 'systems' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeSlideUp 0.3s ease-out' }}>
-          {(d.systems || []).map(sys => (
-            <div key={sys.id} style={{
-              borderRadius: 14, border: '1px solid rgba(255,255,255,0.09)',
-              background: 'rgba(255,255,255,0.03)', padding: '14px 16px',
-              display: 'flex', alignItems: 'center', gap: 12,
-            }}>
-              <span style={{ fontSize: 24, flexShrink: 0 }}>{sys.icon || '⚙'}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{sys.name}</span>
-                  <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}>{sys.category}</span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sys.status === 'inactive' ? 'Inactive' : 'Connected'} · Last synced: 5 min ago</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                <StatusDotC status={sys.status}/>
-                <span style={{ fontSize: 11, color: sys.status === 'inactive' ? '#ff6b7d' : '#46d9a4' }}>{sys.status === 'inactive' ? 'Inactive' : 'Connected'}</span>
-              </div>
+      {!loadingCompany && activeTab === 'systems' && (() => {
+        const allSystems = d.systems || [];
+        // Group by category
+        const grouped = {};
+        allSystems.forEach(sys => {
+          const cat = sys.category || 'Other';
+          if (!grouped[cat]) grouped[cat] = [];
+          grouped[cat].push(sys);
+        });
+        const cats = Object.keys(grouped).sort();
+        const totalDetected = allSystems.filter(s => s.isDetected).length;
+        const totalConnected = allSystems.filter(s => !s.isDetected).length;
+        const catColorMap = {
+          CMS: '#c4b5fd', CRM: '#5da2ff', analytics: '#46d9a4',
+          payment_gateway: '#ffbd66', email_service: '#ff6b7d',
+          marketing_automation: '#f97316', search: '#7c9dff',
+          auth: '#46d9a4', api_gateway: '#5da2ff', shipping: '#ffbd66',
+          OMS: '#c4b5fd', PIM: '#f97316', DAM: '#5da2ff',
+          ERP: '#ffbd66', HRM: '#ff6b7d', LMS: '#7c9dff',
+          support: '#46d9a4', chat: '#c4b5fd', ai_ml: '#5da2ff',
+          database: '#ffbd66', cache: '#ff6b7d', billing: '#f97316',
+        };
+        function confidenceColor(c) {
+          if (c == null) return 'var(--text-muted)';
+          if (c >= 0.8) return '#46d9a4';
+          if (c >= 0.5) return '#ffbd66';
+          return '#ff6b7d';
+        }
+        function methodBadge(method) {
+          const colors = { html: '#5da2ff', dns: '#46d9a4', ssl: '#c4b5fd', headers: '#ffbd66', script: '#f97316', cookie: '#ff6b7d', meta: '#7c9dff' };
+          const c = colors[method] || 'var(--text-muted)';
+          return (
+            <span key={method} style={{ fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase', padding: '1px 5px', borderRadius: 4, color: c, background: `${c}18`, border: `1px solid ${c}30` }}>{method}</span>
+          );
+        }
+        return (
+          <div style={{ animation: 'fadeSlideUp 0.3s ease-out' }}>
+            {/* Summary bar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{allSystems.length} systems detected</span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>across {cats.length} categories</span>
+              {totalDetected > 0 && (
+                <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 999, color: '#c4b5fd', background: 'rgba(196,181,253,0.10)', border: '1px solid rgba(196,181,253,0.20)' }}>
+                  {totalDetected} auto-detected
+                </span>
+              )}
+              {totalConnected > 0 && (
+                <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 999, color: '#46d9a4', background: 'rgba(70,217,164,0.10)', border: '1px solid rgba(70,217,164,0.20)' }}>
+                  {totalConnected} connected
+                </span>
+              )}
             </div>
-          ))}
-        </div>
-      )}
+            {/* Per-category groups */}
+            {cats.map(cat => {
+              const catColor = catColorMap[cat] || 'var(--accent)';
+              const items = grouped[cat];
+              return (
+                <div key={cat} style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: catColor, flexShrink: 0 }}/>
+                    <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: catColor, letterSpacing: '0.16em', textTransform: 'uppercase' }}>{cat.replace(/_/g, ' ')}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>({items.length})</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {items.map(sys => (
+                      <div key={sys.id} style={{
+                        borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'rgba(255,255,255,0.025)', padding: '10px 14px',
+                        display: 'flex', alignItems: 'center', gap: 10,
+                      }}>
+                        <span style={{ fontSize: 18, flexShrink: 0 }}>{sys.icon || '⚙'}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{sys.name}</span>
+                            {sys.version && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>v{sys.version}</span>}
+                          </div>
+                          {sys.isDetected && (sys.detectionMethods || []).length > 0 && (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {[...new Set(sys.detectionMethods)].slice(0, 5).map(m => methodBadge(m))}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                          {sys.confidence != null && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                              <div style={{ width: 40, height: 3, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.round(sys.confidence * 100)}%`, height: '100%', background: confidenceColor(sys.confidence), borderRadius: 999 }}/>
+                              </div>
+                              <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: confidenceColor(sys.confidence) }}>{Math.round(sys.confidence * 100)}%</span>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <StatusDotC status={sys.status}/>
+                            <span style={{ fontSize: 10, color: sys.status === 'inactive' ? '#ff6b7d' : '#46d9a4' }}>{sys.status === 'inactive' ? 'Inactive' : sys.isDetected ? 'Detected' : 'Connected'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {allSystems.length === 0 && (
+              <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                No systems detected. Run a scan from the company header to discover your tech stack.
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {!loadingCompany && activeTab === 'priorities' && (
         <div style={{ maxWidth: 560, animation: 'fadeSlideUp 0.3s ease-out' }}>

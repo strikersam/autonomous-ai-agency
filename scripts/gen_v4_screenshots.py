@@ -1402,7 +1402,7 @@ body{{min-height:100vh;display:flex;flex-direction:column;align-items:center;jus
 </head><body>
 <div class="wizard-wrap">
   <div style="text-align:center;margin-bottom:28px;">
-    <div style="font-size:22px;font-weight:800;color:var(--text-primary);margin-bottom:4px;">Set up Autonomous AI Agency</div>
+    <div style="font-size:22px;font-weight:800;color:var(--text-primary);margin-bottom:4px;">Set up the Autonomous AI Agency</div>
     <div style="font-size:13px;color:var(--text-muted);">Step 1 of 5 · Choose your AI providers</div>
   </div>
   <!-- Steps -->

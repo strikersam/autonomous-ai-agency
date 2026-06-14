@@ -23,7 +23,7 @@ function Explain({ term, children }) {
         <div style={{
           position:'absolute', bottom:'calc(100% + 6px)', left:0, zIndex:99,
           background:'rgba(12,15,20,0.98)', border:'1px solid rgba(93,162,255,0.25)',
-          borderRadius:12, padding:'10px 12px', minWidth:220, maxWidth:280,
+          borderRadius:12, padding:'10px 12px', minWidth:220, maxWidth:'min(280px, calc(100vw - 24px))',
           fontSize:12, color:'var(--text-secondary)', lineHeight:1.6,
           boxShadow:'0 12px 32px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.15s ease-out',
         }}>

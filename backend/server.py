@@ -171,6 +171,11 @@ OLLAMA_BASE = (
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
 _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
+# Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
+# execute + verify). Caps a hung provider so the chat job fails cleanly
+# instead of sitting at phase "planning" forever. Configurable via env.
+_AGENT_RUN_BUDGET_SEC = float(os.environ.get("CHAT_AGENT_RUN_BUDGET_SEC", "240"))
+
 _CHAT_AGENT_JOBS = AgentJobManager()
 _CHAT_AGENT_WORKSPACE_ROOT = Path(
     os.environ.get("BACKEND_CHAT_AGENT_WORKSPACE_ROOT", ".data/backend-chat-agent-workspaces")
@@ -1416,11 +1421,11 @@ async def lifespan(app_: "FastAPI"):
     bg: Optional[BackgroundServices] = None
     try:
         await ensure_bootstrap()
-        log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
+        log.info("Autonomous AI Agency started — provider=%s", LLM_PROVIDER)
     except Exception as exc:
         log.warning("MongoDB bootstrap deferred (no DB connection): %s", exc)
         log.info(
-            "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
+            "Autonomous AI Agency started in limited mode — set MONGO_URL to enable full features"
         )
 
     if run_background_in_web():
@@ -3169,14 +3174,37 @@ async def _run_agent_loop(
         import services.workflow_orchestrator as _wo
         _bypass_token = _wo._BYPASS.set(True)
         try:
-            result = await runner.run(
-                instruction=agent_instruction,
-                history=session_messages,
-                requested_model=requested_model,
-                auto_commit=True,
-                max_steps=8,
-                memory_store=UserMemoryStore(),
-                session_id=session_id,
+            # Overall wall-clock budget for the entire agent run (plan +
+            # execute + verify). Without this, a hung provider connection
+            # leaves the chat job stuck at phase "planning" indefinitely
+            # because runner.run() makes several sequential LLM calls each
+            # with a 300s httpx read timeout and no aggregate cap.
+            result = await asyncio.wait_for(
+                runner.run(
+                    instruction=agent_instruction,
+                    history=session_messages,
+                    requested_model=requested_model,
+                    auto_commit=True,
+                    max_steps=8,
+                    memory_store=UserMemoryStore(),
+                    session_id=session_id,
+                ),
+                timeout=_AGENT_RUN_BUDGET_SEC,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "Agent run exceeded %ss budget (session=%s) — returning timeout response",
+                _AGENT_RUN_BUDGET_SEC, session_id,
+            )
+            return (
+                "\u26a0\ufe0f The agent run timed out before completing.\n\n"
+                "The selected provider took too long to respond (no result within "
+                f"{int(_AGENT_RUN_BUDGET_SEC)}s). This usually means the LLM endpoint "
+                "is overloaded, unreachable, or the model is too slow.\n\n"
+                "**Try:**\n"
+                "\u2022 Re-run the request (transient provider slowness is common).\n"
+                "\u2022 Switch to a faster provider/model in Providers.\n"
+                "\u2022 For Ollama, confirm the model is pulled and `ollama serve` is responsive.\n"
             )
         finally:
             _wo._BYPASS.reset(_bypass_token)
