@@ -63,6 +63,7 @@
 ## [Unreleased]
 
 ### Changed
+- **NVIDIA NIM model list curated from live endpoint testing.** Tested 10 candidate models against https://integrate.api.nvidia.com/v1 -- only 3 returned OK (Nemotron Super 49B tool_calls=True 3.7s, Llama 4 Maverick 1.3s, Llama 3.3 70B tool_calls=True 6.0s); 7 returned 404/APIStatusError/BadRequest. Updated NVIDIA_CANDIDATE_MODELS in implement_agent.py, apply_review.py, and review_agent.py to the 3 live models, removed dead entries (Qwen3-Coder 480B, Nemotron Ultra 253B, Qwen2.5 Coder 32B, MiniMax M2.7, Mistral Nemotron, Mistral Large 3, Kimi K2). Updated _default_agent_role_models() and _get_nim_provider_record() in backend/server.py to reference live Nemotron Super 49B instead of dead nemotron-3-super-120b-a12b and qwen3-coder-480b.
 - **remote-admin/: brand rename to "Autonomous AI Agency".** Replaced user-visible "Local LLM" / "LLM Relay v4" branding across `index.html`, `setup-wizard.html`, and `v4-dashboard.html` (page titles, breadcrumb, hero eyebrow, setup copy). Functional references (GitHub Pages URL and on-disk repo-path placeholders) left intact.
 
 ### Security

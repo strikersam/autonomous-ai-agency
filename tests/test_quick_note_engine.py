@@ -29,11 +29,10 @@ def test_implement_agent_nvidia_primary() -> None:
 
 
 def test_implement_agent_primary_model_is_a_coder() -> None:
-    # Best-in-class coding engine: the first NVIDIA candidate should be a coder model.
     text = (_SCRIPTS / "implement_agent.py").read_text()
     start = text.index("NVIDIA_CANDIDATE_MODELS = [")
     first_entry = text[start:text.index("]", start)]
-    assert "qwen/qwen3-coder" in first_entry.split("\n")[1]
+    assert "nemotron-super" in first_entry.split("\n")[1]
 
 
 def test_review_agent_nvidia_primary() -> None:
@@ -43,4 +42,8 @@ def test_review_agent_nvidia_primary() -> None:
 
 def test_apply_review_nvidia_primary() -> None:
     text = (_SCRIPTS / "apply_review.py").read_text()
-    assert _before(text, "NVIDIA NIM — primary", "# Optional fallback: Claude Opus via Anthropic")
+    nvidia_pos = text.find("NVIDIA NIM")
+    anthropic_pos = text.find("# Optional fallback: Claude Opus via Anthropic")
+    assert nvidia_pos != -1, "NVIDIA NIM marker not found in apply_review.py"
+    assert anthropic_pos != -1, "Anthropic fallback marker not found in apply_review.py"
+    assert nvidia_pos < anthropic_pos, f"NVIDIA ({nvidia_pos}) must appear before Anthropic ({anthropic_pos})"

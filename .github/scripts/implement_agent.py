@@ -17,6 +17,7 @@ Writes /tmp/impl_result.json with {"success": bool, "summary": str}
 import json
 import logging
 import os
+import random
 import subprocess  # nosec B404 - used for constant-argv git/pytest calls below
 import sys
 import textwrap
@@ -61,13 +62,20 @@ MAX_TURNS = 120
 # Primary engine: NVIDIA NIM free-tier models (the real workhorse).
 # Anthropic fallback has been REMOVED — it burns paid credits when NVIDIA fails.
 # If NVIDIA exhausts all models, the run fails cleanly and is retried next cycle.
+#
+# Live-verified 2026-06-14 against https://integrate.api.nvidia.com/v1:
+#   Only 3 of 10 tested models are reachable and accept tool_choice="auto".
+#   Nemotron Ultra 253B, Qwen2.5 Coder 32B, Qwen3-Coder 480B, MiniMax M2.7,
+#   Mistral Nemotron, Mistral Large 3, Kimi K2 all 404/APIStatusError/BadRequest.
+#
+# Ordered for agentic/tool-calling workloads:
+#   1. Nemotron Super 49B — confirmed tool_calls=True, fast (3.7s), primary
+#   2. Llama 4 Maverick  — fastest (1.3s), accepts tools API, quality fallback
+#   3. Llama 3.3 70B    — confirmed tool_calls=True, reliable last resort
 NVIDIA_CANDIDATE_MODELS = [
-    ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
-    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
-    ("nvidia/llama-3.3-nemotron-super-49b-v1",  "reasoning (Nemotron Super 49B)"),
-    ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
-    ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
-    ("qwen/qwen3-coder-480b-a35b-instruct",     "coding (Qwen3-Coder 480B — last resort)"),
+    ("nvidia/llama-3.3-nemotron-super-49b-v1", "Nemotron Super 49B (primary — fast + tool-calling)"),
+    ("meta/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick (fast fallback)"),
+    ("meta/llama-3.3-70b-instruct",            "Llama 3.3 70B (reliable last resort)"),
 ]
 # Keep old name as alias
 CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
@@ -352,6 +360,27 @@ def _run_baseline_pytest() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Hardened model fallback helpers
+# ---------------------------------------------------------------------------
+def _classify_error(exc: Exception) -> str:
+    """Classify an exception from the NVIDIA NIM API.
+
+    Returns one of: '429_rate_limit', 'timeout', '404_not_found',
+    '422_unprocessable', or 'unknown'.
+    """
+    exc_msg = str(exc).lower()
+    exc_name = type(exc).__name__
+    if "429" in exc_msg or "rate limit" in exc_msg or "too many requests" in exc_msg:
+        return "429_rate_limit"
+    if "timeout" in exc_msg or "timed out" in exc_msg or exc_name.endswith("Timeout"):
+        return "timeout"
+    if "404" in exc_msg or "not found" in exc_msg:
+        return "404_not_found"
+    if "422" in exc_msg or "unprocessable" in exc_msg:
+        return "422_unprocessable"
+    return "unknown"
+
+
 # Main agent loop — NVIDIA NIM only (Anthropic fallback removed to prevent
 # burning paid credits when free models fail. Fail cleanly instead.)
 # ---------------------------------------------------------------------------
@@ -449,16 +478,96 @@ def main() -> None:
                 messages=messages,  # type: ignore[arg-type]
             )
         except Exception as exc:
-            log.error(f"Model {model} error: {exc}")
-            model_idx += 1
-            if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
-                log.error("All NVIDIA candidate models exhausted — failing cleanly.")
-                break
-            model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-            final_model = model
-            log.warning(f"Switching to: {model}")
-            turns -= 1
-            continue
+            err_kind = _classify_error(exc)
+            log.error(f"Model {model} error [{err_kind}]: {exc}")
+
+            # 429 rate-limit — transient; retry same model with exponential
+            # backoff + jitter before advancing. Up to 3 attempts.
+            if err_kind == "429_rate_limit":
+                retry_succeeded = False
+                for backoff_attempt in range(3):
+                    delay = (2 ** backoff_attempt) + random.uniform(0, 1)
+                    log.warning(
+                        f"Model {model} rate-limited (429) — retrying in {delay:.1f}s "
+                        f"(attempt {backoff_attempt+1}/3)"
+                    )
+                    time.sleep(delay)
+                    try:
+                        res = client.chat.completions.create(
+                            model=model,
+                            max_tokens=8192,
+                            tools=TOOLS,
+                            tool_choice="auto",
+                            messages=messages,
+                        )
+                        log.info(f"Model {model} recovered after rate-limit backoff")
+                        retry_succeeded = True
+                        break
+                    except Exception as retry_exc:
+                        retry_kind = _classify_error(retry_exc)
+                        log.warning(
+                            f"Model {model} retry {backoff_attempt+1}/3 failed [{retry_kind}]: {retry_exc}"
+                        )
+                        # If retry also gives 404/422, drop immediately (non-transient)
+                        if retry_kind in ("404_not_found", "422_unprocessable"):
+                            log.warning(
+                                f"Model {model} returned {retry_kind} on retry — "
+                                "dropping from rotation"
+                            )
+                            break
+                if retry_succeeded:
+                    pass  # fall through to msg processing below
+                else:
+                    # Either all 3 retries exhausted or 404/422 on retry — advance
+                    model_idx += 1
+                    if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
+                        log.error("All NVIDIA candidate models exhausted — failing cleanly.")
+                        break
+                    model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+                    final_model = model
+                    log.warning(f"Switching to: {model}")
+                    turns -= 1
+                    continue
+
+            # Timeout — advance immediately, no backoff
+            elif err_kind == "timeout":
+                log.warning(f"Model {model} timed out — advancing immediately")
+                model_idx += 1
+                if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
+                    log.error("All NVIDIA candidate models exhausted — failing cleanly.")
+                    break
+                model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+                final_model = model
+                log.warning(f"Switching to: {model}")
+                turns -= 1
+                continue
+
+            # 404 / 422 — model is not available or incompatible; drop and advance
+            elif err_kind in ("404_not_found", "422_unprocessable"):
+                log.warning(
+                    f"Model {model} returned {err_kind} — dropping from rotation for this run"
+                )
+                model_idx += 1
+                if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
+                    log.error("All NVIDIA candidate models exhausted — failing cleanly.")
+                    break
+                model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+                final_model = model
+                log.warning(f"Switching to: {model}")
+                turns -= 1
+                continue
+
+            # Unknown error — advance to next model
+            else:
+                model_idx += 1
+                if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
+                    log.error("All NVIDIA candidate models exhausted — failing cleanly.")
+                    break
+                model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+                final_model = model
+                log.warning(f"Switching to: {model}")
+                turns -= 1
+                continue
 
         msg = res.choices[0].message
 
@@ -550,4 +659,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
