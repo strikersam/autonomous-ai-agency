@@ -36,8 +36,13 @@ import json
 import os
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 import pytest
+
+# Ensure screenshot directories exist for all test runs
+Path("docs/screenshots/web").mkdir(parents=True, exist_ok=True)
+Path("docs/screenshots/mobile").mkdir(parents=True, exist_ok=True)
 
 BASE_URL = os.environ.get("RELAY_BASE_URL", "http://localhost:8001").rstrip("/")
 PROXY_BASE_URL = os.environ.get("PROXY_BASE_URL", "http://localhost:8000").rstrip("/")
@@ -151,6 +156,7 @@ def test_login_flow():
         try:
             logged_in = _do_login(page, BASE_URL)
             assert logged_in, f"Still on a login URL after submitting: {page.url}"
+            page.screenshot(path="docs/screenshots/web/login.png", full_page=True)
             # The control plane shell should render some recognizable chrome.
             body = page.locator("body").inner_text().lower()
             assert any(k in body for k in ("dashboard", "tasks", "agents", "chat", "agency")), \

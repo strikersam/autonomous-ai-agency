@@ -1,6 +1,7 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars */
 import React from 'react';
 import * as api from '../../api';
+import { ExecutionTimeline } from '../components/Charts';
 
 const FIBONACCI = [1, 2, 3, 5, 8, 13];
 
@@ -393,6 +394,13 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
             >{submittingComment ? 'Sending…' : 'Comment'}</button>
           </div>
         </div>
+
+        {/* Execution timeline (Gantt) */}
+        {task.execution_log?.length > 0 && (
+          <div style={{ padding: '8px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+            <ExecutionTimeline log={task.execution_log} />
+          </div>
+        )}
 
         {/* Execution log */}
         {task.execution_log?.length > 0 && (
