@@ -18,7 +18,7 @@ function TipBubble({ label, children }) {
         {label} ?
       </button>
       {open && (
-        <div style={{ position:'absolute', bottom:'calc(100% + 6px)', left:0, zIndex:99, background:'rgba(12,15,20,0.98)', border:'1px solid rgba(93,162,255,0.25)', borderRadius:12, padding:'10px 12px', minWidth:240, maxWidth:300, fontSize:12, color:'var(--text-secondary)', lineHeight:1.6, boxShadow:'0 12px 32px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.15s ease-out' }}
+        <div style={{ position:'absolute', bottom:'calc(100% + 6px)', left:0, zIndex:99, background:'rgba(12,15,20,0.98)', border:'1px solid rgba(93,162,255,0.25)', borderRadius:12, padding:'10px 12px', minWidth:240, maxWidth:'min(300px, calc(100vw - 24px))', fontSize:12, color:'var(--text-secondary)', lineHeight:1.6, boxShadow:'0 12px 32px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.15s ease-out' }}
           onClick={e=>e.stopPropagation()}>
           {children}
           <button onClick={()=>setOpen(false)} style={{ display:'block', marginTop:8, fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', background:'none', border:'none', cursor:'pointer' }}>Close ✕</button>

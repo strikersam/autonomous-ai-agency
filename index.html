@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agency Core v5 - Autonomous AI Agency Platform | StrikerSam</title>
+    <title>Autonomous AI Agency v5 - Your AI-powered workforce | StrikerSam</title>
 
     <!-- Schema.org structured data for the platform -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
-      "name": "Agency Core v5",
+      "name": "Autonomous AI Agency v5",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Linux, macOS, Windows",
       "description": "Self-hosted autonomous AI agency platform with Company Graph architecture, specialist provisioning, website stack detection, and multi-agent workflow orchestration.",
@@ -780,7 +780,7 @@
         <div class="container header-wrap">
             <a href="#" class="logo">
                 <span class="logo-dot"></span>
-                <span>Agency Core v5</span>
+                <span>Autonomous AI Agency v5</span>
             </a>
             <nav class="nav-links">
                 <a href="#features" class="nav-link">Features</a>
@@ -797,7 +797,7 @@
         <div class="container">
             <p class="tagline">ENTERPRISE AUTONOMOUS AI AGENCY OPERATING SYSTEM</p>
             <h1>Move from Raw Models to Specialized Specialists</h1>
-            <p class="subtitle">Agency Core v5 scans your production website, identifies technologies, maps business ecosystems, provisions tailored specialists, and automates recurring workloads with full human oversight.</p>
+            <p class="subtitle">Autonomous AI Agency v5 scans your production website, identifies technologies, maps business ecosystems, provisions tailored specialists, and automates recurring workloads with full human oversight.</p>
             <div class="hero-ctas">
                 <a href="#scanner" class="btn-main">Launch Live Web Scanner</a>
                 <a href="#features" class="btn-outline">Explore Specialists</a>
@@ -824,7 +824,7 @@
                 <div class="sim-body">
                     <div class="sim-input-box">
                         <h3>Analyze Website Ecosystem</h3>
-                        <p>Provide your production URL to run an active technological scan. Agency Core v5 automatically extracts infrastructure, framework signatures, third-party widgets, and dependencies.</p>
+                        <p>Provide your production URL to run an active technological scan. Autonomous AI Agency v5 automatically extracts infrastructure, framework signatures, third-party widgets, and dependencies.</p>
                         
                         <div class="sim-input-field">
                             <input type="text" id="scanUrl" value="https://luxury-brand-example.com" placeholder="https://your-company.com">
@@ -878,7 +878,7 @@
         <div class="container">
             <div class="section-title">
                 <h2>Functional Specialization Beyond Engineering</h2>
-                <p>Most AI agents only know how to write simple code. Agency Core v5 provisions cross-functional specialists who are experts in domain systems, operations, and commerce.</p>
+                <p>Most AI agents only know how to write simple code. Autonomous AI Agency v5 provisions cross-functional specialists who are experts in domain systems, operations, and commerce.</p>
             </div>
 
             <div class="feature-grid">
@@ -921,7 +921,7 @@
         <div class="container">
             <div class="section-title">
                 <h2>Platform Doctor & Self-Diagnostics</h2>
-                <p>System reliability is a core value. Agency Core v5 includes a comprehensive diagnostics engine that monitors preflight conditions, environment configurations, and model health.</p>
+                <p>System reliability is a core value. Autonomous AI Agency v5 includes a comprehensive diagnostics engine that monitors preflight conditions, environment configurations, and model health.</p>
             </div>
 
             <div class="doc-wrapper">
@@ -1073,13 +1073,13 @@
         <div class="container">
             <div class="section-title">
                 <h2>Frequently Asked Questions</h2>
-                <p>Everything you need to know to get started with Agency Core v5.</p>
+                <p>Everything you need to know to get started with Autonomous AI Agency v5.</p>
             </div>
 
             <div class="faq-grid">
                 <div class="faq-item">
                     <div class="faq-question">What is a Company Graph?</div>
-                    <div class="faq-answer">The Company Graph is the canonical metadata backbone of Agency Core v5. It acts as the single source of truth of your systems (Shopify, Contentful, repositories), environment endpoints, credentials, connected docs, prioritized goals, and provisioned specialist playbooks. Instead of stateless prompting, agents read and write directly to this structured graph.</div>
+                    <div class="faq-answer">The Company Graph is the canonical metadata backbone of Autonomous AI Agency v5. It acts as the single source of truth of your systems (Shopify, Contentful, repositories), environment endpoints, credentials, connected docs, prioritized goals, and provisioned specialist playbooks. Instead of stateless prompting, agents read and write directly to this structured graph.</div>
                 </div>
                 <div class="faq-item">
                     <div class="faq-question">How does website technological scanning work?</div>
@@ -1100,7 +1100,7 @@
     <!-- Footer -->
     <footer>
         <div class="container">
-            <p>© 2026 StrikerSam. Powered by Company Graph and Agency Core v5.</p>
+            <p>© 2026 StrikerSam. Powered by Company Graph and Autonomous AI Agency v5.</p>
             <p>Deployments configured on <a href="https://strikersam.github.io/local-llm-server/">GitHub Pages</a> & <a href="https://local-llm-server.pages.dev/">Cloudflare Pages</a>.</p>
         </div>
     </footer>
@@ -1498,35 +1498,4 @@
                 if (response.ok) {
                     const data = await response.json();
                     grid.innerHTML = "";
-                    data.checks.forEach(check => {
-                        const isPass = check.status === "pass";
-                        const isWarn = check.status === "warn";
-                        const badgeClass = isPass ? "badge-pass" : "badge-warn";
-                        const item = document.createElement("div");
-                        item.className = "doc-item";
-                        item.innerHTML = `
-                            <div class="doc-item-header">
-                                <span class="doc-item-title">${check.label}</span>
-                                <span class="doc-item-badge ${badgeClass}">${check.status}</span>
-                            </div>
-                            <p class="doc-item-desc">${check.detail}</p>
-                            ${check.explanation ? `<p class="doc-item-explanation">${check.explanation}</p>` : ''}
-                        `;
-                        grid.appendChild(item);
-                    });
-                    grid.style.opacity = 1;
-                    return;
-                }
-            } catch (e) {
-                // Ignore error and fall back to simulator
-            }
-
-            // Fallback simulator re-checks
-            setTimeout(() => {
-                grid.style.opacity = 1;
-                alert("✅ Real-time Platform Doctor probes updated successfully!");
-            }, 600);
-        }
-    </script>
-</body>
-</html>
+                    data.c

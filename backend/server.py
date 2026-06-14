@@ -171,6 +171,11 @@ OLLAMA_BASE = (
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
 _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
+# Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
+# execute + verify). Caps a hung provider so the chat job fails cleanly
+# instead of sitting at phase "planning" forever. Configurable via env.
+_AGENT_RUN_BUDGET_SEC = float(os.environ.get("CHAT_AGENT_RUN_BUDGET_SEC", "240"))
+
 _CHAT_AGENT_JOBS = AgentJobManager()
 _CHAT_AGENT_WORKSPACE_ROOT = Path(
     os.environ.get("BACKEND_CHAT_AGENT_WORKSPACE_ROOT", ".data/backend-chat-agent-workspaces")
@@ -1416,11 +1421,11 @@ async def lifespan(app_: "FastAPI"):
     bg: Optional[BackgroundServices] = None
     try:
         await ensure_bootstrap()
-        log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
+        log.info("Autonomous AI Agency started — provider=%s", LLM_PROVIDER)
     except Exception as exc:
         log.warning("MongoDB bootstrap deferred (no DB connection): %s", exc)
         log.info(
-            "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
+            "Autonomous AI Agency started in limited mode — set MONGO_URL to enable full features"
         )
 
     if run_background_in_web():
@@ -2469,7 +2474,7 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": GOOGLE_BASE_URL,
             "api_key": GOOGLE_API_KEY,
-            "default_model": "gemma-4",
+            "default_model": "gemini-2.5-flash",
             "is_default": LLM_PROVIDER == "google",
             "priority": 75,
             "status": "configured" if GOOGLE_API_KEY else "unconfigured",
@@ -2512,7 +2517,7 @@ async def seed_default_providers():
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -2523,7 +2528,7 @@ async def seed_default_providers():
             "api_key": ANTHROPIC_API_KEY,
             "default_model": ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 50,
+            "priority": -90,  # paid last-resort — never preferred over free cloud
             "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
         },
         {
@@ -2562,10 +2567,22 @@ async def seed_default_providers():
             new_status = p.get("status", "")
             if new_status and new_status != existing.get("status", ""):
                 update["status"] = new_status
-            # Sync priority so the fallback ordering is always correct
-            new_priority = p.get("priority")
-            if new_priority is not None and existing.get("priority") != new_priority:
-                update["priority"] = new_priority
+            # NOTE: priority is intentionally NOT synced here so user edits from the
+            # Providers UI persist across restarts. Priority is only set on first insert.
+            #
+            # ONE-TIME MIGRATION: force Anthropic providers to negative priority so free
+            # cloud providers (Google, OpenRouter, etc.) are always preferred as the brain.
+            # This only fires when the existing priority is still in the old paid-first range.
+            paid_provider_ids = {"anthropic", "anthropic-claude", "anthropic-universal"}
+            if p["provider_id"] in paid_provider_ids:
+                existing_prio = existing.get("priority", 0)
+                new_prio = p.get("priority", 0)  # already negative in seed defaults
+                if existing_prio > new_prio:
+                    update["priority"] = new_prio
+                    log.info(
+                        "Migrated %s priority %d → %d (free providers now preferred)",
+                        p["provider_id"], existing_prio, new_prio,
+                    )
             if update:
                 await get_db().providers.update_one(
                     {"provider_id": p["provider_id"]}, {"$set": update}
@@ -2615,7 +2632,7 @@ def _builtin_provider_records() -> list[dict]:
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": 55,
+            "priority": -80,  # paid — free cloud providers always preferred
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -3169,14 +3186,37 @@ async def _run_agent_loop(
         import services.workflow_orchestrator as _wo
         _bypass_token = _wo._BYPASS.set(True)
         try:
-            result = await runner.run(
-                instruction=agent_instruction,
-                history=session_messages,
-                requested_model=requested_model,
-                auto_commit=True,
-                max_steps=8,
-                memory_store=UserMemoryStore(),
-                session_id=session_id,
+            # Overall wall-clock budget for the entire agent run (plan +
+            # execute + verify). Without this, a hung provider connection
+            # leaves the chat job stuck at phase "planning" indefinitely
+            # because runner.run() makes several sequential LLM calls each
+            # with a 300s httpx read timeout and no aggregate cap.
+            result = await asyncio.wait_for(
+                runner.run(
+                    instruction=agent_instruction,
+                    history=session_messages,
+                    requested_model=requested_model,
+                    auto_commit=True,
+                    max_steps=8,
+                    memory_store=UserMemoryStore(),
+                    session_id=session_id,
+                ),
+                timeout=_AGENT_RUN_BUDGET_SEC,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "Agent run exceeded %ss budget (session=%s) — returning timeout response",
+                _AGENT_RUN_BUDGET_SEC, session_id,
+            )
+            return (
+                "\u26a0\ufe0f The agent run timed out before completing.\n\n"
+                "The selected provider took too long to respond (no result within "
+                f"{int(_AGENT_RUN_BUDGET_SEC)}s). This usually means the LLM endpoint "
+                "is overloaded, unreachable, or the model is too slow.\n\n"
+                "**Try:**\n"
+                "\u2022 Re-run the request (transient provider slowness is common).\n"
+                "\u2022 Switch to a faster provider/model in Providers.\n"
+                "\u2022 For Ollama, confirm the model is pulled and `ollama serve` is responsive.\n"
             )
         finally:
             _wo._BYPASS.reset(_bypass_token)
@@ -4754,6 +4794,7 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
+    priority: Optional[int] = Field(default=None, ge=-100, le=1000)
 
 
 @app.get("/api/providers")
@@ -4779,6 +4820,24 @@ async def list_providers(user: dict = Depends(get_current_user)):
             p.pop("api_key", None)
             p["api_key_masked"] = ""
             providers.append(p)
+    # Tag every provider with its role (brain / sub-agent / fallback / unconfigured)
+    # so the Providers screen can show a clear "BRAIN" badge per the operator's
+    # request. The classification uses the same _resolve_brain_provider() logic
+    # the orchestrator itself uses, so the UI never disagrees with the runtime.
+    # Failure is non-fatal: every provider simply gets role="available" with
+    # reason="tagging skipped" so the screen still renders.
+    try:
+        from services.workflow_orchestrator import get_provider_role_tags
+        role_tags = await get_provider_role_tags()
+    except Exception as exc:
+        log.debug("list_providers: role tagging unavailable: %s", exc)
+        role_tags = {}
+    for p in providers:
+        tag = role_tags.get(p.get("provider_id") or "") or {}
+        p["is_brain"] = bool(tag.get("is_brain"))
+        p["role"] = tag.get("role") or "available"
+        p["role_reason"] = tag.get("reason") or ""
+
     return {"providers": providers}
 
 
@@ -4788,7 +4847,8 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
         raise HTTPException(status_code=409, detail="Provider ID already exists")
     if body.is_default:
         await get_db().providers.update_many({}, {"$set": {"is_default": False}})
-    doc = body.dict()
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    doc = body.model_dump()
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "configured"
     await get_db().providers.insert_one(doc)
@@ -4800,8 +4860,14 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
 async def update_provider(
     provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
 ):
+    # Pydantic v2: use .model_dump() not the deprecated .dict().
+    # The deprecated path emits a PydanticDeprecatedSince20 warning in v2 and
+    # will be removed in a future release. The test in
+    # tests/test_brain_priority_scanner.py pins the round-trip via model_dump;
+    # this handler must use the same API or the test will pass but the real
+    # PUT will silently fail to persist priority.
     updates = {}
-    for k, v in body.dict(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
         await get_db().providers.update_many(
@@ -5500,6 +5566,7 @@ async def observability_dashboard(user: dict = Depends(get_current_user)):
     return {"url": langfuse_base, "configured": bool(langfuse_pk)}
 
 
+
 @app.get("/api/observability/metrics")
 async def observability_metrics(user: dict = Depends(get_current_user)):
     """Fetch basic usage metrics from the local_metrics collection."""
@@ -5521,6 +5588,8 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
         },
     ]
     cursor = get_db().local_metrics.aggregate(pipeline)
+    if asyncio.iscoroutine(cursor):
+        cursor = await cursor
     agg = await cursor.to_list(length=1)
     summary = (
         agg[0]
@@ -5540,6 +5609,11 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
 
 
 
+
+@app.get("/api/metrics")
+async def dashboard_metrics(user: dict = Depends(get_current_user)):
+    """Alias for /api/observability/metrics — the dashboard calls this shorter path."""
+    return await observability_metrics(user=user)
 
 @app.get("/api/observability/traces")
 async def observability_traces(
@@ -7190,6 +7264,55 @@ async def workflow_orchestrator_get_run(
     run = _wfo_owned_run_or_404(orchestrator, run_id, user)
     return {"run": run.as_dict()}
 
+
+@app.delete("/api/workflow/orchestrator/runs/{run_id}")
+async def workflow_orchestrator_cancel_run(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Cancel a single orchestrator run (removes from memory).
+
+    Admin users can cancel any run; non-admin users can only cancel their own runs."""
+    orchestrator = get_workflow_orchestrator()
+    _wfo_owned_run_or_404(orchestrator, run_id, user)
+    orchestrator.cancel_run(run_id)
+    return {"ok": True, "run_id": run_id, "cancelled": 1}
+
+
+@app.delete("/api/workflow/orchestrator/runs")
+async def workflow_orchestrator_cancel_runs_bulk(
+    status: str | None = None,
+    run_ids: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """Bulk-cancel orchestrator runs by status or explicit run_id list.
+
+    Query params:
+      status=failed,queued  — cancels all runs matching that status (admin only)
+      run_ids=id1,id2,id3   — cancels specific runs (ownership enforced per run)
+
+    Admin only for status-based cleanup; run_ids honours per-run ownership."""
+    orchestrator = get_workflow_orchestrator()
+    is_admin = _wfo_is_admin(user)
+    count = 0
+
+    if status:
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Bulk status cleanup requires admin")
+        for s in status.split(","):
+            count += orchestrator.cancel_runs_bulk(status=s.strip())
+    elif run_ids:
+        for rid in run_ids.split(","):
+            rid = rid.strip()
+            if not rid:
+                continue
+            _wfo_owned_run_or_404(orchestrator, rid, user)
+            if orchestrator.cancel_run(rid):
+                count += 1
+
+    return {"ok": True, "cancelled": count}
+
+
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.
 get_secrets_store(db=get_db())
@@ -7216,23 +7339,11 @@ if _FRONTEND_BUILD.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
         index = _FRONTEND_BUILD / "index.html"
         if index.exists():
             return HTMLResponse(index.read_text())
         return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
-
-_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
-
-if _FRONTEND_BUILD.exists():
-    app.mount(
-        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
