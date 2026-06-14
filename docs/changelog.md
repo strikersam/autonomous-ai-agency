@@ -94,6 +94,13 @@
   and `frontend/src/pages/ControlPlanePage.js` (14 stray trailing NUL bytes broke the Babel/Jest parser for
   `controlPlanePage.test.js`, `appRouting.test.jsx`, and `setupWizard.test.js`) are all restored to their
   intended content.
+- **Provider priority override bug**: `seed_default_providers` no longer resets user-edited priorities on every restart — UI priority changes now persist across server restarts.
+- **Anthropic as brain**: Anthropic providers demoted to priority -90/-80 (below all free cloud providers). Google Gemini (priority 75), OpenRouter (30), and others now win as the orchestrator brain.
+- **Google Gemini model name**: Fixed wrong model `gemma-4` → `gemini-2.5-flash` in seed defaults so the highest-priority free provider actually works.
+- **CI agent Anthropic fallback removed**: `implement_agent.py` no longer falls back to Claude Opus when NVIDIA NIM fails — this was the root cause of €20 credit drain. Runs now fail cleanly instead of burning paid API credits.
+- **`implement_agent.py` file truncation**: Restored full script from upstream (was cut off mid-line at 622/695 lines).
+- **Onboarding zero-specialist regression**: `start_onboarding` `detect_systems` step now falls back to `{"backend", "frontend", "analytics"}` when website/repo scanning yields no detectable system types (bot-protected or blocked sites). Previously the provisioning loop received an empty list and created zero specialists.
+- **Invalid `system_type="ecommerce"` in repo scanner**: `_detect_systems_from_github_data` was emitting `system_type="ecommerce"` which is not in the `SystemType` Literal — Pydantic validation would fail on any e-commerce-topic repo. Changed to `"OMS"` (the nearest valid type).
 
 ### Added
 - Scanner: subdomain enumeration layer — probes common subdomains (shop, api, cdn, checkout, account, etc.) to narrow the BuiltWith technology-count gap
@@ -116,10 +123,19 @@
   - *UI:* a prominent **"📄 Generate PDF Report"** button in the SEO Audit tab's download row
     (`frontend/src/v5/screens/CompanyScreen.jsx`, `frontend/src/api.js`) downloads the report for
     any onboarded company's stored audit with one click.
-  - *Dependency:* added `reportlab>=4.2.0` to `requirements.txt`.
+  - *Dependency:* added `reportlab>=4.2.0,<5` to `requirements.txt` and `backend/requirements.txt`.
   - *Tests:* `tests/test_seo_report_pdf.py` (revenue-modeled, baseline-free, and failed/empty audits
     all render valid PDFs), plus `TestRevenueModelHelpers` in `tests/test_seo_audit.py` and an
     export-endpoint coverage test in `tests/test_seo_api.py`.
+
+### Changed
+- **remote-admin/: brand rename to "Autonomous AI Agency".** Replaced user-visible "Local LLM" / "LLM Relay v4" branding across `index.html`, `setup-wizard.html`, and `v4-dashboard.html` (page titles, breadcrumb, hero eyebrow, setup copy). Functional references (GitHub Pages URL and on-disk repo-path placeholders) left intact.
+
+### Security
+- **key_store.py: failed-lookup rate limiting + timing-safe key compare.** Keys were already stored as SHA-256 hashes (confirmed, no plaintext on disk). Added an in-memory per-IP failed-lookup limiter (`_RATE_MAX=20` per `_RATE_WINDOW=60s`, raising `RateLimitError`) wired into `lookup_plain_key(..., client_ip=...)`, and replaced the plain dict hit with an `hmac.compare_digest` scan so the secret comparison is constant-time. `proxy.py:verify_api_key` now passes the client IP and maps `RateLimitError` to HTTP 429. Regression tests in `tests/test_key_store_security.py`.
+
+### Security
+- **agent/tools.py: hardened path-traversal guard in `WorkspaceTools`.** Added `_safe_path()` using a strict `os.path.realpath` prefix comparison (root + os.sep), rejecting `..` traversal, absolute paths, and sibling-prefix directories. `_resolve_path` now delegates to it, so `read_file`, `write_file`, `apply_diff`, `list_files`, `head_file`, `file_index` and `search_code` are all jailed to the workspace root. Constructor accepts a `workspace_root` keyword alias. Regression tests in `tests/test_agent_tools_security.py`.
 
 ### Added
 - **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
@@ -1709,3 +1725,4 @@
   `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
   quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
   revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).
+                                                                                                                                                                                                                                                                                                                                     

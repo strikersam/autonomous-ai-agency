@@ -86,7 +86,7 @@ REVENUE_PRESSURE_SCALE = 50.0
 
 def compute_pressure(
     rows: List[SeoIssueReportRow], total_pages: int
-) -> tuple[List[float], float]:
+) -> tuple[list[float], float]:
     """Return (per-row issue pressure, total pressure) for the revenue model.
 
     pressure_i = PRIORITY_WEIGHT[priority] * TYPE_FACTOR[type] * min(1, urls/total_pages)

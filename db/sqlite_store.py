@@ -256,6 +256,11 @@ class _Collection:
 
     def __init__(self, store: "SQLiteStore", name: str):
         self._store = store
+        # Whitelist-validate: table names must come from the _COLLECTIONS list. This is a
+        # hard fail-closed barrier against SQL injection in f-string SQL below — once
+        # validated, the interpolated value is provably from a fixed allowlist.
+        if name not in _COLLECTIONS:
+            raise ValueError(f"refusing to bind to non-whitelisted table: {name!r}")
         self._name = name
 
     # ── internal helpers ──────────────────────────────────────────────────
@@ -265,7 +270,7 @@ class _Collection:
 
     async def _all_docs(self) -> list[dict]:
         conn = await self._conn()
-        async with conn.execute(f"SELECT data FROM {self._name}") as cur:  # noqa: S608
+        async with conn.execute(f"SELECT data FROM {self._name}") as cur:  # nosec B608 — table name is whitelisted via _COLLECTIONS in _Collection.__init__
             rows = await cur.fetchall()
         return [json.loads(r[0]) for r in rows]
 
@@ -339,7 +344,7 @@ class _Collection:
         vals.append(str(doc["_id"]))
         conn = await self._conn()
         await conn.execute(
-            f"UPDATE {self._name} SET {', '.join(set_parts)} WHERE id = ?",  # noqa: S608
+            f"UPDATE {self._name} SET {', '.join(set_parts)} WHERE id = ?",  # nosec B608 — table name is whitelisted via _COLLECTIONS in _Collection.__init__
             vals,
         )
         await conn.commit()
@@ -365,7 +370,7 @@ class _Collection:
         vals.append(str(doc["_id"]))
         conn = await self._conn()
         await conn.execute(
-            f"UPDATE {self._name} SET {', '.join(set_parts)} WHERE id = ?",  # noqa: S608
+            f"UPDATE {self._name} SET {', '.join(set_parts)} WHERE id = ?",  # nosec B608 — table name is whitelisted via _COLLECTIONS in _Collection.__init__
             vals,
         )
         await conn.commit()
@@ -573,8 +578,17 @@ class SQLiteStore:
             self._initialized = False
 
     def __getattr__(self, name: str) -> _Collection:
-        # Fallback for any collection not in _COLLECTIONS (e.g. dynamic names)
-        return _Collection(self, name)
+        # Fallback for any collection not in _COLLECTIONS (e.g. dynamic names).
+        # The whitelist check in _Collection.__init__ is the real guard — it raises
+        # ValueError for non-whitelisted names. We convert to AttributeError here so
+        # attribute-access semantics match "this attribute does not exist".
+        try:
+            return _Collection(self, name)
+        except ValueError as e:
+            # Only re-wrap our own guard's ValueError; let unrelated ValueErrors propagate.
+            if "non-whitelisted table" not in str(e):
+                raise
+            raise AttributeError(str(e)) from None
 
     def __getitem__(self, name: str) -> _Collection:
         # Mongo/motor exposes collections via BOTH ``db.tasks`` and
