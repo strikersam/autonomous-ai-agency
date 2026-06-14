@@ -402,7 +402,6 @@ class WebsiteScanner:
                         confidence=max(0.0, s.confidence - 0.05),  # slight penalty for subdomain signal
                         evidence=s.evidence,
                         version=s.version,
-                        metadata={**(s.metadata or {}), "source_subdomain": sub_data["subdomain"]},
                     )
                     existing = all_systems_map.get(s.name)
                     if existing is None or s.confidence > existing.confidence:

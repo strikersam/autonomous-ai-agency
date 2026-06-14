@@ -159,9 +159,8 @@ def test_brain_falls_through_to_ollama_when_all_free_excluded(monkeypatch):
 def test_brain_allows_paid_when_no_free_configured(monkeypatch):
     """When the ONLY configured provider is a paid one (e.g. operator set
     ANTHROPIC_API_KEY and no other keys), the brain resolver must still
-    return that paid provider — we don't want to break single-tenant setups
-    that legitimately rely on Anthropic. The "never auto-pick paid" rule
-    only applies when a free alternative exists.
+    return that paid provider — but ONLY when allow_paid=True in the policy.
+    With allow_paid=False (the default failsafe), the resolver falls to Ollama.
     """
     from services import workflow_orchestrator
 
@@ -182,11 +181,61 @@ def test_brain_allows_paid_when_no_free_configured(monkeypatch):
         fake_records,
         raising=False,
     )
+    # Mock the policy to allow paid providers — the operator must explicitly
+    # opt in via the Providers screen for Anthropic-only setups to work.
+    async def fake_policy():
+        return {"allow_paid": True, "surfaces": {}}
+    monkeypatch.setattr(
+        "backend.server._get_provider_policy",
+        fake_policy,
+        raising=False,
+    )
 
     base, _headers, _model = _run(workflow_orchestrator._resolve_brain_provider())
     assert "anthropic" in base.lower(), (
-        f"Operator with only Anthropic configured must still get Anthropic. "
+        f"Operator with only Anthropic configured and allow_paid=True must still get Anthropic. "
         f"Got base={base!r}"
+    )
+
+
+def test_brain_falls_to_ollama_when_only_paid_and_killswitch_off(monkeypatch):
+    """When only Anthropic is configured AND allow_paid=False (default),
+    the resolver must fall to local Ollama — never auto-use a paid provider."""
+    from services import workflow_orchestrator
+
+    async def fake_records():
+        return [
+            {
+                "provider_id": "anthropic-claude",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-PLACEHOLDER",
+                "default_model": "claude-sonnet-4-6",
+                "priority": 10,
+            },
+        ]
+
+    monkeypatch.setattr(
+        "backend.server._list_configured_provider_records",
+        fake_records,
+        raising=False,
+    )
+
+    async def fake_policy():
+        return {"allow_paid": False, "surfaces": {}}
+    monkeypatch.setattr(
+        "backend.server._get_provider_policy",
+        fake_policy,
+        raising=False,
+    )
+
+    base, _headers, _model = _run(workflow_orchestrator._resolve_brain_provider())
+    assert "anthropic" not in base.lower(), (
+        f"With allow_paid=False and only Anthropic, must fall to Ollama, not Anthropic. "
+        f"Got base={base!r}"
+    )
+    assert "localhost" in base.lower() or "ollama" in base.lower(), (
+        f"Should fall to Ollama. Got base={base!r}"
     )
 
 

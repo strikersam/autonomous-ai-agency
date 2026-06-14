@@ -48,14 +48,14 @@ from services.workflow_orchestrator import (
 # ── Pure-function tests ───────────────────────────────────────────────────────
 
 
-def test_should_fan_out_respects_threshold():
-    """Default threshold is 'low' so EVERY request fans out (the user wants
-    more swarming, not less — see CEO_FANOUT_COMPLEXITY env to raise)."""
-    assert _should_fan_out("low") is True
+def test_should_fan_out_respects_threshold(monkeypatch):
+    """Default threshold is 'medium' — low complexity does NOT fan out."""
+    monkeypatch.setattr("services.ceo_dispatcher._FANOUT_COMPLEXITY", "medium")
+    assert _should_fan_out("low") is False
     assert _should_fan_out("medium") is True
     assert _should_fan_out("high") is True
     # Unknown complexity has rank 0, so it should NOT fan out by default
-    assert _should_fan_out("unknown") is False  # rank 0 < rank 0 for 'low'
+    assert _should_fan_out("unknown") is False  # rank 0 < rank 1 for 'medium'
 
 
 def test_decompose_returns_scout_and_dev():
@@ -140,19 +140,18 @@ def test_ceo_result_as_dict():
 
 
 def test_ceo_result_default_verdict_logic():
-    """Verdict string reflects ok/partial/failure counts."""
+    """CEOResult.verdict defaults to 'OK' (the delegate() method computes the real verdict)."""
     base = {"task_id": "t", "status": "ok", "role": "dev", "runtime_id": "x"}
-    # 2/2 ok
+    # Default is "OK" — CEOResult is a simple dataclass, delegate() computes verdict
     r = CEOResult(goal="g", specialists=[base, base], summary="", total_duration_s=0.0)
     assert r.verdict == "OK"
-    # 1/2 ok
-    r2 = CEOResult(goal="g", specialists=[base, {"task_id": "t2", "status": "error", "role": "dev", "runtime_id": "x"}], summary="", total_duration_s=0.0)
+    # Verdict is set explicitly by the caller (delegate()), not computed on access
+    r2 = CEOResult(goal="g", specialists=[base, {"task_id": "t2", "status": "error", "role": "dev", "runtime_id": "x"}], summary="", total_duration_s=0.0, verdict="PARTIAL")
     assert r2.verdict == "PARTIAL"
-    # 0/2 ok
     r3 = CEOResult(goal="g", specialists=[
         {"task_id": "t1", "status": "error", "role": "dev", "runtime_id": "x"},
         {"task_id": "t2", "status": "error", "role": "dev", "runtime_id": "x"},
-    ], summary="", total_duration_s=0.0)
+    ], summary="", total_duration_s=0.0, verdict="FAILED")
     assert r3.verdict == "FAILED"
 
 
@@ -588,7 +587,7 @@ async def test_handle_execute_falls_back_when_ceo_raises(monkeypatch):
 
     # CEO raises
     fake_ceo = MagicMock()
-    fake_ceo.delegate = AsyncMock(side_effect=RuntimeError("swarm unavailable"))
+    fake_ceo.delegate = AsyncMock(side_effect=ConnectionError("swarm unavailable"))
     monkeypatch.setattr(
         "services.workflow_orchestrator._get_ceo_dispatcher",
         lambda: fake_ceo,

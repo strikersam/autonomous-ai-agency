@@ -291,6 +291,19 @@ class CEODispatcher:
         if not sub_tasks:
             return []
 
+        # Resolve LLM provider via the per-surface policy (honours allow_paid gating).
+        # The resolved base URL replaces the caller's ollama_base; auth headers are
+        # handled automatically by RuntimeManager in the primary path.
+        try:
+            from services.workflow_orchestrator import resolve_provider_for
+            ceo_base, _ceo_headers, _ceo_model = await resolve_provider_for("ceo")
+            if ceo_base:
+                resolved_base = ceo_base
+        except Exception:
+            resolved_base = ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+        else:
+            resolved_base = ceo_base or ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+
         # Try RuntimeManager first (real runtime routing). If it's unavailable
         # for any reason, fall back to MultiAgentSwarm under the orchestrator
         # bypass — better than failing the whole run.
@@ -300,7 +313,7 @@ class CEODispatcher:
             mgr = get_runtime_manager()
             return await self._run_via_runtime_manager(
                 mgr, sub_tasks,
-                ollama_base=ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
+                ollama_base=resolved_base,
                 workspace_root=workspace_root or os.getcwd(),
                 github_token=github_token,
                 user_id=user_id,
@@ -312,7 +325,7 @@ class CEODispatcher:
             )
             return await self._run_via_swarm(
                 sub_tasks,
-                ollama_base=ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
+                ollama_base=resolved_base,
                 workspace_root=workspace_root or os.getcwd(),
                 github_token=github_token,
                 user_id=user_id,

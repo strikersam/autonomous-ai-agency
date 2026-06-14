@@ -30,12 +30,12 @@
 |---|------|-------|------|
 | 1 | Extend provider policy with `surfaces` map | `backend/server.py` | ⬜ |
 | 2 | `resolve_provider_for(surface)` dispatch function | `services/workflow_orchestrator.py` | ⬜ |
-| 3 | Wire chat surface to `resolve_provider_for("chat")` | `backend/server.py` (chat handler) | ⬜ |
-| 4 | Wire scanner surface | `services/scanner.py` | ⬜ |
-| 5 | Wire CEO surface | `services/ceo_dispatcher.py` | ⬜ |
-| 6 | Wire SDLC surface | `services/company_agency.py` | ⬜ |
-| 7 | Wire internal agent surface | `runtimes/adapters/internal_agent.py` | ⬜ |
-| 8 | Record `llm_provenance` per call | All call sites | ⬜ |
+| 3 | Wire chat surface to `resolve_provider_for("chat")` | `backend/server.py` (chat handler) | ✅ |
+| 4 | Wire scanner surface | `services/scanner.py` | ⬜ (no LLM call site) |
+| 5 | Wire CEO surface | `services/ceo_dispatcher.py` | ✅ |
+| 6 | Wire SDLC surface | `services/company_agency.py` | ⬜ (no LLM call site) |
+| 7 | Wire internal agent surface | `runtimes/adapters/internal_agent.py` | ✅ |
+| 8 | Record `llm_provenance` per call | All call sites | ✅ |
 | 9 | Per-surface matrix in ProvidersScreen.jsx | `frontend/src/v5/screens/ProvidersScreen.jsx` | ⬜ |
 | 10 | Drag-to-reorder provider priority | `frontend/src/v5/screens/ProvidersScreen.jsx` | ⬜ |
 
@@ -79,7 +79,7 @@
 
 | # | Task | Files | Done |
 |---|------|-------|------|
-| 1 | Fix scanner: `DetectedSystem` has no `category` (#605) | `services/scanner.py` | ⬜ |
+| 1 | Fix scanner: `DetectedSystem` has no `metadata` (#605) | `services/scanner.py` | ✅ |
 | 2 | Triage #622: CI syntax check false positive | `.github/` | ⬜ |
 | 3 | Triage #624: subdomain enumeration layer | `services/scanner.py` | ⬜ |
 | 4 | Triage #625: Friday maintenance fixes | Various | ⬜ |
