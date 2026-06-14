@@ -1750,7 +1750,7 @@ class RepoScanner:
         ecommerce_keywords = ['ecommerce', 'shop', 'store', 'woocommerce', 'shopify', 'magento']
         if any(kw in [t.lower() for t in topics] for kw in ecommerce_keywords):
             systems.append(DetectedSystem(
-                system_type="ecommerce",
+                system_type="OMS",
                 name="E-commerce Platform",
                 confidence=0.7,
                 evidence=[
@@ -1794,7 +1794,7 @@ class RepoScanner:
                         location="repository",
                         confidence=0.7
                     )
-                ]
-            ))
-        
+                ]                )
+            )
+
         return systems

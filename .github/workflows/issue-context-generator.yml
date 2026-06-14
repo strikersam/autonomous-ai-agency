@@ -14,11 +14,16 @@ on:
   issues:
     types: [opened, labeled]
 
-# One run per issue at a time; newer events cancel older pending runs for the
-# same issue (e.g. a label added right after open).
+# One run per issue at a time. cancel-in-progress is OFF so a re-trigger
+# (e.g. a human adding a label right after open) does NOT kill a long-running
+# context-generation run mid-flight — the first run completes and posts its
+# PR comment; the second run is then a no-op (the recover-existing-PR branch
+# at step 6 finds the already-created draft).  Cancellation previously
+# produced zero-PR races where both runs saw "no PR" and the second won,
+# orphaning the first run's branch.
 concurrency:
   group: issue-context-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
