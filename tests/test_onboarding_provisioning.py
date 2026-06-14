@@ -175,6 +175,37 @@ async def test_onboarding_provisions_specialists_with_right_skills_and_context(h
 
 
 @pytest.mark.asyncio
+async def test_activate_agency_runs_in_background_without_blocking(wired):
+    """Step 8 (activate_agency) must not block start_onboarding's response.
+
+    Regression for "Specialist provisioning reported an issue: timeout of
+    25000ms exceeded": activate_company() starts runtime containers via
+    docker compose, which can take far longer than the frontend's 25s
+    onboarding timeout. It must be fired as a background task, not awaited.
+    """
+    import asyncio
+
+    graph_service, _, onboarding = wired
+    host = "app.example-app.com"
+
+    company = await graph_service.create_company(name="app", domain=host, owner_id="u1")
+    progress = await onboarding.start_onboarding(
+        company_id=company.id, website_urls=[f"https://{host}"],
+        auto_provision_specialists=True,
+    )
+
+    assert progress.status == "completed", progress.errors
+
+    activate_steps = [s for s in progress.steps if s.get("name") == "activate_agency"]
+    assert activate_steps, "expected an activate_agency step to be recorded"
+    assert activate_steps[0]["status"] == "in_progress"
+
+    # Let the background activation task run to completion (it catches and
+    # logs its own exceptions, so this must not raise or hang).
+    await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
 async def test_specialist_context_matches_detected_systems(wired):
     """A detected system's type must show up as context on at least one agent."""
     graph_service, specialist_service, onboarding = wired

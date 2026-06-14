@@ -44,6 +44,9 @@ export function setBackendUrl(url) {
 export const API = axios.create({
   baseURL: getBackendUrl(),
   headers: { 'Content-Type': 'application/json' },
+  // Default request timeout. Long-running operations (website/repo scans,
+  // SEO audits) override this with a larger per-call timeout below.
+  timeout: 45000,
 });
 
 // Attach Bearer token and resolve dynamic backend URL on every request
@@ -133,7 +136,7 @@ API.interceptors.response.use(
 );
 
 export function fmtErr(detail) {
-  if (detail == null) return 'Something went wrong.';
+  if (detail == null) return '';
   if (typeof detail === 'string') return detail;
   if (detail.message) return detail.message;
   if (Array.isArray(detail)) return detail.map(e => {
@@ -384,8 +387,10 @@ export const getCompany = (id) => API.get(`/api/company/${id}`);
 export const updateCompany = (id, data) => API.patch(`/api/company/${id}`, data);
 export const getCompanyGraph = (id) => API.get(`/api/company/${id}/graph`);
 export const syncCompanyGraph = (id) => API.post(`/api/company/${id}/graph/sync`);
-export const scanWebsite = (id, url) => API.post(`/api/company/${id}/scan/website`, { website_url: url });
-export const scanRepo = (id, url) => API.post(`/api/company/${id}/scan/repo`, { repo_url: url });
+// Website/repo scans can take well past the default timeout (e.g. crawling
+// multiple pages or a large repo), so allow up to 2 minutes.
+export const scanWebsite = (id, url) => API.post(`/api/company/${id}/scan/website`, { website_url: url }, { timeout: 120000 });
+export const scanRepo = (id, url) => API.post(`/api/company/${id}/scan/repo`, { repo_url: url }, { timeout: 120000 });
 export const listSpecialists = (id) => API.get(`/api/company/${id}/specialists`);
 export const provisionSpecialist = (id, data) => API.post(`/api/company/${id}/specialists`, data);
 export const matchSpecialists = (id, systems) => API.post(`/api/company/${id}/specialists/match`, systems);
@@ -399,8 +404,9 @@ export const getPublicDoctorReport = () => API.get('/api/company/doctor/public')
 
 // ── SEO / GEO / AIO Audit (v5.1) ──────────────────────────────────────────────
 export const getSeoChecks = () => API.get('/api/seo/checks');
+// Browser-based crawls of up to ~50 pages can take several minutes.
 export const runSeoAudit = (companyId, request) =>
-  API.post(`/api/company/${companyId}/seo/audit`, request);
+  API.post(`/api/company/${companyId}/seo/audit`, request, { timeout: 180000 });
 export const listSeoAudits = (companyId) =>
   API.get(`/api/company/${companyId}/seo/audits`);
 export const getSeoAudit = (companyId, auditId) =>

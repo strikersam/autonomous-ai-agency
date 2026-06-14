@@ -811,4 +811,4 @@ function CompanyScreen() {
   );
 }
 
-exp
+export default CompanyScreen;
