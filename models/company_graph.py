@@ -1,5 +1,5 @@
 """
-Company Graph - Canonical Core Model for Agency Core v5
+Company Graph - Canonical Core Model for the Autonomous AI Agency
 
 This module defines the typed, serializable models for the Company Graph,
 which serves as the single source of truth for company context, systems,
@@ -49,7 +49,7 @@ SpecialistFamily = Literal[
     "operations", "agile", "portfolio", "delivery", "security", "devops",
     "data", "ml", "frontend", "backend", "fullstack", "mobile",
     "cloud", "infra", "architecture", "product", "design", "ux",
-    # Business / domain specialists (Agency Core v5 — full domain coverage)
+    # Business / domain specialists (Autonomous AI Agency — full domain coverage)
     "seo", "content", "marketing", "merchandising", "pim", "oms",
     "dam", "crm", "support", "trading", "research", "platform"
 ]
@@ -1189,7 +1189,7 @@ class Company(BaseModel):
 
 class CompanyGraph(BaseModel):
     """
-    The complete Company Graph - canonical core model for Agency Core v5.
+    The complete Company Graph - canonical core model for the Autonomous AI Agency.
     
     This model represents the entire knowledge graph for a company, including
     all websites, repositories, systems, specialists, workflows, and knowledge.

@@ -1,27 +1,3 @@
-- **World-class SEO / GEO / AEO / AIO audit engine + repo-aware auto-fixer (issue #533, PR #534).**
-  *Engine:* `services/seo_audit.py` — async SSRF-safe crawler (robots.txt-aware, sitemap-seeded, up to 500 pages)
-  running a 102-check catalog (`services/seo_checks.py`) with full Screaming Frog issue-taxonomy parity
-  (Issue Name / Type / Priority / URLs / % of Total / Description / How To Fix / Help URL) plus
-  GEO (llms.txt, AI-crawler robots access, sitemaps, semantic landmarks, citable anchors) and
-  AIO/AEO (JSON-LD validity, Organization/Breadcrumb/FAQ schema, E-E-A-T, chunkability) pillars;
-  weighted 0-100 health score overall and per pillar.
-  *Revenue portfolio mechanism:* findings are quantified as estimated monthly revenue at risk
-  (capped at 35% of the `monthly_organic_revenue` baseline) and delegation packages are
-  WSJF-scored to slot directly into `agents/portfolio.py` Initiatives.
-  *Delegation:* every report includes an agent-ready delegation plan (priority, S/M/L effort,
-  suggested specialist family, instructions); `POST .../delegate` turns packages into real tasks.
-  *Auto-fixer:* `services/seo_fixer.py` — when a code repo is available, remediates fixable findings
-  with minimal targeted diffs (charset/viewport/lang, meta description, canonical, OG/Twitter tags,
-  noopener, protocol-relative URLs, image alt + Pillow-measured size attributes, lazy-loading,
-  robots.txt/sitemap.xml/llms.txt generation, platform-aware security-header suggestions);
-  dry-run by default, workspace-root jailed.
-  *API:* `backend/seo_api.py` — catalog, audit, list, full report, CSV/urls/issues/markdown/JSON
-  exports, delegate, fix. *Integration:* `seo-audit` runtime skill bound to seo/content/marketing/
-  analytics/frontend/ecommerce specialists; audits persisted to the Company Graph as KnowledgeItems;
-  SEO specialist family gains site_audit/issue_remediation/geo_optimization/aio_optimization.
-  *Tests:* 124 new tests across `tests/test_seo_audit.py`, `tests/test_seo_fixer.py`,
-  `tests/test_seo_api.py`. *Docs:* `docs/seo-audit.md`.
-
 - **Onboarding UX, logs, chat, admin fixes.** *Onboarding:* clickable breadcrumbs, restart button, Done back button. *Logs:* expandable messages (click to expand). *Chat:* ModelPicker two-step provider→model, mutual dropdown exclusion, repo URL input for code tasks. *Admin:* Companies tab with delete cleanup. *Backend:* DELETE /api/company/{id} endpoint.
 
 
@@ -90,15 +66,22 @@
 - **Autonomous agile ceremonies (`agents/agile_ceremonies.py`).** New `generate_standup()` builds a daily standup report (Completed / In progress / Planned / Blockers + active sprint health) from `.claude/state/active-tasks.md` and any active `AgileSprint`s. `generate_sprint_retro()` derives a `Retrospective` from sprint metrics (complete / on-track / at-risk / off-track + scope-creep detection) and stores it on the sprint. `generate_backlog_retro()` mines the task tracker's done/blocked/deferred rows and bug log for retro material. `plan_next_sprint()` runs WSJF capacity allocation against the portfolio, creates the sprint in `PLANNING` status, and adds a `UserStory` per committed initiative. `AgileSprint` gained a `stories` property. 17 new tests in `tests/test_agile_ceremonies.py`.
 - **Scheduled agile ceremonies digest (`.github/workflows/agile-ceremonies.yml`).** New `.github/scripts/agile_ceremonies.py` CLI (standup / retro / plan) runs on a cron — weekday standup (08:00 UTC), Friday backlog retro (17:00 UTC), Monday WSJF sprint plan (07:00 UTC) — and writes the markdown digest to the job summary; `workflow_dispatch` supports manual runs of any ceremony. Documented in `.claude/skills/agentic-agile/SKILL.md`.
 - **Delivery Manager — 35th specialist family.** New `"delivery"` entry in the `SpecialistFamily` `Literal` (`models/company_graph.py`), with default capabilities (`sprint_planning`, `standups`, `retrospectives`, `release_coordination`, `cross_team_unblocking`), tools (`jira`, `github_api`, `slack`, `linear`, `confluence`), and `internal_agent` runtime (`services/specialist.py`, `services/company_agency.py`). Bound to the `agentic-agile` and `agentic-portfolio` runtime skills (`services/skill_bindings.py`). `tests/test_specialist_skill_matrix.py` and `docs/specialists-skills-matrix.md` updated for 35 families; `README.md` and `docs/architecture/tailored-onboarding-and-roles.md` updated accordingly.
+- **Dashboard: AgentActivityWidget with Charts.jsx integration.** New widget on the dashboard shows a task status Donut chart (done/running/pending/failed distribution) and a 7-day activity sparkline built from `/api/activity` events. Uses the zero-dependency `Charts.jsx` SVG components (Donut + Sparkline) added in a prior pass. Widget fetches `/api/agents/` for live active-agent count badge. Wired into the resilient `useSafeData` pattern so a failed agents endpoint never blanks the whole widget.
+- **CompanyScreen: Systems tab — category grouping, confidence scores, detection method badges.** Previously the systems tab showed a flat list. Now systems are grouped by category (CMS, CRM, analytics, payment_gateway, etc.) with a color-coded category header. Each detected system shows: version if available, detection method badges (html/dns/ssl/headers/script/cookie in distinct colours), and a confidence mini-bar + percentage score. Summary counts at top: "N systems detected across M categories", with separate counters for auto-detected vs connected systems. Empty state message directs users to run a scan.
 
 ### Fixed
 - **Schedule duplication blocked: activate_company now idempotent.** Calling activate_company multiple times (retry, restart, onboarding re-trigger) created duplicate schedules for the same company. Added check: if a schedule with the same name already exists, skip creation and record it in the result with note=already_exists. Live evidence: 43 schedules across 2 companies reduced to 6 unique schedules after fix.
 
-### Fixed
-- **Agent brain now visible to FastAPI in Cloudflare Worker.** Env vars set via `--var` on deploy do not auto-populate process.env in Node.js; added `[env.production]` to wrangler.jsonc binding AGENT_LLM_BASE_URL, AGENT_LLM_MODEL, and AGENT_LLM_API_KEY so the orchestrator resolver can read them. Deploy now uses `--env production` and the secret upload targets the same environment.
+### Changed
+- **remote-admin/: brand rename to "Autonomous AI Agency".** Replaced user-visible "Local LLM" / "LLM Relay v4" branding across `index.html`, `setup-wizard.html`, and `v4-dashboard.html` (page titles, breadcrumb, hero eyebrow, setup copy). Functional references (GitHub Pages URL and on-disk repo-path placeholders) left intact.
+- **Mobile-first CSS hardening.** Added a global mobile baseline so the dashboard and chat UIs never overflow horizontally on small screens: `max-width: 100vw` on the `html, body, #root` root containers and a `img, video, iframe { max-width: 100%; height: auto; }` rule in both `frontend/src/index.css` and `webui/frontend/src/styles.css` (the latter also gains `overflow-x: hidden` on `html, body`). Wrapped the three previously-unwrapped data tables in horizontally scrollable containers so wide tables scroll instead of clipping on phones: `frontend/src/pages/LogsPage.js` (Provider Performance) and both tables in `frontend/src/v5/screens/AdminOnboardingPanel.jsx` (user-onboarding and audit-log).
+
+### Security
+- **key_store.py: failed-lookup rate limiting + timing-safe key compare.** Keys were already stored as SHA-256 hashes (confirmed, no plaintext on disk). Added an in-memory per-IP failed-lookup limiter (`_RATE_MAX=20` per `_RATE_WINDOW=60s`, raising `RateLimitError`) wired into `lookup_plain_key(..., client_ip=...)`, and replaced the plain dict hit with an `hmac.compare_digest` scan so the secret comparison is constant-time. `proxy.py:verify_api_key` now passes the client IP and maps `RateLimitError` to HTTP 429. Regression tests in `tests/test_key_store_security.py`.
+- **agent/tools.py: hardened path-traversal guard in `WorkspaceTools`.** Added `_safe_path()` using a strict `os.path.realpath` prefix comparison (root + os.sep), rejecting `..` traversal, absolute paths, and sibling-prefix directories. `_resolve_path` now delegates to it, so `read_file`, `write_file`, `apply_diff`, `list_files`, `head_file`, `file_index` and `search_code` are all jailed to the workspace root. Constructor accepts a `workspace_root` keyword alias. Regression tests in `tests/test_agent_tools_security.py`.
 
 ### Fixed
-- **Deploys unfrozen: Worker secret upload honors wrangler.jsonc.** Deploys failed with "Required Worker name missing" because the wrangler-action secrets input runs secret put without --config. Replaced with an explicit npx -y wrangler@4 secret put step; the first green deploy activates the env-pinned Claude brain.
+- **Deploys unfrozen: Worker secret upload now honors wrangler.jsonc.** Every deploy since the brain-pinning change failed with "Required Worker name missing" because the wrangler-action secrets input runs `secret put` without `--config`. Replaced with an explicit `npx -y wrangler@4 secret put AGENT_LLM_API_KEY --config wrangler.jsonc` step; the first green deploy activates the env-pinned Claude brain.
 
 ### Added
 - **Deploy pins the agent brain via env (immune to #537).** deploy-cloudflare.yml now passes AGENT_LLM_BASE_URL (Anthropic OpenAI-compat) and AGENT_LLM_MODEL=claude-sonnet-4-6 as Worker vars and uploads AGENT_LLM_API_KEY as a Worker secret from GitHub secrets on every deploy. The brain resolver checks env before provider records, so Claude stays the brain across restarts and instances; remove the vars to fall back to record-priority ordering (free models).

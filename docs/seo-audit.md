@@ -28,14 +28,52 @@ GEO / AIO): classic ranking, being *the answer* in answer engines, and being
 
 Each audit yields a weighted **0–100 health score** overall and per pillar.
 
+## Fetching bot-protected sites (`fetch_mode`)
+
+Enterprise sites (luxury retail, most large e-commerce) sit behind Akamai /
+Cloudflare bot protection that returns `403` to a plain HTTP client, so a naïve
+crawl records a **block page**, not real HTML. The `fetch_mode` request field
+controls the backend (`services/seo_fetch.py`):
+
+| Mode | Backend | Use when |
+|------|---------|----------|
+| `http` | plain `httpx` (fast) | the site has no bot wall |
+| `browser` | real headless Chromium via **browser-use / Playwright** (local by default) | the site blocks HTTP clients |
+| `auto` *(default)* | `httpx`, auto-escalating to a browser **only on a detected bot-block** | you don't know / mixed |
+
+A real browser fetch returns a JS-rendered DOM that gets past most bot walls.
+Local headless Chromium is the default (`playwright install chromium` must have
+run in the deployment); a remote Browserbase session is an explicit opt-in via
+`SEO_BROWSER_BACKEND=browserbase` + `BROWSERBASE_API_KEY`. The escalation is
+transparent: an Akamai `403` on the homepage is automatically retried in a
+browser. **A full crawl of a bot-protected site therefore requires the
+deployment to have Playwright browsers installed** — without them, `auto` falls
+back to httpx and the audit honestly reports the block.
+
 ## Revenue-at-Risk Portfolio Quantification
 
 Pass `monthly_organic_revenue` in the audit request and every finding is
-quantified as **estimated monthly revenue at risk**: each finding's severity
-deduction (priority × type × share of pages affected) doubles as the share of
-organic revenue considered at risk, with the aggregate capped at 35% of the
-baseline. The report carries `estimated_monthly_revenue_loss` overall and per
-finding row.
+quantified as an **estimated monthly revenue at risk** — a *model estimate, not
+a measured loss*. Each finding contributes "issue pressure" = priority × type ×
+page-coverage; the aggregate pressure is mapped to an at-risk share of the
+baseline through a diminishing-returns curve, `share = 35% × (1 − e^(−pressure/50))`.
+This is content-dependent (a handful of issues moves the figure only a little; a
+pervasively broken site approaches but never reaches the 35% cap) rather than
+pinning to the cap on almost any input. The report carries
+`estimated_monthly_revenue_loss` overall and per finding row, and the Markdown
+export includes an explicit methodology note. Treat the figure as a
+prioritisation signal calibrated to the baseline you supply — not a guaranteed
+dollar amount.
+
+## Demo from the UI
+
+The company page (`frontend/src/v5/screens/CompanyScreen.jsx`) has an **SEO
+Audit** tab: enter a URL, pick the fetch mode, optionally a monthly organic-
+revenue baseline, and run. It shows the health score, six pillar scores,
+revenue-at-risk (with the caveat above), the full findings table, a one-click
+**📄 Generate PDF Report** button (CTO-level write-up — see below), **Download
+CSV / JSON / Markdown / URLs / Issues** buttons, and a one-click **Delegate to
+task board**.
 
 Delegation packages are additionally **WSJF-scored** (SAFe Weighted Shortest
 Job First — the same model as `agents/portfolio.py`): business value comes from
@@ -73,7 +111,7 @@ GET  /api/seo/checks                                          # full catalog (pu
 POST /api/company/{company_id}/seo/audit                      # run an audit
 GET  /api/company/{company_id}/seo/audits                     # list past audits
 GET  /api/company/{company_id}/seo/audits/{audit_id}          # full report
-GET  /api/company/{company_id}/seo/audits/{audit_id}/export   # ?fmt=csv|urls|issues|markdown|json
+GET  /api/company/{company_id}/seo/audits/{audit_id}/export   # ?fmt=csv|urls|issues|markdown|json|pdf
 POST /api/company/{company_id}/seo/audits/{audit_id}/delegate # create agent tasks
 POST /api/company/{company_id}/seo/fix                        # repo-aware auto-fix
 ```
@@ -100,6 +138,13 @@ Request options: `max_pages` (1–500, default 50), `max_depth`, `include_sitema
 - `fmt=markdown` — executive report: pillar scores, findings table,
   **delegation plan**, and per-page details (worst pages first)
 - `fmt=json` — the complete typed report object
+- `fmt=pdf` — **CTO-level PDF report** (`services/seo_report_pdf.py`): cover
+  page, executive summary, a methodology section explaining the revenue model
+  with a cross-baseline sensitivity table, one deep-dive per pillar with $
+  recommendations sourced from the delegation plan's own instructions, and
+  appendices for the full findings table, the WSJF-prioritised fix roadmap, and
+  the worst pages. Generated on demand from the stored report — nothing is
+  hardcoded per company.
 
 ### Delegation plan → agent tasks
 

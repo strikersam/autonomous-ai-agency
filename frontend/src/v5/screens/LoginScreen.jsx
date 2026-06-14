@@ -48,7 +48,7 @@ function HeroPanel({ compact }) {
         color: '#9ecbff', fontFamily: 'var(--font-mono)',
       }}>
         <span style={{ width: 7, height: 7, borderRadius: 99, background: '#5da2ff', boxShadow: '0 0 10px #5da2ff' }} />
-        Agency Core v5 · Self-hosted · Private
+        Autonomous AI Agency · Self-hosted · Private
       </div>
 
       <h1 style={{
@@ -164,7 +164,7 @@ function LoginScreen() {
                 <path d="M15 2v2M15 20v2M9 2v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/>
               </svg>
             </div>
-            <div style={{ fontSize:20, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>Agency Core</div>
+            <div style={{ fontSize:20, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>Autonomous AI Agency</div>
             <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)', marginTop:3, fontFamily:'var(--font-mono)' }}>Sign in to your agency</div>
           </div>
 

@@ -20,8 +20,16 @@ TEXT_EXTENSIONS = {
 
 
 class WorkspaceTools:
-    def __init__(self, root: str | Path | None = None) -> None:
-        self.root = Path(root or os.environ.get("AGENT_WORKSPACE_ROOT") or ".").resolve()
+    def __init__(
+        self,
+        root: str | Path | None = None,
+        *,
+        workspace_root: str | Path | None = None,
+    ) -> None:
+        # ``workspace_root`` is an alias for ``root`` kept for API/test clarity.
+        chosen = workspace_root if workspace_root is not None else root
+        self.root = Path(chosen or os.environ.get("AGENT_WORKSPACE_ROOT") or ".").resolve()
+        self.workspace_root = str(self.root)
         self.repowise = RepowiseIntelligence(root=self.root)
 
     def get_answer(self, question: str) -> str:
@@ -53,12 +61,23 @@ class WorkspaceTools:
         """Return git-blame / decision rationale for a file."""
         return self.repowise.get_why(target)
 
+    def _safe_path(self, filepath: str) -> str:
+        """Resolve filepath relative to workspace_root, rejecting traversal attempts.
+
+        Uses a strict realpath prefix comparison so that ``..`` segments,
+        absolute paths, and sibling-prefix directories (e.g. ``/tmp/root_evil``
+        for root ``/tmp/root``) are all rejected.
+        """
+        root = os.path.realpath(self.workspace_root)
+        target = os.path.realpath(os.path.join(root, filepath))
+        if not target.startswith(root + os.sep) and target != root:
+            raise ValueError(f"Security: path traversal attempt rejected: {filepath!r}")
+        return target
+
     def _resolve_path(self, path: str) -> Path:
         cleaned = path.strip().replace("/", os.sep)
-        resolved = (self.root / cleaned).resolve()
-        if self.root not in resolved.parents and resolved != self.root:
-            raise ValueError("Path escapes workspace root")
-        return resolved
+        # Delegate to _safe_path for the security boundary check.
+        return Path(self._safe_path(cleaned))
 
     def list_files(self, path: str = ".", limit: int = 200) -> list[str]:
         target = self._resolve_path(path)

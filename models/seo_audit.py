@@ -89,6 +89,15 @@ class SeoAuditRequest(BaseModel):
         description="Issue bounded HEAD requests to validate external links"
     )
     timeout_seconds: float = Field(default=15.0, gt=0, le=60, description="Per-request timeout")
+    fetch_mode: Literal["auto", "http", "browser"] = Field(
+        default="auto",
+        description="Page fetch backend. 'http' = plain httpx (fast, blocked by "
+                    "Akamai/Cloudflare bot walls); 'browser' = real Chromium via "
+                    "browser-use/Playwright (local headless by default; bypasses "
+                    "bot protection with a JS-rendered DOM); 'auto' = httpx with "
+                    "automatic browser escalation when a bot-block is detected "
+                    "(used only if a browser backend is available)."
+    )
     monthly_organic_revenue: float = Field(
         default=0.0, ge=0,
         description="Estimated monthly revenue attributable to organic/AI search. "

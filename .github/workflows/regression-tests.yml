@@ -1,0 +1,28 @@
+name: regression-tests
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+
+jobs:
+  brain-priority-scanner:
+    name: Brain-skip-paid + provider-priority + scanner NameError
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pydantic httpx
+      - name: Run the brain/priority/scanner/onboarding regression tests
+        run: |
+          python -m pytest -x -q tests/test_brain_priority_scanner.py

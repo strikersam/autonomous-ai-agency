@@ -98,6 +98,73 @@ if WORKFLOW_MODE not in ("orchestrator", "legacy"):
     WORKFLOW_MODE = "orchestrator"
 
 
+# Narrow exception list for the CEO → AgentRunner fallback path. The CEO
+# may legitimately fail when a runtime is missing, an LLM endpoint is
+# unreachable, or the swarm cannot start; in those cases we want to fall
+# through to the single-runner path so the run can still succeed. Program
+# errors (KeyError, AttributeError, etc.) must NOT be swallowed.
+_CEO_FALLBACK_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
+try:
+    import httpx as _httpx  # type: ignore
+    _CEO_FALLBACK_EXCEPTIONS = _CEO_FALLBACK_EXCEPTIONS + (
+        _httpx.ConnectError,
+        _httpx.ReadTimeout,
+        _httpx.ConnectTimeout,
+    )
+except ImportError:
+    pass
+
+
+# ── CEO fallback observability (#P1) ───────────────────────────────────────────
+# Module-level counters so the operator can SEE when the CEO delegation layer
+# silently falls back to single AgentRunner. Without this, every CEO outage
+# looks like a successful run — the request still completes via the fallback,
+# but the operator has no signal that the multi-agent layer is broken.
+# Exposed via get_ceo_fallback_stats() for admin / health endpoints.
+import threading as _threading
+_ceo_fallback_lock = _threading.Lock()
+_ceo_fallback_stats: dict[str, int] = {
+    "verdict_non_ok": 0,        # CEO returned PARTIAL / FAILED verdict
+    "transport_error": 0,       # CEO raised one of _CEO_FALLBACK_EXCEPTIONS
+    "ceo_ok": 0,                # CEO returned OK verdict
+    "ceo_low_complexity_bypass": 0,  # low-complexity: skipped CEO entirely
+}
+
+
+def get_ceo_fallback_stats() -> dict[str, int]:
+    """Return a snapshot of CEO delegation outcomes for observability.
+
+    The four counters let the operator answer, at a glance:
+      - Is the CEO layer actually working? (ceo_ok should dominate)
+      - How often is the fallback path firing? (verdict_non_ok + transport_error)
+      - Is the low-complexity bypass being hit too aggressively?
+        (ceo_low_complexity_bypass should be a minority)
+    """
+    with _ceo_fallback_lock:
+        return dict(_ceo_fallback_stats)
+
+
+def reset_ceo_fallback_stats() -> None:
+    """Reset the counters (test helper)."""
+    with _ceo_fallback_lock:
+        for k in _ceo_fallback_stats:
+            _ceo_fallback_stats[k] = 0
+
+
+def _record_ceo_fallback(reason: str) -> None:
+    """Bump the named counter under the lock (best-effort, never raises)."""
+    try:
+        with _ceo_fallback_lock:
+            if reason in _ceo_fallback_stats:
+                _ceo_fallback_stats[reason] += 1
+    except Exception:  # pragma: no cover
+        pass
+
+
 # ── Orchestrator bypass flag (prevents circular deprecation block) ──────────
 # Uses contextvars.ContextVar for async/coroutine safety — each async task
 # gets its own isolated bypass flag. When the WorkflowOrchestrator itself
@@ -108,14 +175,254 @@ _BYPASS: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 
 
+async def _resolve_brain_provider(
+    exclude_base_urls: set[str] | None = None,
+) -> tuple[str, dict | None, str | None]:
+    """Resolve the LLM endpoint for agent execution (module-level, #522 failover).
+
+    Resolution order:
+      1. AGENT_LLM_BASE_URL env override (with optional AGENT_LLM_API_KEY /
+         AGENT_LLM_MODEL) — wins over everything.
+      2. Highest-priority configured provider record (the same store the
+         Providers screen manages), skipping any whose normalised base URL is in
+         *exclude_base_urls* and any non-Ollama provider without an API key.
+      3. Local Ollama fallback.
+
+    Returns ``(openai_compatible_base_url, auth_headers_or_None, model_or_None)``.
+    Accepting *exclude_base_urls* lets a phase fail over to the NEXT provider in
+    priority order after the current one errors.
+    """
+    exclude = {u.rstrip("/") for u in (exclude_base_urls or set())}
+
+    # 1. Explicit env override — highest precedence.
+    env_base = os.environ.get("AGENT_LLM_BASE_URL", "").strip()
+    if env_base:
+        env_key = os.environ.get("AGENT_LLM_API_KEY", "").strip()
+        env_model = os.environ.get("AGENT_LLM_MODEL", "").strip() or None
+        headers = {"Authorization": f"Bearer {env_key}"} if env_key else None
+        return env_base.rstrip("/"), headers, env_model
+
+    # 2. Configured provider records, ordered by priority (highest first).
+    try:
+        from backend.server import _list_configured_provider_records
+        records = list(await _list_configured_provider_records())
+        # Sort by priority (highest first). Records from the store are normally
+        # pre-sorted, but resolve defensively so callers passing raw lists (and
+        # the failover unit tests) get deterministic highest-priority selection.
+        def _prio(rec: dict) -> int:
+            try:
+                return int(rec.get("priority") or 0)
+            except (TypeError, ValueError):
+                return 0
+        records.sort(key=_prio, reverse=True)
+
+        def _pick(allow_paid: bool) -> tuple[str, dict | None, str | None] | None:
+            for rec in records:
+                rtype = str(rec.get("type") or "").lower()
+                # Never auto-select a paid provider (Anthropic / emergent-anthropic)
+                # as the brain when a free alternative exists — the operator must
+                # opt in explicitly via AGENT_LLM_BASE_URL. Protects against
+                # silent credit burn when ANTHROPIC_API_KEY is set in the env.
+                is_paid = rtype in ("anthropic", "emergent-anthropic")
+                if is_paid and not allow_paid:
+                    continue
+                base = str(rec.get("base_url") or "").strip().rstrip("/")
+                if not base:
+                    continue
+                key = str(rec.get("api_key") or "").strip()
+                if rtype != "ollama" and not key:
+                    continue
+                # Native Anthropic appends /v1/messages itself; normalise others to /v1.
+                if rtype != "anthropic" and not base.endswith("/v1"):
+                    base = f"{base}/v1"
+                if base.rstrip("/") in exclude:
+                    continue
+                if rtype == "anthropic":
+                    headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+                else:
+                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                model = str(rec.get("default_model") or "").strip() or None
+                return base, headers, model
+            return None
+
+        def _has_usable_free_provider() -> bool:
+            """True iff any configured free (non-Anthropic, keyed) provider exists.
+
+            Used to decide whether the paid-fallback pass is even worth trying:
+            if a free provider is configured, we should never silently escalate
+            to a paid one — even if the failover retry temporarily excludes
+            every free endpoint. A transient free outage must fall through to
+            the local Ollama fallback, not burn credits.
+            """
+            for rec in records:
+                rtype = str(rec.get("type") or "").lower()
+                if rtype in ("anthropic", "emergent-anthropic"):
+                    continue
+                base = str(rec.get("base_url") or "").strip().rstrip("/")
+                if not base:
+                    continue
+                key = str(rec.get("api_key") or "").strip()
+                if rtype != "ollama" and not key:
+                    continue
+                return True
+            return False
+
+        # First pass: prefer free cloud providers (NVIDIA NIM, Google Gemini,
+        # OpenRouter, etc.) — never auto-select paid Anthropic.
+        picked = _pick(allow_paid=False)
+        if picked is None and not _has_usable_free_provider():
+            # No free provider is configured at all — only then allow paid
+            # (Anthropic) as a manual-only last-resort fallback. The operator
+            # can still disable it by setting AGENT_LLM_BASE_URL to another
+            # provider or by removing the ANTHROPIC_API_KEY env var.
+            picked = _pick(allow_paid=True)
+        if picked is not None:
+            base, headers, model = picked
+            log.info(
+                "Brain provider resolved from provider setup: base=%s model=%s",
+                base, model,
+            )
+            return base, headers, model
+    except Exception:
+        log.exception("Brain provider resolution failed — falling back to local Ollama")
+
+    # 3. Local Ollama fallback.
+    return (
+        os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
+        None,
+        None,
+    )
+
+
+
 def _orchestrator_bypass() -> bool:
     """True when the WorkflowOrchestrator is the caller (bypass deprecation)."""
     return _BYPASS.get()
 
 
+async def get_provider_role_tags() -> dict[str, dict[str, Any]]:
+    """Classify every configured provider as brain / sub-agent / fallback.
+
+    Returns a dict keyed by ``provider_id`` with::
+
+        {
+          "<provider_id>": {
+            "is_brain": bool,            # currently selected as the brain
+            "role": "brain" | "sub-agent" | "fallback" | "available" | "unconfigured",
+            "reason": str,               # short human-readable explanation
+          },
+          ...
+        }
+
+    Roles map to what the operator sees in the Providers screen::
+
+        brain       — _resolve_brain_provider() picks this one right now.
+        sub-agent   — reachable, configured, but NOT the brain. Will be tried
+                      by provider-router failover when the brain is excluded
+                      by a transient failure (e.g. cooldown / 5xx).
+        fallback    — paid commercial provider (Anthropic) that the brain
+                      resolver only selects when no free provider is configured.
+                      Operators see a clear tag so they understand they will
+                      be billed if the brain resolver ever falls through to it.
+        available   — configured, reachable, but role unknown (e.g. env-override
+                      AGENT_LLM_BASE_URL is masking the resolution).
+        unconfigured — record exists but api_key / base_url is missing.
+
+    Never raises — a malformed provider record degrades to ``role="available"``
+    with ``reason`` explaining the issue, so the UI always renders something
+    useful.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    brain_record: dict | None = None
+    brain_base_norm: str | None = None
+    try:
+        brain_base, _hdrs, _model = await _resolve_brain_provider()
+        brain_base_norm = brain_base.rstrip("/")
+    except Exception as exc:
+        log.debug("get_provider_role_tags: brain resolution failed: %s", exc)
+
+    try:
+        from backend.server import _list_configured_provider_records
+        records = list(await _list_configured_provider_records())
+    except Exception as exc:
+        log.debug("get_provider_role_tags: provider list fetch failed: %s", exc)
+        records = []
+
+    def _norm(base: str) -> str:
+        return (base or "").rstrip("/")
+
+    for rec in records:
+        pid = str(rec.get("provider_id") or "").strip()
+        if not pid:
+            continue
+        rtype = str(rec.get("type") or "").lower()
+        base = _norm(str(rec.get("base_url") or ""))
+        key = str(rec.get("api_key") or "").strip()
+        is_paid = rtype in ("anthropic", "emergent-anthropic")
+
+        # Brain match: same normalised base URL, accounting for the /v1 suffix
+        # that _resolve_brain_provider appends for openai-compatible providers.
+        is_brain = False
+        if brain_base_norm and base:
+            for candidate in (base, f"{base}/v1"):
+                if candidate == brain_base_norm:
+                    is_brain = True
+                    break
+
+        if not base or (rtype != "ollama" and not key):
+            role = "unconfigured"
+            reason = "Missing base_url or API key"
+        elif is_brain:
+            role = "brain"
+            reason = "Used as the brain for agent execution"
+            brain_record = rec
+        elif is_paid:
+            role = "fallback"
+            reason = (
+                "Paid commercial fallback — only selected when no free provider "
+                "is configured. Will incur costs."
+            )
+        else:
+            role = "sub-agent"
+            reason = (
+                "Reachable backup — used by provider-router failover when the "
+                "brain is excluded (cooldown / 5xx)."
+            )
+        out[pid] = {"is_brain": is_brain, "role": role, "reason": reason}
+
+    # If the brain resolved to an env-override URL that doesn't match any
+    # configured record, surface that fact so the UI can label whichever
+    # provider is closest (e.g. the env override wins over all of them).
+    if brain_base_norm and brain_record is None:
+        log.info(
+            "get_provider_role_tags: brain resolved to %s which is not in the "
+            "configured provider records (likely AGENT_LLM_BASE_URL env override)",
+            brain_base_norm,
+        )
+
+    return out
+
+
 def is_legacy_mode() -> bool:
     """True when parallel execution paths are allowed (with warnings)."""
     return WORKFLOW_MODE == "legacy" or _BYPASS.get()
+
+
+def _get_ceo_dispatcher():
+    """Lazy import + singleton for the CEO delegation layer.
+
+    Kept in workflow_orchestrator.py to avoid an import cycle: ceo_dispatcher
+    imports _BYPASS from this module, so importing ceo_dispatcher at top of
+    this file would create a cycle on first import.
+    """
+    from services.ceo_dispatcher import get_ceo_dispatcher as _g
+    return _g()
+
+
+def _merge_changed_files(specialists: list[dict]) -> list[str]:
+    """Re-export the canonical helper from ceo_dispatcher for backward compat."""
+    from services.ceo_dispatcher import _merge_changed_files as _impl
+    return _impl(specialists)
 
 
 def emit_deprecation(caller: str) -> None:
@@ -192,6 +499,12 @@ class ExecutionRequest(BaseModel):
     # repo permissions — not the server-wide service account. exclude=True keeps
     # it out of every model_dump()/as_dict() so it never leaks in API output.
     github_token: str | None = Field(default=None, exclude=True, repr=False)
+    # Optional isolated workspace for this run (e.g. a git worktree path).
+    # When set, the orchestrator and AgentRunner use it as the workspace_root
+    # instead of os.getcwd() — addressing #504 worktree-isolation for
+    # concurrent runs. The caller is responsible for creating and cleaning
+    # up the worktree; the orchestrator just respects the path.
+    worktree_path: str | None = None
 
 
 class ClassifyOutput(BaseModel):
@@ -367,6 +680,16 @@ class WorkflowRun:
     _request: Any = None
 
     def as_dict(self) -> dict[str, Any]:
+        def _dump(val):
+            """Safely serialize phase output — handles both Pydantic models and raw dicts."""
+            if val is None:
+                return None
+            if hasattr(val, 'model_dump'):
+                return val.model_dump()
+            if isinstance(val, dict):
+                return val
+            return str(val)
+
         return {
             "run_id": self.run_id,
             "started_at": self.started_at,
@@ -380,18 +703,19 @@ class WorkflowRun:
             "last_heartbeat": self.last_heartbeat,
             "retry_count": self.retry_count,
             "llm_provenance": self.llm_provenance,
-            "classify": self.classify.model_dump() if self.classify else None,
-            "plan": self.plan.model_dump() if self.plan else None,
-            "specialist": self.specialist.model_dump() if self.specialist else None,
-            "preflight": self.preflight.model_dump() if self.preflight else None,
-            "bound_context": self.bound_context.model_dump() if self.bound_context else None,
-            "execution": self.execution.model_dump() if self.execution else None,
-            "verification": self.verification.model_dump() if self.verification else None,
-            "judge": self.judge.model_dump() if self.judge else None,
-            "summary": self.summary.model_dump() if self.summary else None,
-            "persist": self.persist.model_dump() if self.persist else None,
-            "monitor": self.monitor.model_dump() if self.monitor else None,
+            "classify": _dump(self.classify),
+            "plan": _dump(self.plan),
+            "specialist": _dump(self.specialist),
+            "preflight": _dump(self.preflight),
+            "bound_context": _dump(self.bound_context),
+            "execution": _dump(self.execution),
+            "verification": _dump(self.verification),
+            "judge": _dump(self.judge),
+            "summary": _dump(self.summary),
+            "persist": _dump(self.persist),
+            "monitor": _dump(self.monitor),
             "error": self.error,
+            "_request": self._request.model_dump() if self._request and hasattr(self._request, 'model_dump') else None,
         }
 
 
@@ -451,10 +775,24 @@ class WorkflowOrchestrator:
             run.phase_attempts[phase.value] = attempt + 1
             try:
                 started = time.time()
-                await asyncio.wait_for(
-                    handler(run, req),
-                    timeout=_PHASE_TIMEOUT_SEC,
-                )
+                # Periodic heartbeat — update last_heartbeat every 30s while the
+                # phase runs so the supervisor knows it is not stalled (#522).
+                async def _heartbeat():
+                    while True:
+                        await asyncio.sleep(30)
+                        run.last_heartbeat = time.time()
+                heartbeat_task = asyncio.create_task(_heartbeat())
+                try:
+                    await asyncio.wait_for(
+                        handler(run, req),
+                        timeout=_PHASE_TIMEOUT_SEC,
+                    )
+                finally:
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
                 elapsed = time.time() - started
                 run.last_heartbeat = time.time()
                 log.debug(
@@ -571,7 +909,7 @@ class WorkflowOrchestrator:
                 # LLM-bearing phases (PLAN, EXECUTE, VERIFY, JUDGE) get the full
                 # timeout/retry treatment; lightweight phases (CLASSIFY, PERSIST)
                 # run directly.
-                _LLM_PHASES = {Phase.PLAN, Phase.EXECUTE, Phase.VERIFY, Phase.JUDGE}
+                _LLM_PHASES = {Phase.PLAN, Phase.BIND_CONTEXT, Phase.EXECUTE, Phase.VERIFY, Phase.JUDGE}
                 if phase in _LLM_PHASES:
                     await self._run_phase_with_timeout(run, req, phase, handler)
                 else:
@@ -672,6 +1010,23 @@ class WorkflowOrchestrator:
                 run.retry_count = snapshot.get("retry_count", 0)
                 run.llm_provenance = snapshot.get("llm_provenance", {})
                 run.phase_attempts = snapshot.get("phase_attempts", {})
+                run.approved = snapshot.get("approved", False)
+                run.error = snapshot.get("error")
+                # Restore phase outputs so skip detection works on retry.
+                # Without this every resume re-runs all phases from scratch.
+                for _attr in ("classify","plan","specialist","preflight",
+                              "bound_context","execution","verification",
+                              "judge","summary","persist","monitor"):
+                    _val = snapshot.get(_attr)
+                    if _val is not None:
+                        setattr(run, _attr, _val)
+                # Restore _request so supervisor can requeue without losing the original task.
+                _req_dict = snapshot.get("_request")
+                if _req_dict and isinstance(_req_dict, dict):
+                    try:
+                        run._request = ExecutionRequest(**_req_dict)
+                    except Exception:
+                        pass
                 self._runs[run_id] = run
                 # Re-enqueue queued/pending runs so they resume execution.
                 if run.status in ("queued", "running", "pending") and run._request is not None:
@@ -714,6 +1069,60 @@ class WorkflowOrchestrator:
 
     def get_run(self, run_id: str) -> WorkflowRun | None:
         return self._runs.get(run_id)
+
+    def cancel_run(self, run_id: str) -> bool:
+        """Cancel a run by removing it from memory entirely.
+
+        Marks the run as cancelled and clears _request BEFORE deleting from the
+        dict so the supervisor (which snapshots runs) cannot re-queue a stale
+        reference even if it processes the run concurrently.
+
+        Returns True if the run existed, False otherwise.
+        """
+        run = self._runs.get(run_id)
+        if run is None:
+            return False
+        run.status = "cancelled"
+        run._request = None
+        del self._runs[run_id]
+        log.info("WorkflowOrchestrator: run=%s CANCELLED (removed)", run_id)
+        return True
+
+    def cancel_runs_bulk(self, run_ids: list[str] | None = None, *, status: str | None = None) -> int:
+        """Cancel multiple runs at once.
+
+        If ``run_ids`` is provided, cancels those specific runs.
+        If ``status`` is provided, cancels all runs matching that status.
+        Returns the number of runs cancelled.
+
+        Each run is marked cancelled + _request cleared BEFORE dict deletion
+        so concurrent supervisor ticks cannot re-queue stale snapshots.
+        """
+        if run_ids:
+            to_cancel = [rid for rid in run_ids if rid in self._runs]
+            for rid in to_cancel:
+                r = self._runs[rid]
+                r.status = "cancelled"
+                r._request = None
+                del self._runs[rid]
+                log.info("WorkflowOrchestrator: run=%s CANCELLED (bulk)", rid)
+            return len(to_cancel)
+        if status:
+            to_cancel = [
+                rid for rid, r in self._runs.items()
+                if r.status == status
+            ]
+            for rid in to_cancel:
+                r = self._runs[rid]
+                r.status = "cancelled"
+                r._request = None
+                del self._runs[rid]
+                log.info(
+                    "WorkflowOrchestrator: run=%s CANCELLED (bulk, status=%s)",
+                    rid, status,
+                )
+            return len(to_cancel)
+        return 0
 
     def list_runs(
         self, limit: int = 50, *, owner_id: str | None = None
@@ -977,20 +1386,24 @@ class WorkflowOrchestrator:
         skill_ids: list[str] = []
         memory_keys: list[str] = []
         company_graph: dict[str, Any] = {}
+        loop = asyncio.get_event_loop()
 
-        # Bind skills from Phase 1 SkillBindings.
-        # recommend_for_company requires BOTH system_types and specialist_families
-        # and returns a list of dicts (skill.as_dict() + score/reasons) — not
-        # RuntimeSkill objects.  Pass the classified domain as a system hint and
-        # the selected specialists' families so the recommender actually fires.
+        # Skill bindings — recommend_for_company is synchronous; run in executor
+        # so it cannot block the event loop and prevent asyncio.wait_for cancellation.
         try:
             from services.skill_bindings import get_skill_bindings
             sb = get_skill_bindings()
             classify = run.classify
             domain = classify.domain if classify else "general"
             families = list(run.specialist.families) if run.specialist else []
-            recommended = sb.recommend_for_company(
-                system_types=[domain], specialist_families=families
+            recommended = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: sb.recommend_for_company(
+                        system_types=[domain], specialist_families=families
+                    ),
+                ),
+                timeout=10.0,
             )
             skill_ids = [
                 r["skill_id"] for r in recommended
@@ -1008,18 +1421,23 @@ class WorkflowOrchestrator:
             try:
                 from services.company_graph_store import CompanyGraphStore
                 store = CompanyGraphStore()
-                company = await store.get_company(req.company_id)
+                company = await asyncio.wait_for(
+                    store.get_company(req.company_id), timeout=8.0
+                )
                 if company:
                     company_graph = company.model_dump() if hasattr(company, 'model_dump') else {}
             except Exception as exc:
                 log.debug("Company Graph load failed (non-fatal): %s", exc)
 
-        # Load user memory
+        # Load user memory — synchronous; run in executor
         if req.user_id:
             try:
                 from agent.user_memory import UserMemoryStore
                 mem_store = UserMemoryStore()
-                memories = mem_store.recall_all(req.user_id)
+                memories = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: mem_store.recall_all(req.user_id)),
+                    timeout=8.0,
+                )
                 memory_keys = list(memories.keys()) if memories else []
             except Exception:
                 pass
@@ -1032,10 +1450,15 @@ class WorkflowOrchestrator:
         )
 
     async def _handle_execute(self, run: WorkflowRun, req: ExecutionRequest) -> None:
-        """Execute the plan via the selected specialist(s)."""
+        """Execute the plan via the selected specialist(s).
+
+        For medium/high-complexity tasks, the CEO delegation layer fans the
+        request out across multiple specialists (scout + dev + reviewer)
+        running concurrently on the best-fit runtimes. For low-complexity
+        tasks, a single AgentRunner call avoids the fan-out overhead.
+        """
         plan = run.plan
         specialist = run.specialist
-        bound = run.bound_context
 
         if plan is None:
             run.execution = ExecutionResult(output="No plan to execute")
@@ -1049,46 +1472,76 @@ class WorkflowOrchestrator:
         if plan.goal and plan.goal.strip() and plan.goal[:200] != req.request[:200]:
             instruction = f"Goal: {plan.goal}\n\nFull request:\n{req.request}"
 
-        async def _resolve_brain_provider():
-            """Resolve the LLM endpoint for agent execution from provider priority.
-            
-            Single source of truth: highest-priority configured provider record
-            (the same store the Providers screen manages).
-            Returns (openai_compatible_base_url, auth_headers_or_None, model_or_None).
-            """
-            try:
-                # Lazy import to avoid a circular import at module load time.
-                from backend.server import _list_configured_provider_records
-                # Records arrive already sorted strictly by priority (#524/#535).
-                # Do NOT re-sort here: the previous local sort treated string
-                # priorities as 0 and silently undid the upstream ordering.
-                records = await _list_configured_provider_records()
-                for rec in records:
-                    base = str(rec.get("base_url") or "").strip().rstrip("/")
-                    if not base:
-                        continue
-                    rtype = str(rec.get("type") or "").lower()
-                    key = str(rec.get("api_key") or "").strip()
-                    if rtype != "ollama" and not key:
-                        continue
-                    if not base.endswith("/v1"):
-                        base = f"{base}/v1"
-                    headers = {"Authorization": f"Bearer {key}"} if key else None
-                    model = str(rec.get("default_model") or "").strip() or None
-                    log.info(
-                        "Brain provider resolved from provider setup: %s base=%s model=%s",
-                        rec.get("provider_id"), base, model,
-                    )
-                    return base, headers, model
-            except Exception:
-                log.exception("Brain provider resolution failed — falling back to local Ollama")
-            return (
-                os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
-                None,
-                None,
-            )
+        # CEO delegation for medium/high complexity: fan out to multiple
+        # specialists. For low complexity, fall through to the single-runner
+        # path (cheaper, avoids concurrency overhead).
+        classify = run.classify
+        complexity = classify.complexity if classify else "medium"
+        domain = classify.domain if classify else "general"
 
-        # Try AgentRunner for actual execution (bypass deprecation via flag)
+        if complexity in ("medium", "high"):
+            try:
+                ceo = _get_ceo_dispatcher()
+                gh_token = _resolve_push_token(req.github_token, req.user_id)
+                workspace_root = req.worktree_path or os.getcwd()
+                ceo_result = await ceo.delegate(
+                    instruction,
+                    complexity=complexity,
+                    domain=domain,
+                    specialists=list(specialist.specialist_names) if specialist and specialist.specialist_names else None,
+                    runtimes=None,
+                    user_id=req.user_id,
+                    github_token=gh_token,
+                    workspace_root=workspace_root,
+                )
+                # The swarm's internal try/except swallows per-task errors as
+                # status="error" payloads (it never re-raises), so an exception
+                # never escapes the CEO. We instead inspect CEOResult.verdict
+                # to decide whether to use the CEO's output or fall through
+                # to the single AgentRunner path.
+                if ceo_result.verdict == "OK":
+                    _record_ceo_fallback("ceo_ok")
+                    run.llm_provenance["ceo_verdict"] = ceo_result.verdict
+                    run.llm_provenance["ceo_fanout"] = "true" if ceo_result.fanout_used else "false"
+                    run.llm_provenance["ceo_runtimes_woken"] = ",".join(ceo_result.runtimes_woken)
+                    run.execution = ExecutionResult(
+                        output=ceo_result.summary,
+                        changed_files=_merge_changed_files(ceo_result.specialists),
+                        tool_calls=[],
+                        artifacts=[{"ceo": ceo_result.as_dict()}],
+                        duration_ms=int(ceo_result.total_duration_s * 1000),
+                    )
+                    return
+                # Verdict != OK — the CEO returned, but at least one specialist
+                # failed. Bump the counter and surface a loud warning so the
+                # operator can see the multi-agent layer is degraded, not just
+                # silently falling through.
+                _record_ceo_fallback("verdict_non_ok")
+                log.warning(
+                    "CEO delegation verdict=%s (%d/%d specialists ok); falling back to single AgentRunner",
+                    ceo_result.verdict,
+                    sum(1 for s in ceo_result.specialists if s.get("status") == "ok"),
+                    len(ceo_result.specialists),
+                )
+            except _CEO_FALLBACK_EXCEPTIONS as exc:
+                # Availability/transport error — fall through to single-runner
+                # path so the run can still succeed via AgentRunner. The counter
+                # bump + WARNING-level log (not DEBUG) is the signal: the CEO
+                # layer is unreachable, every request is paying the single-runner
+                # cost instead of the parallel multi-agent one.
+                _record_ceo_fallback("transport_error")
+                log.warning(
+                    "CEO delegation unavailable (%s: %s); falling back to single AgentRunner",
+                    type(exc).__name__, exc,
+                )
+            except Exception as exc:
+                # Logic bug or programming error — log full traceback and
+                # surface as a real failure (do NOT silently fall back, which
+                # would mask the bug).
+                log.exception("CEO delegation failed unexpectedly")
+                raise
+
+        # Single-runner path: AgentRunner (bypass deprecation via flag)
         try:
             from agent.loop import AgentRunner
             import os as _os
@@ -1103,7 +1556,17 @@ class WorkflowOrchestrator:
                 # token for internal/system runs (no user_id) — never let a
                 # user-initiated run borrow the service account's repo access.
                 gh_token = _resolve_push_token(req.github_token, req.user_id)
-                brain_base, brain_headers, brain_model = await _resolve_brain_provider()
+                # Provider failover (#522): on each retry we exclude the base
+                # URLs that already failed so _resolve_brain_provider returns the
+                # NEXT provider in priority order. Failed URLs accumulate on the
+                # run across phase retries.
+                _prev_failed = run.llm_provenance.get("_failed_execute", "")
+                failed_urls: set[str] = (
+                    set(u for u in _prev_failed.split(",") if u) if _prev_failed else set()
+                )
+                brain_base, brain_headers, brain_model = await _resolve_brain_provider(
+                    exclude_base_urls=failed_urls,
+                )
                 # Record provider provenance for failover tracking.
                 run.llm_provenance["execute"] = (brain_model or brain_base.split("/")[-1] or "unknown")
                 runner = AgentRunner(
@@ -1113,15 +1576,23 @@ class WorkflowOrchestrator:
                     github_token=gh_token,
                     email=req.user_id,
                 )
-                result = await runner.run(
-                    instruction=instruction,
-                    history=[],
-                    requested_model=brain_model,
-                    auto_commit=False,
-                    max_steps=req.max_steps,
-                    user_id=req.user_id,
-                    session_id=req.session_id,
-                )
+                try:
+                    result = await runner.run(
+                        instruction=instruction,
+                        history=[],
+                        requested_model=brain_model,
+                        auto_commit=False,
+                        max_steps=req.max_steps,
+                        user_id=req.user_id,
+                        session_id=req.session_id,
+                    )
+                except Exception:
+                    # Mark this provider's URL as failed so the retry (driven by
+                    # _run_phase_with_timeout) fails over to the next provider,
+                    # then re-raise so the retry loop actually fires.
+                    failed_urls.add(brain_base.rstrip("/"))
+                    run.llm_provenance["_failed_execute"] = ",".join(sorted(failed_urls))
+                    raise
                 run.execution = ExecutionResult(
                     output=result.get("summary", ""),
                     changed_files=[
@@ -1135,14 +1606,12 @@ class WorkflowOrchestrator:
             finally:
                 _wo._BYPASS.reset(_token)
         except Exception as exc:
-            log.exception("Execution failed: %s", exc)
-            run.execution = ExecutionResult(
-                output=f"Execution error: {exc}",
-                changed_files=[],
-                tool_calls=[],
-                artifacts=[],
-                duration_ms=0,
-            )
+            log.exception("Execution failed (attempt provider=%s): %s",
+                          run.llm_provenance.get("execute"), exc)
+            # Re-raise so _run_phase_with_timeout's retry/backoff + provider
+            # failover loop engages. Only the final exhausted attempt should
+            # surface as a failed run (handled by the retry wrapper).
+            raise
 
     async def _handle_verify(self, run: WorkflowRun, req: ExecutionRequest) -> None:
         """Verify execution results."""

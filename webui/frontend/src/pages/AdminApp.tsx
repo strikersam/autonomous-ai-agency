@@ -220,7 +220,7 @@ export default function AdminApp() {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
       <div className="topbar">
-        <div className="brand">local-llm-server • Admin</div>
+        <div className="brand">Autonomous AI Agency • Admin</div>
         <div className="muted">/admin/app</div>
         <a href="/app" className="pill">
           Back to app
