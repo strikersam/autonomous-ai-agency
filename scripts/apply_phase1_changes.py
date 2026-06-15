@@ -13,7 +13,7 @@ def apply_backend_change():
         print("ERROR: Cannot find @app.get('/api/models/catalog') in backend/server.py")
         return False
     
-    new_code = b"""# --- Provider Policy (Paid-Provider Kill Switch) ----------------------------------------
+    new_code = b'''# --- Provider Policy (Paid-Provider Kill Switch) ----------------------------------------
 # Durable singleton controlling whether paid LLM providers (Anthropic) are
 # allowed. Stored in the providers collection with provider_id="provider_policy".
 # Edited from the Providers screen; read by every LLM call site and CI.
@@ -74,7 +74,7 @@ async def update_provider_policy(
     return result
 
 
-"""
+'''
     new_data = data[:idx] + new_code + data[idx:]
     
     assert b"ProviderPolicyUpdate" in new_data, "ProviderPolicyUpdate not in result"
