@@ -28,7 +28,7 @@ def test_orchestration_doc_does_not_call_worktree_isolation_future() -> None:
     runtimes/adapters/internal_agent.py (`_create_worktree`) and dispatched
     concurrently via asyncio.gather. The architecture doc must not still frame it
     as a future/sequential-only capability (the original brief's contradiction)."""
-    doc = (_ROOT / "docs" / "architecture" / "agent-orchestration.md").read_text()
+    doc = (_ROOT / "docs" / "architecture" / "agent-orchestration.md").read_text(encoding="utf-8")
     lowered = doc.lower()
     assert "worktree isolation (future)" not in lowered, (
         "agent-orchestration.md still labels worktree isolation 'Future' — it is "
