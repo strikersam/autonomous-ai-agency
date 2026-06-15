@@ -250,6 +250,13 @@ services:
         value: "true"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      # Single-operator shortcut: TELEGRAM_CHAT_ID alone is enough — it falls
+      # back for TELEGRAM_ALLOWED_USER_IDS, TELEGRAM_ADMIN_USER_IDS, and the
+      # Telegram approval-gate / notification pushes (Autonomy Charter G1).
+      # TELEGRAM_ALLOWED_USER_IDS / TELEGRAM_ADMIN_USER_IDS below are optional
+      # overrides — set them only if they must differ from TELEGRAM_CHAT_ID.
+      - key: TELEGRAM_CHAT_ID
+        sync: false
       - key: TELEGRAM_ALLOWED_USER_IDS
         sync: false
       - key: TELEGRAM_ADMIN_USER_IDS
@@ -343,8 +350,11 @@ services:
     dockerfilePath: ./Dockerfile.telegram
     plan: free
     envVars:
-      # Telegram (from @BotFather and @userinfobot)
+      # Telegram (from @BotFather and @userinfobot). TELEGRAM_CHAT_ID alone is
+      # enough — it falls back for ALLOWED_USER_IDS/ADMIN_USER_IDS too.
       - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
         sync: false
       - key: TELEGRAM_ALLOWED_USER_IDS
         sync: false

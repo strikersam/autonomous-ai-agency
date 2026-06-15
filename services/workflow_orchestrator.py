@@ -776,6 +776,33 @@ class WorkflowOrchestrator:
         except Exception as exc:
             log.debug("Checkpoint save failed for run %s (non-fatal): %s", run.run_id, exc)
 
+    async def _notify_approval_gate(self, run: WorkflowRun, req: ExecutionRequest) -> None:
+        """Proactively push a Telegram approval-gate message (Autonomy Charter G1).
+
+        Best-effort and non-fatal: a notification failure must not block the
+        golden path — the run still sits in ``awaiting_approval`` and remains
+        visible via the API/board regardless.
+        """
+        try:
+            from telegram_service import NotificationDispatcher
+
+            plan = run.plan
+            goal = plan.goal if plan is not None else req.request
+            steps = [str(s.get("description", s)) for s in (plan.steps if plan is not None else [])]
+            risk_reason = ""
+            if plan is not None and plan.requires_risky_review:
+                risk_reason = "Plan touches a sensitive/risky path (requires_risky_review=true)."
+
+            NotificationDispatcher().send_approval_gate(
+                run_id=run.run_id,
+                company_id=run.company_id,
+                goal=goal,
+                plan_steps=steps,
+                risk_reason=risk_reason,
+            )
+        except Exception as exc:
+            log.debug("Approval-gate notify failed for run %s (non-fatal): %s", run.run_id, exc)
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     async def _run_phase_with_timeout(
@@ -943,6 +970,7 @@ class WorkflowOrchestrator:
                 if phase == Phase.PLAN and not req.auto_approve and not run.approved:
                     run.status = "awaiting_approval"
                     await self._checkpoint(run)
+                    await self._notify_approval_gate(run, req)
                     log.info(
                         "WorkflowOrchestrator: run=%s PAUSED at ApprovalGate — "
                         "call approve() to continue",

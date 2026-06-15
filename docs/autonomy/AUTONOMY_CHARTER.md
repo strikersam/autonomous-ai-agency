@@ -190,16 +190,21 @@ trend_watcher: 13 public sources, score relevance (✅)
 
 ## 6. Integration gaps to wire (follow-up implementation)
 
-This charter is spec-only. The loops above are real; these **bridges** are what a
-follow-up code pass must add to make the loop fully closed. Each is small and additive:
+The loops above are real; these **bridges** close the loop end-to-end. Each is small
+and additive — G1 is now wired; G2–G5 remain follow-up work:
 
-| # | Bridge | Touch points | Lane |
-|---|--------|-------------|------|
-| G1 | **Proactive Telegram push on `awaiting_approval`** (the live gate) | `services/workflow_orchestrator.py` → `telegram_service.NotificationDispatcher`; add `/approve` & `/reject` inline callbacks in `telegram_bot.py` | enables 🔴 |
-| G2 | **Closed-loop self-heal feedback** — confirm error signature gone post-fix | `agent/self_healing.py` ↔ `agent/log_monitor.py` | 🟢 |
-| G3 | **Auto issue→task intake** (GitHub issues / scanner signals → Task records) | webhook listener → `tasks/dispatcher.py` | 🟢/📋 |
-| G4 | **Per-company trend scoping** — score trends vs each company's detected stack | `agent/trend_watcher.py` + Company graph (`services/scanner.py`) | 🟢/🔴 |
-| G5 | **`RepoConnection` + `DeliveryPolicy` plumbing** (SDLC Phases 0–4) | per `autonomous-sdlc-loop.md` | enables Loop 3 landing |
+| # | Bridge | Touch points | Lane | Status |
+|---|--------|-------------|------|--------|
+| G1 | **Proactive Telegram push on `awaiting_approval`** (the live gate) | `services/workflow_orchestrator.py::_notify_approval_gate` → `telegram_service.NotificationDispatcher.send_approval_gate`; `wfo:approve:<run_id>` / `wfo:reject:<run_id>` inline callbacks in `telegram_bot.py` | enables 🔴 | ✅ wired |
+| G2 | **Closed-loop self-heal feedback** — confirm error signature gone post-fix | `agent/self_healing.py` ↔ `agent/log_monitor.py` | 🟢 | 📋 |
+| G3 | **Auto issue→task intake** (GitHub issues / scanner signals → Task records) | webhook listener → `tasks/dispatcher.py` | 🟢/📋 | 📋 |
+| G4 | **Per-company trend scoping** — score trends vs each company's detected stack | `agent/trend_watcher.py` + Company graph (`services/scanner.py`) | 🟢/🔴 | 📋 |
+| G5 | **`RepoConnection` + `DeliveryPolicy` plumbing** (SDLC Phases 0–4) | per `autonomous-sdlc-loop.md` | enables Loop 3 landing | 📋 |
+
+G1 also lands the **`TELEGRAM_CHAT_ID` single-operator convention**: one numeric
+Telegram user ID covers bot auth (`TELEGRAM_ALLOWED_USER_IDS`/`TELEGRAM_ADMIN_USER_IDS`),
+notification delivery (`TELEGRAM_NOTIFY_CHAT_IDS`), and the approval-gate push above —
+see [`docs/telegram-bot.md`](../telegram-bot.md#step-3--configure-env).
 
 Each bridge change to a risky path (auth/keys/`agent/tools.py`) follows the
 `risky-module-review` skill and the CLAUDE.md coding rules.

@@ -114,9 +114,18 @@ class TelegramBotManager:
             log.warning("TELEGRAM_BOT_TOKEN not set — Telegram bot cannot start")
             return False
 
-        user_ids = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()
+        # TELEGRAM_CHAT_ID is a single-var fallback for TELEGRAM_ALLOWED_USER_IDS
+        # (Autonomy Charter G1) — a single-operator deploy only needs to set
+        # TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID.
+        user_ids = (
+            os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()
+            or os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        )
         if not user_ids:
-            log.warning("TELEGRAM_ALLOWED_USER_IDS not set — Telegram bot cannot start")
+            log.warning(
+                "Neither TELEGRAM_ALLOWED_USER_IDS nor TELEGRAM_CHAT_ID is set — "
+                "Telegram bot cannot start"
+            )
             return False
 
         self._stop_event.clear()
@@ -156,7 +165,10 @@ class TelegramBotManager:
             "pid": self.pid,
             "uptime_seconds": round(self.uptime_seconds) if self.uptime_seconds else None,
             "token_configured": bool(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()),
-            "users_configured": bool(os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()),
+            "users_configured": bool(
+                os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()
+                or os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+            ),
         }
 
     # ── Internal ──────────────────────────────────────────────────────────
@@ -226,7 +238,12 @@ class NotificationDispatcher:
     def _parse_chat_ids() -> list[int]:
         raw = os.environ.get("TELEGRAM_NOTIFY_CHAT_IDS", "").strip()
         if not raw:
-            # Fall back to ALLOWED_USER_IDS or ADMIN_USER_IDS
+            # TELEGRAM_CHAT_ID is the single-var convention (Autonomy Charter
+            # G1): the same ID drives bot auth AND notification delivery, so
+            # operators don't need to set the same ID under multiple names.
+            raw = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        if not raw:
+            # Fall back to ADMIN_USER_IDS or ALLOWED_USER_IDS
             raw = os.environ.get("TELEGRAM_ADMIN_USER_IDS", "").strip()
             if not raw:
                 raw = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()
@@ -280,6 +297,71 @@ class NotificationDispatcher:
                         )
                 except Exception as exc:
                     log.warning("Telegram notify failed for chat %d: %s", chat_id, exc)
+
+        threading.Thread(target=_send, daemon=True).start()
+
+    def send_approval_gate(
+        self,
+        *,
+        run_id: str,
+        company_id: str | None,
+        goal: str,
+        plan_steps: list[str] | None = None,
+        risk_reason: str = "",
+    ) -> bool:
+        """Proactively push a Telegram approval-gate message with inline buttons.
+
+        Sent when a WorkflowRun enters ``awaiting_approval`` (Autonomy Charter
+        G1 — closes the bridge between the orchestrator's ApprovalGate and the
+        Telegram bot's ``[Approve]/[Reject]`` callbacks handled by
+        ``telegram_bot._process_wfo_callback``).
+
+        Returns True if a send was attempted (token + chat IDs configured).
+        """
+        if not self.telegram_token or not self.telegram_chat_ids:
+            return False
+
+        lines = [f"*Approval needed* — run `{run_id}`"]
+        if company_id:
+            lines.append(f"Company: `{company_id}`")
+        lines.append(f"Goal: {_redact_for_notification(goal)[:500]}")
+        if risk_reason:
+            lines.append(f"Risk: {_redact_for_notification(risk_reason)[:300]}")
+        if plan_steps:
+            lines.append("")
+            lines.append("*Plan:*")
+            for i, step in enumerate(plan_steps[:5], start=1):
+                lines.append(f"{i}. {_redact_for_notification(str(step))[:160]}")
+        text = "\n".join(lines)
+
+        keyboard = [[
+            {"text": "✅ Approve", "callback_data": f"wfo:approve:{run_id}"},
+            {"text": "❌ Reject", "callback_data": f"wfo:reject:{run_id}"},
+        ]]
+        self._send_telegram_keyboard(text, keyboard)
+        return True
+
+    def _send_telegram_keyboard(self, text: str, keyboard: list[list[dict]]) -> None:
+        """Send a Telegram message with an inline keyboard to all configured chats."""
+        if not self.telegram_token or not self.telegram_chat_ids:
+            return
+        import httpx
+
+        def _send():
+            for chat_id in self.telegram_chat_ids:
+                try:
+                    with httpx.Client(timeout=5.0) as client:
+                        client.post(
+                            f"https://api.telegram.org/bot{self.telegram_token}/sendMessage",
+                            json={
+                                "chat_id": chat_id,
+                                "text": text,
+                                "parse_mode": "Markdown",
+                                "reply_markup": {"inline_keyboard": keyboard},
+                            },
+                        )
+                except Exception as exc:
+                    log.warning("Telegram approval-gate notify failed for chat %d: %s", chat_id, exc)
 
         threading.Thread(target=_send, daemon=True).start()
 
