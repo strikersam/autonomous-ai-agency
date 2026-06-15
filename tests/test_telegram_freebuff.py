@@ -35,7 +35,7 @@ def captured(monkeypatch):
         log["answers"].append(text)
 
     async def fake_get(path, use_admin=True):
-        return {"models": ["nvidia/nemotron-3-super-120b-a12b", "meta/llama-3.1-8b-instruct"]}
+        return {"models": ["nvidia/llama-3.3-nemotron-super-49b-v1", "meta/llama-3.1-8b-instruct"]}
 
     async def fake_post(path, body, use_admin=True):
         log["posts"].append((path, body))

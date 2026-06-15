@@ -362,7 +362,7 @@ class TestProviderRoleTags:
                 "type": "openai-compatible",
                 "base_url": "https://integrate.api.nvidia.com",
                 "api_key": "nvapi-test",
-                "default_model": "nvidia/nemotron-3-super-120b-a12b",
+                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
                 "priority": 0,
             },
             {
@@ -434,7 +434,7 @@ class TestProviderRoleTags:
                 "type": "openai-compatible",
                 "base_url": "https://integrate.api.nvidia.com",
                 "api_key": "nvapi-test",
-                "default_model": "nvidia/nemotron-3-super-120b-a12b",
+                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
                 "priority": 0,
             },
         ]

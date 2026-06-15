@@ -1767,7 +1767,7 @@ class AgentRunner:
 # Curated set of free NVIDIA NIM model IDs FreeBuff is allowed to route to.
 # Overridable via FREEBUFF_MODELS (comma-separated) for new-model rollouts.
 _DEFAULT_FREE_NVIDIA_MODELS: tuple[str, ...] = (
-    "nvidia/nemotron-3-super-120b-a12b",
+    "nvidia/llama-3.3-nemotron-super-49b-v1",
     "qwen/qwen2.5-coder-32b-instruct",
     "meta/llama-3.3-70b-instruct",
     "meta/llama-3.1-8b-instruct",

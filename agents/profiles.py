@@ -39,10 +39,10 @@ def _nvidia_defaults() -> dict[str, str]:
     if os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"):
         return {
             "architect": "qwen/qwen3-coder-480b-a35b-instruct",
-            "scout":     "nvidia/nemotron-3-super-120b-a12b",
-            "coder":     "nvidia/nemotron-3-super-120b-a12b",
+            "scout":     "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "coder":     "nvidia/llama-3.3-nemotron-super-49b-v1",
             "reviewer":  "deepseek-ai/deepseek-v4-pro",
-            "verifier":  "nvidia/nemotron-3-super-120b-a12b",
+            "verifier":  "nvidia/llama-3.3-nemotron-super-49b-v1",
         }
     if os.environ.get("DEEPSEEK_API_KEY"):
         return {
