@@ -59,24 +59,12 @@ ISSUE_COMMENTS_RAW = _load_optional(_args.comments_file)
 RESULT_FILE = "/tmp/impl_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility; secure temp file used internally
 MAX_TURNS = 120
 
-# Primary engine: NVIDIA NIM free-tier models (the real workhorse).
-# Anthropic fallback has been REMOVED — it burns paid credits when NVIDIA fails.
-# If NVIDIA exhausts all models, the run fails cleanly and is retried next cycle.
-#
-# Live-verified 2026-06-14 against https://integrate.api.nvidia.com/v1:
-#   Only 3 of 10 tested models are reachable and accept tool_choice="auto".
-#   Nemotron Ultra 253B, Qwen2.5 Coder 32B, Qwen3-Coder 480B, MiniMax M2.7,
-#   Mistral Nemotron, Mistral Large 3, Kimi K2 all 404/APIStatusError/BadRequest.
-#
-# Ordered for agentic/tool-calling workloads:
-#   1. Nemotron Super 49B — confirmed tool_calls=True, fast (3.7s), primary
-#   2. Llama 4 Maverick  — fastest (1.3s), accepts tools API, quality fallback
-#   3. Llama 3.3 70B    — confirmed tool_calls=True, reliable last resort
-NVIDIA_CANDIDATE_MODELS = [
-    ("nvidia/llama-3.3-nemotron-super-49b-v1", "Nemotron Super 49B (primary — fast + tool-calling)"),
-    ("meta/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick (fast fallback)"),
-    ("meta/llama-3.3-70b-instruct",            "Llama 3.3 70B (reliable last resort)"),
-]
+# Shared NVIDIA model list — inject .github/scripts/ on sys.path so the
+# import works when this script is run directly (python implement_agent.py).
+_sd = os.path.dirname(os.path.abspath(__file__))
+if _sd not in sys.path:
+    sys.path.insert(0, _sd)
+from nvidia_models import NVIDIA_CANDIDATE_MODELS  # shared source of truth
 # Keep old name as alias
 CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
 

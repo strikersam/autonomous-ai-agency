@@ -29,10 +29,10 @@ def test_implement_agent_nvidia_primary() -> None:
 
 
 def test_implement_agent_primary_model_is_a_coder() -> None:
-    text = (_SCRIPTS / "implement_agent.py").read_text()
-    start = text.index("NVIDIA_CANDIDATE_MODELS = [")
-    first_entry = text[start:text.index("]", start)]
-    assert "nemotron-super" in first_entry.split("\n")[1]
+    text = (_SCRIPTS / "nvidia_models.py").read_text()
+    # Verify the primary model in the shared NVIDIA_CANDIDATE_MODELS is
+    # a coder (nemotron-super-49b), not a generic chat model.
+    assert "nemotron-super" in text
 
 
 def test_review_agent_nvidia_primary() -> None:

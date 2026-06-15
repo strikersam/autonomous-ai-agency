@@ -39,13 +39,14 @@ RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file p
 
 # NVIDIA NIM is the primary engine for council review.
 # Opus-via-Anthropic is only an optional fallback when configured.
-# Live-verified 2026-06-14: only 3 of 10 tested models are reachable.
 OPUS_MODEL = "claude-opus-4-6"
-NVIDIA_CANDIDATE_MODELS = [
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
-    "meta/llama-4-maverick-17b-128e-instruct",
-    "meta/llama-3.3-70b-instruct",
-]
+
+# Inject .github/scripts/ on sys.path so import works when run directly.
+_sd = os.path.dirname(os.path.abspath(__file__))
+if _sd not in sys.path:
+    sys.path.insert(0, _sd)
+from nvidia_models import NVIDIA_MODEL_IDS  # shared source of truth
+NVIDIA_CANDIDATE_MODELS = NVIDIA_MODEL_IDS
 # Keep the old name as an alias so existing code that references CANDIDATE_MODELS still works
 CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
 

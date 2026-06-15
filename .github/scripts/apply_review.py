@@ -30,14 +30,12 @@ log = logging.getLogger("apply_review")
 
 NVIDIA_BASE = "https://integrate.api.nvidia.com/v1"
 OPUS_MODEL = "claude-opus-4-6"
-# Primary: NVIDIA NIM — primary engine for review application.
-# Only 3 of 10 tested models are reachable on the NIM endpoint
-# (live-verified 2026-06-14): Nemotron Super 49B, Llama 4 Maverick, Llama 3.3 70B.
-NVIDIA_CANDIDATE_MODELS = [
-    ("nvidia/llama-3.3-nemotron-super-49b-v1", "Nemotron Super 49B (primary — fast + tool-calling)"),
-    ("meta/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick (fast fallback)"),
-    ("meta/llama-3.3-70b-instruct",            "Llama 3.3 70B (reliable last resort)"),
-]
+
+# Inject .github/scripts/ on sys.path so import works when run directly.
+_sd = os.path.dirname(os.path.abspath(__file__))
+if _sd not in sys.path:
+    sys.path.insert(0, _sd)
+from nvidia_models import NVIDIA_CANDIDATE_MODELS  # shared source of truth
 # Keep old name as alias
 CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
 MAX_TURNS = 50
