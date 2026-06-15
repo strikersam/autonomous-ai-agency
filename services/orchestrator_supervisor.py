@@ -119,6 +119,26 @@ class OrchestratorSupervisor:
         if stall_count < 2:
             return
 
+        # A run without its persisted request can never be resumed —
+        # execute() needs req.user_id/req.company_id/etc. Fail it now instead
+        # of enqueuing execute(None, ...), which raises AttributeError and
+        # floods the activity feed with "Future exception was never
+        # retrieved" + "OrchestratorQueue ... failed" alert pairs.
+        if getattr(run, "_request", None) is None:
+            run.status = "failed"
+            run.error = (run.error or "") + " | Stalled with no persisted request — cannot resume"
+            log.error(
+                "OrchestratorSupervisor: run_id=%s stalled with no _request — marked failed", run_id,
+            )
+            await self._emit_alert(
+                f"P1: Run {run_id} failed — stalled with no persisted request (cannot resume)",
+                run_id=run_id,
+                severity="p1",
+            )
+            self._state.alerts_emitted += 1
+            self._stall_count.pop(run_id, None)
+            return
+
         # Check retry budget
         retry_count = getattr(run, "retry_count", 0)
         if retry_count >= _MAX_RETRIES:

@@ -430,3 +430,90 @@ class TestApprovalGate:
 
         with pytest.raises(ValueError, match="not awaiting_approval"):
             orchestrator.approve(run.run_id)
+
+
+# ── Test: restore_in_flight() rehydration ─────────────────────────────────────
+
+
+class TestRestoreInFlight:
+    """restore_in_flight() must rehydrate typed phase-output models, not raw
+    dicts, and must never leave a run resumable via execute(None, ...)."""
+
+    async def test_restores_typed_verification_and_completes(self, monkeypatch):
+        """A fully-completed checkpointed run restores `verification` as a
+        VerificationResult (not dict), so the post-loop `.passed` check in
+        execute() doesn't raise AttributeError on resume."""
+        from services.workflow_orchestrator import (
+            WorkflowRun, ExecutionRequest, VerificationResult, ClassifyOutput,
+            PlanOutput, SpecialistSelection, PreflightReport, BoundContext,
+            ExecutionResult, JudgeVerdict, SummaryOutput, PersistOutput,
+            MonitorOutput, get_workflow_orchestrator, reset_orchestrator,
+        )
+        from services.orchestrator_checkpoint import OrchestratorCheckpointStore, _NoopDB
+
+        reset_orchestrator()
+        orch = get_workflow_orchestrator()
+
+        req = ExecutionRequest(request="resume test", user_id="u1", auto_approve=True)
+        run = WorkflowRun(run_id="restore-1")
+        run._request = req
+        run.user_id = "u1"
+        run.status = "queued"
+        run.approved = True
+        run.classify = ClassifyOutput(domain="dev", task_type="review")
+        run.plan = PlanOutput(goal="resume test")
+        run.specialist = SpecialistSelection()
+        run.preflight = PreflightReport(ready=True, workspace_ok=True)
+        run.bound_context = BoundContext()
+        run.execution = ExecutionResult(output="done", changed_files=[])
+        run.verification = VerificationResult(passed=True, checks=[])
+        run.judge = JudgeVerdict(verdict="APPROVED")
+        run.summary = SummaryOutput(summary="ok")
+        run.persist = PersistOutput()
+        run.monitor = MonitorOutput()
+
+        store = OrchestratorCheckpointStore()
+        store._store = _NoopDB()
+        await store.save(run)
+        monkeypatch.setattr(orch, "_get_checkpoint_store", lambda: store)
+
+        restored = await orch.restore_in_flight()
+        assert restored == 1
+
+        restored_run = orch._runs["restore-1"]
+        assert isinstance(restored_run.verification, VerificationResult)
+        assert restored_run.verification.passed is True
+        assert restored_run._request is not None
+
+        # Resuming skips all completed phases and hits the post-loop
+        # `run.verification.passed` check without AttributeError.
+        result = await orch.execute(restored_run._request, resume_run_id="restore-1")
+        assert result.status == "done"
+
+    async def test_restore_without_request_marks_failed(self, monkeypatch):
+        """A checkpointed run with no persisted _request can never be
+        resumed (execute() needs req.user_id/req.company_id). restore_in_flight
+        must mark it failed instead of leaving it queued for the supervisor to
+        crash on execute(None, ...)."""
+        from services.workflow_orchestrator import (
+            WorkflowRun, get_workflow_orchestrator, reset_orchestrator,
+        )
+        from services.orchestrator_checkpoint import OrchestratorCheckpointStore, _NoopDB
+
+        reset_orchestrator()
+        orch = get_workflow_orchestrator()
+
+        run = WorkflowRun(run_id="no-request-1")
+        run.status = "queued"
+        # run._request stays None (default) — as_dict() serializes it as None.
+
+        store = OrchestratorCheckpointStore()
+        store._store = _NoopDB()
+        await store.save(run)
+        monkeypatch.setattr(orch, "_get_checkpoint_store", lambda: store)
+
+        await orch.restore_in_flight()
+
+        restored = orch._runs["no-request-1"]
+        assert restored.status == "failed"
+        assert "Cannot resume" in (restored.error or "")

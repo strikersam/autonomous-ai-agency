@@ -84,6 +84,45 @@ class TestOrchestratorQueue:
         assert isinstance(s["active_run_ids"], list)
         await queue.stop()
 
+    async def test_fire_and_forget_failure_no_unretrieved_exception_warning(self, queue):
+        """enqueue() (fire-and-forget) is used by the supervisor and restore
+        path, whose futures are never awaited. A failing job must NOT call
+        set_exception() on that future — doing so triggers asyncio's "Future
+        exception was never retrieved" log spam once the entry is GC'd."""
+        import gc
+
+        async def _failing(run_id):
+            raise RuntimeError(f"boom-{run_id}")
+
+        unraisable: list[dict] = []
+        loop = asyncio.get_event_loop()
+        orig_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda loop, context: unraisable.append(context))
+
+        try:
+            await queue.start()
+            await queue.enqueue("fail-1", _failing, "fail-1")
+            await asyncio.sleep(0.2)
+            await queue.stop()
+            gc.collect()
+            await asyncio.sleep(0)
+        finally:
+            loop.set_exception_handler(orig_handler)
+
+        bad = [c for c in unraisable if "never retrieved" in str(c.get("message", "")).lower()]
+        assert not bad, f"Unexpected 'never retrieved' warning(s): {bad}"
+
+    async def test_enqueue_and_wait_still_propagates_exceptions(self, queue):
+        """enqueue_and_wait() callers DO await the future, so failures must
+        still raise for them."""
+        async def _failing(run_id):
+            raise RuntimeError(f"boom-{run_id}")
+
+        await queue.start()
+        with pytest.raises(RuntimeError, match="boom-fail-2"):
+            await queue.enqueue_and_wait("fail-2", _failing, "fail-2")
+        await queue.stop()
+
     async def test_empty_queue_indexerror_handled(self, queue):
         """Drain loop must handle dequeue from empty queue gracefully."""
         await queue.start()

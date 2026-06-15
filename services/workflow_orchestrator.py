@@ -632,6 +632,26 @@ class MonitorOutput(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+# Maps WorkflowRun phase-output attribute names to their Pydantic model class.
+# Used by restore_in_flight() to rehydrate typed models from checkpoint
+# snapshots (which store plain dicts via as_dict()) — without this, restored
+# phase outputs stay as raw dicts and `run.verification.passed` etc. raise
+# AttributeError once the golden path is resumed.
+_PHASE_OUTPUT_MODELS: dict[str, type[BaseModel]] = {
+    "classify": ClassifyOutput,
+    "plan": PlanOutput,
+    "specialist": SpecialistSelection,
+    "preflight": PreflightReport,
+    "bound_context": BoundContext,
+    "execution": ExecutionResult,
+    "verification": VerificationResult,
+    "judge": JudgeVerdict,
+    "summary": SummaryOutput,
+    "persist": PersistOutput,
+    "monitor": MonitorOutput,
+}
+
+
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
 
@@ -1014,12 +1034,23 @@ class WorkflowOrchestrator:
                 run.error = snapshot.get("error")
                 # Restore phase outputs so skip detection works on retry.
                 # Without this every resume re-runs all phases from scratch.
-                for _attr in ("classify","plan","specialist","preflight",
-                              "bound_context","execution","verification",
-                              "judge","summary","persist","monitor"):
+                # Reconstruct typed Pydantic models (not raw dicts) — downstream
+                # code accesses attributes like `run.verification.passed`, which
+                # raises AttributeError on a plain dict.
+                for _attr, _model_cls in _PHASE_OUTPUT_MODELS.items():
                     _val = snapshot.get(_attr)
-                    if _val is not None:
-                        setattr(run, _attr, _val)
+                    if _val is None:
+                        continue
+                    if isinstance(_val, dict):
+                        try:
+                            _val = _model_cls(**_val)
+                        except Exception:
+                            log.warning(
+                                "restore_in_flight: run=%s could not reconstruct "
+                                "%s from snapshot — phase will be re-run", run_id, _attr,
+                            )
+                            continue
+                    setattr(run, _attr, _val)
                 # Restore _request so supervisor can requeue without losing the original task.
                 _req_dict = snapshot.get("_request")
                 if _req_dict and isinstance(_req_dict, dict):
@@ -1028,6 +1059,15 @@ class WorkflowOrchestrator:
                     except Exception:
                         pass
                 self._runs[run_id] = run
+                # A run without its original request can never be resumed —
+                # execute() needs req.user_id/req.company_id/etc. Fail it now
+                # instead of leaving it queued/running for the supervisor to
+                # endlessly retry-and-crash on execute(None, ...).
+                if run.status in ("queued", "running", "pending") and run._request is None:
+                    run.status = "failed"
+                    run.error = (run.error or "") + " | Cannot resume: request not persisted in checkpoint"
+                    count += 1
+                    continue
                 # Re-enqueue queued/pending runs so they resume execution.
                 if run.status in ("queued", "running", "pending") and run._request is not None:
                     try:

@@ -52,14 +52,17 @@ class TestOrchestratorSupervisor:
             get_workflow_orchestrator,
             reset_orchestrator,
             WorkflowRun,
+            ExecutionRequest,
         )
         from services.orchestrator_supervisor import OrchestratorSupervisor
 
         reset_orchestrator()
         orch = get_workflow_orchestrator()
 
-        # Create a stalled run
+        # Create a stalled run (a real in-flight run always has _request set —
+        # execute() sets it as the first statement).
         run = WorkflowRun(run_id="stalled-1")
+        run._request = ExecutionRequest(request="test")
         run.status = "running"
         run.last_heartbeat = time.time() - 9999  # very stale
         run.retry_count = 0
@@ -84,6 +87,7 @@ class TestOrchestratorSupervisor:
             get_workflow_orchestrator,
             reset_orchestrator,
             WorkflowRun,
+            ExecutionRequest,
         )
         from services.orchestrator_supervisor import OrchestratorSupervisor
 
@@ -91,6 +95,7 @@ class TestOrchestratorSupervisor:
         orch = get_workflow_orchestrator()
 
         run = WorkflowRun(run_id="dead-run")
+        run._request = ExecutionRequest(request="test")
         run.status = "running"
         run.last_heartbeat = time.time() - 9999
         run.retry_count = 5  # already exceeded 3 max
@@ -134,6 +139,38 @@ class TestOrchestratorSupervisor:
 
         assert run.status == "running"  # unchanged
         assert sv.state.stalled_recovered == 0
+
+    async def test_stalled_run_without_request_marked_failed(self, monkeypatch):
+        """A stalled run with no persisted _request can never be resumed —
+        execute(None, ...) raises AttributeError on req.user_id/req.company_id.
+        The supervisor must mark it failed instead of enqueuing it."""
+        from services.workflow_orchestrator import (
+            get_workflow_orchestrator,
+            reset_orchestrator,
+            WorkflowRun,
+        )
+        from services.orchestrator_supervisor import OrchestratorSupervisor
+
+        reset_orchestrator()
+        orch = get_workflow_orchestrator()
+
+        run = WorkflowRun(run_id="stalled-no-req")
+        run.status = "running"
+        run.last_heartbeat = time.time() - 9999
+        run.retry_count = 0
+        # run._request stays None (default)
+        orch._runs[run.run_id] = run
+
+        sv = OrchestratorSupervisor()
+        monkeypatch.setattr(sv, "_get_orchestrator", lambda: orch)
+
+        # Two ticks to trigger debounce
+        await sv._tick()
+        await sv._tick()
+
+        assert run.status == "failed"
+        assert run.error is not None
+        assert "cannot resume" in run.error.lower()
 
     async def test_done_runs_ignored(self, monkeypatch):
         from services.workflow_orchestrator import (
