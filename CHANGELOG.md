@@ -24,6 +24,9 @@ All notable changes to this project will be documented in this file.
 - **PR #461**: Removed all hardcoded credential fallbacks from proxy.py and test configurations.
 - **PR #466**: Agent now accepts command/task/text as instruction aliases in spawn_subagent.
 
+### Fixed
+- **3 pre-existing test failures**: installed `reportlab` and `lxml` dependencies for `test_seo_report_pdf.py`; fixed `test_agent_tools_security.py` Windows path assertion using `os.path.realpath`; fixed `test_claude_setup_audit.py` Unicode errors by adding `encoding="utf-8"` to `read_text()` calls and replacing Unicode checkmark/dash characters with ASCII-safe alternatives.
+
 ### Changed
 - **Replaced all remaining references to dead `nemotron-3-super-120b-a12b`** with live `llama-3.3-nemotron-super-49b-v1` across 26 files: router/model_router.py, agent/loop.py, agents/profiles.py, provider_router.py, direct_chat.py, setup/api.py, handlers/v3_models.py, agents/harness_adapter.py, runtimes/adapters/internal_agent.py, router/harness_routing.py, setup_local_models.py, services/cost_attribution.py, services/nim_pool.py, telegram_bot.py, scripts/test_nim_models.py, .github/scripts/generate_context.py, backend/server.py, and all test fixtures.
 - **Hardened `_call_review_llm()` fallback in `review_agent.py`** to match `implement_agent.py`: 429 rate-limit triggers exponential backoff retry (3 attempts, jittered) on same model before advancing; timeout advances immediately; 404/422 drops model from rotation; non-429 errors on retry break immediately.

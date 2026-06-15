@@ -9,8 +9,8 @@ Usage:
   python scripts/claude_setup_audit.py [--json]
 
 Exit codes:
-  0 — all checks pass (score 100 %)
-  1 — one or more checks failed
+  0 - all checks pass (score 100%)
+  1 - one or more checks failed
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _check_claude_md_sections(path: Path) -> list[CheckResult]:
     if not path.exists():
         return [CheckResult("CLAUDE.md exists", False, f"{path} not found", weight=5)]
 
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     results.append(CheckResult("CLAUDE.md exists", True, str(path)))
     for heading, label in required:
         present = heading in text
@@ -88,12 +88,12 @@ def _check_hooks(repo_root: Path = REPO_ROOT) -> list[CheckResult]:
     git_config = repo_root / ".git" / "config"
     hooks_activated = False
     if git_config.exists():
-        content = git_config.read_text()
+        content = git_config.read_text(encoding="utf-8")
         hooks_activated = ".claude/hooks" in content
     results.append(CheckResult(
         "hooks activated (git config)",
         hooks_activated,
-        "hooksPath = .claude/hooks" + ("" if hooks_activated else " — run: git config core.hooksPath .claude/hooks"),
+        "hooksPath = .claude/hooks" + ("" if hooks_activated else " - run: git config core.hooksPath .claude/hooks"),
     ))
     return results
 
@@ -109,7 +109,7 @@ def _check_skills(repo_root: Path = REPO_ROOT) -> list[CheckResult]:
     results.append(CheckResult(
         "skills populated",
         len(skill_dirs) >= 5,
-        f"{len(skill_dirs)} skill(s) installed (recommended ≥ 5)",
+        f"{len(skill_dirs)} skill(s) installed (recommended >= 5)",
     ))
 
     key_skills = ["council-review", "implementation-planner", "test-first-executor", "changelog-enforcer"]
@@ -130,7 +130,7 @@ def _check_state(repo_root: Path = REPO_ROOT) -> list[CheckResult]:
     results.append(CheckResult(
         "agent-state.json",
         agent_state.exists(),
-        "session state file " + ("found" if agent_state.exists() else "missing — run ai_runner.py start"),
+        "session state file " + ("found" if agent_state.exists() else "missing - run ai_runner.py start"),
     ))
     return results
 
@@ -177,13 +177,13 @@ def main() -> None:
             ],
         }, indent=2))
     else:
-        print(f"\nClaude Code Setup Audit — {REPO_ROOT.name}")
+        print(f"\nClaude Code Setup Audit - {REPO_ROOT.name}")
         print("=" * 50)
         for r in report.results:
-            icon = "✓" if r.passed else "✗"
+            icon = "[PASS]" if r.passed else "[FAIL]"
             print(f"  {icon} {r.name}: {r.message}")
         print()
-        print(f"Score: {report.score}%  {'✓ All checks pass' if report.ok else '✗ Some checks failed'}")
+        print(f"Score: {report.score}%  {'[PASS] All checks pass' if report.ok else '[FAIL] Some checks failed'}")
 
     sys.exit(0 if report.ok else 1)
 

@@ -16,7 +16,9 @@ def test_path_traversal_rejected():
 
 def test_normal_path_accepted():
     tools = WorkspaceTools(workspace_root="/tmp/safe_root")
-    assert tools._safe_path("src/main.py").startswith("/tmp/safe_root")
+    resolved = tools._safe_path("src/main.py")
+    expected = os.path.realpath("/tmp/safe_root")
+    assert resolved.startswith(expected), f"{resolved!r} should start with {expected!r}"
 
 
 def test_absolute_path_outside_root_rejected():
