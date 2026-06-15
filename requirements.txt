@@ -39,4 +39,4 @@ curl_cffi>=0.15.0
 dnspython>=2.8.0
 graphifyy>=0.8.27  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
 playwright>=1.55.0
-reportlab>=4.2.0,<5  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
+reportlab>=4.5.1,<5  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
