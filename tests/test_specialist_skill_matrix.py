@@ -1,7 +1,7 @@
-"""tests/test_specialist_skill_matrix.py — the '34 families' claim must be true.
+"""tests/test_specialist_skill_matrix.py — the '35 families' claim must be true.
 
 Truth-reconciliation brief #7 + acceptance: every specialist family counted in
-the '34 families' claim must have at least one bound, *executable* skill — or be
+the '35 families' claim must have at least one bound, *executable* skill — or be
 removed from the count. This runs in CI (ci.yml pytest), so the claim can't
 silently drift.
 """
@@ -12,18 +12,18 @@ import pytest
 from scripts.generate_specialist_skill_matrix import build_matrix, render_markdown
 
 
-def test_matrix_has_thirty_four_families():
+def test_matrix_has_thirty_five_families():
     rows = build_matrix()
-    assert len(rows) == 34, f"Expected 34 specialist families, got {len(rows)}"
+    assert len(rows) == 35, f"Expected 35 specialist families, got {len(rows)}"
 
 
 def test_every_family_has_at_least_one_bound_skill():
-    """No family may be counted in '34 families' with zero bound skills."""
+    """No family may be counted in '35 families' with zero bound skills."""
     rows = build_matrix()
     zero = [r["family"] for r in rows if not r["bound_skills"]]
     assert not zero, (
         f"These families have zero bound skills — bind a skill in "
-        f"services/skill_bindings.py or remove them from the 34-family claim: {zero}"
+        f"services/skill_bindings.py or remove them from the 35-family claim: {zero}"
     )
 
 

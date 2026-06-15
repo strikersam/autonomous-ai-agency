@@ -228,6 +228,11 @@ class AgileSprint:
         return len(self._stories)
 
     @property
+    def stories(self) -> List[UserStory]:
+        """All user stories in the sprint."""
+        return list(self._stories.values())
+
+    @property
     def scope_added(self) -> int:
         """Story points added since the sprint started (scope creep).
 

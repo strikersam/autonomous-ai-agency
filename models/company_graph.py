@@ -46,7 +46,7 @@ SystemType = Literal[
 # Specialist families for dynamic provisioning
 SpecialistFamily = Literal[
     "engineering", "qa", "docs", "analytics", "ecommerce",
-    "operations", "agile", "portfolio", "security", "devops",
+    "operations", "agile", "portfolio", "delivery", "security", "devops",
     "data", "ml", "frontend", "backend", "fullstack", "mobile",
     "cloud", "infra", "architecture", "product", "design", "ux",
     # Business / domain specialists (Autonomous AI Agency — full domain coverage)

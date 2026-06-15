@@ -13,7 +13,7 @@
 |------------|-------|-------|
 | AI-tailored onboarding questions (per detected domain + stack) | `backend/company_api.py:1093` `generate_onboarding_questions` | ✅ live (LLM, 4 questions) |
 | Company edit | `backend/company_api.py:452` `PATCH /api/company/{id}` | ✅ live (basic fields) |
-| Specialist auto-skill-binding | `services/specialist.py:558` `_auto_bind_skills` | ✅ live (all 34 families bound) |
+| Specialist auto-skill-binding | `services/specialist.py:558` `_auto_bind_skills` | ✅ live (all 35 families bound) |
 | Answers → remediation tasks | `backend/company_api.py:1317` | ⚠️ partial |
 | Stack detection (1,270 signatures) | `services/scanner.py` | ✅ live |
 
@@ -24,9 +24,13 @@
    re-provision — and there's no re-tailoring after the first pass.
 2. **Answers aren't all load-bearing.** Some answers only spawn remediation tasks;
    the brief is *every* question drives a concrete provisioning decision.
-3. **Roles are a closed set.** `SpecialistFamily` is a 34-value `Literal`
-   (`models/company_graph.py:47`); `_get_default_capabilities`/`_get_default_tools`
-   are dicts keyed by it. You cannot create "delivery manager" or expand on demand.
+3. **Roles are a closed set.** `SpecialistFamily` is a 35-value `Literal`
+   (`models/company_graph.py:47`) — `delivery` (Delivery Manager) was added as the
+   35th built-in seed (capabilities, tools, runtime, and skill bindings wired in
+   `services/specialist.py`, `services/company_agency.py`, `services/skill_bindings.py`).
+   `_get_default_capabilities`/`_get_default_tools` are still dicts keyed by this
+   `Literal`. You still cannot create an arbitrary custom role or expand the set on
+   demand — that's the Role Registry work in Phase 3 below.
 
 ---
 
@@ -76,15 +80,16 @@ is rejected at generation** — that enforces "every question is load-bearing."
 
 Replace the closed `SpecialistFamily` `Literal` with a **Role Registry**:
 
-- The current 34 families become the **built-in seed catalog** (with their existing
-  default capabilities/tools/runtime/skill bindings — unchanged behaviour).
-- Roles become an **open set**: a `RoleDefinition` can be created from onboarding need
-  (or operator action) at runtime, with capabilities/tools/skills/runtime defaulted
-  (AI-inferred from the role name + company stack) and then **editable**.
-- Seed the catalog with the standard delivery org the brief lists, mapping/adding:
+- The current 35 families become the **built-in seed catalog** (with their existing
+  default capabilities/tools/runtime/skill bindings — unchanged behaviour). This now
+  includes the standard delivery org the brief lists —
   `frontend, backend, fullstack, architecture(=architect), design(=designer), ux,
   qa, agile(=scrum master), portfolio(=portfolio manager), product, devops,
-  data, ml, security` — **plus a new `delivery` (delivery manager)** role.
+  data, ml, security` — plus `delivery` (delivery manager), added as the 35th seed.
+- Roles become an **open set**: a `RoleDefinition` can be created from onboarding need
+  (or operator action) at runtime, with capabilities/tools/skills/runtime defaulted
+  (AI-inferred from the role name + company stack) and then **editable**. This open
+  registry is **not yet built** — the seed catalog above is still the closed `Literal`.
 - Skill binding works for any role: built-ins use the static map; custom roles get
   skills via the existing recommender (`skill_bindings.recommend`/`list_for_family`)
   matched on capabilities + stack, so **a freshly-created role still starts powered**.
@@ -94,7 +99,7 @@ Replace the closed `SpecialistFamily` `Literal` with a **Role Registry**:
 class RoleDefinition:
     key: str                        # "delivery", "frontend", or a custom slug
     display_name: str
-    builtin: bool                   # one of the 34 seeds, or operator/AI-created
+    builtin: bool                   # one of the 35 seeds, or operator/AI-created
     capabilities: list[str]
     tools: list[str]
     runtime: str | None
@@ -105,7 +110,7 @@ class RoleDefinition:
 
 **Migration note (phased, non-trivial):** `SpecialistFamily` is referenced widely
 (`get_args`, the capability/tool dicts, `system_to_family`, tests, the Specialist×Skill
-matrix gate). Phase it: (a) introduce `RoleRegistry` seeded from today's 34 + their
+matrix gate). Phase it: (a) introduce `RoleRegistry` seeded from today's 35 + their
 default dicts, keep `SpecialistFamily` as a type alias over the seed keys for
 back-compat; (b) route provisioning + the matrix generator through the registry;
 (c) allow custom roles; (d) relax the `Literal` to `str` validated against the registry.
@@ -124,15 +129,16 @@ Specialist×Skill matrix CI gate (already added) keeps every role skill-bound.
   answers, cadences, connections post-onboarding; live add/disable specialists.
 - **P2 — Load-bearing questions:** `ProvisioningBinding` on questions; reject cosmetic
   questions at generation; apply answers → roles/skills/workflows/cadences/policy.
-- **P3 — Role Registry:** seed from the 34, add `delivery`, allow custom roles with
-  AI-inferred + editable capabilities/skills; relax the closed `Literal` (back-compat alias).
+- **P3 — Role Registry:** seed from the 35 (`delivery` already added as a built-in
+  seed), allow custom roles with AI-inferred + editable capabilities/skills; relax
+  the closed `Literal` (back-compat alias).
 - **P4 — Re-tailoring:** re-scan + regenerate questions on demand; diff and apply.
 
 ## Invariants
 - Editing never wipes existing specialists/data — it diffs and reconciles.
 - Every onboarding question maps to a concrete provisioning action (no cosmetic Qs).
 - Any provisioned role (seed or custom) is skill-bound + workflow-attached (CI-gated).
-- Custom roles are namespaced per company; the 34 seeds stay globally consistent.
+- Custom roles are namespaced per company; the 35 seeds stay globally consistent.
 
 ---
 

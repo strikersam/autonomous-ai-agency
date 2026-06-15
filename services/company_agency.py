@@ -89,6 +89,8 @@ FAMILY_RUNTIME_MAP: dict[SpecialistFamily, list[str]] = {
     "agile":         ["internal_agent"],
     # Portfolio specialist → InternalAgent
     "portfolio":     ["internal_agent"],
+    # Delivery Manager → InternalAgent (lightweight coordination)
+    "delivery":      ["internal_agent"],
     # ── Business / domain specialists ──
     # SEO / content / marketing → Goose (web research + CLI), then internal.
     "seo":           ["goose", "hermes", "internal_agent"],

@@ -130,7 +130,7 @@ class TaskCapability(str, Enum):
 
 - **`NONE` tasks run regardless of any repo** — a URL-only company gets its full
   non-code agency (the content/SEO/research/marketing/portfolio/support specialists,
-  which already exist and are now skill-bound for all 34 families). Value is delivered
+  which already exist and are now skill-bound for all 35 families). Value is delivered
   on day one without a repo.
 - **`REPO_WRITE` (and `REPO_READ`) tasks** check the company's `RepoConnection` before
   execution. If none exists, the task is **created and paused**, not dropped:

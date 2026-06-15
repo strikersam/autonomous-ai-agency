@@ -105,6 +105,12 @@ class TestAgileSprint:
         assert s.story_count == 1
         assert s.total_points == 1
 
+    def test_stories_property(self):
+        s = AgileSprint(sprint_id="sp1", name="S1")
+        s.add_story(UserStory(story_id="s1", title="Login"))
+        s.add_story(UserStory(story_id="s2", title="Dashboard"))
+        assert {story.story_id for story in s.stories} == {"s1", "s2"}
+
     def test_add_duplicate_raises(self):
         s = AgileSprint(sprint_id="sp1", name="S1")
         s.add_story(UserStory(story_id="s1", title="x"))
