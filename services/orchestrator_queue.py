@@ -36,6 +36,11 @@ class _QueueEntry:
     kwargs: dict
     enqueued_at: float = field(default_factory=time.time)
     future: asyncio.Future = field(default_factory=lambda: asyncio.Future())
+    # True only for enqueue_and_wait() — fire-and-forget enqueue() entries
+    # never have their future awaited, so we must not call set_exception()
+    # on them (that triggers asyncio's "Future exception was never
+    # retrieved" warning when the future is garbage-collected).
+    wait: bool = False
 
 
 class OrchestratorQueue:
@@ -88,7 +93,7 @@ class OrchestratorQueue:
 
     async def enqueue_and_wait(self, run_id: str, fn: Callable, *args: Any, **kwargs: Any) -> Any:
         """Enqueue a run and return a future that resolves when it completes."""
-        entry = _QueueEntry(run_id=run_id, fn=fn, args=args, kwargs=kwargs)
+        entry = _QueueEntry(run_id=run_id, fn=fn, args=args, kwargs=kwargs, wait=True)
         self._queue.append(entry)
         log.info(
             "OrchestratorQueue: enqueued run_id=%s (waiting; queue depth=%d active=%d)",
@@ -133,15 +138,15 @@ class OrchestratorQueue:
                         ent.fn(*ent.args, **ent.kwargs),
                         timeout=_ORCHESTRATOR_TIMEOUT_SEC * 11,  # generous overall timeout
                     )
-                    if not ent.future.done():
+                    if ent.wait and not ent.future.done():
                         ent.future.set_result(result)
                 except asyncio.TimeoutError:
                     log.error("OrchestratorQueue: run_id=%s timed out after %.0fs", ent.run_id, time.time() - started)
-                    if not ent.future.done():
+                    if ent.wait and not ent.future.done():
                         ent.future.set_exception(TimeoutError(f"Run {ent.run_id} timed out"))
                 except Exception as exc:
                     log.exception("OrchestratorQueue: run_id=%s failed", ent.run_id)
-                    if not ent.future.done():
+                    if ent.wait and not ent.future.done():
                         ent.future.set_exception(exc)
                 finally:
                     self._active.pop(ent.run_id, None)
