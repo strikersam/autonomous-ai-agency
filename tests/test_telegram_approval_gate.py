@@ -80,7 +80,7 @@ def test_parse_chat_ids_empty_when_nothing_set():
 
 
 def test_send_approval_gate_returns_false_without_config():
-    dispatcher = NotificationDispatcher(telegram_token="", telegram_chat_ids=[])
+    dispatcher = NotificationDispatcher(telegram_token="", telegram_chat_ids=[])  # nosec B106 - test fixture, not a real token
     assert dispatcher.send_approval_gate(run_id="wfo_x", company_id=None, goal="do x") is False
 
 
@@ -92,7 +92,7 @@ def test_send_approval_gate_sends_message_with_approve_reject_keyboard(_inline_t
         captured["json"] = json
         return _FakeResponse()
 
-    dispatcher = NotificationDispatcher(telegram_token="tok", telegram_chat_ids=[100])
+    dispatcher = NotificationDispatcher(telegram_token="tok", telegram_chat_ids=[100])  # nosec B106 - test fixture, not a real token
 
     with patch("httpx.Client") as client_cls:
         client = MagicMock()
@@ -133,7 +133,7 @@ def test_send_approval_gate_redacts_goal_and_steps(_inline_threads):
         captured["json"] = json
         return _FakeResponse()
 
-    dispatcher = NotificationDispatcher(telegram_token="tok", telegram_chat_ids=[100])
+    dispatcher = NotificationDispatcher(telegram_token="tok", telegram_chat_ids=[100])  # nosec B106 - test fixture, not a real token
 
     with patch("httpx.Client") as client_cls:
         client = MagicMock()
@@ -163,7 +163,7 @@ def test_send_approval_gate_sends_to_all_configured_chats(_inline_threads):
         posts.append(json["chat_id"])
         return _FakeResponse()
 
-    dispatcher = NotificationDispatcher(telegram_token="tok", telegram_chat_ids=[100, 200])
+    dispatcher = NotificationDispatcher(telegram_token="tok", telegram_chat_ids=[100, 200])  # nosec B106 - test fixture, not a real token
 
     with patch("httpx.Client") as client_cls:
         client = MagicMock()
