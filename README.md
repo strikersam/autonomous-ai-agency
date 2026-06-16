@@ -66,7 +66,7 @@ No config files. No integration wiring. No per-seat pricing. No data leaving you
 
 ### Mobile (390px viewport)
 | Login | Dashboard | Scan Results |
-|-------|-----------|--------------|
+|-------|-----------|--------------||
 | ![](docs/screenshots/mobile/login.png) | ![](docs/screenshots/mobile/dashboard.png) | ![](docs/screenshots/mobile/scan-results.png) |
 
 ---
@@ -139,20 +139,6 @@ With Autonomous AI Agency:
 5. **Schedules activate.** Health scans, security audits, code quality checks, SEO monitoring, graph sync — all running on their own cadence without manual setup.
 6. **You talk to the CEO in plain English.** "Fix the memory leak in issue #142." "Write the Q3 launch post." "Plan next sprint." The CEO decomposes the job, delegates to the right specialist, and returns a result with evidence — PR link, test output, diff, reasoning trace.
 7. **You approve what matters.** Agents never merge code, deploy, or send external messages without your explicit sign-off. Low-risk tasks (formatting docs) can be auto-approved. High-stakes decisions (production deployments) always pause for you.
-
-```mermaid
-flowchart LR
-    A["🌐 One URL"] --> B["🔍 Scan & fingerprint"]
-    B --> C["🧠 Build Company Graph"]
-    C --> D["👔 CEO + 35 specialist families"]
-    D --> E["💬 Plain-English instructions"]
-    E --> F["⚙️ Plan → Execute → Verify"]
-    F --> G["✅ PR · diff · test output"]
-    F -. "needs sign-off" .-> H["🙋 HITL approval gate"]
-    H -. "approved" .-> F
-    G --> I["🔄 Next scheduled job"]
-    I --> F
-```
 
 ---
 
@@ -761,6 +747,16 @@ python scripts/ai_runner.py logs          # tail session logs
 ```
 
 See [`CLAUDE.md`](CLAUDE.md) for the contributor guide, skill map, risky-module policy, and AI agent working rules.
+
+---
+
+## What's New
+
+### 2026-06-16
+
+- **Per-model circuit breaker** (`router/circuit_breaker.py`) — Models that return 5xx errors consecutively are now automatically quarantined for a configurable recovery window (default 60 s) and the router uses the fallback chain instead. This prevents hammering a stuck or overloaded model on every request. Configuration: `CIRCUIT_BREAKER_FAILURE_THRESHOLD` (default 3), `CIRCUIT_BREAKER_RECOVERY_TIMEOUT` (default 60 s), `CIRCUIT_BREAKER_ENABLED` (default `true`).
+
+- **Anthropic API usage field parity** (`handlers/anthropic_compat.py`) — Responses from `/v1/messages` now include `cache_read_input_tokens` and `cache_creation_input_tokens` in the `usage` block (both `0` for local models, since Ollama has no server-side prompt cache). These fields are required by Claude Code CLI ≥ v2.1.x and the Anthropic Python/TypeScript SDK — their absence caused `KeyError` or silent field-access failures in some SDK versions when pointing Claude Code at a local proxy.
 
 ---
 

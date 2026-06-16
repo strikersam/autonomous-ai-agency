@@ -47,6 +47,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from langfuse_obs import emit_chat_observation
 from router import get_router, RoutingDecision
+from router.circuit_breaker import get_circuit_breaker
 from router.health import invalidate_cache as _invalidate_health_cache
 
 log = logging.getLogger("qwen-proxy")
@@ -61,14 +62,31 @@ async def _post_anthropic_with_fallback(
     openai_payload: dict[str, Any],
     fallback_models: list[str],
 ) -> Any:  # returns httpx.Response
-    """POST to Ollama; on 5xx retry with each model in *fallback_models*."""
+    """POST to Ollama; on 5xx retry with each model in *fallback_models*.
+
+    Records success/failure on the per-model circuit breaker so that
+    repeatedly-failing models are skipped by the router on future requests.
+    """
+    primary_model: str = openai_payload.get("model", "")
+    breaker = get_circuit_breaker()
+
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             resp = await client.post(url, content=body, headers=headers)
     except httpx.ConnectError as exc:
+        if primary_model:
+            breaker.record_failure(primary_model)
         raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
 
-    if resp.status_code < 500 or not fallback_models:
+    if resp.status_code < 500:
+        if primary_model:
+            breaker.record_success(primary_model)
+        return resp
+
+    if primary_model:
+        breaker.record_failure(primary_model)
+
+    if not fallback_models:
         return resp
 
     for fallback in fallback_models:
@@ -84,9 +102,12 @@ async def _post_anthropic_with_fallback(
             async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
                 resp = await client.post(url, content=retry_body, headers=headers)
         except httpx.ConnectError as exc:
+            breaker.record_failure(fallback)
             raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
         if resp.status_code < 500:
+            breaker.record_success(fallback)
             return resp
+        breaker.record_failure(fallback)
 
     return resp
 
@@ -290,6 +311,11 @@ def _build_anthropic_response(
         "usage": {
             "input_tokens": int(usage.get("prompt_tokens") or 0),
             "output_tokens": int(usage.get("completion_tokens") or 0),
+            # Cache token fields — always 0 for local Ollama (no server-side prompt cache),
+            # but included so Claude Code CLI and the Anthropic SDK can parse the response
+            # without KeyError on the fields introduced in API version 2024-06-20.
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
         },
     }
 
@@ -330,7 +356,12 @@ async def _stream_anthropic_sse(
             "model": anthropic_model,
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": {"input_tokens": 0, "output_tokens": 1},
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 1,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
         },
     })
     yield _sse_event("content_block_start", {
