@@ -196,7 +196,7 @@ and additive — G1 is now wired; G2–G5 remain follow-up work:
 | # | Bridge | Touch points | Lane | Status |
 |---|--------|-------------|------|--------|
 | G1 | **Proactive Telegram push on `awaiting_approval`** (the live gate) | `services/workflow_orchestrator.py::_notify_approval_gate` → `telegram_service.NotificationDispatcher.send_approval_gate`; `wfo:approve:<run_id>` / `wfo:reject:<run_id>` inline callbacks in `telegram_bot.py` | enables 🔴 | ✅ wired |
-| G2 | **Closed-loop self-heal feedback** — confirm error signature gone post-fix | `agent/self_healing.py` ↔ `agent/log_monitor.py` | 🟢 | 📋 |
+| G2 | **Closed-loop self-heal feedback** — confirm error signature gone post-fix | `agent/self_healing.py` (heal ledger: detected→fixing→verifying→resolved/regressed/awaiting_human) ↔ `agent/log_monitor.py::note_recurrence` | 🟢 | ✅ wired |
 | G3 | **Auto issue→task intake** (GitHub issues / scanner signals → Task records) | webhook listener → `tasks/dispatcher.py` | 🟢/📋 | 📋 |
 | G4 | **Per-company trend scoping** — score trends vs each company's detected stack | `agent/trend_watcher.py` + Company graph (`services/scanner.py`) | 🟢/🔴 | 📋 |
 | G5 | **`RepoConnection` + `DeliveryPolicy` plumbing** (SDLC Phases 0–4) | per `autonomous-sdlc-loop.md` | enables Loop 3 landing | 📋 |

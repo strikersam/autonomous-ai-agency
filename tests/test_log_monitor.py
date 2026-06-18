@@ -79,7 +79,7 @@ def test_cooldown_prevents_duplicate_tasks():
     monitor = LogMonitor()
     dispatched: list[str] = []
 
-    with patch("agent.log_monitor._dispatch_async", side_effect=lambda t, d: dispatched.append(t)):
+    with patch("agent.log_monitor._dispatch_async", side_effect=lambda t, d, s=None: dispatched.append(t)):
         monitor._on_log_error("some.module", "ERROR", "database connection failed")
         monitor._on_log_error("some.module", "ERROR", "database connection failed")  # duplicate
 
@@ -90,7 +90,7 @@ def test_cooldown_allows_different_errors():
     monitor = LogMonitor()
     dispatched: list[str] = []
 
-    with patch("agent.log_monitor._dispatch_async", side_effect=lambda t, d: dispatched.append(t)):
+    with patch("agent.log_monitor._dispatch_async", side_effect=lambda t, d, s=None: dispatched.append(t)):
         monitor._on_log_error("some.module", "ERROR", "error A")
         monitor._on_log_error("some.module", "ERROR", "error B")  # different message
 
@@ -101,7 +101,7 @@ def test_ignored_loggers_are_skipped():
     monitor = LogMonitor()
     dispatched: list[str] = []
 
-    with patch("agent.log_monitor._dispatch_async", side_effect=lambda t, d: dispatched.append(t)):
+    with patch("agent.log_monitor._dispatch_async", side_effect=lambda t, d, s=None: dispatched.append(t)):
         for logger_name in IGNORED_LOGGERS:
             monitor._on_log_error(logger_name, "ERROR", "some error from noisy logger")
 

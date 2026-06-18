@@ -1,23 +1,46 @@
-"""agent/self_healing.py — Self-Healing Agent
+"""agent/self_healing.py — Self-Healing Agent (closed-loop, Autonomy Charter G2)
 
 Translates external failure signals (CI webhooks, GitHub issue events, manual
-dashboard reports) into improvement tasks dispatched through ImprovementLoop.
+dashboard reports, backend log errors) into improvement tasks dispatched through
+ImprovementLoop — and then **closes the loop**: a heal is only marked
+``resolved`` after its error signature stops recurring for a verification
+window. If the signature recurs while verifying, the heal ``regressed`` and is
+retried; after ``HEAL_MAX_ATTEMPTS`` it escalates to a human via Telegram.
 
 Flow:
-    CI failure webhook   → on_ci_failure()   → _dispatch_fix()
-    GitHub bug issue     → on_github_issue()  → _dispatch_fix()
-    Dashboard bug report → on_manual_report() → _dispatch_fix()
+    CI failure webhook   → on_ci_failure()   → _dispatch_fix()  → state=fixing
+    GitHub bug issue     → on_github_issue()  → _dispatch_fix()  → state=fixing
+    Dashboard bug report → on_manual_report() → _dispatch_fix()  → state=fixing
+    Backend log ERROR    → on_manual_report(signature=...)        → state=fixing
+
+Closed loop (G2):
+    fix believed applied → mark_fix_landed(sig)   → state=verifying (window opens)
+    signature recurs     → note_recurrence(sig)   → state=regressed → retry / escalate
+    window elapses quiet → sweep()                → state=resolved
+
+States: detected → fixing → verifying → resolved | regressed | awaiting_human
 """
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 import secrets
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 log = logging.getLogger("qwen-proxy")
+
+# ── Config (env-overridable) ────────────────────────────────────────────────
+# Quiet window a heal must stay recurrence-free before it is marked resolved.
+HEAL_VERIFY_WINDOW_SEC = int(os.environ.get("HEAL_VERIFY_WINDOW_SEC", "1800"))  # 30 min
+# Re-fix attempts before escalating to a human.
+HEAL_MAX_ATTEMPTS = int(os.environ.get("HEAL_MAX_ATTEMPTS", "3"))
+# How often the background sweeper resolves quiet verifying heals.
+HEAL_SWEEP_INTERVAL_SEC = int(os.environ.get("HEAL_SWEEP_INTERVAL_SEC", "300"))  # 5 min
 
 
 class FailureCategory(Enum):
@@ -32,6 +55,31 @@ class FailureCategory(Enum):
     UNKNOWN = "unknown"
 
 
+class HealState(str, Enum):
+    """Lifecycle of a heal (Autonomy Charter G2 closed loop)."""
+    DETECTED = "detected"
+    FIXING = "fixing"
+    VERIFYING = "verifying"
+    RESOLVED = "resolved"
+    REGRESSED = "regressed"
+    AWAITING_HUMAN = "awaiting_human"
+
+
+# States in which a heal is "active" — a new signal for the same signature must
+# NOT spawn a duplicate heal (dedup guard).
+_ACTIVE_STATES = {HealState.DETECTED, HealState.FIXING, HealState.VERIFYING, HealState.REGRESSED}
+
+
+def heal_signature(*parts: str) -> str:
+    """Stable signature for an error/heal, used to dedup and detect recurrence.
+
+    Mirrors ``agent.log_monitor._sig`` semantics (sha256 of the joined parts,
+    truncated) so a backend log error and its heal share one signature.
+    """
+    raw = ":".join((p or "")[:120] for p in parts)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
 @dataclass
 class HealingEvent:
     event_id: str
@@ -42,6 +90,15 @@ class HealingEvent:
     created_at: str
     task_id: str | None = None
     resolved: bool = False
+    # ── G2 closed-loop fields ──
+    signature: str = ""
+    state: str = HealState.DETECTED.value
+    attempts: int = 0
+    landed_at: str | None = None
+    resolved_at: str | None = None
+    last_recurrence_at: str | None = None
+    # monotonic deadline after which a quiet verifying heal resolves (0 = unset)
+    _verify_deadline: float = field(default=0.0, repr=False)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -52,21 +109,50 @@ class HealingEvent:
             "created_at": self.created_at,
             "resolved": self.resolved,
             "task_id": self.task_id,
+            "signature": self.signature,
+            "state": self.state,
+            "attempts": self.attempts,
+            "landed_at": self.landed_at,
+            "resolved_at": self.resolved_at,
+            "last_recurrence_at": self.last_recurrence_at,
         }
 
 
 class SelfHealingAgent:
-    """Translate external failure signals into improvement tasks.
+    """Translate external failure signals into improvement tasks and verify the
+    fix actually held before declaring the heal resolved (Autonomy Charter G2).
 
     Usage::
 
         healer = SelfHealingAgent()
+        healer.start()                     # launches the verification sweeper
         await healer.on_ci_failure({"test": "test_router", "error": "..."})
-        await healer.on_manual_report("Memory leak", "...")
+        healer.note_recurrence(sig)        # called by LogMonitor on every error
+        healer.mark_fix_landed(sig)        # called when the fix is applied/merged
     """
 
     def __init__(self) -> None:
         self._events: list[HealingEvent] = []
+        self._by_signature: dict[str, HealingEvent] = {}
+        self._lock = threading.RLock()
+        self._sweeper: threading.Thread | None = None
+        self._running = False
+
+    # ── Lifecycle ───────────────────────────────────────────────────────────
+
+    def start(self) -> None:
+        """Launch the background sweeper that resolves quiet verifying heals."""
+        if self._running:
+            return
+        self._running = True
+        self._sweeper = threading.Thread(
+            target=self._sweep_loop, name="heal-sweeper", daemon=True
+        )
+        self._sweeper.start()
+        log.info("SelfHealingAgent: verification sweeper started (window=%ds)", HEAL_VERIFY_WINDOW_SEC)
+
+    def stop(self) -> None:
+        self._running = False
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -90,11 +176,17 @@ class SelfHealingAgent:
         if error:
             description_parts.append(f"\n**Error details:**\n```\n{error[:6000]}\n```")
 
+        sig = heal_signature("ci", test_name, workflow)
+        existing = self._dedup(sig)
+        if existing is not None:
+            return existing
+
         event = self._make_event(
             source="ci",
             title=f"CI failure: {test_name} in {workflow}",
             description="\n".join(description_parts),
             severity="high",
+            signature=sig,
         )
         log.info("SelfHealingAgent: CI failure — %s", event.title)
         await self._dispatch_fix(event)
@@ -106,11 +198,16 @@ class SelfHealingAgent:
         body = issue.get("body", "")
         labels = [la.get("name", "") for la in issue.get("labels", [])]
         severity = "high" if any(l in labels for l in ("critical", "P0")) else "medium"
+        sig = heal_signature("github_issue", title)
+        existing = self._dedup(sig)
+        if existing is not None:
+            return existing
         event = self._make_event(
             source="github_issue",
             title=f"Bug: {title}",
             description=f"GitHub issue: {title}\n\n{body[:2000]}",
             severity=severity,
+            signature=sig,
         )
         log.info("SelfHealingAgent: GitHub issue — %s", title)
         if any(l in labels for l in ("bug", "fix")):
@@ -118,23 +215,132 @@ class SelfHealingAgent:
         return event
 
     async def on_manual_report(
-        self, title: str, description: str, severity: str = "medium"
+        self,
+        title: str,
+        description: str,
+        severity: str = "medium",
+        signature: str | None = None,
     ) -> HealingEvent:
-        """Called from the v4 dashboard 'Report Bug' form."""
+        """Called from the v4 dashboard 'Report Bug' form and the LogMonitor.
+
+        ``signature`` lets the caller (e.g. LogMonitor) supply a stable error
+        signature so recurrences map back to the same heal; otherwise one is
+        derived from the title.
+        """
+        sig = signature or heal_signature("manual", title)
+        existing = self._dedup(sig)
+        if existing is not None:
+            return existing
         event = self._make_event(
-            source="manual", title=title, description=description, severity=severity
+            source="manual", title=title, description=description,
+            severity=severity, signature=sig,
         )
         log.info("SelfHealingAgent: manual report — %s", title)
         await self._dispatch_fix(event)
         return event
 
+    def note_recurrence(self, signature: str) -> bool:
+        """Record that an error with *signature* was just seen again.
+
+        Called by the LogMonitor on **every** matching error (even within its
+        task-creation cooldown). If the heal is currently ``verifying``, the
+        recurrence means the fix did not hold → mark ``regressed`` and retry (or
+        escalate after ``HEAL_MAX_ATTEMPTS``). Returns True if a known heal was
+        updated.
+        """
+        with self._lock:
+            event = self._by_signature.get(signature)
+            if event is None:
+                return False
+            event.last_recurrence_at = _now()
+            if event.state == HealState.VERIFYING.value:
+                log.info(
+                    "SelfHealingAgent: signature %s recurred during verification — "
+                    "heal %s REGRESSED", signature[:8], event.event_id,
+                )
+                self._regress(event)
+            return True
+
+    def mark_fix_landed(self, signature: str) -> bool:
+        """Signal that the fix for *signature* has been applied/merged.
+
+        Transitions the heal ``fixing → verifying`` and opens the quiet window.
+        The heal resolves only if no recurrence arrives before the deadline.
+        Returns True if a matching active heal was found.
+        """
+        with self._lock:
+            event = self._by_signature.get(signature)
+            if event is None or event.state not in (
+                HealState.FIXING.value, HealState.REGRESSED.value, HealState.DETECTED.value,
+            ):
+                return False
+            event.state = HealState.VERIFYING.value
+            event.landed_at = _now()
+            event._verify_deadline = time.monotonic() + HEAL_VERIFY_WINDOW_SEC
+            log.info(
+                "SelfHealingAgent: heal %s fix landed — verifying for %ds",
+                event.event_id, HEAL_VERIFY_WINDOW_SEC,
+            )
+            return True
+
+    def mark_fix_landed_by_event(self, event_id: str) -> bool:
+        """Same as :meth:`mark_fix_landed` but keyed by event/issue id (the id
+        the ImprovementLoop tracks)."""
+        with self._lock:
+            for event in self._events:
+                if event.event_id == event_id and event.signature:
+                    return self.mark_fix_landed(event.signature)
+        return False
+
+    def sweep(self) -> int:
+        """Resolve any verifying heal whose quiet window has elapsed.
+
+        Returns the number of heals resolved this sweep. Safe to call from any
+        thread / opportunistically; the background sweeper calls it periodically.
+        """
+        now = time.monotonic()
+        resolved = 0
+        with self._lock:
+            for event in self._events:
+                if (
+                    event.state == HealState.VERIFYING.value
+                    and event._verify_deadline
+                    and now >= event._verify_deadline
+                ):
+                    event.state = HealState.RESOLVED.value
+                    event.resolved = True
+                    event.resolved_at = _now()
+                    resolved += 1
+                    log.info(
+                        "SelfHealingAgent: heal %s RESOLVED — no recurrence for %ds",
+                        event.event_id, HEAL_VERIFY_WINDOW_SEC,
+                    )
+                    self._mark_improvement_resolved(event)
+        return resolved
+
     def get_events(self) -> list[dict[str, Any]]:
-        return [e.as_dict() for e in self._events]
+        with self._lock:
+            return [e.as_dict() for e in self._events]
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
+    def _dedup(self, signature: str) -> HealingEvent | None:
+        """Return the existing active heal for *signature*, if any (so a repeat
+        signal does not spawn a duplicate heal — G2 'exactly one active heal')."""
+        with self._lock:
+            event = self._by_signature.get(signature)
+            if event is not None and event.state in {s.value for s in _ACTIVE_STATES}:
+                event.last_recurrence_at = _now()
+                log.debug(
+                    "SelfHealingAgent: signal for active heal %s (sig=%s) deduped",
+                    event.event_id, signature[:8],
+                )
+                return event
+            return None
+
     def _make_event(
-        self, *, source: str, title: str, description: str, severity: str
+        self, *, source: str, title: str, description: str, severity: str,
+        signature: str = "",
     ) -> HealingEvent:
         event = HealingEvent(
             event_id="he_" + secrets.token_hex(6),
@@ -143,8 +349,12 @@ class SelfHealingAgent:
             description=description,
             severity=severity,
             created_at=_now(),
+            signature=signature,
         )
-        self._events.append(event)
+        with self._lock:
+            self._events.append(event)
+            if signature:
+                self._by_signature[signature] = event
         return event
 
     @staticmethod
@@ -195,6 +405,10 @@ class SelfHealingAgent:
             get_improvement_loop,
         )
 
+        with self._lock:
+            event.state = HealState.FIXING.value
+            event.attempts += 1
+
         loop = get_improvement_loop()
         if not loop:
             log.warning("SelfHealingAgent: ImprovementLoop not available — fix not dispatched")
@@ -211,7 +425,77 @@ class SelfHealingAgent:
         )
         loop._register_issue(issue)
         loop._schedule_fix(issue)
-        log.info("SelfHealingAgent: fix dispatched for %s", event.event_id)
+        log.info(
+            "SelfHealingAgent: fix dispatched for %s (attempt %d/%d)",
+            event.event_id, event.attempts, HEAL_MAX_ATTEMPTS,
+        )
+
+    def _regress(self, event: HealingEvent) -> None:
+        """Handle a recurrence during verification: retry or escalate.
+
+        Caller must hold ``self._lock``.
+        """
+        event.state = HealState.REGRESSED.value
+        event._verify_deadline = 0.0
+        if event.attempts >= HEAL_MAX_ATTEMPTS:
+            self._escalate(event)
+            return
+        # Re-dispatch the fix (fire-and-forget; _dispatch_fix is async).
+        import asyncio
+
+        async def _redispatch() -> None:
+            await self._dispatch_fix(event)
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_redispatch())
+        except RuntimeError:
+            threading.Thread(target=asyncio.run, args=(_redispatch(),), daemon=True).start()
+        log.info(
+            "SelfHealingAgent: heal %s regressed — re-dispatching fix (attempt %d)",
+            event.event_id, event.attempts + 1,
+        )
+
+    def _escalate(self, event: HealingEvent) -> None:
+        """Escalate a heal that exhausted its retries to a human via Telegram.
+
+        Caller must hold ``self._lock``.
+        """
+        event.state = HealState.AWAITING_HUMAN.value
+        log.warning(
+            "P1: heal %s could not be auto-fixed after %d attempts — escalating to human: %s",
+            event.event_id, event.attempts, event.title,
+        )
+        try:
+            from telegram_service import NotificationDispatcher
+            msg = (
+                f"🔴 *Self-heal escalation* — needs a human\n"
+                f"Heal `{event.event_id}` failed after {event.attempts} attempts "
+                f"(signature `{event.signature[:8]}`).\n"
+                f"Issue: {event.title[:200]}"
+            )
+            NotificationDispatcher().send_manual_notification(msg)
+        except Exception as exc:  # noqa: BLE001 - escalation notify is best-effort
+            log.warning("SelfHealingAgent: escalation notify failed (non-fatal): %s", exc)
+
+    def _mark_improvement_resolved(self, event: HealingEvent) -> None:
+        """Best-effort: reflect a verified heal back into the ImprovementLoop
+        state so the dashboard's resolved-count is accurate."""
+        try:
+            from agent.improvement_loop import get_improvement_loop
+            loop = get_improvement_loop()
+            if loop:
+                loop.mark_resolved(event.event_id)
+        except Exception as exc:  # noqa: BLE001 - state sync is best-effort
+            log.debug("SelfHealingAgent: improvement-loop resolve sync failed: %s", exc)
+
+    def _sweep_loop(self) -> None:
+        while self._running:
+            try:
+                self.sweep()
+            except Exception as exc:  # noqa: BLE001 - sweeper must never die
+                log.warning("SelfHealingAgent: sweep error: %s", exc)
+            time.sleep(HEAL_SWEEP_INTERVAL_SEC)
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

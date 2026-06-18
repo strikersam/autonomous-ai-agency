@@ -113,6 +113,11 @@ class LogMonitor:
         # meaning the very first occurrence of an error is never blocked.
         _NEVER_SEEN = -(COOLDOWN_SECONDS + 1)
 
+        # Closed-loop self-heal (G2): report EVERY recurrence to the healer
+        # (even within the task-creation cooldown) so a heal that is verifying a
+        # fix can detect that the error came back and regress/retry. Best-effort.
+        _note_recurrence(sig)
+
         with self._lock:
             last = self._cooldowns.get(sig, _NEVER_SEEN)
             if now - last < COOLDOWN_SECONDS:
@@ -127,7 +132,8 @@ class LogMonitor:
             "Please investigate the root cause and apply the minimum fix."
         )
         # Run async dispatch from sync logging handler via thread-safe scheduling.
-        _dispatch_async(title, description)
+        # Pass the signature so recurrences map back to this exact heal (G2).
+        _dispatch_async(title, description, sig)
         log.debug("LogMonitor: created fix task for %s (sig=%s)", logger_name, sig[:8])
 
 
@@ -136,7 +142,20 @@ def _sig(logger_name: str, message: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def _dispatch_async(title: str, description: str) -> None:
+def _note_recurrence(sig: str) -> None:
+    """Best-effort, synchronous: tell the healer this signature was seen again."""
+    from agent.self_healing import get_self_healing_agent
+
+    healer = get_self_healing_agent()
+    if not healer:
+        return
+    try:
+        healer.note_recurrence(sig)
+    except Exception:  # nosec B110 - recurrence notification is best-effort
+        pass
+
+
+def _dispatch_async(title: str, description: str, signature: str | None = None) -> None:
     """Fire-and-forget: schedule a self-healing task from any thread."""
     from agent.self_healing import get_self_healing_agent
 
@@ -145,7 +164,7 @@ def _dispatch_async(title: str, description: str) -> None:
         return
 
     async def _run():
-        await healer.on_manual_report(title, description, severity="medium")
+        await healer.on_manual_report(title, description, severity="medium", signature=signature)
 
     # If there's a running event loop (typical in uvicorn), schedule there.
     # Otherwise use asyncio.run() in a fresh thread.
