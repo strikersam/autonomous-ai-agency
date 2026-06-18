@@ -818,6 +818,7 @@ class TrendWatcher:
 
         log.info("TrendWatcher: fetch complete — %d new alert(s)", len(new_alerts))
         self._dispatch_to_improvement_loop(new_alerts)
+        await self.scope_trends_to_companies(new_alerts)
         return new_alerts
 
     # ── Improvement loop integration ──────────────────────────────────────────
@@ -852,6 +853,54 @@ class TrendWatcher:
                 loop._register_issue(issue)
         except Exception as exc:
             log.debug("TrendWatcher: dispatch error: %s", exc)
+
+    # ── Per-company trend scoping (Autonomy Charter G4) ───────────────────────
+
+    async def scope_trends_to_companies(self, alerts: list[TrendAlert]) -> int:
+        """Fan trends out to onboarded companies whose stack matches (G4).
+
+        For each onboarded company, score every alert against the company's
+        detected stack and create a scoped task when the relevance clears
+        ``TREND_COMPANY_MIN_SCORE``. Research trends are 🟢 autonomous; suggested
+        code/infra changes are 🔴 (pause for the Telegram gate). Fully defensive:
+        disabled via ``TREND_COMPANY_SCOPING_ENABLED=false`` and a no-op when
+        there are no onboarded companies or the stores are unavailable, so it
+        never breaks a fetch cycle. Returns the number of scoped tasks created.
+        """
+        if os.environ.get("TREND_COMPANY_SCOPING_ENABLED", "true").strip().lower() == "false":
+            return 0
+        if not alerts:
+            return 0
+        try:
+            from agent.trend_scoping import fan_out_trends
+            from services.company_graph_store import get_company_graph_store
+            from tasks.service import TaskWorkflowService
+            from tasks.store import get_task_store
+
+            graph_store = get_company_graph_store()
+            companies = await graph_store.list_companies(limit=200)
+            if not companies:
+                return 0
+            pairs: list[tuple[Any, Any]] = []
+            for company in companies:
+                try:
+                    graph = await graph_store.get_company_graph(company.id)
+                except Exception:  # noqa: BLE001 — one bad company must not abort the sweep
+                    graph = None
+                pairs.append((company, graph))
+
+            task_store = get_task_store()
+            service = TaskWorkflowService(store=task_store)
+            created = await fan_out_trends(alerts, pairs, store=task_store, service=service)
+            if created:
+                log.info(
+                    "TrendWatcher: scoped %d task(s) across %d compan(y/ies)",
+                    len(created), len(pairs),
+                )
+            return len(created)
+        except Exception as exc:  # noqa: BLE001 — scoping is best-effort
+            log.warning("TrendWatcher: per-company scoping failed: %s", exc)
+            return 0
 
     # ── Dispatch to Hermes Agent ─────────────────────────────────────────────
 

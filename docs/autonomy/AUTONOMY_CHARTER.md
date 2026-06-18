@@ -171,11 +171,13 @@ trend_watcher: 13 public sources, score relevance (✅)
    ≥0.75 → auto-dispatch to Hermes for issue/PR (✅, needs HERMES_BASE_URL)
    →  knowledge_sync keeps the KB current (✅)
 ```
-- **Per-company scoping (⚠️):** today relevance is scored against the *platform's*
-  keyword set. For full autonomy, score each trend against **each onboarded company's
-  detected stack** (`services/scanner.py` output on the Company graph) so a React shop
-  gets React trends and an infra client gets infra trends. Resulting changes still pass
-  the Gate Matrix.
+- **Per-company scoping (✅ G4):** in addition to platform-level relevance, each
+  trend is now scored against **each onboarded company's detected stack**
+  (`agent/trend_scoping.py`, fed by the Company graph) so a React shop gets React
+  trends and an infra client gets infra trends. Matching trends fan out to one
+  scoped task per relevant company (deduped by `(trend_id, company_id)`), with
+  research routed 🟢 autonomous and suggested code/infra changes routed 🔴 through
+  the Gate Matrix. Threshold via `TREND_COMPANY_MIN_SCORE` (default 0.5).
 
 ### Loop 5 — Per-onboarded-site autonomy
 - Onboarding (`services/onboarding.py`, ✅) scans the site, provisions specialists,
@@ -191,14 +193,14 @@ trend_watcher: 13 public sources, score relevance (✅)
 ## 6. Integration gaps to wire (follow-up implementation)
 
 The loops above are real; these **bridges** close the loop end-to-end. Each is small
-and additive — G1 is now wired; G2–G5 remain follow-up work:
+and additive — G1–G4 are now wired; G5 remains follow-up work:
 
 | # | Bridge | Touch points | Lane | Status |
 |---|--------|-------------|------|--------|
 | G1 | **Proactive Telegram push on `awaiting_approval`** (the live gate) | `services/workflow_orchestrator.py::_notify_approval_gate` → `telegram_service.NotificationDispatcher.send_approval_gate`; `wfo:approve:<run_id>` / `wfo:reject:<run_id>` inline callbacks in `telegram_bot.py` | enables 🔴 | ✅ wired |
 | G2 | **Closed-loop self-heal feedback** — confirm error signature gone post-fix | `agent/self_healing.py` (heal ledger: detected→fixing→verifying→resolved/regressed/awaiting_human) ↔ `agent/log_monitor.py::note_recurrence` | 🟢 | ✅ wired |
 | G3 | **Auto issue→task intake** (GitHub issues → Task records) | `POST /api/webhooks/github` → `tasks/issue_intake.py` (HMAC-verified, opt-in label, idempotent by `source_id`) | 🟢 | ✅ wired (GitHub issues; scanner-signal intake still 📋) |
-| G4 | **Per-company trend scoping** — score trends vs each company's detected stack | `agent/trend_watcher.py` + Company graph (`services/scanner.py`) | 🟢/🔴 | 📋 |
+| G4 | **Per-company trend scoping** — score trends vs each company's detected stack | `agent/trend_scoping.py` ← `agent/trend_watcher.py::scope_trends_to_companies` + Company graph (`services/company_graph_store.py`) | 🟢/🔴 | ✅ wired |
 | G5 | **`RepoConnection` + `DeliveryPolicy` plumbing** (SDLC Phases 0–4) | per `autonomous-sdlc-loop.md` | enables Loop 3 landing | 📋 |
 
 G1 also lands the **`TELEGRAM_CHAT_ID` single-operator convention**: one numeric
