@@ -628,6 +628,90 @@ class Repo(BaseModel):
         return self.full_name.split("/")[-1] if "/" in self.full_name else self.full_name
 
 
+# Delivery mode for landing code on a connected repo (Autonomy Charter G5).
+DeliveryMode = Literal["direct_push", "pr_required"]
+
+
+class DeliveryPolicy(BaseModel):
+    """How code lands on a repo's default branch (detected, GitHub-only for now).
+
+    The **safe default is ``pr_required``**: whenever branch-protection detection
+    is uncertain or a branch is protected, the agentic SDLC opens a reviewable PR
+    rather than pushing directly (charter §3 / §8).
+    """
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    mode: DeliveryMode = Field(
+        default="pr_required",
+        description="How changes land: 'direct_push' or 'pr_required' (safe default)",
+    )
+    default_branch: str = Field(default="main", description="Repo default branch")
+    protected: bool = Field(
+        default=True,
+        description="Whether the default branch has branch protection (safe default True)",
+    )
+    required_reviews: int = Field(
+        default=0, ge=0, description="Number of required approving reviews, if protected"
+    )
+    required_status_checks: bool = Field(
+        default=False, description="Whether required status checks gate the default branch"
+    )
+    detection_note: str = Field(
+        default="",
+        description="How the policy was determined (e.g. 'protected', 'uncertain → pr_required')",
+    )
+    first_merge_consent: bool = Field(
+        default=False,
+        description="True once the operator has approved the first unattended merge on this repo",
+    )
+    detected_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When the policy was detected"
+    )
+
+
+class RepoConnection(BaseModel):
+    """A company's connection to a code repository (GitHub-only this pass).
+
+    URL-only companies have **no** ``RepoConnection`` (the Company field is
+    ``None``) — their code work pauses ``awaiting_repo_connection`` until a repo +
+    token is connected (charter Loop 5). GitLab / Bitbucket are *coming soon*:
+    ``provider`` is a ``Literal["github"]`` so non-GitHub providers are surfaced
+    explicitly rather than silently mis-handled.
+    """
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    provider: Literal["github"] = Field(
+        default="github", description="Git provider (GitHub only for now)"
+    )
+    owner: str = Field(..., description="Repository owner / org")
+    repo: str = Field(..., description="Repository name")
+    default_branch: str = Field(default="main", description="Default branch name")
+    token_ref: str | None = Field(
+        default=None,
+        description="Reference to the connected token in the secrets store (never the token itself)",
+    )
+    policy: DeliveryPolicy | None = Field(
+        default=None, description="Detected delivery policy for this repo"
+    )
+    connected_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When the repo was connected"
+    )
+
+    @field_validator("owner", "repo", mode="before")
+    @classmethod
+    def _strip_required(cls, v: Any) -> str:
+        if isinstance(v, str):
+            stripped = v.strip()
+            if not stripped:
+                raise ValueError("owner and repo must not be blank")
+            return stripped
+        return v
+
+    @property
+    def full_name(self) -> str:
+        return f"{self.owner}/{self.repo}"
+
+
 class BusinessSystem(BaseModel):
     """A business system used by the company."""
     model_config = {"frozen": True, "extra": "forbid"}
@@ -1069,6 +1153,12 @@ class Company(BaseModel):
     repos: List[str] = Field(
         default_factory=list,
         description="Repository IDs belonging to this company"
+    )
+    repo_connection: RepoConnection | None = Field(
+        default=None,
+        description="Primary code-repo connection + detected delivery policy "
+        "(Autonomy Charter G5). None for URL-only companies → code work pauses "
+        "awaiting_repo_connection.",
     )
     systems: List[str] = Field(
         default_factory=list,

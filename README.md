@@ -167,11 +167,17 @@ Security or Dev specialist creates a fix task automatically
      ↓
 Agent branches, writes fix, opens PR, watches CI
      ↓
+Landing respects each repo's detected delivery policy (direct-push vs PR-required);
+the first unattended merge on a newly connected repo always asks you on Telegram first
+     ↓
 CI green + low-risk → auto-approve gate passes, PR merges
 CI green + needs human eyes → surfaces to your dashboard
      ↓
 You see it in the morning: "PR merged, page restored at 3:12 AM"
 ```
+
+> URL-only companies (no repo connected yet) never attempt code work — those tasks
+> wait in `awaiting_repo_connection` until you connect a repo + token, then resume.
 
 ### Nothing goes down quietly
 

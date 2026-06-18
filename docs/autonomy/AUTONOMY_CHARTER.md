@@ -161,8 +161,11 @@ CLASSIFY → PLAN → [🔴 gate?] → EXECUTE → VERIFY → JUDGE → land
 - Driven by `services/workflow_orchestrator.py` (✅) + `agent/loop.py::AgentRunner` (✅),
   CEO decomposition (✅), per-task git worktrees (✅).
 - **Repo-agnostic landing** per `RepoConnection` + detected `DeliveryPolicy`
-  (📋 design — Phases 0–4 in `autonomous-sdlc-loop.md`). Until built, the loop stops at
-  a reviewable PR. Merge to a deployment branch is always a 🔴 gate (§3).
+  (✅ GitHub-only, G5 — `services/repo_connection.py`; GitLab/Bitbucket coming soon).
+  `decide_merge()` returns the land action: `awaiting_repo_connection` (URL-only),
+  `telegram_gate` (first unattended merge on a new repo, 🔴), `open_pr`
+  (`pr_required`), or `direct_push`. Detection is uncertain ⇒ `pr_required` (safe
+  default). Merge to a deployment branch is always a 🔴 gate (§3).
 
 ### Loop 4 — Trends contextually applied
 ```
@@ -186,14 +189,16 @@ trend_watcher: 13 public sources, score relevance (✅)
 - **Capability split** (📋 `TaskCapability` design): `NONE` work (research/SEO/content/
   monitoring) runs for **URL-only** companies with no repo; `REPO_READ`/`REPO_WRITE`
   work pauses `awaiting_repo_connection` until a repo + token is connected, then
-  auto-resumes — never fails, never fabricated.
+  auto-resumes — never fails, never fabricated. The pause/resume signal is now
+  concrete: a URL-only company has no `Company.repo_connection`, and
+  `repo_connection.decide_merge(None)` returns `awaiting_repo_connection` (G5).
 
 ---
 
 ## 6. Integration gaps to wire (follow-up implementation)
 
 The loops above are real; these **bridges** close the loop end-to-end. Each is small
-and additive — G1–G4 are now wired; G5 remains follow-up work:
+and additive — G1–G5 are now all wired:
 
 | # | Bridge | Touch points | Lane | Status |
 |---|--------|-------------|------|--------|
@@ -201,7 +206,7 @@ and additive — G1–G4 are now wired; G5 remains follow-up work:
 | G2 | **Closed-loop self-heal feedback** — confirm error signature gone post-fix | `agent/self_healing.py` (heal ledger: detected→fixing→verifying→resolved/regressed/awaiting_human) ↔ `agent/log_monitor.py::note_recurrence` | 🟢 | ✅ wired |
 | G3 | **Auto issue→task intake** (GitHub issues → Task records) | `POST /api/webhooks/github` → `tasks/issue_intake.py` (HMAC-verified, opt-in label, idempotent by `source_id`) | 🟢 | ✅ wired (GitHub issues; scanner-signal intake still 📋) |
 | G4 | **Per-company trend scoping** — score trends vs each company's detected stack | `agent/trend_scoping.py` ← `agent/trend_watcher.py::scope_trends_to_companies` + Company graph (`services/company_graph_store.py`) | 🟢/🔴 | ✅ wired |
-| G5 | **`RepoConnection` + `DeliveryPolicy` plumbing** (SDLC Phases 0–4) | per `autonomous-sdlc-loop.md` | enables Loop 3 landing | 📋 |
+| G5 | **`RepoConnection` + `DeliveryPolicy` plumbing** (GitHub-only) | `models/company_graph.py` (`RepoConnection`/`DeliveryPolicy` + `Company.repo_connection`) → `services/repo_connection.py` (`detect_delivery_policy`, `decide_merge`, first-merge gate) ← `services/onboarding.py` attach | enables Loop 3 landing | ✅ wired (GitHub; GitLab/Bitbucket coming soon) |
 
 G1 also lands the **`TELEGRAM_CHAT_ID` single-operator convention**: one numeric
 Telegram user ID covers bot auth (`TELEGRAM_ALLOWED_USER_IDS`/`TELEGRAM_ADMIN_USER_IDS`),
