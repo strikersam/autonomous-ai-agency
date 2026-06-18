@@ -1054,6 +1054,16 @@ class WorkflowOrchestrator:
         run = self._runs.get(run_id)
         if run is None:
             raise KeyError(f"WorkflowRun {run_id!r} not found")
+        # Reject repeat approvals before enqueueing (Codex P2): the API approve
+        # route calls approve_async() directly, so a retry/double-click on an
+        # already-approved run (now queued/running/done) must NOT be enqueued
+        # again — OrchestratorQueue has no dedup and runs 2 concurrently, which
+        # would duplicate side effects (commits/PRs). We keep the same
+        # status==awaiting_approval guard approve() enforces, then only skip the
+        # redundant approval *transition* when the Telegram gate already ran the
+        # synchronous approve() (approved=True, status still awaiting_approval).
+        if run.status != "awaiting_approval":
+            raise ValueError(f"Run {run_id} is {run.status!r}, not awaiting_approval")
         if not run.approved:
             run = self.approve(run_id, approved_by=approved_by)
         try:

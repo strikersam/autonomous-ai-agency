@@ -380,6 +380,24 @@ class TestApprovalGate:
         with pytest.raises(KeyError, match="not found"):
             orchestrator.approve("nonexistent")
 
+    async def test_approve_async_rejects_already_queued_run(self):
+        """Codex P2: a repeat approve (double-click / retry) on a run that is no
+        longer awaiting_approval (e.g. already queued) must NOT be re-enqueued —
+        otherwise OrchestratorQueue (no dedup, 2 concurrent) executes it twice and
+        duplicates side effects (commits/PRs). approve_async must raise instead."""
+        from services.workflow_orchestrator import (
+            WorkflowRun, get_workflow_orchestrator, reset_orchestrator,
+        )
+        reset_orchestrator()
+        orchestrator = get_workflow_orchestrator()
+        run = WorkflowRun()
+        run.status = "queued"          # already past approval
+        run.approved = True
+        orchestrator._runs[run.run_id] = run
+
+        with pytest.raises(ValueError, match="not awaiting_approval"):
+            await orchestrator.approve_async(run.run_id)
+
     async def test_read_only_task_passes_verify_without_file_changes(self):
         """A review/audit task with output but no changed files must VERIFY pass."""
         from services.workflow_orchestrator import (

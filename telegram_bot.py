@@ -863,8 +863,18 @@ async def run_bot() -> None:
     if os.environ.get("TELEGRAM_POLLER_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
         log.info(
             "TELEGRAM_POLLER_DISABLED is set — this process will NOT long-poll "
-            "getUpdates (another instance owns the bot token). Skipping run_bot()."
+            "getUpdates (another instance owns the bot token)."
         )
+        # Idle instead of returning (Codex P2): a dedicated worker whose entry
+        # point is run_bot() (e.g. scripts/run_freebuff_bot.py) would otherwise
+        # exit immediately and churn/restart on Render. Block forever so the
+        # process stays healthy without polling. When run_bot() is launched as a
+        # background task inside the web service, this idle task is simply never
+        # the poller. Cancellation (shutdown) breaks out cleanly.
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            log.info("Disabled-poller idle task cancelled — exiting run_bot().")
         return
 
     # Verify the token and identify the bot — surfaces a bad token immediately

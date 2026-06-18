@@ -337,9 +337,11 @@ async def test_wfo_missing_run_id(captured):
 
 
 async def test_run_bot_skips_polling_when_disabled(monkeypatch):
-    """TELEGRAM_POLLER_DISABLED=true makes run_bot() return before it ever
-    long-polls getUpdates — so the embedded web bot and the dedicated worker
-    never both poll the same token (the 409/429 storm in issue #656)."""
+    """TELEGRAM_POLLER_DISABLED=true makes run_bot() idle WITHOUT long-polling
+    getUpdates — so the embedded web bot and the dedicated worker never both
+    poll the same token (the 409/429 storm in issue #656). It idles (rather than
+    returning) so a worker whose entry point is run_bot() stays healthy instead
+    of churning; cancelling the task exits cleanly."""
     monkeypatch.setattr(tb, "TELEGRAM_BOT_TOKEN", "123:abc")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
     monkeypatch.setenv("TELEGRAM_POLLER_DISABLED", "true")
@@ -352,5 +354,13 @@ async def test_run_bot_skips_polling_when_disabled(monkeypatch):
 
     monkeypatch.setattr(tb, "_tg_call", boom)
 
-    await tb.run_bot()  # must return promptly without polling
+    # It idles forever; prove it does NOT poll by timing out, then cancelling.
+    task = asyncio.ensure_future(tb.run_bot())
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(asyncio.shield(task), timeout=0.2)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
     assert called["tg"] is False, "run_bot must not call Telegram when poller is disabled"
