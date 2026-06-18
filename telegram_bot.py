@@ -838,6 +838,20 @@ async def run_bot() -> None:
         )
         return
 
+    # Single-poller guard (issue #656). Telegram allows only ONE getUpdates
+    # consumer per bot token; running a second poller (e.g. the embedded
+    # in-web bot AND the dedicated worker on the same token) triggers a storm
+    # of 409 "conflict" / 429 "Too Many Requests" errors and neither receives
+    # updates reliably. Set TELEGRAM_POLLER_DISABLED=true on the service that
+    # should NOT poll (typically the web service, leaving the dedicated worker
+    # to own the long-poll). Env is per-service, so this disables exactly one.
+    if os.environ.get("TELEGRAM_POLLER_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+        log.info(
+            "TELEGRAM_POLLER_DISABLED is set — this process will NOT long-poll "
+            "getUpdates (another instance owns the bot token). Skipping run_bot()."
+        )
+        return
+
     # Verify the token and identify the bot — surfaces a bad token immediately
     # in the logs instead of silently failing to receive messages.
     me = await _tg_call("getMe")
@@ -857,6 +871,12 @@ async def run_bot() -> None:
     log.info("Cleared any existing webhook (deleteWebhook ok=%s).", dw.get("ok"))
 
     offset = 0
+    # Exponential backoff for repeated errors (conflict / 429 / 5xx / network)
+    # so a transient outage or a second poller does not generate a tight error
+    # storm. Resets to the floor after any successful poll. (issue #656)
+    _BACKOFF_FLOOR = 5.0
+    _BACKOFF_CEIL = 60.0
+    backoff = _BACKOFF_FLOOR
 
     while True:
         try:
@@ -872,18 +892,37 @@ async def run_bot() -> None:
             data = r.json()
             if not data.get("ok"):
                 desc = str(data.get("description", ""))
-                if data.get("error_code") == 409 or "conflict" in desc.lower() or "webhook" in desc.lower():
+                error_code = data.get("error_code")
+                # Honour Telegram's own retry_after hint (429) when present.
+                retry_after = 0
+                try:
+                    retry_after = int((data.get("parameters") or {}).get("retry_after") or 0)
+                except (TypeError, ValueError):
+                    retry_after = 0
+
+                if error_code == 409 or "conflict" in desc.lower() or "webhook" in desc.lower():
                     log.error(
                         "getUpdates conflict: %s — another process/instance is polling "
-                        "this bot token, or a webhook is set. Stop the other bot that uses "
-                        "this token. Re-clearing webhook and retrying.", desc,
+                        "this bot token, or a webhook is set. Set TELEGRAM_POLLER_DISABLED=true "
+                        "on the duplicate service (see issue #656). Re-clearing webhook; "
+                        "backing off %.0fs.", desc, backoff,
                     )
                     await _tg_call("deleteWebhook")
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, _BACKOFF_CEIL)
+                elif error_code == 429:
+                    wait = max(retry_after, backoff)
+                    log.warning("getUpdates rate-limited (429) — retrying in %.0fs.", wait)
+                    await asyncio.sleep(wait)
+                    backoff = min(backoff * 2, _BACKOFF_CEIL)
                 else:
-                    log.error("getUpdates error: %s", data)
-                await asyncio.sleep(5)
+                    log.error("getUpdates error: %s — backing off %.0fs.", data, backoff)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, _BACKOFF_CEIL)
                 continue
 
+            # Successful poll — reset the backoff floor.
+            backoff = _BACKOFF_FLOOR
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
                 try:
@@ -898,8 +937,9 @@ async def run_bot() -> None:
             log.info("Bot stopped.")
             return
         except Exception as exc:
-            log.error("Long-poll error: %s — retrying in 5s", exc)
-            await asyncio.sleep(5)
+            log.error("Long-poll error: %s — retrying in %.0fs.", exc, backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, _BACKOFF_CEIL)
 
 
 if __name__ == "__main__":

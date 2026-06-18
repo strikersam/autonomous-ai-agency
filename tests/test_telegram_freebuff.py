@@ -331,3 +331,26 @@ async def test_wfo_orchestrator_unavailable(captured, monkeypatch):
 async def test_wfo_missing_run_id(captured):
     await tb._process_callback("tok", _wfo_callback("wfo:approve:"))
     assert any("Missing run id" in a for a in captured["answers"])
+
+
+# ── single-poller guard (TELEGRAM_POLLER_DISABLED, issue #656) ───────────────
+
+
+async def test_run_bot_skips_polling_when_disabled(monkeypatch):
+    """TELEGRAM_POLLER_DISABLED=true makes run_bot() return before it ever
+    long-polls getUpdates — so the embedded web bot and the dedicated worker
+    never both poll the same token (the 409/429 storm in issue #656)."""
+    monkeypatch.setattr(tb, "TELEGRAM_BOT_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    monkeypatch.setenv("TELEGRAM_POLLER_DISABLED", "true")
+
+    called = {"tg": False}
+
+    async def boom(*_a, **_k):
+        called["tg"] = True
+        return {"ok": True, "result": {"username": "x"}}
+
+    monkeypatch.setattr(tb, "_tg_call", boom)
+
+    await tb.run_bot()  # must return promptly without polling
+    assert called["tg"] is False, "run_bot must not call Telegram when poller is disabled"

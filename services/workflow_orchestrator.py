@@ -175,6 +175,20 @@ _BYPASS: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 
 
+def _allow_paid_brain() -> bool:
+    """True when the operator explicitly opted into a paid (Anthropic) brain.
+
+    Default ``False``. The free-brain policy (Autonomy Charter / issue #656)
+    means the agent brain never silently calls a paid API: when no free
+    provider is configured it falls through to local Ollama instead of burning
+    Anthropic credits (and hitting confusing 400s on stale model ids). Set
+    ``ALLOW_PAID_BRAIN=true`` to permit paid Anthropic as a last resort.
+    """
+    return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 async def _resolve_brain_provider(
     exclude_base_urls: set[str] | None = None,
 ) -> tuple[str, dict | None, str | None]:
@@ -271,11 +285,22 @@ async def _resolve_brain_provider(
         # OpenRouter, etc.) — never auto-select paid Anthropic.
         picked = _pick(allow_paid=False)
         if picked is None and not _has_usable_free_provider():
-            # No free provider is configured at all — only then allow paid
-            # (Anthropic) as a manual-only last-resort fallback. The operator
-            # can still disable it by setting AGENT_LLM_BASE_URL to another
-            # provider or by removing the ANTHROPIC_API_KEY env var.
-            picked = _pick(allow_paid=True)
+            # No free provider is configured at all. Per the Autonomy Charter
+            # free-brain policy (issue #656), the brain does NOT silently
+            # escalate to paid Anthropic: that both burns credits AND, when the
+            # Anthropic model id is stale, returns a confusing "400 Bad Request"
+            # that blocks every dispatched task after 10 retries. The operator
+            # must opt in explicitly via ALLOW_PAID_BRAIN=true. Otherwise we
+            # fall through to local Ollama and log the one action that fixes it.
+            if _allow_paid_brain():
+                picked = _pick(allow_paid=True)
+            else:
+                log.warning(
+                    "No free brain provider configured and ALLOW_PAID_BRAIN is not set "
+                    "— falling back to local Ollama. Set NVIDIA_API_KEY for a free cloud "
+                    "brain (https://build.nvidia.com), or ALLOW_PAID_BRAIN=true to permit "
+                    "paid Anthropic as a last resort."
+                )
         if picked is not None:
             base, headers, model = picked
             log.info(

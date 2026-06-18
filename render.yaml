@@ -360,6 +360,15 @@ services:
         sync: false
       - key: TELEGRAM_ADMIN_USER_IDS
         sync: false
+      # Single-poller guard (issue #656): Telegram allows only ONE getUpdates
+      # consumer per bot token. The web service (local-llm-server) owns the
+      # long-poll because it also runs the WorkflowOrchestrator in-process
+      # (RUN_BACKGROUND_IN_WEB=true), which the G1 approval-gate Approve/Reject
+      # callbacks need. If this worker shares the same TELEGRAM_BOT_TOKEN, keep
+      # this "true" so it does NOT poll (avoids the 409/429 conflict storm).
+      # Give it a SEPARATE bot token and set this to "false" to run two bots.
+      - key: TELEGRAM_POLLER_DISABLED
+        value: "true"
       # FreeBuff embedded-mode config
       - key: FREEBUFF_EMBEDDED
         value: "true"

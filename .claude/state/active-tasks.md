@@ -42,6 +42,7 @@
 | 18 | G3 — Auto issue→task intake (GitHub issues / scanner signals → Task records) | `TODO` | — | webhook listener → `tasks/dispatcher.py`; see `AUTONOMY_CHARTER.md` §6 | — |
 | 19 | G4 — Per-company trend scoping (score trends vs each company's detected stack) | `TODO` | — | `agent/trend_watcher.py` + Company graph (`services/scanner.py`); see `AUTONOMY_CHARTER.md` §6 | — |
 | 20 | G5 — `RepoConnection` + `DeliveryPolicy` plumbing (GitHub-only scope; SDLC Phases 0-4) | `TODO` | — | per `docs/architecture/autonomous-sdlc-loop.md`; see `AUTONOMY_CHARTER.md` §6 | — |
+| 21 | P0 unblockers (issue #656): brain hard-blocked on paid-Anthropic 400 + Telegram getUpdates 409/429/502 dual-poller storm | `BUG_FIXED` | [#652](https://github.com/strikersam/autonomous-ai-agency/pull/652) | `_resolve_brain_provider` no longer silently escalates to paid Anthropic (gated behind `ALLOW_PAID_BRAIN`, default off) → free NVIDIA NIM is the brain once `NVIDIA_API_KEY` is set, else falls to Ollama with an actionable log. Telegram poll loop honours `retry_after`/exp-backoff + `TELEGRAM_POLLER_DISABLED` single-poller guard (set on freebuff worker in render.yaml). Stale `NVIDIA_DEFAULT_MODEL` corrected. Tests in `test_brain_priority_scanner.py` + `test_telegram_freebuff.py`. **Operator must set `NVIDIA_API_KEY` in Render to fully unblock.** | 2026-06-17 |
 
 ---
 

@@ -21,6 +21,44 @@
 
 ---
 
+## Part 0 — P0 production unblockers (issue #656) ✅ landed in this PR
+
+Live agents were stuck and could not act. Root causes + fixes (all tested):
+
+- **Brain hard-blocked on paid-Anthropic `400` →** every task failed 10 retries
+  with `"All runtimes failed and policy prevents paid escalation"`. When no free
+  provider is configured, `_resolve_brain_provider()` used to silently fall
+  through to paid Anthropic; a stale Anthropic model id then returned `400` and
+  blocked everything. **Fix:** the brain never silently escalates to paid —
+  gated behind `ALLOW_PAID_BRAIN=true` (default off); otherwise it falls to
+  local Ollama and logs *“set `NVIDIA_API_KEY` for a free cloud brain.”* This
+  makes the **free NVIDIA NIM model the brain** the moment `NVIDIA_API_KEY` is
+  set (it is already auto-synthesised as a provider record), with no other
+  config. (`services/workflow_orchestrator.py`, `tests/test_brain_priority_scanner.py`.)
+- **Telegram `getUpdates` 409/429/502 storm + dual-poller →** the embedded web
+  bot and the dedicated worker both polled the same token. **Fix:** honour
+  `retry_after` on 429, exponential backoff (5→60s) on conflict/5xx/network, and
+  a `TELEGRAM_POLLER_DISABLED=true` single-poller guard (set on the worker in
+  `render.yaml` so the web service — which runs the orchestrator in-process for
+  G1 callbacks — is the sole poller). (`telegram_bot.py`,
+  `tests/test_telegram_freebuff.py`.)
+- **Stale `NVIDIA_DEFAULT_MODEL`** example corrected to the live
+  `nvidia/llama-3.3-nemotron-super-49b-v1`; `.env.example` documents the
+  free-first brain policy.
+
+**Operator action to fully unblock #656:** set `NVIDIA_API_KEY` (free, from
+https://build.nvidia.com) in Render on the web service. The brain then resolves
+to the free NVIDIA model and never touches Anthropic. A larger free NIM model
+(e.g. `nemotron`-class) can be selected via `NVIDIA_DEFAULT_MODEL` once its exact
+model id is confirmed on build.nvidia.com.
+
+**Not yet addressed from #656 (lower priority, deferred):** the
+`Process Quick Note` auto-implement pipeline's baseline `pytest` times out at
+120s in CI (`.github/scripts/implement_agent.py`) — a CI-infra timeout, not a
+runtime agent blocker; track separately.
+
+---
+
 ## Part A — CodeRabbit review fixes for this PR (do first, small)
 
 These are the actionable review findings on PR #652. They are low-risk and
