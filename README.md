@@ -154,7 +154,7 @@ The defining feature of Autonomous AI Agency is not what agents can do — it's 
 | **Security audit** | Daily 9 AM | CVE scan, security headers, repo secret scan |
 | **Stack change detection** | Daily 6 AM | New frameworks, dropped libraries, new integrations |
 | **Code quality scan** | Daily 12 PM | Lint, duplication, complexity, stale dependencies |
-| **Trend watch** | Every 6 hrs | Model releases, framework updates, competitor tech |
+| **Trend watch** | Every 6 hrs | Model releases, framework updates, competitor tech — scored against *each* company's detected stack so a React shop gets React trends and an infra client gets infra trends |
 | **Company graph sync** | Every 30 min | Specialist health, runtime responsiveness, schedule status |
 | **Doc-sync** | On every push | API docs, architecture records, and runbooks auto-updated |
 
