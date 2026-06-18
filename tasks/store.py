@@ -66,6 +66,22 @@ class TaskStore:
                 return None
         return Task.model_validate(doc) if doc else None
 
+    async def find_by_source_id(self, source_id: str) -> Task | None:
+        """Return the task previously created for an external ``source_id``
+        (e.g. ``owner/repo#123``), or None. Used by issue-intake idempotency
+        (Autonomy Charter G3) so replaying a webhook never duplicates a task.
+        """
+        if not source_id:
+            return None
+        if self._mode == "mongo":
+            doc = await self._collection.find_one({"source_id": source_id}, {"_id": 0})
+        else:
+            doc = next(
+                (d for d in self._mem.values() if d.get("source_id") == source_id),
+                None,
+            )
+        return Task.model_validate(doc) if doc else None
+
     async def update(self, task: Task) -> Task:
         task.touch()
         doc = task.model_dump()
