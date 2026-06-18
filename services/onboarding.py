@@ -217,6 +217,21 @@ class OnboardingService:
                         "message": f"Scanned {len(scanned_repos)} repositories",
                         "details": {"repositories": [r.url for r in scanned_repos]}
                     })
+
+                    # Attach a RepoConnection + detected DeliveryPolicy for the
+                    # first GitHub repo (Autonomy Charter G5). Best-effort: a
+                    # failure here never blocks onboarding, and non-GitHub URLs
+                    # are skipped ("coming soon").
+                    for url in repo_urls:
+                        try:
+                            from services.repo_connection import attach_repo_connection
+                            conn = await attach_repo_connection(
+                                company_id, url, store=self.store
+                            )
+                            if conn is not None:
+                                break
+                        except Exception as e:  # noqa: BLE001 — best-effort
+                            log.warning("RepoConnection attach failed for %s: %s", url, e)
                 
                 # Step 4: Detect systems
                 progress.current_step = "detect_systems"
