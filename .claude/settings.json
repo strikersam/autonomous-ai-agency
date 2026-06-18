@@ -1,4 +1,17 @@
 {
+    "extraKnownMarketplaces": {
+        "thedotmack": {
+            "source": {
+                "source": "github",
+                "repo": "thedotmack/claude-mem",
+                "ref": "v13.6.2",
+                "sha": "dddb2d3e7d3886e1201503c209bf71d35e4bef7b"
+            }
+        }
+    },
+    "enabledPlugins": {
+        "claude-mem@thedotmack": true
+    },
     "hooks": {
         "SessionStart": [
             {

@@ -24,10 +24,11 @@ import time
 
 import httpx
 
+from router.circuit_breaker import get_circuit_breaker
+
 log = logging.getLogger("qwen-proxy")
 
-# ── Cache ─────────────────────────────────────────────────────────────────────
-
+# ── Cache ─────────────────────────────────────────────────────────────────────────────\n
 _cache_ts: float = 0.0
 _cache_models: set[str] = set()
 _SENTINEL = object()  # marks "never fetched" vs "fetched empty"
@@ -144,7 +145,7 @@ def is_model_available(model: str) -> bool:
       1. Exact match.
       2. Tag expansion: *model* has no tag, and an available name starts with
          ``model + ":"`` — e.g. ``qwen3-coder`` matches ``qwen3-coder:30b``.
-      3. Quantization suffix: *model* already includes a tag (``:``), and an
+      3. Quantization suffix: *model* already includes a tag (``:``) , and an
          available name starts with ``model + "-"`` or ``model + "_"`` — e.g.
          ``qwen3-coder:30b`` matches ``qwen3-coder:30b-q4_K_M``.
       4. Reverse tag expansion: an available name has no tag and *model* starts
@@ -159,7 +160,13 @@ def is_model_available(model: str) -> bool:
         return False
     available = get_available_models()
     if not available:  # empty = no filtering
+        if get_circuit_breaker().is_open(model):
+            log.debug("is_model_available(%r) → False (circuit OPEN)", model)
+            return False
         return True
+    if get_circuit_breaker().is_open(model):
+        log.debug("is_model_available(%r) → False (circuit OPEN)", model)
+        return False
     if model in available:
         return True
     model_has_tag = ":" in model
