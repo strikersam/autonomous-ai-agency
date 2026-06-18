@@ -1186,7 +1186,50 @@ class AgentRunner:
             or (urlparse(normalized_base).hostname or "").lower().endswith("anthropic.com")
         )
 
+        # Effective endpoint for the OpenAI-compatible fallback. Defaults to the
+        # configured Ollama/provider, but the free-brain guard below may override
+        # it to the free NVIDIA brain.
+        _call_base = self.ollama_base
+        _call_headers = dict(self.provider_headers)
+
+        # ── Free-brain policy guard (issue #656) ──────────────────────────────
+        # The agent runtime must NEVER call paid Anthropic/Bedrock unless the
+        # operator explicitly opted in via ALLOW_PAID_BRAIN=true. When the
+        # requested model is Anthropic-shaped (e.g. a stale
+        # AGENT_*_MODEL=us.anthropic.claude-opus-*), transparently route to the
+        # free NVIDIA brain instead. If no free brain is configured, refuse
+        # loudly rather than returning a confusing 400/401 from api.anthropic.com.
+        from brain_policy import (
+            allow_paid_brain as _allow_paid_brain_fn,
+            is_anthropic_model as _is_anthropic_model,
+            resolve_free_nvidia_brain as _resolve_free_nvidia_brain,
+        )
+        _paid_allowed = _allow_paid_brain_fn()
+        if (not _paid_allowed) and (_is_anthropic_model(model) or provider_is_anthropic):
+            _nv = _resolve_free_nvidia_brain()
+            if _nv is None:
+                raise RuntimeError(
+                    "Free-brain policy is active (ALLOW_PAID_BRAIN unset) but no "
+                    "free brain is configured. Set NVIDIA_API_KEY (free, "
+                    "https://build.nvidia.com) to run the agent on a free model. "
+                    f"Refusing to call paid Anthropic for model {model!r}."
+                )
+            _nv_base, _nv_headers, _nv_model = _nv
+            log.info(
+                "Free-brain policy: routing Anthropic-shaped agent model %r → "
+                "free NVIDIA brain %r",
+                model, _nv_model,
+            )
+            model = _nv_model
+            payload["model"] = _nv_model
+            _call_base = _nv_base
+            _call_headers = dict(_nv_headers)
+            normalized_base = _nv_base.rstrip("/")
+            explicit_provider_configured = True
+            provider_is_anthropic = False
+
         # Prefer Anthropic Opus when available for Claude/Opus-like models
+        # (only when the operator has explicitly opted into a paid brain).
         try:
             opus_model = None
             try:
@@ -1196,7 +1239,7 @@ class AgentRunner:
                 opus_model = None
             anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
             target_is_opus = "opus" in model.lower() or model.lower().startswith("claude")
-            if (not explicit_provider_configured) and anthropic_key and (target_is_opus or (opus_model and model == opus_model)):
+            if _paid_allowed and (not explicit_provider_configured) and anthropic_key and (target_is_opus or (opus_model and model == opus_model)):
                 try:
                     import anthropic as _anthropic
                     client = _anthropic.Anthropic(api_key=anthropic_key)
@@ -1249,7 +1292,7 @@ class AgentRunner:
                     log.debug("Anthropic Opus call failed (falling back to Ollama): %s", exc)
 
             # Bedrock fallback: used when only AWS credentials are set (no ANTHROPIC_API_KEY)
-            if (not explicit_provider_configured) and (not anthropic_key) and target_is_opus:
+            if _paid_allowed and (not explicit_provider_configured) and (not anthropic_key) and target_is_opus:
                 aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
                 aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
                 aws_region = (
@@ -1311,7 +1354,7 @@ class AgentRunner:
             # Any unexpected error should not break the normal Ollama path
             pass
 
-        if provider_is_anthropic:
+        if provider_is_anthropic and _paid_allowed:
             headers = {"Content-Type": "application/json", **self.provider_headers}
             system_parts: list[str] = []
             anthropic_messages: list[dict[str, str]] = []
@@ -1370,13 +1413,15 @@ class AgentRunner:
                     pass
             return out_text
 
-        # Fallback: call Ollama/OpenAI-compatible endpoint
-        headers = {"Content-Type": "application/json", **self.provider_headers}
+        # Fallback: call Ollama/OpenAI-compatible endpoint. Uses _call_base /
+        # _call_headers, which the free-brain guard above may have overridden to
+        # the free NVIDIA brain (issue #656).
+        headers = {"Content-Type": "application/json", **_call_headers}
         start = time.perf_counter()
         # Build the chat URL defensively: use _openai_url to prevent double /v1
-        # when ollama_base already ends with /v1 (e.g. Nvidia NIM).
+        # when the base already ends with /v1 (e.g. Nvidia NIM).
         from provider_router import _openai_url
-        chat_url = _openai_url(self.ollama_base, "/chat/completions")
+        chat_url = _openai_url(_call_base, "/chat/completions")
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             resp = await client.post(chat_url, json=payload, headers=headers)
         duration_ms = int((time.perf_counter() - start) * 1000)
