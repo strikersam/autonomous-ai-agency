@@ -7,12 +7,16 @@ wires them, is env-gated, and is idempotent.
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
+
 import pytest
 
 import agent.self_healing as sh
 import agent.log_monitor as lm
 import agent.improvement_loop as il
 import agent.trend_watcher as tw
+import services.background as bg
 from services.background import _start_autonomy_loops
 
 
@@ -32,16 +36,18 @@ def _reset_singletons_and_threads(monkeypatch):
     monkeypatch.setattr(sh.SelfHealingAgent, "start", lambda self: None)
     monkeypatch.setattr(il.ImprovementLoop, "start", lambda self: None)
     monkeypatch.setattr(lm.LogMonitor, "attach", lambda self: None)
-    # Reset all singletons before and after.
+    # Reset all singletons + the trend-poller handle before and after.
     sh.set_self_healing_agent(None)  # type: ignore[arg-type]
     lm.set_log_monitor(None)  # type: ignore[arg-type]
     il.set_improvement_loop(None)  # type: ignore[arg-type]
     tw.set_trend_watcher(None)  # type: ignore[arg-type]
+    bg._trend_watch_task = None
     yield
     sh.set_self_healing_agent(None)  # type: ignore[arg-type]
     lm.set_log_monitor(None)  # type: ignore[arg-type]
     il.set_improvement_loop(None)  # type: ignore[arg-type]
     tw.set_trend_watcher(None)  # type: ignore[arg-type]
+    bg._trend_watch_task = None
 
 
 def test_bootstrap_starts_all_loops_by_default(monkeypatch):
@@ -91,3 +97,22 @@ def test_bootstrap_is_idempotent(monkeypatch):
     _start_autonomy_loops(sched)  # second call must not replace existing singletons
     assert sh.get_self_healing_agent() is first_healer
     assert il.get_improvement_loop() is first_loop
+
+
+async def test_bootstrap_is_idempotent_with_running_loop(monkeypatch):
+    """Under a running event loop, repeated bootstrap must not spawn duplicate
+    trend-poller tasks (a duplicate would double trend fetch + fan-out)."""
+    for var in (
+        "AGENCY_IMPROVEMENT_ENABLED", "AGENCY_SELF_HEAL_ENABLED",
+        "AGENCY_LOG_MONITOR_ENABLED", "AGENCY_TREND_WATCH_ENABLED",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    sched = _FakeScheduler()
+    first = _start_autonomy_loops(sched)
+    second = _start_autonomy_loops(sched)
+    assert len(first) == 1          # exactly one trend poller scheduled
+    assert second == []             # second call schedules none (idempotent)
+    for t in first:
+        t.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await t

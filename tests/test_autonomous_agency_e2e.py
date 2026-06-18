@@ -43,9 +43,24 @@ class TestBackgroundAgentRetryLogic:
         """
         from agent.background import BackgroundAgent, BackgroundTask
 
+        import asyncio as _asyncio
+        import inspect as _inspect
+        _real_asyncio_run = _asyncio.run
+
         run_attempts: list[int] = []
         def mock_asyncio_run(coro):
-            """Simulate runner.run() failing twice then succeeding."""
+            """Simulate runner.run() failing twice then succeeding.
+
+            The code under test passes a MagicMock (``runner.run(...)``), not a
+            real coroutine. This test patches the *global* ``asyncio.run``, so a
+            stray ``asyncio.run`` from a concurrent daemon thread left running by
+            another test would otherwise inflate ``run_attempts`` and make this
+            test flaky (observed in the full-suite run + CI). Pass any real
+            coroutine straight through to the real ``asyncio.run`` so only the
+            intended retry calls are counted.
+            """
+            if _inspect.iscoroutine(coro):
+                return _real_asyncio_run(coro)
             run_attempts.append(len(run_attempts))
             if len(run_attempts) <= 2:
                 raise RuntimeError(f"Simulated failure {len(run_attempts)}")

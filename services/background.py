@@ -30,6 +30,10 @@ log = logging.getLogger("llm-wiki")
 
 _DEFAULT_POLL_INTERVAL = 10.0
 
+# Module-level handle to the single trend-watch poller task, so repeated
+# _start_autonomy_loops() calls never schedule a duplicate (idempotency).
+_trend_watch_task: "asyncio.Task | None" = None
+
 
 def run_background_in_web() -> bool:
     """Return True when the web process should also run background services."""
@@ -60,7 +64,16 @@ class BackgroundServices:
         log.info("Task dispatcher stopped")
         for t in self.autonomy_tasks:
             t.cancel()
-        # Stop the threaded autonomy engines (best-effort).
+        # Await the cancelled poller task(s) so they fully settle and their
+        # exceptions are observed before stop() returns.
+        if self.autonomy_tasks:
+            results = await asyncio.gather(*self.autonomy_tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
+                    log.warning("Autonomy task shutdown error: %s", result)
+        global _trend_watch_task
+        _trend_watch_task = None
+        # Stop the threaded autonomy engines (best-effort, but never silent).
         for getter in ("get_self_healing_agent", "get_improvement_loop"):
             try:
                 if getter == "get_self_healing_agent":
@@ -70,8 +83,8 @@ class BackgroundServices:
                 inst = _g()
                 if inst is not None:
                     inst.stop()
-            except Exception:  # noqa: BLE001 — shutdown is best-effort
-                pass
+            except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
+                log.warning("Failed to stop autonomy engine %s: %s", getter, exc)
         await self.runtime_manager.stop()
         log.info("RuntimeManager stopped")
 
@@ -211,9 +224,13 @@ def _start_autonomy_loops(scheduler: "AgentScheduler") -> list:
                 running = asyncio.get_running_loop()
             except RuntimeError:
                 running = None
-            if running is not None:
-                tasks.append(running.create_task(_trend_watch_loop()))
-            else:
+            # Idempotent: never schedule a second poller if one is already live
+            # (a duplicate would double trend fetches and the per-company fan-out).
+            global _trend_watch_task
+            if running is not None and (_trend_watch_task is None or _trend_watch_task.done()):
+                _trend_watch_task = running.create_task(_trend_watch_loop())
+                tasks.append(_trend_watch_task)
+            elif running is None:
                 log.info("TrendWatcher poller not started (no running event loop)")
         except Exception as exc:  # noqa: BLE001
             log.warning("TrendWatcher could not start: %s", exc)
@@ -221,15 +238,27 @@ def _start_autonomy_loops(scheduler: "AgentScheduler") -> list:
     return tasks
 
 
+def _env_float(name: str, default: float) -> float:
+    """Parse a float env var, falling back to *default* on a bad value (never raises)."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        log.warning("Invalid %s=%r; using default %s", name, raw, default)
+        return default
+
+
 async def _trend_watch_loop() -> None:
     """Periodically fetch trends (which fans out per-company scoped tasks, G4).
 
     Sleeps a short warm-up, then fetches when due and re-checks hourly. Defensive:
-    a transient fetch error never stops the loop.
+    a transient fetch error (or a bad timing env var) never stops the loop.
     """
     from agent.trend_watcher import get_trend_watcher
 
-    await asyncio.sleep(float(os.environ.get("TREND_WATCH_WARMUP_SEC", "60")))
+    await asyncio.sleep(_env_float("TREND_WATCH_WARMUP_SEC", 60.0))
     while True:
         try:
             watcher = get_trend_watcher()
@@ -239,7 +268,7 @@ async def _trend_watch_loop() -> None:
             raise
         except Exception as exc:  # noqa: BLE001
             log.warning("TrendWatcher fetch cycle error: %s", exc)
-        await asyncio.sleep(float(os.environ.get("TREND_WATCH_POLL_SEC", "3600")))
+        await asyncio.sleep(_env_float("TREND_WATCH_POLL_SEC", 3600.0))
 
 
 def _start_ceo_agency() -> None:
