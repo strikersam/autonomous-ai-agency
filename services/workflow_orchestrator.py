@@ -178,15 +178,24 @@ _BYPASS: contextvars.ContextVar[bool] = contextvars.ContextVar(
 def _allow_paid_brain() -> bool:
     """True when the operator explicitly opted into a paid (Anthropic) brain.
 
-    Default ``False``. The free-brain policy (Autonomy Charter / issue #656)
-    means the agent brain never silently calls a paid API: when no free
-    provider is configured it falls through to local Ollama instead of burning
-    Anthropic credits (and hitting confusing 400s on stale model ids). Set
-    ``ALLOW_PAID_BRAIN=true`` to permit paid Anthropic as a last resort.
+    Thin wrapper over the shared :func:`brain_policy.allow_paid_brain` so the
+    orchestrator and the ``agent/loop.py`` runtime share one source of truth
+    (issue #656). Default ``False`` — the brain never silently calls a paid API;
+    when no free provider is configured it falls through to local Ollama.
     """
-    return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+    try:
+        from brain_policy import allow_paid_brain
+        return allow_paid_brain()
+    except Exception as exc:  # noqa: BLE001 - defensive fallback, must stay free-only
+        # Surface the failure (operators must know the policy loader degraded),
+        # but still fall back to the raw env so we never accidentally enable paid.
+        log.warning(
+            "brain_policy.allow_paid_brain unavailable; falling back to ALLOW_PAID_BRAIN env: %s",
+            exc,
+        )
+        return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
 
 
 async def _resolve_brain_provider(
