@@ -44,6 +44,7 @@ class BackgroundServices:
     runtime_manager: "RuntimeManager"
     dispatcher: "TaskDispatcher"
     dispatcher_task: asyncio.Task  # type: ignore[type-arg]
+    autonomy_tasks: list = field(default_factory=list)  # type: ignore[type-arg]
     _stopped: bool = field(default=False, init=False, repr=False)
 
     async def stop(self) -> None:
@@ -57,6 +58,20 @@ class BackgroundServices:
         except asyncio.CancelledError:
             pass
         log.info("Task dispatcher stopped")
+        for t in self.autonomy_tasks:
+            t.cancel()
+        # Stop the threaded autonomy engines (best-effort).
+        for getter in ("get_self_healing_agent", "get_improvement_loop"):
+            try:
+                if getter == "get_self_healing_agent":
+                    from agent.self_healing import get_self_healing_agent as _g
+                else:
+                    from agent.improvement_loop import get_improvement_loop as _g
+                inst = _g()
+                if inst is not None:
+                    inst.stop()
+            except Exception:  # noqa: BLE001 — shutdown is best-effort
+                pass
         await self.runtime_manager.stop()
         log.info("RuntimeManager stopped")
 
@@ -111,12 +126,120 @@ async def start_background_services(
 
     _schedule_self_bootstrap()
     _start_ceo_agency()
+    autonomy_tasks = _start_autonomy_loops(scheduler)
 
     return BackgroundServices(
         runtime_manager=runtime_manager,
         dispatcher=dispatcher,
         dispatcher_task=dispatcher_task,
+        autonomy_tasks=autonomy_tasks,
     )
+
+
+def _env_on(name: str, default: str = "true") -> bool:
+    return os.environ.get(name, default).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _start_autonomy_loops(scheduler: "AgentScheduler") -> list:
+    """Bootstrap the autonomous loops that turn signals into work (the heart of
+    the Autonomy Charter). These engines existed but were **never started** in
+    production — their singletons stayed ``None``, so self-heal, log-driven fixes,
+    feature generation, and trend application silently never ran. Each is wired
+    here, env-gated, idempotent, and fully defensive (never crashes startup):
+
+      • ImprovementLoop  (Loop 2) — continuous TODO/coverage/perf signals → fix jobs.
+      • SelfHealingAgent (Loop 1 / G2) — failure signals → verified fixes.
+      • LogMonitor       (Loop 1) — runtime ERROR/CRITICAL logs → auto fix tasks.
+      • TrendWatcher     (Loop 4 / G4) — periodic trend fetch → per-company scoping.
+
+    The self-heal chain is LogMonitor → SelfHealingAgent → ImprovementLoop →
+    ``scheduler.create`` → dispatcher, so ImprovementLoop must be wired first.
+    Returns any asyncio tasks created (the trend poller) for shutdown cleanup.
+    """
+    tasks: list = []
+
+    # 1. ImprovementLoop — must exist before self-heal so _dispatch_fix lands work.
+    if _env_on("AGENCY_IMPROVEMENT_ENABLED"):
+        try:
+            from agent.improvement_loop import (
+                ImprovementLoop, get_improvement_loop, set_improvement_loop,
+            )
+            if get_improvement_loop() is None:
+                loop = ImprovementLoop(on_task=scheduler.create)
+                set_improvement_loop(loop)
+                loop.start()
+                log.info("ImprovementLoop started — continuous-improvement signals are live")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("ImprovementLoop could not start: %s", exc)
+
+    # 2. SelfHealingAgent — verification sweeper + heal ledger (G2).
+    if _env_on("AGENCY_SELF_HEAL_ENABLED"):
+        try:
+            from agent.self_healing import (
+                SelfHealingAgent, get_self_healing_agent, set_self_healing_agent,
+            )
+            if get_self_healing_agent() is None:
+                healer = SelfHealingAgent()
+                set_self_healing_agent(healer)
+                healer.start()
+                log.info("SelfHealingAgent started — failures now heal + self-verify (G2)")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("SelfHealingAgent could not start: %s", exc)
+
+    # 3. LogMonitor — runtime ERROR/CRITICAL → auto fix tasks (needs the healer).
+    if _env_on("AGENCY_LOG_MONITOR_ENABLED"):
+        try:
+            from agent.log_monitor import LogMonitor, get_log_monitor, set_log_monitor
+            if get_log_monitor() is None:
+                monitor = LogMonitor()
+                monitor.attach()
+                set_log_monitor(monitor)
+                log.info("LogMonitor attached — backend errors auto-create fix tasks (Loop 1)")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("LogMonitor could not start: %s", exc)
+
+    # 4. TrendWatcher — periodic fetch → per-company scoping (Loop 4 / G4).
+    if _env_on("AGENCY_TREND_WATCH_ENABLED"):
+        try:
+            from agent.trend_watcher import (
+                TrendWatcher, get_trend_watcher, set_trend_watcher,
+            )
+            if get_trend_watcher() is None:
+                set_trend_watcher(TrendWatcher())
+                log.info("TrendWatcher registered — periodic trend fetch + per-company scoping (G4)")
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            if running is not None:
+                tasks.append(running.create_task(_trend_watch_loop()))
+            else:
+                log.info("TrendWatcher poller not started (no running event loop)")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("TrendWatcher could not start: %s", exc)
+
+    return tasks
+
+
+async def _trend_watch_loop() -> None:
+    """Periodically fetch trends (which fans out per-company scoped tasks, G4).
+
+    Sleeps a short warm-up, then fetches when due and re-checks hourly. Defensive:
+    a transient fetch error never stops the loop.
+    """
+    from agent.trend_watcher import get_trend_watcher
+
+    await asyncio.sleep(float(os.environ.get("TREND_WATCH_WARMUP_SEC", "60")))
+    while True:
+        try:
+            watcher = get_trend_watcher()
+            if watcher is not None and watcher.due_for_fetch():
+                await watcher.fetch()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.warning("TrendWatcher fetch cycle error: %s", exc)
+        await asyncio.sleep(float(os.environ.get("TREND_WATCH_POLL_SEC", "3600")))
 
 
 def _start_ceo_agency() -> None:

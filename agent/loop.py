@@ -1199,11 +1199,45 @@ class AgentRunner:
         # AGENT_*_MODEL=us.anthropic.claude-opus-*), transparently route to the
         # free NVIDIA brain instead. If no free brain is configured, refuse
         # loudly rather than returning a confusing 400/401 from api.anthropic.com.
-        from brain_policy import (
-            allow_paid_brain as _allow_paid_brain_fn,
-            is_anthropic_model as _is_anthropic_model,
-            resolve_free_nvidia_brain as _resolve_free_nvidia_brain,
-        )
+        # Defense-in-depth: brain_policy is a top-level module. If it is ever
+        # missing from the runtime (e.g. a packaging/Docker gap), a bare import
+        # here would raise ModuleNotFoundError and brick ALL planning — exactly
+        # the "No module named brain_policy → blocked after 10 failed dispatch
+        # attempts" outage. Fall back to an inline free-only policy that mirrors
+        # brain_policy so the agent stays on the free NVIDIA brain and never
+        # silently escalates to paid Anthropic.
+        try:
+            from brain_policy import (
+                allow_paid_brain as _allow_paid_brain_fn,
+                is_anthropic_model as _is_anthropic_model,
+                resolve_free_nvidia_brain as _resolve_free_nvidia_brain,
+            )
+        except Exception as _bp_exc:  # noqa: BLE001 — never let a missing policy module brick planning
+            log.warning(
+                "brain_policy import failed (%s); using inline free-brain fallback "
+                "(paid Anthropic stays disabled).", _bp_exc,
+            )
+
+            def _allow_paid_brain_fn() -> bool:
+                return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in {"1", "true", "yes", "on"}
+
+            def _is_anthropic_model(_m: str | None) -> bool:
+                _s = (_m or "").strip().lower()
+                return bool(_s) and (
+                    _s.startswith(("claude", "us.anthropic", "anthropic"))
+                    or "anthropic." in _s
+                    or "opus" in _s
+                )
+
+            def _resolve_free_nvidia_brain():
+                _key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+                if not _key:
+                    return None
+                _base = (os.environ.get("NVIDIA_BASE_URL") or "").strip().rstrip("/") or "https://integrate.api.nvidia.com"
+                if not _base.endswith("/v1"):
+                    _base = f"{_base}/v1"
+                _model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or "nvidia/nemotron-3-ultra-550b-a55b"
+                return _base, {"Authorization": f"Bearer {_key}"}, _model
         _paid_allowed = _allow_paid_brain_fn()
         if (not _paid_allowed) and (_is_anthropic_model(model) or provider_is_anthropic):
             _nv = _resolve_free_nvidia_brain()
