@@ -63,6 +63,19 @@ COPY activation.py activation.py
 COPY activation_api.py activation_api.py
 COPY infra_cost.py infra_cost.py
 COPY telegram_bot.py telegram_bot.py
+# Ship ALL remaining root-level Python modules. They used to be copied one-by-one,
+# which silently dropped newly-added top-level modules from the image and caused
+# "works locally, ModuleNotFound in prod" outages:
+#   • brain_policy.py    → "No module named brain_policy" crashed the agent brain
+#                          (internal_agent planning) → every CEO/agent task blocked
+#                          "after 10 failed dispatch attempts".
+#   • telegram_service.py → NotificationDispatcher missing → the Telegram approval
+#                          gate (G1) and self-heal escalation (G2) never fired.
+#   • social_auth.py / chat_handlers.py / audit.py / worker_main.py (the worker's
+#                          own `python worker_main.py` start command) — all missing.
+# Copying *.py wholesale prevents that entire class of regression. Extra CLI/dev
+# scripts being present in the image is harmless.
+COPY *.py ./
 COPY models/ models/
 COPY services/ services/
 # Ship the skill library so /api/skills (SkillRegistry._index_local) finds the
