@@ -55,6 +55,22 @@ def _redact_for_notification(text: str) -> str:
     return redacted
 
 
+def _escape_md_v1(text: str) -> str:
+    """Escape Telegram Markdown-v1 reserved chars in free-text fields.
+
+    Markdown-v1 (``parse_mode="Markdown"``) treats ``_ * ` [`` as formatting
+    delimiters; an unbalanced one makes Telegram reject the whole message with
+    "can't parse entities". Escaping with a leading backslash keeps user text
+    literal. Apply only to free text, not to content already inside `code`
+    spans (where these chars are not interpreted).
+    """
+    if not text:
+        return text
+    for ch in ("\\", "_", "*", "`", "["):
+        text = text.replace(ch, "\\" + ch)
+    return text
+
+
 def _creationflags() -> int:
     return getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
@@ -321,17 +337,22 @@ class NotificationDispatcher:
         if not self.telegram_token or not self.telegram_chat_ids:
             return False
 
+        # User-derived text (goal/risk/steps) is interpolated into a Markdown-v1
+        # payload. Unescaped reserved chars (_ * ` [) make Telegram reject the
+        # message ("can't parse entities") and the gate push is silently dropped.
+        # run_id/company_id sit inside `code` spans, where Markdown-v1 does not
+        # interpret those chars, so only the free-text fields need escaping.
         lines = [f"*Approval needed* — run `{run_id}`"]
         if company_id:
             lines.append(f"Company: `{company_id}`")
-        lines.append(f"Goal: {_redact_for_notification(goal)[:500]}")
+        lines.append(f"Goal: {_escape_md_v1(_redact_for_notification(goal)[:500])}")
         if risk_reason:
-            lines.append(f"Risk: {_redact_for_notification(risk_reason)[:300]}")
+            lines.append(f"Risk: {_escape_md_v1(_redact_for_notification(risk_reason)[:300])}")
         if plan_steps:
             lines.append("")
             lines.append("*Plan:*")
             for i, step in enumerate(plan_steps[:5], start=1):
-                lines.append(f"{i}. {_redact_for_notification(str(step))[:160]}")
+                lines.append(f"{i}. {_escape_md_v1(_redact_for_notification(str(step))[:160])}")
         text = "\n".join(lines)
 
         keyboard = [[

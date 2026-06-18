@@ -142,6 +142,11 @@ _rate_buckets: dict[int, list[float]] = defaultdict(list)
 # In-memory FreeBuff session state: user_id → {task, models, model}
 _freebuff_state: dict[int, dict] = {}
 
+# Strong references to fire-and-forget background tasks (e.g. the approval-gate
+# resume). Without this, asyncio may garbage-collect a running task mid-flight
+# (Ruff RUF006). Tasks remove themselves on completion.
+_bg_tasks: set[asyncio.Task] = set()
+
 
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
 
@@ -647,14 +652,24 @@ async def _process_wfo_callback(
             await _edit_message(bot_token, chat_id, message_id, f"ℹ️ Run `{run_id}`: {exc}")
             return
 
+        # Queue the resume FIRST, before the best-effort Telegram UI updates
+        # below (Codex P2): if _answer_callback/_edit_message raised a transport
+        # error after approve() but before scheduling, the run would be left
+        # approved-but-not-queued (stuck awaiting_approval). approve_async is
+        # idempotent on the approval transition (the sync approve() above
+        # already validated + transitioned the run), and resumes via the FIFO
+        # queue / inline fallback without blocking the bot's update loop.
+        _task = asyncio.create_task(
+            orchestrator.approve_async(run_id, approved_by=f"telegram:{user_id}")
+        )
+        _bg_tasks.add(_task)
+        _task.add_done_callback(_bg_tasks.discard)
+
         await _answer_callback(bot_token, callback_id, "Approved — resuming…")
         await _edit_message(
             bot_token, chat_id, message_id,
             f"✅ Approved by telegram:{user_id}. Resuming run `{run_id}`…",
         )
-        # Resume asynchronously (FIFO queue or inline fallback) without
-        # blocking the bot's update loop on a long-running execution.
-        asyncio.create_task(orchestrator.approve_async(run_id, approved_by=f"telegram:{user_id}"))
         return
 
     if action == "wfo_reject":

@@ -825,8 +825,10 @@ class WorkflowOrchestrator:
                 plan_steps=steps,
                 risk_reason=risk_reason,
             )
-        except Exception as exc:
-            log.debug("Approval-gate notify failed for run %s (non-fatal): %s", run.run_id, exc)
+        except Exception as exc:  # noqa: BLE001 - best-effort cross-cutting notify
+            # WARNING (not DEBUG): a failed approval-gate push means the operator
+            # silently loses the alert channel while the run still pauses.
+            log.warning("Approval-gate notify failed for run %s (non-fatal): %s", run.run_id, exc)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -1042,8 +1044,18 @@ class WorkflowOrchestrator:
         Returns IMMEDIATELY (the caller gets 202) — the run executes asynchronously
         when a concurrency slot opens.  This prevents the approve endpoint from
         blocking (and timing out) on long-running executions.
+
+        Idempotent on the approval transition (#652 review): the Telegram gate
+        calls ``approve()`` synchronously first (fast validation + correct inline
+        feedback) and *then* fires ``approve_async()`` to resume. If the run is
+        already approved we skip the redundant second transition/log and just
+        enqueue it — avoiding a double-approve race.
         """
-        run = self.approve(run_id, approved_by=approved_by)
+        run = self._runs.get(run_id)
+        if run is None:
+            raise KeyError(f"WorkflowRun {run_id!r} not found")
+        if not run.approved:
+            run = self.approve(run_id, approved_by=approved_by)
         try:
             from services.orchestrator_queue import get_orchestrator_queue
             queue = get_orchestrator_queue()

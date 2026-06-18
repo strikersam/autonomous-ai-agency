@@ -90,7 +90,7 @@ If you're the only operator, set `TELEGRAM_CHAT_ID` to your numeric user ID
 and skip `TELEGRAM_ALLOWED_USER_IDS` / `TELEGRAM_ADMIN_USER_IDS` /
 `TELEGRAM_NOTIFY_CHAT_IDS` entirely — `TELEGRAM_CHAT_ID` is used as a fallback
 for all of them, for both bot auth and the
-[Telegram approval gate](../autonomy/AUTONOMY_CHARTER.md) notifications:
+[Telegram approval gate](autonomy/AUTONOMY_CHARTER.md) notifications:
 
 ```env
 TELEGRAM_BOT_TOKEN=your-token
@@ -268,12 +268,12 @@ The 30-second window is hard-coded in `APPROVAL_TIMEOUT_SECONDS`. The pending st
 
 ## Workflow Orchestrator Approval Gate (🔴 Telegram gate)
 
-When the [Autonomy Charter](../autonomy/AUTONOMY_CHARTER.md)'s agentic SDLC loop
+When the [Autonomy Charter](autonomy/AUTONOMY_CHARTER.md)'s agentic SDLC loop
 (`services/workflow_orchestrator.py`) produces a plan for a 🔴 action (see the
 Gate Matrix), the run pauses with `status="awaiting_approval"` and the bot
 **proactively pushes** a message — no command needed:
 
-```
+```text
 Approval needed — run `wfo_a1b2c3d4e5f6`
 Company: acme-co
 Goal: Upgrade the payments webhook signature verification...

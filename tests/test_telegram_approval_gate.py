@@ -153,7 +153,9 @@ def test_send_approval_gate_redacts_goal_and_steps(_inline_threads):
     assert "alice@example.com" not in text
     assert "bob@example.com" not in text
     assert "sk-abcdefghijklmnop1234" not in text
-    assert "<EMAIL_REDACTED>" in text
+    # The EMAIL placeholder is present; its underscore is Markdown-v1 escaped
+    # (backslash) so Telegram does not interpret it as an italic delimiter.
+    assert "<EMAIL\\_REDACTED>" in text
 
 
 def test_send_approval_gate_sends_to_all_configured_chats(_inline_threads):
