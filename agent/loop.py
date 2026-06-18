@@ -1242,7 +1242,7 @@ class AgentRunner:
             if _paid_allowed and (not explicit_provider_configured) and anthropic_key and (target_is_opus or (opus_model and model == opus_model)):
                 try:
                     import anthropic as _anthropic
-                    client = _anthropic.Anthropic(api_key=anthropic_key)
+                    client = _anthropic.AsyncAnthropic(api_key=anthropic_key)
                     # Split off system message (Anthropic expects a separate system arg)
                     system_content = None
                     anth_messages: list[dict[str, str]] = []
@@ -1252,7 +1252,7 @@ class AgentRunner:
                         else:
                             anth_messages.append({"role": m.get("role"), "content": m.get("content")})
                     use_model = opus_model if opus_model else model
-                    resp = client.messages.create(
+                    resp = await client.messages.create(
                         model=use_model,
                         max_tokens=4096,
                         system=system_content or "",
@@ -1305,7 +1305,7 @@ class AgentRunner:
                 if aws_access and aws_secret:
                     try:
                         import anthropic as _anthropic
-                        bedrock_client = _anthropic.AnthropicBedrock(
+                        bedrock_client = _anthropic.AsyncAnthropicBedrock(
                             aws_access_key=aws_access,
                             aws_secret_key=aws_secret,
                             aws_region=aws_region,
@@ -1317,7 +1317,7 @@ class AgentRunner:
                                 system_content = m.get("content")
                             else:
                                 anth_messages.append({"role": m.get("role"), "content": m.get("content")})
-                        resp = bedrock_client.messages.create(
+                        resp = await bedrock_client.messages.create(
                             model=bedrock_model,
                             max_tokens=4096,
                             system=system_content or "",

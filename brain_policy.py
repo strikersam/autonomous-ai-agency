@@ -63,10 +63,8 @@ def resolve_free_nvidia_brain() -> tuple[str, dict, str] | None:
     key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
     if not key:
         return None
-    base = (
-        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
-    ).strip().rstrip("/")
+    base = (os.environ.get("NVIDIA_BASE_URL") or "").strip().rstrip("/") or "https://integrate.api.nvidia.com"
     if not base.endswith("/v1"):
         base = f"{base}/v1"
-    model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or DEFAULT_FREE_NVIDIA_MODEL).strip()
+    model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or DEFAULT_FREE_NVIDIA_MODEL
     return base, {"Authorization": f"Bearer {key}"}, model

@@ -8,6 +8,8 @@ present. Instead it transparently routes to the free NVIDIA brain.
 """
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 import brain_policy
@@ -74,7 +76,7 @@ class _FakeResponse:
 class _FakeAsyncClient:
     """Captures the POST url/json/headers so tests can assert the endpoint."""
 
-    captured: dict = {}
+    captured: ClassVar[dict] = {}
 
     def __init__(self, *args, **kwargs):
         pass

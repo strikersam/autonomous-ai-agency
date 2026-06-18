@@ -186,8 +186,13 @@ def _allow_paid_brain() -> bool:
     try:
         from brain_policy import allow_paid_brain
         return allow_paid_brain()
-    except Exception:
-        # Defensive: if the shared module is somehow unavailable, stay free-only.
+    except Exception as exc:  # noqa: BLE001 - defensive fallback, must stay free-only
+        # Surface the failure (operators must know the policy loader degraded),
+        # but still fall back to the raw env so we never accidentally enable paid.
+        log.warning(
+            "brain_policy.allow_paid_brain unavailable; falling back to ALLOW_PAID_BRAIN env: %s",
+            exc,
+        )
         return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in {
             "1", "true", "yes", "on",
         }
