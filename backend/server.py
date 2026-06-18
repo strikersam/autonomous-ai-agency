@@ -1983,6 +1983,45 @@ async def github_status(user: dict = Depends(get_current_user)):
     }
 
 
+@app.post("/api/webhooks/github")
+async def github_webhook(request: Request):
+    """Auto issue→task intake (Autonomy Charter G3).
+
+    HMAC-verified GitHub webhook receiver. ``issues`` events carrying the opt-in
+    label (``ISSUE_INTAKE_LABEL``) become typed Task records, idempotently by
+    ``owner/repo#number``. Unsigned/tampered payloads are rejected with 401.
+    Configure ``GITHUB_WEBHOOK_SECRET`` to enable; unset → 503 (disabled).
+    """
+    raw = await request.body()
+    secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="GITHUB_WEBHOOK_SECRET not configured")
+
+    from tasks.issue_intake import verify_signature, intake_issue
+
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not verify_signature(secret, raw, signature):
+        raise HTTPException(status_code=401, detail="invalid or missing signature")
+
+    event = request.headers.get("X-GitHub-Event", "")
+    if event == "ping":
+        return {"ok": True, "pong": True}
+    if event != "issues":
+        return {"ok": True, "skipped": f"event '{event}' not handled"}
+
+    try:
+        payload = json.loads(raw)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid JSON payload")
+
+    task = await intake_issue(payload)
+    return {
+        "ok": True,
+        "created": task is not None,
+        "task_id": task.task_id if task else None,
+    }
+
+
 @app.get("/api/auth/google/login")
 async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID:
