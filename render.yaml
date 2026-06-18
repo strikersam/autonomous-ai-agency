@@ -42,20 +42,24 @@ services:
         sync: false
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
+      # Powerful FREE NVIDIA NIM brain (issue #656). Was the dead
+      # nvidia/nemotron-3-super-120b-a12b. nemotron-3-ultra-550b is the largest
+      # free cloud model: https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
 
-      # Agent model defaults — Bedrock Opus 4.6 (highest confirmed-accessible Opus)
-      # Routing: us.anthropic.* model IDs are exclusive to the bedrock provider;
-      # Nvidia NIM and other providers are bypassed automatically.
+      # Agent brain roles run on the FREE NVIDIA ultra model — NOT paid Anthropic
+      # Bedrock Opus. Pinning these to us.anthropic.* is what made every agent
+      # task call api.anthropic.com and fail with 400 (issue #656). Set
+      # ALLOW_PAID_BRAIN=true only to deliberately opt back into paid Anthropic.
       - key: AGENT_PLANNER_MODEL
-        value: "us.anthropic.claude-opus-4-6-v1"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       - key: AGENT_EXECUTOR_MODEL
-        value: "us.anthropic.claude-opus-4-6-v1"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       - key: AGENT_VERIFIER_MODEL
-        value: "us.anthropic.claude-opus-4-6-v1"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       - key: AGENT_JUDGE_MODEL
-        value: "us.anthropic.claude-opus-4-6-v1"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
 
       # LLM Provider
       - key: LLM_PROVIDER
@@ -250,6 +254,13 @@ services:
         value: "true"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      # Single-operator shortcut: TELEGRAM_CHAT_ID alone is enough — it falls
+      # back for TELEGRAM_ALLOWED_USER_IDS, TELEGRAM_ADMIN_USER_IDS, and the
+      # Telegram approval-gate / notification pushes (Autonomy Charter G1).
+      # TELEGRAM_ALLOWED_USER_IDS / TELEGRAM_ADMIN_USER_IDS below are optional
+      # overrides — set them only if they must differ from TELEGRAM_CHAT_ID.
+      - key: TELEGRAM_CHAT_ID
+        sync: false
       - key: TELEGRAM_ALLOWED_USER_IDS
         sync: false
       - key: TELEGRAM_ADMIN_USER_IDS
@@ -291,18 +302,34 @@ services:
         sync: false
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
+      # Powerful FREE NVIDIA NIM brain (issue #656). Was the dead
+      # nvidia/nemotron-3-super-120b-a12b — agents 400'd on it.
+      # https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
+      # Agent brain roles run on the FREE NVIDIA ultra model — NOT paid Anthropic
+      # Bedrock Opus (issue #656: agents were stuck calling api.anthropic.com /
+      # Bedrock and 400ing). Set ALLOW_PAID_BRAIN=true only to opt back into paid.
       - key: AGENT_PLANNER_MODEL
-        value: "us.anthropic.claude-opus-4-6-v1"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       - key: AGENT_EXECUTOR_MODEL
-        value: "us.anthropic.claude-opus-4-6-v1"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       - key: AGENT_VERIFIER_MODEL
-        value: "us.anthropic.claude-opus-4-6-v1"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       - key: AGENT_JUDGE_MODEL
-        value: "us.anthropic.claude-opus-4-6-v1"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
+      # Telegram approval-gate pushes when this worker runs the orchestrator
+      # (RUN_BACKGROUND_IN_WEB=false). It only SENDS notifications; the web
+      # service owns the long-poll for Approve/Reject callbacks. TELEGRAM_CHAT_ID
+      # alone is enough (falls back for NOTIFY_CHAT_IDS). (issue #656 / G1)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: TELEGRAM_NOTIFY_CHAT_IDS
+        sync: false
       - key: AWS_ACCESS_KEY_ID
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
@@ -343,13 +370,25 @@ services:
     dockerfilePath: ./Dockerfile.telegram
     plan: free
     envVars:
-      # Telegram (from @BotFather and @userinfobot)
+      # Telegram (from @BotFather and @userinfobot). TELEGRAM_CHAT_ID alone is
+      # enough — it falls back for ALLOWED_USER_IDS/ADMIN_USER_IDS too.
       - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
         sync: false
       - key: TELEGRAM_ALLOWED_USER_IDS
         sync: false
       - key: TELEGRAM_ADMIN_USER_IDS
         sync: false
+      # Single-poller guard (issue #656): Telegram allows only ONE getUpdates
+      # consumer per bot token. The web service (local-llm-server) owns the
+      # long-poll because it also runs the WorkflowOrchestrator in-process
+      # (RUN_BACKGROUND_IN_WEB=true), which the G1 approval-gate Approve/Reject
+      # callbacks need. If this worker shares the same TELEGRAM_BOT_TOKEN, keep
+      # this "true" so it does NOT poll (avoids the 409/429 conflict storm).
+      # Give it a SEPARATE bot token and set this to "false" to run two bots.
+      - key: TELEGRAM_POLLER_DISABLED
+        value: "true"
       # FreeBuff embedded-mode config
       - key: FREEBUFF_EMBEDDED
         value: "true"

@@ -175,6 +175,20 @@ _BYPASS: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 
 
+def _allow_paid_brain() -> bool:
+    """True when the operator explicitly opted into a paid (Anthropic) brain.
+
+    Default ``False``. The free-brain policy (Autonomy Charter / issue #656)
+    means the agent brain never silently calls a paid API: when no free
+    provider is configured it falls through to local Ollama instead of burning
+    Anthropic credits (and hitting confusing 400s on stale model ids). Set
+    ``ALLOW_PAID_BRAIN=true`` to permit paid Anthropic as a last resort.
+    """
+    return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 async def _resolve_brain_provider(
     exclude_base_urls: set[str] | None = None,
 ) -> tuple[str, dict | None, str | None]:
@@ -271,11 +285,22 @@ async def _resolve_brain_provider(
         # OpenRouter, etc.) — never auto-select paid Anthropic.
         picked = _pick(allow_paid=False)
         if picked is None and not _has_usable_free_provider():
-            # No free provider is configured at all — only then allow paid
-            # (Anthropic) as a manual-only last-resort fallback. The operator
-            # can still disable it by setting AGENT_LLM_BASE_URL to another
-            # provider or by removing the ANTHROPIC_API_KEY env var.
-            picked = _pick(allow_paid=True)
+            # No free provider is configured at all. Per the Autonomy Charter
+            # free-brain policy (issue #656), the brain does NOT silently
+            # escalate to paid Anthropic: that both burns credits AND, when the
+            # Anthropic model id is stale, returns a confusing "400 Bad Request"
+            # that blocks every dispatched task after 10 retries. The operator
+            # must opt in explicitly via ALLOW_PAID_BRAIN=true. Otherwise we
+            # fall through to local Ollama and log the one action that fixes it.
+            if _allow_paid_brain():
+                picked = _pick(allow_paid=True)
+            else:
+                log.warning(
+                    "No free brain provider configured and ALLOW_PAID_BRAIN is not set "
+                    "— falling back to local Ollama. Set NVIDIA_API_KEY for a free cloud "
+                    "brain (https://build.nvidia.com), or ALLOW_PAID_BRAIN=true to permit "
+                    "paid Anthropic as a last resort."
+                )
         if picked is not None:
             base, headers, model = picked
             log.info(
@@ -776,6 +801,35 @@ class WorkflowOrchestrator:
         except Exception as exc:
             log.debug("Checkpoint save failed for run %s (non-fatal): %s", run.run_id, exc)
 
+    async def _notify_approval_gate(self, run: WorkflowRun, req: ExecutionRequest) -> None:
+        """Proactively push a Telegram approval-gate message (Autonomy Charter G1).
+
+        Best-effort and non-fatal: a notification failure must not block the
+        golden path — the run still sits in ``awaiting_approval`` and remains
+        visible via the API/board regardless.
+        """
+        try:
+            from telegram_service import NotificationDispatcher
+
+            plan = run.plan
+            goal = plan.goal if plan is not None else req.request
+            steps = [str(s.get("description", s)) for s in (plan.steps if plan is not None else [])]
+            risk_reason = ""
+            if plan is not None and plan.requires_risky_review:
+                risk_reason = "Plan touches a sensitive/risky path (requires_risky_review=true)."
+
+            NotificationDispatcher().send_approval_gate(
+                run_id=run.run_id,
+                company_id=run.company_id,
+                goal=goal,
+                plan_steps=steps,
+                risk_reason=risk_reason,
+            )
+        except Exception as exc:  # noqa: BLE001 - best-effort cross-cutting notify
+            # WARNING (not DEBUG): a failed approval-gate push means the operator
+            # silently loses the alert channel while the run still pauses.
+            log.warning("Approval-gate notify failed for run %s (non-fatal): %s", run.run_id, exc)
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     async def _run_phase_with_timeout(
@@ -943,6 +997,7 @@ class WorkflowOrchestrator:
                 if phase == Phase.PLAN and not req.auto_approve and not run.approved:
                     run.status = "awaiting_approval"
                     await self._checkpoint(run)
+                    await self._notify_approval_gate(run, req)
                     log.info(
                         "WorkflowOrchestrator: run=%s PAUSED at ApprovalGate — "
                         "call approve() to continue",
@@ -989,8 +1044,28 @@ class WorkflowOrchestrator:
         Returns IMMEDIATELY (the caller gets 202) — the run executes asynchronously
         when a concurrency slot opens.  This prevents the approve endpoint from
         blocking (and timing out) on long-running executions.
+
+        Idempotent on the approval transition (#652 review): the Telegram gate
+        calls ``approve()`` synchronously first (fast validation + correct inline
+        feedback) and *then* fires ``approve_async()`` to resume. If the run is
+        already approved we skip the redundant second transition/log and just
+        enqueue it — avoiding a double-approve race.
         """
-        run = self.approve(run_id, approved_by=approved_by)
+        run = self._runs.get(run_id)
+        if run is None:
+            raise KeyError(f"WorkflowRun {run_id!r} not found")
+        # Reject repeat approvals before enqueueing (Codex P2): the API approve
+        # route calls approve_async() directly, so a retry/double-click on an
+        # already-approved run (now queued/running/done) must NOT be enqueued
+        # again — OrchestratorQueue has no dedup and runs 2 concurrently, which
+        # would duplicate side effects (commits/PRs). We keep the same
+        # status==awaiting_approval guard approve() enforces, then only skip the
+        # redundant approval *transition* when the Telegram gate already ran the
+        # synchronous approve() (approved=True, status still awaiting_approval).
+        if run.status != "awaiting_approval":
+            raise ValueError(f"Run {run_id} is {run.status!r}, not awaiting_approval")
+        if not run.approved:
+            run = self.approve(run_id, approved_by=approved_by)
         try:
             from services.orchestrator_queue import get_orchestrator_queue
             queue = get_orchestrator_queue()

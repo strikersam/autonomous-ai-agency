@@ -159,15 +159,7 @@ def test_brain_falls_through_to_ollama_when_all_free_excluded(monkeypatch):
     )
 
 
-def test_brain_allows_paid_when_no_free_configured(monkeypatch):
-    """When the ONLY configured provider is a paid one (e.g. operator set
-    ANTHROPIC_API_KEY and no other keys), the brain resolver must still
-    return that paid provider — we don't want to break single-tenant setups
-    that legitimately rely on Anthropic. The "never auto-pick paid" rule
-    only applies when a free alternative exists.
-    """
-    from services import workflow_orchestrator
-
+def _only_anthropic_records():
     async def fake_records():
         return [
             {
@@ -180,16 +172,52 @@ def test_brain_allows_paid_when_no_free_configured(monkeypatch):
             },
         ]
 
+    return fake_records
+
+
+def test_brain_does_not_escalate_to_paid_by_default(monkeypatch):
+    """Free-brain policy (issue #656): when the ONLY configured provider is a
+    paid one (Anthropic) and ALLOW_PAID_BRAIN is unset, the brain must NOT
+    silently call Anthropic — that burns credits and, on a stale model id,
+    returns a 400 that blocks every task. It must fall through to local Ollama.
+    """
+    from services import workflow_orchestrator
+
+    monkeypatch.delenv("ALLOW_PAID_BRAIN", raising=False)
     monkeypatch.setattr(
         "backend.server._list_configured_provider_records",
-        fake_records,
+        _only_anthropic_records(),
+        raising=False,
+    )
+
+    base, _headers, _model = _run(workflow_orchestrator._resolve_brain_provider())
+    assert "anthropic" not in base.lower(), (
+        f"Brain must not silently escalate to paid Anthropic by default. Got base={base!r}"
+    )
+    assert "localhost" in base.lower() or "127.0.0.1" in base.lower() or "ollama" in base.lower(), (
+        f"Brain should fall through to local Ollama when only paid is configured "
+        f"and ALLOW_PAID_BRAIN is unset. Got base={base!r}"
+    )
+
+
+def test_brain_allows_paid_when_explicitly_opted_in(monkeypatch):
+    """When the ONLY configured provider is paid AND the operator explicitly
+    sets ALLOW_PAID_BRAIN=true, the brain resolver returns that paid provider —
+    single-tenant setups that legitimately rely on Anthropic can still opt in.
+    """
+    from services import workflow_orchestrator
+
+    monkeypatch.setenv("ALLOW_PAID_BRAIN", "true")
+    monkeypatch.setattr(
+        "backend.server._list_configured_provider_records",
+        _only_anthropic_records(),
         raising=False,
     )
 
     base, _headers, _model = _run(workflow_orchestrator._resolve_brain_provider())
     assert "anthropic" in base.lower(), (
-        f"Operator with only Anthropic configured must still get Anthropic. "
-        f"Got base={base!r}"
+        f"With ALLOW_PAID_BRAIN=true and only Anthropic configured, the operator "
+        f"must still get Anthropic. Got base={base!r}"
     )
 
 

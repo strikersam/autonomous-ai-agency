@@ -380,6 +380,24 @@ class TestApprovalGate:
         with pytest.raises(KeyError, match="not found"):
             orchestrator.approve("nonexistent")
 
+    async def test_approve_async_rejects_already_queued_run(self):
+        """Codex P2: a repeat approve (double-click / retry) on a run that is no
+        longer awaiting_approval (e.g. already queued) must NOT be re-enqueued —
+        otherwise OrchestratorQueue (no dedup, 2 concurrent) executes it twice and
+        duplicates side effects (commits/PRs). approve_async must raise instead."""
+        from services.workflow_orchestrator import (
+            WorkflowRun, get_workflow_orchestrator, reset_orchestrator,
+        )
+        reset_orchestrator()
+        orchestrator = get_workflow_orchestrator()
+        run = WorkflowRun()
+        run.status = "queued"          # already past approval
+        run.approved = True
+        orchestrator._runs[run.run_id] = run
+
+        with pytest.raises(ValueError, match="not awaiting_approval"):
+            await orchestrator.approve_async(run.run_id)
+
     async def test_read_only_task_passes_verify_without_file_changes(self):
         """A review/audit task with output but no changed files must VERIFY pass."""
         from services.workflow_orchestrator import (
@@ -430,6 +448,129 @@ class TestApprovalGate:
 
         with pytest.raises(ValueError, match="not awaiting_approval"):
             orchestrator.approve(run.run_id)
+
+
+# ── Test: proactive Telegram push on ApprovalGate (Autonomy Charter G1) ───────
+
+
+class TestApprovalGateNotification:
+    """The ApprovalGate must proactively notify Telegram when a run pauses."""
+
+    async def test_notify_approval_gate_calls_send_approval_gate(self, monkeypatch):
+        from services.workflow_orchestrator import (
+            ExecutionRequest,
+            PlanOutput,
+            WorkflowRun,
+            get_workflow_orchestrator,
+            reset_orchestrator,
+        )
+
+        reset_orchestrator()
+        orchestrator = get_workflow_orchestrator()
+
+        run = WorkflowRun(company_id="acme-co")
+        run.plan = PlanOutput(
+            goal="Upgrade payments webhook signature verification",
+            steps=[
+                {"description": "Update signature check"},
+                {"description": "Add regression test"},
+            ],
+            requires_risky_review=True,
+        )
+        req = ExecutionRequest(request="upgrade payments webhook")
+
+        captured: dict = {}
+
+        class _FakeDispatcher:
+            def send_approval_gate(self, **kwargs):
+                captured.update(kwargs)
+                return True
+
+        monkeypatch.setattr("telegram_service.NotificationDispatcher", _FakeDispatcher)
+
+        await orchestrator._notify_approval_gate(run, req)
+
+        assert captured["run_id"] == run.run_id
+        assert captured["company_id"] == "acme-co"
+        assert captured["goal"] == "Upgrade payments webhook signature verification"
+        assert captured["plan_steps"] == ["Update signature check", "Add regression test"]
+        assert "risky" in captured["risk_reason"].lower()
+
+    async def test_notify_approval_gate_uses_request_text_when_no_plan(self, monkeypatch):
+        from services.workflow_orchestrator import (
+            ExecutionRequest,
+            WorkflowRun,
+            get_workflow_orchestrator,
+            reset_orchestrator,
+        )
+
+        reset_orchestrator()
+        orchestrator = get_workflow_orchestrator()
+
+        run = WorkflowRun()
+        req = ExecutionRequest(request="do the thing")
+
+        captured: dict = {}
+
+        class _FakeDispatcher:
+            def send_approval_gate(self, **kwargs):
+                captured.update(kwargs)
+                return True
+
+        monkeypatch.setattr("telegram_service.NotificationDispatcher", _FakeDispatcher)
+
+        await orchestrator._notify_approval_gate(run, req)
+
+        assert captured["goal"] == "do the thing"
+        assert captured["plan_steps"] == []
+        assert captured["risk_reason"] == ""
+
+    async def test_notify_approval_gate_is_non_fatal(self, monkeypatch):
+        """A notification failure must never break the ApprovalGate pause."""
+        from services.workflow_orchestrator import (
+            ExecutionRequest,
+            WorkflowRun,
+            get_workflow_orchestrator,
+            reset_orchestrator,
+        )
+
+        reset_orchestrator()
+        orchestrator = get_workflow_orchestrator()
+
+        run = WorkflowRun()
+        req = ExecutionRequest(request="do the thing")
+
+        class _BoomDispatcher:
+            def send_approval_gate(self, **kwargs):
+                raise RuntimeError("telegram down")
+
+        monkeypatch.setattr("telegram_service.NotificationDispatcher", _BoomDispatcher)
+
+        # Must not raise.
+        await orchestrator._notify_approval_gate(run, req)
+
+    async def test_execute_invokes_notify_on_approval_gate_pause(self, monkeypatch):
+        from services.workflow_orchestrator import (
+            ExecutionRequest,
+            get_workflow_orchestrator,
+            reset_orchestrator,
+        )
+
+        reset_orchestrator()
+        orchestrator = get_workflow_orchestrator()
+
+        calls: list = []
+
+        async def fake_notify(run, req):
+            calls.append(run.run_id)
+
+        monkeypatch.setattr(orchestrator, "_notify_approval_gate", fake_notify)
+
+        req = ExecutionRequest(request="Test approval gate notify", auto_approve=False, max_steps=1)
+        run = await orchestrator.execute(req)
+
+        assert run.status == "awaiting_approval"
+        assert calls == [run.run_id]
 
 
 # ── Test: restore_in_flight() rehydration ─────────────────────────────────────

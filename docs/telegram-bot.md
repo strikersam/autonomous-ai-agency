@@ -84,6 +84,19 @@ TELEGRAM_ADMIN_USER_IDS=your-user-id
 TELEGRAM_PROXY_API_KEY=your-admin-secret
 ```
 
+**Single-operator shortcut (one env var instead of three):**
+
+If you're the only operator, set `TELEGRAM_CHAT_ID` to your numeric user ID
+and skip `TELEGRAM_ALLOWED_USER_IDS` / `TELEGRAM_ADMIN_USER_IDS` /
+`TELEGRAM_NOTIFY_CHAT_IDS` entirely — `TELEGRAM_CHAT_ID` is used as a fallback
+for all of them, for both bot auth and the
+[Telegram approval gate](autonomy/AUTONOMY_CHARTER.md) notifications:
+
+```env
+TELEGRAM_BOT_TOKEN=your-token
+TELEGRAM_CHAT_ID=your-user-id
+```
+
 ---
 
 ## Step 4 — Start the Bot
@@ -250,6 +263,40 @@ For sensitive admin commands, the bot implements a two-step confirmation:
 This prevents accidental trigger from typos or forwarded messages.
 
 The 30-second window is hard-coded in `APPROVAL_TIMEOUT_SECONDS`. The pending state is in-memory only — restarting the bot clears all pending approvals.
+
+---
+
+## Workflow Orchestrator Approval Gate (🔴 Telegram gate)
+
+When the [Autonomy Charter](autonomy/AUTONOMY_CHARTER.md)'s agentic SDLC loop
+(`services/workflow_orchestrator.py`) produces a plan for a 🔴 action (see the
+Gate Matrix), the run pauses with `status="awaiting_approval"` and the bot
+**proactively pushes** a message — no command needed:
+
+```text
+Approval needed — run `wfo_a1b2c3d4e5f6`
+Company: acme-co
+Goal: Upgrade the payments webhook signature verification...
+Risk: Plan touches a sensitive/risky path (requires_risky_review=true).
+
+Plan:
+1. Update payments/webhook.py to verify the new signature header
+2. Add a regression test for the old and new signature formats
+[✅ Approve]  [❌ Reject]
+```
+
+- **Approve** → the run resumes from where it paused (`approve_async`); the
+  message is edited to confirm.
+- **Reject** → the run is cancelled (`cancel_run`); the message is edited to
+  confirm.
+- Only users in `TELEGRAM_ADMIN_USER_IDS` (or `TELEGRAM_CHAT_ID`, see
+  [Step 3](#step-3--configure-env)) can press these buttons — everyone else
+  gets "Not allowed."
+- Goal/plan text is redacted for secrets, emails, and IPs before sending
+  (`_redact_for_notification`).
+- If the run was already approved/rejected (e.g. via the dashboard or API)
+  before you press a button, the bot edits the message to say so instead of
+  erroring.
 
 ---
 

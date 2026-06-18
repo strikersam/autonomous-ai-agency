@@ -10,6 +10,12 @@ Setup:
   3. Set TELEGRAM_ADMIN_USER_IDS (subset of ALLOWED, can run mutating commands)
   4. Add both to .env and restart
 
+  Shortcut: for a single-operator setup, set only TELEGRAM_BOT_TOKEN and
+  TELEGRAM_CHAT_ID. TELEGRAM_CHAT_ID is used as a fallback for BOTH
+  TELEGRAM_ALLOWED_USER_IDS and TELEGRAM_ADMIN_USER_IDS (bot auth) and for
+  outbound notifications/approval-gate pushes — so the same ID does not need
+  to be repeated under multiple env var names.
+
 Run:
   python telegram_bot.py
 
@@ -74,6 +80,7 @@ PROXY_API_KEY: str = os.environ.get("TELEGRAM_PROXY_API_KEY", "").strip()
 
 _raw_allowed = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()
 _raw_admins = os.environ.get("TELEGRAM_ADMIN_USER_IDS", "").strip()
+_raw_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
 
 def _parse_user_ids(raw: str) -> set[int]:
@@ -106,8 +113,24 @@ def _parse_user_ids(raw: str) -> set[int]:
     return result
 
 
-ALLOWED_USER_IDS: set[int] = _parse_user_ids(_raw_allowed)
-ADMIN_USER_IDS: set[int] = _parse_user_ids(_raw_admins)
+def _resolve_bot_user_ids(raw_allowed: str, raw_admin: str, raw_chat_id: str) -> tuple[set[int], set[int]]:
+    """Resolve the ALLOWED/ADMIN Telegram user-ID sets.
+
+    ``TELEGRAM_CHAT_ID`` is the single-var convention (Autonomy Charter G1):
+    when ``TELEGRAM_ALLOWED_USER_IDS`` / ``TELEGRAM_ADMIN_USER_IDS`` are unset,
+    the same chat/user ID drives bot auth (allowed + admin) AND notification
+    delivery, so operators do not need to set the same ID under multiple env
+    var names.
+    """
+    chat_ids = _parse_user_ids(raw_chat_id)
+    allowed = _parse_user_ids(raw_allowed) or chat_ids
+    admin = _parse_user_ids(raw_admin) or chat_ids
+    return allowed, admin
+
+
+ALLOWED_USER_IDS: set[int]
+ADMIN_USER_IDS: set[int]
+ALLOWED_USER_IDS, ADMIN_USER_IDS = _resolve_bot_user_ids(_raw_allowed, _raw_admins, _raw_chat_id)
 
 APPROVAL_TIMEOUT_SECONDS = 30
 MAX_COMMANDS_PER_MINUTE = 5
@@ -118,6 +141,11 @@ _pending_approvals: dict[int, dict] = {}
 _rate_buckets: dict[int, list[float]] = defaultdict(list)
 # In-memory FreeBuff session state: user_id → {task, models, model}
 _freebuff_state: dict[int, dict] = {}
+
+# Strong references to fire-and-forget background tasks (e.g. the approval-gate
+# resume). Without this, asyncio may garbage-collect a running task mid-flight
+# (Ruff RUF006). Tasks remove themselves on completion.
+_bg_tasks: set[asyncio.Task] = set()
 
 
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
@@ -322,17 +350,27 @@ async def _answer_callback(bot_token: str, callback_id: str, text: str = "") -> 
 # ─── FreeBuff (free-NVIDIA coding agent) ────────────────────────────────────────
 
 def _parse_callback(data: str) -> tuple[str, str | None]:
-    """Parse callback_data of the form ``fb:<action>[:<arg>]``.
+    """Parse callback_data of the form ``fb:<action>[:<arg>]`` (FreeBuff) or
+    ``wfo:<action>:<run_id>`` (workflow-orchestrator approval gate, G1).
 
-    Returns ``(action, arg)``; ``arg`` is None when absent. Non-FreeBuff data
-    yields ``("", None)``.
+    Returns ``(action, arg)``; ``arg`` is None when absent. ``wfo:`` actions
+    are returned as ``wfo_<action>`` (e.g. ``wfo_approve``) so callers can
+    dispatch on them without colliding with FreeBuff action names. Unknown
+    prefixes yield ``("", None)``.
     """
-    if not data or not data.startswith("fb:"):
+    if not data:
         return "", None
-    parts = data.split(":", 2)
-    action = parts[1] if len(parts) > 1 else ""
-    arg = parts[2] if len(parts) > 2 else None
-    return action, arg
+    if data.startswith("fb:"):
+        parts = data.split(":", 2)
+        action = parts[1] if len(parts) > 1 else ""
+        arg = parts[2] if len(parts) > 2 else None
+        return action, arg
+    if data.startswith("wfo:"):
+        parts = data.split(":", 2)
+        action = parts[1] if len(parts) > 1 else ""
+        arg = parts[2] if len(parts) > 2 else None
+        return (f"wfo_{action}" if action else ""), arg
+    return "", None
 
 
 def _model_keyboard(models: list[str]) -> list[list[dict]]:
@@ -508,6 +546,10 @@ async def _process_callback(bot_token: str, callback: dict) -> None:
         await _answer_callback(bot_token, callback_id)
         return
 
+    if action.startswith("wfo_"):
+        await _process_wfo_callback(bot_token, callback_id, chat_id, message_id, user_id, action, arg)
+        return
+
     state = _freebuff_state.get(user_id)
     if not state:
         await _answer_callback(bot_token, callback_id, "Session expired. Start with /freebuff.")
@@ -560,6 +602,86 @@ async def _process_callback(bot_token: str, callback: dict) -> None:
             await _edit_message(bot_token, chat_id, message_id, f"FreeBuff run failed: {exc}")
         finally:
             _freebuff_state.pop(user_id, None)
+        return
+
+    await _answer_callback(bot_token, callback_id)
+
+
+async def _process_wfo_callback(
+    bot_token: str,
+    callback_id: str,
+    chat_id: int,
+    message_id: int,
+    user_id: int,
+    action: str,
+    run_id: str | None,
+) -> None:
+    """Handle an inline Approve/Reject button on a WorkflowOrchestrator
+    approval-gate message (Autonomy Charter G1).
+
+    The embedded Telegram bot runs in the same process as the
+    WorkflowOrchestrator singleton (``RUN_BACKGROUND_IN_WEB=true``), so this
+    calls ``get_workflow_orchestrator()`` directly — no extra HTTP/auth surface.
+    The caller (``_process_callback``) has already verified the user is
+    allowed and admin.
+    """
+    if not run_id:
+        await _answer_callback(bot_token, callback_id, "Missing run id.")
+        return
+
+    try:
+        from services.workflow_orchestrator import get_workflow_orchestrator
+        orchestrator = get_workflow_orchestrator()
+    except Exception as exc:
+        log.warning("WorkflowOrchestrator unavailable for wfo callback: %s", exc)
+        await _answer_callback(bot_token, callback_id, "Orchestrator unavailable.")
+        return
+
+    if action == "wfo_approve":
+        try:
+            orchestrator.approve(run_id, approved_by=f"telegram:{user_id}")
+        except KeyError:
+            await _answer_callback(bot_token, callback_id, "Run not found.")
+            await _edit_message(
+                bot_token, chat_id, message_id,
+                f"⚠️ Run `{run_id}` not found — it may have expired or already been resolved.",
+            )
+            return
+        except ValueError as exc:
+            await _answer_callback(bot_token, callback_id, "Already resolved.")
+            await _edit_message(bot_token, chat_id, message_id, f"ℹ️ Run `{run_id}`: {exc}")
+            return
+
+        # Queue the resume FIRST, before the best-effort Telegram UI updates
+        # below (Codex P2): if _answer_callback/_edit_message raised a transport
+        # error after approve() but before scheduling, the run would be left
+        # approved-but-not-queued (stuck awaiting_approval). approve_async is
+        # idempotent on the approval transition (the sync approve() above
+        # already validated + transitioned the run), and resumes via the FIFO
+        # queue / inline fallback without blocking the bot's update loop.
+        _task = asyncio.create_task(
+            orchestrator.approve_async(run_id, approved_by=f"telegram:{user_id}")
+        )
+        _bg_tasks.add(_task)
+        _task.add_done_callback(_bg_tasks.discard)
+
+        await _answer_callback(bot_token, callback_id, "Approved — resuming…")
+        await _edit_message(
+            bot_token, chat_id, message_id,
+            f"✅ Approved by telegram:{user_id}. Resuming run `{run_id}`…",
+        )
+        return
+
+    if action == "wfo_reject":
+        if orchestrator.cancel_run(run_id):
+            await _answer_callback(bot_token, callback_id, "Rejected.")
+            await _edit_message(bot_token, chat_id, message_id, f"❌ Rejected by telegram:{user_id}. Run `{run_id}` cancelled.")
+        else:
+            await _answer_callback(bot_token, callback_id, "Run not found.")
+            await _edit_message(
+                bot_token, chat_id, message_id,
+                f"⚠️ Run `{run_id}` not found — it may have already been resolved.",
+            )
         return
 
     await _answer_callback(bot_token, callback_id)
@@ -697,8 +819,11 @@ async def run_bot() -> None:
     # Re-parse allowlists from the environment at startup so the bot is robust to
     # import order (e.g. when launched in-process by the web service after env is set).
     global ALLOWED_USER_IDS, ADMIN_USER_IDS, TELEGRAM_BOT_TOKEN
-    ALLOWED_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ALLOWED_USER_IDS", ""))
-    ADMIN_USER_IDS = _parse_user_ids(os.environ.get("TELEGRAM_ADMIN_USER_IDS", ""))
+    ALLOWED_USER_IDS, ADMIN_USER_IDS = _resolve_bot_user_ids(
+        os.environ.get("TELEGRAM_ALLOWED_USER_IDS", ""),
+        os.environ.get("TELEGRAM_ADMIN_USER_IDS", ""),
+        os.environ.get("TELEGRAM_CHAT_ID", ""),
+    )
 
     if not TELEGRAM_BOT_TOKEN:
         log.warning(
@@ -717,13 +842,39 @@ async def run_bot() -> None:
         )
     if not ALLOWED_USER_IDS:
         raw = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "")
+        chat_raw = os.environ.get("TELEGRAM_CHAT_ID", "")
         log.error(
-            "TELEGRAM_ALLOWED_USER_IDS produced no numeric IDs (got %r, length=%d). "
+            "Neither TELEGRAM_ALLOWED_USER_IDS nor TELEGRAM_CHAT_ID produced any "
+            "numeric IDs (TELEGRAM_ALLOWED_USER_IDS=%r, TELEGRAM_CHAT_ID=%r). "
             "Use the NUMERIC id from @userinfobot (e.g. 8120976), comma-separated — "
             "not your @username, and without quotes. No one can use the bot.",
             raw,
-            len(raw),
+            chat_raw,
         )
+        return
+
+    # Single-poller guard (issue #656). Telegram allows only ONE getUpdates
+    # consumer per bot token; running a second poller (e.g. the embedded
+    # in-web bot AND the dedicated worker on the same token) triggers a storm
+    # of 409 "conflict" / 429 "Too Many Requests" errors and neither receives
+    # updates reliably. Set TELEGRAM_POLLER_DISABLED=true on the service that
+    # should NOT poll (typically the web service, leaving the dedicated worker
+    # to own the long-poll). Env is per-service, so this disables exactly one.
+    if os.environ.get("TELEGRAM_POLLER_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+        log.info(
+            "TELEGRAM_POLLER_DISABLED is set — this process will NOT long-poll "
+            "getUpdates (another instance owns the bot token)."
+        )
+        # Idle instead of returning (Codex P2): a dedicated worker whose entry
+        # point is run_bot() (e.g. scripts/run_freebuff_bot.py) would otherwise
+        # exit immediately and churn/restart on Render. Block forever so the
+        # process stays healthy without polling. When run_bot() is launched as a
+        # background task inside the web service, this idle task is simply never
+        # the poller. Cancellation (shutdown) breaks out cleanly.
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            log.info("Disabled-poller idle task cancelled — exiting run_bot().")
         return
 
     # Verify the token and identify the bot — surfaces a bad token immediately
@@ -745,6 +896,12 @@ async def run_bot() -> None:
     log.info("Cleared any existing webhook (deleteWebhook ok=%s).", dw.get("ok"))
 
     offset = 0
+    # Exponential backoff for repeated errors (conflict / 429 / 5xx / network)
+    # so a transient outage or a second poller does not generate a tight error
+    # storm. Resets to the floor after any successful poll. (issue #656)
+    _BACKOFF_FLOOR = 5.0
+    _BACKOFF_CEIL = 60.0
+    backoff = _BACKOFF_FLOOR
 
     while True:
         try:
@@ -760,18 +917,37 @@ async def run_bot() -> None:
             data = r.json()
             if not data.get("ok"):
                 desc = str(data.get("description", ""))
-                if data.get("error_code") == 409 or "conflict" in desc.lower() or "webhook" in desc.lower():
+                error_code = data.get("error_code")
+                # Honour Telegram's own retry_after hint (429) when present.
+                retry_after = 0
+                try:
+                    retry_after = int((data.get("parameters") or {}).get("retry_after") or 0)
+                except (TypeError, ValueError):
+                    retry_after = 0
+
+                if error_code == 409 or "conflict" in desc.lower() or "webhook" in desc.lower():
                     log.error(
                         "getUpdates conflict: %s — another process/instance is polling "
-                        "this bot token, or a webhook is set. Stop the other bot that uses "
-                        "this token. Re-clearing webhook and retrying.", desc,
+                        "this bot token, or a webhook is set. Set TELEGRAM_POLLER_DISABLED=true "
+                        "on the duplicate service (see issue #656). Re-clearing webhook; "
+                        "backing off %.0fs.", desc, backoff,
                     )
                     await _tg_call("deleteWebhook")
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, _BACKOFF_CEIL)
+                elif error_code == 429:
+                    wait = max(retry_after, backoff)
+                    log.warning("getUpdates rate-limited (429) — retrying in %.0fs.", wait)
+                    await asyncio.sleep(wait)
+                    backoff = min(backoff * 2, _BACKOFF_CEIL)
                 else:
-                    log.error("getUpdates error: %s", data)
-                await asyncio.sleep(5)
+                    log.error("getUpdates error: %s — backing off %.0fs.", data, backoff)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, _BACKOFF_CEIL)
                 continue
 
+            # Successful poll — reset the backoff floor.
+            backoff = _BACKOFF_FLOOR
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
                 try:
@@ -786,8 +962,9 @@ async def run_bot() -> None:
             log.info("Bot stopped.")
             return
         except Exception as exc:
-            log.error("Long-poll error: %s — retrying in 5s", exc)
-            await asyncio.sleep(5)
+            log.error("Long-poll error: %s — retrying in %.0fs.", exc, backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, _BACKOFF_CEIL)
 
 
 if __name__ == "__main__":

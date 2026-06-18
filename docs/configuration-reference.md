@@ -189,8 +189,10 @@ INFRA_HARDWARE_COST_USD=3000
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TELEGRAM_BOT_TOKEN` | (none) | Bot token from @BotFather. Required to run `telegram_bot.py`. |
-| `TELEGRAM_ALLOWED_USER_IDS` | (none) | Comma-separated Telegram user IDs that can use the bot (read-only commands). Get IDs via @userinfobot. |
-| `TELEGRAM_ADMIN_USER_IDS` | (none) | Subset of `ALLOWED` that can run service control and key management commands. |
+| `TELEGRAM_CHAT_ID` | (none) | Single-operator shortcut: your numeric Telegram user ID. Falls back for `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_ADMIN_USER_IDS`, and `TELEGRAM_NOTIFY_CHAT_IDS` (bot auth AND the Telegram approval-gate / notification pushes). Set the more specific vars below only if they need to differ. |
+| `TELEGRAM_ALLOWED_USER_IDS` | (none) | Comma-separated Telegram user IDs that can use the bot (read-only commands). Get IDs via @userinfobot. Falls back to `TELEGRAM_CHAT_ID` if unset. |
+| `TELEGRAM_ADMIN_USER_IDS` | (none) | Subset of `ALLOWED` that can run service control and key management commands, **and** approve/reject Telegram approval-gate runs. Falls back to `TELEGRAM_CHAT_ID` if unset. |
+| `TELEGRAM_NOTIFY_CHAT_IDS` | (none) | Comma-separated chat IDs that receive task-completion and approval-gate notifications. Falls back to `TELEGRAM_CHAT_ID`, then `TELEGRAM_ADMIN_USER_IDS`, then `TELEGRAM_ALLOWED_USER_IDS`. |
 | `TELEGRAM_PROXY_API_KEY` | (none) | API key the bot uses to call `/admin/*` endpoints. Use your `ADMIN_SECRET` value here. |
 | `PROXY_BASE_URL` | `http://localhost:8000` | Proxy URL the bot calls. Change if running the bot on a different machine than the proxy. |
 
