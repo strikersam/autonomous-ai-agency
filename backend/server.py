@@ -5777,6 +5777,90 @@ async def health():
     return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok}
 
 
+@app.get("/api/autonomy/status")
+async def autonomy_status() -> dict:
+    """Public, no-auth readiness probe for the autonomous agency.
+
+    Answers the one operational question that otherwise fails *silently*: is
+    this deploy actually autonomous right now? Reports whether a free brain is
+    configured, which model it resolves to, which autonomous loops are live,
+    and which critical secrets are missing — so a misconfigured deploy (e.g. an
+    unset ``NVIDIA_API_KEY``, which leaves every agent task with no brain) is
+    visible at a glance instead of manifesting only as "nothing happens".
+    """
+    out: dict = {}
+
+    # ── Brain ────────────────────────────────────────────────────────────────
+    brain_configured = False
+    brain_model: Optional[str] = None
+    paid_allowed = False
+    try:
+        import brain_policy
+
+        resolved = brain_policy.resolve_free_nvidia_brain()
+        brain_configured = resolved is not None
+        brain_model = resolved[2] if resolved else brain_policy.DEFAULT_FREE_NVIDIA_MODEL
+        paid_allowed = brain_policy.allow_paid_brain()
+    except Exception:  # nosec B110 - probe must never raise
+        pass
+    out["brain"] = {
+        "configured": brain_configured,
+        "model": brain_model,
+        "provider": "nvidia-nim" if brain_configured else None,
+        "paid_allowed": paid_allowed,
+    }
+
+    # ── Missing critical secrets ───────────────────────────────────────────────
+    missing: list[str] = []
+    if not (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")):
+        missing.append("NVIDIA_API_KEY")
+    if (os.environ.get("STORAGE_BACKEND", "").strip().lower() == "mongo"
+            and not os.environ.get("MONGO_URL")):
+        missing.append("MONGO_URL")
+    out["missing_secrets"] = missing
+
+    # ── Autonomous loops (each probe is independent + defensive) ───────────────
+    loops: dict[str, bool] = {}
+    try:
+        from agent.log_monitor import get_log_monitor
+
+        _lm = get_log_monitor()
+        loops["log_monitor"] = bool(_lm and _lm.get_stats().get("attached"))
+    except Exception:
+        loops["log_monitor"] = False
+    try:
+        from agent.self_healing import get_self_healing_agent
+
+        loops["self_healing"] = get_self_healing_agent() is not None
+    except Exception:
+        loops["self_healing"] = False
+    try:
+        from agent.improvement_loop import get_improvement_loop
+
+        loops["improvement_loop"] = get_improvement_loop() is not None
+    except Exception:
+        loops["improvement_loop"] = False
+    try:
+        from agent.trend_watcher import get_trend_watcher
+
+        loops["trend_watcher"] = get_trend_watcher() is not None
+    except Exception:
+        loops["trend_watcher"] = False
+    out["loops"] = loops
+
+    loops_running = sum(1 for v in loops.values() if v)
+    out["loops_running"] = loops_running
+    if not brain_configured:
+        out["status"] = "no_brain"          # cannot act — set NVIDIA_API_KEY
+    elif loops_running == 0:
+        out["status"] = "idle"              # brain ready but no loops started
+    elif loops_running < len(loops):
+        out["status"] = "partial"
+    else:
+        out["status"] = "autonomous"
+    return out
+
+
 _last_cron_tick_at: Optional[datetime] = None
 
 
