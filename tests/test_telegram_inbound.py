@@ -233,7 +233,7 @@ class TestHandlePaste(unittest.TestCase):
 
     def test_paste_non_admin_blocked(self) -> None:
         _run(tih.handle_paste(
-            self.bot_token, chat_id=1, user_id=999, parts=["/paste", "/not/tmp/placeholder"],
+            self.bot_token, chat_id=1, user_id=999, parts=["/paste", "/placeholder/admin-arg-blocked.md"],
         ))
         self.assertTrue(any("admin-only" in t for t in self.sent))
 

@@ -1,3 +1,6 @@
+<!-- docs/changelog.md mirrors root CHANGELOG.md (the changelog-gate
+     keys on this file path). Keep both files in sync on every PR, or
+     move the gate to root. -->
 - **Onboarding UX, logs, chat, admin fixes.** *Onboarding:* clickable breadcrumbs, restart button, Done back button. *Logs:* expandable messages (click to expand). *Chat:* ModelPicker two-step provider→model, mutual dropdown exclusion, repo URL input for code tasks. *Admin:* Companies tab with delete cleanup. *Backend:* DELETE /api/company/{id} endpoint.
 
 
