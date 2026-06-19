@@ -916,6 +916,12 @@ class TrendWatcher:
         Activate it only behind that gated routing. (Previously this body called
         ``asyncio.run()`` from inside the running fetch loop, which always raised.)
         """
+        # Explicit feature flag (default off): creating issues/PRs from trends is an
+        # outward-facing action, so it must be opted into deliberately — not merely
+        # implied by HERMES_BASE_URL being set.
+        if os.environ.get("TREND_HERMES_DISPATCH_ENABLED", "false").strip().lower() != "true":
+            log.debug("TrendWatcher: TREND_HERMES_DISPATCH_ENABLED is false — skipping Hermes dispatch")
+            return
         hermes_url = os.environ.get("HERMES_BASE_URL")
         if not hermes_url:
             log.debug("TrendWatcher: HERMES_BASE_URL not set — skipping Hermes dispatch")
@@ -948,7 +954,14 @@ class TrendWatcher:
                     },
                 }
                 async with _httpx.AsyncClient(timeout=10) as _client:
-                    await _client.post(f"{hermes_url.rstrip('/')}/tasks", json=payload)
+                    _resp = await _client.post(f"{hermes_url.rstrip('/')}/tasks", json=payload)
+                # httpx does not raise on 4xx/5xx by default — don't log a non-2xx as success.
+                if _resp.status_code >= 400:
+                    log.warning(
+                        "TrendWatcher: Hermes rejected alert '%s' (status=%s)",
+                        alert.title[:40], _resp.status_code,
+                    )
+                    continue
                 log.info("TrendWatcher: dispatched alert %s to Hermes", alert.title[:50])
             except Exception as exc:  # noqa: BLE001 - dispatch is best-effort
                 log.warning("TrendWatcher: Hermes dispatch failed for '%s': %s", alert.title[:40], exc)
