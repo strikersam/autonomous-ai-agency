@@ -1347,6 +1347,49 @@ class WorkflowOrchestrator:
 
     # ── Default Phase Handlers ────────────────────────────────────────────────
 
+    async def update_task(
+        self,
+        run_id: str,
+        *,
+        additional_instructions: str | None = None,
+        operator: str = "admin",
+    ) -> WorkflowRun:
+        """Inject additional instructions into a paused or running WorkflowRun.
+
+        Used by the Telegram ``/redirect <run_id> <instruction>`` command and
+        the ``POST /api/workflow/orchestrator/update-task/{run_id}`` endpoint
+        so an operator can redirect the agent mid-flight (e.g. "actually,
+        only fix tests X and Y \u2014 leave the others alone") without replanning
+        from scratch. Always checkpoints so a bot\u2192orchestrator connection
+        drop cannot lose the redirect.
+        """
+        run = self._runs.get(run_id)
+        if run is None:
+            raise KeyError(f"WorkflowRun {run_id!r} not found")
+        if run.status in ("done", "failed", "cancelled"):
+            raise ValueError(
+                f"Run {run_id} is {run.status!r} and cannot accept new instructions"
+            )
+        req = run._request
+        if req is None:
+            raise ValueError(
+                f"Run {run_id} has no ExecutionRequest \u2014 cannot inject instructions"
+            )
+        meta = dict(req.metadata or {})
+        if additional_instructions is not None:
+            meta["additional_instructions"] = additional_instructions
+            meta["updated_by"] = operator
+            meta["updated_at_utc"] = time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+            )
+        run._request = req.model_copy(update={"metadata": meta})
+        await self._checkpoint(run)
+        log.info(
+            "WorkflowOrchestrator: run=%s update_task by=%s instructions=%s",
+            run_id, operator, bool(additional_instructions),
+        )
+        return run
+
     def _register_default_handlers(self) -> None:
         self._phase_handlers[Phase.CLASSIFY] = self._handle_classify
         self._phase_handlers[Phase.PLAN] = self._handle_plan
