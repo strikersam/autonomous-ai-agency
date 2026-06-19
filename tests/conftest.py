@@ -44,6 +44,18 @@ if not os.environ.get("ADMIN_PASSWORD"):
 # process-wide; tests that exercise the loop itself call _start_ceo_agency directly.
 os.environ.setdefault("AGENCY_CEO_ENABLED", "false")
 
+# ── Keep the web lifespan from starting the background service stack ──────────
+# `TestClient(app)` runs the FastAPI lifespan, which (when RUN_BACKGROUND_IN_WEB
+# is not "false") calls start_background_services() → TaskDispatcher + the 24×7
+# autonomy loops (improvement / self-heal / log-monitor / trend-watcher). Those
+# spawn asyncio tasks and daemon threads that outlive the per-test event loop and
+# race its teardown, producing intermittent "RuntimeError: Event loop is closed"
+# / "coroutine AgentScheduler.hydrate was never awaited" failures in the e2e
+# tests (flaky "Test (Python 3.13)"). Tests that exercise these services start
+# them directly (e.g. test_background_services / test_autonomy_bootstrap) or set
+# the flag explicitly, so disabling the lifespan auto-start here is safe.
+os.environ.setdefault("RUN_BACKGROUND_IN_WEB", "false")
+
 # ── Now safe to import backend modules that read ADMIN_PASSWORD ──────────────
 
 import pytest
