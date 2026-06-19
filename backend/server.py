@@ -7221,6 +7221,22 @@ try:
     app.include_router(seo_api_module.router)
 except Exception as _seo_err:  # noqa: BLE001 - SEO API must not block startup
     log.warning("SEO audit API not mounted: %s", _seo_err, exc_info=True)
+# Admin router: service-to-service digest endpoint (X-Admin-Secret auth)
+try:
+    from backend.admin_digest_router import register as _register_admin_digest_router
+    _register_admin_digest_router(app)
+except Exception as _admin_digest_err:  # noqa: BLE001
+    log.warning("admin digest router not mounted: %s", _admin_digest_err, exc_info=True)
+
+# Admin router: POST /api/workflow/orchestrator/update-task/{run_id} (X-Admin-Secret auth)
+# Lets the Telegram bot inject additional_instructions into a paused golden-path run
+# via the same admin auth the digest cron uses.
+try:
+    from backend.admin_update_task_router import register as _register_admin_update_task_router
+    _register_admin_update_task_router(app)
+except Exception as _admin_upd_err:  # noqa: BLE001
+    log.warning("admin_update_task_router not mounted: %s", _admin_upd_err, exc_info=True)
+
 
 # Workflow Orchestrator API --- canonical execution backbone
 from services.workflow_orchestrator import (
@@ -7458,9 +7474,21 @@ if _FRONTEND_BUILD.exists():
         "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
     )
 
+    SPA_PROTECTED_PREFIXES: tuple[str, ...] = (
+        "api/",
+        "v1/",
+        "v2/",
+        "agent/",
+        "admin/",
+        "workflow/",
+        "runtimes/",
+        "ui/",
+        "telegram/",
+    )
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        if full_path.startswith("api/"):
+        if full_path.startswith(SPA_PROTECTED_PREFIXES):
             raise HTTPException(status_code=404, detail="Not found")
         index = _FRONTEND_BUILD / "index.html"
         if index.exists():

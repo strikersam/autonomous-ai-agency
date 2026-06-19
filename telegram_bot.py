@@ -285,13 +285,53 @@ def _pop_approval(user_id: int) -> dict | None:
 
 # ─── Telegram update processing ────────────────────────────────────────────────
 
-async def _send_message(bot_token: str, chat_id: int, text: str, parse_mode: str = "Markdown") -> None:
+async def _send_message(bot_token: str, chat_id: int, text: str, parse_mode: str = "Markdown") -> Optional[int]:
+    """Send a plaintext Markdown-v1 message and return its Telegram message_id.
+
+    Returns ``None`` when the bot's response parsing fails (no message_id in
+    payload, network error, OR Telegram rejected with a 4xx). Existing call
+    sites assign the result to ``None`` so adding a return type doesn't break
+    them. The new inbound-router callers use ``_send_message_with_id`` (an
+    alias below) so it's obvious the bot_message_links linkage depends on the
+    message_id being returned.
+    """
+    return await _send_message_with_id(bot_token, chat_id, text, parse_mode=parse_mode)
+
+
+async def _send_message_with_id(
+    bot_token: str,
+    chat_id: int,
+    text: str,
+    parse_mode: str = "Markdown",
+) -> Optional[int]:
+    """Send a message and return the Telegram ``message_id``.
+
+    Used by ``telegram_inbound_handlers`` so ``bot_message_links.link_message``
+    can capture the outbound ID. Never raises — the webhook must not 5xx on
+    a transient Telegram API error.
+    """
     payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json=payload,
-        )
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json=payload,
+            )
+        if r.status_code != 200:
+            log.warning(
+                "_send_message_with_id non-200 chat_id=%s status=%s",
+                chat_id, r.status_code,
+            )
+            return None
+        try:
+            body = r.json()
+        except Exception as exc:  # pragma: no cover - malformed JSON
+            log.warning("_send_message_with_id json_decode_failed: %s", exc)
+            return None
+        return int(((body or {}).get("result") or {}).get("message_id") or 0) or None
+    except Exception as exc:  # noqa: BLE001 - any network error -> None
+        log.warning("_send_message_with_id failed chat_id=%s exc=%s", chat_id, exc)
+        return None
 
 
 async def _send_keyboard(
@@ -734,12 +774,41 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
     response = ""
 
+    # ── Step 1 inbound-routing commands: /redirect and /paste.
+    # Imported lazily so the bot's import surface stays stable when the
+    # inbound-routing module is missing (test paths / minimal deploys).
+    if cmd == "/redirect":
+        try:
+            from telegram_inbound_handlers import handle_redirect
+            await handle_redirect(bot_token, chat_id, user_id, parts)
+        except ImportError as exc:
+            log.warning("telegram_bot: inbound_handlers import failed: %s", exc)
+            await _send_message(
+                bot_token, chat_id,
+                "telegram_inbound_handlers is not installed; /redirect is offline.",
+            )
+        return
+
+    if cmd == "/paste":
+        try:
+            from telegram_inbound_handlers import handle_paste
+            await handle_paste(bot_token, chat_id, user_id, parts)
+        except ImportError as exc:
+            log.warning("telegram_bot: inbound_handlers import failed: %s", exc)
+            await _send_message(
+                bot_token, chat_id,
+                "telegram_inbound_handlers is not installed; /paste is offline.",
+            )
+        return
+
     if cmd == "/help":
         response = (
             "*Available commands:*\n"
             "/status — service health\n"
             "/models — loaded models\n"
             "/cost — local infra cost estimate\n"
+            "/redirect <wfo_xxx|dec_xxx> <new instruction> — mid-flight retarget (admin)\n"
+            "/paste <abs path> — read a previously saved paste file (admin)\n"
             "\n*Admin only:*\n"
             "/start|stop|restart <svc> — control ollama|proxy|tunnel|stack\n"
             "/agent <task> — run agent task (requires confirmation)\n"
@@ -794,7 +863,43 @@ async def _process_update(bot_token: str, update: dict) -> None:
                 )
 
     else:
-        response = "Unknown command. Use /help to see available commands."
+        # ── Step 1 plain-text routing + big-paste policy + reply-to-decision ──
+        # Bare message (no `/` command). Big-paste check first so a 5k-char wall
+        # of text gets persisted to disk and replied with a pointer instead of
+        # tripping Telegram's 4096-char hard cap.
+        try:
+            from telegram_inbound_handlers import (
+                _handle_big_paste,
+                _route_plain_text,
+                _resolve_reply_to_decision,
+            )
+            # Reply-to-decision: when the operator replies to a bot message that
+            # was linked to a pending decision via bot_message_links, surface the
+            # decision context inline so the operator can confirm before executing.
+            linked = await _resolve_reply_to_decision(message)
+            if linked is not None:
+                decision_id = linked.get("decision_id") or ""
+                run_id = linked.get("run_id") or ""
+                ref = f"`{decision_id}` (run `{run_id}`)" if run_id else f"`{decision_id}`"
+                await _send_message(
+                    bot_token, chat_id,
+                    f"↩️ Reply-to detected → decision {ref}\n"
+                    f"Use `/redirect {decision_id.split('_', 1)[1] if '_' in decision_id else decision_id} <new instruction>` to retarget, "
+                    f"or send a new plain-text message to dispatch a fresh run.",
+                )
+                return
+
+            # Big-paste policy: write to disk + short pointer reply.
+            if await _handle_big_paste(bot_token, chat_id, user_id, text):
+                return
+            # Plain-text fallback: classify + route.
+            await _route_plain_text(bot_token, chat_id, user_id, text)
+        except ImportError as exc:
+            log.warning("telegram_bot: inbound_handlers import failed (plain-text path): %s", exc)
+            await _send_message(
+                bot_token, chat_id,
+                "Unknown command. Use /help to see available commands.",
+            )
 
     if response:
         await _send_message(bot_token, chat_id, response)
