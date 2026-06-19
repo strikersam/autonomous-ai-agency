@@ -1,7 +1,51 @@
 """Tests for agent/scheduler.py — Scheduled Agent Jobs."""
+import gc
+import warnings
+
 import pytest
 
 from agent.scheduler import AgentScheduler, ScheduledJob
+
+
+class _FakePersistence:
+    """In-memory ScheduleStore stand-in (sync upsert/remove/load_all)."""
+
+    def __init__(self) -> None:
+        self.docs: dict[str, dict] = {}
+
+    def load_all(self) -> list[dict]:
+        return list(self.docs.values())
+
+    def upsert(self, doc: dict) -> None:
+        self.docs[doc["job_id"]] = dict(doc)
+
+    def remove(self, job_id: str) -> None:
+        self.docs.pop(job_id, None)
+
+
+def test_sync_ops_do_not_leak_unawaited_coroutines():
+    """Regression: create/toggle/trigger/delete from a sync caller (no running
+    event loop) must not construct persistence coroutines that are never
+    awaited. The old try-create_task/except-RuntimeError pattern built the
+    coroutine before scheduling, leaking it and emitting a RuntimeWarning."""
+    store = _FakePersistence()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        sched = AgentScheduler(persistence=store)
+        job = sched.create(name="x", cron="* * * * *", instruction="x")
+        sched.toggle(job.job_id, enabled=False)
+        sched.trigger(job.job_id)
+        sched.delete(job.job_id)
+        sched.shutdown()
+        # Orphaned coroutines warn on finalization; force it to surface now.
+        gc.collect()
+    leaked = [
+        w for w in caught
+        if issubclass(w.category, RuntimeWarning) and "never awaited" in str(w.message)
+    ]
+    assert not leaked, f"leaked coroutines: {[str(w.message) for w in leaked]}"
+    # Behaviour preserved: sync path still persisted create+toggle, then removed.
+    assert job.job_id not in store.docs
 
 
 def test_create_job():
