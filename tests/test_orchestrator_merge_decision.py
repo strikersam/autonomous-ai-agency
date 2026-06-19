@@ -3,6 +3,8 @@ land step (decide_merge → ApprovalGate + first-merge consent).
 """
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
 
 import services.company_graph_store as cgs
@@ -11,25 +13,30 @@ from services.workflow_orchestrator import WorkflowOrchestrator, WorkflowRun
 
 
 class _FakeStore:
-    def __init__(self, company):
-        self._company = company
-        self.saved = None
+    def __init__(self, company: Company | None) -> None:
+        self._company: Company | None = company
+        self.saved: Company | None = None
 
-    async def get_company(self, company_id):
+    async def get_company(self, company_id: str) -> Company | None:
         return self._company
 
-    async def update_company(self, company):
+    async def update_company(self, company: Company) -> Company:
         self.saved = company
         self._company = company
         return company
 
 
 @pytest.fixture
-def orch():
+def orch() -> WorkflowOrchestrator:
     return WorkflowOrchestrator()
 
 
-def _company(*, has_repo=True, consent=False, mode="pr_required"):
+def _company(
+    *,
+    has_repo: bool = True,
+    consent: bool = False,
+    mode: Literal["pr_required", "direct_push"] = "pr_required",
+) -> Company:
     conn = None
     if has_repo:
         policy = DeliveryPolicy(

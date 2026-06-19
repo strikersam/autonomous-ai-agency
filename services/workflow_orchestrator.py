@@ -893,7 +893,7 @@ class WorkflowOrchestrator:
             updated = company.model_copy(
                 update={"repo_connection": record_first_merge_consent(conn)}
             )
-            await store.update_company(updated)
+            await asyncio.wait_for(store.update_company(updated), timeout=8.0)
             log.info(
                 "G5: recorded first-merge consent for company %s (repo %s)",
                 run.company_id, conn.full_name,
@@ -1119,6 +1119,9 @@ class WorkflowOrchestrator:
         Returns the completed run after all phases finish.
         """
         run = self.approve(run_id, approved_by=approved_by)
+        # G5: record first-merge consent on the synchronous resume path too, so
+        # it is covered regardless of which approve API the caller used.
+        await self._record_first_merge_consent(run)
         if run._request is not None:
             return await self.execute(run._request, resume_run_id=run_id)
         return run
@@ -1194,6 +1197,7 @@ class WorkflowOrchestrator:
                 run.llm_provenance = snapshot.get("llm_provenance", {})
                 run.phase_attempts = snapshot.get("phase_attempts", {})
                 run.approved = snapshot.get("approved", False)
+                run.merge_decision = snapshot.get("merge_decision")
                 run.error = snapshot.get("error")
                 # Restore phase outputs so skip detection works on retry.
                 # Without this every resume re-runs all phases from scratch.
