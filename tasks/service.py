@@ -435,8 +435,14 @@ class TaskExecutionCoordinator:
         self.agent_store = agent_store or get_agent_store()
         self.runtime_manager = runtime_manager or get_runtime_manager()
         self.workspace_root = workspace_root
+        # Default raised 150s → 300s: a full agent run on the FREE cloud brain
+        # makes several sequential LLM calls (plan → execute → verify → judge),
+        # which routinely exceeds 150s and then fails + auto-retries — the
+        # "Execution timed out after 150s" / "blocked after N dispatch attempts"
+        # churn that made the board feel dead-slow. Giving runs room to *complete*
+        # once beats failing and retrying many times. Tune via env.
         self.execution_timeout_s = execution_timeout_s or float(
-            os.environ.get("TASK_EXECUTION_TIMEOUT_SEC", "150")
+            os.environ.get("TASK_EXECUTION_TIMEOUT_SEC", "300")
         )
         # In-memory set of task_ids currently being executed by this coordinator
         # instance.  Used by TaskDispatcher._reconcile() to determine which tasks

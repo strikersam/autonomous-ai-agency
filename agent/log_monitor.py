@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import time
 import threading
 from typing import Any
@@ -43,6 +44,25 @@ IGNORED_LOGGERS: frozenset[str] = frozenset(
 
 # Don't create a task for the same error within this window.
 COOLDOWN_SECONDS: int = 3600  # 1 hour
+
+# Global safety cap: max auto-created fix tasks per rolling hour. A system that
+# is *already* erroring (e.g. a slow free brain timing out) must not trigger a
+# self-heal task storm that saturates the dispatcher and makes everything slower
+# — the exact "timeout → fix task → slow run → timeout → …" amplification. Set
+# to 0 to disable the cap.
+MAX_TASKS_PER_HOUR: int = int(os.environ.get("LOG_MONITOR_MAX_TASKS_PER_HOUR", "6"))
+
+# Substrings that mark OPERATIONAL / transient failures (infra, not code bugs).
+# Auto-creating a fix task for these is noise and the main storm vector, so they
+# are skipped regardless of which logger emitted them. Matched case-insensitively.
+_OPERATIONAL_PATTERNS: tuple[str, ...] = (
+    "timed out", "timeout", "blocked after", "all runtimes failed",
+    "dispatch attempt", "runtimeunavailable", "unavailable:", "no module named",
+    "rate limit", "ratelimit", "429", "502", "503", "504",
+    "connection refused", "econnrefused", "connection error", "connection reset",
+    "read timeout", "temporarily unavailable", "policy prevents paid escalation",
+    "service unavailable", "bad gateway", "gateway timeout",
+)
 
 
 class _ErrorCaptureHandler(logging.Handler):
@@ -74,6 +94,8 @@ class LogMonitor:
         self._cooldowns: dict[str, float] = {}  # sig → last_task_time
         self._lock = threading.Lock()
         self._task_count = 0
+        self._created_times: list[float] = []  # monotonic ts of recent auto-tasks
+        self._cap_warned = False
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -107,6 +129,12 @@ class LogMonitor:
             return
         if "LogMonitor" in (message or ""):
             return
+        # Operational / transient infra errors are not auto-fixable code bugs and
+        # are the main self-heal storm vector — skip them entirely (no task, no
+        # recurrence note) so a slow brain / provider outage can't amplify.
+        msg_l = (message or "").lower()
+        if any(p in msg_l for p in _OPERATIONAL_PATTERNS):
+            return
         sig = _sig(logger_name, message)
         now = time.monotonic()
         # _NEVER_SEEN sentinel is negative so that `now - sentinel` is always > COOLDOWN,
@@ -122,6 +150,22 @@ class LogMonitor:
             last = self._cooldowns.get(sig, _NEVER_SEEN)
             if now - last < COOLDOWN_SECONDS:
                 return
+            # Global hourly cap — prevent a self-heal task storm from saturating
+            # the dispatcher when many distinct errors fire in a short window.
+            if MAX_TASKS_PER_HOUR > 0:
+                cutoff = now - 3600.0
+                self._created_times = [t for t in self._created_times if t >= cutoff]
+                if len(self._created_times) >= MAX_TASKS_PER_HOUR:
+                    if not self._cap_warned:
+                        log.warning(
+                            "LogMonitor: hourly fix-task cap (%d) reached — "
+                            "suppressing further auto-heal tasks this hour.",
+                            MAX_TASKS_PER_HOUR,
+                        )
+                        self._cap_warned = True
+                    return
+                self._created_times.append(now)
+                self._cap_warned = False
             self._cooldowns[sig] = now
             self._task_count += 1
 
