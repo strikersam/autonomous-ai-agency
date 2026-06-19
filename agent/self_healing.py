@@ -440,15 +440,38 @@ class SelfHealingAgent:
         if event.attempts >= HEAL_MAX_ATTEMPTS:
             self._escalate(event)
             return
-        # Re-dispatch the fix (fire-and-forget; _dispatch_fix is async).
+        # Re-dispatch the fix (async). NOTE: this runs after the caller releases
+        # ``self._lock``. A re-dispatch failure must NOT silently strand the heal in
+        # REGRESSED forever (``_verify_deadline`` is 0.0 so the sweeper won't touch
+        # it) — on failure we escalate to a human so the heal always reaches a
+        # terminal/observable state.
         import asyncio
 
         async def _redispatch() -> None:
-            await self._dispatch_fix(event)
+            try:
+                await self._dispatch_fix(event)
+            except Exception as exc:  # noqa: BLE001 - re-dispatch must never strand a heal
+                with self._lock:
+                    log.warning(
+                        "SelfHealingAgent: re-dispatch failed for heal %s (%s) — escalating",
+                        event.event_id, exc,
+                    )
+                    self._escalate(event)
+
+        def _on_redispatch_done(task: "asyncio.Task[None]") -> None:
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                log.warning(
+                    "SelfHealingAgent: re-dispatch task error for heal %s: %s",
+                    event.event_id, exc,
+                )
 
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(_redispatch())
+            task = loop.create_task(_redispatch())
+            task.add_done_callback(_on_redispatch_done)
         except RuntimeError:
             threading.Thread(target=asyncio.run, args=(_redispatch(),), daemon=True).start()
         log.info(

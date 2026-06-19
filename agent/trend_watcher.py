@@ -904,12 +904,17 @@ class TrendWatcher:
 
     # ── Dispatch to Hermes Agent ─────────────────────────────────────────────
 
-    def dispatch_high_relevance_to_hermes(self, alerts: list[TrendAlert]) -> None:
-        """Automatically dispatch high-relevance alerts to Hermes Agent for action.
+    async def dispatch_high_relevance_to_hermes(self, alerts: list[TrendAlert]) -> None:
+        """Dispatch high-relevance alerts to the Hermes sidecar for action.
 
         Only dispatches for score >= 0.75 and when HERMES_BASE_URL is configured.
-        Hermes will evaluate the trend and potentially create a GitHub issue or
-        draft PR if the trend is actionable.
+        Hermes may then create a GitHub issue or draft PR.
+
+        NOTE: this is intentionally NOT auto-called from ``fetch()``. Creating
+        issues/PRs from trends is an outward-facing action that must flow through
+        the Gate Matrix (see AUTONOMY_CHARTER §G4) rather than fire automatically.
+        Activate it only behind that gated routing. (Previously this body called
+        ``asyncio.run()`` from inside the running fetch loop, which always raised.)
         """
         hermes_url = os.environ.get("HERMES_BASE_URL")
         if not hermes_url:
@@ -942,12 +947,11 @@ class TrendWatcher:
                         "dispatched_at": time.time(),
                     },
                 }
-                asyncio.run(_httpx.AsyncClient().post(                        f"{hermes_url.rstrip('/')}/tasks",
-                    json=payload,
-                    timeout=10,
-                ))
+                async with _httpx.AsyncClient(timeout=10) as _client:
+                    await _client.post(f"{hermes_url.rstrip('/')}/tasks", json=payload)
                 log.info("TrendWatcher: dispatched alert %s to Hermes", alert.title[:50])
-            except Exception as exc:                    log.warning("TrendWatcher: Hermes dispatch failed for '%s': %s", alert.title[:40], exc)
+            except Exception as exc:  # noqa: BLE001 - dispatch is best-effort
+                log.warning("TrendWatcher: Hermes dispatch failed for '%s': %s", alert.title[:40], exc)
 
     # ── Queries ────────────────────────────────────────────────────────────────
 
