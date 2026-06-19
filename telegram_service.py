@@ -386,6 +386,62 @@ class NotificationDispatcher:
 
         threading.Thread(target=_send, daemon=True).start()
 
+    async def send_daily_digest(
+        self,
+        payload: Any,
+        *,
+        parse_mode: str = "Markdown",
+    ) -> bool:
+        """Dispatch the daily review digest to every authorized chat_id.
+
+        Mirrors send_approval_gate's transport shape (httpx POST + Markdown-v1 +
+        chat_id fan-out) but is async so the admin endpoint can `await` it
+        directly. Returns True iff every send succeeded.
+
+        Args:
+          payload: services.daily_digest.DigestPayload (or any object with
+            `.markdown_body`, optionally `.truncated_path`).
+          parse_mode: defaults to Markdown-v1; pass "MarkdownV2" only after
+            rewriting _escape_md_v1 callers consistently.
+        """
+        text = getattr(payload, "markdown_body", None)
+        if not text:
+            log.warning("telegram_service.send_daily_digest.empty_payload")
+            return False
+        if not self.telegram_token or not self.telegram_chat_ids:
+            log.warning("telegram_service.send_daily_digest.disabled")
+            return False
+        import httpx
+
+        url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+        ok_all = True
+        # Markdown-v1 escape is already applied inside daily_digest.format_digest_markdown;
+        # we only need to defend against re-escaping on a re-dispatch path.
+        # NOTE: do NOT re-escape here — services.daily_digest.format_digest_markdown
+        # already produced Markdown-v1-safe output via its own _md_escape. A second
+        # _escape_md_v1 call would double-escape literal backslashes (dec_xxxx
+        # \\\_ xxxx), which Telegram Markdown-v1 then renders with visible slashes.
+        safe_text = text
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for chat_id in self.telegram_chat_ids:
+                resp = await client.post(
+                    url,
+                    json={
+                        "chat_id": chat_id,
+                        "text": safe_text,
+                        "parse_mode": parse_mode,
+                        "disable_web_page_preview": True,
+                    },
+                )
+                if resp.status_code != 200:
+                    log.warning(
+                        "telegram_service.send_daily_digest.failed chat_id=%s status=%s",
+                        chat_id,
+                        resp.status_code,
+                    )
+                    ok_all = False
+        return ok_all
+
     def _notify_webhook(self, task: Any) -> None:
         """POST task result to configured webhook URL.
 
