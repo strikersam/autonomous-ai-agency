@@ -7469,21 +7469,25 @@ except Exception as _mcp_err:
 
 _FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
 
+# Module-scope so tests and downstream code can reference it independently of
+# whether the frontend build directory exists. Paths captured by the SPA
+# catch-all ({full_path:path}) arrive WITHOUT a leading slash, so prefixes are
+# stored without one too.
+SPA_PROTECTED_PREFIXES: tuple[str, ...] = (
+    "api/",
+    "v1/",
+    "v2/",
+    "agent/",
+    "admin/",
+    "workflow/",
+    "runtimes/",
+    "ui/",
+    "telegram/",
+)
+
 if _FRONTEND_BUILD.exists():
     app.mount(
         "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    SPA_PROTECTED_PREFIXES: tuple[str, ...] = (
-        "api/",
-        "v1/",
-        "v2/",
-        "agent/",
-        "admin/",
-        "workflow/",
-        "runtimes/",
-        "ui/",
-        "telegram/",
     )
 
     @app.get("/{full_path:path}", include_in_schema=False)
