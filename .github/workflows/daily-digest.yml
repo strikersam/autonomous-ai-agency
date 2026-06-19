@@ -1,0 +1,76 @@
+name: daily-digest
+
+# Daily 09:00 UTC post to /api/admin/digest/send → Telegram roll-up
+# Manual: workflow_dispatch with optional dry_run=true
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # daily at 09:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "When true, hit /preview instead of /send (no Telegram dispatch)."
+        required: false
+        default: "false"
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate secrets
+        env:
+          DIGEST_SECRET: ${{ secrets.DIGEST_SECRET }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          if [ -z "${PRODUCTION_BASE_URL:-}" ]; then
+            echo "::error::PRODUCTION_BASE_URL secret is required."
+            exit 1
+          fi
+          # Enforce scheme so a typo (e.g. `local-llm-server.onrender.com`) doesn't
+          # silently build a malformed URL and exit 0 in the prod-blip branch.
+          if [[ "${PRODUCTION_BASE_URL}" != https://* ]]; then
+            echo "::error::PRODUCTION_BASE_URL must start with https:// (got: ${PRODUCTION_BASE_URL})"
+            exit 1
+          fi
+          if [ -z "${DIGEST_SECRET:-}" ]; then
+            echo "::error::DIGEST_SECRET secret is required."
+            exit 1
+          fi
+
+      - name: Trigger daily digest
+        env:
+          DIGEST_SECRET: ${{ secrets.DIGEST_SECRET }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          set -u
+          ENDPOINT="${DRY_RUN}/api/admin/digest/preview"
+          if [ "${DRY_RUN}" = "false" ]; then
+            ENDPOINT="/api/admin/digest/send"
+          fi
+          URL="${PRODUCTION_BASE_URL}${ENDPOINT}"
+          echo "POST ${URL}"
+          RESP=$(curl -sS -o /tmp/digest_resp.json -w '%{http_code}|%{time_total}' \
+            -m 60 \
+            -X POST \
+            -H "X-Admin-Secret: ${DIGEST_SECRET}" \
+            -H "X-Idempotency-Key: ${{ github.run_id }}" \
+            "${URL}")
+          echo "HTTP_RESP_INFO: ${RESP}"
+          echo "RESPONSE_BODY (first 800):"
+          head -c 800 /tmp/digest_resp.json
+          echo
+          HTTP_CODE=$(echo "${RESP}" | cut -d'|' -f1)
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "::warning::Daily digest returned HTTP ${HTTP_CODE}."
+            if [ "${DRY_RUN}" = "false" ]; then
+              # Don't fail the workflow for prod availability blips;
+              # the next cron tick will retry.
+              exit 0
+            fi
+          fi
