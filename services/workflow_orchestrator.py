@@ -730,6 +730,10 @@ class WorkflowRun:
     approved_at: str | None = None
     current_phase: str | None = None
     error: str | None = None
+    # G5: how this run's code change should land per the company's RepoConnection
+    # DeliveryPolicy — {"action": open_pr|direct_push|telegram_gate|
+    # awaiting_repo_connection, "requires_approval": bool, "reason": str}.
+    merge_decision: dict[str, Any] | None = None
     # Store the original request for resume-after-approval
     _request: Any = None
 
@@ -754,6 +758,7 @@ class WorkflowRun:
             "approved": self.approved,
             "approved_by": self.approved_by,
             "approved_at": self.approved_at,
+            "merge_decision": self.merge_decision,
             "last_heartbeat": self.last_heartbeat,
             "retry_count": self.retry_count,
             "llm_provenance": self.llm_provenance,
@@ -826,6 +831,11 @@ class WorkflowOrchestrator:
             risk_reason = ""
             if plan is not None and plan.requires_risky_review:
                 risk_reason = "Plan touches a sensitive/risky path (requires_risky_review=true)."
+            # G5: surface how the change will land (and why we're gating it).
+            md = run.merge_decision
+            if md:
+                landing = f"Landing: {md.get('action')} — {md.get('reason') or ''}".strip()
+                risk_reason = f"{risk_reason} {landing}".strip() if risk_reason else landing
 
             NotificationDispatcher().send_approval_gate(
                 run_id=run.run_id,
@@ -838,6 +848,58 @@ class WorkflowOrchestrator:
             # WARNING (not DEBUG): a failed approval-gate push means the operator
             # silently loses the alert channel while the run still pauses.
             log.warning("Approval-gate notify failed for run %s (non-fatal): %s", run.run_id, exc)
+
+    async def _resolve_merge_decision(self, run: WorkflowRun):
+        """Consult the company's RepoConnection DeliveryPolicy (G5) to decide how
+        this run's code change should land.
+
+        Returns a ``services.repo_connection.MergeDecision`` (``open_pr`` /
+        ``direct_push`` / ``telegram_gate`` / ``awaiting_repo_connection``) or
+        ``None`` when there is no company or the lookup fails — in which case the
+        normal gate logic applies unchanged. Best-effort: never blocks the gate.
+        """
+        if not run.company_id:
+            return None
+        try:
+            from services.company_graph_store import get_company_graph_store
+            from services.repo_connection import decide_merge
+
+            store = get_company_graph_store()
+            company = await asyncio.wait_for(store.get_company(run.company_id), timeout=8.0)
+            conn = getattr(company, "repo_connection", None) if company is not None else None
+            return decide_merge(conn)
+        except Exception as exc:  # noqa: BLE001 — never block the gate on this
+            log.warning("Merge-decision resolve failed for run %s: %s", run.run_id, exc)
+            return None
+
+    async def _record_first_merge_consent(self, run: WorkflowRun) -> None:
+        """G5: once the operator approves a run that was gated specifically for the
+        first unattended merge on a newly connected repo, record consent on the
+        Company's RepoConnection so later merges follow the detected policy
+        instead of re-gating. Best-effort; never raises into the approve path.
+        """
+        md = run.merge_decision
+        if not md or md.get("action") != "telegram_gate" or not run.company_id:
+            return
+        try:
+            from services.company_graph_store import get_company_graph_store
+            from services.repo_connection import record_first_merge_consent
+
+            store = get_company_graph_store()
+            company = await asyncio.wait_for(store.get_company(run.company_id), timeout=8.0)
+            conn = getattr(company, "repo_connection", None) if company is not None else None
+            if conn is None:
+                return
+            updated = company.model_copy(
+                update={"repo_connection": record_first_merge_consent(conn)}
+            )
+            await asyncio.wait_for(store.update_company(updated), timeout=8.0)
+            log.info(
+                "G5: recorded first-merge consent for company %s (repo %s)",
+                run.company_id, conn.full_name,
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            log.warning("Could not record first-merge consent for run %s: %s", run.run_id, exc)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -1002,17 +1064,31 @@ class WorkflowOrchestrator:
                 # #522: Checkpoint after each successful phase.
                 await self._checkpoint(run)
 
-                # ApprovalGate after PLAN
-                if phase == Phase.PLAN and not req.auto_approve and not run.approved:
-                    run.status = "awaiting_approval"
-                    await self._checkpoint(run)
-                    await self._notify_approval_gate(run, req)
-                    log.info(
-                        "WorkflowOrchestrator: run=%s PAUSED at ApprovalGate — "
-                        "call approve() to continue",
-                        run.run_id,
-                    )
-                    return run
+                # ApprovalGate after PLAN. The gate fires when the request is not
+                # auto-approved, OR when the target repo's delivery policy forces
+                # it (G5): the **first unattended merge on a newly connected repo**
+                # always pauses for Telegram approval, even under auto_approve,
+                # until the operator confirms its detected DeliveryPolicy.
+                if phase == Phase.PLAN and not run.approved:
+                    decision = await self._resolve_merge_decision(run)
+                    if decision is not None:
+                        run.merge_decision = {
+                            "action": decision.action,
+                            "requires_approval": decision.requires_approval,
+                            "reason": decision.reason,
+                        }
+                    gate_forced = decision is not None and decision.requires_approval
+                    if (not req.auto_approve) or gate_forced:
+                        run.status = "awaiting_approval"
+                        await self._checkpoint(run)
+                        await self._notify_approval_gate(run, req)
+                        log.info(
+                            "WorkflowOrchestrator: run=%s PAUSED at ApprovalGate%s — "
+                            "call approve() to continue",
+                            run.run_id,
+                            " (forced by repo first-merge policy)" if gate_forced else "",
+                        )
+                        return run
 
             except Exception as exc:
                 log.exception("WorkflowOrchestrator: run=%s phase=%s FAILED", run.run_id, phase)
@@ -1043,6 +1119,9 @@ class WorkflowOrchestrator:
         Returns the completed run after all phases finish.
         """
         run = self.approve(run_id, approved_by=approved_by)
+        # G5: record first-merge consent on the synchronous resume path too, so
+        # it is covered regardless of which approve API the caller used.
+        await self._record_first_merge_consent(run)
         if run._request is not None:
             return await self.execute(run._request, resume_run_id=run_id)
         return run
@@ -1075,6 +1154,9 @@ class WorkflowOrchestrator:
             raise ValueError(f"Run {run_id} is {run.status!r}, not awaiting_approval")
         if not run.approved:
             run = self.approve(run_id, approved_by=approved_by)
+        # G5: persist first-merge consent so subsequent merges on this repo follow
+        # the detected DeliveryPolicy instead of re-gating (best-effort).
+        await self._record_first_merge_consent(run)
         try:
             from services.orchestrator_queue import get_orchestrator_queue
             queue = get_orchestrator_queue()
@@ -1115,6 +1197,7 @@ class WorkflowOrchestrator:
                 run.llm_provenance = snapshot.get("llm_provenance", {})
                 run.phase_attempts = snapshot.get("phase_attempts", {})
                 run.approved = snapshot.get("approved", False)
+                run.merge_decision = snapshot.get("merge_decision")
                 run.error = snapshot.get("error")
                 # Restore phase outputs so skip detection works on retry.
                 # Without this every resume re-runs all phases from scratch.
