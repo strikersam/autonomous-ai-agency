@@ -32,7 +32,7 @@ services:
       - key: LOG_WATCHER_AUTO_FILE
         value: "1"
       - key: GITHUB_REPOSITORY
-        value: "strikersam/local-llm-server"
+        value: "strikersam/autonomous-ai-agency"
 
       # ================================================================
       # NVIDIA NIM - Free models, first priority (no local infra needed)
