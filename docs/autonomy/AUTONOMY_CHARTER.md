@@ -165,7 +165,12 @@ CLASSIFY → PLAN → [🔴 gate?] → EXECUTE → VERIFY → JUDGE → land
   `decide_merge()` returns the land action: `awaiting_repo_connection` (URL-only),
   `telegram_gate` (first unattended merge on a new repo, 🔴), `open_pr`
   (`pr_required`), or `direct_push`. Detection is uncertain ⇒ `pr_required` (safe
-  default). Merge to a deployment branch is always a 🔴 gate (§3).
+  default). **The orchestrator now consults this at the ApprovalGate**
+  (`workflow_orchestrator._resolve_merge_decision`): a first unattended merge
+  forces the Telegram gate even under `auto_approve`, the decision is recorded on
+  `run.merge_decision`, and approval persists first-merge consent
+  (`_record_first_merge_consent`) so later merges follow policy. Merge to a
+  deployment branch is always a 🔴 gate (§3).
 
 ### Loop 4 — Trends contextually applied
 ```
