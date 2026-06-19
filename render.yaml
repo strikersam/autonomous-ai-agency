@@ -32,7 +32,7 @@ services:
       - key: LOG_WATCHER_AUTO_FILE
         value: "1"
       - key: GITHUB_REPOSITORY
-        value: "strikersam/local-llm-server"
+        value: "strikersam/autonomous-ai-agency"
 
       # ================================================================
       # NVIDIA NIM - Free models, first priority (no local infra needed)
@@ -42,24 +42,28 @@ services:
         sync: false
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
-      # Powerful FREE NVIDIA NIM brain (issue #656). Was the dead
-      # nvidia/nemotron-3-super-120b-a12b. nemotron-3-ultra-550b is the largest
-      # free cloud model: https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b
+      # FREE NVIDIA NIM brain. nemotron-3-super-120b-a12b is a Nemotron-3 MoE
+      # that activates only ~12B params/token (vs ~55B for the 550B "ultra"), so
+      # it is several times faster per call while staying a same-generation
+      # reasoning model — best fit for the latency-sensitive agent loop on a free,
+      # no-rate-limit endpoint. (It 404'd briefly around issue #656, which is why
+      # the ultra was pinned then; confirmed live again at
+      # https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b )
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
+        value: "nvidia/nemotron-3-super-120b-a12b"
 
-      # Agent brain roles run on the FREE NVIDIA ultra model — NOT paid Anthropic
+      # Agent brain roles run on the FREE NVIDIA model — NOT paid Anthropic
       # Bedrock Opus. Pinning these to us.anthropic.* is what made every agent
       # task call api.anthropic.com and fail with 400 (issue #656). Set
       # ALLOW_PAID_BRAIN=true only to deliberately opt back into paid Anthropic.
       - key: AGENT_PLANNER_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_VERIFIER_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_JUDGE_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
+        value: "nvidia/nemotron-3-super-120b-a12b"
 
       # LLM Provider
       - key: LLM_PROVIDER
@@ -302,22 +306,23 @@ services:
         sync: false
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
-      # Powerful FREE NVIDIA NIM brain (issue #656). Was the dead
-      # nvidia/nemotron-3-super-120b-a12b — agents 400'd on it.
-      # https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b
+      # FREE NVIDIA NIM brain — must match the web service. The 120B-a12b super
+      # MoE activates only ~12B params/token (vs ~55B for the 550B "ultra"), so
+      # background agent/CEO task runs stay on the fast path too. Confirmed live:
+      # https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
-      # Agent brain roles run on the FREE NVIDIA ultra model — NOT paid Anthropic
+        value: "nvidia/nemotron-3-super-120b-a12b"
+      # Agent brain roles run on the FREE NVIDIA model — NOT paid Anthropic
       # Bedrock Opus (issue #656: agents were stuck calling api.anthropic.com /
       # Bedrock and 400ing). Set ALLOW_PAID_BRAIN=true only to opt back into paid.
       - key: AGENT_PLANNER_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_VERIFIER_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_JUDGE_MODEL
-        value: "nvidia/nemotron-3-ultra-550b-a55b"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
       # Telegram approval-gate pushes when this worker runs the orchestrator
