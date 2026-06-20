@@ -119,7 +119,10 @@ async def start_background_services(
     try:
         from agent.schedule_store import ScheduleStore
 
-        n = scheduler.attach_persistence(ScheduleStore())
+        # This runs inside the async lifespan, so await hydration directly —
+        # the sync attach_persistence() would call asyncio.run() on the live
+        # loop, raising (and silently skipping rehydration) instead.
+        n = await scheduler.attach_persistence_async(ScheduleStore())
         log.info("Scheduler durable persistence attached (%d job(s) rehydrated)", n)
     except Exception as exc:
         log.warning("Scheduler durable persistence not attached: %s", exc)
