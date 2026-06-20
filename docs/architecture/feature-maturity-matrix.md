@@ -25,6 +25,9 @@
 - Judge (release gate)
 - Local runtime (internal_agent)
 - Local-first model routing
+- Multi-agent orchestration (CEO → single specialist; Golden-Path plan→execute→verify→judge)
+
+> **Note on opt-in features:** the **Telegram bot remote control** is production-quality (service manager, inbound routing, approval gates, `/diag`, full test suite) but ships **disabled by default** (`telegram_bot` = `disabled` in `features/matrix.py`). Enable it with `TELEGRAM_BOT_TOKEN` + `FEATURE_TELEGRAM_BOT=stable`. It is "stable, opt-in" rather than "stable core."
 
 ## Beta
 
@@ -33,14 +36,13 @@
 - Policies & governance
 - CRISPY workflow engine
 - Task-harness runtime
+- Sidecar runtimes (Hermes/OpenCode/Goose) — optional; absent on the default cloud deploy, where routing falls back to `internal_agent`
+- Multi-agent / deep swarm (multi-specialist hand-off chains)
 
 ## Experimental
 
 - OpenHands runtime (opt-in via `OPENHANDS_ENABLED=true`)
-- Sidecar runtimes (Hermes/OpenCode/Goose)
-- Telegram bot
 - Tunnels (Cloudflare/ngrok)
-- Multi-agent / swarm
 - OpenClaw integration
 - JCode runtime
 - Quick Actions / iOS Shortcuts
