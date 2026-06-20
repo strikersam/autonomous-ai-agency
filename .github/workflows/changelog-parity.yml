@@ -1,0 +1,39 @@
+name: Changelog Parity Check
+
+# Fails PRs whose [Unreleased] body differs between root CHANGELOG.md (the
+# human-facing surface) and docs/changelog.md (the path changelog-check.yml
+# keys on). Without this job, the two files can drift silently across PRs.
+# Companion to changelog-check.yml — closes the medium-severity code-review
+# item raised on PR #692.
+
+on:
+  pull_request:
+    branches: ["master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    name: Require changelog mirror parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    # Match the skip rules of changelog-check.yml: silently pass on Dependabot
+    # PRs (they never touch the changelog) and on draft PRs (auto-generated
+    # agency context plans only add docs/context/* md).
+    if: >
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.draft == false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check changelog parity
+        run: python scripts/check_changelog_parity.py
