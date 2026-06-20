@@ -109,6 +109,21 @@ def classify_plain_text(text: str) -> Literal[
     return "answer_only"
 
 
+def is_sensitive(text: str) -> bool:
+    """True if *text* references a sensitive target (auth / keys / secrets / …).
+
+    Used as a hard safety floor for auto-approval: a sensitive request must NEVER
+    auto-approve, even if the intent classifier returns ``execute_now`` (a
+    misclassification or prompt-injection must not be able to bypass the human
+    gate for credential/auth changes). Activates the ``_SENSITIVE_TARGETS`` list
+    as an explicit, defense-in-depth check independent of the classifier.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    lowered = text.lower()
+    return any(target in lowered for target in _SENSITIVE_TARGETS)
+
+
 def should_big_paste(text: str, *, max_chars: int = DEFAULT_BIG_PASTE_CHARS) -> bool:
     """True when the message exceeds the delivered-character budget.
 
