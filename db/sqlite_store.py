@@ -210,6 +210,61 @@ def _match(doc: dict, query: dict) -> bool:
     return True
 
 
+def _is_pushable_scalar(v: Any) -> bool:
+    """Scalar values whose `str()` form matches how they were stored in the
+    indexed column (see ``insert_one``: ``str(doc.get(field, ""))``).
+
+    ``None`` is excluded: a missing field is stored as ``""`` while a present
+    ``None`` is stored as ``"None"``, so equality against ``None`` is ambiguous
+    and must be left to the Python ``_match`` pass.
+    """
+    return isinstance(v, (str, int, float, bool))
+
+
+def _push_down_where(name: str, query: dict) -> tuple[str, list[str]]:
+    """Build a SQL ``WHERE`` suffix from the subset of *query* conditions that
+    map onto indexed columns with equality / ``$in`` semantics.
+
+    Every emitted clause is a *necessary* condition for ``_match`` to pass (all
+    top-level query keys are ANDed together), so the WHERE can only ever narrow
+    the candidate set — it can never drop a row that ``_match`` would accept.
+    The full ``_match`` still runs in Python afterwards, so any over-inclusion
+    (string coercion of typed values, missing-field rows) is harmless.
+
+    Column names are taken from the ``_INDEXED_FIELDS`` whitelist, never from
+    arbitrary caller input — a query key is only used after confirming it is a
+    declared indexed column for this table.
+    """
+    indexed = set(_INDEXED_FIELDS.get(name, []))
+    if not indexed:
+        return "", []
+    clauses: list[str] = []
+    params: list[str] = []
+    for key, val in query.items():
+        if key not in indexed:
+            # Not an indexed column (or an operator like $or/$and) — leave it to
+            # the Python _match pass.
+            continue
+        if isinstance(val, dict):
+            # Only a bare ``{"$in": [...]}`` of scalars is safely pushable.
+            if set(val.keys()) == {"$in"}:
+                operand = val["$in"]
+                if (isinstance(operand, (list, tuple)) and operand
+                        and all(_is_pushable_scalar(v) for v in operand)):
+                    placeholders = ", ".join("?" * len(operand))
+                    # nosec B608 — `key` is a whitelisted indexed column name
+                    clauses.append(f"{key} IN ({placeholders})")
+                    params.extend(str(v) for v in operand)
+            continue
+        if _is_pushable_scalar(val):
+            # nosec B608 — `key` is a whitelisted indexed column name
+            clauses.append(f"{key} = ?")
+            params.append(str(val))
+    if not clauses:
+        return "", []
+    return " WHERE " + " AND ".join(clauses), params
+
+
 def _apply_update(doc: dict, update: dict) -> dict:
     """Apply a MongoDB-style update operator dict to *doc* in place."""
     new = dict(doc)
@@ -277,24 +332,30 @@ class _Collection:
     async def _conn(self) -> aiosqlite.Connection:
         return await self._store._get_conn()
 
-    async def _all_docs(self, *, write_conn: bool = False) -> list[dict]:
-        sql = f"SELECT data FROM {self._name}"  # nosec B608 — table name is whitelisted via _COLLECTIONS in _Collection.__init__
+    async def _all_docs(self, query: dict | None = None, *,
+                        write_conn: bool = False) -> list[dict]:
+        # Push indexed equality / $in conditions into SQL so the index does the
+        # filtering, instead of pulling + JSON-decoding every row and scanning in
+        # Python. The clause only narrows candidates; _matching still applies the
+        # full _match in Python for the non-pushable conditions.
+        where_sql, params = _push_down_where(self._name, query or {})
+        sql = f"SELECT data FROM {self._name}{where_sql}"  # nosec B608 — table name whitelisted via _COLLECTIONS; column names via _INDEXED_FIELDS; values parameterised
         if write_conn:
             # Read-modify-write callers read through the writer connection so they
             # observe their own connection's latest committed view.
             conn = await self._conn()
-            async with conn.execute(sql) as cur:
+            async with conn.execute(sql, params) as cur:
                 rows = await cur.fetchall()
         else:
             # Pure reads use a pooled read connection so they run concurrently
             # with the writer (and each other) instead of serializing on it.
             async with self._store._read_conn() as conn:
-                async with conn.execute(sql) as cur:
+                async with conn.execute(sql, params) as cur:
                     rows = await cur.fetchall()
         return [json.loads(r[0]) for r in rows]
 
     async def _matching(self, query: dict, *, write_conn: bool = False) -> list[dict]:
-        all_docs = await self._all_docs(write_conn=write_conn)
+        all_docs = await self._all_docs(query, write_conn=write_conn)
         return [d for d in all_docs if _match(d, query)]
 
     # ── public Motor-compatible API ───────────────────────────────────────

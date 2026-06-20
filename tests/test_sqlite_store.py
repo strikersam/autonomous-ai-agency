@@ -346,3 +346,75 @@ async def test_read_after_write_is_consistent(store):
     await store.tasks.update_one({"task_id": "rw1"}, {"$set": {"status": "done"}})
     got = await store.tasks.find_one({"task_id": "rw1"})
     assert got is not None and got["status"] == "done"
+
+
+# ── SQL push-down on indexed columns ──────────────────────────────────────────
+# Equality / $in conditions on indexed columns (user_id, status, …) are pushed
+# into the SQL WHERE so the index does the filtering instead of pulling +
+# JSON-decoding every row and scanning in Python. The Python _match still runs
+# afterwards, so the result must be byte-for-byte identical to the old full scan.
+
+from db.sqlite_store import _push_down_where  # noqa: E402
+
+
+def test_push_down_builds_where_for_indexed_equality():
+    """Indexed-column equality becomes a parameterised WHERE clause."""
+    where, params = _push_down_where("tasks", {"user_id": "u1", "status": "todo"})
+    assert "WHERE" in where
+    assert where.count("?") == 2
+    assert params == ["u1", "todo"]
+
+
+def test_push_down_pushes_in_operator():
+    """$in over an indexed column becomes a parameterised IN (...) clause."""
+    where, params = _push_down_where("tasks", {"status": {"$in": ["todo", "doing"]}})
+    assert "status IN (?, ?)" in where
+    assert params == ["todo", "doing"]
+
+
+def test_push_down_ignores_non_indexed_and_operators():
+    """Non-indexed fields, $or, $ne, and None values are left to Python _match."""
+    # Non-indexed field on the tasks table (only user_id/status are indexed).
+    assert _push_down_where("tasks", {"priority": "high"}) == ("", [])
+    # Top-level operators are never pushed.
+    assert _push_down_where("tasks", {"$or": [{"status": "todo"}]}) == ("", [])
+    # Range / $ne operators on an indexed column are not equality — not pushed.
+    assert _push_down_where("tasks", {"status": {"$ne": "todo"}}) == ("", [])
+    # None equality is ambiguous (missing field stored as "") — not pushed.
+    assert _push_down_where("tasks", {"status": None}) == ("", [])
+
+
+@pytest.mark.asyncio
+async def test_push_down_results_match_full_scan(store):
+    """End-to-end: pushed-down queries return exactly what the Python filter
+    would, including the mixed indexed + non-indexed case where the WHERE only
+    narrows and _match finishes the job."""
+    await store.tasks.insert_one({"task_id": "a", "user_id": "u1", "status": "todo", "priority": "high"})
+    await store.tasks.insert_one({"task_id": "b", "user_id": "u1", "status": "todo", "priority": "low"})
+    await store.tasks.insert_one({"task_id": "c", "user_id": "u1", "status": "done", "priority": "high"})
+    await store.tasks.insert_one({"task_id": "d", "user_id": "u2", "status": "todo", "priority": "high"})
+
+    # Pure indexed equality (fully pushed).
+    rows = await store.tasks.find({"user_id": "u1", "status": "todo"}).to_list(None)
+    assert {r["task_id"] for r in rows} == {"a", "b"}
+
+    # Indexed $in.
+    rows = await store.tasks.find({"status": {"$in": ["todo", "done"]}, "user_id": "u1"}).to_list(None)
+    assert {r["task_id"] for r in rows} == {"a", "b", "c"}
+
+    # Mixed: indexed (pushed) + non-indexed (Python-filtered).
+    rows = await store.tasks.find({"user_id": "u1", "priority": "high"}).to_list(None)
+    assert {r["task_id"] for r in rows} == {"a", "c"}
+
+    # count_documents goes through the same path.
+    assert await store.tasks.count_documents({"user_id": "u1", "status": "todo"}) == 2
+
+
+@pytest.mark.asyncio
+async def test_push_down_missing_field_not_dropped(store):
+    """A row missing an indexed field must never be dropped for a query that
+    doesn't constrain that field — the WHERE must only narrow on constrained
+    columns. Guards against the push-down excluding a real match."""
+    await store.tasks.insert_one({"task_id": "x", "user_id": "u1"})  # no status
+    rows = await store.tasks.find({"user_id": "u1"}).to_list(None)
+    assert {r["task_id"] for r in rows} == {"x"}
