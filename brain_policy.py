@@ -20,13 +20,14 @@ import os
 # free cloud model via NVIDIA_DEFAULT_MODEL; this fallback is the documented
 # default (see .env.example / render.yaml).
 #
-# We default to the Nemotron-3 *super* 120B-a12b MoE rather than the 550B-a55b
-# "ultra": it activates only ~12B params/token (vs ~55B for the ultra), so it is
-# several times faster per call while staying a same-generation Nemotron-3
-# reasoning model — the right balance for the plan→execute→verify→judge loop on a
-# free, no-rate-limit NIM endpoint. (It briefly 404'd around issue #656, which is
-# why the ultra was pinned then; the endpoint is live again.)
-DEFAULT_FREE_NVIDIA_MODEL = "nvidia/nemotron-3-super-120b-a12b"
+# This MUST match the live, endpoint-tested model the rest of the codebase uses
+# (router/, services/, agents/, and seeded provider records all reference it). A
+# later curation pass (see the docs/changelog entry "NVIDIA NIM model list curated
+# from live endpoint testing") found the old `nemotron-3-super-120b-a12b` returns
+# 404, so the free-brain default is the empirically-live Nemotron Super 49B.
+# Without this, a deploy that leaves NVIDIA_DEFAULT_MODEL unset would resolve a
+# dead model and every dispatched task would fail at EXECUTE with a 400/404.
+DEFAULT_FREE_NVIDIA_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
