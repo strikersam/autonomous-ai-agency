@@ -11,9 +11,7 @@ Regression coverage for per-user scoping of WorkflowOrchestrator runs:
 from __future__ import annotations
 
 import os
-import socket
 import pytest
-from fastapi.testclient import TestClient
 
 import backend.server as server
 from backend.server import app as backend_app
@@ -22,18 +20,46 @@ from backend.server import app as backend_app
 # ── Unit: orchestrator-level scoping ──────────────────────────────────────────
 
 
+def _expected_brain_model() -> str:
+    """Default brain model the resolver picks when no provider record is configured.
+
+    Keep in sync with ``services/workflow_orchestrator._resolve_brain_provider``
+    default. Override via ``EXPECTED_BRAIN_MODEL`` env var for tests/CI — once the
+    brain default rotates, the helper rotates with it without an edit here
+    (rotations have happened at least twice this month; see changelog).
+    """
+    return os.environ.get("EXPECTED_BRAIN_MODEL", "qwen3-coder:30b")
+
+
 def _ollama_reachable() -> bool:
-    ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
-    host = ollama_base.replace("http://", "").replace("https://", "").split(":")[0]
+    """True only when Ollama has the model the brain resolver actually picks
+    (``EXPECTED_BRAIN_MODEL`` env, defaults to ``qwen3-coder:30b``) loaded — not
+    just any model.
+
+    The brain resolver (``services/workflow_orchestrator._resolve_brain_provider``)
+    defaults to ``qwen3-coder:30b`` when no provider record is configured. The
+    endpoint-scoping tests below drive execute() through the FastAPI ``/execute``
+    endpoint with ``auto_approve=true`` as an admin, which calls Orchestrator → SWOT
+    Swarm → Scout AgentRunner → Ollama at ``/v1/chat/completions``. A 404 from a
+    missing model surfaces as ``AgentPhaseError: planning: Client error '404 Not
+    Found'``, which fails the test even when Ollama is otherwise healthy. The
+    family match (``qwen3-coder:30b`` matches ``qwen3-coder:30b-instruct``) keeps
+    the helper tolerant of Ollama tag suffixes without false-positive matches
+    against unrelated models.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+    base = os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/")
+    target_family = _expected_brain_model().split(":", 1)[0]
     try:
-        port = int(ollama_base.rsplit(":", 1)[-1].rstrip("/"))
-    except ValueError:
-        port = 11434
-    try:
-        s = socket.create_connection((host, port), timeout=2.0)
-        s.close()
-        return True
-    except OSError:
+        with urllib.request.urlopen(f"{base}/api/tags", timeout=2.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return any(
+            (m.get("name") or "").split(":", 1)[0] == target_family
+            for m in data.get("models", [])
+        )
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, ConnectionError):
         return False
 
 
@@ -186,7 +212,6 @@ class TestOrchestratorEndpointScoping:
         assert resp.status_code == 200, resp.text
         assert resp.json()["run"]["status"] == "awaiting_approval"
 
-    @pytest.mark.skipif(not _ollama_reachable(), reason="LLM backend not reachable in CI")
     def test_admin_may_auto_approve(self, api_client):
         from services.workflow_orchestrator import reset_orchestrator
 

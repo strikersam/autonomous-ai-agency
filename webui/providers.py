@@ -10,6 +10,12 @@ from pydantic import BaseModel, Field
 from webui.config_store import JsonConfigStore
 from webui.url_guard import validate_outbound_url
 
+try:
+    from brain_policy import invalidate_brain_cache
+except Exception:  # noqa: BLE001 - brain_policy import is best-effort
+    def invalidate_brain_cache() -> None:  # type: ignore[no-redef]
+        pass
+
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -26,6 +32,10 @@ class ProviderCreate(BaseModel):
     default_model: str | None = Field(default=None, max_length=200)
     default_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     kind: Literal["openai_compat", "anthropic"] = "openai_compat"
+    # Drag-and-drop priority: higher integer = picked first by brain_policy. New
+    # providers default to 0 so existing reorder logic ranks them below any
+    # already-bootstrapped providers with positive priority.
+    priority: int = Field(default=0, ge=-1000, le=1000)
 
 
 class ProviderUpdate(BaseModel):
@@ -35,6 +45,7 @@ class ProviderUpdate(BaseModel):
     default_model: str | None = Field(default=None, max_length=200)
     default_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     kind: Literal["openai_compat", "anthropic"] | None = None
+    priority: int | None = Field(default=None, ge=-1000, le=1000)
 
 
 class ProviderRecord(BaseModel):
@@ -47,6 +58,7 @@ class ProviderRecord(BaseModel):
     has_api_key: bool = False
     created_at: str
     updated_at: str
+    priority: int = 0
 
 
 class ProviderSecret(BaseModel):
@@ -56,6 +68,7 @@ class ProviderSecret(BaseModel):
     default_model: str | None
     default_temperature: float
     kind: Literal["openai_compat", "anthropic"] = "openai_compat"
+    priority: int = 0
 
 
 def _normalize_base_url(url: str) -> str:
@@ -75,6 +88,10 @@ class ProviderManager:
     def get_secret(self, provider_id: str) -> ProviderSecret | None:
         for item in self._items():
             if item.get("provider_id") == provider_id:
+                try:
+                    priority = int(item.get("priority") or 0)
+                except (TypeError, ValueError):
+                    priority = 0
                 return ProviderSecret(
                     provider_id=provider_id,
                     base_url=str(item.get("base_url") or ""),
@@ -82,6 +99,7 @@ class ProviderManager:
                     default_model=item.get("default_model") or None,
                     default_temperature=float(item.get("default_temperature") or 0.2),
                     kind=str(item.get("kind") or "openai_compat"),
+                    priority=priority,
                 )
         return None
 
@@ -99,11 +117,15 @@ class ProviderManager:
                 "kind": body.kind,
                 "default_model": body.default_model,
                 "default_temperature": body.default_temperature,
+                "priority": body.priority,
                 "created_at": now,
                 "updated_at": now,
             }
         )
         self._store.save("providers", items)
+        # The brain resolver caches the active brain. Re-resolve on the next
+        # read so the operator's drag-and-drop reorder takes effect immediately.
+        invalidate_brain_cache()
         return self._to_public(items[-1], include_base=True)
 
     def update(self, provider_id: str, body: ProviderUpdate) -> ProviderRecord | None:
@@ -124,8 +146,11 @@ class ProviderManager:
                 item["default_temperature"] = body.default_temperature
             if body.kind is not None:
                 item["kind"] = body.kind
+            if body.priority is not None:
+                item["priority"] = body.priority
             item["updated_at"] = _now()
             self._store.save("providers", items)
+            invalidate_brain_cache()
             return self._to_public(item, include_base=True)
         return None
 
@@ -135,6 +160,50 @@ class ProviderManager:
         if len(after) == len(items):
             return False
         self._store.save("providers", after)
+        invalidate_brain_cache()
+        return True
+
+    def reorder(self, provider_ids: list[str]) -> bool:
+        """Reorder the provider priority list.
+
+        ``provider_ids`` is the desired ordering (first = highest priority).
+        We assign integer priorities so the FIRST element ends up with the
+        largest integer (so descending-sort in brain_policy places it first).
+        Providers not in the list keep their existing priority — operators
+        can issue partial reorders without disturbing the rest.
+
+        Unknown provider_ids are silently ignored (no error). Returns False
+        when the request would change nothing (empty / duplicate list).
+        """
+        items = self._items()
+        if not provider_ids:
+            return False
+        # Dedupe while preserving order; ignore unknown ids so a stale UI
+        # snapshot can't crash the brain cache.
+        seen: set[str] = set()
+        clean_ids: list[str] = []
+        for pid in provider_ids:
+            if pid not in seen:
+                seen.add(pid)
+                clean_ids.append(pid)
+        # Highest priority = len-1, descending. Anchor at the current top-most
+        # priority so a reorder that doesn't mention every provider still
+        # leaves untouched records above/below a single mid-range rearrange.
+        max_prio = max(int(it.get("priority") or 0) for it in items) if items else 0
+        id_to_prio: dict[str, int] = {}
+        for idx, pid in enumerate(clean_ids):
+            id_to_prio[pid] = max_prio + (len(clean_ids) - idx)
+        changed = False
+        for it in items:
+            pid = str(it.get("provider_id") or "")
+            if pid in id_to_prio and int(it.get("priority") or 0) != id_to_prio[pid]:
+                it["priority"] = id_to_prio[pid]
+                it["updated_at"] = _now()
+                changed = True
+        if not changed:
+            return False
+        self._store.save("providers", items)
+        invalidate_brain_cache()
         return True
 
     def ensure_defaults(self, *, local_base_url: str) -> None:
@@ -217,6 +286,10 @@ class ProviderManager:
 
     def _to_public(self, item: dict[str, Any], *, include_base: bool = True) -> ProviderRecord:
         api_key = item.get("api_key")
+        try:
+            priority = int(item.get("priority") or 0)
+        except (TypeError, ValueError):
+            priority = 0
         return ProviderRecord(
             provider_id=str(item.get("provider_id") or ""),
             name=str(item.get("name") or ""),
@@ -225,6 +298,7 @@ class ProviderManager:
             default_model=item.get("default_model") or None,
             default_temperature=float(item.get("default_temperature") or 0.2),
             has_api_key=bool(api_key),
+            priority=priority,
             created_at=str(item.get("created_at") or ""),
             updated_at=str(item.get("updated_at") or ""),
         )

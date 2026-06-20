@@ -596,3 +596,43 @@ button.danger:hover:not(:disabled) {
 ::-webkit-scrollbar       { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+
+/* ── Brain / role badges (AdminApp) ───────────────────────────────────────── */
+.role-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  vertical-align: middle;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+               "Liberation Mono", "Courier New", monospace;
+}
+.badge-brain {
+  background: rgba(115,231,197,0.18);
+  border-color: rgba(115,231,197,0.55);
+  color: #b8f5dc;
+}
+.badge-fallback {
+  background: rgba(255,107,107,0.18);
+  border-color: rgba(255,107,107,0.55);
+  color: #f5c0c4;
+}
+.badge-sub-agent {
+  background: rgba(122,162,255,0.15);
+  border-color: rgba(122,162,255,0.45);
+  color: #b9cdf5;
+}
+.badge-unconfigured {
+  background: rgba(120,120,120,0.12);
+  border-color: rgba(120,120,120,0.35);
+  color: #d0d0d0;
+}
+.badge-muted {
+  background: rgba(120,120,120,0.08);
+  border-color: rgba(120,120,120,0.20);
+  color: #a8a8a8;
+}

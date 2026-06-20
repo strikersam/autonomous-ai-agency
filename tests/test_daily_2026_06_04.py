@@ -61,9 +61,17 @@ def test_claude_sonnet_4_7_maps_to_coder():
 
 
 def test_opus_model_prefers_4_8_for_direct_api():
-    """_opus_model() with ANTHROPIC_API_KEY should return claude-opus-4-8."""
+    """_opus_model() with ANTHROPIC_API_KEY + explicit paid opt-in should return claude-opus-4-8.
+
+    Pinning the contract "_opus_model() returns a paid model ONLY when the operator
+    explicitly opts in via ALLOW_PAID_BRAIN=true". Without the opt-in (default),
+    _opus_model() returns None so the brain resolver picks the free NVIDIA / Ollama
+    path instead — the consolidated brain-policy / single-source-of-truth fix
+    (issue #656 followup).
+    """
     from router.model_router import _opus_model, reset_router
     reset_router()
+    os.environ["ALLOW_PAID_BRAIN"] = "true"
     os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test"
     os.environ.pop("AWS_ACCESS_KEY_ID", None)
     os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
@@ -72,13 +80,22 @@ def test_opus_model_prefers_4_8_for_direct_api():
         assert result == "claude-opus-4-8", f"Expected claude-opus-4-8, got {result}"
     finally:
         os.environ.pop("ANTHROPIC_API_KEY", None)
+        os.environ.pop("ALLOW_PAID_BRAIN", None)
         reset_router()
 
 
 def test_opus_model_prefers_4_8_bedrock_arn():
-    """_opus_model() with Bedrock keys should return the Opus 4.8 ARN."""
+    """_opus_model() with Bedrock keys + explicit paid opt-in should return the Opus 4.8 ARN.
+
+    Pinning the contract "_opus_model() returns a paid model ONLY when the operator
+    explicitly opts in via ALLOW_PAID_BRAIN=true". Same single-source-of-truth fix
+    as test_opus_model_prefers_4_8_for_direct_api: without ALLOW_PAID_BRAIN, paid
+    paths are refused everywhere (model router + brain_policy + ceo_dispatcher +
+    harness_adapter).
+    """
     from router.model_router import _opus_model, reset_router
     reset_router()
+    os.environ["ALLOW_PAID_BRAIN"] = "true"
     os.environ["AWS_ACCESS_KEY_ID"] = "AKIATEST"
     os.environ["AWS_SECRET_ACCESS_KEY"] = "secrettest"
     os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -90,6 +107,7 @@ def test_opus_model_prefers_4_8_bedrock_arn():
     finally:
         os.environ.pop("AWS_ACCESS_KEY_ID", None)
         os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
+        os.environ.pop("ALLOW_PAID_BRAIN", None)
         reset_router()
 
 

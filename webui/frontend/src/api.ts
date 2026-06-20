@@ -2,6 +2,7 @@
 // VITE_API_BASE build-time env var to the backend URL (e.g. https://your-app.onrender.com).
 // When served by the proxy itself (Render single-container, local dev), leave it
 // empty — relative paths work automatically.
+
 const API_BASE: string = (import.meta as any).env?.VITE_API_BASE ?? "";
 
 export type Provider = {
@@ -11,6 +12,36 @@ export type Provider = {
   default_model?: string | null;
   default_temperature?: number;
   has_api_key?: boolean;
+  kind?: "openai_compat" | "anthropic";
+  priority?: number;
+};
+
+export type ProviderRoleTag = {
+  is_brain: boolean;
+  role: "brain" | "sub-agent" | "fallback" | "unconfigured" | "available";
+  reason: string;
+  // Echoed back from brain_policy so the Admin SPA can match role tags to
+  // operators' locally-defined webui provider records (which use a separate
+  // provider_id namespace than the backend Mongo store).
+  base_url?: string;
+  name?: string;
+};
+
+export type BrainResolution = {
+  provider_id: string;
+  base_url: string;
+  model: string | null;
+  role: string;
+  free_tier: boolean;
+  source: string;
+  priority: number;
+} | null;
+
+export type BrainPolicy = {
+  resolution: BrainResolution;
+  allow_paid_brain: boolean;
+  env_var: "ALLOW_PAID_BRAIN";
+  hint: string;
 };
 
 export type Workspace = {
@@ -226,6 +257,65 @@ export async function adminCreateProvider(adminToken: string, body: any) {
 export async function adminDeleteProvider(adminToken: string, providerId: string) {
   const r = await fetch(`${API_BASE}/admin/api/providers/${encodeURIComponent(providerId)}`, {
     method: "DELETE",
+    headers: adminHeaders(adminToken),
+  });
+  if (!r.ok) return apiError(r);
+  return r.json();
+}
+
+/** PATCH a single provider; supports priority + fields. Returns the admin-shaped {provider, admin} envelope. */
+export async function adminUpdateProvider(
+  adminToken: string,
+  providerId: string,
+  body: Partial<{
+    name: string;
+    base_url: string;
+    api_key: string | null;
+    default_model: string | null;
+    default_temperature: number;
+    kind: "openai_compat" | "anthropic";
+    priority: number;
+  }>,
+): Promise<{ provider: Provider; admin: { username: string; auth_source: string } }> {
+  const r = await fetch(`${API_BASE}/admin/api/providers/${encodeURIComponent(providerId)}`, {
+    method: "PATCH",
+    headers: { ...adminHeaders(adminToken), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) return apiError(r);
+  return r.json();
+}
+
+/** Reorder providers by the desired top-to-bottom priority list. */
+export async function adminReorderProviders(
+  adminToken: string,
+  providerIds: string[],
+): Promise<{ ok: boolean; providers: Provider[]; admin: { username: string; auth_source: string } }> {
+  const r = await fetch(`${API_BASE}/admin/api/providers/reorder`, {
+    method: "POST",
+    headers: { ...adminHeaders(adminToken), "Content-Type": "application/json" },
+    body: JSON.stringify({ provider_ids: providerIds }),
+  });
+  if (!r.ok) return apiError(r);
+  return r.json();
+}
+
+/** Read the canonical brain-role badges (brain / fallback / sub-agent / unconfigured) from the brain resolver. */
+export async function adminGetProviderRoleTags(
+  adminToken: string,
+): Promise<{ role_tags: Record<string, ProviderRoleTag>; admin: { username: string; auth_source: string } }> {
+  const r = await fetch(`${API_BASE}/admin/api/providers/role-tags`, {
+    headers: adminHeaders(adminToken),
+  });
+  if (!r.ok) return apiError(r);
+  return r.json();
+}
+
+/** Read the resolved CEO brain + the ALLOW_PAID_BRAIN paid-models policy (read-only). */
+export async function adminGetBrainPolicy(
+  adminToken: string,
+): Promise<{ resolution: BrainResolution; allow_paid_brain: boolean; env_var: "ALLOW_PAID_BRAIN"; hint: string; admin: { username: string; auth_source: string }; }> {
+  const r = await fetch(`${API_BASE}/admin/api/policy/brain`, {
     headers: adminHeaders(adminToken),
   });
   if (!r.ok) return apiError(r);
