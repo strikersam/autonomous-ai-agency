@@ -18,7 +18,6 @@ import asyncio
 import json
 import logging
 import os
-import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
@@ -654,13 +653,26 @@ class SQLiteStore:
             if self._read_pool is not None:
                 return
             pool: asyncio.Queue[aiosqlite.Connection] = asyncio.Queue()
-            for _ in range(self._read_pool_size):
-                rc = await aiosqlite.connect(self._db_path)
-                # query_only fails closed if a read path ever attempts a write;
-                # busy_timeout lets a reader wait out the writer's brief lock.
-                await rc.execute("PRAGMA query_only=ON")
-                await rc.execute("PRAGMA busy_timeout=5000")
-                pool.put_nowait(rc)
+            created: list[aiosqlite.Connection] = []
+            try:
+                for _ in range(self._read_pool_size):
+                    rc = await aiosqlite.connect(self._db_path)
+                    # query_only fails closed if a read path ever attempts a write;
+                    # busy_timeout lets a reader wait out the writer's brief lock.
+                    await rc.execute("PRAGMA query_only=ON")
+                    await rc.execute("PRAGMA busy_timeout=5000")
+                    created.append(rc)
+                    pool.put_nowait(rc)
+            except Exception:
+                # Don't leak the connections we already opened if a later
+                # connect/PRAGMA fails — close them before propagating so a
+                # retried read doesn't accumulate orphaned handles.
+                for rc in created:
+                    try:
+                        await rc.close()
+                    except Exception as exc:  # pragma: no cover - best effort
+                        log.warning("error closing read connection during failed pool init: %s", exc)
+                raise
             self._read_pool = pool
 
     @asynccontextmanager
@@ -679,12 +691,23 @@ class SQLiteStore:
             log.warning("SQLite read pool unavailable, using writer connection: %s", exc)
             yield await self._get_conn()
             return
-        assert self._read_pool is not None
-        conn = await self._read_pool.get()
+        # Bind the pool locally so a concurrent close() (which swaps
+        # self._read_pool to None) can't strand the connection on return: if the
+        # store's pool is no longer the one we borrowed from, close the handle
+        # instead of returning it to a dead/replaced queue.
+        pool = self._read_pool
+        assert pool is not None
+        conn = await pool.get()
         try:
             yield conn
         finally:
-            self._read_pool.put_nowait(conn)
+            if self._read_pool is pool:
+                pool.put_nowait(conn)
+            else:
+                try:
+                    await conn.close()
+                except Exception as exc:  # pragma: no cover - best effort
+                    log.warning("error closing read connection after pool teardown: %s", exc)
 
     async def _init_schema(self) -> None:
         """Create tables if they don't already exist."""
@@ -709,14 +732,19 @@ class SQLiteStore:
         log.info("SQLiteStore schema ready at %s", self._db_path)
 
     async def close(self) -> None:
-        if self._read_pool is not None:
-            while not self._read_pool.empty():
-                rc = self._read_pool.get_nowait()
+        # Swap the pool reference to None under the same lock that guards pool
+        # creation, so an in-flight _read_conn() observes a consistent state and
+        # returns its borrowed connection via the `is pool` guard instead of into
+        # a half-drained queue.
+        async with self._read_lock:
+            pool, self._read_pool = self._read_pool, None
+        if pool is not None:
+            while not pool.empty():
+                rc = pool.get_nowait()
                 try:
                     await rc.close()
-                except Exception:  # pragma: no cover - best effort
-                    pass
-            self._read_pool = None
+                except Exception as exc:  # pragma: no cover - best effort
+                    log.warning("error closing pooled read connection: %s", exc)
         if self._conn:
             await self._conn.close()
             self._conn = None

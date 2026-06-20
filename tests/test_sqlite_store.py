@@ -327,12 +327,15 @@ async def test_read_pool_disabled_for_memory_db():
     """In-memory DBs are private per connection, so the pool must be disabled and
     reads fall back to the writer connection (otherwise reads see an empty DB)."""
     store = SQLiteStore(db_path=":memory:")
-    assert store._pool_enabled is False
-    await store.users.insert_one({"email": "a@b.com", "role": "user"})
-    got = await store.users.find_one({"email": "a@b.com"})
-    assert got is not None and got["role"] == "user"
-    # No separate pool was created.
-    assert store._read_pool is None
+    try:
+        assert store._pool_enabled is False
+        await store.users.insert_one({"email": "a@b.com", "role": "user"})
+        got = await store.users.find_one({"email": "a@b.com"})
+        assert got is not None and got["role"] == "user"
+        # No separate pool was created.
+        assert store._read_pool is None
+    finally:
+        await store.close()
 
 
 @pytest.mark.asyncio
