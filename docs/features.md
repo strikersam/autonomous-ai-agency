@@ -305,9 +305,9 @@ POST /agent/sessions/{id}/rollback-last-commit  # Undo last agent commit
 **Config:**
 
 ```env
-AGENT_PLANNER_MODEL=deepseek-r1:32b
-AGENT_EXECUTOR_MODEL=qwen3-coder:30b
-AGENT_VERIFIER_MODEL=deepseek-r1:32b
+AGENT_PLANNER_MODEL=nvidia/nemotron-3-super-120b-a12b
+AGENT_EXECUTOR_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1
+AGENT_VERIFIER_MODEL=nvidia/nemotron-3-super-120b-a12b
 AGENT_WORKSPACE_ROOT=C:\path\to\your\repo  # optional
 ```
 

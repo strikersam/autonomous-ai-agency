@@ -13,8 +13,8 @@ Usage
   build-workflow
 
   # With explicit model overrides
-  CRISPY_CODER_MODEL=qwen3-coder:30b \\
-  CRISPY_REVIEWER_MODEL=deepseek-r1:32b \\
+  CRISPY_CODER_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1 \\
+  CRISPY_REVIEWER_MODEL=nvidia/nemotron-3-super-120b-a12b \\
   build-workflow "Refactor the auth module"
 
   # Target a specific project directory
@@ -31,17 +31,17 @@ Configuration (via environment variables)
   LLM_API_KEY           API key (required when server auth is enabled)
   CRISPY_ARCHITECT_MODEL  Model for planning phases
   CRISPY_SCOUT_MODEL      Model for research phases
-  CRISPY_CODER_MODEL      Model for implementation (default: qwen3-coder:30b)
+  CRISPY_CODER_MODEL      Model for implementation (default: nvidia/llama-3.3-nemotron-super-49b-v1)
   CRISPY_REVIEWER_MODEL   Model for review — SHOULD differ from CODER
   CRISPY_VERIFIER_MODEL   Model for generating verify commands
 
 Agent Team (default)
 --------------------
-  Scout     [deepseek-r1:32b]     — research, read-only
-  Architect [qwen3-coder:30b]     — planning, structure, report
-  Coder     [qwen3-coder:30b]     — implementation (write-permitted)
-  Reviewer  [deepseek-r1:32b]     — adversarial review, DIFFERENT model
-  Verifier  [qwen3-coder:7b]      — generates test commands, execution only
+  Scout     [meta/llama-3.3-70b-instruct]     — research, read-only
+  Architect [nvidia/nemotron-3-super-120b-a12b]     — planning, structure, report
+  Coder     [nvidia/llama-3.3-nemotron-super-49b-v1]     — implementation (write-permitted)
+  Reviewer  [nvidia/nemotron-3-super-120b-a12b]     — adversarial review, DIFFERENT model
+  Verifier  [nvidia/nemotron-3-super-120b-a12b]      — generates test commands, execution only
 
 Workflow Lifecycle
 ------------------

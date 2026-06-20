@@ -99,14 +99,27 @@ class Step1Request(BaseModel):
 
 
 class Step2Request(BaseModel):
-    """Local model detection results and default model selection."""
+    """Local model detection results and default model selection.
+
+    Defaults are pinned to the four NVIDIA-NIM free-tier models verified live
+    today (2026-06-20 live probe — qwen3-coder-480b, qwen2.5-coder-32b,
+    deepseek-r1, granite-34b, phi-3-medium, mistral-large-2, codestral-22b,
+    llama-3.1-405b, codellama-70b, qwen3-235b-a22b all returned 404/410 and
+    are NOT used here). Per-role asymmetry is preserved: planner/architect/
+    reviewer/verifier/judge use the 120B MoE (reasoning-tuned); coder/executor
+    use the dense 49B (JSON-clean tool-calling); scout uses 70B (fast
+    read-only summarisation).
+    """
     default_model:      str  = "nvidia/nemotron-3-super-120b-a12b"
-    coder_model:        str  = "nvidia/nemotron-3-super-120b-a12b"
-    planner_model:      str  = "qwen/qwen3-coder-480b-a35b-instruct"
-    executor_model:     str  = "nvidia/nemotron-3-super-120b-a12b"
+    coder_model:        str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
+    planner_model:      str  = "nvidia/nemotron-3-super-120b-a12b"
+    executor_model:     str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
     reviewer_model:     str  = "nvidia/nemotron-3-super-120b-a12b"
     verifier_model:     str  = "nvidia/nemotron-3-super-120b-a12b"
-    judge_model:        str  = "deepseek-ai/deepseek-v4-pro"
+    judge_model:        str  = "nvidia/nemotron-3-super-120b-a12b"
+    scout_model:        str  = "meta/llama-3.3-70b-instruct"
+    architect_model:    str  = "nvidia/nemotron-3-super-120b-a12b"
+    fallback_model:     str  = "meta/llama-3.1-70b-instruct"
     embedding_model:    str  = "nomic-embed-text"
     accepted_degraded:  bool = False   # user acknowledges degraded compatibility
     repo_path:          str | None = None  # path to local-llm-server repo
@@ -344,6 +357,17 @@ async def detect_configured_providers():
             "configured": bool(nvidia_key),
             "base_url": os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com",
             "default_model": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            # Curated roster of free-tier NVIDIA NIM models verified live in the
+            # live probe on 2026-06-20. qwen3-coder-480b / qwen2.5-coder-32b /
+            # deepseek-r1 / granite-34b / phi-3-medium / mistral-large-2 /
+            # codestral-22b / llama-3.1-405b / codellama-70b / qwen3-235b-a22b
+            # all returned 404/410 and are intentionally excluded.
+            "live_free_models": [
+                "nvidia/nemotron-3-super-120b-a12b",
+                "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "meta/llama-3.3-70b-instruct",
+                "meta/llama-3.1-70b-instruct",
+            ],
         },
         "openai": {"configured": bool(openai_key)},
         "anthropic": {"configured": bool(anthropic_key)},

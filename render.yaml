@@ -59,7 +59,7 @@ services:
       - key: AGENT_PLANNER_MODEL
         value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "nvidia/llama-3.3-nemotron-super-49b-v1"
       - key: AGENT_VERIFIER_MODEL
         value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_JUDGE_MODEL
@@ -333,7 +333,7 @@ services:
       - key: AGENT_PLANNER_MODEL
         value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "nvidia/llama-3.3-nemotron-super-49b-v1"
       - key: AGENT_VERIFIER_MODEL
         value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_JUDGE_MODEL

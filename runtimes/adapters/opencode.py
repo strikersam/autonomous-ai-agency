@@ -72,9 +72,7 @@ class OpenCodeAdapter(RuntimeAdapter):
         super().__init__(config)
         self._bin = (config or {}).get("bin") or os.environ.get("OPENCODE_BIN", "opencode")
         self._base_url = (config or {}).get("base_url") or os.environ.get("OPENCODE_BASE_URL", "")
-        self._default_model = (config or {}).get("model") or os.environ.get(
-            "OPENCODE_MODEL", os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
-        )
+        self._default_model = (config or {}).get("model") or            os.environ.get("OPENCODE_MODEL", os.environ.get("AGENT_EXECUTOR_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1"))
         self._workspace = (config or {}).get("workspace") or os.environ.get("OPENCODE_WORKSPACE", ".")
 
     def required_dependencies(self) -> list[RuntimeDependency]:
