@@ -61,6 +61,10 @@
 
   for test suite compatibility with Phase 2 deprecation.## [Unreleased]
 
+### Changed
+
+- **SQLite read-connection pool** (2026-06-20). `db/sqlite_store.py` now serves pure reads from a pool of WAL read-only connections instead of funnelling every query through the single shared writer connection. Under `STORAGE_BACKEND=sqlite` the previous design serialized *all* DB access process-wide, so on a busy single-instance deploy (autonomous background loops + Telegram bot writing constantly) the dashboard and task-board reads queued behind those writes — the "extra slow" symptom. WAL mode permits N concurrent readers + 1 writer, so the pool lets read endpoints run concurrently with each other and with the writer. Read-modify-write ops (`update_one`/`replace_one`/`delete_one`/`delete_many`) still read through the writer connection for view consistency. Added `PRAGMA busy_timeout=5000` to all connections (wait out a transient lock instead of erroring), `PRAGMA query_only=ON` on read connections (fail-closed), pool size via `SQLITE_READ_POOL_SIZE` (default 4), and automatic pool-disable for in-memory DBs (which are private per connection). New concurrency regression tests in `tests/test_sqlite_store.py` (28 passing): 20 concurrent reads racing a write burst, in-memory fallback, and read-after-write consistency across the pool/writer boundary.
+
 ### Added
 
 - **Post-merge Telegram notification workflow** (2026-06-20). New `.github/workflows/post-merge-telegram-notify.yml` triggers on PR merges to `master` (`pull_request: closed` + `merged == true`). Delivers an HTML-formatted notification (✅ emoji, PR metadata, 300-char truncated PR-body preview, short SHA, GitHub PR URL) directly to the configured Telegram chat through the Bot API using Python stdlib `urllib` (no external GH Action dependencies). Enforces a fail-fast presence check on the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets; on `ok=false` from Telegram or any HTTP error the workflow logs the response body and exits 1 so the operator has a real signal during outage triage. Concurrency group `post-merge-telegram-notify` serializes rapid batch merges.

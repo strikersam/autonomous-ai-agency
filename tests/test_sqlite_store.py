@@ -292,3 +292,57 @@ async def test_scan_and_workflow_collections_whitelisted(store):
     await store.workflows.insert_one({"company_id": "c1", "is_active": True, "name": "wf"})
     active = [w async for w in store.workflows.find({"company_id": "c1", "is_active": True})]
     assert len(active) == 1
+
+
+@pytest.mark.asyncio
+async def test_read_pool_serves_concurrent_reads(store):
+    """The WAL read pool must satisfy many concurrent reads without serializing
+    them on the single writer connection. Proves reads use pooled connections
+    distinct from the writer, and that a write concurrent with reads is safe."""
+    await store.tasks.insert_one({"task_id": "t1", "user_id": "u1", "status": "todo"})
+
+    async def reader() -> int:
+        rows = await store.tasks.find({"user_id": "u1"}).to_list()
+        return len(rows)
+
+    async def writer() -> None:
+        for i in range(5):
+            await store.tasks.insert_one(
+                {"task_id": f"w{i}", "user_id": "u1", "status": "todo"}
+            )
+
+    # 20 concurrent reads racing against a burst of writes — must not deadlock,
+    # error, or raise "database is locked".
+    results = await asyncio.gather(writer(), *[reader() for _ in range(20)])
+    read_counts = results[1:]
+    assert all(c >= 1 for c in read_counts)
+
+    # The pool was actually built and is sized per SQLITE_READ_POOL_SIZE.
+    assert store._read_pool is not None
+    assert store._read_pool.qsize() == store._read_pool_size
+
+
+@pytest.mark.asyncio
+async def test_read_pool_disabled_for_memory_db():
+    """In-memory DBs are private per connection, so the pool must be disabled and
+    reads fall back to the writer connection (otherwise reads see an empty DB)."""
+    store = SQLiteStore(db_path=":memory:")
+    assert store._pool_enabled is False
+    await store.users.insert_one({"email": "a@b.com", "role": "user"})
+    got = await store.users.find_one({"email": "a@b.com"})
+    assert got is not None and got["role"] == "user"
+    # No separate pool was created.
+    assert store._read_pool is None
+
+
+@pytest.mark.asyncio
+async def test_read_after_write_is_consistent(store):
+    """A read issued after a committed write must observe it, even though reads
+    go through a different (pooled) connection than the writer."""
+    await store.tasks.insert_one({"task_id": "rw1", "user_id": "u9", "status": "todo"})
+    # Pooled read sees the committed insert.
+    assert await store.tasks.find_one({"task_id": "rw1"}) is not None
+    # Update (read-modify-write via the writer connection) then pooled read.
+    await store.tasks.update_one({"task_id": "rw1"}, {"$set": {"status": "done"}})
+    got = await store.tasks.find_one({"task_id": "rw1"})
+    assert got is not None and got["status"] == "done"
