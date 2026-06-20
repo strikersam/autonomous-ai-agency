@@ -192,12 +192,15 @@ class TestDnsCdnDetection:
             def __str__(self):
                 return self._t
 
-        def fake_resolve(host, rdtype):
+        # _analyze_dns uses a dns.resolver.Resolver() instance (so it can cap
+        # per-query lifetime), so patch the instance method, not the module-level
+        # function. Bound-method call passes the Resolver as `self`.
+        def fake_resolve(self, host, rdtype=None, *args, **kwargs):
             if rdtype == "CNAME":
                 return [_Rdata(target)]
             raise Exception("no record")
 
-        monkeypatch.setattr(dns_resolver, "resolve", fake_resolve)
+        monkeypatch.setattr(dns_resolver.Resolver, "resolve", fake_resolve, raising=False)
 
     def test_cloudfront_cname_detected(self, monkeypatch) -> None:
         scanner = _scanner()
@@ -221,6 +224,44 @@ class TestDnsCdnDetection:
         names = {s.name for s in systems}
         assert "AWS CloudFront (CDN)" not in names
         assert "Shopify" not in names
+
+
+class TestScanBudget:
+    """A scan must never hang past its wall-clock budget — a slow/blocked domain
+    has to come back as a clean status='failed' instead of spinning until the
+    client's own (120s) timeout fires."""
+
+    def test_scan_exceeding_budget_returns_failed(self, monkeypatch) -> None:
+        scanner = _scanner()
+        scanner.scan_budget = 0.05  # force a tiny budget
+
+        async def _slow_impl(*args, **kwargs):
+            await asyncio.sleep(5)  # would far exceed the budget
+
+        monkeypatch.setattr(scanner, "_scan_website_impl", _slow_impl)
+        result = asyncio.run(scanner.scan_website("https://slow.example.com"))
+        assert result.status == "failed"
+        assert any("budget" in e.lower() for e in result.errors), result.errors
+        # The failed result is still well-formed for the API/persistence layer.
+        assert result.website_url == "https://slow.example.com"
+        assert result.scan_id and result.completed_at
+
+    def test_fast_scan_is_not_affected_by_budget(self, monkeypatch) -> None:
+        from services.scanner import WebsiteScanResult
+        scanner = _scanner()
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+
+        async def _fast_impl(url, *args, **kwargs):
+            return WebsiteScanResult(
+                scan_id="scan_x", website_url=url, company_id="test_co",
+                status="success", started_at=now, completed_at=now,
+            )
+
+        monkeypatch.setattr(scanner, "_scan_website_impl", _fast_impl)
+        result = asyncio.run(scanner.scan_website("https://fast.example.com"))
+        assert result.status == "success"
 
 
 class TestBuiltWithFallback:
