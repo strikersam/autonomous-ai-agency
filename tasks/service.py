@@ -242,6 +242,43 @@ class TaskWorkflowService:
         )
         return task
 
+    def approve_execution(
+        self, task: Task, *, actor: str, approved: bool = True, reason: str | None = None
+    ) -> Task:
+        """Record the human decision on a task's **pre-execution** approval gate.
+
+        A ``requires_approval`` task is parked by the dispatcher before it runs
+        (charter Gate Matrix). Approve → set ``execution_approved`` and re-queue
+        for execution; reject → BLOCKED with a reason (re-openable). This is the
+        gate that stops risky/outward-facing work from running unattended; it is
+        distinct from ``record_approval`` (which signs off COMPLETED work).
+        """
+        if approved:
+            task.execution_approved = True
+            self.transition(
+                task,
+                TaskStatus.IN_PROGRESS,
+                actor=actor,
+                message=f"Execution approved by {actor}",
+                pending_agent_run=True,
+            )
+        else:
+            self.transition(
+                task,
+                TaskStatus.BLOCKED,
+                actor=actor,
+                blocked_reason=f"Execution rejected by {actor}: {reason or 'no reason given'}",
+                message=f"Execution rejected by {actor}",
+            )
+        task.add_log(
+            f"Pre-execution gate {'approved' if approved else 'rejected'} by {actor}",
+            event_type="approval_decision",
+            actor=actor,
+            task_status=task.status,
+            metadata={"gate": "pre_execution", "approved": approved, "reason": reason},
+        )
+        return task
+
     def retry(self, task: Task, *, actor: str) -> Task:
         """Re-run a task. Permissive across every non-active state so the dashboard
         Retry button (which is always visible) never returns a 400: terminal,
@@ -472,6 +509,30 @@ class TaskExecutionCoordinator:
             await self._release_task(task_id)
             return task
 
+        # ── Pre-execution approval gate (Autonomy Charter Gate Matrix) ──
+        # A risky/outward-facing task (requires_approval) must NEVER run before a
+        # human approves. Park it here — BEFORE resolving the agent or invoking any
+        # runtime — so autonomous dispatch cannot execute it. Clearing
+        # pending_agent_run stops the dispatcher re-picking it; a best-effort
+        # Telegram heads-up is pushed. Approval arrives via
+        # TaskWorkflowService.approve_execution() (POST /api/tasks/{id}/approve-execution),
+        # which sets execution_approved and re-queues the task.
+        if task.requires_approval and not task.execution_approved:
+            task.pending_agent_run = False
+            task.review_reason = "⏸ Awaiting human approval before execution (requires_approval)."
+            task.add_log(
+                "Execution gated — awaiting human approval before the agent runs.",
+                event_type="approval_gate",
+                actor="system:dispatcher",
+                task_status=task.status,
+                metadata={"gate": "pre_execution"},
+            )
+            await self.store.update(task)
+            self._notify_execution_gate(task)
+            self._active_task_ids.discard(task_id)
+            await self._release_task(task_id)
+            return task
+
         try:
             agent = await self._resolve_agent(task)
 
@@ -637,6 +698,27 @@ class TaskExecutionCoordinator:
     @staticmethod
     async def _release_task(task_id: str) -> None:
         await _shared_release(f"task:active:{task_id}")
+
+    @staticmethod
+    def _notify_execution_gate(task: Task) -> None:
+        """Best-effort Telegram heads-up that a task is parked awaiting approval.
+
+        Send-only (no inline buttons here) so it never depends on bot wiring; the
+        operator approves via the dashboard or POST /api/tasks/{id}/approve-execution.
+        Any failure is swallowed — the gate's enforcement does not depend on it.
+        """
+        try:
+            from telegram_service import NotificationDispatcher
+
+            msg = (
+                "⏸ *Task awaiting approval before execution*\n"
+                f"`{task.task_id}` — {(task.title or '')[:120]}\n"
+                "This is a `requires_approval` task; the agent will not run until "
+                "you approve it (dashboard, or POST /api/tasks/<id>/approve-execution)."
+            )
+            NotificationDispatcher().send_manual_notification(msg)
+        except Exception:  # nosec B110 - notification is best-effort
+            pass
 
     async def _resolve_agent(self, task: Task) -> AgentDefinition | None:
         if task.agent_id:

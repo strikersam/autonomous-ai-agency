@@ -1,0 +1,59 @@
+name: trigger-telegram
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: "Backend base URL hosting the admin digest endpoint"
+        required: false
+        type: string
+        default: "https://local-llm-server.onrender.com"
+
+concurrency:
+  group: telegram-trigger
+  cancel-in-progress: true
+
+jobs:
+  send-telegram:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: POST /api/admin/digest/send via repo-secret DIGEST_SECRET
+        env:
+          DIGEST_SECRET: ${{ secrets.DIGEST_SECRET }}
+          BACKEND_URL: ${{ inputs.backend_url }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DIGEST_SECRET:-}" ]; then
+            echo "::error::secrets.DIGEST_SECRET is empty or not configured in repo secrets."
+            exit 1
+          fi
+
+          ENDPOINT="${BACKEND_URL}/api/admin/digest/send"
+          echo "Triggering digest at ${ENDPOINT}"
+
+          HTTP_STATUS=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST \
+            -H "X-Admin-Secret: ${DIGEST_SECRET}" \
+            -H "Content-Type: application/json" \
+            --data '{}' \
+            --max-time 60 \
+            "${ENDPOINT}")
+
+          echo "=== response body ==="
+          cat /tmp/resp.json
+          echo ""
+          echo "=== HTTP status: ${HTTP_STATUS} ==="
+
+          if [ "${HTTP_STATUS}" != "200" ]; then
+            echo "::error::Server returned HTTP ${HTTP_STATUS}"
+            exit 1
+          fi
+
+          if ! jq -e '.ok == true or (.message_id // empty) != "" or .status == "success"' /tmp/resp.json >/dev/null; then
+            echo "::error::Response did not contain ok=true / status=success / message_id"
+            exit 1
+          fi
+
+          echo "::notice::Telegram dispatch succeeded end-to-end"

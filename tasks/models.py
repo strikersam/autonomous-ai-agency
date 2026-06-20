@@ -130,6 +130,12 @@ class Task(BaseModel):
     # Approval
     requires_approval: bool = False
     approval_checkpoints: list[ApprovalCheckpoint] = Field(default_factory=list)
+    # Pre-execution approval gate (Autonomy Charter Gate Matrix). When
+    # ``requires_approval`` is True the task must NOT run until a human approves:
+    # the dispatcher parks it (clears ``pending_agent_run``) and ``approve_execution()``
+    # flips this True to re-queue it. This is distinct from ``approval_checkpoints``,
+    # which review COMPLETED work *after* execution.
+    execution_approved: bool = False
 
     # Execution tracking
     execution_log: list[ExecutionLogEntry] = Field(default_factory=list)
@@ -250,6 +256,12 @@ class CommentAddRequest(BaseModel):
 class ApprovalRequest(BaseModel):
     checkpoint_id: str
     approve: bool
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class ExecutionApprovalRequest(BaseModel):
+    """Decision on the pre-execution approval gate of a ``requires_approval`` task."""
+    approve: bool = True
     reason: str | None = Field(default=None, max_length=2000)
 
 

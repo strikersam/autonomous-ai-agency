@@ -49,25 +49,9 @@ https://yourcompany.com
 
 No config files. No integration wiring. No per-seat pricing. No data leaving your server.
 
----
+<p align="center"><img src="docs/screenshots/v5/dashboard.png" width="92%" alt="Autonomous AI Agency — v5 dashboard"/></p>
 
-## Screenshots
-
-> Screenshots captured from live deployment. Run `pytest tests/e2e/ --screenshot=on` to regenerate.
-
-### Dashboard
-![Dashboard — Autonomous AI Agency](docs/screenshots/web/dashboard.png)
-
-### Company Scan Results
-![Scan Results](docs/screenshots/web/scan-results.png)
-
-### Task Board
-![Task Board](docs/screenshots/web/task-board.png)
-
-### Mobile (390px viewport)
-| Login | Dashboard | Scan Results |
-|-------|-----------|--------------||
-| ![](docs/screenshots/mobile/login.png) | ![](docs/screenshots/mobile/dashboard.png) | ![](docs/screenshots/mobile/scan-results.png) |
+<p align="center"><sub>The v5 dashboard. More screens in <a href="#screens">Screens</a> below.</sub></p>
 
 ---
 
@@ -420,103 +404,117 @@ The dashboard has 16 fully-wired screens, all backed by live API endpoints:
 
 ## Screens
 
+> Captured from a live v5 build with `python scripts/capture_screens.py` (the same
+> flow runs as a UI smoke test — see `tests/e2e/test_v5_screens_smoke.py`). These are
+> empty-state screens from a fresh instance (no companies/tasks onboarded yet).
+
 <!-- README_UI_GALLERY:START -->
-### 🛰 Control Plane
+### 💬 Chat — unified assistant
 
-The command center: live agent health, recent activity, and system metrics at a glance.
+Talk to the CEO agent directly; it decomposes goals and routes work to the right specialists.
 
-<p align="center"><img src="docs/screenshots/readme/v4-control-plane.png" width="92%" alt="Control Plane dashboard"/></p>
+<p align="center"><img src="docs/screenshots/v5/chat.png" width="92%" alt="💬 Chat — unified assistant"/></p>
 
-### 🛬 Login
+### 📊 Dashboard — system overview
 
-People can sign in through a simple starting page instead of touching raw config files.
+Live agent health, recent activity, and system metrics at a glance.
 
-<p align="center"><img src="docs/screenshots/readme/v4-login.png" width="92%" alt="Login"/></p>
+<p align="center"><img src="docs/screenshots/v5/dashboard.png" width="92%" alt="📊 Dashboard — system overview"/></p>
 
-### 🧙 Setup Wizard
+### 🗂 Tasks — job lifecycle board
 
-The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.
+Every AI job made visible: waiting, running, blocked, in review, or done.
 
-<p align="center"><img src="docs/screenshots/readme/v4-setup-wizard.png" width="92%" alt="Setup Wizard"/></p>
+<p align="center"><img src="docs/screenshots/v5/tasks.png" width="92%" alt="🗂 Tasks — job lifecycle board"/></p>
 
-### 💬 Chat
+### 🤖 Agents — autonomous team
 
-This is where you talk to the CEO agent directly.
+Your specialist roster — each with its own model, runtime, specialty, and guardrails.
 
-<p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Chat"/></p>
+<p align="center"><img src="docs/screenshots/v5/agents.png" width="92%" alt="🤖 Agents — autonomous team"/></p>
 
-### 🗂 Task Board
+### 🗓 Schedules — autopilot jobs
 
-This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.
+Recurring and scheduled autonomous work.
 
-<p align="center"><img src="docs/screenshots/readme/v4-tasks-kanban.png" width="92%" alt="Kanban Task Board"/></p>
+<p align="center"><img src="docs/screenshots/v5/schedules.png" width="92%" alt="🗓 Schedules — autopilot jobs"/></p>
 
-### 🤖 Agent Roster
+### ⚡ Skills — agentic capabilities
 
-Your cast of AI specialists. Each agent has its own model, runtime, specialty, and rules.
+Reusable runtime skills bound to specialists.
 
-<p align="center"><img src="docs/screenshots/readme/v4-agents.png" width="92%" alt="Agent Roster"/></p>
+<p align="center"><img src="docs/screenshots/v5/skills.png" width="92%" alt="⚡ Skills — agentic capabilities"/></p>
 
-### ⚙️ Runtimes
+### 🎯 Portfolio — WSJF roadmap
 
-The engines behind the scenes that actually run your AI work.
+Prioritised initiatives, sprints, and agile health.
 
-<p align="center"><img src="docs/screenshots/readme/v4-runtimes.png" width="92%" alt="Agent Runtimes"/></p>
+<p align="center"><img src="docs/screenshots/v5/portfolio.png" width="92%" alt="🎯 Portfolio — WSJF roadmap"/></p>
 
-### 🛣 Routing Policy
+### 📈 Intelligence — trends & competitors
 
-Control how smart, cheap, fast, or private the system is when picking a model.
+Trend and competitor signals scoped to each onboarded company's stack.
 
-<p align="center"><img src="docs/screenshots/readme/v4-routing.png" width="92%" alt="Routing Policy"/></p>
+<p align="center"><img src="docs/screenshots/v5/intelligence.png" width="92%" alt="📈 Intelligence — trends & competitors"/></p>
 
-### 🔌 Providers and Models
+### 📚 Knowledge — docs & sources
 
-Connect local and cloud AI sources and choose which models are available.
+Wiki pages, source material, and reusable context — your team's memory.
 
-<p align="center">
-  <img src="docs/screenshots/readme/v4-providers.png" width="48%" alt="Providers"/>
-  &nbsp;
-  <img src="docs/screenshots/readme/v4-models.png" width="48%" alt="Models"/>
-</p>
+<p align="center"><img src="docs/screenshots/v5/knowledge.png" width="92%" alt="📚 Knowledge — docs & sources"/></p>
 
-### 📚 Knowledge
+### 🔌 Providers — models, Ollama & MCP
 
-Your team's memory: wiki pages, source material, and reusable context.
+Connect free/cloud/local AI sources and choose which models are available.
 
-<p align="center"><img src="docs/screenshots/readme/v4-knowledge.png" width="92%" alt="Knowledge and Wiki"/></p>
+<p align="center"><img src="docs/screenshots/v5/providers.png" width="92%" alt="🔌 Providers — models, Ollama & MCP"/></p>
 
-### 🔭 Logs and activity
+### 🔭 Logs — traces & observability
 
-Every LLM call: token count, latency, cost, and decision context.
+Every LLM call: tokens, latency, cost, and decision context.
 
-<p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs"/></p>
+<p align="center"><img src="docs/screenshots/v5/logs.png" width="92%" alt="🔭 Logs — traces & observability"/></p>
 
-### 🗓 Schedules
+### 🐙 GitHub — repos & PRs
 
-Make AI jobs run later or recur automatically.
+Connect repositories and manage the agent's delivery surface.
 
-<p align="center"><img src="docs/screenshots/readme/v4-schedules.png" width="92%" alt="Schedules"/></p>
+<p align="center"><img src="docs/screenshots/v5/github.png" width="92%" alt="🐙 GitHub — repos & PRs"/></p>
 
-### 🧭 Settings and guardrails
+### 🏢 Company — operating context
 
-Central settings: defaults, policies, and integrations in one place.
+An onboarded company's detected stack, systems, and SEO/health.
 
-<p align="center"><img src="docs/screenshots/readme/v4-settings.png" width="92%" alt="Settings"/></p>
+<p align="center"><img src="docs/screenshots/v5/company.png" width="92%" alt="🏢 Company — operating context"/></p>
 
-### 🛡 Admin portal
+### ✨ Onboarding — setup wizard
 
-Manage access, instance activation, and system behavior.
+Scan a website and stand up its specialist agency in minutes.
 
-<p align="center"><img src="docs/screenshots/readme/v4-admin.png" width="92%" alt="Admin Portal"/></p>
+<p align="center"><img src="docs/screenshots/v5/onboarding.png" width="92%" alt="✨ Onboarding — setup wizard"/></p>
+
+### 🩺 Doctor — diagnostics
+
+System self-checks and autonomy readiness probes.
+
+<p align="center"><img src="docs/screenshots/v5/doctor.png" width="92%" alt="🩺 Doctor — diagnostics"/></p>
+
+### 🛡 Admin — users & access
+
+Manage users, roles, instance activation, and onboarding gates.
+
+<p align="center"><img src="docs/screenshots/v5/admin.png" width="92%" alt="🛡 Admin — users & access"/></p>
 
 ### 📱 Mobile
 
-The dashboard is responsive — sign in, run the setup wizard, and monitor agents from a phone.
+Responsive layout — sign in, view the dashboard, and work the task board from a phone.
 
 <p align="center">
-  <img src="docs/screenshots/readme/v4-login-mobile.png" width="32%" alt="Mobile login"/>
+  <img src="docs/screenshots/v5/mobile-login.png" width="30%" alt="Mobile login"/>
   &nbsp;
-  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="32%" alt="Mobile setup wizard"/>
+  <img src="docs/screenshots/v5/mobile-dashboard.png" width="30%" alt="Mobile dashboard"/>
+  &nbsp;
+  <img src="docs/screenshots/v5/mobile-tasks.png" width="30%" alt="Mobile task board"/>
 </p>
 <!-- README_UI_GALLERY:END -->
 

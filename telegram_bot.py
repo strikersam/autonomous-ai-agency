@@ -147,15 +147,69 @@ _freebuff_state: dict[int, dict] = {}
 # (Ruff RUF006). Tasks remove themselves on completion.
 _bg_tasks: set[asyncio.Task] = set()
 
+# One-shot throttle flag for the silent-drop remediation WARNING. Set to True
+# the first time a tele-driven message arrives while ALLOWED_USER_IDS is empty;
+# subsequent drops downgrade to INFO so a curious operator pushing the bot
+# repeatedly doesn't fill the log with the same line. The flag lives at
+# module scope so the check-set is atomic across the bot's single asyncio
+# event loop (no awaits between the check and the set). It is NOT reset on
+# config reload — that's acceptable because a process restart clears it.
+_EMPTY_ALLOWLIST_WARNED: bool = False
+
 
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
 
 def _is_allowed(user_id: int) -> bool:
-    return user_id in ALLOWED_USER_IDS
+    return user_id in ALLOWED_USER_IDS or user_id in ADMIN_USER_IDS
 
 
 def _is_admin(user_id: int) -> bool:
     return user_id in ADMIN_USER_IDS
+
+
+def _log_silent_drop(user_id: int) -> None:
+    global _EMPTY_ALLOWLIST_WARNED
+    """Log a single non-allowlisted telegram drop, with one-shot remediation hint.
+
+    When ``ALLOWED_USER_IDS`` is empty (the operator's "did not trigger
+    any responses" bootstrap symptom), fire a WARNING with a remediation
+    hint ONCE per process. Subsequent drops downgrade to INFO so the log
+    doesn't flood. The non-empty case keeps the original single-line
+    WARNING per drop.
+
+    Module-scope ``_EMPTY_ALLOWLIST_WARNED`` flag is read+written here so
+    ``_process_update`` (the caller) does not need a ``global``. The flag
+    stays TRUE until process restart — acceptable in practice.
+    """
+    if not ALLOWED_USER_IDS:
+        if not _EMPTY_ALLOWLIST_WARNED:
+            log.warning(
+                "Ignored telegram message from user=%d (allowlist EMPTY — "
+                "set TELEGRAM_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS to your "
+                "numeric Telegram user ID from @userinfobot, then restart)",
+                user_id,
+            )
+            _EMPTY_ALLOWLIST_WARNED = True
+        else:
+            log.info(
+                "Ignored telegram message from user=%d (allowlist empty — see prior WARNING)",
+                user_id,
+            )
+    else:
+        log.warning("Ignored message from non-allowlisted user %d", user_id)
+
+
+def _poller_disabled() -> bool:
+    """True when TELEGRAM_POLLER_DISABLED is set to a truthy value.
+
+    Centralised so the /diag handler and the run_bot() long-poll can never
+    drift apart on what counts as truthy. Accepts ``1``, ``true``, ``yes``,
+    ``on`` (case-insensitive); any other value (including unset) is False.
+    """
+    return (
+        os.environ.get("TELEGRAM_POLLER_DISABLED", "").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
 
 
 def _check_rate_limit(user_id: int) -> bool:
@@ -736,9 +790,11 @@ async def _process_update(bot_token: str, update: dict) -> None:
     chat_id: int = message.get("chat", {}).get("id", 0)
     text: str = (message.get("text") or "").strip()
 
-    # Silent drop for non-allowlisted users
+    # Silent drop for non-allowlisted users. The throttle logic lives in
+    # ``_log_silent_drop`` (module-scope, no ``global``) so a curious operator
+    # pushing the bot repeatedly doesn't fill the log with the same line.
     if not _is_allowed(user_id):
-        log.warning("Ignored message from non-allowlisted user %d", user_id)
+        _log_silent_drop(user_id)
         return
 
     # Rate limiting
@@ -807,6 +863,7 @@ async def _process_update(bot_token: str, update: dict) -> None:
             "/status — service health\n"
             "/models — loaded models\n"
             "/cost — local infra cost estimate\n"
+            "/diag — bot config + allowlist diagnostics (admin)\n"
             "/redirect <wfo_xxx|dec_xxx> <new instruction> — mid-flight retarget (admin)\n"
             "/paste <abs path> — read a previously saved paste file (admin)\n"
             "\n*Admin only:*\n"
@@ -815,6 +872,50 @@ async def _process_update(bot_token: str, update: dict) -> None:
             "/freebuff <task> — free-NVIDIA coding agent (pick model, review, accept)\n"
             "/keylist — list API keys\n"
         )
+
+    elif cmd == "/diag":
+        if not _is_admin(user_id):
+            response = "Permission denied. Admin only."
+        else:
+            token_present = bool(TELEGRAM_BOT_TOKEN)
+            # Mask the token as first-4 … last-4 only when the two regions
+            # are guaranteed not to overlap (length ≥ 16). Shorter tokens go
+            # to `<too short>` rather than risk leaking the full value.
+            safe_token = TELEGRAM_BOT_TOKEN or ""
+            if token_present and len(safe_token) >= 16:
+                token_prefix = f"`{safe_token[:4]}\u2026{safe_token[-4:]}`"
+            elif token_present:
+                token_prefix = "`<too short to mask safely>`"
+            else:
+                token_prefix = "`<empty>`"
+            allowed = sorted(ALLOWED_USER_IDS)
+            admin = sorted(ADMIN_USER_IDS)
+            poller_label = (
+                "DISABLED (TELEGRAM_POLLER_DISABLED=true)"
+                if _poller_disabled()
+                else "ACTIVE (long-polling getUpdates)"
+            )
+
+            def _render_ids(ids: list[int]) -> str:
+                if not ids:
+                    return "EMPTY — messages silently dropped"
+                if len(ids) <= 20:
+                    return ", ".join(str(i) for i in ids)
+                head = ", ".join(str(i) for i in ids[:20])
+                return f"{head}, …(+{len(ids) - 20} more)"
+
+            response = (
+                "*Telegram bot diagnostic*\n"
+                f"Token:        {token_prefix} (`{token_present}`)\n"
+                f"Allowed IDs:  `{_render_ids(allowed)}`\n"
+                f"Admin IDs:    `{_render_ids(admin)}`\n"
+                f"Poller:       {poller_label}\n"
+                f"Proxy base:   `{PROXY_BASE_URL}`\n"
+                f"You:          `telegram:{user_id}` (admin={'yes' if user_id in ADMIN_USER_IDS else 'no'})\n"
+                "If Allowed/Admin are EMPTY, set `TELEGRAM_CHAT_ID` (or "
+                "`TELEGRAM_ALLOWED_USER_IDS`) to your numeric Telegram user ID "
+                "from @userinfobot, then restart the bot."
+            )
 
     elif cmd == "/status":
         response = await cmd_status(user_id)
@@ -965,7 +1066,7 @@ async def run_bot() -> None:
     # updates reliably. Set TELEGRAM_POLLER_DISABLED=true on the service that
     # should NOT poll (typically the web service, leaving the dedicated worker
     # to own the long-poll). Env is per-service, so this disables exactly one.
-    if os.environ.get("TELEGRAM_POLLER_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if _poller_disabled():
         log.info(
             "TELEGRAM_POLLER_DISABLED is set — this process will NOT long-poll "
             "getUpdates (another instance owns the bot token)."

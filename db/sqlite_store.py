@@ -18,9 +18,9 @@ import asyncio
 import json
 import logging
 import os
-import time
 import uuid
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
 
 try:
     import aiosqlite
@@ -53,6 +53,10 @@ _COLLECTIONS = [
     "command",
     "companies",
     "user_secrets",
+    "mcp_servers",
+    "website_scans",
+    "repo_scans",
+    "workflows",
 ]
 
 # Fields that are extracted into real columns for indexed lookup.
@@ -70,6 +74,10 @@ _INDEXED_FIELDS: dict[str, list[str]] = {
     "local_metrics":   ["user_id", "created_at"],
     "agent_definitions": ["agent_id"],
     "sources":         ["user_id"],
+    "mcp_servers":     ["user_id", "created_at"],
+    "website_scans":   ["company_id", "status", "completed_at"],
+    "repo_scans":      ["company_id", "completed_at"],
+    "workflows":       ["company_id", "is_active"],
 }
 
 
@@ -201,6 +209,61 @@ def _match(doc: dict, query: dict) -> bool:
     return True
 
 
+def _is_pushable_scalar(v: Any) -> bool:
+    """Scalar values whose `str()` form matches how they were stored in the
+    indexed column (see ``insert_one``: ``str(doc.get(field, ""))``).
+
+    ``None`` is excluded: a missing field is stored as ``""`` while a present
+    ``None`` is stored as ``"None"``, so equality against ``None`` is ambiguous
+    and must be left to the Python ``_match`` pass.
+    """
+    return isinstance(v, (str, int, float, bool))
+
+
+def _push_down_where(name: str, query: dict) -> tuple[str, list[str]]:
+    """Build a SQL ``WHERE`` suffix from the subset of *query* conditions that
+    map onto indexed columns with equality / ``$in`` semantics.
+
+    Every emitted clause is a *necessary* condition for ``_match`` to pass (all
+    top-level query keys are ANDed together), so the WHERE can only ever narrow
+    the candidate set — it can never drop a row that ``_match`` would accept.
+    The full ``_match`` still runs in Python afterwards, so any over-inclusion
+    (string coercion of typed values, missing-field rows) is harmless.
+
+    Column names are taken from the ``_INDEXED_FIELDS`` whitelist, never from
+    arbitrary caller input — a query key is only used after confirming it is a
+    declared indexed column for this table.
+    """
+    indexed = set(_INDEXED_FIELDS.get(name, []))
+    if not indexed:
+        return "", []
+    clauses: list[str] = []
+    params: list[str] = []
+    for key, val in query.items():
+        if key not in indexed:
+            # Not an indexed column (or an operator like $or/$and) — leave it to
+            # the Python _match pass.
+            continue
+        if isinstance(val, dict):
+            # Only a bare ``{"$in": [...]}`` of scalars is safely pushable.
+            if set(val.keys()) == {"$in"}:
+                operand = val["$in"]
+                if (isinstance(operand, (list, tuple)) and operand
+                        and all(_is_pushable_scalar(v) for v in operand)):
+                    placeholders = ", ".join("?" * len(operand))
+                    # nosec B608 — `key` is a whitelisted indexed column name
+                    clauses.append(f"{key} IN ({placeholders})")
+                    params.extend(str(v) for v in operand)
+            continue
+        if _is_pushable_scalar(val):
+            # nosec B608 — `key` is a whitelisted indexed column name
+            clauses.append(f"{key} = ?")
+            params.append(str(val))
+    if not clauses:
+        return "", []
+    return " WHERE " + " AND ".join(clauses), params
+
+
 def _apply_update(doc: dict, update: dict) -> dict:
     """Apply a MongoDB-style update operator dict to *doc* in place."""
     new = dict(doc)
@@ -268,14 +331,30 @@ class _Collection:
     async def _conn(self) -> aiosqlite.Connection:
         return await self._store._get_conn()
 
-    async def _all_docs(self) -> list[dict]:
-        conn = await self._conn()
-        async with conn.execute(f"SELECT data FROM {self._name}") as cur:  # nosec B608 — table name is whitelisted via _COLLECTIONS in _Collection.__init__
-            rows = await cur.fetchall()
+    async def _all_docs(self, query: dict | None = None, *,
+                        write_conn: bool = False) -> list[dict]:
+        # Push indexed equality / $in conditions into SQL so the index does the
+        # filtering, instead of pulling + JSON-decoding every row and scanning in
+        # Python. The clause only narrows candidates; _matching still applies the
+        # full _match in Python for the non-pushable conditions.
+        where_sql, params = _push_down_where(self._name, query or {})
+        sql = f"SELECT data FROM {self._name}{where_sql}"  # nosec B608 — table name whitelisted via _COLLECTIONS; column names via _INDEXED_FIELDS; values parameterised
+        if write_conn:
+            # Read-modify-write callers read through the writer connection so they
+            # observe their own connection's latest committed view.
+            conn = await self._conn()
+            async with conn.execute(sql, params) as cur:
+                rows = await cur.fetchall()
+        else:
+            # Pure reads use a pooled read connection so they run concurrently
+            # with the writer (and each other) instead of serializing on it.
+            async with self._store._read_conn() as conn:
+                async with conn.execute(sql, params) as cur:
+                    rows = await cur.fetchall()
         return [json.loads(r[0]) for r in rows]
 
-    async def _matching(self, query: dict) -> list[dict]:
-        all_docs = await self._all_docs()
+    async def _matching(self, query: dict, *, write_conn: bool = False) -> list[dict]:
+        all_docs = await self._all_docs(query, write_conn=write_conn)
         return [d for d in all_docs if _match(d, query)]
 
     # ── public Motor-compatible API ───────────────────────────────────────
@@ -317,7 +396,7 @@ class _Collection:
 
     async def update_one(self, query: dict, update: dict,
                          upsert: bool = False) -> _UpdateResult:
-        docs = await self._matching(query)
+        docs = await self._matching(query, write_conn=True)
         if not docs:
             if upsert:
                 new_doc = {}
@@ -352,7 +431,7 @@ class _Collection:
 
     async def replace_one(self, query: dict, replacement: dict,
                           upsert: bool = False) -> _UpdateResult:
-        docs = await self._matching(query)
+        docs = await self._matching(query, write_conn=True)
         if not docs:
             if upsert:
                 await self.insert_one(replacement)
@@ -377,7 +456,7 @@ class _Collection:
         return _UpdateResult(1, 1)
 
     async def delete_one(self, query: dict) -> _DeleteResult:
-        docs = await self._matching(query)
+        docs = await self._matching(query, write_conn=True)
         if not docs:
             return _DeleteResult(0)
         doc = docs[0]
@@ -387,7 +466,7 @@ class _Collection:
         return _DeleteResult(1)
 
     async def delete_many(self, query: dict) -> _DeleteResult:
-        docs = await self._matching(query)
+        docs = await self._matching(query, write_conn=True)
         if not docs:
             return _DeleteResult(0)
         conn = await self._conn()
@@ -534,6 +613,20 @@ class SQLiteStore:
         self._conn: aiosqlite.Connection | None = None
         self._lock = asyncio.Lock()
         self._initialized = False
+        # Read-connection pool (WAL mode allows N concurrent readers + 1 writer).
+        # Without it, every read shares the single writer connection, so dashboard
+        # / task-board queries serialize behind the autonomous background loops'
+        # writes on a busy single-process deploy. The pool lets reads run
+        # concurrently with each other and with the writer.
+        self._read_pool: asyncio.Queue[aiosqlite.Connection] | None = None
+        self._read_lock = asyncio.Lock()
+        try:
+            self._read_pool_size = max(1, int(os.environ.get("SQLITE_READ_POOL_SIZE", "4")))
+        except ValueError:
+            self._read_pool_size = 4
+        # An in-memory DB is private per connection, so a separate read pool would
+        # see an empty database. Disable pooling there and read via the writer.
+        self._pool_enabled = ":memory:" not in self._db_path
         # Pre-bind collection attributes
         for name in _COLLECTIONS:
             setattr(self, name, _Collection(self, name))
@@ -545,9 +638,76 @@ class SQLiteStore:
                 self._conn = await aiosqlite.connect(self._db_path)
                 await self._conn.execute("PRAGMA journal_mode=WAL")
                 await self._conn.execute("PRAGMA foreign_keys=ON")
+                # Wait (up to 5s) for a transient lock instead of failing fast with
+                # "database is locked" under concurrent access.
+                await self._conn.execute("PRAGMA busy_timeout=5000")
                 await self._init_schema()
                 self._initialized = True
         return self._conn
+
+    async def _ensure_read_pool(self) -> None:
+        """Lazily build the pool of read-only connections (idempotent)."""
+        # Make sure the writer has created the schema / WAL file first.
+        await self._get_conn()
+        async with self._read_lock:
+            if self._read_pool is not None:
+                return
+            pool: asyncio.Queue[aiosqlite.Connection] = asyncio.Queue()
+            created: list[aiosqlite.Connection] = []
+            try:
+                for _ in range(self._read_pool_size):
+                    rc = await aiosqlite.connect(self._db_path)
+                    # query_only fails closed if a read path ever attempts a write;
+                    # busy_timeout lets a reader wait out the writer's brief lock.
+                    await rc.execute("PRAGMA query_only=ON")
+                    await rc.execute("PRAGMA busy_timeout=5000")
+                    created.append(rc)
+                    pool.put_nowait(rc)
+            except Exception:
+                # Don't leak the connections we already opened if a later
+                # connect/PRAGMA fails — close them before propagating so a
+                # retried read doesn't accumulate orphaned handles.
+                for rc in created:
+                    try:
+                        await rc.close()
+                    except Exception as exc:  # pragma: no cover - best effort
+                        log.warning("error closing read connection during failed pool init: %s", exc)
+                raise
+            self._read_pool = pool
+
+    @asynccontextmanager
+    async def _read_conn(self) -> AsyncIterator[aiosqlite.Connection]:
+        """Yield a read connection from the pool (falls back to the writer).
+
+        On in-memory databases — or if pool creation fails — this yields the
+        single writer connection so reads still work, just without concurrency.
+        """
+        if not self._pool_enabled:
+            yield await self._get_conn()
+            return
+        try:
+            await self._ensure_read_pool()
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("SQLite read pool unavailable, using writer connection: %s", exc)
+            yield await self._get_conn()
+            return
+        # Bind the pool locally so a concurrent close() (which swaps
+        # self._read_pool to None) can't strand the connection on return: if the
+        # store's pool is no longer the one we borrowed from, close the handle
+        # instead of returning it to a dead/replaced queue.
+        pool = self._read_pool
+        assert pool is not None
+        conn = await pool.get()
+        try:
+            yield conn
+        finally:
+            if self._read_pool is pool:
+                pool.put_nowait(conn)
+            else:
+                try:
+                    await conn.close()
+                except Exception as exc:  # pragma: no cover - best effort
+                    log.warning("error closing read connection after pool teardown: %s", exc)
 
     async def _init_schema(self) -> None:
         """Create tables if they don't already exist."""
@@ -572,6 +732,19 @@ class SQLiteStore:
         log.info("SQLiteStore schema ready at %s", self._db_path)
 
     async def close(self) -> None:
+        # Swap the pool reference to None under the same lock that guards pool
+        # creation, so an in-flight _read_conn() observes a consistent state and
+        # returns its borrowed connection via the `is pool` guard instead of into
+        # a half-drained queue.
+        async with self._read_lock:
+            pool, self._read_pool = self._read_pool, None
+        if pool is not None:
+            while not pool.empty():
+                rc = pool.get_nowait()
+                try:
+                    await rc.close()
+                except Exception as exc:  # pragma: no cover - best effort
+                    log.warning("error closing pooled read connection: %s", exc)
         if self._conn:
             await self._conn.close()
             self._conn = None

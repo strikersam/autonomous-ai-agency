@@ -264,3 +264,160 @@ async def test_whitelisted_collections_accepted(tmp_path):
     for name in _COLLECTIONS:
         col = _Collection(store, name)
         assert col._name == name, f"_name should equal {name!r}"
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_collection_whitelisted(store):
+    """Regression: GET /api/mcp/servers 500'd in sqlite mode because
+    'mcp_servers' was missing from _COLLECTIONS — get_db().mcp_servers raised
+    AttributeError ('refusing to bind to non-whitelisted table'). Exercise the
+    exact endpoint access pattern (find by user_id, sort created_at, async-iter)."""
+    assert "mcp_servers" in _COLLECTIONS
+    await store.mcp_servers.insert_one({"user_id": "u1", "name": "ctx7", "created_at": 1})
+    rows = [s async for s in store.mcp_servers.find({"user_id": "u1"}).sort("created_at", 1)]
+    assert len(rows) == 1
+    assert rows[0]["name"] == "ctx7"
+
+
+@pytest.mark.asyncio
+async def test_scan_and_workflow_collections_whitelisted(store):
+    """website_scans / repo_scans / workflows are read via get_db() for company
+    tech-stack inference; without whitelisting they raised AttributeError (caught
+    + silently degraded) in sqlite mode. They must be real, queryable collections."""
+    for name in ("website_scans", "repo_scans", "workflows"):
+        assert name in _COLLECTIONS
+    await store.website_scans.insert_one({"company_id": "c1", "status": "success", "completed_at": 2})
+    got = await store.website_scans.find_one({"company_id": "c1", "status": "success"})
+    assert got is not None and got["completed_at"] == 2
+    await store.workflows.insert_one({"company_id": "c1", "is_active": True, "name": "wf"})
+    active = [w async for w in store.workflows.find({"company_id": "c1", "is_active": True})]
+    assert len(active) == 1
+
+
+@pytest.mark.asyncio
+async def test_read_pool_serves_concurrent_reads(store):
+    """The WAL read pool must satisfy many concurrent reads without serializing
+    them on the single writer connection. Proves reads use pooled connections
+    distinct from the writer, and that a write concurrent with reads is safe."""
+    await store.tasks.insert_one({"task_id": "t1", "user_id": "u1", "status": "todo"})
+
+    async def reader() -> int:
+        rows = await store.tasks.find({"user_id": "u1"}).to_list()
+        return len(rows)
+
+    async def writer() -> None:
+        for i in range(5):
+            await store.tasks.insert_one(
+                {"task_id": f"w{i}", "user_id": "u1", "status": "todo"}
+            )
+
+    # 20 concurrent reads racing against a burst of writes — must not deadlock,
+    # error, or raise "database is locked".
+    results = await asyncio.gather(writer(), *[reader() for _ in range(20)])
+    read_counts = results[1:]
+    assert all(c >= 1 for c in read_counts)
+
+    # The pool was actually built and is sized per SQLITE_READ_POOL_SIZE.
+    assert store._read_pool is not None
+    assert store._read_pool.qsize() == store._read_pool_size
+
+
+@pytest.mark.asyncio
+async def test_read_pool_disabled_for_memory_db():
+    """In-memory DBs are private per connection, so the pool must be disabled and
+    reads fall back to the writer connection (otherwise reads see an empty DB)."""
+    store = SQLiteStore(db_path=":memory:")
+    try:
+        assert store._pool_enabled is False
+        await store.users.insert_one({"email": "a@b.com", "role": "user"})
+        got = await store.users.find_one({"email": "a@b.com"})
+        assert got is not None and got["role"] == "user"
+        # No separate pool was created.
+        assert store._read_pool is None
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_read_after_write_is_consistent(store):
+    """A read issued after a committed write must observe it, even though reads
+    go through a different (pooled) connection than the writer."""
+    await store.tasks.insert_one({"task_id": "rw1", "user_id": "u9", "status": "todo"})
+    # Pooled read sees the committed insert.
+    assert await store.tasks.find_one({"task_id": "rw1"}) is not None
+    # Update (read-modify-write via the writer connection) then pooled read.
+    await store.tasks.update_one({"task_id": "rw1"}, {"$set": {"status": "done"}})
+    got = await store.tasks.find_one({"task_id": "rw1"})
+    assert got is not None and got["status"] == "done"
+
+
+# ── SQL push-down on indexed columns ──────────────────────────────────────────
+# Equality / $in conditions on indexed columns (user_id, status, …) are pushed
+# into the SQL WHERE so the index does the filtering instead of pulling +
+# JSON-decoding every row and scanning in Python. The Python _match still runs
+# afterwards, so the result must be byte-for-byte identical to the old full scan.
+
+from db.sqlite_store import _push_down_where  # noqa: E402
+
+
+def test_push_down_builds_where_for_indexed_equality():
+    """Indexed-column equality becomes a parameterised WHERE clause."""
+    where, params = _push_down_where("tasks", {"user_id": "u1", "status": "todo"})
+    assert "WHERE" in where
+    assert where.count("?") == 2
+    assert params == ["u1", "todo"]
+
+
+def test_push_down_pushes_in_operator():
+    """$in over an indexed column becomes a parameterised IN (...) clause."""
+    where, params = _push_down_where("tasks", {"status": {"$in": ["todo", "doing"]}})
+    assert "status IN (?, ?)" in where
+    assert params == ["todo", "doing"]
+
+
+def test_push_down_ignores_non_indexed_and_operators():
+    """Non-indexed fields, $or, $ne, and None values are left to Python _match."""
+    # Non-indexed field on the tasks table (only user_id/status are indexed).
+    assert _push_down_where("tasks", {"priority": "high"}) == ("", [])
+    # Top-level operators are never pushed.
+    assert _push_down_where("tasks", {"$or": [{"status": "todo"}]}) == ("", [])
+    # Range / $ne operators on an indexed column are not equality — not pushed.
+    assert _push_down_where("tasks", {"status": {"$ne": "todo"}}) == ("", [])
+    # None equality is ambiguous (missing field stored as "") — not pushed.
+    assert _push_down_where("tasks", {"status": None}) == ("", [])
+
+
+@pytest.mark.asyncio
+async def test_push_down_results_match_full_scan(store):
+    """End-to-end: pushed-down queries return exactly what the Python filter
+    would, including the mixed indexed + non-indexed case where the WHERE only
+    narrows and _match finishes the job."""
+    await store.tasks.insert_one({"task_id": "a", "user_id": "u1", "status": "todo", "priority": "high"})
+    await store.tasks.insert_one({"task_id": "b", "user_id": "u1", "status": "todo", "priority": "low"})
+    await store.tasks.insert_one({"task_id": "c", "user_id": "u1", "status": "done", "priority": "high"})
+    await store.tasks.insert_one({"task_id": "d", "user_id": "u2", "status": "todo", "priority": "high"})
+
+    # Pure indexed equality (fully pushed).
+    rows = await store.tasks.find({"user_id": "u1", "status": "todo"}).to_list(None)
+    assert {r["task_id"] for r in rows} == {"a", "b"}
+
+    # Indexed $in.
+    rows = await store.tasks.find({"status": {"$in": ["todo", "done"]}, "user_id": "u1"}).to_list(None)
+    assert {r["task_id"] for r in rows} == {"a", "b", "c"}
+
+    # Mixed: indexed (pushed) + non-indexed (Python-filtered).
+    rows = await store.tasks.find({"user_id": "u1", "priority": "high"}).to_list(None)
+    assert {r["task_id"] for r in rows} == {"a", "c"}
+
+    # count_documents goes through the same path.
+    assert await store.tasks.count_documents({"user_id": "u1", "status": "todo"}) == 2
+
+
+@pytest.mark.asyncio
+async def test_push_down_missing_field_not_dropped(store):
+    """A row missing an indexed field must never be dropped for a query that
+    doesn't constrain that field — the WHERE must only narrow on constrained
+    columns. Guards against the push-down excluding a real match."""
+    await store.tasks.insert_one({"task_id": "x", "user_id": "u1"})  # no status
+    rows = await store.tasks.find({"user_id": "u1"}).to_list(None)
+    assert {r["task_id"] for r in rows} == {"x"}

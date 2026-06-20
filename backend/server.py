@@ -7490,6 +7490,18 @@ if _FRONTEND_BUILD.exists():
         "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
     )
 
+    SPA_PROTECTED_PREFIXES: tuple[str, ...] = (
+        "api/",
+        "v1/",
+        "v2/",
+        "agent/",
+        "admin/",
+        "workflow/",
+        "runtimes/",
+        "ui/",
+        "telegram/",
+    )
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
         if full_path.startswith(SPA_PROTECTED_PREFIXES):
