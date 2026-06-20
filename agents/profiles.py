@@ -37,11 +37,18 @@ _ENV: dict[str, str] = {
 
 def _nvidia_defaults() -> dict[str, str]:
     if os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"):
+        # Live-verified NIM free-tier models (2026-06-20 live probe):
+        # recycler roles use the 120B-a12b MoE (reasoning-tuned);
+        # coder/executor uses the dense 49B (JSON-clean, tool-calling);
+        # scout uses 70B (fast read-only summarisation).
+        # The asymmetry architect/scout/coder ≠ reviewer is preserved by
+        # routing reviewer through the 120B-a12b reasoning model rather than
+        # the dense 49B used for coder.
         return {
-            "architect": "qwen/qwen3-coder-480b-a35b-instruct",
-            "scout":     "nvidia/nemotron-3-super-120b-a12b",
-            "coder":     "nvidia/nemotron-3-super-120b-a12b",
-            "reviewer":  "deepseek-ai/deepseek-v4-pro",
+            "architect": "nvidia/nemotron-3-super-120b-a12b",
+            "scout":     "meta/llama-3.3-70b-instruct",
+            "coder":     "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "reviewer":  "nvidia/nemotron-3-super-120b-a12b",
             "verifier":  "nvidia/nemotron-3-super-120b-a12b",
         }
     if os.environ.get("DEEPSEEK_API_KEY"):

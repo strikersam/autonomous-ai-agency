@@ -94,9 +94,7 @@ class JCodeAdapter(RuntimeAdapter):
             "JCODE_PROVIDER_URL",
             os.environ.get("PROXY_BASE_URL", "http://localhost:8000") + "/v1",
         )
-        self._model = cfg.get("model") or os.environ.get(
-            "JCODE_MODEL", os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
-        )
+        self._model = cfg.get("model") or            os.environ.get("JCODE_MODEL", os.environ.get("AGENT_EXECUTOR_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1"))
         self._api_key = cfg.get("api_key") or os.environ.get(
             "JCODE_API_KEY", os.environ.get("PROXY_API_KEY", "")
         )

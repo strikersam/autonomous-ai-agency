@@ -86,9 +86,9 @@ env:
   # Rate limiting
   RATE_LIMIT_RPM: "60"
   # Agent configuration
-  AGENT_PLANNER_MODEL: "deepseek-r1:32b"
-  AGENT_EXECUTOR_MODEL: "qwen3-coder:30b"
-  AGENT_VERIFIER_MODEL: "deepseek-r1:32b"
+  AGENT_PLANNER_MODEL: "nvidia/nemotron-3-super-120b-a12b"
+  AGENT_EXECUTOR_MODEL: "nvidia/llama-3.3-nemotron-super-49b-v1"
+  AGENT_VERIFIER_MODEL: "nvidia/nemotron-3-super-120b-a12b"
   AGENT_WORKSPACE_ROOT: "/workspace"
   AGENT_CONFIDENCE_THRESHOLD: "0.9"
   AGENT_REASONING_BUDGET: "high"

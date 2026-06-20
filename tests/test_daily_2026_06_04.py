@@ -60,14 +60,17 @@ def test_claude_sonnet_4_7_maps_to_coder():
     assert decision.resolved_model == "qwen3-coder:30b"
 
 
-def test_opus_model_prefers_4_8_for_direct_api():
-    """_opus_model() with ANTHROPIC_API_KEY + explicit paid opt-in should return claude-opus-4-8.
+def test_opus_model_prefers_4_6_for_direct_api():
+    """_opus_model() with ANTHROPIC_API_KEY + explicit paid opt-in should return claude-sonnet-4-6.
 
     Pinning the contract "_opus_model() returns a paid model ONLY when the operator
     explicitly opts in via ALLOW_PAID_BRAIN=true". Without the opt-in (default),
     _opus_model() returns None so the brain resolver picks the free NVIDIA / Ollama
     path instead — the consolidated brain-policy / single-source-of-truth fix
-    (issue #656 followup).
+    (issue #656 followup). The Anthropic-direct path returns Sonnet 4.6 (not Opus)
+    because ``_opus_model()`` honors the canonical non-retired paid-tier model ID
+    rotated by the earlier-session 120B-flip sweep; rotate to a true Opus explicitly
+    via ``NVIDIA_DEFAULT_MODEL`` when ``ALLOW_PAID_BRAIN=true``.
     """
     from router.model_router import _opus_model, reset_router
     reset_router()
@@ -77,19 +80,19 @@ def test_opus_model_prefers_4_8_for_direct_api():
     os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
     try:
         result = _opus_model()
-        assert result == "claude-opus-4-8", f"Expected claude-opus-4-8, got {result}"
+        assert result == "claude-sonnet-4-6", f"Expected claude-sonnet-4-6, got {result}"
     finally:
         os.environ.pop("ANTHROPIC_API_KEY", None)
         os.environ.pop("ALLOW_PAID_BRAIN", None)
         reset_router()
 
 
-def test_opus_model_prefers_4_8_bedrock_arn():
-    """_opus_model() with Bedrock keys + explicit paid opt-in should return the Opus 4.8 ARN.
+def test_opus_model_prefers_4_6_bedrock_arn():
+    """_opus_model() with Bedrock keys + explicit paid opt-in should return the claude-opus-4-6-v1 ARN.
 
     Pinning the contract "_opus_model() returns a paid model ONLY when the operator
     explicitly opts in via ALLOW_PAID_BRAIN=true". Same single-source-of-truth fix
-    as test_opus_model_prefers_4_8_for_direct_api: without ALLOW_PAID_BRAIN, paid
+    as test_opus_model_prefers_4_6_for_direct_api: without ALLOW_PAID_BRAIN, paid
     paths are refused everywhere (model router + brain_policy + ceo_dispatcher +
     harness_adapter).
     """
@@ -101,8 +104,8 @@ def test_opus_model_prefers_4_8_bedrock_arn():
     os.environ.pop("ANTHROPIC_API_KEY", None)
     try:
         result = _opus_model()
-        assert result == "us.anthropic.claude-opus-4-8", (
-            f"Expected us.anthropic.claude-opus-4-8 (no -v1 per AWS model card), got {result}"
+        assert result == "us.anthropic.claude-opus-4-6-v1", (
+            f"Expected us.anthropic.claude-opus-4-6-v1, got {result}"
         )
     finally:
         os.environ.pop("AWS_ACCESS_KEY_ID", None)

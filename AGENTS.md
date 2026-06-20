@@ -513,9 +513,10 @@ git config core.hooksPath .claude/hooks            # Activate hooks
 | `ADMIN_SECRET` | `` | No | Admin dashboard secret (min 32 chars) |
 | `CORS_ORIGINS` | `*` | Yes (prod) | CORS allowed origins — NEVER use `*` in prod |
 | `RATE_LIMIT_RPM` | `60` | No | Requests per minute per key |
-| `AGENT_PLANNER_MODEL` | `deepseek-r1:32b` | No | Planner LLM |
-| `AGENT_EXECUTOR_MODEL` | `qwen3-coder:30b` | No | Executor LLM |
-| `AGENT_VERIFIER_MODEL` | `deepseek-r1:32b` | No | Verifier LLM |
+| `AGENT_PLANNER_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | No | Planner LLM (reasoning-tuned 120B-a12b MoE on free NIM) |
+| `AGENT_EXECUTOR_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | No | Executor LLM (dense 49B, JSON-clean tool-calling) |
+| `AGENT_VERIFIER_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | No | Verifier LLM |
+| `AGENT_JUDGE_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | No | Judge LLM (release-gate verdict) |
 | `STORAGE_BACKEND` | `mongo` | No | `mongo` or `sqlite` |
 | `MONGO_URL` | `` | Yes (mongo mode) | MongoDB connection string |
 | `LANGFUSE_PUBLIC_KEY` | `` | No | Langfuse observability |
