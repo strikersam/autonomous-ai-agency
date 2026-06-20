@@ -147,11 +147,26 @@ services:
       # Always use internal_agent (routes through Nvidia NIM, always available)
       - key: RUNTIME_DEFAULT
         value: "internal_agent"
-      # Task-type overrides: uncomment and set URL when sidecar runtimes are running
-      # - key: RUNTIME_CODE_GENERATION
-      #   value: "opencode"
+      # Register ONLY internal_agent + Hermes. RUNTIME_EXTERNAL_DISABLED stops the
+      # default-on external runtimes (Goose, Aider) and every opt-in one from
+      # registering — no health-poll overhead, a clean /runtimes list — and
+      # RUNTIME_HERMES_ENABLED re-enables just Hermes. Hermes stays inert until
+      # HERMES_BASE_URL points at a running sidecar; once it does it can take
+      # specialized/heavy task slices via the RUNTIME_<TASK_TYPE> overrides below.
+      - key: RUNTIME_EXTERNAL_DISABLED
+        value: "true"
+      - key: RUNTIME_HERMES_ENABLED
+        value: "true"
+      # Task-type routing: code_generation goes to Hermes so a decomposed heavy
+      # task's code slice runs on the Hermes sidecar while other slices run on
+      # internal_agent (the multi-agent "many hands" — coordinated by the CEO, not
+      # adapter-to-adapter). SAFE WHEN HERMES IS DOWN: if Hermes is unavailable
+      # (no HERMES_BASE_URL sidecar) the router falls back to internal_agent.
+      - key: RUNTIME_CODE_GENERATION
+        value: "hermes"
+      # Other task-types stay on internal_agent until you add their sidecars:
       # - key: RUNTIME_CODE_REVIEW
-      #   value: "opencode"
+      #   value: "hermes"
       # - key: RUNTIME_REPO_EDITING
       #   value: "opencode"
       # - key: RUNTIME_GIT_OPS
@@ -357,6 +372,16 @@ services:
         value: "main,master"
       - key: RUNTIME_DEFAULT
         value: "internal_agent"
+      # Register ONLY internal_agent + Hermes (see web service for rationale).
+      - key: RUNTIME_EXTERNAL_DISABLED
+        value: "true"
+      - key: RUNTIME_HERMES_ENABLED
+        value: "true"
+      # Route code_generation to Hermes (falls back to internal_agent when the
+      # Hermes sidecar is down). The worker runs the dispatcher/CEO, so this must
+      # match the web service.
+      - key: RUNTIME_CODE_GENERATION
+        value: "hermes"
       - key: KIMI_BRIDGE_ENABLED
         value: "false"
       - key: KIMI_BRIDGE_URL
