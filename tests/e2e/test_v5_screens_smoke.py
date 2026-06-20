@@ -45,10 +45,15 @@ def _server_up() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _server_up() or not os.path.exists(CHROME),
-    reason="needs SHOT_BASE_URL+SHOT_PASSWORD server with a built SPA and a Chromium binary",
-)
+# `e2e` is the repo's registered live-services marker (tests/e2e/conftest.py); the
+# whole tests/e2e dir is also excluded from the default run via pytest.ini addopts.
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.skipif(
+        not _server_up() or not os.path.exists(CHROME),
+        reason="needs SHOT_BASE_URL+SHOT_PASSWORD server with a built SPA and a Chromium binary",
+    ),
+]
 
 
 def _login() -> str:

@@ -11,10 +11,12 @@ from scripts.sync_readme_gallery import (
 def test_build_gallery_uses_grouped_screenshot_paths() -> None:
     gallery = build_gallery()
 
-    assert "docs/screenshots/readme/v4-login.png" in gallery
-    assert "docs/screenshots/readme/v4-control-plane.png" in gallery
-    assert "docs/screenshots/v4-login.png" not in gallery
-    # webui-* screenshots don't exist in the repo and were dropped from the gallery.
+    # Gallery now points at the live v5 capture set (docs/screenshots/v5/*).
+    assert "docs/screenshots/v5/dashboard.png" in gallery
+    assert "docs/screenshots/v5/chat.png" in gallery
+    assert "docs/screenshots/v5/mobile-login.png" in gallery
+    # The stale v4/v3 README shots are no longer referenced.
+    assert "docs/screenshots/readme/v4-" not in gallery
     assert "webui" not in gallery
 
 

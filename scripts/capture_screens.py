@@ -16,8 +16,10 @@ Env: SHOT_BASE_URL (default http://127.0.0.1:8001), SHOT_EMAIL, SHOT_PASSWORD,
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
+import secrets
 import subprocess  # nosec B404 - launches the local uvicorn server for capture
 import sys
 import time
@@ -25,6 +27,8 @@ import urllib.error
 import urllib.request
 
 from playwright.sync_api import sync_playwright
+
+log = logging.getLogger("qwen-proxy")
 
 BASE = os.environ.get("SHOT_BASE_URL", "http://127.0.0.1:8001")
 EMAIL = os.environ.get("SHOT_EMAIL", "admin@llmrelay.local")
@@ -82,19 +86,23 @@ def _start_server() -> subprocess.Popen | None:
         "RUN_BACKGROUND_IN_WEB": "false",
         "AGENCY_CEO_ENABLED": "false",
         "ACTIVATION_REQUIRED": "false",
-        "V3_JWT_SECRET": os.environ.get("V3_JWT_SECRET", "local-screenshot-capture-secret"),
+        # Throwaway per-run signing secret — never a hardcoded value in source.
+        "V3_JWT_SECRET": os.environ.get("V3_JWT_SECRET") or secrets.token_hex(16),
         "LLM_PROVIDER": "nvidia-nim",
     }
     log_path = os.environ.get("SHOT_SERVER_LOG", "/tmp/backend.log")  # nosec B108 - dev capture log
+    log_file = open(log_path, "w")  # noqa: SIM115 - kept open for the subprocess lifetime; closed in main()
     proc = subprocess.Popen(  # nosec B603 - fixed argv, local server
         [sys.executable, "-m", "uvicorn", "backend.server:app", "--host", "127.0.0.1",
          "--port", "8001", "--log-level", "warning"],
-        env=env, stdout=open(log_path, "w"), stderr=subprocess.STDOUT,  # noqa: SIM115
+        env=env, stdout=log_file, stderr=subprocess.STDOUT,
     )
+    proc._shot_log_file = log_file  # type: ignore[attr-defined]  # closed by main()
     if not _wait_up(70):
         proc.terminate()
-        raise RuntimeError("backend did not come up — see /tmp/backend.log")
-    print("backend up (managed by capture script)")
+        log_file.close()
+        raise RuntimeError(f"backend did not come up — see {log_path}")
+    log.info("backend up (managed by capture script)")
     return proc
 
 
@@ -121,6 +129,9 @@ def main() -> None:
                 server.wait(timeout=10)
             except Exception:  # noqa: BLE001
                 server.kill()
+            log_file = getattr(server, "_shot_log_file", None)
+            if log_file is not None:
+                log_file.close()
 
 
 def _capture() -> None:
@@ -162,7 +173,7 @@ def _capture() -> None:
                 page.screenshot(path=str(fn))
                 if errs:
                     bugs.append((f"{prefix}{name}", route, list(dict.fromkeys(errs))[:6]))
-                print(f"captured {fn}  (errors: {len(errs)})")
+                log.info("captured %s  (errors: %d)", fn, len(errs))
             ctx.close()
 
         run([("login", "/login")], 1440, 900, "", authed=False)
@@ -171,14 +182,15 @@ def _capture() -> None:
         run(MOBILE, 390, 844, "mobile-", authed=True)
         browser.close()
 
-    print("\n=== PER-PAGE ERRORS (bug report) ===")
+    log.info("=== PER-PAGE ERRORS (bug report) ===")
     if not bugs:
-        print("none — all screens rendered without console errors or 5xx")
+        log.info("none — all screens rendered without console errors or 5xx")
     for name, route, errs in bugs:
-        print(f"\n[{name}]  {route}")
+        log.info("[%s]  %s", name, route)
         for e in errs:
-            print(f"   {e[:200]}")
+            log.info("   %s", e[:200])
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     main()

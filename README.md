@@ -405,7 +405,7 @@ The dashboard has 16 fully-wired screens, all backed by live API endpoints:
 ## Screens
 
 > Captured from a live v5 build with `python scripts/capture_screens.py` (the same
-> flow runs as a UI smoke test — see `tests/e2e/test_capture_screens.py`). These are
+> flow runs as a UI smoke test — see `tests/e2e/test_v5_screens_smoke.py`). These are
 > empty-state screens from a fresh instance (no companies/tasks onboarded yet).
 
 <!-- README_UI_GALLERY:START -->
