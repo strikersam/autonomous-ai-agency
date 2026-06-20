@@ -579,9 +579,10 @@ We'd rather under-promise. Here's the honest split (see `docs/architecture/featu
 | Scheduled tasks / persistent schedule store | **Stable** | Reconciles on boot; nothing silently skipped. |
 | Skill bindings + dynamic skill registry | **Stable** | GitHub discovery with ETag caching and rate-limit semaphores. |
 | Langfuse observability + local TCO cost model | **Stable** | Cost figures are an estimated commercial-equivalent model, not a billed invoice. |
-| Telegram bot remote control | **Beta** | Works; long-running 24x7 deployment paths are still hardening. |
-| Multi-agent orchestration (CEO -> specialists) | **Beta** | Plan->execute->verify loop is solid for single-specialist jobs; deep multi-hop swarms are experimental. |
-| External agent runtimes (Goose / Hermes / OpenHands) | **Experimental** | Optional sidecars; the Doctor reports them as warnings, never gating, when absent. |
+| Telegram bot remote control | **Stable, opt-in** | Production-quality (service-managed lifecycle, inbound routing + mid-flight redirect, approval gates, `/diag`, full test suite) but ships **off by default** — enable with `TELEGRAM_BOT_TOKEN` + `FEATURE_TELEGRAM_BOT`. |
+| Multi-agent orchestration (CEO → single specialist) | **Stable** | Golden-Path plan→execute→verify→judge with HITL gates and crash-recovery reconciliation — this is what runs the autonomous internal loop. |
+| Deep multi-hop agent swarms | **Beta** | Multi-specialist hand-off chains (`multi_agent_swarm`) are still hardening. |
+| External agent runtimes (Goose / Hermes / OpenHands) | **Beta** | Optional sidecars (`sidecar_runtimes`); absent on the default cloud deploy, where the Doctor warns and routing falls back to the always-on `internal_agent`. |
 
 If a screen or capability isn't listed above, treat it as experimental.
 
