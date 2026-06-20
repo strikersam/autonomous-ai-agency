@@ -52,6 +52,7 @@ _MODEL_COSTS: dict[str, float] = {
     "deepseek-v3:685b": 5.0,
     "tinyllama:latest": 0.3,
     # Cloud NVIDIA NIM models (free tier = $0, else approximate)
+    "nvidia/nemotron-3-super-120b-a12b": 0.0,
     "nvidia/llama-3.3-nemotron-super-49b-v1": 0.0,
     "qwen/qwen2.5-coder-32b-instruct": 0.0,
     "meta/llama-3.3-70b-instruct": 0.0,

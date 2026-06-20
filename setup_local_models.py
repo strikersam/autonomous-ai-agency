@@ -117,7 +117,11 @@ class LocalLLMSetup:
         print("   (Planner, Executor, Verifier roles)")
         print()
 
-        default_model = "llama-3.3-nemotron-super-49b-v1"
+        # NVIDIA NIM namespaced ID: previously shipped as the legacy 49B
+        # namespaced id. Kept as the explicit value the user sees in the wizard;
+        # always pass through the operator's input unchanged when they type a
+        # custom name. Free tooling over hardcoded defaults wins on coverage.
+        default_model = "nvidia/nemotron-3-super-120b-a12b"
         model_choice = input(
             f"Model to use [{default_model}]: "
         ).strip()

@@ -297,10 +297,10 @@ def _default_agent_role_models() -> dict[str, str]:
     )
     if nim_enabled:
         return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
             "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
         }
     return {
@@ -2393,7 +2393,7 @@ async def seed_default_providers():
     _nvidia_base = (
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
-    _nvidia_model =        (os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1")
+    _nvidia_model =        (os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b")
     defaults = [
         {
             "provider_id": "anthropic-claude",
