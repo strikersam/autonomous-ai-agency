@@ -110,6 +110,12 @@ class AdminCommandBody(BaseModel):
     timeout_sec: int = Field(default=60, ge=1, le=600)
 
 
+class ProviderReorderBody(BaseModel):
+    """Drag-and-drop reorder payload — list of provider_ids in the desired top-to-bottom order."""
+
+    provider_ids: list[str] = Field(..., min_length=1, max_length=200)
+
+
 def register_webui(
     app: FastAPI,
     *,
@@ -317,6 +323,90 @@ def register_webui(
         if not ok:
             raise HTTPException(status_code=404, detail="Unknown provider")
         return {"ok": True, "provider_id": provider_id, "admin": _admin_out(admin)}
+
+    @admin_router.get("/providers/role-tags")
+    async def admin_provider_role_tags(request: Request, admin: Any = Depends(get_admin_identity)):
+        """Map provider_id -> {is_brain, role, reason, base_url, name} from the canonical brain resolver.
+
+        Reads from ``brain_policy.get_provider_role_tags`` which queries the
+        backend provider store (MongoDB) and the active brain — NOT the webui
+        JsonConfigStore. Operators see the same role surface the brain decision
+        uses, so the UI cannot disagree with routing. ``base_url`` and ``name``
+        are echoed back so the Admin SPA can match role tags to locally-defined
+        webui provider records (which use a different provider_id namespace).
+        """
+        try:
+            from brain_policy import get_provider_role_tags as _role_tags
+            tags = await _role_tags()
+        except Exception as exc:
+            log.exception("admin_provider_role_tags: brain_policy call failed: %s", exc)
+            raise HTTPException(status_code=503, detail="brain_policy unavailable") from exc
+        return {"role_tags": tags, "admin": _admin_out(admin)}
+
+    @admin_router.post("/providers/reorder")
+    async def admin_reorder_providers(
+        request: Request,
+        body: ProviderReorderBody,
+        admin: Any = Depends(get_admin_identity),
+    ):
+        """Set provider priorities by the order of ``provider_ids`` (first = highest).
+
+        Writes the priorities to the webui JsonConfigStore and invalidates the
+        brain cache so the next agent run picks up the new order. Returns the
+        resulting ordered list so the UI can confirm what was saved.
+        """
+        mgr: ProviderManager = request.app.state.webui_providers
+        ok = mgr.reorder(body.provider_ids)
+        providers = sorted(
+            [p.model_dump() for p in mgr.list_admin()],
+            key=lambda p: p.get("priority", 0),
+            reverse=True,
+        )
+        return {
+            "ok": ok,
+            "providers": providers,
+            "admin": _admin_out(admin),
+        }
+
+    @admin_router.get("/policy/brain")
+    async def admin_get_brain_policy(request: Request, admin: Any = Depends(get_admin_identity)):
+        """Return the currently-resolved brain + the global paid-model policy.
+
+        ``allow_paid_brain`` is a server env var (``ALLOW_PAID_BRAIN``) — read-only
+        here so the UI can show the truth. Operators flip it by setting the env
+        var on the server (Render / .env) and restarting. The UI is intentionally
+        NOT given a write toggle to avoid accidental silent billing on a
+        single misclick.
+        """
+        try:
+            from brain_policy import allow_paid_brain, resolve_active_brain
+            brain = await resolve_active_brain()
+        except Exception as exc:
+            log.exception("admin_get_brain_policy: brain resolution failed: %s", exc)
+            raise HTTPException(status_code=503, detail="brain_policy unavailable") from exc
+        return {
+            "resolution": (
+                {
+                    "provider_id": brain.provider_id,
+                    "base_url": brain.base_url,
+                    "model": brain.model,
+                    "role": brain.role,
+                    "free_tier": brain.free_tier,
+                    "source": brain.source,
+                    "priority": brain.priority,
+                }
+                if brain is not None
+                else None
+            ),
+            "allow_paid_brain": allow_paid_brain(),
+            "env_var": "ALLOW_PAID_BRAIN",
+            "hint": (
+                "Set ALLOW_PAID_BRAIN=true in the server environment to enable "
+                "paid (Anthropic/Bedrock) providers as the CEO brain. Free-first "
+                "is the safe default; changes here WILL incur costs."
+            ),
+            "admin": _admin_out(admin),
+        }
 
     @admin_router.get("/workspaces")
     async def admin_list_workspaces(request: Request, admin: Any = Depends(get_admin_identity)):

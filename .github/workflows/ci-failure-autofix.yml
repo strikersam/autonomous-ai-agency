@@ -30,6 +30,7 @@ jobs:
       github.event.workflow_run.head_branch != 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
@@ -115,8 +116,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python3 - <<'PYEOF'
-          import os, json, pathlib, textwrap
+          import os, json, pathlib, sys, textwrap
           import urllib.request
+          import urllib.error
 
           api_key = os.environ["ANTHROPIC_API_KEY"]
 
@@ -168,8 +170,18 @@ jobs:
               },
               method="POST",
           )
-          with urllib.request.urlopen(req, timeout=120) as resp:
-              body = json.loads(resp.read())
+          try:
+              with urllib.request.urlopen(req, timeout=120) as resp:
+                  body = json.loads(resp.read())
+          except urllib.error.HTTPError as e:
+              err_body = (e.read() or b"")
+              if e.code in (400, 404) and b"model" in err_body.lower():
+                  pathlib.Path("/tmp/autofix.patch").write_text("TOO_COMPLEX")
+                  print(f"Model {payload['model']} not available on Anthropic API "
+                        f"(HTTP {e.code}). Degrading to TOO_COMPLEX so an issue is filed.")
+                  sys.exit(0)
+              print(f"::warning::Anthropic API error: HTTP {e.code}: {err_body[:200]!r}")
+              raise
 
           # Handle both streaming and non-streaming response formats
           if "content" in body and isinstance(body["content"], list):

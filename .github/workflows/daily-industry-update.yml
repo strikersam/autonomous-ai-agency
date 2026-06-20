@@ -1,0 +1,87 @@
+name: daily-industry-update
+
+# Daily industry news → server-side /api/admin/industry/refresh endpoint.
+# Manual: workflow_dispatch with optional dry_run=true (calls /preview instead of /send).
+#
+# Mirrors the daily-digest.yml safety pattern:
+#   - Validates secrets before any network call
+#   - Idempotency key via github.run_id prevents duplicate dispatches
+#   - Treats a single non-2xx on prod as a transient blip — the next cron
+#     tick retries (don't fail the workflow and wake the operator).
+#
+# The cron has been failing for 22 days because this file was missing from
+# master — recreating it here so the GitHub-side schedule picks it up on
+# the next push to master.
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # daily at 08:00 UTC (industry morning roll-up)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "When true, hit /preview instead of /send (no real dispatch)."
+        required: false
+        default: "false"
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-industry-update
+  cancel-in-progress: false
+
+jobs:
+  dispatch-industry-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate secrets
+        env:
+          DIGEST_SECRET: ${{ secrets.DIGEST_SECRET }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          if [ -z "${PRODUCTION_BASE_URL:-}" ]; then
+            echo "::error::PRODUCTION_BASE_URL secret is required."
+            exit 1
+          fi
+          if [[ "${PRODUCTION_BASE_URL}" != https://* ]]; then
+            echo "::error::PRODUCTION_BASE_URL must start with https:// (got: ${PRODUCTION_BASE_URL})"
+            exit 1
+          fi
+          if [ -z "${DIGEST_SECRET:-}" ]; then
+            echo "::error::DIGEST_SECRET secret is required."
+            exit 1
+          fi
+
+      - name: Trigger daily industry update
+        env:
+          DIGEST_SECRET: ${{ secrets.DIGEST_SECRET }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          set -u
+          ENDPOINT="/api/admin/industry/refresh"
+          if [ "${DRY_RUN}" = "true" ]; then
+            ENDPOINT="/api/admin/industry/preview"
+          fi
+          URL="${PRODUCTION_BASE_URL}${ENDPOINT}"
+          echo "POST ${URL}"
+          RESP=$(curl -sS -o /tmp/industry_resp.json -w '%{http_code}|%{time_total}' \
+            -m 60 \
+            -X POST \
+            -H "X-Admin-Secret: ${DIGEST_SECRET}" \
+            -H "X-Idempotency-Key: ${{ github.run_id }}" \
+            "${URL}")
+          echo "HTTP_RESP_INFO: ${RESP}"
+          echo "RESPONSE_BODY (first 800):"
+          head -c 800 /tmp/industry_resp.json
+          echo
+          HTTP_CODE=$(echo "${RESP}" | cut -d'|' -f1)
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "::warning::Daily industry update returned HTTP ${HTTP_CODE}."
+            if [ "${DRY_RUN}" != "true" ]; then
+              # Don't fail scheduled runs on a prod blip — next cron tick retries.
+              exit 0
+            fi
+          fi

@@ -6,7 +6,10 @@ and SkillBindings integration.
 from __future__ import annotations
 
 import os
-import socket
+import json
+import urllib.error
+import urllib.request
+
 import pytest
 
 
@@ -238,18 +241,23 @@ class TestDeprecationWarnings:
 
 
 def _ollama_reachable() -> bool:
-    """True when the LLM backend resolved by _resolve_brain_provider is reachable."""
-    ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
-    host = ollama_base.replace("http://", "").replace("https://", "").split(":")[0]
+    """True when the LLM backend resolved from ``OLLAMA_BASE`` has at least one
+    model loaded — Ollama-specific probe.
+
+    Tests in this file construct ``AgentRunner(ollama_base=...)`` so the LLM is
+    Ollama-scoped and we probe Ollama's canonical model-list endpoint
+    ``/api/tags``. (NVIDIA NIM / OpenAI use ``/v1/models`` — not relevant here
+    because the suite under test only runs through Ollama.) Earlier TCP-only
+    probes incorrectly reported Ollama "reachable" when only the port-listener
+    answered, making the orchestrator tests fail with ``404 Not Found`` from
+    ``/v1/chat/completions`` instead of skipping cleanly when no model is pulled.
+    """
+    base = os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/")
     try:
-        port = int(ollama_base.rsplit(":", 1)[-1].rstrip("/"))
-    except ValueError:
-        port = 11434
-    try:
-        s = socket.create_connection((host, port), timeout=2.0)
-        s.close()
-        return True
-    except OSError:
+        with urllib.request.urlopen(f"{base}/api/tags", timeout=2.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return bool(data.get("models"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, ConnectionError):
         return False
 
 

@@ -14,7 +14,11 @@ Design invariants:
 """
 from __future__ import annotations
 
+import logging
 import os
+from typing import Any
+
+log = logging.getLogger("brain_policy")
 
 # Default free NVIDIA NIM brain. The operator points this at the most capable
 # free cloud model via NVIDIA_DEFAULT_MODEL; this fallback is the documented
@@ -76,3 +80,355 @@ def resolve_free_nvidia_brain() -> tuple[str, dict, str] | None:
         base = f"{base}/v1"
     model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or DEFAULT_FREE_NVIDIA_MODEL
     return base, {"Authorization": f"Bearer {key}"}, model
+
+
+# ── Single source of truth: the active brain LLM ────────────────────────────────
+#
+# These helpers consolidate every brain selector behind ONE resolution path.
+# Previously, ``services/workflow_orchestrator._resolve_brain_provider``,
+# ``router/model_router._opus_model``, ``runtimes/adapters/internal_agent.
+# _best_cloud_primary_base``, ``agents/harness_adapter.HARNESS_CATALOG.
+# default_model``, and ``services/ceo_dispatcher.ROLE_RUNTIME_PREFERENCE``
+# each had their own selector that could disagree with the Providers UI.
+#
+# User intent ("one place changes it in all places"): the Providers screen
+# drag-and-drop priority reorder now drives every selector via these helpers.
+#
+# Design invariants:
+#   - Free-first by default. ``ALLOW_PAID_BRAIN`` must be explicitly truthy for
+#     any paid (Anthropic / Bedrock) call path to run.
+#   - Env override ``AGENT_LLM_BASE_URL`` always wins (operator kill-switch).
+#   - The cached sync getter (``get_active_brain_sync()``) is updated by
+#     ``resolve_active_brain()`` after each fresh resolution and whenever
+#     the UI calls ``invalidate_brain_cache()`` after a provider edit.
+
+from dataclasses import dataclass, field
+from typing import Any
+
+PAID_TYPES: frozenset[str] = frozenset({"anthropic", "emergent-anthropic"})
+
+
+@dataclass(frozen=True)
+class BrainResolution:
+    """Resolved brain LLM for the current agency configuration.
+
+    ``provider_id`` is the record's provider_id (the UI badge). ``base_url``
+    ends with ``/v1`` for OpenAI-compatible providers so the OpenAI client
+    can append ``/chat/completions`` directly. Anthropic-shaped providers
+    keep the bare base URL because they hit ``/v1/messages``.
+    ``role`` is one of:
+      - ``"brain"``         — currently selected, in use
+      - ``"fallback"``      — paid, last-resort (Anthropic / Bedrock)
+      - ``"sub-agent"``     — reachable, not brain, used on failover
+      - ``"unconfigured"``  — record exists but key/base missing
+      - ``"env_override"``  — AGENT_LLM_BASE_URL was set
+      - ``"free_fallback"`` — fell through to the free NVIDIA default
+      - ``"ollama_local"``  — local Ollama fallback
+    """
+
+    provider_id: str
+    base_url: str
+    auth_headers: dict | None
+    model: str | None
+    role: str
+    free_tier: bool = True
+    source: str = "records"
+    priority: int = 0
+
+
+# In-memory cache so sync callers (model router, harness adapter, scripts)
+# read this without needing asyncio.
+_cached_brain: BrainResolution | None = None
+
+
+def invalidate_brain_cache() -> None:
+    """Clear the cached brain so the next read re-resolves.
+
+    Called from webui/providers.py after create/delete/update so the next
+    agent run picks up the drag-and-drop reorder immediately.
+    """
+    global _cached_brain
+    _cached_brain = None
+
+
+def get_active_brain_sync() -> BrainResolution | None:
+    """Return the cached brain read by sync callers. None if never resolved."""
+    return _cached_brain
+
+
+def _norm(base: str) -> str:
+    return (base or "").strip().rstrip("/")
+
+
+def _host_is_openai_compatible(base_url: str) -> bool:
+    """True when the base URL should get an /v1 prefix appended (openai-compat).
+
+    Native Anthropic endpoints (api.anthropic.com) keep the bare URL because
+    they hit /v1/messages — appending /v1 would break them.
+    """
+    host = (base_url or "").lower()
+    return bool(host) and "anthropic.com" not in host
+
+
+async def resolve_active_brain(
+    *,
+    exclude_base_urls: set[str] | None = None,
+) -> BrainResolution:
+    """Single source of truth for the active brain LLM.
+
+    Resolution order (matches the binding contract pinned in
+    ``tests/test_brain_priority_scanner.py``):
+
+      1. ``AGENT_LLM_BASE_URL`` env override (role: env_override)
+      2. Highest-priority configured provider record (role: brain)
+         - paid providers skipped unless no free alternative exists AND
+           ``ALLOW_PAID_BRAIN=true`` is explicitly set.
+         - any base_url whose /v1-normalised form is in ``exclude_base_urls``
+           is skipped (failover retry path).
+      3. ``brain_policy.resolve_free_nvidia_brain()`` default (role: free_fallback)
+      4. Local Ollama fallback (role: ollama_local)
+    """
+    global _cached_brain
+    exclude = {_norm(u) for u in (exclude_base_urls or set())}
+
+    # 1. Env override — always wins. Contract is "use as-is, normalized"
+    # (no /v1 auto-append); tests/test_orchestrator_failover.py::test_env_override_wins
+    # pins ``base == AGENT_LLM_BASE_URL exactly. Operators rely on this as a
+    # kill-switch and need to know what URL the brain resolver will hit.
+    env_base = os.environ.get("AGENT_LLM_BASE_URL", "").strip()
+    if env_base:
+        env_key = os.environ.get("AGENT_LLM_API_KEY", "").strip()
+        env_model = os.environ.get("AGENT_LLM_MODEL", "").strip() or None
+        headers = {"Authorization": f"Bearer {env_key}"} if env_key else None
+        base = _norm(env_base)
+        resolution = BrainResolution(
+            provider_id="env_override",
+            base_url=base,
+            auth_headers=headers,
+            model=env_model,
+            role="env_override",
+            free_tier=True,
+            source="env_override",
+            priority=10_000,
+        )
+        _cached_brain = resolution
+        return resolution
+
+    # 2. Configured provider records — read the same source the Providers UI uses.
+    records, fetch_failed = await _read_provider_records()
+    if records:
+        picked = _pick_from_records(records, exclude)
+        if picked is not None:
+            _cached_brain = picked
+            return picked
+        # Records exist but none are usable (all excluded / all missing key /
+        # only paid with ALLOW_PAID_BRAIN unset). Even when NVIDIA_API_KEY is
+        # set we refuse to silently call it here — the operator configured
+        # explicit records and they're all unavailable. Going to NVIDIA would
+        # be a fresh HTTP blast they didn't sanction. Fall through to local
+        # Ollama (mirrors services.workflow_orchestrator._resolve_brain_provider
+        # precedent and the binding contract in
+        # tests/test_brain_priority_scanner.py).
+        log.warning(
+            "brain_policy: provider records exist but no usable brain "
+            "(exclude_set=%d); falling back to local Ollama.",
+            len(exclude),
+        )
+
+    # 3. Free NVIDIA NIM brain — default ONLY when the operator has no
+    # configured provider records (not a DB outage). Skipping on fetch-failed
+    # preserves the test_records_list_failure_falls_back_to_ollama_env
+    # contract: when MongoDB is down, fall straight to local Ollama rather
+    # than firing an environment-based NVIDIA request the operator didn't
+    # sanction.
+    if not records and not fetch_failed:
+        nv = resolve_free_nvidia_brain()
+        if nv is not None:
+            nv_base, nv_headers, nv_model = nv
+            _cached_brain = BrainResolution(
+                provider_id="nvidia-nim-free-default",
+                base_url=nv_base,
+                auth_headers=nv_headers,
+                model=nv_model,
+                role="free_fallback",
+                free_tier=True,
+                source="free_fallback",
+                priority=-5,
+            )
+            return _cached_brain
+
+    # 4. Local Ollama fallback.
+    ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/")
+    _cached_brain = BrainResolution(
+        provider_id="ollama-local-fallback",
+        base_url=ollama_base,
+        auth_headers=None,
+        model=None,
+        role="ollama_local",
+        free_tier=True,
+        source="ollama_local",
+        priority=-100,
+    )
+    return _cached_brain
+
+
+async def get_provider_role_tags() -> dict[str, dict[str, Any]]:
+    """Map provider_id -> ``{is_brain, role, reason}``.
+
+    Mirrors the surface area previously exposed by
+    ``services/workflow_orchestrator.get_provider_role_tags`` so the Providers
+    UI keeps the same BRAIN/fallback/sub-agent badges.
+    """
+    try:
+        brain = await resolve_active_brain()
+    except Exception as exc:  # noqa: BLE001 - defensive: never block the UI
+        log.debug("brain_policy.get_provider_role_tags: brain resolution failed: %s", exc)
+        brain = None
+
+    try:
+        records, _fetch_failed = await _read_provider_records()
+    except Exception:
+        records = []
+
+    out: dict[str, dict[str, Any]] = {}
+    brain_base_norm = _norm(brain.base_url) if brain else None
+
+    for rec in records:
+        pid = str(rec.get("provider_id") or "").strip()
+        if not pid:
+            continue
+        rtype = str(rec.get("type") or "").lower()
+        base = _norm(str(rec.get("base_url") or ""))
+        key = str(rec.get("api_key") or "").strip()
+        name = str(rec.get("name") or "").strip()
+
+        is_brain = bool(
+            brain_base_norm
+            and base
+            and (brain_base_norm == base or brain_base_norm == f"{base}/v1")
+        )
+
+        if not base or (rtype != "ollama" and not key):
+            role = "unconfigured"
+            reason = "Missing base_url or API key"
+        elif is_brain:
+            role = "brain"
+            reason = "Used as the brain for agent execution"
+        elif rtype in PAID_TYPES:
+            role = "fallback"
+            reason = (
+                "Paid commercial fallback — only selected when no free provider "
+                "is configured. Will incur costs."
+            )
+        else:
+            role = "sub-agent"
+            reason = (
+                "Reachable backup — used by provider-router failover when the "
+                "brain is excluded (cooldown / 5xx)."
+            )
+        # ``base_url`` and ``name`` are included so the Admin SPA can match
+        # role tags to operators' locally-defined webui provider records
+        # (which use a different provider_id namespace than the backend
+        # Mongo store). Without these, every UI-added provider would render
+        # an empty badge even when it maps to the same brain.
+        out[pid] = {
+            "is_brain": is_brain,
+            "role": role,
+            "reason": reason,
+            "base_url": base,
+            "name": name,
+        }
+
+    return out
+
+
+async def _read_provider_records() -> tuple[list[dict[str, Any]], bool]:
+    """Read provider records from the live store.
+
+    Returns ``(records, fetch_failed)``. When MongoDB is unreachable (the
+    typical ``RuntimeError`` from the underlying Motor client) we return
+    ``([], True)`` so the resolver can distinguish a missing-records-config
+    from a DB outage — and the contract pinned in
+    tests/test_orchestrator_failover.py::test_records_list_failure_falls_back_to_ollama_env
+    says: on DB outage the brain drops to OLLAMA_BASE rather than silently
+    escalating to ``resolve_free_nvidia_brain()`` (which would mask that
+    the operator's configured providers are unreachable).
+    """
+    try:
+        from backend.server import _list_configured_provider_records  # type: ignore
+        records = list(await _list_configured_provider_records())
+        return records, False
+    except Exception as exc:
+        log.debug("brain_policy: provider record fetch failed: %s", exc)
+        return [], True
+
+
+def _pick_from_records(
+    records: list[dict[str, Any]],
+    exclude: set[str],
+) -> BrainResolution | None:
+    """Pick the highest-priority free provider, with paid opt-in fallback."""
+    def _prio(rec: dict[str, Any]) -> int:
+        try:
+            return int(rec.get("priority") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    sorted_recs = sorted(records, key=_prio, reverse=True)
+
+    def _build(rec: dict[str, Any], role: str, source: str) -> BrainResolution | None:
+        base_raw = _norm(str(rec.get("base_url") or ""))
+        if not base_raw:
+            return None
+        rtype = str(rec.get("type") or "").lower()
+        key = str(rec.get("api_key") or "").strip()
+        base = base_raw
+        if rtype != "anthropic" and not base.endswith("/v1"):
+            base = f"{base}/v1"
+        if base in exclude or _norm(base) in exclude:
+            return None  # failover retry excluded this URL
+        if rtype == "anthropic":
+            headers = (
+                {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+            )
+        else:
+            headers = {"Authorization": f"Bearer {key}"} if key else None
+            if rtype != "ollama" and not key:
+                return None
+        model = str(rec.get("default_model") or "").strip() or None
+        return BrainResolution(
+            provider_id=str(rec.get("provider_id") or "").strip() or "unknown",
+            base_url=base,
+            auth_headers=headers,
+            model=model,
+            role=role,
+            free_tier=rtype not in PAID_TYPES,
+            source=source,
+            priority=_prio(rec),
+        )
+
+    # First pass: free providers only.
+    for rec in sorted_recs:
+        rtype = str(rec.get("type") or "").lower()
+        if rtype in PAID_TYPES:
+            continue
+        built = _build(rec, role="brain", source="records")
+        if built is not None:
+            return built
+
+    # No free provider usable: paid is selected ONLY when the operator
+    # explicitly opted in (ALLOW_PAID_BRAIN=true). Without explicit opt-in we
+    # refuse to silently escalate to Anthropic even when the operator's only
+    # configured record is paid — the binding contract in
+    # tests/test_brain_priority_scanner.py::test_brain_does_not_escalate_to_paid_by_default
+    # pins this behaviour. The caller wraps None into the Ollama fallback.
+    if allow_paid_brain():
+        for rec in sorted_recs:
+            rtype = str(rec.get("type") or "").lower()
+            if rtype not in PAID_TYPES:
+                continue
+            built = _build(rec, role="brain", source="records")
+            if built is not None:
+                return built
+
+    return None

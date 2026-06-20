@@ -36,9 +36,11 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
+        # Bandit is a static AST scanner — it does not need the project's
+        # runtime deps (boto3/motor/pymongo/etc.) and heavy installs run
+        # the risk of timing out under the default cloud install budget.
         run: |
-          pip install bandit
-          pip install -r requirements.txt --quiet 2>/dev/null || true
+          pip install --quiet bandit
 
       - name: Run Bandit SAST scan
         id: bandit

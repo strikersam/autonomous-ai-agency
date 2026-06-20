@@ -37,8 +37,13 @@ log = logging.getLogger("agency.ceo")
 
 # Role → preferred runtimes (first available wins, falls back through the list).
 ROLE_RUNTIME_PREFERENCE: dict[str, list[str]] = {
-    "dev":       ["claude_code", "hermes", "internal_agent"],
-    "security":  ["claude_code", "internal_agent"],
+    # internal_agent first everywhere so the CEO follows the brain the operator
+    # picked in the Providers screen (it routes through brain_policy.resolve_active_brain
+    # → NVIDIA NIM by default). claude_code remains as a paid escalation fallback
+    # honoured only when brain_policy.allow_paid_brain() is truthy — the agent
+    # loop in agent/loop.py enforces that gate independently.
+    "dev":       ["internal_agent", "claude_code", "hermes"],
+    "security":  ["internal_agent", "claude_code"],
     "reviewer":  ["internal_agent", "claude_code"],
     "release":   ["internal_agent", "claude_code"],
     "scout":     ["internal_agent"],

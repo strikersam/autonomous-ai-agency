@@ -38,11 +38,8 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Install system deps
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y chromium-browser fonts-liberation libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 || true
-
+      # ubuntu-latest (>=24.04) no longer ships a `chromium-browser` apt
+      # package; Playwright bundles its own Chromium with `--with-deps`.
       # ADMIN_PASSWORD must be set as a GitHub Actions secret — no hardcoded fallback.
       - name: Set admin password from secrets
         run: echo "ADMIN_PW=${{ secrets.ADMIN_PASSWORD }}" >> $GITHUB_ENV
