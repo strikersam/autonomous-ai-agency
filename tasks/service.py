@@ -449,6 +449,74 @@ class TaskWorkflowService:
 
 
 _DISPATCH_RETRY_LIMIT = 10  # max re-queues before a task is blocked
+_BRAIN_DEFER_LIMIT = 12     # max brain-unavailable deferrals before blocking — a
+                            # missing brain is an operator-fixable config issue, so
+                            # we keep the task queued a little longer than a runtime
+                            # outage before parking it as BLOCKED.
+
+
+async def _brain_is_configured() -> bool:
+    """Best-effort, fail-open check that *some* usable LLM brain is configured.
+
+    Returns ``True`` unless we can positively determine that NO brain is reachable
+    (no ``AGENT_LLM_BASE_URL`` override, no explicit ``OLLAMA_BASE``, no free NVIDIA
+    key, paid brain not allowed, and no configured provider record with a usable
+    endpoint). Used as a pre-dispatch gate so a misconfigured deploy *defers* tasks
+    (keeps them queued) instead of spinning up a worktree per task and hammering a
+    dead endpoint. Never raises — any probe error fails open (assume configured) so
+    this can never wedge the happy path or a non-standard provider setup.
+    """
+    try:
+        if os.environ.get("AGENT_LLM_BASE_URL", "").strip():
+            return True
+        if os.environ.get("OLLAMA_BASE", "").strip():
+            # Operator explicitly pointed at a local/remote Ollama — trust intent.
+            return True
+        try:
+            import brain_policy
+            if brain_policy.resolve_free_nvidia_brain() is not None:
+                return True
+            if brain_policy.allow_paid_brain():
+                return True
+        except Exception:
+            return True  # fail-open
+        # Any configured provider record with a usable endpoint (incl. ollama)?
+        try:
+            from backend.server import _list_configured_provider_records
+            for rec in await _list_configured_provider_records():
+                rtype = str(rec.get("type") or "").lower()
+                base = str(rec.get("base_url") or "").strip()
+                key = str(rec.get("api_key") or "").strip()
+                if base and (rtype == "ollama" or key):
+                    return True
+        except Exception:
+            return True  # fail-open — never block dispatch on a registry probe error
+        return False
+    except Exception:  # pragma: no cover - defensive belt-and-braces
+        return True
+
+
+def _is_brain_connection_error(exc: BaseException) -> bool:
+    """True if *exc* looks like an LLM-brain/endpoint connectivity failure.
+
+    Such errors are transient/operator-fixable (the brain is unreachable), not a
+    task defect, so they should re-queue like ``RuntimeUnavailableError`` rather
+    than mark the task permanently FAILED. Matches httpx connection/timeout types
+    and common connection-refused message fragments (the error usually arrives
+    wrapped in several layers, so we also sniff the stringified message)."""
+    try:
+        import httpx
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout,
+                            httpx.ReadTimeout, httpx.PoolTimeout)):
+            return True
+    except Exception:  # pragma: no cover - httpx always present in this app
+        pass
+    s = str(exc).lower()
+    return any(k in s for k in (
+        "connection refused", "connecterror", "failed to connect",
+        "all connection attempts failed", "name or service not known",
+        "max retries", "no brain", "connection error",
+    ))
 
 
 class TaskExecutionCoordinator:
@@ -529,6 +597,61 @@ class TaskExecutionCoordinator:
             )
             await self.store.update(task)
             self._notify_execution_gate(task)
+            self._active_task_ids.discard(task_id)
+            await self._release_task(task_id)
+            return task
+
+        # ── Brain-availability preflight (graceful degradation) ──
+        # If NO LLM brain is configured anywhere, don't spin up a worktree and
+        # hammer a dead endpoint (which would burn a full _DISPATCH_RETRY_LIMIT of
+        # runtime retries per task). DEFER instead: keep the task queued
+        # (pending_agent_run stays True, status stays TODO) so the dispatcher
+        # auto-re-picks it the moment a brain is configured/reachable — no human
+        # action, no FAILED tasks, no worktree churn. After _BRAIN_DEFER_LIMIT
+        # deferrals, park it as BLOCKED so a permanently-misconfigured deploy
+        # doesn't loop forever. The check fails open, so a configured brain (the
+        # normal case) passes straight through with zero behaviour change.
+        if not await _brain_is_configured():
+            defer_events = 0
+            for e in task.execution_log:
+                if e.event_type == "runtime_retry_reset":
+                    defer_events = 0
+                elif e.event_type == "brain_unavailable":
+                    defer_events += 1
+            if defer_events >= _BRAIN_DEFER_LIMIT:
+                task.pending_agent_run = False
+                task.error_message = "No LLM brain configured (set NVIDIA_API_KEY)."
+                self.workflow.transition(
+                    task,
+                    TaskStatus.BLOCKED,
+                    actor="system:dispatcher",
+                    blocked_reason=(
+                        f"No LLM brain reachable after {defer_events} deferrals — "
+                        "set NVIDIA_API_KEY (free) or configure a provider."
+                    ),
+                    message="Task blocked — no LLM brain reachable.",
+                )
+                log.error(
+                    "Task %s blocked — no LLM brain configured after %d deferrals",
+                    task.task_id, defer_events,
+                )
+            else:
+                task.pending_agent_run = True  # stay on the dispatch queue
+                task.review_reason = "⏸ Deferred — no LLM brain reachable (set NVIDIA_API_KEY)."
+                task.add_log(
+                    f"Execution deferred — no LLM brain configured "
+                    f"(attempt {defer_events + 1}/{_BRAIN_DEFER_LIMIT}); "
+                    "will retry automatically once a brain is set.",
+                    level="warning",
+                    event_type="brain_unavailable",
+                    actor="system:dispatcher",
+                    task_status=task.status,
+                )
+                log.warning(
+                    "Task %s deferred — no LLM brain configured (attempt %d/%d)",
+                    task.task_id, defer_events + 1, _BRAIN_DEFER_LIMIT,
+                )
+            await self.store.update(task)
             self._active_task_ids.discard(task_id)
             await self._release_task(task_id)
             return task
@@ -637,59 +760,74 @@ class TaskExecutionCoordinator:
         except RuntimeUnavailableError as exc:
             # No healthy runtime was available at dispatch time.  Re-queue the
             # task instead of failing it so the next dispatcher cycle retries.
-            # Count only runtime_unavailable events since the most recent
-            # human retry/follow-up. Counting the task's *entire* history meant
-            # any task that ever exhausted the limit re-blocked immediately on
-            # every later retry ("400 no runtime available" → BLOCKED).
-            unavailable_events = 0
-            for e in task.execution_log:
-                if e.event_type == "runtime_retry_reset":
-                    unavailable_events = 0
-                elif e.event_type == "runtime_unavailable":
-                    unavailable_events += 1
-            if unavailable_events >= _DISPATCH_RETRY_LIMIT:
-                log.error(
-                    "Task %s blocked after %d failed dispatch attempts: %s",
-                    task.task_id, unavailable_events, exc,
-                )
+            self._requeue_or_block_unavailable(task, exc, what="No runtime available")
+        except Exception as exc:
+            # A brain/LLM-endpoint connectivity failure is transient/operator-fixable
+            # (the configured brain is momentarily unreachable), NOT a task defect —
+            # re-queue it like RuntimeUnavailableError instead of marking it
+            # permanently FAILED. Everything else is a genuine failure.
+            if _is_brain_connection_error(exc):
+                self._requeue_or_block_unavailable(task, exc, what="Brain/LLM endpoint unreachable")
+            else:
+                log.error("Error executing task %s: %s", task.task_id, exc, exc_info=True)
                 task.error_message = str(exc)
                 self.workflow.transition(
                     task,
-                    TaskStatus.BLOCKED,
+                    TaskStatus.FAILED,
                     actor="system:coordinator",
-                    blocked_reason=f"No runtime available after {unavailable_events} attempts: {exc}",
-                    message=f"Task blocked — no healthy runtime after {unavailable_events} retries",
+                    message=f"Execution failed: {exc}",
                 )
-            else:
-                log.warning(
-                    "Task %s re-queued — no healthy runtime (attempt %d/%d): %s",
-                    task.task_id, unavailable_events + 1, _DISPATCH_RETRY_LIMIT, exc,
-                )
-                # Restore pending state so the dispatcher picks it up again
-                task.pending_agent_run = True
-                if task.status == TaskStatus.IN_PROGRESS:
-                    task.status = TaskStatus.TODO
-                task.add_log(
-                    f"No runtime available (attempt {unavailable_events + 1}/{_DISPATCH_RETRY_LIMIT}): {exc}",
-                    level="warning",
-                    event_type="runtime_unavailable",
-                    actor="system:coordinator",
-                    task_status=task.status,
-                )
-        except Exception as exc:
-            log.error("Error executing task %s: %s", task.task_id, exc, exc_info=True)
-            task.error_message = str(exc)
-            self.workflow.transition(
-                task,
-                TaskStatus.FAILED,
-                actor="system:coordinator",
-                message=f"Execution failed: {exc}",
-            )
         finally:
             await self.store.update(task)
             await self._release_task(task_id)
             self._active_task_ids.discard(task_id)
         return task
+
+    def _requeue_or_block_unavailable(self, task: Task, exc: BaseException, *, what: str) -> None:
+        """Re-queue a task that couldn't run because no runtime/brain was available.
+
+        Counts ``runtime_unavailable`` events since the most recent
+        ``runtime_retry_reset`` (so a human retry/follow-up resets the budget) and
+        re-queues up to ``_DISPATCH_RETRY_LIMIT`` times before parking the task as
+        BLOCKED. Shared by the ``RuntimeUnavailableError`` handler and the
+        brain/connection-error path so both degrade identically instead of one
+        re-queueing and the other hard-failing.
+        """
+        unavailable_events = 0
+        for e in task.execution_log:
+            if e.event_type == "runtime_retry_reset":
+                unavailable_events = 0
+            elif e.event_type == "runtime_unavailable":
+                unavailable_events += 1
+        if unavailable_events >= _DISPATCH_RETRY_LIMIT:
+            log.error(
+                "Task %s blocked after %d failed dispatch attempts (%s): %s",
+                task.task_id, unavailable_events, what, exc,
+            )
+            task.error_message = str(exc)
+            self.workflow.transition(
+                task,
+                TaskStatus.BLOCKED,
+                actor="system:coordinator",
+                blocked_reason=f"{what} after {unavailable_events} attempts: {exc}",
+                message=f"Task blocked — {what.lower()} after {unavailable_events} retries",
+            )
+        else:
+            log.warning(
+                "Task %s re-queued — %s (attempt %d/%d): %s",
+                task.task_id, what.lower(), unavailable_events + 1, _DISPATCH_RETRY_LIMIT, exc,
+            )
+            # Restore pending state so the dispatcher picks it up again.
+            task.pending_agent_run = True
+            if task.status == TaskStatus.IN_PROGRESS:
+                task.status = TaskStatus.TODO
+            task.add_log(
+                f"{what} (attempt {unavailable_events + 1}/{_DISPATCH_RETRY_LIMIT}): {exc}",
+                level="warning",
+                event_type="runtime_unavailable",
+                actor="system:coordinator",
+                task_status=task.status,
+            )
 
     @staticmethod
     async def _claim_task(task_id: str) -> bool:
