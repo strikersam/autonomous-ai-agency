@@ -264,3 +264,31 @@ async def test_whitelisted_collections_accepted(tmp_path):
     for name in _COLLECTIONS:
         col = _Collection(store, name)
         assert col._name == name, f"_name should equal {name!r}"
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_collection_whitelisted(store):
+    """Regression: GET /api/mcp/servers 500'd in sqlite mode because
+    'mcp_servers' was missing from _COLLECTIONS — get_db().mcp_servers raised
+    AttributeError ('refusing to bind to non-whitelisted table'). Exercise the
+    exact endpoint access pattern (find by user_id, sort created_at, async-iter)."""
+    assert "mcp_servers" in _COLLECTIONS
+    await store.mcp_servers.insert_one({"user_id": "u1", "name": "ctx7", "created_at": 1})
+    rows = [s async for s in store.mcp_servers.find({"user_id": "u1"}).sort("created_at", 1)]
+    assert len(rows) == 1
+    assert rows[0]["name"] == "ctx7"
+
+
+@pytest.mark.asyncio
+async def test_scan_and_workflow_collections_whitelisted(store):
+    """website_scans / repo_scans / workflows are read via get_db() for company
+    tech-stack inference; without whitelisting they raised AttributeError (caught
+    + silently degraded) in sqlite mode. They must be real, queryable collections."""
+    for name in ("website_scans", "repo_scans", "workflows"):
+        assert name in _COLLECTIONS
+    await store.website_scans.insert_one({"company_id": "c1", "status": "success", "completed_at": 2})
+    got = await store.website_scans.find_one({"company_id": "c1", "status": "success"})
+    assert got is not None and got["completed_at"] == 2
+    await store.workflows.insert_one({"company_id": "c1", "is_active": True, "name": "wf"})
+    active = [w async for w in store.workflows.find({"company_id": "c1", "is_active": True})]
+    assert len(active) == 1

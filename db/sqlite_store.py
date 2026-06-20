@@ -53,6 +53,10 @@ _COLLECTIONS = [
     "command",
     "companies",
     "user_secrets",
+    "mcp_servers",
+    "website_scans",
+    "repo_scans",
+    "workflows",
 ]
 
 # Fields that are extracted into real columns for indexed lookup.
@@ -70,6 +74,10 @@ _INDEXED_FIELDS: dict[str, list[str]] = {
     "local_metrics":   ["user_id", "created_at"],
     "agent_definitions": ["agent_id"],
     "sources":         ["user_id"],
+    "mcp_servers":     ["user_id", "created_at"],
+    "website_scans":   ["company_id", "status", "completed_at"],
+    "repo_scans":      ["company_id", "completed_at"],
+    "workflows":       ["company_id", "is_active"],
 }
 
 
