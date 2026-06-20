@@ -151,7 +151,42 @@ class TestIsolatedTelegramConfig(unittest.TestCase):
         finally:
             os.environ.pop("TELEGRAM_POLLER_DISABLED", None)
 
-    # ── 5. delattr-on-restore for missing attrs (helper's gotcha branch) ──
+    # ── 4b. Helper DELATTRs re-attached attrs on exit (surprise branch) ──
+
+    def test_helper_deletes_re_attached_attr(self) -> None:
+        """The helper's ``__exit__`` runs ``if original is _MISSING: if hasattr:
+        delattr``. So if the pre-config snapshot was ``_MISSING`` AND
+        client code inside the block re-attaches the attr, the helper
+        still ``delattr``s it on exit. This defensive branch means
+        the snapshot value is authoritative even against mid-block
+        mutations — surprising but worth locking so a future 'be more
+        lenient' refactor cannot quietly change the contract."""
+        had_attr = hasattr(tb, "_send_message")
+        saved_value = getattr(tb, "_send_message", None)
+        if had_attr:
+            delattr(tb, "_send_message")
+
+        async def fake_send_inner(_t, _c, _text, parse_mode="Markdown"):  # noqa: ARG001
+            return 99
+        try:
+            with isolated_telegram_config(reset_throttle=False):
+                # Client code re-attaches the attr mid-block (helper does NOT
+                # pass ``send_message=`` kwarg, so this is purely a client
+                # mutation, NOT a fresh apply).
+                tb._send_message = fake_send_inner  # type: ignore[assignment]
+                self.assertIs(tb._send_message, fake_send_inner)
+            # After exit: helper's __exit__ saw snapshot=_MISSING and called
+            # ``delattr(tb, "_send_message") if hasattr`` — the re-attached
+            # attr is gone. This is the *surprising* branch; lock it.
+            self.assertFalse(
+                hasattr(tb, "_send_message"),
+                "helper must delattr re-attached attrs on exit when snapshot was _MISSING",
+            )
+        finally:
+            if had_attr:
+                tb._send_message = saved_value  # type: ignore[assignment]
+
+    # ── 5. Apply filters work for every typed kwarg the helper accepts ──
 
     def test_delattr_on_restore_when_attr_was_missing(self) -> None:
         """If a tracked attr is absent under ``tb`` at scope entry, the
