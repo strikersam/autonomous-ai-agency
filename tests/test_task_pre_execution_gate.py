@@ -40,7 +40,7 @@ def _coordinator(store: TaskStore, rm: _RecordingRuntimeManager) -> TaskExecutio
         store=store,
         workflow=TaskWorkflowService(store=store),
         runtime_manager=rm,
-        workspace_root="/tmp/workspace",
+        workspace_root="/tmp/workspace",  # nosec B108 - never written; the runtime stub raises before any file I/O
     )
 
 
