@@ -7,6 +7,10 @@ process restart.
 """
 from __future__ import annotations
 
+import asyncio
+import gc
+import warnings
+
 from agent.scheduler import AgentScheduler, ScheduledJob
 from agent.schedule_store import ScheduleStore
 
@@ -98,6 +102,54 @@ def test_scheduled_job_roundtrips_through_dict() -> None:
     assert again.run_count == 5
     assert again.enabled is False
     assert again.tags == ["a"]
+
+
+def _seed(store: "_FakePersistence", **jobs: str) -> None:
+    """Populate the store directly so hydration tests don't depend on the
+    timing of create()'s fire-and-forget persist tasks under a running loop."""
+    for name, cron in jobs.items():
+        store.upsert(
+            ScheduledJob(
+                job_id="job_" + name, name=name, cron=cron,
+                instruction=name, created_at="2026-01-01T00:00:00Z",
+            ).as_dict()
+        )
+
+
+async def test_attach_persistence_async_rehydrates_on_event_loop() -> None:
+    """Regression for the production startup path: services/background.py runs
+    inside the async FastAPI lifespan. The sync attach_persistence() would call
+    asyncio.run() on the live loop — raising and silently skipping hydration.
+    attach_persistence_async() awaits hydration and returns the real count."""
+    store = _FakePersistence()
+    _seed(store, cadence_a="0 3 * * *", cadence_b="*/15 * * * *")
+
+    s2 = AgentScheduler()
+    n = await s2.attach_persistence_async(store)
+    assert n == 2
+    assert {j.name for j in s2.list()} == {"cadence_a", "cadence_b"}
+
+
+async def test_sync_rehydrate_on_running_loop_does_not_leak() -> None:
+    """The sync attach_persistence()/rehydrate() must stay safe even if called
+    from within a running loop: it schedules hydration as a task and returns 0
+    instead of constructing a coroutine for asyncio.run() that would leak."""
+    store = _FakePersistence()
+    _seed(store, cadence="0 9 * * *")
+
+    s2 = AgentScheduler()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        n = s2.attach_persistence(store)  # called from this async test's loop
+        assert n == 0  # cannot block on a running loop; hydration deferred
+        await asyncio.sleep(0)  # let the scheduled hydrate() task run
+        gc.collect()
+    leaked = [
+        w for w in caught
+        if issubclass(w.category, RuntimeWarning) and "never awaited" in str(w.message)
+    ]
+    assert not leaked, f"leaked coroutines: {[str(w.message) for w in leaked]}"
+    assert {j.name for j in s2.list()} == {"cadence"}
 
 
 def test_store_falls_back_to_memory_without_mongo() -> None:

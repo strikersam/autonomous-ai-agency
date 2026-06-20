@@ -153,15 +153,14 @@ class AgentScheduler:
         )
         self._jobs[job_id] = job
         self._register_aps(job)
-        try:
+        if self._running_loop() is not None:
             asyncio.create_task(self._persist(job))
-        except RuntimeError:
+        elif self._store is not None:
             # No event loop (sync caller, test fixture) — persist synchronously.
-            if self._store is not None:
-                try:
-                    self._store.upsert(job.as_dict())
-                except Exception:
-                    pass
+            try:
+                self._store.upsert(job.as_dict())
+            except Exception:
+                pass
         log.info("Scheduled job created: id=%s name=%r cron=%r", job_id, name, cron)
         return job
 
@@ -178,15 +177,14 @@ class AgentScheduler:
         if job_id not in self._jobs:
             return False
         del self._jobs[job_id]
-        try:
+        if self._running_loop() is not None:
             asyncio.create_task(self._remove_persisted(job_id))
-        except RuntimeError:
+        elif self._store is not None:
             # No event loop — delete synchronously.
-            if self._store is not None:
-                try:
-                    self._store.remove(job_id)
-                except Exception:
-                    pass
+            try:
+                self._store.remove(job_id)
+            except Exception:
+                pass
         if self._aps:
             try:
                 self._aps.remove_job(job_id)
@@ -211,15 +209,14 @@ class AgentScheduler:
         if not job:
             raise KeyError(f"Job {job_id!r} not found")
         job.enabled = enabled
-        try:
+        if self._running_loop() is not None:
             asyncio.create_task(self._persist(job))
-        except RuntimeError:
+        elif self._store is not None:
             # No event loop — persist synchronously.
-            if self._store is not None:
-                try:
-                    self._store.upsert(job.as_dict())
-                except Exception:
-                    pass
+            try:
+                self._store.upsert(job.as_dict())
+            except Exception:
+                pass
         if self._aps:
             try:
                 if enabled:
@@ -234,6 +231,24 @@ class AgentScheduler:
     def set_on_fire(self, on_fire: Callable[[ScheduledJob], Any] | None) -> None:
         self._on_fire = on_fire
 
+    # ------------------------------------------------------------------
+    # Async scheduling helper
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _running_loop() -> "asyncio.AbstractEventLoop | None":
+        """Return the running event loop, or ``None`` when called synchronously.
+
+        Used so persistence coroutines are only *constructed* when there is a
+        loop to await them on. Constructing a coroutine and then failing to
+        schedule it (the old ``try create_task / except RuntimeError`` pattern)
+        leaks an un-awaited coroutine and emits a RuntimeWarning.
+        """
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
     # ── #505: Durable scheduler store ─────────────────────────────────────
 
     def attach_persistence(self, persistence: Any) -> int:
@@ -246,6 +261,18 @@ class AgentScheduler:
         self._persistence = persistence
         self._store = persistence
         return self.rehydrate()
+
+    async def attach_persistence_async(self, persistence: Any) -> int:
+        """Async variant of :meth:`attach_persistence` for callers already on
+        an event loop (e.g. the FastAPI lifespan startup).
+
+        The sync path delegates to ``asyncio.run()``, which raises and leaks a
+        coroutine if invoked from a running loop. Async callers should use this
+        method so hydration is awaited directly and the real count is returned.
+        """
+        self._persistence = persistence
+        self._store = persistence
+        return await self.hydrate()
 
     async def _ensure_store(self) -> None:
         if self._store is not None:
@@ -266,7 +293,19 @@ class AgentScheduler:
             pass
 
     def rehydrate(self) -> int:
-        """Sync entry-point for attach_persistence(); delegates to hydrate()."""
+        """Sync entry-point for attach_persistence(); delegates to hydrate().
+
+        With no running loop (sync startup, tests) hydration runs to completion
+        and the count is returned. If a loop is already running we cannot block
+        on it, so hydration is scheduled as a background task and ``0`` is
+        returned — constructing a coroutine for ``asyncio.run()`` here would
+        raise and leak it. Async callers should use ``attach_persistence_async``
+        for an awaited, accurate count.
+        """
+        loop = self._running_loop()
+        if loop is not None:
+            loop.create_task(self.hydrate())
+            return 0
         return asyncio.run(self.hydrate())
 
     async def hydrate(self) -> int:
@@ -370,10 +409,9 @@ class AgentScheduler:
             return
         job.last_run = _now()
         job.run_count += 1
-        try:
+        if self._running_loop() is not None:
             asyncio.create_task(self._persist(job))
-        except RuntimeError:
-            pass  # no event loop (sync caller)
+        # else: no event loop (sync caller / APScheduler thread) — skip async persist
         log.info("Firing job %s (%s)", job_id, job.name)
         if self._on_fire:
             try:
