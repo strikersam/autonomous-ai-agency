@@ -1,0 +1,105 @@
+name: post-merge-telegram-notify
+
+"on":
+  pull_request:
+    types: [closed]
+    branches: [master]
+
+concurrency:
+  group: post-merge-telegram-notify
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Validate secrets and send notification
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
+            echo "::error::Both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in repository secrets (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+
+          python3 - << 'EOF'
+          import os
+          import sys
+          import json
+          import urllib.request
+          import urllib.error
+          import html
+
+          bot_token = os.environ['BOT_TOKEN']
+          chat_id = os.environ['CHAT_ID']
+
+          # Truncate PR body to keep us well under Telegram's 4096-char cap;
+          # escape AFTER truncation so HTML entities never split words.
+          pr_body = os.environ.get('PR_BODY', '') or ''
+          if len(pr_body) > 300:
+              pr_body = pr_body[:300] + "\u2026"
+
+          text_parts = [
+              "\u2705 <b>Merged PR #{pr}</b>: {title}".format(
+                  pr=html.escape(os.environ['PR_NUMBER']),
+                  title=html.escape(os.environ['PR_TITLE']),
+              ),
+              "\U0001F464 {author}".format(author=html.escape(os.environ['PR_AUTHOR'])),
+              "\U0001F517 <a href='{url}'>View PR</a> ({sha})".format(
+                  url=html.escape(os.environ['PR_URL']),
+                  sha=html.escape(os.environ['MERGE_SHA'][:7]),
+              ),
+          ]
+          if pr_body.strip():
+              text_parts.append("\U0001F4DD <b>Preview:</b>\n{body}".format(body=html.escape(pr_body)))
+          text_parts.append("<i>via post-merge-telegram-notify</i>")
+
+          url = "https://api.telegram.org/bot{token}/sendMessage".format(token=bot_token)
+          req_data = json.dumps({
+              "chat_id": chat_id,
+              "text": "\n\n".join(text_parts),
+              "parse_mode": "HTML",
+              "disable_web_page_preview": True,
+          }).encode('utf-8')
+
+          req = urllib.request.Request(
+              url,
+              data=req_data,
+              headers={'Content-Type': 'application/json'},
+          )
+
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  resp_bytes = resp.read()
+                  with open('/tmp/tg_response.json', 'wb') as f:
+                      f.write(resp_bytes)
+                  resp_json = json.loads(resp_bytes.decode('utf-8'))
+                  if not resp_json.get('ok'):
+                      print("::error::Telegram API returned ok=false: {}".format(resp_json), file=sys.stderr)
+                      sys.exit(1)
+                  msg_id = resp_json.get('result', {}).get('message_id')
+                  print("sent message_id={}".format(msg_id))
+          except urllib.error.HTTPError as e:
+              err_body = e.read().decode('utf-8', errors='replace')
+              print("::error::Telegram HTTP error: {} {}\n{}".format(e.code, e.reason, err_body), file=sys.stderr)
+              with open('/tmp/tg_response.json', 'w', encoding='utf-8') as f:
+                  f.write(err_body)
+              sys.exit(1)
+          except Exception as e:
+              print("::error::Failed to send notification: {}".format(e), file=sys.stderr)
+              sys.exit(1)
+          EOF
