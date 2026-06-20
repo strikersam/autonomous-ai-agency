@@ -65,6 +65,8 @@
 
 ## [Unreleased]
 
+### Security
+- **Pre-execution approval gate for `requires_approval` tasks (Autonomy Charter Gate Matrix, P0 audit finding).** Previously `requires_approval` only redirected the *final* DONE→IN_REVIEW transition (`tasks/service.py`), so the autonomous dispatcher ran the agent to completion **before** any human approval — risky/outward-facing tasks executed un-gated. Now `TaskExecutionCoordinator.execute()` parks a `requires_approval` task **before** resolving the agent or invoking any runtime (clears `pending_agent_run`, records a `review_reason`, pushes a best-effort Telegram heads-up) and only runs it once a human calls `TaskWorkflowService.approve_execution()` (new `POST /api/tasks/{id}/approve-execution`), which sets the new `Task.execution_approved` flag and re-queues it; rejection blocks the task. Additive and backward-compatible (the post-execution `approval_checkpoints` review flow is untouched). Tests in `tests/test_task_pre_execution_gate.py`. (Inline Telegram approve/reject buttons for tasks are a follow-up; approval is reachable today via the API/dashboard.)
 
 ### Added
 

@@ -13,6 +13,7 @@ from tasks.models import (
     ApprovalRequest,
     ClarifyRequest,
     CommentAddRequest,
+    ExecutionApprovalRequest,
     FollowUpRequest,
     Task,
     TaskCreateRequest,
@@ -259,6 +260,31 @@ async def approve_checkpoint(task_id: str, body: ApprovalRequest, request: Reque
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
+    return {"task": task.as_dict()}
+
+
+@task_router.post("/{task_id}/approve-execution")
+async def approve_execution(
+    task_id: str,
+    body: ExecutionApprovalRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: Any = Depends(_current_user),
+) -> dict[str, Any]:
+    """Decide a task's **pre-execution** approval gate (Autonomy Charter Gate Matrix).
+
+    ``requires_approval`` tasks are parked by the dispatcher before they run.
+    Approving here re-queues the task for execution; rejecting blocks it.
+    """
+    task, store, actor = await _load_task(request, task_id, user)
+    workflow = _get_workflow(request)
+    try:
+        workflow.approve_execution(task, actor=actor, approved=body.approve, reason=body.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await store.update(task)
+    if body.approve:
+        _queue_task_execution(background_tasks, request, task_id)
     return {"task": task.as_dict()}
 
 
