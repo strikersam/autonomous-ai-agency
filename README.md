@@ -51,26 +51,6 @@ No config files. No integration wiring. No per-seat pricing. No data leaving you
 
 ---
 
-## Screenshots
-
-> Screenshots captured from live deployment. Run `pytest tests/e2e/ --screenshot=on` to regenerate.
-
-### Dashboard
-![Dashboard — Autonomous AI Agency](docs/screenshots/web/dashboard.png)
-
-### Company Scan Results
-![Scan Results](docs/screenshots/web/scan-results.png)
-
-### Task Board
-![Task Board](docs/screenshots/web/task-board.png)
-
-### Mobile (390px viewport)
-| Login | Dashboard | Scan Results |
-|-------|-----------|--------------||
-| ![](docs/screenshots/mobile/login.png) | ![](docs/screenshots/mobile/dashboard.png) | ![](docs/screenshots/mobile/scan-results.png) |
-
----
-
 ## Who is this for?
 
 ### The 5-person SaaS startup that can't afford a full team yet
@@ -419,6 +399,10 @@ The dashboard has 16 fully-wired screens, all backed by live API endpoints:
 ---
 
 ## Screens
+
+> **Note:** this gallery was captured from the **previous (v4) UI** and is being
+> refreshed for v5 — some labels/branding are dated. The current product is
+> **Autonomous AI Agency**; treat these as an indicative tour, not pixel-current.
 
 <!-- README_UI_GALLERY:START -->
 ### 🛰 Control Plane
