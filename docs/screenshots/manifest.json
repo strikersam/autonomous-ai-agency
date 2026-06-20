@@ -1,176 +1,198 @@
 [
   {
-    "heading": "### \ud83d\udef0 Control Plane",
-    "summary": "The command center: live agent health, recent activity, and system metrics at a glance.",
+    "heading": "### \ud83d\udcac Chat \u2014 unified assistant",
+    "summary": "Talk to the CEO agent directly; it decomposes goals and routes work to the right specialists.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-control-plane.png",
-        "alt": "Control Plane dashboard",
+        "path": "docs/screenshots/v5/chat.png",
+        "alt": "\ud83d\udcac Chat \u2014 unified assistant",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83d\udeec Login",
-    "summary": "People can sign in through a simple starting page instead of touching raw config files.",
+    "heading": "### \ud83d\udcca Dashboard \u2014 system overview",
+    "summary": "Live agent health, recent activity, and system metrics at a glance.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-login.png",
-        "alt": "Login",
+        "path": "docs/screenshots/v5/dashboard.png",
+        "alt": "\ud83d\udcca Dashboard \u2014 system overview",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83e\uddd9 Setup Wizard",
-    "summary": "The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.",
+    "heading": "### \ud83d\uddc2 Tasks \u2014 job lifecycle board",
+    "summary": "Every AI job made visible: waiting, running, blocked, in review, or done.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-setup-wizard.png",
-        "alt": "Setup Wizard",
+        "path": "docs/screenshots/v5/tasks.png",
+        "alt": "\ud83d\uddc2 Tasks \u2014 job lifecycle board",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83d\udcac Chat",
-    "summary": "This is where people talk to the CEO agent directly, using the providers and rules you set up.",
+    "heading": "### \ud83e\udd16 Agents \u2014 autonomous team",
+    "summary": "Your specialist roster \u2014 each with its own model, runtime, specialty, and guardrails.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-chat.png",
-        "alt": "Chat",
+        "path": "docs/screenshots/v5/agents.png",
+        "alt": "\ud83e\udd16 Agents \u2014 autonomous team",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83d\uddc2 Task Board",
-    "summary": "This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.",
+    "heading": "### \ud83d\uddd3 Schedules \u2014 autopilot jobs",
+    "summary": "Recurring and scheduled autonomous work.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-tasks-kanban.png",
-        "alt": "Kanban Task Board",
+        "path": "docs/screenshots/v5/schedules.png",
+        "alt": "\ud83d\uddd3 Schedules \u2014 autopilot jobs",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83e\udd16 Agent Roster",
-    "summary": "This is your cast of AI helpers. Each agent can have its own model, runtime, specialty, and rules.",
+    "heading": "### \u26a1 Skills \u2014 agentic capabilities",
+    "summary": "Reusable runtime skills bound to specialists.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-agents.png",
-        "alt": "Agent Roster",
+        "path": "docs/screenshots/v5/skills.png",
+        "alt": "\u26a1 Skills \u2014 agentic capabilities",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \u2699\ufe0f Runtimes",
-    "summary": "This shows the engines behind the scenes that actually run your AI work.",
+    "heading": "### \ud83c\udfaf Portfolio \u2014 WSJF roadmap",
+    "summary": "Prioritised initiatives, sprints, and agile health.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-runtimes.png",
-        "alt": "Agent Runtimes",
+        "path": "docs/screenshots/v5/portfolio.png",
+        "alt": "\ud83c\udfaf Portfolio \u2014 WSJF roadmap",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83d\udee3 Routing Policy",
-    "summary": "This is where you decide how smart, cheap, fast, or private the system should be when picking a model.",
+    "heading": "### \ud83d\udcc8 Intelligence \u2014 trends & competitors",
+    "summary": "Trend and competitor signals scoped to each onboarded company's stack.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-routing.png",
-        "alt": "Routing Policy",
+        "path": "docs/screenshots/v5/intelligence.png",
+        "alt": "\ud83d\udcc8 Intelligence \u2014 trends & competitors",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83d\udd0c Providers and Models",
-    "summary": "This is where you connect local and cloud AI sources and decide what models are available.",
+    "heading": "### \ud83d\udcda Knowledge \u2014 docs & sources",
+    "summary": "Wiki pages, source material, and reusable context \u2014 your team's memory.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-providers.png",
-        "alt": "Providers",
-        "width": "48%"
-      },
-      {
-        "path": "docs/screenshots/readme/v4-models.png",
-        "alt": "Models",
-        "width": "48%"
-      }
-    ]
-  },
-  {
-    "heading": "### \ud83d\udcda Knowledge",
-    "summary": "This is your team's memory: wiki pages, source material, and reusable context.",
-    "screenshots": [
-      {
-        "path": "docs/screenshots/readme/v4-knowledge.png",
-        "alt": "Knowledge and Wiki",
+        "path": "docs/screenshots/v5/knowledge.png",
+        "alt": "\ud83d\udcda Knowledge \u2014 docs & sources",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83d\udd2d Logs and activity",
-    "summary": "This helps you answer, \u2018what just happened?\u2019 \u2014 every LLM call, token count, latency, and cost.",
+    "heading": "### \ud83d\udd0c Providers \u2014 models, Ollama & MCP",
+    "summary": "Connect free/cloud/local AI sources and choose which models are available.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-logs.png",
-        "alt": "Logs",
+        "path": "docs/screenshots/v5/providers.png",
+        "alt": "\ud83d\udd0c Providers \u2014 models, Ollama & MCP",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83d\uddd3 Schedules",
-    "summary": "This is how you make AI jobs run later or run again automatically.",
+    "heading": "### \ud83d\udd2d Logs \u2014 traces & observability",
+    "summary": "Every LLM call: tokens, latency, cost, and decision context.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-schedules.png",
-        "alt": "Schedules",
+        "path": "docs/screenshots/v5/logs.png",
+        "alt": "\ud83d\udd2d Logs \u2014 traces & observability",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83e\udded Settings and guardrails",
-    "summary": "Central settings keep defaults, policies, and integrations in one place instead of scattered config files.",
+    "heading": "### \ud83d\udc19 GitHub \u2014 repos & PRs",
+    "summary": "Connect repositories and manage the agent's delivery surface.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-settings.png",
-        "alt": "Settings",
+        "path": "docs/screenshots/v5/github.png",
+        "alt": "\ud83d\udc19 GitHub \u2014 repos & PRs",
         "width": "92%"
       }
     ]
   },
   {
-    "heading": "### \ud83d\udee1 Admin portal",
-    "summary": "This gives admins a simpler place to manage access, instance activation, and system behavior.",
+    "heading": "### \ud83c\udfe2 Company \u2014 operating context",
+    "summary": "An onboarded company's detected stack, systems, and SEO/health.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-admin.png",
-        "alt": "Admin Portal",
+        "path": "docs/screenshots/v5/company.png",
+        "alt": "\ud83c\udfe2 Company \u2014 operating context",
+        "width": "92%"
+      }
+    ]
+  },
+  {
+    "heading": "### \u2728 Onboarding \u2014 setup wizard",
+    "summary": "Scan a website and stand up its specialist agency in minutes.",
+    "screenshots": [
+      {
+        "path": "docs/screenshots/v5/onboarding.png",
+        "alt": "\u2728 Onboarding \u2014 setup wizard",
+        "width": "92%"
+      }
+    ]
+  },
+  {
+    "heading": "### \ud83e\ude7a Doctor \u2014 diagnostics",
+    "summary": "System self-checks and autonomy readiness probes.",
+    "screenshots": [
+      {
+        "path": "docs/screenshots/v5/doctor.png",
+        "alt": "\ud83e\ude7a Doctor \u2014 diagnostics",
+        "width": "92%"
+      }
+    ]
+  },
+  {
+    "heading": "### \ud83d\udee1 Admin \u2014 users & access",
+    "summary": "Manage users, roles, instance activation, and onboarding gates.",
+    "screenshots": [
+      {
+        "path": "docs/screenshots/v5/admin.png",
+        "alt": "\ud83d\udee1 Admin \u2014 users & access",
         "width": "92%"
       }
     ]
   },
   {
     "heading": "### \ud83d\udcf1 Mobile",
-    "summary": "The dashboard is responsive \u2014 sign in, run the setup wizard, and monitor agents from a phone.",
+    "summary": "Responsive layout \u2014 sign in, view the dashboard, and work the task board from a phone.",
     "screenshots": [
       {
-        "path": "docs/screenshots/readme/v4-login-mobile.png",
+        "path": "docs/screenshots/v5/mobile-login.png",
         "alt": "Mobile login",
-        "width": "32%"
+        "width": "30%"
       },
       {
-        "path": "docs/screenshots/readme/v4-setup-mobile.png",
-        "alt": "Mobile setup wizard",
-        "width": "32%"
+        "path": "docs/screenshots/v5/mobile-dashboard.png",
+        "alt": "Mobile dashboard",
+        "width": "30%"
+      },
+      {
+        "path": "docs/screenshots/v5/mobile-tasks.png",
+        "alt": "Mobile task board",
+        "width": "30%"
       }
     ]
   }
