@@ -147,6 +147,16 @@ services:
       # Always use internal_agent (routes through Nvidia NIM, always available)
       - key: RUNTIME_DEFAULT
         value: "internal_agent"
+      # Register ONLY internal_agent + Hermes. RUNTIME_EXTERNAL_DISABLED stops the
+      # default-on external runtimes (Goose, Aider) and every opt-in one from
+      # registering — no health-poll overhead, a clean /runtimes list — and
+      # RUNTIME_HERMES_ENABLED re-enables just Hermes. Hermes stays inert until
+      # HERMES_BASE_URL points at a running sidecar; once it does it can take
+      # specialized/heavy task slices via the RUNTIME_<TASK_TYPE> overrides below.
+      - key: RUNTIME_EXTERNAL_DISABLED
+        value: "true"
+      - key: RUNTIME_HERMES_ENABLED
+        value: "true"
       # Task-type overrides: uncomment and set URL when sidecar runtimes are running
       # - key: RUNTIME_CODE_GENERATION
       #   value: "opencode"
@@ -357,6 +367,11 @@ services:
         value: "main,master"
       - key: RUNTIME_DEFAULT
         value: "internal_agent"
+      # Register ONLY internal_agent + Hermes (see web service for rationale).
+      - key: RUNTIME_EXTERNAL_DISABLED
+        value: "true"
+      - key: RUNTIME_HERMES_ENABLED
+        value: "true"
       - key: KIMI_BRIDGE_ENABLED
         value: "false"
       - key: KIMI_BRIDGE_URL
