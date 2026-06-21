@@ -5,6 +5,10 @@
 ## [Unreleased]
 
 ### Fixed
+- **AdminPortalPage hardcoded `localhost:8000` on deployed site.** `DEFAULT_BACKEND` now resolves to `window.location.origin` when served from the Workers URL (`autonomous-ai-agency.strikersam.workers.dev`), so the admin panel calls the correct Render backend through the Worker proxy instead of failing to connect to localhost.
+- **Worker missing `/v1` proxy prefix.** `worker/index.js` `PROXY_PREFIXES` now includes `/v1`, matching `run_worker_first` in `wrangler.jsonc` so OpenAI-compat endpoints are proxied correctly.
+
+### Fixed
 - **Task list API 27-second response time (dashboard loads forever).** `GET /api/tasks/` was returning full `execution_log` for every task in the list — one task had 16,657 log entries, producing a 7.3 MB response. The list endpoint now excludes `execution_log` (still available on `GET /api/tasks/{task_id}`). MongoDB projection added to `TaskStore.list_all()` and `list_for_user()` so the payload is never transferred from the database. Typical list response drops from 7.3 MB / 26s → ~50 KB / <1s.
 
 ### Fixed

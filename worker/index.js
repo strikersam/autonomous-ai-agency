@@ -13,7 +13,8 @@ const BACKEND_ORIGIN = "https://local-llm-server.onrender.com";
 
 // Backend path prefixes to reverse-proxy to Render. Everything else is the SPA.
 // Keep this in sync with assets.run_worker_first in wrangler.jsonc.
-const PROXY_PREFIXES = ["/api", "/runtimes"];
+// Keep in sync with assets.run_worker_first in wrangler.jsonc.
+const PROXY_PREFIXES = ["/api", "/v1", "/runtimes"];
 
 function needsProxy(pathname) {
   return PROXY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));

@@ -18,7 +18,14 @@ const LS_BACKEND  = 'agv_backend_url';
 const LS_ADMIN_TK = 'adm_token';
 const LS_ADMIN_UN = 'adm_username';
 
-const DEFAULT_BACKEND = 'http://localhost:8000';
+// When deployed on the Workers URL, use same origin (Worker proxies /api/* → Render).
+// Fall back to localhost only for local dev.
+const DEFAULT_BACKEND =
+  typeof window !== 'undefined' &&
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1'
+    ? window.location.origin
+    : 'http://localhost:8000';
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 function hdrs(token, backendUrl = '') {
