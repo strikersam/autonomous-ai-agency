@@ -123,7 +123,7 @@ class HermesAdapter(RuntimeAdapter):
             return RuntimeHealth(
                 runtime_id=self.RUNTIME_ID,
                 available=False,
-                error=f"Service not running at {self._base_url} — use Start to launch it",
+                error=f"Hermes sidecar not running at {self._base_url}. On Render/cloud set HERMES_BASE_URL or leave unset (reports as offline).",
             )
         except Exception as exc:
             return RuntimeHealth(
