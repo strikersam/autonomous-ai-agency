@@ -1,6 +1,6 @@
 # Issue #416: feat: Self-hosted Codebuff (freebuff) on free NVIDIA models + Telegram bot phone control
 
-_Generated: 2026-06-20_
+_Generated: 2026-06-21_
 
 ## Context Plan — Issue #416: feat: Self-hosted Codebuff (freebuff) on free NVIDIA models + Telegram bot phone control
 
@@ -12,17 +12,17 @@ _Generated: 2026-06-20_
 
 ## Implementation Prompt
 
-Implement a self-hosted Codebuff-style AI coding agent inside local-llm-server, powered by free top-tier coding models from NVIDIA (Qwen3-Coder 480B, Nemotron, Llama 3.3 70B). The agent should be controlled via a Telegram bot, allowing users to choose models, review and accept suggestions, and edit their local-llm-server repository from their phone. The implementation should bypass token and session limitations for this agent path, leveraging the existing NVIDIA integration and model routing logic. Extend the telegram_bot.py module to support model selection, suggestion review, and triggering commits or draft PRs to the repository. Ensure the implementation includes tests, documentation, and a changelog entry, following the repository conventions outlined in CLAUDE.md. Utilize Pydantic models for API I/O, async I/O for all operations, and logging with the logging module. Update docs/changelog.md under the [Unreleased] section and run pytest -x before and after making changes.
+Implement a self-hosted Codebuff-style AI coding agent inside local-llm-server, powered by free top-tier coding models from NVIDIA (Qwen3-Coder 480B, Nemotron, Llama 3.3 70B). The agent should be controlled via a Telegram bot, allowing users to choose models, review and accept suggestions, and edit their local-llm-server repository from their phone. The implementation should bypass token and session limits for this agent path, leveraging the existing NVIDIA integration and model routing logic. Extend the telegram_bot.py module to support model selection, suggestion review, and triggering commits or draft PRs to the repository. Ensure the implementation includes tests, documentation, and a changelog entry, following the repository conventions outlined in CLAUDE.md. Utilize Pydantic models for API I/O, async I/O for all operations, and logging with the logging module. Update docs/changelog.md under the [Unreleased] section and run pytest -x before and after making changes.
 
 ---
 
 ## TODO List
 
 - [ ] **[M]** Create a new module for the Codebuff-style AI coding agent `agent/codebuff_agent.py`
-- [ ] **[M]** Implement model selection and routing logic for the agent `router/model_router.py`
-- [ ] **[L]** Extend telegram_bot.py to support model selection, suggestion review, and repository edits `telegram_bot.py`
-- [ ] **[S]** Update proxy.py to bypass token and session limitations for the agent path `proxy.py`
-- [ ] **[M]** Create tests for the new agent and Telegram bot functionality `tests/test_codebuff_agent.py`
+- [ ] **[L]** Implement model selection and suggestion review logic in the agent `agent/codebuff_agent.py`
+- [ ] **[M]** Extend telegram_bot.py to support model selection, suggestion review, and triggering commits or draft PRs `telegram_bot.py`
+- [ ] **[S]** Update the rate limiter in proxy.py to bypass token and session limits for the agent path `proxy.py`
+- [ ] **[M]** Add tests for the new agent and Telegram bot functionality `tests/test_codebuff_agent.py`
 - [ ] **[S]** Update documentation and changelog entry for the new feature `docs/changelog.md`
 
 ---
@@ -30,24 +30,24 @@ Implement a self-hosted Codebuff-style AI coding agent inside local-llm-server, 
 ## Relevant Files to Read First
 
 - `agent/codebuff_agent.py`
-- `router/model_router.py`
 - `telegram_bot.py`
 - `proxy.py`
-- `tests/test_codebuff_agent.py`
-- `docs/changelog.md`
+- `router/model_router.py`
+- `agent/loop.py`
+- `agent/tools.py`
 
 ---
 
 ## Risk Flags
 
+- ⚠️ agent/tools.py
 - ⚠️ proxy.py
-- ⚠️ telegram_bot.py
 
 ---
 
 ## Architectural Notes
 
-The implementation should ensure that the new agent and Telegram bot functionality do not introduce security vulnerabilities or compromise the existing authentication and authorization mechanisms. Additionally, the bypassing of token and session limitations for the agent path should be carefully evaluated to prevent potential abuse or misuse.
+The implementation should ensure that the agent path is properly exempt from token and session limits, and that the Telegram bot functionality is securely integrated with the repository editing capabilities.
 
 ---
 
