@@ -208,6 +208,24 @@ jobs:
           echo "pr_url=$PR_URL"    >> "$GITHUB_OUTPUT"
           echo "Draft PR: #$PR_NUM — $PR_URL"
 
+          # SAFETY: label the draft PR with quick-note:planning so housekeeping
+          # workflows (auto-merge, close-stale-prs, etc.) can identify planning-only
+          # PRs and skip them. The label is removed by process-quick-note after the
+          # implement agent pushes real code and marks the PR ready.
+          # NOTE: the `|| true` on the apply is intentional -- the canonical guard
+          # is the isDraft check in auto-merge.yml / process-quick-note.yml. The
+          # label is a fast-path filter for future housekeeping workflows; if the
+          # apply fails silently the isDraft check still protects the PR.
+          gh label create "quick-note:planning" \
+            --repo "$REPO" \
+            --color "fef2c0" \
+            --description "Planning-only draft PR (no code yet) -- do not auto-merge or close" \
+            2>/dev/null || true
+          gh pr edit "$PR_NUM" \
+            --repo "$REPO" \
+            --add-label "quick-note:planning" \
+            2>/dev/null || true
+
       # ── 7. Comment + dispatch auto-implementation — issue STAYS OPEN ──────────
       # REGRESSION FIX (2026-06-13): previously this step closed the issue with
       # reason "completed" immediately after the context doc draft PR was made.
