@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Voice pipeline + Jarvis OS Memory Kernel (issue #664).** Send a Telegram voice note from your phone → Whisper STT transcribes it → CEO agent executes → TTS voice reply sent back. New `voice/` package: `stt.py` (OpenAI Whisper API / faster-whisper / Google fallback), `tts.py` (ElevenLabs / gTTS / pyttsx3 fallback), `memory_kernel.py` (atomic facts in SQLite + Markdown mirror, Jarvis OS design: dated, sourced, reinforceable, forgettable, correctable). Telegram bot gains `/memory [query]`, `/remember <fact>`, `/forget <fact-id>` commands and auto-replies with voice note when the input was a voice note. Config: `WHISPER_BACKEND`, `OPENAI_API_KEY`, `WHISPER_MODEL`, `TTS_BACKEND`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `MEMORY_KERNEL_DIR`, `MEMORY_DECAY_DAYS`.
+
 ### Fixed
 
 - **Agents idle despite TODO tasks: reconciler now re-queues unqueued TODO tasks** (2026-06-21). `TaskStore.reconcile_stranded_tasks()` previously only handled IN_PROGRESS stranded tasks. It never touched TODO tasks with `pending_agent_run=False`. Fix: reconciler now also re-queues those. File: `tasks/store.py`.
