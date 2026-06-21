@@ -49,9 +49,25 @@ https://yourcompany.com
 
 No config files. No integration wiring. No per-seat pricing. No data leaving your server.
 
-<p align="center"><img src="docs/screenshots/v5/dashboard.png" width="92%" alt="Autonomous AI Agency — v5 dashboard"/></p>
+---
 
-<p align="center"><sub>The v5 dashboard. More screens in <a href="#screens">Screens</a> below.</sub></p>
+## Screenshots
+
+> Screenshots captured from live deployment. Run `pytest tests/e2e/ --screenshot=on` to regenerate.
+
+### Dashboard
+![Dashboard — Autonomous AI Agency](docs/screenshots/web/dashboard.png)
+
+### Company Scan Results
+![Scan Results](docs/screenshots/web/scan-results.png)
+
+### Task Board
+![Task Board](docs/screenshots/web/task-board.png)
+
+### Mobile (390px viewport)
+| Login | Dashboard | Scan Results |
+|-------|-----------|--------------||
+| ![](docs/screenshots/mobile/login.png) | ![](docs/screenshots/mobile/dashboard.png) | ![](docs/screenshots/mobile/scan-results.png) |
 
 ---
 
@@ -138,7 +154,7 @@ The defining feature of Autonomous AI Agency is not what agents can do — it's 
 | **Security audit** | Daily 9 AM | CVE scan, security headers, repo secret scan |
 | **Stack change detection** | Daily 6 AM | New frameworks, dropped libraries, new integrations |
 | **Code quality scan** | Daily 12 PM | Lint, duplication, complexity, stale dependencies |
-| **Trend watch** | Every 6 hrs | Model releases, framework updates, competitor tech — scored against *each* company's detected stack so a React shop gets React trends and an infra client gets infra trends |
+| **Trend watch** | Every 6 hrs | Model releases, framework updates, competitor tech |
 | **Company graph sync** | Every 30 min | Specialist health, runtime responsiveness, schedule status |
 | **Doc-sync** | On every push | API docs, architecture records, and runbooks auto-updated |
 
@@ -151,17 +167,11 @@ Security or Dev specialist creates a fix task automatically
      ↓
 Agent branches, writes fix, opens PR, watches CI
      ↓
-Landing respects each repo's detected delivery policy (direct-push vs PR-required);
-the first unattended merge on a newly connected repo always asks you on Telegram first
-     ↓
 CI green + low-risk → auto-approve gate passes, PR merges
 CI green + needs human eyes → surfaces to your dashboard
      ↓
 You see it in the morning: "PR merged, page restored at 3:12 AM"
 ```
-
-> URL-only companies (no repo connected yet) never attempt code work — those tasks
-> wait in `awaiting_repo_connection` until you connect a repo + token, then resume.
 
 ### Nothing goes down quietly
 
@@ -320,7 +330,7 @@ for review.
 ### Free-first model routing
 
 Context generation runs on **free NVIDIA NIM models** by preference —
-`qwen/qwen3-coder-480b-a35b-instruct` → `nvidia/nemotron-3-super-120b-a12b`
+`qwen/qwen3-coder-480b-a35b-instruct` → `nvidia/llama-3.3-nemotron-super-49b-v1`
 → `meta/llama-3.3-70b-instruct` → `qwen/qwen2.5-coder-32b-instruct`, with
 Claude Opus as a final fallback only if every NVIDIA model is unavailable.
 
@@ -404,117 +414,103 @@ The dashboard has 16 fully-wired screens, all backed by live API endpoints:
 
 ## Screens
 
-> Captured from a live v5 build with `python scripts/capture_screens.py` (the same
-> flow runs as a UI smoke test — see `tests/e2e/test_v5_screens_smoke.py`). These are
-> empty-state screens from a fresh instance (no companies/tasks onboarded yet).
-
 <!-- README_UI_GALLERY:START -->
-### 💬 Chat — unified assistant
+### 🛰 Control Plane
 
-Talk to the CEO agent directly; it decomposes goals and routes work to the right specialists.
+The command center: live agent health, recent activity, and system metrics at a glance.
 
-<p align="center"><img src="docs/screenshots/v5/chat.png" width="92%" alt="💬 Chat — unified assistant"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-control-plane.png" width="92%" alt="Control Plane dashboard"/></p>
 
-### 📊 Dashboard — system overview
+### 🛬 Login
 
-Live agent health, recent activity, and system metrics at a glance.
+People can sign in through a simple starting page instead of touching raw config files.
 
-<p align="center"><img src="docs/screenshots/v5/dashboard.png" width="92%" alt="📊 Dashboard — system overview"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-login.png" width="92%" alt="Login"/></p>
 
-### 🗂 Tasks — job lifecycle board
+### 🧙 Setup Wizard
 
-Every AI job made visible: waiting, running, blocked, in review, or done.
+The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.
 
-<p align="center"><img src="docs/screenshots/v5/tasks.png" width="92%" alt="🗂 Tasks — job lifecycle board"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-setup-wizard.png" width="92%" alt="Setup Wizard"/></p>
 
-### 🤖 Agents — autonomous team
+### 💬 Chat
 
-Your specialist roster — each with its own model, runtime, specialty, and guardrails.
+This is where you talk to the CEO agent directly.
 
-<p align="center"><img src="docs/screenshots/v5/agents.png" width="92%" alt="🤖 Agents — autonomous team"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Chat"/></p>
 
-### 🗓 Schedules — autopilot jobs
+### 🗂 Task Board
 
-Recurring and scheduled autonomous work.
+This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.
 
-<p align="center"><img src="docs/screenshots/v5/schedules.png" width="92%" alt="🗓 Schedules — autopilot jobs"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-tasks-kanban.png" width="92%" alt="Kanban Task Board"/></p>
 
-### ⚡ Skills — agentic capabilities
+### 🤖 Agent Roster
 
-Reusable runtime skills bound to specialists.
+Your cast of AI specialists. Each agent has its own model, runtime, specialty, and rules.
 
-<p align="center"><img src="docs/screenshots/v5/skills.png" width="92%" alt="⚡ Skills — agentic capabilities"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-agents.png" width="92%" alt="Agent Roster"/></p>
 
-### 🎯 Portfolio — WSJF roadmap
+### ⚙️ Runtimes
 
-Prioritised initiatives, sprints, and agile health.
+The engines behind the scenes that actually run your AI work.
 
-<p align="center"><img src="docs/screenshots/v5/portfolio.png" width="92%" alt="🎯 Portfolio — WSJF roadmap"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-runtimes.png" width="92%" alt="Agent Runtimes"/></p>
 
-### 📈 Intelligence — trends & competitors
+### 🛣 Routing Policy
 
-Trend and competitor signals scoped to each onboarded company's stack.
+Control how smart, cheap, fast, or private the system is when picking a model.
 
-<p align="center"><img src="docs/screenshots/v5/intelligence.png" width="92%" alt="📈 Intelligence — trends & competitors"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-routing.png" width="92%" alt="Routing Policy"/></p>
 
-### 📚 Knowledge — docs & sources
+### 🔌 Providers and Models
 
-Wiki pages, source material, and reusable context — your team's memory.
+Connect local and cloud AI sources and choose which models are available.
 
-<p align="center"><img src="docs/screenshots/v5/knowledge.png" width="92%" alt="📚 Knowledge — docs & sources"/></p>
+<p align="center">
+  <img src="docs/screenshots/readme/v4-providers.png" width="48%" alt="Providers"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-models.png" width="48%" alt="Models"/>
+</p>
 
-### 🔌 Providers — models, Ollama & MCP
+### 📚 Knowledge
 
-Connect free/cloud/local AI sources and choose which models are available.
+Your team's memory: wiki pages, source material, and reusable context.
 
-<p align="center"><img src="docs/screenshots/v5/providers.png" width="92%" alt="🔌 Providers — models, Ollama & MCP"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-knowledge.png" width="92%" alt="Knowledge and Wiki"/></p>
 
-### 🔭 Logs — traces & observability
+### 🔭 Logs and activity
 
-Every LLM call: tokens, latency, cost, and decision context.
+Every LLM call: token count, latency, cost, and decision context.
 
-<p align="center"><img src="docs/screenshots/v5/logs.png" width="92%" alt="🔭 Logs — traces & observability"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs"/></p>
 
-### 🐙 GitHub — repos & PRs
+### 🗓 Schedules
 
-Connect repositories and manage the agent's delivery surface.
+Make AI jobs run later or recur automatically.
 
-<p align="center"><img src="docs/screenshots/v5/github.png" width="92%" alt="🐙 GitHub — repos & PRs"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-schedules.png" width="92%" alt="Schedules"/></p>
 
-### 🏢 Company — operating context
+### 🧭 Settings and guardrails
 
-An onboarded company's detected stack, systems, and SEO/health.
+Central settings: defaults, policies, and integrations in one place.
 
-<p align="center"><img src="docs/screenshots/v5/company.png" width="92%" alt="🏢 Company — operating context"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-settings.png" width="92%" alt="Settings"/></p>
 
-### ✨ Onboarding — setup wizard
+### 🛡 Admin portal
 
-Scan a website and stand up its specialist agency in minutes.
+Manage access, instance activation, and system behavior.
 
-<p align="center"><img src="docs/screenshots/v5/onboarding.png" width="92%" alt="✨ Onboarding — setup wizard"/></p>
-
-### 🩺 Doctor — diagnostics
-
-System self-checks and autonomy readiness probes.
-
-<p align="center"><img src="docs/screenshots/v5/doctor.png" width="92%" alt="🩺 Doctor — diagnostics"/></p>
-
-### 🛡 Admin — users & access
-
-Manage users, roles, instance activation, and onboarding gates.
-
-<p align="center"><img src="docs/screenshots/v5/admin.png" width="92%" alt="🛡 Admin — users & access"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-admin.png" width="92%" alt="Admin Portal"/></p>
 
 ### 📱 Mobile
 
-Responsive layout — sign in, view the dashboard, and work the task board from a phone.
+The dashboard is responsive — sign in, run the setup wizard, and monitor agents from a phone.
 
 <p align="center">
-  <img src="docs/screenshots/v5/mobile-login.png" width="30%" alt="Mobile login"/>
+  <img src="docs/screenshots/readme/v4-login-mobile.png" width="32%" alt="Mobile login"/>
   &nbsp;
-  <img src="docs/screenshots/v5/mobile-dashboard.png" width="30%" alt="Mobile dashboard"/>
-  &nbsp;
-  <img src="docs/screenshots/v5/mobile-tasks.png" width="30%" alt="Mobile task board"/>
+  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="32%" alt="Mobile setup wizard"/>
 </p>
 <!-- README_UI_GALLERY:END -->
 
@@ -579,10 +575,9 @@ We'd rather under-promise. Here's the honest split (see `docs/architecture/featu
 | Scheduled tasks / persistent schedule store | **Stable** | Reconciles on boot; nothing silently skipped. |
 | Skill bindings + dynamic skill registry | **Stable** | GitHub discovery with ETag caching and rate-limit semaphores. |
 | Langfuse observability + local TCO cost model | **Stable** | Cost figures are an estimated commercial-equivalent model, not a billed invoice. |
-| Telegram bot remote control | **Stable, opt-in** | Production-quality (service-managed lifecycle, inbound routing + mid-flight redirect, approval gates, `/diag`, full test suite) but ships **off by default** — enable with `TELEGRAM_BOT_TOKEN` + `FEATURE_TELEGRAM_BOT`. |
-| Multi-agent orchestration (CEO → single specialist) | **Stable** | Golden-Path plan→execute→verify→judge with HITL gates and crash-recovery reconciliation — this is what runs the autonomous internal loop. |
-| Deep multi-hop agent swarms | **Beta** | Multi-specialist hand-off chains (`multi_agent_swarm`) are still hardening. |
-| External agent runtimes (Goose / Hermes / OpenHands) | **Beta** | Optional sidecars (`sidecar_runtimes`); absent on the default cloud deploy, where the Doctor warns and routing falls back to the always-on `internal_agent`. |
+| Telegram bot remote control | **Beta** | Works; long-running 24x7 deployment paths are still hardening. |
+| Multi-agent orchestration (CEO -> specialists) | **Beta** | Plan->execute->verify loop is solid for single-specialist jobs; deep multi-hop swarms are experimental. |
+| External agent runtimes (Goose / Hermes / OpenHands) | **Experimental** | Optional sidecars; the Doctor reports them as warnings, never gating, when absent. |
 
 If a screen or capability isn't listed above, treat it as experimental.
 
