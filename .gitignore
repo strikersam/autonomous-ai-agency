@@ -108,3 +108,7 @@ bandit-report.json
 gucci-audit/
 triage-sweep-*.bundle
 triage-sweep-*.patch
+
+# Recovery for credential-leak vector (PR #720 merge auto-resolution dropped 90fb8d0s additions)
+_claude_run_secret*.txt
+.tmp_local_secrets/
