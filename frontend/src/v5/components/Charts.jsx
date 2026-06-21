@@ -169,7 +169,5 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
   );
 }
 
-// Named exports so DashboardScreen can use: import { Sparkline, Donut } from '../components/Charts'
-export { Sparkline, BarChart, Donut };
 // Default export for backward compatibility
 export default { Sparkline, BarChart, Donut };
