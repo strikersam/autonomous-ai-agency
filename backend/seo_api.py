@@ -77,7 +77,7 @@ async def seo_check_catalog(
 async def run_seo_audit(
     company_id: str = Path(..., description="Company ID"),
     request: SeoAuditRequest = Body(...),
-    background_tasks: BackgroundTasks = None,
+    background_tasks: BackgroundTasks,
     user: dict = Depends(_get_current_user_thunk),
 ) -> SeoAuditReport:
     """Kick off an async SEO/GEO/AIO audit and return immediately with status='pending'.
