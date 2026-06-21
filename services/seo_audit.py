@@ -1227,6 +1227,11 @@ class SeoAuditEngine:
             ]
 
         health = self._score(rows, total_pages, pillar=None)
+        # When the crawl returned no pages (e.g. bot-protection, DNS failure)
+        # a score of 100 is meaningless — report 0 and discard any site-level
+        # issues so the client gets a clear 'failed, 0 pages' signal.
+        if not pages:
+            health = 0.0
         pillar_scores = {
             pillar: self._score(rows, total_pages, pillar=pillar)
             for pillar in ("technical", "content", "security", "social", "geo", "aio")
@@ -1261,6 +1266,12 @@ class SeoAuditEngine:
                 f"{total_loss:,.0f} of {revenue:,.0f} "
                 f"({total_loss / revenue * 100:.1f}% of baseline)."
             )
+
+        # No pages crawled: discard all issues — they're either empty or
+        # site-level checks that ran against zero data and are misleading.
+        if not pages:
+            issues = []
+            rows = []
 
         return SeoAuditReport(
             audit_id=audit_id,
