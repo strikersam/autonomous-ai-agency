@@ -89,14 +89,20 @@ def _expire_stale_pending_report(report: SeoAuditReport) -> None:
     elapsed = (datetime.now(timezone.utc) - started).total_seconds()
     if elapsed < _SEO_PENDING_EXPIRY_SECONDS:
         return
-    report.status = "failed"
-    report.error = (
-        f"Audit still 'pending' after {elapsed:.0f}s \u2014 likely lost to a "
-        "server restart (in-memory registry was cleared). Re-run the audit."
-    )
-    report.completed_at = datetime.now(timezone.utc)
+    # SeoAuditReport is a Pydantic frozen model: build the updated copy via
+    # model_copy(update=...) (so save_report stores the new 'failed' state) and
+    # leave the inbound `report` untouched. The caller can still reference it
+    # without seeing the side-effect.
+    new_state = report.model_copy(update={
+        "status": "failed",
+        "error": (
+            f"Audit still 'pending' after {elapsed:.0f}s \u2014 likely lost to a "
+            "server restart (in-memory registry was cleared). Re-run the audit."
+        ),
+        "completed_at": datetime.now(timezone.utc),
+    })
     try:
-        save_report(report)
+        save_report(new_state)
         log.warning(
             "SEO audit %s expired (pending for %.0fs, threshold %.0fs) \u2014 auto-failed and saved.",
             report.audit_id, elapsed, _SEO_PENDING_EXPIRY_SECONDS,
@@ -185,7 +191,13 @@ async def get_seo_audit(
             detail=f"Audit {audit_id} not found for this company",
         )
     _expire_stale_pending_report(report)
-    return report
+    # Refresh the response body from the registry so the client sees the
+    # auto-failed state on THIS poll (not just on the next one). Without
+    # the re-fetch the current request would still surface 'pending' even
+    # though the registry now holds 'failed', which contradicts the
+    # docstring above.
+    refreshed = get_report(audit_id)
+    return refreshed if refreshed is not None else report
 
 
 @router.get("/company/{company_id}/seo/audits/{audit_id}/export")

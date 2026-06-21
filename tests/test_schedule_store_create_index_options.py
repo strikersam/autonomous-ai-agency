@@ -10,45 +10,19 @@ originally referred to the live collection and held the FastAPI lifespan.
 """
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock
 
 
-def _make_index_info(existing_key: list[tuple] | None = None) -> dict:
-    """Build a stub index_information() return value for the job_id index.
+def _install_pymongo_stub(fake_collection: MagicMock) -> None:
+    """Stub pymongo so ``ScheduleStore.__init__`` resolves to ``fake_collection``.
 
-    Each entry's 'key' tuple is preserved verbatim so the implementation
-    can compare it to (('job_id', 1),).
+    Implementation walks: ``client[db_name][_COLLECTION]`` \u2014 TWO ``__getitem__``
+    hops. The first hop returns the database (modeled as fake_collection itself);
+    the second hop subscript on the database returns the collection (also
+    fake_collection). We wire the chain so both hops resolve to the same
+    fake_collection with the create_index / index_information mocks in place.
     """
-    if existing_key is None:
-        return {}
-    return {"job_id_1": {"key": existing_key}}
-
-
-def test_schedule_store_creates_index_with_background_true() -> None:
-    """On a fresh collection, create_index is called with the right kwargs."""
-    from agent.schedule_store import ScheduleStore
-    fakemodule = MagicMock()
-
-    # When background=True is passed to Motor/MongoDB, the call site returns None.
-    captured_kwargs: dict = {}
-
-    def fake_create_index(*args, **kwargs):
-        captured_kwargs.update(kwargs)
-        return "job_id_1"
-
-    fake_collection = MagicMock()
-    fake_collection.create_index = fake_create_index
-    fake_collection.index_information.return_value = _make_index_info()  # no existing index
-
-    fakemodule.MongoClient.return_value = MagicMock(
-        admin=MagicMock(command=MagicMock(return_value={"ok": 1})),
-        **{"_db_path": MagicMock(__getitem__=MagicMock(return_value=fake_collection))},
-    )
-
-    # Direct path on the constructor: we exercise the implementation via
-    # monkeypatching pymongo at import time.
-    import sys
-    saved = sys.modules.get("pymongo")
     pymongo_stub = MagicMock()
     pymongo_stub.MongoClient = MagicMock(
         return_value=MagicMock(
@@ -57,14 +31,33 @@ def test_schedule_store_creates_index_with_background_true() -> None:
         )
     )
     sys.modules["pymongo"] = pymongo_stub
+    # The second hop on the database object must also resolve to fake_collection
+    # so that ``self._collection`` carries our create_index / index_information
+    # mocks. Without this wiring the auto-mock returns a fresh MagicMock that
+    # silently no-ops create_index.
+    fake_collection.__getitem__ = MagicMock(return_value=fake_collection)
 
+
+def _restore_pymongo() -> None:
+    sys.modules.pop("pymongo", None)
+
+
+def test_schedule_store_creates_index_with_background_true() -> None:
+    from agent.schedule_store import ScheduleStore
+
+    fake_collection = MagicMock()
+    fake_collection.index_information.return_value = {}  # no existing index
+
+    captured_kwargs: dict = {}
+    fake_collection.create_index = MagicMock(
+        side_effect=lambda *a, **kw: (captured_kwargs.update(kw) or "job_id_1")
+    )
+
+    _install_pymongo_stub(fake_collection)
     try:
         ScheduleStore()
     finally:
-        if saved is None:
-            sys.modules.pop("pymongo", None)
-        else:
-            sys.modules["pymongo"] = saved
+        _restore_pymongo()
 
     assert "background" in captured_kwargs, "background kwarg MUST be passed (lazy build)"
     assert captured_kwargs["background"] is True, "background kwarg MUST be True"
@@ -72,33 +65,21 @@ def test_schedule_store_creates_index_with_background_true() -> None:
 
 
 def test_schedule_store_skips_index_already_present() -> None:
-    """If the job_id index exists, create_index MUST NOT be called again."""
     from agent.schedule_store import ScheduleStore
-    import sys
 
     fake_collection = MagicMock()
-    fake_collection.index_information.return_value = _make_index_info([("job_id", 1)])
-    create_calls: list[dict] = []
-    fake_collection.create_index = MagicMock(
-        side_effect=lambda *a, **kw: create_calls.append(kw) or "job_id_1"
-    )
+    # Pre-existing index with the exact (job_id, 1) key spec.
+    fake_collection.index_information.return_value = {
+        "job_id_1": {"key": [("job_id", 1)], "unique": True},
+    }
+    fake_collection.create_index = MagicMock()
 
-    saved = sys.modules.get("pymongo")
-    pymongo_stub = MagicMock()
-    pymongo_stub.MongoClient = MagicMock(
-        return_value=MagicMock(
-            admin=MagicMock(command=MagicMock(return_value={"ok": 1})),
-            __getitem__=MagicMock(return_value=fake_collection),
-        )
-    )
-    sys.modules["pymongo"] = pymongo_stub
-
+    _install_pymongo_stub(fake_collection)
     try:
         ScheduleStore()
     finally:
-        if saved is None:
-            sys.modules.pop("pymongo", None)
-        else:
-            sys.modules["pymongo"] = saved
+        _restore_pymongo()
 
-    assert fake_collection.create_index.call_count == 0, "create_index MUST be skipped when index exists"
+    assert fake_collection.create_index.call_count == 0, (
+        "create_index MUST be skipped when an index on (job_id,1) already exists"
+    )

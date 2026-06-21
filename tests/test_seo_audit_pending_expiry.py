@@ -44,12 +44,17 @@ def test_pending_stub_older_than_threshold_is_auto_failed() -> None:
     report = _pending_started(seconds_ago=1801)  # older than threshold
     seo_audit_mod.save_report(report)
 
-    # Force-expire via the module-level helper (defensive infra).
-    seo_api._expire_stale_pending_report(report)
+    # Call the helper on the saved (registry-resident) report so the test
+    # verifies the actual stored state changes after the helper runs.
+    saved = seo_audit_mod.get_report(report.audit_id)
+    assert saved is not None
+    seo_api._expire_stale_pending_report(saved)
 
-    assert report.status == "failed"
-    assert "1801" in report.error or "1800" in report.error or "lost" in report.error.lower()
-    assert report.completed_at is not None
+    later = seo_audit_mod.get_report(report.audit_id)
+    assert later is not None
+    assert later.status == "failed"
+    assert later.completed_at is not None
+    assert "1801s" in later.error or "lost" in later.error.lower()
 
 
 def test_pending_stub_within_threshold_is_left_alone() -> None:
