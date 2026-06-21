@@ -169,5 +169,39 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
   );
 }
 
+
+/**
+ * ExecutionTimeline — compact Gantt-style timeline for task execution_log entries.
+ * Each log entry: { step, status, started_at, ended_at, duration_ms? }
+ */
+export function ExecutionTimeline({ log = [] }) {
+  const entries = (log || []).filter(Boolean);
+  if (!entries.length) return null;
+
+  const statusColor = (s) => {
+    if (!s) return 'var(--text-muted)';
+    if (s === 'done' || s === 'success') return '#4ade80';
+    if (s === 'failed' || s === 'error') return '#f87171';
+    if (s === 'running') return 'var(--accent)';
+    return '#facc15';
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {entries.map((e, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor(e.status), flexShrink: 0 }} />
+          <span style={{ flex: 1, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.step || e.name || }</span>
+          {(e.duration_ms != null) && (
+            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', flexShrink: 0 }}>
+              {e.duration_ms < 1000 ?  : }
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Default export for backward compatibility
-export default { Sparkline, BarChart, Donut };
+export default { Sparkline, BarChart, Donut, ExecutionTimeline };
