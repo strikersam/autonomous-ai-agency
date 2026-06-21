@@ -1,6 +1,6 @@
 # Issue #382: quick-note:https://claude.com/blog/how-coderabbit-used-claude-to-build-an-agent-orchestration-system
 
-_Generated: 2026-06-20_
+_Generated: 2026-06-21_
 
 ## Context Plan — Issue #382: quick-note:https://claude.com/blog/how-coderabbit-used-claude-to-build-an-agent-orchestration-system
 
@@ -12,47 +12,43 @@ _Generated: 2026-06-20_
 
 ## Implementation Prompt
 
-Implement enhanced logging and health check capabilities for the agent orchestration system in `local-llm-server`. Ensure all new functions have type annotations and use Pydantic for any new API endpoints. Modify `agent/loop.py` to include detailed logging at each stage (plan, execute, verify) using the `logging` module. Create a new endpoint in `proxy.py` (e.g., `/agent/health`) that returns a Pydantic model (`AgentHealthResponse`) containing the last execution status of all agents, the number of successful/failed tasks, and the last update timestamp. Update `health.py` to periodically (every 5 minutes) check the health of all configured agents and store the status in `state.py`. Ensure async I/O is used throughout and no secrets are hardcoded. Document the new endpoint in `docs/api.md` and update `changelog.md` under [Unreleased].
+Implement enhancements to the multi-agent orchestration system in `local-llm-server` to improve efficiency and scalability, inspired by the conceptual overview of Claude's integration for similar purposes. Ensure the system can dynamically allocate tasks across multiple agents (e.g., Qwen3-Coder, DeepSeek-R1) with improved logging and observability via Langfuse. Modify `agent/loop.py` to include a more sophisticated task queue (consider using a message broker like Redis for inter-agent communication if not already in use). Update `router/model_router.py` to prioritize agents based on their current workload and response times. Integrate with `langfuse_obs.py` for detailed task execution metrics. Ensure all new functions are async, use type annotations, and log via `logging`. Update docs/changelog.md under [Unreleased] with a brief description of the changes.
 
 ---
 
 ## TODO List
 
-- [ ] **[M]** Modify `agent/loop.py` for detailed logging `agent/loop.py`
-- [ ] **[S]** Create `AgentHealthResponse` Pydantic model `models.py`
-- [ ] **[M]** Add `/agent/health` endpoint to `proxy.py` `proxy.py`
-- [ ] **[M]** Update `health.py` for periodic agent health checks `health.py`
-- [ ] **[S]** Integrate health status storage in `state.py` `state.py`
-- [ ] **[S]** Document new endpoint in `docs/api.md` `docs/api.md`
-- [ ] **[S]** Update `changelog.md` under [Unreleased] `changelog.md`
-- [ ] **[L]** Write unit/tests for new functionality `tests/test_agent_orchestration.py`
-- [ ] **[S]** Run `pytest -x` and verify all tests pass ``
+- [ ] **[M]** Review Current Orchestration Logic `agent/loop.py`
+- [ ] **[L]** Design Enhanced Task Queue System ``
+- [ ] **[L]** Implement Dynamic Agent Allocation in `router/model_router.py` `router/model_router.py`
+- [ ] **[S]** Integrate with Langfuse for Detailed Metrics in `langfuse_obs.py` `langfuse_obs.py`
+- [ ] **[L]** Write Unit/Integration Tests for New Logic `tests/agent_test.py, tests/router_test.py`
+- [ ] **[S]** Update Documentation and Changelog `docs/changelog.md`
+- [ ] **[S]** Run `pytest -x` and Verify Functionality ``
 
 ---
 
 ## Relevant Files to Read First
 
 - `agent/loop.py`
-- `proxy.py`
-- `models.py`
-- `health.py`
-- `state.py`
-- `docs/api.md`
-- `changelog.md`
+- `router/model_router.py`
+- `langfuse_obs.py`
+- `docs/changelog.md`
+- `tests/agent_test.py`
+- `tests/router_test.py`
 
 ---
 
 ## Risk Flags
 
 - ⚠️ agent/loop.py
-- ⚠️ health.py
-- ⚠️ state.py
+- ⚠️ router/model_router.py
 
 ---
 
 ## Architectural Notes
 
-Given the article's lack of specific technical details, this implementation focuses on generically enhancing agent orchestration. If specific Claude integration is intended, more details are needed.
+Due to the redacted nature of the article, this implementation focuses on generic enhancements. If specific Claude integration details were available, the approach might differ. Consider adding Redis or a similar message broker for the task queue if not already implemented.
 
 ---
 
