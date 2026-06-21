@@ -43,11 +43,6 @@ import socket
 from urllib.parse import urlparse
 
 
-
-# Hostnames that are NEVER legitimate scan targets (blocklist, not bind addresses).
-# 0.0.0.0 is in this set so an attacker cannot use it to bypass the SSRF check via the wildcard interface.
-_BLOCKED_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})  # nosec B104 — blocklist constant, not a bind
-
 def _is_safe_url(url: str) -> bool:
     """Block SSRF: reject loopback, link-local, private, and non-HTTP schemes."""
     try:
@@ -59,7 +54,7 @@ def _is_safe_url(url: str) -> bool:
         if not hostname:
             return False
         # Block obvious internal hostnames
-        if hostname in _BLOCKED_HOSTNAMES:  # nosec B104 — blocklist lookup, not a bind
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):  # nosec B104 — blocklist lookup, not a bind
             return False
         if hostname.endswith(".local") or hostname.endswith(".internal"):
             return False
@@ -96,7 +91,7 @@ def _is_blocked_host(url: str) -> bool:
     host = (parsed.hostname or "").lower()
     if not host:
         return True  # e.g. file:// or malformed → fail closed (block)
-    if host in _BLOCKED_HOSTNAMES or host.endswith((".local", ".internal")):  # nosec B104 — blocklist lookup, not a bind
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith((".local", ".internal")):  # nosec B104 — blocklist lookup, not a bind
         return True
     try:
         ip = ipaddress.ip_address(host)  # only classifies literal-IP hosts
@@ -202,18 +197,7 @@ class WebsiteScanner:
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         self.timeout = 15.0
         self.max_redirects = 5
-        # Overall wall-clock budget for a single scan_website() call. The many
-        # serial network phases (DNS, fetch, headless render, BuiltWith fallback
-        # — itself a second render — and the subdomain fan-out) have no aggregate
-        # cap on their own, so a slow/blocked domain could run for minutes and
-        # blow past the frontend's 120s scanWebsite timeout, surfacing as a hung
-        # "spinning" scan that eventually errors. Cap it below that client limit
-        # so the API always returns a clean status="failed" instead.
-        try:
-            self.scan_budget = max(10.0, float(os.environ.get("WEBSITE_SCAN_BUDGET_SEC", "90")))
-        except ValueError:
-            self.scan_budget = 90.0
-
+        
         # Load builtwith-style JSON database
         tech_path = os.path.join(os.path.dirname(__file__), 'technologies.json')
         if os.path.exists(tech_path):
@@ -223,43 +207,6 @@ class WebsiteScanner:
             self.tech_data = {"categories": {}, "apps": {}}
 
     async def scan_website(
-        self,
-        website_url: str,
-        scan_depth: str = "standard",
-        include_sitemap: bool = True,
-        max_pages: int = 20
-    ) -> WebsiteScanResult:
-        """Run a website scan under an overall wall-clock budget.
-
-        Delegates to :meth:`_scan_website_impl` wrapped in ``asyncio.wait_for``
-        so a slow/blocked domain can never hang past ``self.scan_budget`` — on
-        timeout we return a clean ``status="failed"`` result instead of letting
-        the request spin until the client's own timeout fires.
-        """
-        started_at = datetime.now(timezone.utc)
-        scan_id = f"scan_{secrets.token_hex(8)}"
-        display_url = website_url
-        if not display_url.startswith(("http://", "https://")):
-            display_url = f"https://{display_url}"
-        try:
-            return await asyncio.wait_for(
-                self._scan_website_impl(website_url, scan_depth, include_sitemap, max_pages),
-                timeout=self.scan_budget,
-            )
-        except asyncio.TimeoutError:
-            log.warning(
-                "Website scan for %s exceeded %.0fs budget; returning failed result",
-                display_url, self.scan_budget,
-            )
-            return WebsiteScanResult(
-                scan_id=scan_id, website_url=display_url, company_id=self.company_id,
-                status="failed",
-                errors=[f"Scan exceeded the {self.scan_budget:.0f}s time budget (site too slow or unreachable)"],
-                started_at=started_at.isoformat(),
-                completed_at=datetime.now(timezone.utc).isoformat(),
-            )
-
-    async def _scan_website_impl(
         self,
         website_url: str,
         scan_depth: str = "standard",
@@ -446,11 +393,11 @@ class WebsiteScanner:
                     # Mark origin subdomain in evidence source
                     s = DetectedSystem(
                         name=s.name,
-                        system_type=s.system_type,
+                        category=s.category,
                         confidence=max(0.0, s.confidence - 0.05),  # slight penalty for subdomain signal
                         evidence=s.evidence,
                         version=s.version,
-                        configuration={**(s.configuration or {}), "source_subdomain": sub_data["subdomain"]},
+                        metadata={**(s.metadata or {}), "source_subdomain": sub_data["subdomain"]},
                     )
                     existing = all_systems_map.get(s.name)
                     if existing is None or s.confidence > existing.confidence:
@@ -807,15 +754,6 @@ class WebsiteScanner:
             log.warning("dnspython not installed — skipping DNS analysis (no MX/NS/TXT/CNAME detection)")
             return systems
 
-        # Cap per-query resolution time. dnspython's default lifetime is ~5.4s,
-        # and we do four serial lookups (MX/NS/TXT/CNAME) — a domain with slow or
-        # dead nameservers would otherwise burn ~20s here before the HTTP fetch
-        # even starts. A 3s lifetime keeps a single bad domain from dominating
-        # the scan budget while still tolerating a slow-but-alive resolver.
-        resolver = dns.resolver.Resolver()
-        resolver.timeout = 2.0
-        resolver.lifetime = 3.0
-
         def add_sys(sys_id, sys_type, name, conf, ev_type, ev_val):
             systems.append(DetectedSystem(
                 system_type=sys_type, name=name, confidence=conf,
@@ -825,7 +763,7 @@ class WebsiteScanner:
         try:
             # 1. MX Records
             try:
-                for rdata in resolver.resolve(domain, 'MX'):
+                for rdata in dns.resolver.resolve(domain, 'MX'):
                     mx = str(rdata.exchange).lower()
                     if _hostname_matches(mx, 'google.com', 'googlemail.com'): add_sys('gsuite', 'custom', 'Google Workspace', 0.99, 'MX', mx)
                     if _hostname_matches(mx, 'outlook.com', 'protection.outlook.com'): add_sys('office365', 'custom', 'Microsoft 365', 0.99, 'MX', mx)
@@ -836,7 +774,7 @@ class WebsiteScanner:
             
             # 2. NS Records (DNS nameserver pattern matching against fixed known domains)
             try:
-                for rdata in resolver.resolve(domain, 'NS'):
+                for rdata in dns.resolver.resolve(domain, 'NS'):
                     ns = str(rdata.target).lower()
                     if _hostname_matches(ns, 'cloudflare.com'): add_sys('cloudflare', 'custom', 'Cloudflare DNS', 0.99, 'NS', ns)
                     if _hostname_matches(ns, 'akam.net', 'akamai.com', 'akamaiedge.net'): add_sys('akamai', 'custom', 'Akamai', 0.99, 'NS', ns)
@@ -850,7 +788,7 @@ class WebsiteScanner:
             # user input). Using _content_contains_domain which is explicitly
             # tagged for known-string matching only (not URL validation).
             try:
-                for rdata in resolver.resolve(domain, 'TXT'):
+                for rdata in dns.resolver.resolve(domain, 'TXT'):
                     txt = str(rdata).lower()
                     # SPF includes are hostname patterns — use _hostname_matches
                     if _content_contains_domain(txt, 'spf.protection.outlook.com'): add_sys('office365', 'custom', 'Microsoft 365', 0.99, 'TXT SPF', txt)
@@ -938,7 +876,7 @@ class WebsiteScanner:
                 # Apex is often CNAME-flattened, so also check the common www host.
                 for host, label in ((domain, 'apex'), (f'www.{domain}', 'www')):
                     try:
-                        for rdata in resolver.resolve(host, 'CNAME'):
+                        for rdata in dns.resolver.resolve(host, 'CNAME'):
                             _match_cname(str(rdata.target), label)
                     except Exception:
                         pass
@@ -1133,14 +1071,9 @@ class WebsiteScanner:
         except Exception:
             return systems
 
-        # Valid SystemType literals (kept in sync with models/company_graph.py::SystemType);
-        # rule entries below may use shorthand categories that aren't valid SystemType
-        # values (e.g. 'frontend'), so unrecognised types fall back to 'custom'.
-        valid_types = ['CMS', 'CRM', 'OMS', 'PIM', 'DAM', 'ERP', 'HRM', 'LMS', 'analytics', 'payment_gateway', 'shipping', 'tax', 'inventory', 'marketing_automation', 'email_service', 'search', 'database', 'cache', 'cdc', 'message_queue', 'api_gateway', 'auth', 'billing', 'support', 'chat', 'video', 'voice', 'iot', 'ai_ml', 'custom']
-
         def add_sys(sys_id, sys_type, name, conf, hname, hval):
             systems.append(DetectedSystem(
-                system_type=sys_type if sys_type in valid_types else 'custom', name=name, confidence=conf,
+                system_type=sys_type, name=name, confidence=conf,
                 evidence=[Evidence(type='header', value=f'{hname}: {str(hval)[:120]}',
                                    location='headers', confidence=conf)]
             ))
@@ -1169,7 +1102,7 @@ class WebsiteScanner:
             ('x-powered-by',    'php',         ('php',        'custom', 'PHP')),
             ('x-powered-by',    'asp.net',     ('aspnet',     'custom', 'ASP.NET')),
             ('x-powered-by',    'express',     ('express',    'custom', 'Express.js')),
-            ('x-powered-by',    'next.js',     ('nextjs',     'custom', 'Next.js')),
+            ('x-powered-by',    'next.js',     ('nextjs',     'frontend', 'Next.js')),
             ('x-powered-by',    'wp engine',   ('wpengine',   'custom', 'WP Engine')),
             ('x-aspnet-version','',            ('aspnet',     'custom', 'ASP.NET')),
             ('server',          'cloudflare',  ('cloudflare', 'custom', 'Cloudflare')),
@@ -1812,7 +1745,7 @@ class RepoScanner:
         ecommerce_keywords = ['ecommerce', 'shop', 'store', 'woocommerce', 'shopify', 'magento']
         if any(kw in [t.lower() for t in topics] for kw in ecommerce_keywords):
             systems.append(DetectedSystem(
-                system_type="OMS",
+                system_type="ecommerce",
                 name="E-commerce Platform",
                 confidence=0.7,
                 evidence=[
@@ -1856,7 +1789,7 @@ class RepoScanner:
                         location="repository",
                         confidence=0.7
                     )
-                ]                )
-            )
-
+                ]
+            ))
+        
         return systems
