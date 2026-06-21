@@ -469,3 +469,6 @@ export const listQuickNotes = () => API.get('/v1/quick-notes');
 // ── Agency Status ───────────────────────────────────────────────────────────
 export const getAgencyStatus = () => API.get('/agent/agency/status');
 
+// ── Provider Policy ─────────────────────────────────────────────────────────
+export const getProviderPolicy    = ()     => API.get('/api/providers/policy');
+export const updateProviderPolicy = (data) => API.put('/api/providers/policy', data);
