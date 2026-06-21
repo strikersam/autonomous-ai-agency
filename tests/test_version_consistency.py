@@ -26,7 +26,7 @@ def test_frontend_version_js_matches() -> None:
 
 
 def test_readme_badge_matches() -> None:
-    text = (_ROOT / "README.md").read_text()
+    text = (_ROOT / "README.md").read_text(encoding="utf-8")
     m = re.search(r"version-(\d+\.\d+\.\d+)-blue", text)
     assert m, "version badge not found in README.md"
     assert m.group(1) == __version__
