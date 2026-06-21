@@ -359,8 +359,21 @@ def main() -> None:
     result: dict = {}
     errors: list[str] = []
 
-    # Try NVIDIA first, Claude as fallback
-    for caller_name, caller in [("NVIDIA NIM", _call_nvidia), ("Claude", _call_claude)]:
+    # Try NVIDIA first. Claude is gated behind the provider policy
+    # (allow_paid must be True to fall through to paid Anthropic).
+    callers = [("NVIDIA NIM", _call_nvidia)]
+    try:
+        # Ensure the scripts directory is on sys.path so provider_policy is importable
+        import sys as _sys, os as _os
+        _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+        from provider_policy import allow_paid
+        if allow_paid():
+            callers.append(("Claude", _call_claude))
+        else:
+            log.info("Paid providers disabled by policy — Claude fallback skipped")
+    except ImportError:
+        log.debug("provider_policy module not available — Claude fallback skipped")
+    for caller_name, caller in callers:
         try:
             log.info("Calling %s ...", caller_name)
             result = caller(SYSTEM_PROMPT, user_msg)
