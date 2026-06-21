@@ -37,16 +37,15 @@ log = logging.getLogger("agency.ceo")
 
 # Role → preferred runtimes (first available wins, falls back through the list).
 ROLE_RUNTIME_PREFERENCE: dict[str, list[str]] = {
-    # claude_code first everywhere the dev/security/reviewer/release role wants
-    # a real coding model; the test_ceo_dispatcher suite (test_role_runtime_preference_keys
-    # + test_delegate_medium_complexity_fans_out) pins this contract: dev MUST route
-    # to claude_code, scout MUST route to internal_agent, every role has a fallback.
-    # internal_agent serves as the always-on free fallback for the CEO when
-    # claude_code is unavailable or paid-brain gating rejects the call.
-    "dev":       ["claude_code", "hermes", "internal_agent"],
-    "security":  ["claude_code", "internal_agent"],
-    "reviewer":  ["claude_code", "internal_agent"],
-    "release":   ["claude_code", "internal_agent"],
+    # internal_agent first everywhere so the CEO follows the brain the operator
+    # picked in the Providers screen (it routes through brain_policy.resolve_active_brain
+    # → NVIDIA NIM by default). claude_code remains as a paid escalation fallback
+    # honoured only when brain_policy.allow_paid_brain() is truthy — the agent
+    # loop in agent/loop.py enforces that gate independently.
+    "dev":       ["internal_agent", "claude_code", "hermes"],
+    "security":  ["internal_agent", "claude_code"],
+    "reviewer":  ["internal_agent", "claude_code"],
+    "release":   ["internal_agent", "claude_code"],
     "scout":     ["internal_agent"],
     "optimizer": ["goose", "aider", "internal_agent"],
 }
