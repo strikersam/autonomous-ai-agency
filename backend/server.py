@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import sys
+import time
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
@@ -4703,6 +4704,45 @@ async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
 
 # ─── Activity & Stats ──────────────────────────────────────────────────────────
 
+# Lightweight in-process TTL cache for hot, global (non-user-specific) dashboard
+# endpoints. The v5 dashboard polls /api/stats and /api/observability/metrics
+# every 30s from every open tab; these are approximate roll-ups that do not need
+# per-request freshness, so we collapse repeated heavy reads into one computation
+# per TTL window. Keys are global because the payloads contain no per-user data.
+_DASHBOARD_CACHE: dict[str, tuple[float, Any]] = {}
+_DASHBOARD_CACHE_LOCK = asyncio.Lock()
+
+
+async def _cached(key: str, ttl_s: float, producer):
+    """Return a cached value for ``key`` or run ``producer`` and cache it.
+
+    Single-flight: concurrent callers for a cold/expired key wait on the lock so
+    the expensive ``producer`` runs once, not once per caller.
+    """
+    hit = _DASHBOARD_CACHE.get(key)
+    if hit is not None and (time.monotonic() - hit[0]) < ttl_s:
+        return hit[1]
+    async with _DASHBOARD_CACHE_LOCK:
+        hit = _DASHBOARD_CACHE.get(key)
+        if hit is not None and (time.monotonic() - hit[0]) < ttl_s:
+            return hit[1]
+        value = await producer()
+        _DASHBOARD_CACHE[key] = (time.monotonic(), value)
+        return value
+
+
+async def _fast_count(collection) -> int:
+    """Total document count without materialising rows.
+
+    Prefers ``estimated_document_count`` (Motor: O(1) metadata read; SQLite
+    shim: ``SELECT COUNT(*)``) and falls back to an unfiltered ``count_documents``
+    for any backend that lacks it.
+    """
+    try:
+        return int(await collection.estimated_document_count())
+    except (AttributeError, TypeError):
+        return int(await collection.count_documents({}))
+
 
 @app.get("/api/activity")
 async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
@@ -4784,22 +4824,41 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
     return {"logs": logs, "events": logs, "activity": logs, "items": logs, "activities": logs}
 
 
-@app.get("/api/stats")
-async def get_stats(user: dict = Depends(get_current_user)):
-    wiki_count = await get_db().wiki_pages.count_documents({})
-    source_count = await get_db().sources.count_documents({})
-    session_count = await get_db().chat_sessions.count_documents({})
-    log_count = await get_db().activity_log.count_documents({})
-    provider_count = await get_db().providers.count_documents({})
-    key_count = await get_db().api_keys.count_documents({})
-    recent_pages = []
-    async for p in (
-        get_db().wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "updated_at": 1})
-        .sort("updated_at", -1)
-        .limit(5)
-    ):
-        recent_pages.append(p)
-    active_provider = await get_active_provider()
+async def _compute_stats() -> dict:
+    db = get_db()
+    # Run the six collection counts + recent-pages + active-provider concurrently
+    # instead of serially: on a remote DB this turns six+ round trips into one
+    # wall-clock latency, and each count avoids materialising the table (see
+    # _fast_count / the SQLite COUNT(*) fast path).
+    async def _recent_pages() -> list[dict]:
+        pages: list[dict] = []
+        async for p in (
+            db.wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "updated_at": 1})
+            .sort("updated_at", -1)
+            .limit(5)
+        ):
+            pages.append(p)
+        return pages
+
+    (
+        wiki_count,
+        source_count,
+        session_count,
+        log_count,
+        provider_count,
+        key_count,
+        recent_pages,
+        active_provider,
+    ) = await asyncio.gather(
+        _fast_count(db.wiki_pages),
+        _fast_count(db.sources),
+        _fast_count(db.chat_sessions),
+        _fast_count(db.activity_log),
+        _fast_count(db.providers),
+        _fast_count(db.api_keys),
+        _recent_pages(),
+        get_active_provider(),
+    )
     return {
         "wiki_pages": wiki_count,
         "sources": source_count,
@@ -4814,6 +4873,26 @@ async def get_stats(user: dict = Depends(get_current_user)):
         "ngrok_domain": NGROK_DOMAIN,
         "langfuse_configured": bool(LANGFUSE_PK and LANGFUSE_SK),
     }
+
+
+class StatsResponse(BaseModel):
+    wiki_pages: int
+    sources: int
+    chat_sessions: int
+    activity_entries: int
+    providers: int
+    api_keys: int
+    recent_pages: list[dict[str, Any]]
+    llm_provider: str
+    ngrok_domain: str | None = None
+    langfuse_configured: bool
+
+
+@app.get("/api/stats", response_model=StatsResponse)
+async def get_stats(user: dict = Depends(get_current_user)) -> StatsResponse:
+    # Global roll-up, polled every 30s by the dashboard — cache briefly so a
+    # burst of tabs/refreshes doesn't recompute the counts each time.
+    return await _cached("stats", ttl_s=15.0, producer=_compute_stats)
 
 
 # ─── Providers CRUD ─────────────────────────────────────────────────────────────
@@ -5608,9 +5687,12 @@ async def observability_dashboard(user: dict = Depends(get_current_user)):
 
 
 
-@app.get("/api/observability/metrics")
-async def observability_metrics(user: dict = Depends(get_current_user)):
-    """Fetch basic usage metrics from the local_metrics collection."""
+class ObservabilityMetricsResponse(BaseModel):
+    summary_24h: dict[str, Any]
+    recent_traces: list[dict[str, Any]]
+
+
+async def _compute_observability_metrics() -> dict:
     now = datetime.now(timezone.utc)
     day_ago = now - timedelta(days=1)
 
@@ -5643,10 +5725,22 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
     recent = []
     async for m in get_db().local_metrics.find({}).sort("timestamp", -1).limit(10):
         m["_id"] = str(m["_id"])
-        m["timestamp"] = m["timestamp"].isoformat()
+        ts = m.get("timestamp")
+        m["timestamp"] = ts.isoformat() if hasattr(ts, "isoformat") else ts
         recent.append(m)
 
     return {"summary_24h": summary, "recent_traces": recent}
+
+
+@app.get("/api/observability/metrics", response_model=ObservabilityMetricsResponse)
+async def observability_metrics(user: dict = Depends(get_current_user)) -> ObservabilityMetricsResponse:
+    """Fetch basic usage metrics from the local_metrics collection.
+
+    Global roll-up polled every 30s by the dashboard — cached briefly so the
+    per-request aggregation over local_metrics is not recomputed for every tab.
+    """
+    return await _cached("observability_metrics", ttl_s=15.0,
+                         producer=_compute_observability_metrics)
 
 
 

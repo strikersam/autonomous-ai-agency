@@ -89,6 +89,7 @@ python scripts/ai_runner.py summary        # Summarize last session
 6. **Auth is risky.** Any change to `admin_auth.py`, `key_store.py`, or `proxy.py` auth middleware MUST be reviewed via the `risky-module-review` skill.
 7. **Agent file writes are risky.** The `agent/tools.py` `apply_diff` method writes to the filesystem. Changes require the `risky-module-review` skill.
 8. **Router changes need tests.** `router/` changes must include or update tests in `tests/test_model_router.py`.
+9. **Git auth uses `GH_PAT`.** All git/GitHub operations authenticate via the `GH_PAT` env var — the single source of truth (rotated in one place, the `GH_PAT` repo secret). The git credential helper reads `$GH_PAT` at runtime; never hardcode or paste a token into config, code, commits, workflows, or chat. Workflows running git must set `env: GH_PAT: ${{ secrets.GH_PAT }}`. See AGENTS.md → "Git Operations & Credentials".
 
 ---
 
