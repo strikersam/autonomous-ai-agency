@@ -191,10 +191,10 @@ export function ExecutionTimeline({ log = [] }) {
       {entries.map((e, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor(e.status), flexShrink: 0 }} />
-          <span style={{ flex: 1, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.step || e.name || }</span>
+          <span style={{ flex: 1, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.step || e.name || ('Step ' + (i + 1))}</span>
           {(e.duration_ms != null) && (
             <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', flexShrink: 0 }}>
-              {e.duration_ms < 1000 ?  : }
+              {e.duration_ms < 1000 ? (e.duration_ms + 'ms') : ((e.duration_ms / 1000).toFixed(1) + 's')}
             </span>
           )}
         </div>
