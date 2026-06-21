@@ -339,6 +339,21 @@ def _pop_approval(user_id: int) -> dict | None:
 
 # ─── Telegram update processing ────────────────────────────────────────────────
 
+async def _send_voice(bot_token: str, chat_id: int, voice_bytes: bytes) -> None:
+    """Send an OGG voice note to a Telegram chat."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendVoice",
+                data={"chat_id": chat_id},
+                files={"voice": ("voice.ogg", voice_bytes, "audio/ogg")},
+            )
+            resp.raise_for_status()
+    except Exception as exc:
+        log.warning("Failed to send voice note: %s", exc)
+
+
 async def _send_message(bot_token: str, chat_id: int, text: str, parse_mode: str = "Markdown") -> Optional[int]:
     """Send a plaintext Markdown-v1 message and return its Telegram message_id.
 
@@ -781,6 +796,31 @@ async def _process_wfo_callback(
     await _answer_callback(bot_token, callback_id)
 
 
+async def _download_telegram_file(bot_token: str, file_id: str) -> bytes | None:
+    """Download a file from Telegram servers by file_id. Returns raw bytes."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Step 1: get file path
+            info = await client.get(
+                f"https://api.telegram.org/bot{bot_token}/getFile",
+                params={"file_id": file_id},
+            )
+            info.raise_for_status()
+            file_path = info.json().get("result", {}).get("file_path")
+            if not file_path:
+                return None
+            # Step 2: download file
+            dl = await client.get(
+                f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+            )
+            dl.raise_for_status()
+            return dl.content
+    except Exception as exc:
+        log.warning("Failed to download Telegram file %s: %s", file_id, exc)
+        return None
+
+
 async def _process_update(bot_token: str, update: dict) -> None:
     message = update.get("message") or update.get("edited_message")
     if not message:
@@ -789,6 +829,48 @@ async def _process_update(bot_token: str, update: dict) -> None:
     user_id: int = message.get("from", {}).get("id", 0)
     chat_id: int = message.get("chat", {}).get("id", 0)
     text: str = (message.get("text") or "").strip()
+
+    # ── Voice note / audio message handling (issue #664, Jarvis OS voice pipeline) ──
+    # If the user sent a voice note or audio file, download + transcribe it to text
+    # then process it as a regular command/message. This lets you speak to the CEO
+    # agent from your phone via Telegram voice notes.
+    voice_or_audio = message.get("voice") or message.get("audio")
+    if voice_or_audio and not text:
+        file_id = voice_or_audio.get("file_id")
+        if file_id and _is_allowed(message.get("from", {}).get("id", 0)):
+            try:
+                from voice.stt import transcribe as _stt_transcribe
+                audio_bytes = await _download_telegram_file(bot_token, file_id)
+                if audio_bytes:
+                    transcribed = await _stt_transcribe(audio_bytes, "voice.ogg")
+                    if transcribed:
+                        text = transcribed
+                        await _send_message(
+                            bot_token, chat_id,
+                            f"🎤 _Heard:_ {text}",
+                        )
+                        # Store in memory kernel
+                        try:
+                            from voice.memory_kernel import get_memory_kernel
+                            await get_memory_kernel().store(
+                                f"CEO said via voice: {text}",
+                                source="telegram_voice",
+                            )
+                        except Exception as _mem_exc:
+                            log.debug("Memory kernel store failed: %s", _mem_exc)
+                    else:
+                        await _send_message(bot_token, chat_id,
+                                            "🎤 Could not transcribe audio. Please try again or type your command.")
+                        return
+            except ImportError:
+                await _send_message(bot_token, chat_id,
+                                    "🎤 Voice pipeline not installed. Run: pip install faster-whisper gtts pydub")
+                return
+            except Exception as _voice_exc:
+                log.warning("Voice transcription failed: %s", _voice_exc)
+                await _send_message(bot_token, chat_id,
+                                    f"🎤 Transcription error: {_voice_exc}")
+                return
 
     # Silent drop for non-allowlisted users. The throttle logic lives in
     # ``_log_silent_drop`` (module-scope, no ``global``) so a curious operator
@@ -866,6 +948,11 @@ async def _process_update(bot_token: str, update: dict) -> None:
             "/diag — bot config + allowlist diagnostics (admin)\n"
             "/redirect <wfo_xxx|dec_xxx> <new instruction> — mid-flight retarget (admin)\n"
             "/paste <abs path> — read a previously saved paste file (admin)\n"
+            "\n*Voice commands (Jarvis OS):*\n"
+            "🎤 Send a voice note — I'll transcribe and execute it\n"
+            "/memory [query] — recall CEO memory facts\n"
+            "/remember <fact> — store a fact in CEO memory\n"
+            "/forget <fact-id> — remove a memory fact\n"
             "\n*Admin only:*\n"
             "/start|stop|restart <svc> — control ollama|proxy|tunnel|stack\n"
             "/agent <task> — run agent task (requires confirmation)\n"
@@ -941,6 +1028,50 @@ async def _process_update(bot_token: str, update: dict) -> None:
         else:
             response = await cmd_control(user_id, action, target)
 
+    elif cmd == "/memory":
+        query = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+        try:
+            from voice.memory_kernel import get_memory_kernel
+            facts = await get_memory_kernel().recall(query, limit=10)
+            if not facts:
+                response = "🧠 No memories found." + (f" (query: {query})" if query else "")
+            else:
+                lines = [f"🧠 *CEO Memory* ({len(facts)} facts):
+"]
+                for f in facts:
+                    import datetime
+                    age = datetime.datetime.utcfromtimestamp(f.updated_at).strftime("%Y-%m-%d")
+                    lines.append(f"• `{f.fact_id}` [{f.source}] _{age}_
+  {f.content[:120]}")
+                response = "
+".join(lines)
+        except Exception as exc:
+            response = f"Memory recall failed: {exc}"
+
+    elif cmd == "/remember":
+        fact_text = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+        if not fact_text:
+            response = "Usage: /remember <fact to store>"
+        else:
+            try:
+                from voice.memory_kernel import get_memory_kernel
+                fact = await get_memory_kernel().store(fact_text, source="telegram_text")
+                response = f"🧠 Stored: `{fact.fact_id}` — {fact_text[:100]}"
+            except Exception as exc:
+                response = f"Memory store failed: {exc}"
+
+    elif cmd == "/forget":
+        fid = parts[1].strip() if len(parts) > 1 else ""
+        if not fid:
+            response = "Usage: /forget <fact-id>"
+        else:
+            try:
+                from voice.memory_kernel import get_memory_kernel
+                removed = await get_memory_kernel().forget(fid)
+                response = f"🧠 {'Forgotten' if removed else 'Not found'}: `{fid}`"
+            except Exception as exc:
+                response = f"Memory forget failed: {exc}"
+
     elif cmd == "/keylist":
         response = await cmd_keylist(user_id)
 
@@ -1004,6 +1135,15 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
     if response:
         await _send_message(bot_token, chat_id, response)
+        # If the user sent a voice note, also reply with a voice note (TTS)
+        if voice_or_audio:
+            try:
+                from voice.tts import synthesize as _tts_synthesize
+                voice_bytes = await _tts_synthesize(response)
+                if voice_bytes:
+                    await _send_voice(bot_token, chat_id, voice_bytes)
+            except Exception as _tts_exc:
+                log.debug("TTS voice reply failed: %s", _tts_exc)
 
 
 # ─── Long-poll main loop ───────────────────────────────────────────────────────
