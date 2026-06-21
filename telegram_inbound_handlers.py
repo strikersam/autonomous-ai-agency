@@ -158,50 +158,27 @@ def _build_execution_request(
     *,
     user_id: int,
     text: str,
-    intent: str = "execute_after_approval",
     metadata: Optional[dict[str, Any]] = None,
 ) -> Optional[Any]:
     """Build a minimal ``ExecutionRequest`` for plain-text → orchestrator.execute.
 
     Returns None when the orchestrator module or model is unavailable so the
     caller can fall back to a chat-only reply.
-
-    Auto-approval policy (routine work runs hands-free; the gate only fires when
-    the agent can't safely decide on its own):
-
-    * ``auto_approve=True`` only when ALL hold — the classifier was confident
-      enough to return ``execute_now`` (uncertain asks come back as
-      ``clarify_needed`` / ``execute_after_approval`` and keep gating), the
-      sender is an admin (so it's the operator steering their own agency), and
-      the request is not sensitive (auth/keys/secrets never auto-approve, as a
-      belt-and-braces floor independent of the classifier).
-    * Everything else keeps ``auto_approve=False`` → the orchestrator's
-      ApprovalGate pushes an inline-keyboard for human review.
-
-    Outward-facing actions (e.g. merging to a protected branch) remain guarded
-    separately by the agent autonomy gate even when ``auto_approve=True``.
     """
     try:
         from services.workflow_orchestrator import ExecutionRequest
     except ImportError:
         return None
-    auto_approve = (
-        intent == "execute_now"
-        and _is_admin(int(user_id))
-        and not ir.is_sensitive(text)
-    )
     request_meta: dict[str, Any] = {
         "source": "telegram_plain_text",
         "telegram_user_id": int(user_id),
-        "intent": intent,
-        "auto_approved": auto_approve,
     }
     if metadata:
         request_meta.update(metadata)
     return ExecutionRequest(
         request=text,
         user_id=f"telegram:{user_id}",
-        auto_approve=auto_approve,
+        auto_approve=False,  # explicit approval gate per design recommendation
         max_steps=20,
         metadata=request_meta,
     )
@@ -233,7 +210,7 @@ async def _route_plain_text(
     )
 
     if intent in ("execute_now", "execute_after_approval"):
-        request = _build_execution_request(user_id=user_id, text=text, intent=intent)
+        request = _build_execution_request(user_id=user_id, text=text)
         if request is None:
             await _tb._send_message(
                 bot_token, chat_id,
@@ -271,15 +248,11 @@ async def _route_plain_text(
             log.warning("telegram_inbound: background launch failed: %s", exc)
 
         from telegram_bot import ADMIN_USER_IDS
-        # Reflect the ACTUAL approval decision (auto_approve), not just the intent:
-        # a non-admin / sensitive execute_now still gates, so don't tell the
-        # operator it's running hands-free when it isn't.
-        auto_approved = bool(getattr(request, "metadata", {}) and request.metadata.get("auto_approved"))
-        sentinel = "✅" if auto_approved else "🔒"
+        sentinel = "✅" if intent == "execute_now" else "🔒"
         gate_note = (
-            " Running hands-free (routine, admin-initiated)."
-            if auto_approved else
-            " You'll see an approval-gate button in seconds for review."
+            " You'll see an approval-gate button in seconds."
+            if intent == "execute_after_approval" else
+            ""
         )
         await _tb._send_message(
             bot_token, chat_id,

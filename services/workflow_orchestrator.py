@@ -201,19 +201,131 @@ def _allow_paid_brain() -> bool:
 async def _resolve_brain_provider(
     exclude_base_urls: set[str] | None = None,
 ) -> tuple[str, dict | None, str | None]:
-    """Resolve the LLM endpoint for agent execution.
+    """Resolve the LLM endpoint for agent execution (module-level, #522 failover).
 
-    Thin wrapper around the single source of truth in ``brain_policy.
-    resolve_active_brain``.Kept as a module-level alias so existing callers
-    (tests/orchestrator/caller modules) keep working unchanged. The actual
-    selection logic — env override, fee-first skip-paid, exclusion list,
-    Ollama fallback — lives in :func:`brain_policy.resolve_active_brain` so
-    every selector (CEO dispatcher, harness adapter, model router, scripts)
-    defers to one implementation.
+    Resolution order:
+      1. AGENT_LLM_BASE_URL env override (with optional AGENT_LLM_API_KEY /
+         AGENT_LLM_MODEL) — wins over everything.
+      2. Highest-priority configured provider record (the same store the
+         Providers screen manages), skipping any whose normalised base URL is in
+         *exclude_base_urls* and any non-Ollama provider without an API key.
+      3. Local Ollama fallback.
+
+    Returns ``(openai_compatible_base_url, auth_headers_or_None, model_or_None)``.
+    Accepting *exclude_base_urls* lets a phase fail over to the NEXT provider in
+    priority order after the current one errors.
     """
-    from brain_policy import resolve_active_brain
-    brain = await resolve_active_brain(exclude_base_urls=exclude_base_urls)
-    return brain.base_url, brain.auth_headers, brain.model
+    exclude = {u.rstrip("/") for u in (exclude_base_urls or set())}
+
+    # 1. Explicit env override — highest precedence.
+    env_base = os.environ.get("AGENT_LLM_BASE_URL", "").strip()
+    if env_base:
+        env_key = os.environ.get("AGENT_LLM_API_KEY", "").strip()
+        env_model = os.environ.get("AGENT_LLM_MODEL", "").strip() or None
+        headers = {"Authorization": f"Bearer {env_key}"} if env_key else None
+        return env_base.rstrip("/"), headers, env_model
+
+    # 2. Configured provider records, ordered by priority (highest first).
+    try:
+        from backend.server import _list_configured_provider_records
+        records = list(await _list_configured_provider_records())
+        # Sort by priority (highest first). Records from the store are normally
+        # pre-sorted, but resolve defensively so callers passing raw lists (and
+        # the failover unit tests) get deterministic highest-priority selection.
+        def _prio(rec: dict) -> int:
+            try:
+                return int(rec.get("priority") or 0)
+            except (TypeError, ValueError):
+                return 0
+        records.sort(key=_prio, reverse=True)
+
+        def _pick(allow_paid: bool) -> tuple[str, dict | None, str | None] | None:
+            for rec in records:
+                rtype = str(rec.get("type") or "").lower()
+                # Never auto-select a paid provider (Anthropic / emergent-anthropic)
+                # as the brain when a free alternative exists — the operator must
+                # opt in explicitly via AGENT_LLM_BASE_URL. Protects against
+                # silent credit burn when ANTHROPIC_API_KEY is set in the env.
+                is_paid = rtype in ("anthropic", "emergent-anthropic")
+                if is_paid and not allow_paid:
+                    continue
+                base = str(rec.get("base_url") or "").strip().rstrip("/")
+                if not base:
+                    continue
+                key = str(rec.get("api_key") or "").strip()
+                if rtype != "ollama" and not key:
+                    continue
+                # Native Anthropic appends /v1/messages itself; normalise others to /v1.
+                if rtype != "anthropic" and not base.endswith("/v1"):
+                    base = f"{base}/v1"
+                if base.rstrip("/") in exclude:
+                    continue
+                if rtype == "anthropic":
+                    headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+                else:
+                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                model = str(rec.get("default_model") or "").strip() or None
+                return base, headers, model
+            return None
+
+        def _has_usable_free_provider() -> bool:
+            """True iff any configured free (non-Anthropic, keyed) provider exists.
+
+            Used to decide whether the paid-fallback pass is even worth trying:
+            if a free provider is configured, we should never silently escalate
+            to a paid one — even if the failover retry temporarily excludes
+            every free endpoint. A transient free outage must fall through to
+            the local Ollama fallback, not burn credits.
+            """
+            for rec in records:
+                rtype = str(rec.get("type") or "").lower()
+                if rtype in ("anthropic", "emergent-anthropic"):
+                    continue
+                base = str(rec.get("base_url") or "").strip().rstrip("/")
+                if not base:
+                    continue
+                key = str(rec.get("api_key") or "").strip()
+                if rtype != "ollama" and not key:
+                    continue
+                return True
+            return False
+
+        # First pass: prefer free cloud providers (NVIDIA NIM, Google Gemini,
+        # OpenRouter, etc.) — never auto-select paid Anthropic.
+        picked = _pick(allow_paid=False)
+        if picked is None and not _has_usable_free_provider():
+            # No free provider is configured at all. Per the Autonomy Charter
+            # free-brain policy (issue #656), the brain does NOT silently
+            # escalate to paid Anthropic: that both burns credits AND, when the
+            # Anthropic model id is stale, returns a confusing "400 Bad Request"
+            # that blocks every dispatched task after 10 retries. The operator
+            # must opt in explicitly via ALLOW_PAID_BRAIN=true. Otherwise we
+            # fall through to local Ollama and log the one action that fixes it.
+            if _allow_paid_brain():
+                picked = _pick(allow_paid=True)
+            else:
+                log.warning(
+                    "No free brain provider configured and ALLOW_PAID_BRAIN is not set "
+                    "— falling back to local Ollama. Set NVIDIA_API_KEY for a free cloud "
+                    "brain (https://build.nvidia.com), or ALLOW_PAID_BRAIN=true to permit "
+                    "paid Anthropic as a last resort."
+                )
+        if picked is not None:
+            base, headers, model = picked
+            log.info(
+                "Brain provider resolved from provider setup: base=%s model=%s",
+                base, model,
+            )
+            return base, headers, model
+    except Exception:
+        log.exception("Brain provider resolution failed — falling back to local Ollama")
+
+    # 3. Local Ollama fallback.
+    return (
+        os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
+        None,
+        None,
+    )
 
 
 
