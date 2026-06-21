@@ -111,6 +111,12 @@
 - **Hardened `_call_review_llm()` fallback in `review_agent.py`** to match `implement_agent.py`: 429 rate-limit triggers exponential backoff retry (3 attempts, jittered) on same model before advancing; timeout advances immediately; 404/422 drops model from rotation; non-429 errors on retry break immediately.
 - **NVIDIA NIM model list curated from live endpoint testing.** Tested 10 candidate models against https://integrate.api.nvidia.com/v1 — only 3 returned OK (Nemotron Super 49B tool_calls=True 3.7s, Llama 4 Maverick 1.3s, Llama 3.3 70B tool_calls=True 6.0s); 7 returned 404/APIStatusError/BadRequest. Updated NVIDIA_CANDIDATE_MODELS in implement_agent.py, apply_review.py, and review_agent.py to the 3 live models, removed dead entries. Updated _default_agent_role_models() and _get_nim_provider_record() in backend/server.py to reference live Nemotron Super 49B. Hardened 429 rate-limit fallback with exponential backoff + jitter, timeout detection, and 404/422 model dropout.
 - **PR #459**: Deploy CI switched to wrangler-action v3 with --config wrangler.jsonc.
+
+
+
+### Security
+
+- **.gitignore hardening: exclude operator secret file + scratchpad** (2026-06-21). Two patterns added: `_claude_run_secret.txt` (operator credentials file that landed in `stash@{1}` during an earlier recovery session -- must remain out of git) and `.tmp_local_secrets/` (transient operator secret scratchpad). The existing `bandit-report.json` exact-match already covers bandit output, so no broader pattern was added. Closes a credential-leak vector.
 ## [5.0.0] — 2026-05-24
 
 

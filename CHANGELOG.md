@@ -1,6 +1,10 @@
 # Changelog
 All notable changes to this project will be documented in this file.
-## [Unreleased]
+
+### Security
+
+- **.gitignore hardening: exclude operator secret file + scratchpad** (2026-06-21, mirror from docs/changelog.md). Two patterns added: `_claude_run_secret*.txt` (wildcarded from the original literal match so variants are caught) and `.tmp_local_secrets/` (transient operator scratchpad convention). The existing `bandit-report.json` exact match already covers bandit scanner output. Closes a credential-leak vector.
+
 
 ### Added
 
