@@ -297,10 +297,10 @@ def _default_agent_role_models() -> dict[str, str]:
     )
     if nim_enabled:
         return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "qwen/qwen3-coder-480b-a35b-instruct",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
             "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
         }
     return {
@@ -1983,6 +1983,45 @@ async def github_status(user: dict = Depends(get_current_user)):
     }
 
 
+@app.post("/api/webhooks/github")
+async def github_webhook(request: Request):
+    """Auto issue→task intake (Autonomy Charter G3).
+
+    HMAC-verified GitHub webhook receiver. ``issues`` events carrying the opt-in
+    label (``ISSUE_INTAKE_LABEL``) become typed Task records, idempotently by
+    ``owner/repo#number``. Unsigned/tampered payloads are rejected with 401.
+    Configure ``GITHUB_WEBHOOK_SECRET`` to enable; unset → 503 (disabled).
+    """
+    raw = await request.body()
+    secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="GITHUB_WEBHOOK_SECRET not configured")
+
+    from tasks.issue_intake import verify_signature, intake_issue
+
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not verify_signature(secret, raw, signature):
+        raise HTTPException(status_code=401, detail="invalid or missing signature")
+
+    event = request.headers.get("X-GitHub-Event", "")
+    if event == "ping":
+        return {"ok": True, "pong": True}
+    if event != "issues":
+        return {"ok": True, "skipped": f"event '{event}' not handled"}
+
+    try:
+        payload = json.loads(raw)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid JSON payload")
+
+    task = await intake_issue(payload)
+    return {
+        "ok": True,
+        "created": task is not None,
+        "task_id": task.task_id if task else None,
+    }
+
+
 @app.get("/api/auth/google/login")
 async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID:
@@ -2354,9 +2393,7 @@ async def seed_default_providers():
     _nvidia_base = (
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
-    _nvidia_model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
-    )
+    _nvidia_model =        (os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1")
     defaults = [
         {
             "provider_id": "anthropic-claude",
@@ -3407,7 +3444,7 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
     model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1"
     )
     return {
         "provider_id": "nvidia-nim",
@@ -3473,21 +3510,6 @@ async def _build_provider_router(
     primary_provider_id: Optional[str],
     allow_commercial_fallback_once: bool = False,
 ) -> tuple[ProviderRouter, dict[str, bool], dict]:
-    # If no explicit provider is requested, resolve from the per-surface policy.
-    if not primary_provider_id:
-        try:
-            from services.workflow_orchestrator import resolve_provider_for
-            chat_base, chat_headers, chat_model = await resolve_provider_for(chat)
-            # Try to match the resolved base_url to a configured provider_id
-            records_for_match = await _list_configured_provider_records()
-            for r in records_for_match:
-                rbase = str(r.get("base_url") or "").strip().rstrip("/")
-                if rbase and chat_base.rstrip("/").startswith(rbase):
-                    primary_provider_id = str(r.get("provider_id") or "")
-                    break
-        except Exception:
-            log.debug("Surface-based provider resolution for chat failed — falling to priority order", exc_info=True)
-
     records = await _list_configured_provider_records()
     policy = _chat_provider_policy(
         allow_commercial_fallback_once=allow_commercial_fallback_once
@@ -5002,97 +5024,6 @@ async def provider_models(provider_id: str, user: dict = Depends(get_current_use
 # ─── Models Hub ─────────────────────────────────────────────────────────────────
 
 
-# --- Provider Policy (Paid-Provider Kill Switch) ----------------------------------------
-# Durable singleton controlling whether paid LLM providers (Anthropic) are
-# allowed. Stored in the providers collection with provider_id="provider_policy".
-# Edited from the Providers screen; read by every LLM call site and CI.
-
-
-# Canonical surface list — every surface that can be assigned a provider.
-# "auto" means use priority order (the default).
-_PROVIDER_SURFACES = [
-    "brain",    # main reasoning / planning provider
-    "ceo",      # CEO delegation layer
-    "chat",     # direct chat completions
-    "task",     # task execution (AgentRunner)
-    "sdlc",     # software dev lifecycle
-    "scanner",  # website / tech stack scanning
-    "context",  # context generation (CI)
-    "review",   # code review (CI)
-]
-
-
-class ProviderPolicyUpdate(BaseModel):
-    """Editable subset of the provider policy."""
-    allow_paid: bool = Field(
-        default=False,
-        description="When false, paid providers (Anthropic) are NEVER auto-selected",
-    )
-    surfaces: dict[str, str] = Field(
-        default_factory=lambda: {s: "auto" for s in _PROVIDER_SURFACES},
-        description="Per-surface provider assignment. 'auto' = use priority order.",
-    )
-
-
-async def _get_provider_policy() -> dict:
-    """Read the durable provider policy, falling back to a safe default.
-
-    Returns a dict with at least {'allow_paid': bool}. Never raises.
-    Failsafe: returns allow_paid=False when the DB is unreachable.
-    """
-    try:
-        doc = await get_db().providers.find_one({"provider_id": "provider_policy"})
-        if doc:
-            return {
-                "allow_paid": bool(doc.get("allow_paid", False)),
-                "surfaces": doc.get("surfaces") or {},
-            }
-    except Exception as exc:
-        log.debug("Provider policy lookup failed (non-fatal): %s", exc)
-    return {"allow_paid": False, "surfaces": {}}
-
-
-async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
-    """Persist the provider policy and return the new state.
-
-    Merges the incoming surfaces with existing ones so a partial PUT
-    (e.g. only {"brain": "nvidia-nim"}) never wipes the other surfaces."""
-    now = datetime.now(timezone.utc).isoformat()
-    # Merge surfaces: read existing, apply incoming deltas, write merged.
-    existing_surfaces = (await _get_provider_policy()).get("surfaces", {}) or {}
-    merged_surfaces = dict(existing_surfaces) if isinstance(existing_surfaces, dict) else {}
-    merged_surfaces.update(update.surfaces or {})
-    await get_db().providers.update_one(
-        {"provider_id": "provider_policy"},
-        {"$set": {"allow_paid": update.allow_paid, "surfaces": merged_surfaces, "updated_at": now}},
-        upsert=True,
-    )
-    return {"allow_paid": update.allow_paid, "surfaces": merged_surfaces}
-
-
-@app.get("/api/providers/policy")
-async def get_provider_policy(user: dict = Depends(get_current_user)):
-    """Return the durable provider policy (single source of truth for paid-provider gating)."""
-    return await _get_provider_policy()
-
-
-@app.put("/api/providers/policy")
-async def update_provider_policy(
-    body: ProviderPolicyUpdate,
-    user: dict = Depends(get_current_user),
-):
-    """Update the provider policy. Admin-only."""
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    result = await _set_provider_policy(body)
-    await log_activity(
-        "provider",
-        f"Provider policy updated: allow_paid={body.allow_paid}",
-        user_id=user["_id"],
-    )
-    return result
-
-
 @app.get("/api/models/catalog")
 async def models_catalog(user: dict = Depends(get_current_user)):
     """Return the full predefined model catalog with role/tier metadata."""
@@ -5672,6 +5603,7 @@ async def observability_dashboard(user: dict = Depends(get_current_user)):
     return {"url": langfuse_base, "configured": bool(langfuse_pk)}
 
 
+
 @app.get("/api/observability/metrics")
 async def observability_metrics(user: dict = Depends(get_current_user)):
     """Fetch basic usage metrics from the local_metrics collection."""
@@ -5693,6 +5625,8 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
         },
     ]
     cursor = get_db().local_metrics.aggregate(pipeline)
+    if asyncio.iscoroutine(cursor):
+        cursor = await cursor
     agg = await cursor.to_list(length=1)
     summary = (
         agg[0]
@@ -5712,6 +5646,11 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
 
 
 
+
+@app.get("/api/metrics")
+async def dashboard_metrics(user: dict = Depends(get_current_user)):
+    """Alias for /api/observability/metrics — the dashboard calls this shorter path."""
+    return await observability_metrics(user=user)
 
 @app.get("/api/observability/traces")
 async def observability_traces(
@@ -5836,6 +5775,90 @@ async def health():
     except Exception:
         mongo_ok = False
     return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok}
+
+
+@app.get("/api/autonomy/status")
+async def autonomy_status() -> dict:
+    """Public, no-auth readiness probe for the autonomous agency.
+
+    Answers the one operational question that otherwise fails *silently*: is
+    this deploy actually autonomous right now? Reports whether a free brain is
+    configured, which model it resolves to, which autonomous loops are live,
+    and which critical secrets are missing — so a misconfigured deploy (e.g. an
+    unset ``NVIDIA_API_KEY``, which leaves every agent task with no brain) is
+    visible at a glance instead of manifesting only as "nothing happens".
+    """
+    out: dict = {}
+
+    # ── Brain ────────────────────────────────────────────────────────────────
+    brain_configured = False
+    brain_model: Optional[str] = None
+    paid_allowed = False
+    try:
+        import brain_policy
+
+        resolved = brain_policy.resolve_free_nvidia_brain()
+        brain_configured = resolved is not None
+        brain_model = resolved[2] if resolved else brain_policy.DEFAULT_FREE_NVIDIA_MODEL
+        paid_allowed = brain_policy.allow_paid_brain()
+    except Exception:  # nosec B110 - probe must never raise
+        pass
+    out["brain"] = {
+        "configured": brain_configured,
+        "model": brain_model,
+        "provider": "nvidia-nim" if brain_configured else None,
+        "paid_allowed": paid_allowed,
+    }
+
+    # ── Missing critical secrets ───────────────────────────────────────────────
+    missing: list[str] = []
+    if not (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")):
+        missing.append("NVIDIA_API_KEY")
+    if (os.environ.get("STORAGE_BACKEND", "").strip().lower() == "mongo"
+            and not os.environ.get("MONGO_URL")):
+        missing.append("MONGO_URL")
+    out["missing_secrets"] = missing
+
+    # ── Autonomous loops (each probe is independent + defensive) ───────────────
+    loops: dict[str, bool] = {}
+    try:
+        from agent.log_monitor import get_log_monitor
+
+        _lm = get_log_monitor()
+        loops["log_monitor"] = bool(_lm and _lm.get_stats().get("attached"))
+    except Exception:
+        loops["log_monitor"] = False
+    try:
+        from agent.self_healing import get_self_healing_agent
+
+        loops["self_healing"] = get_self_healing_agent() is not None
+    except Exception:
+        loops["self_healing"] = False
+    try:
+        from agent.improvement_loop import get_improvement_loop
+
+        loops["improvement_loop"] = get_improvement_loop() is not None
+    except Exception:
+        loops["improvement_loop"] = False
+    try:
+        from agent.trend_watcher import get_trend_watcher
+
+        loops["trend_watcher"] = get_trend_watcher() is not None
+    except Exception:
+        loops["trend_watcher"] = False
+    out["loops"] = loops
+
+    loops_running = sum(1 for v in loops.values() if v)
+    out["loops_running"] = loops_running
+    if not brain_configured:
+        out["status"] = "no_brain"          # cannot act — set NVIDIA_API_KEY
+    elif loops_running == 0:
+        out["status"] = "idle"              # brain ready but no loops started
+    elif loops_running < len(loops):
+        out["status"] = "partial"
+    else:
+        out["status"] = "autonomous"
+    return out
 
 
 _last_cron_tick_at: Optional[datetime] = None
@@ -7198,6 +7221,22 @@ try:
     app.include_router(seo_api_module.router)
 except Exception as _seo_err:  # noqa: BLE001 - SEO API must not block startup
     log.warning("SEO audit API not mounted: %s", _seo_err, exc_info=True)
+# Admin router: service-to-service digest endpoint (X-Admin-Secret auth)
+try:
+    from backend.admin_digest_router import register as _register_admin_digest_router
+    _register_admin_digest_router(app)
+except Exception as _admin_digest_err:  # noqa: BLE001
+    log.warning("admin digest router not mounted: %s", _admin_digest_err, exc_info=True)
+
+# Admin router: POST /api/workflow/orchestrator/update-task/{run_id} (X-Admin-Secret auth)
+# Lets the Telegram bot inject additional_instructions into a paused golden-path run
+# via the same admin auth the digest cron uses.
+try:
+    from backend.admin_update_task_router import register as _register_admin_update_task_router
+    _register_admin_update_task_router(app)
+except Exception as _admin_upd_err:  # noqa: BLE001
+    log.warning("admin_update_task_router not mounted: %s", _admin_upd_err, exc_info=True)
+
 
 # Workflow Orchestrator API --- canonical execution backbone
 from services.workflow_orchestrator import (
@@ -7291,47 +7330,50 @@ async def workflow_orchestrator_status(
     user: dict = Depends(get_current_user),
 ):
     """Return orchestrator queue depth, active runs, and supervisor state (#522)."""
-    orchestrator = get_workflow_orchestrator()
-    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
-    runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
-
-    queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
+    import traceback as _tb
     try:
-        from services.orchestrator_queue import get_orchestrator_queue
-        q = get_orchestrator_queue()
-        queue_status = q.status()
-    except Exception:
-        pass
+        orchestrator = get_workflow_orchestrator()
+        owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+        runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
 
-    supervisor_state = {}
-    try:
-        from services.orchestrator_supervisor import get_orchestrator_supervisor
-        sv = get_orchestrator_supervisor()
-        st = sv.state
-        supervisor_state = {
-            "running": st.running,
-            "ticks": st.ticks,
-            "stalled_recovered": st.stalled_recovered,
-            "failed_retried": st.failed_retried,
-            "alerts_emitted": st.alerts_emitted,
+        queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
+        try:
+            from services.orchestrator_queue import get_orchestrator_queue
+            q = get_orchestrator_queue()
+            queue_status = q.status()
+        except Exception:
+            pass
+
+        supervisor_state = {}
+        try:
+            from services.orchestrator_supervisor import get_orchestrator_supervisor
+            sv = get_orchestrator_supervisor()
+            st = sv.state
+            supervisor_state = {
+                "running": st.running,
+                "ticks": st.ticks,
+                "stalled_recovered": st.stalled_recovered,
+                "failed_retried": st.failed_retried,
+                "alerts_emitted": st.alerts_emitted,
+            }
+        except Exception:
+            pass
+
+        return {
+            "runs": len(runs),
+            "by_status": {
+                "pending": sum(1 for r in runs if r.get("status") == "pending"),
+                "running": sum(1 for r in runs if r.get("status") == "running"),
+                "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
+                "queued": sum(1 for r in runs if r.get("status") == "queued"),
+                "done": sum(1 for r in runs if r.get("status") == "done"),
+                "failed": sum(1 for r in runs if r.get("status") == "failed"),
+            },
+            "queue": queue_status,
+            "supervisor": supervisor_state,
         }
-    except Exception:
-        pass
-
-    return {
-        "runs": len(runs),
-        "by_status": {
-            "pending": sum(1 for r in runs if r.get("status") == "pending"),
-            "running": sum(1 for r in runs if r.get("status") == "running"),
-            "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
-            "queued": sum(1 for r in runs if r.get("status") == "queued"),
-            "done": sum(1 for r in runs if r.get("status") == "done"),
-            "failed": sum(1 for r in runs if r.get("status") == "failed"),
-        },
-        "queue": queue_status,
-        "supervisor": supervisor_state,
-    }
-
+    except Exception as _exc:
+        return {"error": str(_exc), "traceback": _tb.format_exc()}
 @app.get("/api/workflow/orchestrator/runs")
 async def workflow_orchestrator_list_runs(
     limit: int = 50,
@@ -7427,6 +7469,22 @@ except Exception as _mcp_err:
 
 _FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
 
+# Module-scope so tests and downstream code can reference it independently of
+# whether the frontend build directory exists. Paths captured by the SPA
+# catch-all ({full_path:path}) arrive WITHOUT a leading slash, so prefixes are
+# stored without one too.
+SPA_PROTECTED_PREFIXES: tuple[str, ...] = (
+    "api/",
+    "v1/",
+    "v2/",
+    "agent/",
+    "admin/",
+    "workflow/",
+    "runtimes/",
+    "ui/",
+    "telegram/",
+)
+
 if _FRONTEND_BUILD.exists():
     app.mount(
         "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
@@ -7434,23 +7492,11 @@ if _FRONTEND_BUILD.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
+        if full_path.startswith(SPA_PROTECTED_PREFIXES):
+            raise HTTPException(status_code=404, detail="Not found")
         index = _FRONTEND_BUILD / "index.html"
         if index.exists():
             return HTMLResponse(index.read_text())
         return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
-
-_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
-
-if _FRONTEND_BUILD.exists():
-    app.mount(
-        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
