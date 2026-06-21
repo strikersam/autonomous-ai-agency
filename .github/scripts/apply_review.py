@@ -19,6 +19,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -389,7 +390,20 @@ def main() -> None:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
 
-    result_path = Path("/tmp/review_apply_result.json")  # nosec B108 — ephemeral CI artifact, OK in workflow runner
+    # Gate Anthropic behind the provider policy (default: allow_paid=False).
+    # CI scripts must respect the kill switch so they never silently burn credits.
+    if anthropic_key:
+        try:
+            import sys as _sys, os as _os
+            _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+            from provider_policy import allow_paid
+            if not allow_paid():
+                print("Paid providers disabled by policy — skipping Anthropic", file=sys.stderr)
+                anthropic_key = ""
+        except ImportError:
+            pass  # policy module unavailable — respect the env var as-is
+
+    result_path = Path("/tmp/review_apply_result.json")  # nosec B108 — ephemeral CI artifact, path matches the reader in process-quick-note.yml (lines ~511-512)
 
     def _skip(reason: str) -> None:
         log.info(reason)
