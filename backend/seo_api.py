@@ -19,12 +19,11 @@ from __future__ import annotations
 
 import logging
 import os
-import secrets
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
@@ -61,6 +60,57 @@ def _workspace_root() -> FsPath:
     return FsPath(os.environ.get("SEO_FIX_WORKSPACE_ROOT", "workspace")).resolve()
 
 
+# Background: the SEO audit registry (services.seo_audit.save_report / get_report)
+# is an in-memory ``OrderedDict`` keyed by audit_id. If the server restarts
+# between POST /audit (which saves a 'pending' stub immediately) and the
+# background crawl completing, the in-memory stub is the only record the
+# in-flight client ever sees \u2014 and that stub persists as 'pending' forever,
+# because nothing on the GET path checks for staleness. This guard converts
+# those perpetual 'pending' stubs into a clear 'failed' response so the
+# dashboard stops polling forever and the operator gets a clean reason.
+_SEO_PENDING_EXPIRY_SECONDS = float(os.environ.get("SEO_AUDIT_PENDING_EXPIRY_SEC", "1800"))  # 30 min default
+
+
+def _expire_stale_pending_report(report: SeoAuditReport) -> None:
+    """Auto-fail a pending SEO audit stub that is older than ``_SEO_PENDING_EXPIRY_SECONDS``.
+
+    Best-effort: any error is logged at WARNING; the function never raises,
+    so the GET endpoint can call it unconditionally without risk. ``save_report``
+    is locked and idempotent, so concurrent polls racing the expire just
+    re-stamp the same 'failed' state.
+    """
+    if report.status != "pending":
+        return
+    started = report.started_at
+    if started is None:
+        return
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+    if elapsed < _SEO_PENDING_EXPIRY_SECONDS:
+        return
+    # SeoAuditReport is a Pydantic frozen model: build the updated copy via
+    # model_copy(update=...) (so save_report stores the new 'failed' state) and
+    # leave the inbound `report` untouched. The caller can still reference it
+    # without seeing the side-effect.
+    new_state = report.model_copy(update={
+        "status": "failed",
+        "error": (
+            f"Audit still 'pending' after {elapsed:.0f}s \u2014 likely lost to a "
+            "server restart (in-memory registry was cleared). Re-run the audit."
+        ),
+        "completed_at": datetime.now(timezone.utc),
+    })
+    try:
+        save_report(new_state)
+        log.warning(
+            "SEO audit %s expired (pending for %.0fs, threshold %.0fs) \u2014 auto-failed and saved.",
+            report.audit_id, elapsed, _SEO_PENDING_EXPIRY_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001 - stale-state cleanup must never raise
+        log.warning("SEO audit %s expire-save failed (non-fatal): %s", report.audit_id, exc)
+
+
 @router.get("/seo/checks", response_model=List[SeoCheckDefinition])
 async def seo_check_catalog(
     user: dict = Depends(_get_current_user_thunk),
@@ -73,62 +123,40 @@ async def seo_check_catalog(
     return list_checks()
 
 
-@router.post("/company/{company_id}/seo/audit", response_model=SeoAuditReport, status_code=202)
+@router.post("/company/{company_id}/seo/audit", response_model=SeoAuditReport)
 async def run_seo_audit(
     company_id: str = Path(..., description="Company ID"),
     request: SeoAuditRequest = Body(...),
-    background_tasks: BackgroundTasks,
     user: dict = Depends(_get_current_user_thunk),
 ) -> SeoAuditReport:
-    """Kick off an async SEO/GEO/AIO audit and return immediately with status='pending'.
-
-    Poll GET /api/company/{company_id}/seo/audits/{audit_id} until status
-    transitions to 'success', 'partial', or 'failed'.  Browser-mode crawls of
-    large sites can take 3-10 minutes; this pattern lets the UI stay responsive.
-    """
+    """Run a full SEO/GEO/AIO audit against a website and persist the evidence."""
     company = await get_company_access(company_id, user)
 
-    # Pre-generate the audit_id so the client can start polling before the crawl
-    # finishes.  A 'pending' stub is saved immediately.
-    audit_id = f"seoaudit_{secrets.token_hex(8)}"
-    stub = SeoAuditReport(
-        audit_id=audit_id,
-        company_id=company.id,
-        website_url=request.website_url,
-        status="pending",
-        started_at=datetime.now(timezone.utc),
-    )
-    save_report(stub)
+    engine = SeoAuditEngine()
+    report = await engine.run(request, company_id=company.id)
+    save_report(report)
 
-    # Capture values needed inside the background closure (avoid late-binding).
-    _company_id = company.id
+    # Best-effort: capture the executive summary into the Company Graph so the
+    # orchestrator and specialists can act on it. Never fail the audit on this.
+    if report.status == "success":
+        try:
+            from models.company_graph import KnowledgeItem
+            from services.company_graph_store import get_company_graph_store
 
-    async def _crawl_and_save() -> None:
-        engine = SeoAuditEngine()
-        report = await engine.run(request, company_id=_company_id, audit_id=audit_id)
-        save_report(report)
-        log.info("SEO audit %s finished with status=%s pages=%d health=%.0f",
-                 audit_id, report.status, report.pages_crawled, report.health_score)
-        if report.status in ("success", "partial"):
-            try:
-                from models.company_graph import KnowledgeItem
-                from services.company_graph_store import get_company_graph_store
+            store = get_company_graph_store()
+            await store.create_knowledge_item(KnowledgeItem(
+                title=f"SEO audit {report.audit_id} - {report.website_url} "
+                      f"(health {report.health_score}/100)",
+                knowledge_type="learning",
+                content=report_to_markdown(report),
+                tags=["seo-audit", f"company:{company.id}", f"audit:{report.audit_id}"],
+                source="automated_scan",
+            ))
+        except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+            log.warning("Could not persist SEO audit %s to company graph: %s",
+                        report.audit_id, exc)
 
-                store = get_company_graph_store()
-                await store.create_knowledge_item(KnowledgeItem(
-                    title=f"SEO audit {report.audit_id} - {report.website_url} "
-                          f"(health {report.health_score}/100)",
-                    knowledge_type="learning",
-                    content=report_to_markdown(report),
-                    tags=["seo-audit", f"company:{_company_id}", f"audit:{report.audit_id}"],
-                    source="automated_scan",
-                ))
-            except Exception as exc:  # noqa: BLE001 - persistence is best-effort
-                log.warning("Could not persist SEO audit %s to company graph: %s",
-                            audit_id, exc)
-
-    background_tasks.add_task(_crawl_and_save)
-    return stub
+    return report
 
 
 @router.get("/company/{company_id}/seo/audits", response_model=List[SeoAuditSummary])
@@ -147,7 +175,14 @@ async def get_seo_audit(
     audit_id: str = Path(..., description="Audit ID"),
     user: dict = Depends(_get_current_user_thunk),
 ) -> SeoAuditReport:
-    """Fetch a complete stored audit report."""
+    """Fetch a complete stored audit report.
+
+    Side-effect: an audit whose stub is still 'pending' longer than
+    ``SEO_AUDIT_PENDING_EXPIRY_SEC`` (env, default 30 min) is auto-failed
+    and persisted so the client sees 'failed' with an explanatory error
+    instead of perpetual 'pending' (which happens when the server restarted
+    after the stub was written but before the background crawl completed).
+    """
     company = await get_company_access(company_id, user)
     report = get_report(audit_id)
     if report is None or report.company_id != company.id:
@@ -155,7 +190,14 @@ async def get_seo_audit(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Audit {audit_id} not found for this company",
         )
-    return report
+    _expire_stale_pending_report(report)
+    # Refresh the response body from the registry so the client sees the
+    # auto-failed state on THIS poll (not just on the next one). Without
+    # the re-fetch the current request would still surface 'pending' even
+    # though the registry now holds 'failed', which contradicts the
+    # docstring above.
+    refreshed = get_report(audit_id)
+    return refreshed if refreshed is not None else report
 
 
 @router.get("/company/{company_id}/seo/audits/{audit_id}/export")
