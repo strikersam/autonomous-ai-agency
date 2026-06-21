@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- **CI: brain paid-gate, _merge_changed_files alias, Charts ESLint** (2026-06-22). Three CI failures fixed: (1) `services/workflow_orchestrator._resolve_brain_provider` now respects the paid-provider policy via `backend.server._get_provider_policy()` — Anthropic-type providers are skipped unless `allow_paid=True` in the DB policy or `ALLOW_PAID_BRAIN=true` env is set; previously the resolver sorted by priority and picked Anthropic regardless of the free-brain charter. (2) `_merge_changed_files` re-exported from `services.workflow_orchestrator` so `test_ceo_dispatcher.py` no longer ImportErrors. (3) `frontend/src/v5/components/Charts.jsx` default export assigned to named const to fix `import/no-anonymous-default-export` ESLint error that blocked the production build. Also adds `backend.server._get_provider_policy()` as the single async source-of-truth for the paid-brain DB policy.
+
+
 ### Added
 - **Voice pipeline + Jarvis OS Memory Kernel (issue #664).** Send a Telegram voice note from your phone → Whisper STT transcribes it → CEO agent executes → TTS voice reply sent back. New `voice/` package: `stt.py` (OpenAI Whisper API / faster-whisper / Google fallback), `tts.py` (ElevenLabs / gTTS / pyttsx3 fallback), `memory_kernel.py` (atomic facts in SQLite + Markdown mirror, Jarvis OS design: dated, sourced, reinforceable, forgettable, correctable). Telegram bot gains `/memory [query]`, `/remember <fact>`, `/forget <fact-id>` commands and auto-replies with voice note when the input was a voice note. Config: `WHISPER_BACKEND`, `OPENAI_API_KEY`, `WHISPER_MODEL`, `TTS_BACKEND`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `MEMORY_KERNEL_DIR`, `MEMORY_DECAY_DAYS`.
 

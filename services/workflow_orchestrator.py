@@ -157,12 +157,20 @@ async def _resolve_brain_provider(
             if rtype != "ollama" and not key:
                 continue
             # Paid (Anthropic) providers are skipped unless the operator has
-            # explicitly opted in via ALLOW_PAID_BRAIN=true (brain_policy, #656).
+            # explicitly opted in — checked via backend.server._get_provider_policy()
+            # (which reads the DB policy OR the ALLOW_PAID_BRAIN env override).
             if rtype in ("anthropic", "emergent-anthropic"):
-                from brain_policy import allow_paid_brain
-                if not allow_paid_brain():
+                _paid_allowed = False
+                try:
+                    from backend.server import _get_provider_policy
+                    _policy = await _get_provider_policy()
+                    _paid_allowed = bool(_policy.get("allow_paid", False))
+                except Exception:
+                    from brain_policy import allow_paid_brain
+                    _paid_allowed = allow_paid_brain()
+                if not _paid_allowed:
                     log.debug(
-                        "Brain resolver: skipping paid provider %r (ALLOW_PAID_BRAIN not set)",
+                        "Brain resolver: skipping paid provider %r (allow_paid=False)",
                         rec.get("provider_id"),
                     )
                     continue

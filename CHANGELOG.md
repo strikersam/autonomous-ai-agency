@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **CI: brain paid-gate, _merge_changed_files alias, Charts ESLint** (2026-06-22). Three CI failures fixed: (1) `services/workflow_orchestrator._resolve_brain_provider` now respects the paid-provider policy via `backend.server._get_provider_policy()` — Anthropic-type providers are skipped unless `allow_paid=True` in the DB policy or `ALLOW_PAID_BRAIN=true` env is set; previously the resolver sorted by priority and picked Anthropic regardless of the free-brain charter. (2) `_merge_changed_files` re-exported from `services.workflow_orchestrator` so `test_ceo_dispatcher.py` no longer ImportErrors. (3) `frontend/src/v5/components/Charts.jsx` default export assigned to named const to fix `import/no-anonymous-default-export` ESLint error that blocked the production build. Also adds `backend.server._get_provider_policy()` as the single async source-of-truth for the paid-brain DB policy.
+
+
 ### Changed
 
 - **Dashboard + Task pages: cut per-poll DB cost on `/api/stats` and `/api/observability/metrics`** (2026-06-21). The v5 dashboard polls six unfiltered `count_documents({})` calls plus a metrics aggregation every 30s from every open tab. Three fixes: (1) the SQLite shim's `count_documents({})` now answers from `SELECT COUNT(*)` instead of pulling and JSON-decoding every row just to call `len()` — decisive for the unbounded `activity_log`/`local_metrics` tables — and a matching `estimated_document_count()` was added (Motor already has an O(1) one); (2) `/api/stats` now runs its six counts + recent-pages + active-provider concurrently via `asyncio.gather` and through a backend-agnostic `_fast_count` helper (prefers `estimated_document_count`); (3) both global, approximate roll-up endpoints are wrapped in a 15s single-flight in-process TTL cache (`_cached`) so a burst of tabs/refreshes computes once per window. New tests in `tests/test_dashboard_cache.py` and `tests/test_sqlite_store.py` (empty-query fast-count + `estimated_document_count`).

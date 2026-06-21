@@ -3442,6 +3442,26 @@ async def _list_configured_provider_records() -> list[dict]:
     return filtered or [_fallback_local_provider_record()]
 
 
+async def _get_provider_policy() -> dict:
+    """Read the durable provider policy from DB, falling back to a safe default.
+
+    Returns a dict with at least {'allow_paid': bool}. Never raises.
+    Failsafe: returns allow_paid=False when the DB is unreachable or env
+    ALLOW_PAID_BRAIN=true overrides it.
+    """
+    from brain_policy import allow_paid_brain as _env_allow_paid
+    # Env var takes precedence over DB (operator kill-switch).
+    if _env_allow_paid():
+        return {"allow_paid": True, "surfaces": {}}
+    try:
+        doc = await get_db().providers.find_one({"provider_id": "provider_policy"})
+        if doc:
+            return {"allow_paid": bool(doc.get("allow_paid", False)), "surfaces": {}}
+    except Exception:
+        pass
+    return {"allow_paid": False, "surfaces": {}}
+
+
 def _chat_provider_policy(
     *, allow_commercial_fallback_once: bool = False
 ) -> dict[str, bool]:
@@ -4782,6 +4802,7 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
+    priority: int = Field(default=None, ge=-100, le=1000)
 
 
 @app.get("/api/providers")
@@ -4829,7 +4850,7 @@ async def update_provider(
     provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
 ):
     updates = {}
-    for k, v in body.dict(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
         await get_db().providers.update_many(
