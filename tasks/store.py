@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import time
 from typing import Any
 
@@ -26,10 +27,6 @@ class TaskStore:
 
     Uses the same motor client pattern as the rest of the application.
     Falls back to an in-memory dict when no motor client is injected.
-
-    Performance note: call ``await store.ensure_indexes()`` once at startup
-    to create ``(status, created_at)`` and ``(owner_id, status)`` compound
-    indexes — without them list queries are full collection scans.
     """
 
     def __init__(self, db: Any = None) -> None:
@@ -155,11 +152,7 @@ class TaskStore:
             return o == owner_id or (include_system and o == _AGENCY_OWNER_ID)
 
         if self._mode == "mongo":
-            # Project out execution_log — can be 10k+ entries per task and
-            # makes list queries 7 MB+ with 26s response times. Full log is
-            # available via get() which fetches a single document.
-            _LIST_PROJECTION = {"_id": 0, "execution_log": 0}
-            cursor = self._collection.find(query, _LIST_PROJECTION).sort("created_at", -1).skip(offset).limit(limit)
+            cursor = self._collection.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
             docs = await cursor.to_list(length=limit)
         else:
             docs = [
@@ -188,11 +181,7 @@ class TaskStore:
             query["status"] = status.value
 
         if self._mode == "mongo":
-            # Project out execution_log — can be 10k+ entries per task and
-            # makes list queries 7 MB+ with 26s response times. Full log is
-            # available via get() which fetches a single document.
-            _LIST_PROJECTION = {"_id": 0, "execution_log": 0}
-            cursor = self._collection.find(query, _LIST_PROJECTION).sort("created_at", -1).skip(offset).limit(limit)
+            cursor = self._collection.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
             docs = await cursor.to_list(length=limit)
         else:
             docs = list(self._mem.values())
@@ -331,29 +320,30 @@ class TaskStore:
         *,
         active_task_ids: set[str] | None = None,
         stale_threshold_s: float = 300.0,
+        auto_retry_cap: int | None = None,
     ) -> int:
-        """Reset tasks that are stuck and no longer queued for execution.
+        """Reset tasks that are stuck IN_PROGRESS but no longer actively executing.
 
-        Two cases are handled:
+        A task is considered "stranded" when all of these are true:
+        - status is IN_PROGRESS and pending_agent_run is False (execution was claimed)
+        - task_id is NOT in active_task_ids (not currently executing in this process)
+        - updated_at is older than stale_threshold_s (execution didn't complete)
 
-        1. **Stranded IN_PROGRESS** — status is IN_PROGRESS, pending_agent_run is
-           False (execution was claimed), task is not currently executing, and
-           updated_at is older than stale_threshold_s.  These are crash-recovery
-           candidates: after a server restart the in-memory claim set is empty.
+        This handles crash-recovery: after a server restart the in-memory claim
+        set is empty, so all mid-flight tasks are eligible for re-queue.
 
-        2. **Unqueued TODO** — status is TODO but pending_agent_run is False.
-           These tasks were never dispatched (e.g. created before the auto-queue
-           logic was in place, or created via a code path that bypassed the service
-           layer).  They would sit idle forever without this fix.
-
-        Returns the total number of tasks reconciled.
+        Returns the number of tasks reconciled.
         """
         import time as _time
+        if auto_retry_cap is None:
+            try:
+                auto_retry_cap = int(os.environ.get("TASK_AUTO_RETRY_MAX", "5"))
+            except (TypeError, ValueError):
+                auto_retry_cap = 5
         active = active_task_ids or set()
         cutoff = _time.time() - stale_threshold_s
 
         if self._mode == "mongo":
-            # Stranded IN_PROGRESS
             cursor = self._collection.find(
                 {
                     "status": TaskStatus.IN_PROGRESS.value,
@@ -362,35 +352,29 @@ class TaskStore:
                 },
                 {"_id": 0},
             )
-            stranded_in_progress = await cursor.to_list(length=500)
-            # Unqueued TODO
-            cursor2 = self._collection.find(
-                {
-                    "status": TaskStatus.TODO.value,
-                    "pending_agent_run": False,
-                },
-                {"_id": 0},
-            )
-            unqueued_todo = await cursor2.to_list(length=500)
+            stranded = await cursor.to_list(length=500)
         else:
-            stranded_in_progress = [
+            stranded = [
                 v for v in self._mem.values()
                 if v.get("status") == TaskStatus.IN_PROGRESS.value
                 and v.get("pending_agent_run") is False
                 and v.get("updated_at", 0) < cutoff
             ]
-            unqueued_todo = [
-                v for v in self._mem.values()
-                if v.get("status") == TaskStatus.TODO.value
-                and v.get("pending_agent_run") is False
-            ]
 
         reconciled = 0
-
-        for doc in stranded_in_progress:
+        for doc in stranded:
             task_id = doc.get("task_id") or doc.get("_id")
             if not task_id or task_id in active:
                 continue
+            if int(doc.get("auto_retry_count") or 0) >= auto_retry_cap:
+                log.warning(
+                    "Reconciler: not re-queuing stranded IN_PROGRESS task %s "
+                    "(auto_retry_count=%d already at cap=%d; leaves it stranded "
+                    "to avoid a reconciler-overrides-cap retry storm)",
+                    task_id, int(doc.get("auto_retry_count") or 0), auto_retry_cap,
+                )
+                continue
+
             task = Task.model_validate(doc)
             task.status = TaskStatus.TODO
             task.pending_agent_run = True
@@ -408,24 +392,8 @@ class TaskStore:
                 task_id, stale_threshold_s,
             )
 
-        for doc in unqueued_todo:
-            task_id = doc.get("task_id") or doc.get("_id")
-            if not task_id:
-                continue
-            task = Task.model_validate(doc)
-            task.pending_agent_run = True
-            task.add_log(
-                "Task queued by reconciler (was TODO with pending_agent_run=False)",
-                event_type="reconciled",
-                actor="system:reconciler",
-                task_status=TaskStatus.TODO,
-            )
-            await self.update(task)
-            reconciled += 1
-            log.warning("Reconciler: queued unqueued TODO task %s", task_id)
-
         if reconciled:
-            log.info("Reconciler: fixed %d stranded/unqueued task(s)", reconciled)
+            log.info("Reconciler: reset %d stranded task(s) to TODO/pending", reconciled)
         return reconciled
 
 
