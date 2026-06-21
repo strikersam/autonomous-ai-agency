@@ -569,38 +569,10 @@ jobs:
       # ── 13. Merge PR and delete branch ────────────────────────────────────
       # Squash-merges and deletes the feature branch on success.
       # --admin bypasses changelog CI check for auto-generated PRs.
-      - name: Mark PR ready for review (draft → ready)
-        id: ready
-        if: >-
-          steps.pr.outputs.pr_number != '' &&
-          (steps.review.outputs.verdict == 'PASS' ||
-           steps.review.outputs.verdict == 'WARN'  ||
-           steps.review.outputs.verdict == '')
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-        run: |
-          # SAFETY: a draft PR is "yet to be implemented". The implement agent pushes
-          # code commits to the branch but the PR stays in draft until marked ready.
-          # Marking ready here signals that real code has landed and the PR is safe
-          # to merge. If somehow still a draft, we promote it (code is on the branch).
-          IS_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json isDraft -q '.isDraft' 2>/dev/null || echo "false")
-          if [ "$IS_DRAFT" = "true" ]; then
-            echo "PR #$PR_NUMBER is still in draft state — marking ready (implement step pushed code)."
-            gh pr ready "$PR_NUMBER" --repo "$REPO" || {
-              echo "::warning::Could not mark PR #$PR_NUMBER ready. Aborting merge to prevent closing an unverified draft."
-              exit 1
-            }
-          fi
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "quick-note:planning" 2>/dev/null || true
-          echo "ready=true" >> "$GITHUB_OUTPUT"
-
       - name: Merge PR into master (squash + delete branch)
         id: merge
         if: >
           steps.pr.outputs.pr_number != '' &&
-          steps.ready.outputs.ready == 'true' &&
           (steps.review.outputs.verdict == 'PASS' ||
            steps.review.outputs.verdict == 'WARN'  ||
            steps.review.outputs.verdict == '')
@@ -609,12 +581,6 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
-          # Belt-and-suspenders: refuse to merge if still draft (e.g. mark-ready failed silently).
-          IS_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json isDraft -q '.isDraft' 2>/dev/null || echo "true")
-          if [ "$IS_DRAFT" = "true" ]; then
-            echo "::error::Refusing to merge PR #$PR_NUMBER — still in draft state."
-            exit 1
-          fi
           gh pr merge "$PR_NUMBER" \
             --repo "$REPO" \
             --squash \
