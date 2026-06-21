@@ -211,6 +211,8 @@ export const updateProvider = (id, data) => API.put(`/api/providers/${id}`, data
 export const deleteProvider = (id) => API.delete(`/api/providers/${id}`);
 export const testProvider = (id) => API.post(`/api/providers/${id}/test`);
 export const listProviderModels = (id) => API.get(`/api/providers/${encodeURIComponent(id)}/models`);
+export const getProviderPolicy = () => API.get('/api/providers/policy');
+export const updateProviderPolicy = (data) => API.put('/api/providers/policy', data);
 
 // Models
 export const listModels = () => API.get('/api/models');
