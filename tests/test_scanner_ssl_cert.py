@@ -32,7 +32,7 @@ def _make_self_signed_der(common_name: str, org: str, sans: list[str]) -> bytes:
         x509.NameAttribute(NameOID.COMMON_NAME, common_name),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, org),
     ])
-    now = datetime.datetime.now(datetime.UTC)
+    now = datetime.datetime.utcnow()
     builder = (
         x509.CertificateBuilder()
         .subject_name(name)
