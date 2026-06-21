@@ -484,9 +484,12 @@ class _Collection:
         # api_keys), and activity_log/local_metrics grow unbounded — so the old
         # full-table materialisation was the dominant cost of that endpoint.
         if not query:
+            # Build the SQL on its own line so the inline ``# nosec`` attaches to
+            # the flagged expression (Bandit only honours same-line suppressions);
+            # the table name is whitelisted via _COLLECTIONS in __init__.
+            count_sql = f"SELECT COUNT(*) FROM {self._name}"  # nosec B608 — table name whitelisted via _COLLECTIONS
             async with self._store._read_conn() as conn:
-                # nosec B608 — table name whitelisted via _COLLECTIONS in __init__
-                async with conn.execute(f"SELECT COUNT(*) FROM {self._name}") as cur:
+                async with conn.execute(count_sql) as cur:
                     row = await cur.fetchone()
             return int(row[0]) if row else 0
         return len(await self._matching(query))
