@@ -880,6 +880,42 @@ except ImportError:
     log.warning("Could not import GITHUB_REGISTRIES — skill discover endpoint will show no registries")
     GITHUB_REGISTRIES = []  # type: ignore[assignment]
 
+
+# ── Dashboard hot-path helpers ─────────────────────────────────────────────────
+import asyncio as _asyncio
+import time as _time
+
+_DASHBOARD_CACHE: dict = {}
+
+
+async def _cached(key: str, *, ttl_s: float, producer) -> object:
+    """Single-flight TTL cache. Concurrent callers wait for the first producer."""
+    now = _time.monotonic()
+    entry = _DASHBOARD_CACHE.get(key)
+    if entry and "event" not in entry and entry.get("expires_at", 0) > now:
+        return entry["value"]
+    if entry and "event" in entry:
+        await entry["event"].wait()
+        e2 = _DASHBOARD_CACHE.get(key, {})
+        if "event" not in e2:
+            return e2.get("value")
+    evt = _asyncio.Event()
+    _DASHBOARD_CACHE[key] = {"expires_at": now + ttl_s, "event": evt, "value": None}
+    try:
+        value = await producer()
+        _DASHBOARD_CACHE[key] = {"expires_at": now + ttl_s, "value": value}
+        return value
+    finally:
+        evt.set()
+
+
+async def _fast_count(collection) -> int:
+    """Count without materialising rows — prefers estimated_document_count."""
+    try:
+        return await collection.estimated_document_count()
+    except AttributeError:
+        return await collection.count_documents({})
+
 # ─── Model Catalog ────────────────────────────────────────────────────────────────
 # Best-in-class models per provider, tagged by role and tier.
 # role: planner = strong reasoning; executor = instruction-following/coding; verifier = critical eval

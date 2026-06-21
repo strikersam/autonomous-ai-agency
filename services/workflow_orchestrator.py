@@ -290,6 +290,10 @@ class ExecutionRequest(BaseModel):
     # repo permissions — not the server-wide service account. exclude=True keeps
     # it out of every model_dump()/as_dict() so it never leaks in API output.
     github_token: str | None = Field(default=None, exclude=True, repr=False)
+    worktree_path: str | None = Field(
+        default=None,
+        description="Optional worktree isolation path for git worktree-based execution (#504).",
+    )
 
 
 class ClassifyOutput(BaseModel):
@@ -416,6 +420,40 @@ class MonitorOutput(BaseModel):
     specialist_utilization: dict[str, int] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
 
+
+
+# ── CEO Dispatcher integration ────────────────────────────────────────────────
+# Observability counters for the CEO-routing fallback path.
+
+_ceo_fallback_stats: dict[str, int] = {
+    "verdict_non_ok": 0,
+    "transport_error": 0,
+    "ceo_ok": 0,
+    "ceo_low_complexity_bypass": 0,
+}
+
+
+def _record_ceo_fallback(reason: str) -> None:
+    """Increment the named counter (silently ignores unknown reasons)."""
+    if reason in _ceo_fallback_stats:
+        _ceo_fallback_stats[reason] += 1
+
+
+def get_ceo_fallback_stats() -> dict[str, int]:
+    """Return a snapshot of the CEO fallback counters."""
+    return dict(_ceo_fallback_stats)
+
+
+def reset_ceo_fallback_stats() -> None:
+    """Zero all CEO fallback counters (useful for testing)."""
+    for k in _ceo_fallback_stats:
+        _ceo_fallback_stats[k] = 0
+
+
+def _get_ceo_dispatcher():
+    """Return the shared CEODispatcher singleton (importable for monkeypatching)."""
+    from services.ceo_dispatcher import get_ceo_dispatcher
+    return get_ceo_dispatcher()
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
@@ -1201,6 +1239,45 @@ class WorkflowOrchestrator:
         # Delegates to the module-level _resolve_brain_provider (#522), which is
         # independently unit-tested and supports env override + failover via
         # exclude_base_urls.
+
+        # ── CEO routing: medium/high complexity fans out via CEODispatcher ────
+        complexity = (run.classify.complexity if run.classify else "medium") or "medium"
+        if complexity in ("medium", "high"):
+            try:
+                ceo = _get_ceo_dispatcher()
+                workspace = req.worktree_path or __import__("os").getcwd()
+                ceo_result = await ceo.delegate(
+                    goal=plan.goal or req.request,
+                    request=req.request,
+                    complexity=complexity,
+                    domain=run.classify.domain if run.classify else "general",
+                    workspace_root=workspace,
+                    specialists=specialist.specialist_ids if specialist else [],
+                    max_steps=req.max_steps,
+                )
+                run.llm_provenance["ceo_verdict"] = ceo_result.verdict
+                if ceo_result.verdict == "OK":
+                    # Populate ExecutionResult from CEO fanout result.
+                    changed = []
+                    for sp in (ceo_result.specialists or []):
+                        changed.extend(sp.get("changed_files", []) if isinstance(sp, dict) else [])
+                    run.execution = ExecutionResult(
+                        output=ceo_result.summary or "",
+                        changed_files=changed,
+                        duration_ms=int((ceo_result.total_duration_s or 0) * 1000),
+                    )
+                    _record_ceo_fallback("ceo_ok")
+                    return
+                # Non-OK verdict — fall through to AgentRunner.
+                _record_ceo_fallback("verdict_non_ok")
+            except (ConnectionError, TimeoutError, OSError) as _ceo_exc:
+                log.warning("CEO dispatcher transport error (%s), falling back to AgentRunner", _ceo_exc)
+                _record_ceo_fallback("transport_error")
+            except Exception:
+                # Unexpected exception — propagate so the bug is visible.
+                raise
+        else:
+            _record_ceo_fallback("ceo_low_complexity_bypass")
 
         # Try AgentRunner for actual execution (bypass deprecation via flag)
         try:
