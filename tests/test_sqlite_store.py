@@ -139,6 +139,32 @@ async def test_count_documents(store):
     assert count == 2
 
 
+@pytest.mark.asyncio
+async def test_count_documents_empty_query_fast_path(store):
+    """Unfiltered count uses the SELECT COUNT(*) fast path and must match the
+    number of inserted rows exactly (no off-by-one, no row materialisation)."""
+    assert await store.providers.count_documents({}) == 0
+    await store.providers.insert_one({"provider_id": "a", "user_id": "u1"})
+    await store.providers.insert_one({"provider_id": "b", "user_id": "u2"})
+    await store.providers.insert_one({"provider_id": "c", "user_id": "u2"})
+    assert await store.providers.count_documents({}) == 3
+    # Filtered count still goes through the Python _match path and is unaffected.
+    assert await store.providers.count_documents({"user_id": "u2"}) == 2
+
+
+@pytest.mark.asyncio
+async def test_estimated_document_count(store):
+    """estimated_document_count mirrors an unfiltered count_documents."""
+    assert await store.providers.estimated_document_count() == 0
+    await store.providers.insert_one({"provider_id": "a"})
+    await store.providers.insert_one({"provider_id": "b"})
+    assert await store.providers.estimated_document_count() == 2
+    assert (
+        await store.providers.estimated_document_count()
+        == await store.providers.count_documents({})
+    )
+
+
 # ── query operators ───────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

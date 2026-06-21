@@ -476,7 +476,24 @@ class _Collection:
         return _DeleteResult(len(docs))
 
     async def count_documents(self, query: dict) -> int:
+        # Fast path: an unfiltered count never needs the row payloads — let
+        # SQLite answer ``SELECT COUNT(*)`` straight from the table instead of
+        # pulling and JSON-decoding every blob into Python just to call len().
+        # The dashboard's /api/stats fires six unfiltered counts per refresh
+        # (wiki_pages, sources, chat_sessions, activity_log, providers,
+        # api_keys), and activity_log/local_metrics grow unbounded — so the old
+        # full-table materialisation was the dominant cost of that endpoint.
+        if not query:
+            async with self._store._read_conn() as conn:
+                # nosec B608 — table name whitelisted via _COLLECTIONS in __init__
+                async with conn.execute(f"SELECT COUNT(*) FROM {self._name}") as cur:
+                    row = await cur.fetchone()
+            return int(row[0]) if row else 0
         return len(await self._matching(query))
+
+    async def estimated_document_count(self) -> int:
+        """Motor-compatible fast total count (no per-row deserialization)."""
+        return await self.count_documents({})
 
     async def aggregate(self, pipeline: list[dict]) -> _Cursor:
         """Minimal aggregate support: $match → $group($sum) / $sort / $limit."""
