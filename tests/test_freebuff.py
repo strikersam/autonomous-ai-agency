@@ -48,14 +48,14 @@ def test_resolve_model_coerces_non_free_to_default(monkeypatch):
     # Must never resolve to a paid model.
     assert FreeBuffAgent.is_free_model(agent.model)
     # An explicit free model is honoured.
-    assert agent.resolve_model("meta/llama-3.1-8b-instruct") == "meta/llama-3.1-8b-instruct"
+    assert agent.resolve_model("meta/llama-3.3-70b-instruct") == "meta/llama-3.3-70b-instruct"
     # A non-free request falls back to the selected free model.
     assert FreeBuffAgent.is_free_model(agent.resolve_model("gpt-4o"))
 
 
 def test_pins_nvidia_base_and_header_when_key_present(monkeypatch):
     monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test-123")
-    agent = FreeBuffAgent(model="meta/llama-3.1-8b-instruct")
+    agent = FreeBuffAgent(model="meta/llama-3.3-70b-instruct")
     assert agent.ollama_base.startswith("https://integrate.api.nvidia.com")
     assert agent.provider_headers.get("Authorization") == "Bearer nvapi-test-123"
 
@@ -75,7 +75,7 @@ async def test_run_coerces_requested_model_to_free(monkeypatch):
         return {"summary": "ok", "plan": None, "steps": [], "commits": []}
 
     monkeypatch.setattr("agent.loop.AgentRunner.run", fake_run)
-    agent = FreeBuffAgent(model="meta/llama-3.1-8b-instruct")
+    agent = FreeBuffAgent(model="meta/llama-3.3-70b-instruct")
     await agent.run(instruction="do a thing", requested_model="claude-opus-4-8")
     # The paid model the caller asked for was replaced by a free model.
     assert FreeBuffAgent.is_free_model(captured["requested_model"])
