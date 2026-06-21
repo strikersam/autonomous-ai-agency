@@ -26,6 +26,10 @@ class TaskStore:
 
     Uses the same motor client pattern as the rest of the application.
     Falls back to an in-memory dict when no motor client is injected.
+
+    Performance note: call ``await store.ensure_indexes()`` once at startup
+    to create ``(status, created_at)`` and ``(owner_id, status)`` compound
+    indexes — without them list queries are full collection scans.
     """
 
     def __init__(self, db: Any = None) -> None:
@@ -151,7 +155,11 @@ class TaskStore:
             return o == owner_id or (include_system and o == _AGENCY_OWNER_ID)
 
         if self._mode == "mongo":
-            cursor = self._collection.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
+            # Project out execution_log — can be 10k+ entries per task and
+            # makes list queries 7 MB+ with 26s response times. Full log is
+            # available via get() which fetches a single document.
+            _LIST_PROJECTION = {"_id": 0, "execution_log": 0}
+            cursor = self._collection.find(query, _LIST_PROJECTION).sort("created_at", -1).skip(offset).limit(limit)
             docs = await cursor.to_list(length=limit)
         else:
             docs = [
@@ -180,7 +188,11 @@ class TaskStore:
             query["status"] = status.value
 
         if self._mode == "mongo":
-            cursor = self._collection.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
+            # Project out execution_log — can be 10k+ entries per task and
+            # makes list queries 7 MB+ with 26s response times. Full log is
+            # available via get() which fetches a single document.
+            _LIST_PROJECTION = {"_id": 0, "execution_log": 0}
+            cursor = self._collection.find(query, _LIST_PROJECTION).sort("created_at", -1).skip(offset).limit(limit)
             docs = await cursor.to_list(length=limit)
         else:
             docs = list(self._mem.values())

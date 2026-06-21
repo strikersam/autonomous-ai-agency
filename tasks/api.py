@@ -213,7 +213,12 @@ async def list_tasks(
             limit=limit,
             offset=offset,
         )
-    return {"tasks": [task.as_dict() for task in tasks]}
+    # Exclude execution_log from list view — it can be 10k+ entries per task
+    # (7 MB+ response, 27s load time). Full log is available on GET /{task_id}.
+    return {"tasks": [
+        {k: v for k, v in task.as_dict().items() if k != "execution_log"}
+        for task in tasks
+    ]}
 
 
 @task_router.get("/counts")
@@ -228,7 +233,12 @@ async def tasks_due_soon(request: Request, within_hours: int = 24, user: Any = D
     if not _is_admin(user):
         uid = _user_id(user)
         tasks = [task for task in tasks if task.owner_id == uid]
-    return {"tasks": [task.as_dict() for task in tasks]}
+    # Exclude execution_log from list view — it can be 10k+ entries per task
+    # (7 MB+ response, 27s load time). Full log is available on GET /{task_id}.
+    return {"tasks": [
+        {k: v for k, v in task.as_dict().items() if k != "execution_log"}
+        for task in tasks
+    ]}
 
 
 @task_router.get("/{task_id}")

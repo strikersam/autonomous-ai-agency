@@ -5,6 +5,9 @@
 ## [Unreleased]
 
 ### Fixed
+- **Task list API 27-second response time (dashboard loads forever).** `GET /api/tasks/` was returning full `execution_log` for every task in the list — one task had 16,657 log entries, producing a 7.3 MB response. The list endpoint now excludes `execution_log` (still available on `GET /api/tasks/{task_id}`). MongoDB projection added to `TaskStore.list_all()` and `list_for_user()` so the payload is never transferred from the database. Typical list response drops from 7.3 MB / 26s → ~50 KB / <1s.
+
+### Fixed
 
 - **Agents idle despite TODO tasks: reconciler now re-queues unqueued TODO tasks** (2026-06-21). `TaskStore.reconcile_stranded_tasks()` previously only handled IN_PROGRESS stranded tasks. It never touched TODO tasks with `pending_agent_run=False`. Fix: reconciler now also re-queues those. File: `tasks/store.py`.
 
