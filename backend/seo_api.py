@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
+from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Path, Query, status
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
@@ -71,40 +73,62 @@ async def seo_check_catalog(
     return list_checks()
 
 
-@router.post("/company/{company_id}/seo/audit", response_model=SeoAuditReport)
+@router.post("/company/{company_id}/seo/audit", response_model=SeoAuditReport, status_code=202)
 async def run_seo_audit(
     company_id: str = Path(..., description="Company ID"),
     request: SeoAuditRequest = Body(...),
+    background_tasks: BackgroundTasks = None,
     user: dict = Depends(_get_current_user_thunk),
 ) -> SeoAuditReport:
-    """Run a full SEO/GEO/AIO audit against a website and persist the evidence."""
+    """Kick off an async SEO/GEO/AIO audit and return immediately with status='pending'.
+
+    Poll GET /api/company/{company_id}/seo/audits/{audit_id} until status
+    transitions to 'success', 'partial', or 'failed'.  Browser-mode crawls of
+    large sites can take 3-10 minutes; this pattern lets the UI stay responsive.
+    """
     company = await get_company_access(company_id, user)
 
-    engine = SeoAuditEngine()
-    report = await engine.run(request, company_id=company.id)
-    save_report(report)
+    # Pre-generate the audit_id so the client can start polling before the crawl
+    # finishes.  A 'pending' stub is saved immediately.
+    audit_id = f"seoaudit_{secrets.token_hex(8)}"
+    stub = SeoAuditReport(
+        audit_id=audit_id,
+        company_id=company.id,
+        website_url=request.website_url,
+        status="pending",
+        started_at=datetime.now(timezone.utc),
+    )
+    save_report(stub)
 
-    # Best-effort: capture the executive summary into the Company Graph so the
-    # orchestrator and specialists can act on it. Never fail the audit on this.
-    if report.status == "success":
-        try:
-            from models.company_graph import KnowledgeItem
-            from services.company_graph_store import get_company_graph_store
+    # Capture values needed inside the background closure (avoid late-binding).
+    _company_id = company.id
 
-            store = get_company_graph_store()
-            await store.create_knowledge_item(KnowledgeItem(
-                title=f"SEO audit {report.audit_id} - {report.website_url} "
-                      f"(health {report.health_score}/100)",
-                knowledge_type="learning",
-                content=report_to_markdown(report),
-                tags=["seo-audit", f"company:{company.id}", f"audit:{report.audit_id}"],
-                source="automated_scan",
-            ))
-        except Exception as exc:  # noqa: BLE001 - persistence is best-effort
-            log.warning("Could not persist SEO audit %s to company graph: %s",
-                        report.audit_id, exc)
+    async def _crawl_and_save() -> None:
+        engine = SeoAuditEngine()
+        report = await engine.run(request, company_id=_company_id, audit_id=audit_id)
+        save_report(report)
+        log.info("SEO audit %s finished with status=%s pages=%d health=%.0f",
+                 audit_id, report.status, report.pages_crawled, report.health_score)
+        if report.status in ("success", "partial"):
+            try:
+                from models.company_graph import KnowledgeItem
+                from services.company_graph_store import get_company_graph_store
 
-    return report
+                store = get_company_graph_store()
+                await store.create_knowledge_item(KnowledgeItem(
+                    title=f"SEO audit {report.audit_id} - {report.website_url} "
+                          f"(health {report.health_score}/100)",
+                    knowledge_type="learning",
+                    content=report_to_markdown(report),
+                    tags=["seo-audit", f"company:{_company_id}", f"audit:{report.audit_id}"],
+                    source="automated_scan",
+                ))
+            except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+                log.warning("Could not persist SEO audit %s to company graph: %s",
+                            audit_id, exc)
+
+    background_tasks.add_task(_crawl_and_save)
+    return stub
 
 
 @router.get("/company/{company_id}/seo/audits", response_model=List[SeoAuditSummary])

@@ -1,5 +1,15 @@
-# Changelog
 All notable changes to this project will be documented in this file.
+
+### Fixed
+
+- **Agents idle despite TODO tasks: reconciler now re-queues unqueued TODO tasks** (2026-06-21). `TaskStore.reconcile_stranded_tasks()` previously only handled IN_PROGRESS tasks that were stranded mid-execution (crash recovery). It never touched TODO tasks where `pending_agent_run=False`. Fix: reconciler now also queries TODO tasks with `pending_agent_run=False` and sets `pending_agent_run=True` so the dispatcher picks them up. File: `tasks/store.py`.
+
+### Changed
+
+- **SEO audit is now async — returns immediately with `status='pending'`, frontend polls until done** (2026-06-21). `POST /api/company/{id}/seo/audit` now returns 202 immediately with a pending stub; crawl runs in `BackgroundTasks`. Frontend polls every 10s until done. Files: `backend/seo_api.py`, `services/seo_audit.py`, `frontend/src/api.js`, `frontend/src/v5/screens/CompanyScreen.jsx`.
+
+- **`/api/tasks/` index + 8s TTL cache: fix 45s timeout on dashboard** (2026-06-21). Three new MongoDB indexes on the `tasks` collection + 8s single-flight TTL cache on the admin `list_all` path. Files: `backend/server.py`, `tasks/api.py`.
+
 ## [Unreleased]
 
 ### Changed

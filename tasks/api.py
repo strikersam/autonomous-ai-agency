@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import math
+import os
+import time
 from typing import Any
 from collections.abc import Mapping
 from pathlib import Path
@@ -24,8 +28,55 @@ from tasks.models import (
 from tasks.service import TaskWorkflowService
 from tasks.service import TaskExecutionCoordinator
 from tasks.store import TaskStore, get_task_store
-
 log = logging.getLogger("qwen-proxy")
+
+
+# Single-flight TTL upper bound (AGENTS.md: all config from env vars).
+# Override via TASKS_MAX_CACHE_TTL_SEC; default 3600s (1 hour cap).
+_MAX_CACHE_TTL_SEC: float = float(os.environ.get("TASKS_MAX_CACHE_TTL_SEC", "3600"))
+
+
+def _safe_ttl(name: str, default: float) -> float:
+    """Tolerant TTL env-var parser.
+
+    Returns the env-var value when it parses to a positive float ≤ the env-tunable
+    cap (``_MAX_CACHE_TTL_SEC``); otherwise logs a warning and returns *default*.
+    Avoids operator-mistake footguns: ``float("abc")`` raising at module import
+    (= 5xx on every endpoint), zero disabling the cache (MongoDB stampede),
+    negative numbers inverting the comparison (cache never hits), ``nan`` silently
+    disabling caching, ``inf`` letting the cache dict grow unbounded, and operators
+    typing huge values (e.g. 99999) by accident.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        log.warning("Env var %s=%r is not numeric; using default %s", name, raw, default)
+        return default
+    if not math.isfinite(value) or value <= 0 or value > _MAX_CACHE_TTL_SEC:
+        log.warning(
+            "Env var %s=%s must be a finite positive number ≤ %s; using default %s",
+            name, value, _MAX_CACHE_TTL_SEC, default,
+        )
+        return default
+    return value
+
+
+# Default 8s; override via TASKS_LIST_ALL_CACHE_TTL_SEC. Single-flight TTL absorbs
+# dashboard refresh bursts (N concurrent admin tabs hit one MongoDB query).
+_LIST_ALL_CACHE: dict = {}
+_LIST_ALL_CACHE_TTL: float = _safe_ttl("TASKS_LIST_ALL_CACHE_TTL_SEC", 8.0)
+_LIST_ALL_CACHE_LOCK: asyncio.Lock | None = None
+
+
+def _get_list_all_lock() -> asyncio.Lock:
+    global _LIST_ALL_CACHE_LOCK
+    if _LIST_ALL_CACHE_LOCK is None:
+        _LIST_ALL_CACHE_LOCK = asyncio.Lock()
+    return _LIST_ALL_CACHE_LOCK
+
 
 task_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -140,7 +191,18 @@ async def list_tasks(
     owner_id = _user_id(user)
 
     if _is_admin(user):
-        tasks = await store.list_all(status=status, limit=limit, offset=offset)
+        cache_key = f"list_all:{status}:{limit}:{offset}"
+        cached = _LIST_ALL_CACHE.get(cache_key)
+        if cached and time.monotonic() - cached["ts"] < _LIST_ALL_CACHE_TTL:
+            tasks = cached["tasks"]
+        else:
+            async with _get_list_all_lock():
+                cached = _LIST_ALL_CACHE.get(cache_key)
+                if cached and time.monotonic() - cached["ts"] < _LIST_ALL_CACHE_TTL:
+                    tasks = cached["tasks"]
+                else:
+                    tasks = await store.list_all(status=status, limit=limit, offset=offset)
+                    _LIST_ALL_CACHE[cache_key] = {"tasks": tasks, "ts": time.monotonic()}
     else:
         tasks = await store.list_for_user(
             owner_id,
