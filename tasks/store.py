@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import time
 from typing import Any
 
@@ -319,6 +320,7 @@ class TaskStore:
         *,
         active_task_ids: set[str] | None = None,
         stale_threshold_s: float = 300.0,
+        auto_retry_cap: int | None = None,
     ) -> int:
         """Reset tasks that are stuck IN_PROGRESS but no longer actively executing.
 
@@ -333,6 +335,11 @@ class TaskStore:
         Returns the number of tasks reconciled.
         """
         import time as _time
+        if auto_retry_cap is None:
+            try:
+                auto_retry_cap = int(os.environ.get("TASK_AUTO_RETRY_MAX", "5"))
+            except (TypeError, ValueError):
+                auto_retry_cap = 5
         active = active_task_ids or set()
         cutoff = _time.time() - stale_threshold_s
 
@@ -358,6 +365,14 @@ class TaskStore:
         for doc in stranded:
             task_id = doc.get("task_id") or doc.get("_id")
             if not task_id or task_id in active:
+                continue
+            if int(doc.get("auto_retry_count") or 0) >= auto_retry_cap:
+                log.warning(
+                    "Reconciler: not re-queuing stranded IN_PROGRESS task %s "
+                    "(auto_retry_count=%d already at cap=%d; leaves it stranded "
+                    "to avoid a reconciler-overrides-cap retry storm)",
+                    task_id, int(doc.get("auto_retry_count") or 0), auto_retry_cap,
+                )
                 continue
 
             task = Task.model_validate(doc)

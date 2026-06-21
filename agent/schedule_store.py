@@ -48,7 +48,18 @@ class ScheduleStore:
             client.admin.command("ping")
             self._collection = client[db_name or _DB_NAME][_COLLECTION]
             try:
-                self._collection.create_index("job_id", unique=True)
+                # background=True (default behaviour on MongoDB 4.2+ but honored
+                # as an explicit kwarg) keeps the index build off the foreground
+                # request thread so a freshly-populated collection does not block
+                # FastAPI lifespan / first request. Skip the call if the index
+                # already exists \u2014 re-creating that unique index serialises
+                # writes against the collection for the entire build duration.
+                existing = self._collection.index_information() or {}
+                if not any(
+                    tuple(idx.get("key") or ()) == (("job_id", 1),)
+                    for idx in existing.values()
+                ):
+                    self._collection.create_index([("job_id", 1)], unique=True, background=True)
             except Exception as exc:  # index best-effort
                 log.warning("Index creation for %s.job_id failed: %s", _COLLECTION, exc)
             self._mode = "mongo"

@@ -23,6 +23,7 @@ Routes:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -211,14 +212,66 @@ def _get_state_file(user_id: str) -> Path:
     return _WIZARD_STATE_DIR / f"{safe_id}.json"
 
 
+def _wizard_state_checksum(state_dict: dict[str, Any]) -> str:
+    """SHA-256 of the JSON-serialised state, EXCLUDING the '_checksum' field itself.
+
+    The checksum guards against silent truncation from a crashed mid-write
+    (process OOM, disk-full, etc. \u2014 we have seen truncated wizard-state files
+    in the wild where the wizard thought the user finished setup, then on next
+    login reported an empty state because only the first ~30% of the bytes
+    landed).
+    """
+    payload = {k: v for k, v in state_dict.items() if k != "_checksum"}
+    blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _validate_wizard_state_checksum(data: dict[str, Any], user_id: str) -> WizardState:
+    """Verify the embedded checksum; reject on mismatch, accept legacy files.
+
+    A legacy file (no ``_checksum`` key \u2014 shipped before the v5 hardening)
+    is LOADED AS-IS with a debug log so the user is not silently signed out of
+    the wizard on upgrade. A mismatched checksum means the bytes do not match
+    the state we wrote: log at WARNING and return a fresh empty wizard so the
+    operator is prompted to re-run setup (instead of acting on corrupted
+    half-data, e.g. a model choice + no policy).
+    """
+    expected = data.get("_checksum")
+    if expected is None:
+        log.debug(
+            "Wizard state for %s has no checksum (legacy file); trusting as-is",
+            user_id,
+        )
+        data.pop("_checksum", None)
+        return WizardState(**data)
+    actual = _wizard_state_checksum(data)
+    if expected != actual:
+        log.warning(
+            "Wizard state for %s failed checksum verification (expected %s, "
+            "actual %s) \u2014 possible truncation; returning fresh state so the "
+            "operator re-runs setup rather than acting on corrupted data",
+            user_id, expected[:12], actual[:12],
+        )
+        return WizardState(user_id=user_id)
+    data.pop("_checksum")
+    return WizardState(**data)
+
+
 async def _load_wizard_state(user_id: str) -> WizardState:
-    """Load wizard state from disk, or create a new one if not found."""
+    """Load wizard state from disk (or DB), verifying checksum if present.
+
+    Legacy files without ``_checksum`` are still loaded (forward-compatible
+    rollout). Files WITH a checksum that no longer matches are rejected \u2014
+    defensive against silent truncation / disk corruption that would
+    previously manifest as the wizard quietly thinking setup had finished
+    while half the user's choices were lost.
+    """
     collection = _get_wizard_state_collection()
     if collection is not None:
         try:
             data = await collection.find_one({"user_id": user_id}, {"_id": 0})
             if data:
-                return WizardState(**data)
+                return _validate_wizard_state_checksum(data, user_id)
         except Exception as e:
             log.warning("Failed to load wizard state for %s from DB: %s", user_id, e)
 
@@ -227,20 +280,29 @@ async def _load_wizard_state(user_id: str) -> WizardState:
         try:
             with open(state_file) as f:
                 data = json.load(f)
-            return WizardState(**data)
+            return _validate_wizard_state_checksum(data, user_id)
         except Exception as e:
             log.warning("Failed to load wizard state for %s: %s", user_id, e)
     return WizardState(user_id=user_id)
 
 
 async def _save_wizard_state(state: WizardState) -> None:
-    """Persist wizard state to disk."""
+    """Persist wizard state to disk (or DB) with a SHA-256 checksum.
+
+    Disk writes go via a ``<file>.tmp`` + atomic ``replace`` so a process
+    crash mid-flush cannot leave a half-written wizard state behind. The
+    payload contains ``_checksum`` (SHA-256 of the rest of the payload) so
+    the loader can detect even partial / silently-truncated files.
+    """
+    payload = state.as_dict()
+    payload["_checksum"] = _wizard_state_checksum(payload)
+
     collection = _get_wizard_state_collection()
     if collection is not None:
         try:
             await collection.replace_one(
                 {"user_id": state.user_id},
-                state.as_dict(),
+                payload,
                 upsert=True,
             )
             return
@@ -249,8 +311,10 @@ async def _save_wizard_state(state: WizardState) -> None:
 
     state_file = _get_state_file(state.user_id)
     try:
-        with open(state_file, 'w') as f:
-            json.dump(state.as_dict(), f, indent=2)
+        tmp_path = state_file.with_suffix(state_file.suffix + ".tmp")
+        with open(tmp_path, 'w') as f:
+            json.dump(payload, f, indent=2)
+        os.replace(tmp_path, state_file)
     except Exception as e:
         log.error("Failed to save wizard state for %s: %s", state.user_id, e)
 
