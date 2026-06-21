@@ -156,6 +156,16 @@ async def _resolve_brain_provider(
             key = str(rec.get("api_key") or "").strip()
             if rtype != "ollama" and not key:
                 continue
+            # Paid (Anthropic) providers are skipped unless the operator has
+            # explicitly opted in via ALLOW_PAID_BRAIN=true (brain_policy, #656).
+            if rtype in ("anthropic", "emergent-anthropic"):
+                from brain_policy import allow_paid_brain
+                if not allow_paid_brain():
+                    log.debug(
+                        "Brain resolver: skipping paid provider %r (ALLOW_PAID_BRAIN not set)",
+                        rec.get("provider_id"),
+                    )
+                    continue
             # Native Anthropic appends /v1/messages itself; normalise others to /v1.
             if rtype != "anthropic" and not base.endswith("/v1"):
                 base = f"{base}/v1"
@@ -202,6 +212,11 @@ def emit_deprecation(caller: str) -> None:
         caller,
     )
 
+
+# ── Utility re-exports ────────────────────────────────────────────────────────
+# _merge_changed_files is canonical in services.ceo_dispatcher; re-exported here
+# so code that imports it from workflow_orchestrator continues to work (#ci-fix).
+from services.ceo_dispatcher import _merge_changed_files  # noqa: E402
 
 # ── Golden Path Phases ────────────────────────────────────────────────────────
 
