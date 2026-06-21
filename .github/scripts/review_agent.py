@@ -21,11 +21,9 @@ blocked by a reviewer crash.
 import json
 import logging
 import os
-import random  # nosec B311 — used only for jitter in rate-limit backoff, not crypto
 import subprocess
 import sys
 import textwrap
-import time
 from pathlib import Path
 
 from openai import OpenAI
@@ -40,13 +38,13 @@ RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file p
 # NVIDIA NIM is the primary engine for council review.
 # Opus-via-Anthropic is only an optional fallback when configured.
 OPUS_MODEL = "claude-opus-4-6"
-
-# Inject .github/scripts/ on sys.path so import works when run directly.
-_sd = os.path.dirname(os.path.abspath(__file__))
-if _sd not in sys.path:
-    sys.path.insert(0, _sd)
-from nvidia_models import NVIDIA_MODEL_IDS  # shared source of truth
-NVIDIA_CANDIDATE_MODELS = NVIDIA_MODEL_IDS
+NVIDIA_CANDIDATE_MODELS = [
+    "qwen/qwen3-coder-480b-a35b-instruct",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+    "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "meta/llama-3.3-70b-instruct",
+    "qwen/qwen2.5-coder-32b-instruct",
+]
 # Keep the old name as an alias so existing code that references CANDIDATE_MODELS still works
 CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
 
@@ -87,47 +85,13 @@ def load_council_skill() -> str:
     return ""
 
 
-def _classify_error(exc: Exception) -> str:
-    """Classify an exception from the NVIDIA NIM API.
-
-    Returns one of: '429_rate_limit', 'timeout', '404_not_found',
-    '422_unprocessable', or 'unknown'.
-    """
-    exc_msg = str(exc).lower()
-    exc_name = type(exc).__name__
-    if "429" in exc_msg or "rate limit" in exc_msg or "too many requests" in exc_msg:
-        return "429_rate_limit"
-    if "timeout" in exc_msg or "timed out" in exc_msg or exc_name.endswith("Timeout"):
-        return "timeout"
-    if "404" in exc_msg or "not found" in exc_msg:
-        return "404_not_found"
-    if "422" in exc_msg or "unprocessable" in exc_msg:
-        return "422_unprocessable"
-    return "unknown"
-
-
 def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str:
     """Call the best available LLM for review. NVIDIA NIM is the primary engine;
-    Opus-via-Anthropic is only an optional fallback.
-
-    Hardened fallback (2026-06-14):
-      - 429 rate-limit: exponential backoff retry (3 attempts, jittered) on
-        the same model before advancing.
-      - Timeout: advance to the next model immediately.
-      - 404/422: drop the model from rotation for this run and advance.
-      - Unknown error: advance to the next model.
-      - Full exhaustion: fall through to Anthropic (if configured) or return "".
-    """
-    # Primary: NVIDIA NIM with hardened fallback
+    Opus-via-Anthropic is only an optional fallback."""
+    # Primary: NVIDIA NIM
     if nvidia_key:
         client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
-        dropped_models: set[str] = set()
-        model_idx = 0
-        while model_idx < len(NVIDIA_CANDIDATE_MODELS):
-            model = NVIDIA_CANDIDATE_MODELS[model_idx]
-            if model in dropped_models:
-                model_idx += 1
-                continue
+        for model in NVIDIA_CANDIDATE_MODELS:
             try:
                 response = client.chat.completions.create(
                     model=model,
@@ -138,76 +102,9 @@ def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str
                 if text:
                     log.info("[review] Got response from %s (NVIDIA NIM)", model)
                     return text
-                log.warning("[review] Model %s returned empty content — advancing", model)
-                model_idx += 1
             except Exception as exc:
-                err_kind = _classify_error(exc)
-                log.warning("[review] Model %s failed [%s]: %s", model, err_kind, exc)
-
-                # 429 rate-limit — transient; retry same model with exponential
-                # backoff + jitter before advancing. Up to 3 attempts.
-                if err_kind == "429_rate_limit":
-                    retry_succeeded = False
-                    for backoff_attempt in range(3):
-                        delay = (2 ** backoff_attempt) + random.uniform(0, 1)  # nosec B311 — jitter only, not crypto
-                        log.warning(
-                            "[review] Model %s rate-limited (429) — retrying in %.1fs "
-                            "(attempt %d/3)", model, delay, backoff_attempt + 1
-                        )
-                        time.sleep(delay)
-                        try:
-                            response = client.chat.completions.create(
-                                model=model,
-                                max_tokens=2048,
-                                messages=[{"role": "user", "content": prompt}],
-                            )
-                            text = response.choices[0].message.content or ""
-                            if text:
-                                log.info("[review] Model %s recovered after rate-limit backoff", model)
-                                return text
-                            retry_succeeded = False
-                            break
-                        except Exception as retry_exc:
-                            retry_kind = _classify_error(retry_exc)
-                            log.warning(
-                                "[review] Model %s retry %d/3 failed [%s]: %s",
-                                model, backoff_attempt + 1, retry_kind, retry_exc
-                            )
-                            if retry_kind in ("404_not_found", "422_unprocessable"):
-                                log.warning(
-                                    "[review] Model %s returned %s on retry — dropping from rotation",
-                                    model, retry_kind
-                                )
-                                break
-                            # Non-429 errors on retry (timeout, unknown) are not transient
-                            # — break immediately rather than wasting more retries.
-                            break
-                    if not retry_succeeded:
-                        model_idx += 1
-                    continue
-
-                # Timeout — advance immediately, no backoff
-                elif err_kind == "timeout":
-                    log.warning("[review] Model %s timed out — advancing immediately", model)
-                    model_idx += 1
-                    continue
-
-                # 404 / 422 — model is not available or incompatible; drop and advance
-                elif err_kind in ("404_not_found", "422_unprocessable"):
-                    log.warning(
-                        "[review] Model %s returned %s — dropping from rotation for this run",
-                        model, err_kind
-                    )
-                    dropped_models.add(model)
-                    model_idx += 1
-                    continue
-
-                # Unknown error — advance to next model
-                else:
-                    model_idx += 1
-                    continue
-
-        log.error("[review] All NVIDIA candidate models exhausted")
+                log.warning("[review] Model %s failed: %s", model, exc)
+                continue
 
     # Optional fallback: Anthropic Claude Opus
     if anthropic_key:
@@ -232,6 +129,19 @@ def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str
 def main() -> None:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
+
+    # Gate Anthropic behind the provider policy (default: allow_paid=False).
+    # CI scripts must respect the kill switch so they never silently burn credits.
+    if anthropic_key:
+        try:
+            import sys as _sys, os as _os
+            _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+            from provider_policy import allow_paid
+            if not allow_paid():
+                print("Paid providers disabled by policy — skipping Anthropic", file=sys.stderr)
+                anthropic_key = ""
+        except ImportError:
+            pass  # policy module unavailable — respect the env var as-is
 
     if not anthropic_key and not nvidia_key:
         print("ERROR: neither ANTHROPIC_API_KEY nor NVIDIA_API_KEY set — defaulting to WARN", file=sys.stderr)
