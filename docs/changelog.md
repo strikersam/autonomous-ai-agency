@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Voice pipeline + Jarvis OS Memory Kernel (issue #664).** Send a Telegram voice note from your phone → Whisper STT transcribes it → CEO agent executes → TTS voice reply sent back. New `voice/` package: `stt.py` (OpenAI Whisper API / faster-whisper / Google fallback), `tts.py` (ElevenLabs / gTTS / pyttsx3 fallback), `memory_kernel.py` (atomic facts in SQLite + Markdown mirror, Jarvis OS design: dated, sourced, reinforceable, forgettable, correctable). Telegram bot gains `/memory [query]`, `/remember <fact>`, `/forget <fact-id>` commands and auto-replies with voice note when the input was a voice note. Config: `WHISPER_BACKEND`, `OPENAI_API_KEY`, `WHISPER_MODEL`, `TTS_BACKEND`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `MEMORY_KERNEL_DIR`, `MEMORY_DECAY_DAYS`.
+
 ### Fixed
 - **AdminPortalPage hardcoded `localhost:8000` on deployed site.** `DEFAULT_BACKEND` now resolves to `window.location.origin` when served from the Workers URL (`autonomous-ai-agency.strikersam.workers.dev`), so the admin panel calls the correct Render backend through the Worker proxy instead of failing to connect to localhost.
 - **Worker missing `/v1` proxy prefix.** `worker/index.js` `PROXY_PREFIXES` now includes `/v1`, matching `run_worker_first` in `wrangler.jsonc` so OpenAI-compat endpoints are proxied correctly.

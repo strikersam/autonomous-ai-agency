@@ -40,3 +40,6 @@ dnspython>=2.8.0
 graphifyy>=0.8.27  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
 playwright>=1.55.0
 reportlab>=4.2.0,<5  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
+# Voice pipeline (issue #664) — STT/TTS for CEO Telegram voice commands
+gtts>=2.5.0
+pydub>=0.25.1
