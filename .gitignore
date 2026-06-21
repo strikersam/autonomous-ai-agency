@@ -80,6 +80,7 @@ Thumbs.db
 # Claude Code ephemeral session state — do NOT commit these
 .claude/settings.local.json
 .claude/sessions/
+.claude/state/sessions/
 .claude/todos
 render-env-vars.txt
 

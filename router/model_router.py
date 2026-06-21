@@ -94,17 +94,34 @@ def _nvidia_key_present() -> bool:
 
 
 def _opus_model() -> str | None:
-    """Return the best available Opus model ID, or None if Opus is not configured.
+    """Return an Opus model ID iff the operator explicitly opted into a paid brain.
 
-    Checks Bedrock (AWS keys) first — higher-priority provider (priority 15).
-    Falls back to direct Anthropic API key (priority 50).
+    When ALLOW_PAID_BRAIN is unset (default), this returns None so every caller
+    falls through to brain_policy.resolve_active_brain — which honours the
+    Providers screen selection (NVIDIA NIM by default). This was the silent
+    override path: ANTHROPIC_API_KEY being set in the env used to outvote the
+    UI's NVIDIA record and route every Opus-shaped model request to a paid
+    endpoint. With this guard the UI is the single source of truth.
     """
+    try:
+        from brain_policy import allow_paid_brain, get_active_brain_sync, is_anthropic_model
+    except Exception:
+        allow_paid_brain = lambda: os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in {"1", "true", "yes", "on"}  # noqa: E731
+        is_anthropic_model = lambda _m: (_m or "").lower().startswith("claude")  # noqa: E731
+        get_active_brain_sync = lambda: None  # noqa: E731
+    if not allow_paid_brain():
+        return None
+    # Opted in: prefer the active brain's model when the operator actually picked
+    # an Anthropic-shaped one in the UI; otherwise fall back to known-good aliases.
+    cw = get_active_brain_sync()
+    if cw and cw.model and is_anthropic_model(cw.model):
+        return cw.model
     bedrock_key = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
     bedrock_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
     if bedrock_key and bedrock_secret:
-        return "us.anthropic.claude-opus-4-8"
+        return "us.anthropic.claude-opus-4-6-v1"
     if os.environ.get("ANTHROPIC_API_KEY"):
-        return "claude-opus-4-8"
+        return "claude-sonnet-4-6"
     return None
 
 
@@ -119,15 +136,15 @@ def _build_builtin_model_map() -> dict[str, str]:
     nvidia = _nvidia_key_present()
 
     # Heavy reasoning model: nemotron-3-super-120b (MoE, 12B active) or deepseek-r1 (local)
-    _heavy = "nvidia/llama-3.3-nemotron-super-49b-v1" if nvidia else "deepseek-r1:32b"
+    _heavy  = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:32b"
     # Largest model: same on NIM (nemotron-3-super is the heaviest free model available)
-    _largest = "nvidia/llama-3.3-nemotron-super-49b-v1" if nvidia else "deepseek-r1:671b"
+    _largest = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:671b"
     # Coding/execution model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
-    _coder = "nvidia/llama-3.3-nemotron-super-49b-v1" if nvidia else "qwen3-coder:30b"
+    _coder  = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
     # Fast/small model
-    _fast  = "meta/llama-3.1-8b-instruct" if nvidia else "qwen3-coder:7b"
+    _fast   = "meta/llama-3.1-8b-instruct" if nvidia else "qwen3-coder:7b"
     # Default general model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
-    _gen   = "nvidia/llama-3.3-nemotron-super-49b-v1" if nvidia else "qwen3-coder:30b"
+    _gen    = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
     # Deepseek reasoning / judge
     _reason = "deepseek-ai/deepseek-v4-pro" if nvidia else "deepseek-r1:32b"
 
@@ -156,7 +173,7 @@ def _build_builtin_model_map() -> dict[str, str]:
         # Nvidia NIM short-name aliases (passthrough when key is set)
         "llama-3.3-70b": "meta/llama-3.3-70b-instruct",
         "llama-3.1-405b": "meta/llama-3.1-405b-instruct",
-        "nemotron-ultra": "nvidia/llama-3.3-nemotron-super-49b-v1",
+        "nemotron-ultra": "nvidia/nemotron-3-super-120b-a12b",
         "qwen2.5-coder-32b": "qwen/qwen2.5-coder-32b-instruct",
         "deepseek-r1-nim": "deepseek-ai/deepseek-r1",
         # Gemma 4 short-name aliases (local Ollama pull names)

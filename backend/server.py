@@ -296,12 +296,16 @@ def _default_agent_role_models() -> dict[str, str]:
         (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
     )
     if nim_enabled:
+        # Per-role defaults pinned to the live NVIDIA NIM free-tier roster
+        # (2026-06-20 probe). planner/verifier/judge use the 120B-a12b MoE
+        # (reasoning-tuned); executor uses the dense 49B (JSON-clean tool calls).
+        # deepseek-ai/deepseek-v4-pro was removed — verified 404 on NIM today.
         return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
             "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
+            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
         }
     return {
         "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
@@ -2393,7 +2397,7 @@ async def seed_default_providers():
     _nvidia_base = (
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
-    _nvidia_model =        (os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1")
+    _nvidia_model =        (os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b")
     defaults = [
         {
             "provider_id": "anthropic-claude",

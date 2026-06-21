@@ -103,9 +103,32 @@ def _check_extra_kwargs(kwargs: dict[str, Any], locked: frozenset[str], label: s
         )
 _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "analyze"})
 
-DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
-DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
-DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b")
+# Live-verified default brain models (2026-06-20 probe). The planner/verifier
+# path uses the reasoning-tuned 120B-a12b MoE; the executor path uses the dense
+# 49B (JSON-clean tool-calling). The dense 49B is also the explicit-opt-in
+# fallback — set AGENT_*_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1 anywhere
+# the operator prefers the dense model. The legacy Ollama-local names
+# (``deepseek-r1:32b`` / ``qwen3-coder:30b``) are retained as last-resort
+# fallbacks for installs without NVIDIA_API_KEY — they remained usable when
+# this constant was introduced but the cloud-first defaults now win.
+DEFAULT_PLANNER_MODEL = (
+    os.environ.get("AGENT_PLANNER_MODEL")
+    or os.environ.get("NVIDIA_DEFAULT_MODEL")
+    or "nvidia/nemotron-3-super-120b-a12b"
+)
+DEFAULT_EXECUTOR_MODEL = (
+    os.environ.get("AGENT_EXECUTOR_MODEL")
+    or "nvidia/llama-3.3-nemotron-super-49b-v1"
+)
+DEFAULT_VERIFIER_MODEL = (
+    os.environ.get("AGENT_VERIFIER_MODEL")
+    or os.environ.get("NVIDIA_DEFAULT_MODEL")
+    or "nvidia/nemotron-3-super-120b-a12b"
+)
+# Ollama-local last-resort fallback when no NVIDIA key is configured.
+_DEFAULT_PLANNER_MODEL_OLLAMA = "deepseek-r1:32b"
+_DEFAULT_EXECUTOR_MODEL_OLLAMA = "qwen3-coder:30b"
+_DEFAULT_VERIFIER_MODEL_OLLAMA = "deepseek-r1:32b"
 
 # Nemotron Reward Model toggle (B1).  When NVIDIA_API_KEY is set, the reward
 # model scores step outputs as a cheaper/faster alternative to the LLM verifier.
@@ -1845,12 +1868,16 @@ class AgentRunner:
 
 # Curated set of free NVIDIA NIM model IDs FreeBuff is allowed to route to.
 # Overridable via FREEBUFF_MODELS (comma-separated) for new-model rollouts.
+# Live-verified 2026-06-20: only these four models return HTTP 200 against
+# https://integrate.api.nvidia.com/v1/chat/completions. The previously-listed
+# qwen/qwen2.5-coder-32b-instruct (410 Gone), meta/llama-3.1-8b-instruct
+# (undocumented on free tier at the time of probe), and deepseek-ai/deepseek-r1
+# (404) are removed — they would silently 4xx every FreeBuff run.
 _DEFAULT_FREE_NVIDIA_MODELS: tuple[str, ...] = (
+    "nvidia/nemotron-3-super-120b-a12b",
     "nvidia/llama-3.3-nemotron-super-49b-v1",
-    "qwen/qwen2.5-coder-32b-instruct",
     "meta/llama-3.3-70b-instruct",
-    "meta/llama-3.1-8b-instruct",
-    "deepseek-ai/deepseek-r1",
+    "meta/llama-3.1-70b-instruct",
 )
 
 # NVIDIA NIM is OpenAI-compatible and lives behind /v1; the runner's _chat_text

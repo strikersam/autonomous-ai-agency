@@ -320,7 +320,7 @@ for review.
 ### Free-first model routing
 
 Context generation runs on **free NVIDIA NIM models** by preference —
-`qwen/qwen3-coder-480b-a35b-instruct` → `nvidia/llama-3.3-nemotron-super-49b-v1`
+`qwen/qwen3-coder-480b-a35b-instruct` → `nvidia/nemotron-3-super-120b-a12b`
 → `meta/llama-3.3-70b-instruct` → `qwen/qwen2.5-coder-32b-instruct`, with
 Claude Opus as a final fallback only if every NVIDIA model is unavailable.
 

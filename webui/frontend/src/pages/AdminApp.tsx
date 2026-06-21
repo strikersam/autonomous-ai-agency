@@ -4,12 +4,19 @@ import {
   adminCreateWorkspace,
   adminDeleteProvider,
   adminDeleteWorkspace,
+  adminGetBrainPolicy,
+  adminGetProviderRoleTags,
   adminListProviders,
   adminListWorkspaces,
   adminLogin,
+  adminReorderProviders,
   adminRunCommand,
   adminSyncWorkspace,
+  adminUpdateProvider,
   ApiError,
+  Provider,
+  ProviderRoleTag,
+  BrainPolicy,
 } from "../api";
 import { getLocal, removeLocal, setLocal } from "../storage";
 
@@ -31,6 +38,12 @@ export default function AdminApp() {
 
   const [providers, setProviders] = useState<any[]>([]);
   const [workspaces, setWorkspaces] = useState<any[]>([]);
+  // Role badges + brain policy — sourced from the canonical brain resolver, NOT
+  // from the webui JsonConfigStore. Keeping the role surface aligned with the
+  // brain decision prevents the UI from claiming a provider is the “brain” when
+  // routing picked something else.
+  const [roleTags, setRoleTags] = useState<Record<string, ProviderRoleTag>>({});
+  const [brainPolicy, setBrainPolicy] = useState<BrainPolicy | null>(null);
 
   const [newProv, setNewProv] = useState({
     name: "",
@@ -38,6 +51,7 @@ export default function AdminApp() {
     api_key: "",
     default_model: "",
     default_temperature: "0.2",
+    priority: "0",
   });
   const [newWs, setNewWs] = useState({
     name: "",
@@ -71,9 +85,16 @@ export default function AdminApp() {
     if (!authed) return;
     setErr(null);
     try {
-      const [p, w] = await Promise.all([adminListProviders(token), adminListWorkspaces(token)]);
+      const [p, w, tags, pol] = await Promise.all([
+        adminListProviders(token),
+        adminListWorkspaces(token),
+        adminGetProviderRoleTags(token).catch(() => ({ role_tags: {} })),
+        adminGetBrainPolicy(token).catch(() => null),
+      ]);
       setProviders(p.providers ?? []);
       setWorkspaces(w.workspaces ?? []);
+      setRoleTags((tags as any).role_tags ?? {});
+      setBrainPolicy(pol as BrainPolicy | null);
       if (w.workspaces?.[0]?.workspace_id) setCmdWorkspace(w.workspaces[0].workspace_id);
     } catch (e: any) {
       if (handleAuthFailure(e)) return;
@@ -116,14 +137,105 @@ export default function AdminApp() {
         default_model: newProv.default_model || null,
         default_temperature: Number(newProv.default_temperature || "0.2"),
         kind: "openai_compat",
+        priority: Number(newProv.priority || "0"),
       });
-      setNewProv({ name: "", base_url: "", api_key: "", default_model: "", default_temperature: "0.2" });
+      setNewProv({ name: "", base_url: "", api_key: "", default_model: "", default_temperature: "0.2", priority: "0" });
       await refresh();
     } catch (e: any) {
       if (handleAuthFailure(e)) return;
       setErr(e?.message ?? String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  function moveProviderInList(idx: number, dir: -1 | 1) {
+    const arr = [...providers];
+    const j = idx + dir;
+    if (j < 0 || j >= arr.length) return;
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    setProviders(arr);
+  }
+
+  async function commitReorder() {
+    if (!authed || providers.length === 0) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      // Send the displayed array AS-IS, in the order the user arranged it
+      // (top = highest). The render sort steps are display-only — sending the
+      // re-sorted array would discard every up/down click.
+      await adminReorderProviders(token, providers.map((p: any) => p.provider_id));
+      await refresh();
+    } catch (e: any) {
+      if (handleAuthFailure(e)) return;
+      setErr(`Reorder failed: ${e?.message ?? String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Debounced per-provider priority edits — typing the priority integer fires
+  // onChange for every digit, which would otherwise issue a PATCH per keystroke.
+  const [pendingPriority, setPendingPriority] = useState<Record<string, number>>({});
+  async function flushPendingPriority(providerId: string) {
+    const v = pendingPriority[providerId];
+    if (v === undefined) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await adminUpdateProvider(token, providerId, { priority: v });
+    } catch (e: any) {
+      if (handleAuthFailure(e)) return;
+      setErr(`Set priority failed: ${e?.message ?? String(e)}`);
+    } finally {
+      // Always clear the pending edit. On success, refresh() restores the
+      // authoritative value from the server. On failure, the displayed
+      // number reverts to whatever the server last confirmed.
+      setPendingPriority((prev) => {
+        const next = { ...prev };
+        delete next[providerId];
+        return next;
+      });
+      setBusy(false);
+    }
+    await refresh();
+  }
+
+  // Role badges key on backend provider_ids (Mongo store) which DO NOT overlap
+  // with the webui JsonConfigStore ids. Build a lookup by normalized base_url
+  // AND by name so operators' locally-added providers get their badge too.
+  const roleForWebui = useMemo(() => {
+    const map: Record<string, ProviderRoleTag> = {};
+    const norm = (u: string) => (u || "").trim().replace(/\/+$/, "").toLowerCase();
+    const byBase = new Map<string, ProviderRoleTag>();
+    const byName = new Map<string, ProviderRoleTag>();
+    for (const tag of Object.values(roleTags)) {
+      if (tag.base_url) byBase.set(norm(tag.base_url), tag);
+      if (tag.name) byName.set(tag.name.toLowerCase(), tag);
+    }
+    for (const p of providers as any[]) {
+      const match =
+        (p.base_url && byBase.get(norm(p.base_url))) ||
+        (p.name && byName.get(String(p.name).toLowerCase()));
+      if (match) map[p.provider_id] = match;
+    }
+    return map;
+  }, [roleTags, providers]);
+
+  function roleBadge(tag: ProviderRoleTag | undefined): { className: string; label: string; title: string } {
+    if (!tag) return { className: "badge-muted", label: "—", title: "Role not yet resolved" };
+    switch (tag.role) {
+      case "brain":
+        return { className: "badge-brain", label: "BRAIN", title: tag.reason };
+      case "fallback":
+        return { className: "badge-fallback", label: "PAID FALLBACK", title: tag.reason };
+      case "sub-agent":
+        return { className: "badge-sub-agent", label: "BACKUP", title: tag.reason };
+      case "unconfigured":
+        return { className: "badge-unconfigured", label: "UNCONFIGURED", title: tag.reason };
+      default:
+        return { className: "badge-muted", label: tag.role.toUpperCase(), title: tag.reason };
     }
   }
 
@@ -275,29 +387,140 @@ export default function AdminApp() {
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, padding: 14, overflow: "auto" }}>
+          <div className="panel" style={{ gridColumn: "1 / span 2", borderRadius: 14, border: "1px solid var(--border)" }}>
+            <div className="stack">
+              <div className="sectionTitle">Brain &amp; Paid-Models policy</div>
+              <div className="muted">
+                Shows the CEO brain the agency picks right now, plus the global paid-models policy.
+                Paid providers (Anthropic / Bedrock) are only used as the brain when this is enabled.
+                Drag-and-drop below reorders the chat-provider picker; backend-seeded brain priority is
+ configured in the server env (e.g. NVIDIA_DEFAULT_MODEL) or via the backend provider store.
+              </div>
+              <div className="row wrap">
+                <span
+                  className={`pill ${brainPolicy?.allow_paid_brain ? "badge-fallback" : "badge-brain"}`}
+                  title={brainPolicy?.allow_paid_brain
+                    ? "ALLOW_PAID_BRAIN=true \u2014 paid providers may be picked when no free alternative is configured"
+                    : "ALLOW_PAID_BRAIN unset \u2014 free-first is enforced (default)"}
+                >
+                  Paid models allowed: {brainPolicy?.allow_paid_brain ? "YES" : "no"}
+                </span>
+                {brainPolicy?.resolution ? (
+                  <span className="pill mono" title="The brain the next agent run will use">
+                    Brain: {brainPolicy.resolution.provider_id}
+                    {brainPolicy.resolution.model ? ` (${brainPolicy.resolution.model})` : ""}
+                    {" \u2014 "}
+                    {brainPolicy.resolution.role}
+                    {brainPolicy.resolution.free_tier ? " \u2022 free" : " \u2022 paid"}
+                  </span>
+                ) : (
+                  <span className="pill mono muted">brain policy not resolved yet</span>
+                )}
+                <span
+                  className="pill mono muted"
+                  title={brainPolicy?.hint ?? "Set ALLOW_PAID_BRAIN=true in the server environment to enable paid providers."}
+                >
+                  env: {brainPolicy?.env_var ?? "ALLOW_PAID_BRAIN"}
+                </span>
+              </div>
+              {!brainPolicy?.allow_paid_brain ? (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Free-first is enforced. Set <code>ALLOW_PAID_BRAIN=true</code> on the server (Render env var / .env) and restart to enable paid models \u2014 changes here WILL incur costs.
+                </div>
+              ) : null}
+            </div>
+          </div>
+
           <div className="panel" style={{ borderRadius: 14, border: "1px solid var(--border)" }}>
             <div className="stack">
               <div className="sectionTitle">Providers</div>
-              <div className="muted">OpenAI-compatible endpoints (secrets stay server-side).</div>
-              <div className="list">
-                {providers.map((p: any) => (
-                  <div className="item" key={p.provider_id}>
-                    <div className="row wrap">
-                      <div className="grow">
-                        <div style={{ fontWeight: 600 }}>{p.name}</div>
-                        <div className="muted mono">{p.base_url}</div>
-                        <div className="muted mono">id: {p.provider_id}</div>
+              <div className="muted">
+                OpenAI-compatible endpoints (secrets stay server-side).
+                Drag with the arrows to reorder priority \u2014 highest = top = first brain candidate.
+              </div>
+              <div
+                className="list"
+                role="list"
+                aria-label="Providers ordered by priority (top first)"
+              >
+                {[...providers]
+                  .sort((a: any, b: any) => (Number(b?.priority ?? 0)) - (Number(a?.priority ?? 0)))
+                  .map((p: any, idx: number, arr: any[]) => {
+                  const badge = roleBadge(roleForWebui[p.provider_id]);
+                  return (
+                    <div className="item" key={p.provider_id} role="listitem">
+                      <div className="row wrap">
+                        <div className="row" style={{ alignItems: "center", gap: 4 }}>
+                          <button
+                            className="btn-sm"
+                            aria-label={`Move ${p.name} up`}
+                            onClick={() => moveProviderInList(providers.findIndex((x: any) => x.provider_id === p.provider_id), -1)}
+                            disabled={busy || idx === 0}
+                            title="Higher priority"
+                          >\u2191</button>
+                          <button
+                            className="btn-sm"
+                            aria-label={`Move ${p.name} down`}
+                            onClick={() => moveProviderInList(providers.findIndex((x: any) => x.provider_id === p.provider_id), 1)}
+                            disabled={busy || idx === arr.length - 1}
+                            title="Lower priority"
+                          >\u2193</button>
+                          <input
+                            className="mono"
+                            style={{ width: 60 }}
+                            type="number"
+                            aria-label={`Priority for ${p.name}`}
+                            value={
+                              pendingPriority[p.provider_id] !== undefined
+                                ? pendingPriority[p.provider_id]
+                                : Number(p.priority ?? 0)
+                            }
+                            min={-1000}
+                            max={1000}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (Number.isFinite(v)) setPendingPriority((prev) => ({ ...prev, [p.provider_id]: v }));
+                            }}
+                            onBlur={() => flushPendingPriority(p.provider_id)}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); flushPendingPriority(p.provider_id); } }}
+                            disabled={busy}
+                          />
+                        </div>
+                        <div className="grow">
+                          <div className="row" style={{ alignItems: "center", gap: 6 }}>
+                            <span style={{ fontWeight: 600 }}>{p.name}</span>
+                            <span
+                              className={`role-badge ${badge.className}`}
+                              title={badge.title}
+                            >{badge.label}</span>
+                          </div>
+                          <div className="muted mono">{p.base_url}</div>
+                          <div className="muted mono">id: {p.provider_id}</div>
+                        </div>
+                        <button
+                          className="danger"
+                          onClick={() => deleteProvider(p.provider_id, p.name)}
+                          disabled={busy}
+                        >
+                          Delete
+                        </button>
                       </div>
-                      <button
-                        className="danger"
-                        onClick={() => deleteProvider(p.provider_id, p.name)}
-                        disabled={busy}
-                      >
-                        Delete
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
+              </div>
+              <div className="row">
+                <button
+                  className="primary"
+                  onClick={commitReorder}
+                  disabled={busy || providers.length === 0}
+                  aria-label="Save order"
+                >
+                  Save order
+                </button>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Click Save order to persist the displayed ordering.
+                </span>
               </div>
 
               <div className="sectionTitle" id="add-provider-title">Add provider</div>
@@ -339,6 +562,16 @@ export default function AdminApp() {
                   inputMode="decimal"
                   value={newProv.default_temperature}
                   onChange={(e) => setNewProv({ ...newProv, default_temperature: e.target.value })}
+                  style={{ width: 90 }}
+                />
+                <input
+                  className="mono"
+                  placeholder="Priority"
+                  aria-label="Provider priority"
+                  inputMode="numeric"
+                  type="number"
+                  value={newProv.priority}
+                  onChange={(e) => setNewProv({ ...newProv, priority: e.target.value })}
                   style={{ width: 90 }}
                 />
                 <button
