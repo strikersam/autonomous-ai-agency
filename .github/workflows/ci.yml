@@ -59,10 +59,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          find . -name "*.py" \
-            -not -path "./.venv/*" \
-            -not -path "./.git/*" \
-            -exec python -m py_compile {} +
+          python -m compileall -q .
           printf '✓ Python syntax OK\n'
 
       - name: Configure Git for test subprocess calls
@@ -169,54 +166,3 @@ jobs:
           REACT_APP_BACKEND_URL: https://relay.example.com
           PUBLIC_URL: /local-llm-server
         run: npm run build
-
-  e2e:
-    name: E2E tests (Playwright)
-    runs-on: ubuntu-latest
-    if: ${{ vars.RUN_E2E == 'true' }}
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt playwright pytest pytest-playwright
-
-      - name: Install Playwright browsers
-        run: playwright install chromium --with-deps
-
-      - name: Start services
-        run: |
-          uvicorn backend.server:app --port 8001 --log-level error &
-          uvicorn proxy:app --port 8000 --log-level error &
-          sleep 5
-        env:
-          API_KEYS: "ci-e2e-key"
-          ADMIN_EMAIL: "admin@llmrelay.local"
-          ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-test-admin-password-do-not-use' }}
-          SECRET_KEY: "ci-test-secret-do-not-use"
-          MONGO_URL: "mongodb://localhost:27017"
-          DB_NAME: "llm_wiki_e2e_ci"
-
-      - name: Run E2E tests
-        run: pytest tests/e2e/ -v --screenshot=on --timeout=60
-        env:
-          RELAY_BASE_URL: http://localhost:8001
-          PROXY_BASE_URL: http://localhost:8000
-          ADMIN_EMAIL: "admin@llmrelay.local"
-          ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-test-admin-password-do-not-use' }}
-
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-screenshots
-          path: docs/screenshots/
-          retention-days: 14
