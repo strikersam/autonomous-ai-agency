@@ -1,10 +1,11 @@
 name: Issue Context Generator
 
-# Triggers whenever a new issue is opened (quick-note OR any issue).
-# Also fires when the 'quick-note' label is added to an existing issue.
+# Triggers whenever ANY new issue is opened (not just quick-note labeled).
+# Also fires when the 'quick-note' label is added to an existing issue,
+# OR when any human applies a label to a previously-untracked issue.
 #
 # Pipeline:
-#   open issue → generate prompt + TODO → branch → commit context doc → DRAFT PR → close issue
+#   open issue → generate prompt + TODO → branch → commit context doc → DRAFT PR → dispatch implementation
 #
 # PRs are created in DRAFT status to prevent CodeRabbit / Copilot reviews
 # until a human or the process-quick-note workflow converts to ready.
@@ -44,14 +45,14 @@ jobs:
           echo "Closed automation-test issue #$ISSUE_NUM"
 
   generate-context:
-    # Skip labeled events unless the added label is 'quick-note'.
-    # This prevents spurious reruns when unrelated labels are added.
-    # Automation-test issues are handled by the verify-automation-test job above.
+    # Process EVERY opened issue, and any labeled event regardless of which
+    # label was added (a human applying a label signals "please pick this up").
+    # Automation-test issues are short-circuited by the verify-automation-test
+    # job above; the !contains guard here is belt-and-suspenders.
     if: >
       !contains(github.event.issue.labels.*.name, 'automation-test') &&
       (github.event.action == 'opened' ||
-       (github.event.action == 'labeled' &&
-        github.event.label.name == 'quick-note'))
+       github.event.action == 'labeled')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
