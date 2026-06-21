@@ -2251,6 +2251,9 @@ async def ensure_bootstrap() -> None:
             await get_db().tasks.create_index("task_id", unique=True)
             await get_db().tasks.create_index("owner_id")
             await get_db().tasks.create_index("status")
+            await get_db().tasks.create_index("created_at")
+            await get_db().tasks.create_index([("owner_id", 1), ("created_at", -1)])
+            await get_db().tasks.create_index([("status", 1), ("created_at", -1)])
             # Wire feature stores to the shared MongoDB connection
             set_agent_store(AgentStore(db=get_db()))
             set_task_store(TaskStore(db=get_db()))

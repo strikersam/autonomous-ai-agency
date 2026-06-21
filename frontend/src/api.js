@@ -406,7 +406,9 @@ export const getPublicDoctorReport = () => API.get('/api/company/doctor/public')
 export const getSeoChecks = () => API.get('/api/seo/checks');
 // Browser-based crawls of up to ~50 pages can take several minutes.
 export const runSeoAudit = (companyId, request) =>
-  API.post(`/api/company/${companyId}/seo/audit`, request, { timeout: 180000 });
+  // Endpoint is now async — returns a {status:'pending', audit_id} stub immediately.
+  // Poll getSeoAudit() until status transitions to success/partial/failed.
+  API.post(`/api/company/${companyId}/seo/audit`, request, { timeout: 15000 });
 export const listSeoAudits = (companyId) =>
   API.get(`/api/company/${companyId}/seo/audits`);
 export const getSeoAudit = (companyId, auditId) =>

@@ -769,9 +769,10 @@ class SeoAuditEngine:
         self,
         request: SeoAuditRequest,
         company_id: Optional[str] = None,
+        audit_id: Optional[str] = None,
     ) -> SeoAuditReport:
         """Execute the full audit: crawl, page checks, site checks, scoring."""
-        audit_id = f"seoaudit_{secrets.token_hex(8)}"
+        audit_id = audit_id or f"seoaudit_{secrets.token_hex(8)}"
         started = datetime.now(timezone.utc)
         root = normalize_url(request.website_url)
 

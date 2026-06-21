@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Agents idle despite TODO tasks: reconciler now re-queues unqueued TODO tasks** (2026-06-21). `TaskStore.reconcile_stranded_tasks()` previously only handled IN_PROGRESS stranded tasks. It never touched TODO tasks with `pending_agent_run=False`. Fix: reconciler now also re-queues those. File: `tasks/store.py`.
+
+### Changed
+
+- **SEO audit is now async** (2026-06-21). Endpoint returns 202/pending immediately; crawl runs in `BackgroundTasks`; frontend polls until done. Files: `backend/seo_api.py`, `services/seo_audit.py`, `frontend/src/api.js`, `frontend/src/v5/screens/CompanyScreen.jsx`.
+
+- **`/api/tasks/` MongoDB indexes + 8s TTL cache** (2026-06-21). Three indexes on `tasks` collection + single-flight cache on admin list_all. Files: `backend/server.py`, `tasks/api.py`.
+
+
 ### Changed
 
 - **Dashboard + Task pages: cut per-poll DB cost on `/api/stats` and `/api/observability/metrics`** (2026-06-21). The v5 dashboard polls six unfiltered `count_documents({})` calls plus a metrics aggregation every 30s from every open tab. Three fixes: (1) the SQLite shim's `count_documents({})` now answers from `SELECT COUNT(*)` instead of pulling and JSON-decoding every row just to call `len()` — decisive for the unbounded `activity_log`/`local_metrics` tables — and a matching `estimated_document_count()` was added (Motor already has an O(1) one); (2) `/api/stats` now runs its six counts + recent-pages + active-provider concurrently via `asyncio.gather` and through a backend-agnostic `_fast_count` helper (prefers `estimated_document_count`); (3) both global, approximate roll-up endpoints are wrapped in a 15s single-flight in-process TTL cache (`_cached`) so a burst of tabs/refreshes computes once per window. New tests in `tests/test_dashboard_cache.py` and `tests/test_sqlite_store.py` (empty-query fast-count + `estimated_document_count`).

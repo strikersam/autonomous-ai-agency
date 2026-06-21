@@ -504,39 +504,6 @@ async def reset_wizard(request: Request):
     if target_uid in _wizard_states:
         del _wizard_states[target_uid]
     await _delete_wizard_state(target_uid)
-    audit("setup.reset", getattr(request.state, "user", {}), resource="setup", resource_id=target_uid)
+    audit("setup.reset", getattr(request.state, "user", {}), resource="setup", outcome="success")
+    log.info("Setup wizard reset for user %s by %s", target_uid, _uid(request))
     return {"reset": True, "user_id": target_uid}
-
-
-@setup_router.post("/secret")
-async def store_secret_during_setup(request: Request):
-    """Store API keys/secrets during setup wizard (accessible without full auth).
-
-    Used by the setup wizard frontend to store provider API keys (OpenAI, Anthropic, etc)
-    before the user has completed setup and may not have full authentication yet.
-    """
-    try:
-        body = await request.json()
-        name = body.get("name")
-        value = body.get("value")
-        description = body.get("description", "")
-
-        if not name or not value:
-            raise HTTPException(status_code=400, detail="name and value are required")
-
-        user = getattr(request.state, "user", {}) or {}
-        uid = user.get("email") or user.get("_id") or "setup-user"
-
-        rec = SecretRecord(owner_id=uid, name=name, description=description)
-        rec.set_value(value)
-
-        store = get_secrets_store()
-        await store.create(rec)
-
-        audit("setup.secret_created", user, resource="secret", resource_id=rec.secret_id)
-        return {"id": rec.secret_id, "name": rec.name}
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error(f"Failed to store secret during setup: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to store secret: {str(e)}")

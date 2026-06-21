@@ -320,23 +320,28 @@ class TaskStore:
         active_task_ids: set[str] | None = None,
         stale_threshold_s: float = 300.0,
     ) -> int:
-        """Reset tasks that are stuck IN_PROGRESS but no longer actively executing.
+        """Reset tasks that are stuck and no longer queued for execution.
 
-        A task is considered "stranded" when all of these are true:
-        - status is IN_PROGRESS and pending_agent_run is False (execution was claimed)
-        - task_id is NOT in active_task_ids (not currently executing in this process)
-        - updated_at is older than stale_threshold_s (execution didn't complete)
+        Two cases are handled:
 
-        This handles crash-recovery: after a server restart the in-memory claim
-        set is empty, so all mid-flight tasks are eligible for re-queue.
+        1. **Stranded IN_PROGRESS** — status is IN_PROGRESS, pending_agent_run is
+           False (execution was claimed), task is not currently executing, and
+           updated_at is older than stale_threshold_s.  These are crash-recovery
+           candidates: after a server restart the in-memory claim set is empty.
 
-        Returns the number of tasks reconciled.
+        2. **Unqueued TODO** — status is TODO but pending_agent_run is False.
+           These tasks were never dispatched (e.g. created before the auto-queue
+           logic was in place, or created via a code path that bypassed the service
+           layer).  They would sit idle forever without this fix.
+
+        Returns the total number of tasks reconciled.
         """
         import time as _time
         active = active_task_ids or set()
         cutoff = _time.time() - stale_threshold_s
 
         if self._mode == "mongo":
+            # Stranded IN_PROGRESS
             cursor = self._collection.find(
                 {
                     "status": TaskStatus.IN_PROGRESS.value,
@@ -345,21 +350,35 @@ class TaskStore:
                 },
                 {"_id": 0},
             )
-            stranded = await cursor.to_list(length=500)
+            stranded_in_progress = await cursor.to_list(length=500)
+            # Unqueued TODO
+            cursor2 = self._collection.find(
+                {
+                    "status": TaskStatus.TODO.value,
+                    "pending_agent_run": False,
+                },
+                {"_id": 0},
+            )
+            unqueued_todo = await cursor2.to_list(length=500)
         else:
-            stranded = [
+            stranded_in_progress = [
                 v for v in self._mem.values()
                 if v.get("status") == TaskStatus.IN_PROGRESS.value
                 and v.get("pending_agent_run") is False
                 and v.get("updated_at", 0) < cutoff
             ]
+            unqueued_todo = [
+                v for v in self._mem.values()
+                if v.get("status") == TaskStatus.TODO.value
+                and v.get("pending_agent_run") is False
+            ]
 
         reconciled = 0
-        for doc in stranded:
+
+        for doc in stranded_in_progress:
             task_id = doc.get("task_id") or doc.get("_id")
             if not task_id or task_id in active:
                 continue
-
             task = Task.model_validate(doc)
             task.status = TaskStatus.TODO
             task.pending_agent_run = True
@@ -377,8 +396,24 @@ class TaskStore:
                 task_id, stale_threshold_s,
             )
 
+        for doc in unqueued_todo:
+            task_id = doc.get("task_id") or doc.get("_id")
+            if not task_id:
+                continue
+            task = Task.model_validate(doc)
+            task.pending_agent_run = True
+            task.add_log(
+                "Task queued by reconciler (was TODO with pending_agent_run=False)",
+                event_type="reconciled",
+                actor="system:reconciler",
+                task_status=TaskStatus.TODO,
+            )
+            await self.update(task)
+            reconciled += 1
+            log.warning("Reconciler: queued unqueued TODO task %s", task_id)
+
         if reconciled:
-            log.info("Reconciler: reset %d stranded task(s) to TODO/pending", reconciled)
+            log.info("Reconciler: fixed %d stranded/unqueued task(s)", reconciled)
         return reconciled
 
 

@@ -103,7 +103,11 @@ function SeoAuditPanel({ companyId, defaultUrl }) {
   const [msg, setMsg] = React.useState(null);
   const [downloadingFmt, setDownloadingFmt] = React.useState(null);
   const mounted = React.useRef(true);
-  React.useEffect(() => () => { mounted.current = false; }, []);
+  const pollRef = React.useRef(null);
+  React.useEffect(() => () => {
+    mounted.current = false;
+    if (pollRef.current) clearInterval(pollRef.current);
+  }, []);
   React.useEffect(() => { setUrl(u => u || defaultUrl || ''); }, [defaultUrl]);
 
   const loadAudits = React.useCallback(async () => {
@@ -111,13 +115,35 @@ function SeoAuditPanel({ companyId, defaultUrl }) {
     try {
       const { data } = await api.listSeoAudits(companyId);
       const list = data.audits || (Array.isArray(data) ? data : []);
-      if (mounted.current && list.length) {
-        const full = await api.getSeoAudit(companyId, list[0].audit_id);
+      // Skip stale pending audits from a previous session
+      const completed = list.find(r => r.status !== 'pending' && r.status !== 'running');
+      if (mounted.current && completed) {
+        const full = await api.getSeoAudit(companyId, completed.audit_id);
         if (mounted.current) setReport(full.data);
       }
     } catch { /* no audits stored yet */ }
   }, [companyId]);
   React.useEffect(() => { loadAudits(); }, [loadAudits]);
+
+  const _startPolling = (auditId) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const { data } = await api.getSeoAudit(companyId, auditId);
+        if (!mounted.current) { clearInterval(pollRef.current); return; }
+        if (data.status === 'pending' || data.status === 'running') return; // still going
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        setRunning(false);
+        setReport(data);
+        if (data.status === 'success' || data.status === 'partial') {
+          setMsg(`Audit complete — health score ${Math.round(data.health_score)}/100, ${data.total_issues} issue(s) found.`);
+        } else {
+          setErr(data.error || `Audit finished with status: ${data.status}`);
+        }
+      } catch { /* transient network error — keep polling */ }
+    }, 10000);
+  };
 
   const run = async () => {
     setErr(null); setMsg(null); setRunning(true);
@@ -126,11 +152,22 @@ function SeoAuditPanel({ companyId, defaultUrl }) {
       if (Number(revenue) > 0) body.monthly_organic_revenue = Number(revenue);
       const { data } = await api.runSeoAudit(companyId, body);
       if (!mounted.current) return;
+      // Endpoint now returns immediately with status='pending'.
+      // Show the pending stub and start polling until the crawl finishes.
       setReport(data);
-      if (data.status !== 'success') setErr(data.error || `Audit finished with status: ${data.status}`);
+      if (data.status === 'pending' || data.status === 'running') {
+        setMsg('Crawl started — results will appear automatically (browser crawls can take 3-10 min). You can navigate away and come back.');
+        _startPolling(data.audit_id);
+      } else {
+        setRunning(false);
+        if (data.status !== 'success' && data.status !== 'partial') {
+          setErr(data.error || `Audit finished with status: ${data.status}`);
+        }
+      }
     } catch (e) {
+      setRunning(false);
       setErr(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Audit failed.');
-    } finally { if (mounted.current) setRunning(false); }
+    }
   };
 
   const download = async (fmt) => {
@@ -196,7 +233,7 @@ function SeoAuditPanel({ companyId, defaultUrl }) {
             background: running ? 'rgba(93,162,255,0.20)' : 'var(--accent)',
             border: '1px solid rgba(93,162,255,0.40)', color: running ? 'var(--accent)' : '#04101f',
             opacity: (!url || !companyId) ? 0.5 : 1,
-          }}>{running ? 'Crawling…' : '▶ Run Audit'}</button>
+          }}>{running ? '⏳ Crawling…' : '▶ Run Audit'}</button>
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
           Bot-protected sites (Akamai/Cloudflare) need <b>browser</b> or <b>auto</b> mode (real Chromium via
