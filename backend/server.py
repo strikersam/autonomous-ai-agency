@@ -1421,11 +1421,11 @@ async def lifespan(app_: "FastAPI"):
     bg: Optional[BackgroundServices] = None
     try:
         await ensure_bootstrap()
-        log.info("Autonomous AI Agency started — provider=%s", LLM_PROVIDER)
+        log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
     except Exception as exc:
         log.warning("MongoDB bootstrap deferred (no DB connection): %s", exc)
         log.info(
-            "Autonomous AI Agency started in limited mode — set MONGO_URL to enable full features"
+            "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
         )
 
     if run_background_in_web():
@@ -2474,7 +2474,7 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": GOOGLE_BASE_URL,
             "api_key": GOOGLE_API_KEY,
-            "default_model": "gemini-2.5-flash",
+            "default_model": "gemma-4",
             "is_default": LLM_PROVIDER == "google",
             "priority": 75,
             "status": "configured" if GOOGLE_API_KEY else "unconfigured",
@@ -2517,7 +2517,7 @@ async def seed_default_providers():
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": -80,  # paid — free cloud providers always preferred
+            "priority": 55,
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -2528,7 +2528,7 @@ async def seed_default_providers():
             "api_key": ANTHROPIC_API_KEY,
             "default_model": ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": -90,  # paid last-resort — never preferred over free cloud
+            "priority": 50,
             "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
         },
         {
@@ -2567,22 +2567,10 @@ async def seed_default_providers():
             new_status = p.get("status", "")
             if new_status and new_status != existing.get("status", ""):
                 update["status"] = new_status
-            # NOTE: priority is intentionally NOT synced here so user edits from the
-            # Providers UI persist across restarts. Priority is only set on first insert.
-            #
-            # ONE-TIME MIGRATION: force Anthropic providers to negative priority so free
-            # cloud providers (Google, OpenRouter, etc.) are always preferred as the brain.
-            # This only fires when the existing priority is still in the old paid-first range.
-            paid_provider_ids = {"anthropic", "anthropic-claude", "anthropic-universal"}
-            if p["provider_id"] in paid_provider_ids:
-                existing_prio = existing.get("priority", 0)
-                new_prio = p.get("priority", 0)  # already negative in seed defaults
-                if existing_prio > new_prio:
-                    update["priority"] = new_prio
-                    log.info(
-                        "Migrated %s priority %d → %d (free providers now preferred)",
-                        p["provider_id"], existing_prio, new_prio,
-                    )
+            # Sync priority so the fallback ordering is always correct
+            new_priority = p.get("priority")
+            if new_priority is not None and existing.get("priority") != new_priority:
+                update["priority"] = new_priority
             if update:
                 await get_db().providers.update_one(
                     {"provider_id": p["provider_id"]}, {"$set": update}
@@ -2632,7 +2620,7 @@ def _builtin_provider_records() -> list[dict]:
             "api_key": EMERGENT_LLM_KEY,
             "default_model": EMERGENT_ANTHROPIC_MODEL,
             "is_default": False,
-            "priority": -80,  # paid — free cloud providers always preferred
+            "priority": 55,
             "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
         {
@@ -3473,21 +3461,6 @@ async def _build_provider_router(
     primary_provider_id: Optional[str],
     allow_commercial_fallback_once: bool = False,
 ) -> tuple[ProviderRouter, dict[str, bool], dict]:
-    # If no explicit provider is requested, resolve from the per-surface policy.
-    if not primary_provider_id:
-        try:
-            from services.workflow_orchestrator import resolve_provider_for
-            chat_base, chat_headers, chat_model = await resolve_provider_for(chat)
-            # Try to match the resolved base_url to a configured provider_id
-            records_for_match = await _list_configured_provider_records()
-            for r in records_for_match:
-                rbase = str(r.get("base_url") or "").strip().rstrip("/")
-                if rbase and chat_base.rstrip("/").startswith(rbase):
-                    primary_provider_id = str(r.get("provider_id") or "")
-                    break
-        except Exception:
-            log.debug("Surface-based provider resolution for chat failed — falling to priority order", exc_info=True)
-
     records = await _list_configured_provider_records()
     policy = _chat_provider_policy(
         allow_commercial_fallback_once=allow_commercial_fallback_once
@@ -4809,7 +4782,6 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
-    priority: Optional[int] = Field(default=None, ge=-100, le=1000)
 
 
 @app.get("/api/providers")
@@ -4835,24 +4807,6 @@ async def list_providers(user: dict = Depends(get_current_user)):
             p.pop("api_key", None)
             p["api_key_masked"] = ""
             providers.append(p)
-    # Tag every provider with its role (brain / sub-agent / fallback / unconfigured)
-    # so the Providers screen can show a clear "BRAIN" badge per the operator's
-    # request. The classification uses the same _resolve_brain_provider() logic
-    # the orchestrator itself uses, so the UI never disagrees with the runtime.
-    # Failure is non-fatal: every provider simply gets role="available" with
-    # reason="tagging skipped" so the screen still renders.
-    try:
-        from services.workflow_orchestrator import get_provider_role_tags
-        role_tags = await get_provider_role_tags()
-    except Exception as exc:
-        log.debug("list_providers: role tagging unavailable: %s", exc)
-        role_tags = {}
-    for p in providers:
-        tag = role_tags.get(p.get("provider_id") or "") or {}
-        p["is_brain"] = bool(tag.get("is_brain"))
-        p["role"] = tag.get("role") or "available"
-        p["role_reason"] = tag.get("reason") or ""
-
     return {"providers": providers}
 
 
@@ -4862,8 +4816,7 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
         raise HTTPException(status_code=409, detail="Provider ID already exists")
     if body.is_default:
         await get_db().providers.update_many({}, {"$set": {"is_default": False}})
-    # Pydantic v2: use .model_dump() not the deprecated .dict().
-    doc = body.model_dump()
+    doc = body.dict()
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "configured"
     await get_db().providers.insert_one(doc)
@@ -4875,14 +4828,8 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
 async def update_provider(
     provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
 ):
-    # Pydantic v2: use .model_dump() not the deprecated .dict().
-    # The deprecated path emits a PydanticDeprecatedSince20 warning in v2 and
-    # will be removed in a future release. The test in
-    # tests/test_brain_priority_scanner.py pins the round-trip via model_dump;
-    # this handler must use the same API or the test will pass but the real
-    # PUT will silently fail to persist priority.
     updates = {}
-    for k, v in body.model_dump(exclude_none=True).items():
+    for k, v in body.dict(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
         await get_db().providers.update_many(
@@ -5000,97 +4947,6 @@ async def provider_models(provider_id: str, user: dict = Depends(get_current_use
 
 
 # ─── Models Hub ─────────────────────────────────────────────────────────────────
-
-
-# --- Provider Policy (Paid-Provider Kill Switch) ----------------------------------------
-# Durable singleton controlling whether paid LLM providers (Anthropic) are
-# allowed. Stored in the providers collection with provider_id="provider_policy".
-# Edited from the Providers screen; read by every LLM call site and CI.
-
-
-# Canonical surface list — every surface that can be assigned a provider.
-# "auto" means use priority order (the default).
-_PROVIDER_SURFACES = [
-    "brain",    # main reasoning / planning provider
-    "ceo",      # CEO delegation layer
-    "chat",     # direct chat completions
-    "task",     # task execution (AgentRunner)
-    "sdlc",     # software dev lifecycle
-    "scanner",  # website / tech stack scanning
-    "context",  # context generation (CI)
-    "review",   # code review (CI)
-]
-
-
-class ProviderPolicyUpdate(BaseModel):
-    """Editable subset of the provider policy."""
-    allow_paid: bool = Field(
-        default=False,
-        description="When false, paid providers (Anthropic) are NEVER auto-selected",
-    )
-    surfaces: dict[str, str] = Field(
-        default_factory=lambda: {s: "auto" for s in _PROVIDER_SURFACES},
-        description="Per-surface provider assignment. 'auto' = use priority order.",
-    )
-
-
-async def _get_provider_policy() -> dict:
-    """Read the durable provider policy, falling back to a safe default.
-
-    Returns a dict with at least {'allow_paid': bool}. Never raises.
-    Failsafe: returns allow_paid=False when the DB is unreachable.
-    """
-    try:
-        doc = await get_db().providers.find_one({"provider_id": "provider_policy"})
-        if doc:
-            return {
-                "allow_paid": bool(doc.get("allow_paid", False)),
-                "surfaces": doc.get("surfaces") or {},
-            }
-    except Exception as exc:
-        log.debug("Provider policy lookup failed (non-fatal): %s", exc)
-    return {"allow_paid": False, "surfaces": {}}
-
-
-async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
-    """Persist the provider policy and return the new state.
-
-    Merges the incoming surfaces with existing ones so a partial PUT
-    (e.g. only {"brain": "nvidia-nim"}) never wipes the other surfaces."""
-    now = datetime.now(timezone.utc).isoformat()
-    # Merge surfaces: read existing, apply incoming deltas, write merged.
-    existing_surfaces = (await _get_provider_policy()).get("surfaces", {}) or {}
-    merged_surfaces = dict(existing_surfaces) if isinstance(existing_surfaces, dict) else {}
-    merged_surfaces.update(update.surfaces or {})
-    await get_db().providers.update_one(
-        {"provider_id": "provider_policy"},
-        {"$set": {"allow_paid": update.allow_paid, "surfaces": merged_surfaces, "updated_at": now}},
-        upsert=True,
-    )
-    return {"allow_paid": update.allow_paid, "surfaces": merged_surfaces}
-
-
-@app.get("/api/providers/policy")
-async def get_provider_policy(user: dict = Depends(get_current_user)):
-    """Return the durable provider policy (single source of truth for paid-provider gating)."""
-    return await _get_provider_policy()
-
-
-@app.put("/api/providers/policy")
-async def update_provider_policy(
-    body: ProviderPolicyUpdate,
-    user: dict = Depends(get_current_user),
-):
-    """Update the provider policy. Admin-only."""
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    result = await _set_provider_policy(body)
-    await log_activity(
-        "provider",
-        f"Provider policy updated: allow_paid={body.allow_paid}",
-        user_id=user["_id"],
-    )
-    return result
 
 
 @app.get("/api/models/catalog")
@@ -7358,55 +7214,6 @@ async def workflow_orchestrator_get_run(
     orchestrator = get_workflow_orchestrator()
     run = _wfo_owned_run_or_404(orchestrator, run_id, user)
     return {"run": run.as_dict()}
-
-
-@app.delete("/api/workflow/orchestrator/runs/{run_id}")
-async def workflow_orchestrator_cancel_run(
-    run_id: str,
-    user: dict = Depends(get_current_user),
-):
-    """Cancel a single orchestrator run (removes from memory).
-
-    Admin users can cancel any run; non-admin users can only cancel their own runs."""
-    orchestrator = get_workflow_orchestrator()
-    _wfo_owned_run_or_404(orchestrator, run_id, user)
-    orchestrator.cancel_run(run_id)
-    return {"ok": True, "run_id": run_id, "cancelled": 1}
-
-
-@app.delete("/api/workflow/orchestrator/runs")
-async def workflow_orchestrator_cancel_runs_bulk(
-    status: str | None = None,
-    run_ids: str | None = None,
-    user: dict = Depends(get_current_user),
-):
-    """Bulk-cancel orchestrator runs by status or explicit run_id list.
-
-    Query params:
-      status=failed,queued  — cancels all runs matching that status (admin only)
-      run_ids=id1,id2,id3   — cancels specific runs (ownership enforced per run)
-
-    Admin only for status-based cleanup; run_ids honours per-run ownership."""
-    orchestrator = get_workflow_orchestrator()
-    is_admin = _wfo_is_admin(user)
-    count = 0
-
-    if status:
-        if not is_admin:
-            raise HTTPException(status_code=403, detail="Bulk status cleanup requires admin")
-        for s in status.split(","):
-            count += orchestrator.cancel_runs_bulk(status=s.strip())
-    elif run_ids:
-        for rid in run_ids.split(","):
-            rid = rid.strip()
-            if not rid:
-                continue
-            _wfo_owned_run_or_404(orchestrator, rid, user)
-            if orchestrator.cancel_run(rid):
-                count += 1
-
-    return {"ok": True, "cancelled": count}
-
 
 # Initialise the secrets store with our MongoDB handle so it persists to the
 # same database as the rest of the app.
