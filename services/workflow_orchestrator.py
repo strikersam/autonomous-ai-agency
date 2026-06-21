@@ -175,6 +175,29 @@ _BYPASS: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 
 
+def _allow_paid_brain() -> bool:
+    """True when the operator explicitly opted into a paid (Anthropic) brain.
+
+    Thin wrapper over the shared :func:`brain_policy.allow_paid_brain` so the
+    orchestrator and the ``agent/loop.py`` runtime share one source of truth
+    (issue #656). Default ``False`` — the brain never silently calls a paid API;
+    when no free provider is configured it falls through to local Ollama.
+    """
+    try:
+        from brain_policy import allow_paid_brain
+        return allow_paid_brain()
+    except Exception as exc:  # noqa: BLE001 - defensive fallback, must stay free-only
+        # Surface the failure (operators must know the policy loader degraded),
+        # but still fall back to the raw env so we never accidentally enable paid.
+        log.warning(
+            "brain_policy.allow_paid_brain unavailable; falling back to ALLOW_PAID_BRAIN env: %s",
+            exc,
+        )
+        return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+
+
 async def _resolve_brain_provider(
     exclude_base_urls: set[str] | None = None,
 ) -> tuple[str, dict | None, str | None]:
@@ -245,25 +268,48 @@ async def _resolve_brain_provider(
                 return base, headers, model
             return None
 
-        # Read the durable provider policy (default: allow_paid=False).
-        # This is the single source of truth — edited from the Providers
-        # screen. Paid providers (Anthropic) are NEVER auto-selected unless
-        # the operator explicitly flips the switch.
-        try:
-            from backend.server import _get_provider_policy
-            policy = await _get_provider_policy()
-            allow_paid = bool(policy.get("allow_paid", False))
-        except Exception:
-            allow_paid = False  # failsafe: never allow paid
+        def _has_usable_free_provider() -> bool:
+            """True iff any configured free (non-Anthropic, keyed) provider exists.
+
+            Used to decide whether the paid-fallback pass is even worth trying:
+            if a free provider is configured, we should never silently escalate
+            to a paid one — even if the failover retry temporarily excludes
+            every free endpoint. A transient free outage must fall through to
+            the local Ollama fallback, not burn credits.
+            """
+            for rec in records:
+                rtype = str(rec.get("type") or "").lower()
+                if rtype in ("anthropic", "emergent-anthropic"):
+                    continue
+                base = str(rec.get("base_url") or "").strip().rstrip("/")
+                if not base:
+                    continue
+                key = str(rec.get("api_key") or "").strip()
+                if rtype != "ollama" and not key:
+                    continue
+                return True
+            return False
 
         # First pass: prefer free cloud providers (NVIDIA NIM, Google Gemini,
         # OpenRouter, etc.) — never auto-select paid Anthropic.
         picked = _pick(allow_paid=False)
-        if picked is None and allow_paid:
-            # allow_paid=True in the policy — only then fall through to paid
-            # (Anthropic) as a last-resort. This gate stops silent credit burn
-            # when ANTHROPIC_API_KEY is set but the policy switch is OFF.
-            picked = _pick(allow_paid=True)
+        if picked is None and not _has_usable_free_provider():
+            # No free provider is configured at all. Per the Autonomy Charter
+            # free-brain policy (issue #656), the brain does NOT silently
+            # escalate to paid Anthropic: that both burns credits AND, when the
+            # Anthropic model id is stale, returns a confusing "400 Bad Request"
+            # that blocks every dispatched task after 10 retries. The operator
+            # must opt in explicitly via ALLOW_PAID_BRAIN=true. Otherwise we
+            # fall through to local Ollama and log the one action that fixes it.
+            if _allow_paid_brain():
+                picked = _pick(allow_paid=True)
+            else:
+                log.warning(
+                    "No free brain provider configured and ALLOW_PAID_BRAIN is not set "
+                    "— falling back to local Ollama. Set NVIDIA_API_KEY for a free cloud "
+                    "brain (https://build.nvidia.com), or ALLOW_PAID_BRAIN=true to permit "
+                    "paid Anthropic as a last resort."
+                )
         if picked is not None:
             base, headers, model = picked
             log.info(
@@ -280,73 +326,6 @@ async def _resolve_brain_provider(
         None,
         None,
     )
-
-async def resolve_provider_for(surface: str, exclude_base_urls: set[str] | None = None) -> tuple[str, dict | None, str | None]:
-    """Resolve the LLM endpoint for a given surface (brain/chat/task/sdlc/scanner/context/review).
-
-    Reads the durable provider policy. If the policy has an explicit provider_id
-    assigned to *surface*, that provider is used directly (skipping priority order).
-    If the value is "auto" (the default), falls through to _resolve_brain_provider
-    which uses the priority-ordered list.
-
-    Returns (openai_compatible_base_url, auth_headers_or_None, model_or_None).
-    """
-    try:
-        from backend.server import _get_provider_policy, _list_configured_provider_records
-        policy = await _get_provider_policy()
-        surfaces = policy.get("surfaces", {}) if isinstance(policy, dict) else {}
-        provider_id = (surfaces.get(surface) or "").strip()
-
-        if provider_id and provider_id != "auto":
-            # Honor the paid-provider kill switch. Even an explicit surface
-            # assignment must not bypass the allow_paid gate — this prevents
-            # silent credit burn when Anthropic is assigned to a surface but
-            # the operator has the kill switch OFF.
-            allow_paid = bool(policy.get("allow_paid", False))
-            records = list(await _list_configured_provider_records())
-            for rec in records:
-                if str(rec.get("provider_id") or "") == provider_id:
-                    rtype = str(rec.get("type") or "").lower()
-                    is_paid = rtype in ("anthropic", "emergent-anthropic")
-                    if is_paid and not allow_paid:
-                        log.warning(
-                            "resolve_provider_for(surface=%s): explicit provider %s is PAID but allow_paid=False — SKIPPING",
-                            surface, provider_id,
-                        )
-                        break
-                    base = str(rec.get("base_url") or "").strip().rstrip("/")
-                    key = str(rec.get("api_key") or "").strip()
-                    if not base or (rtype != "ollama" and not key):
-                        break
-                    # Honor exclude_base_urls even for explicit assignments so
-                    # the orchestrator's failover loop works correctly.
-                    if base.rstrip("/") in {u.rstrip("/") for u in (exclude_base_urls or set())}:
-                        log.info(
-                            "resolve_provider_for(surface=%s): explicit provider %s (%s) excluded by failover — falling to priority order",
-                            surface, provider_id, base,
-                        )
-                        break
-                    if rtype != "anthropic" and not base.endswith("/v1"):
-                        base = f"{base}/v1"
-                    if rtype == "anthropic":
-                        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
-                    else:
-                        headers = {"Authorization": f"Bearer {key}"} if key else None
-                    model = str(rec.get("default_model") or "").strip() or None
-                    log.info(
-                        "resolve_provider_for(surface=%s): explicit provider %s → %s",
-                        surface, provider_id, base,
-                    )
-                    return base, headers, model
-            log.warning(
-                "resolve_provider_for(surface=%s): provider %s not found — falling to priority order",
-                surface, provider_id,
-            )
-    except Exception as exc:
-        log.debug("resolve_provider_for(surface=%s): policy lookup failed: %s", surface, exc)
-
-    # Fall through to the priority-ordered brain resolver.
-    return await _resolve_brain_provider(exclude_base_urls=exclude_base_urls)
 
 
 
@@ -687,6 +666,26 @@ class MonitorOutput(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+# Maps WorkflowRun phase-output attribute names to their Pydantic model class.
+# Used by restore_in_flight() to rehydrate typed models from checkpoint
+# snapshots (which store plain dicts via as_dict()) — without this, restored
+# phase outputs stay as raw dicts and `run.verification.passed` etc. raise
+# AttributeError once the golden path is resumed.
+_PHASE_OUTPUT_MODELS: dict[str, type[BaseModel]] = {
+    "classify": ClassifyOutput,
+    "plan": PlanOutput,
+    "specialist": SpecialistSelection,
+    "preflight": PreflightReport,
+    "bound_context": BoundContext,
+    "execution": ExecutionResult,
+    "verification": VerificationResult,
+    "judge": JudgeVerdict,
+    "summary": SummaryOutput,
+    "persist": PersistOutput,
+    "monitor": MonitorOutput,
+}
+
+
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
 
@@ -731,6 +730,10 @@ class WorkflowRun:
     approved_at: str | None = None
     current_phase: str | None = None
     error: str | None = None
+    # G5: how this run's code change should land per the company's RepoConnection
+    # DeliveryPolicy — {"action": open_pr|direct_push|telegram_gate|
+    # awaiting_repo_connection, "requires_approval": bool, "reason": str}.
+    merge_decision: dict[str, Any] | None = None
     # Store the original request for resume-after-approval
     _request: Any = None
 
@@ -755,6 +758,7 @@ class WorkflowRun:
             "approved": self.approved,
             "approved_by": self.approved_by,
             "approved_at": self.approved_at,
+            "merge_decision": self.merge_decision,
             "last_heartbeat": self.last_heartbeat,
             "retry_count": self.retry_count,
             "llm_provenance": self.llm_provenance,
@@ -810,6 +814,92 @@ class WorkflowOrchestrator:
             await self._get_checkpoint_store().save(run)
         except Exception as exc:
             log.debug("Checkpoint save failed for run %s (non-fatal): %s", run.run_id, exc)
+
+    async def _notify_approval_gate(self, run: WorkflowRun, req: ExecutionRequest) -> None:
+        """Proactively push a Telegram approval-gate message (Autonomy Charter G1).
+
+        Best-effort and non-fatal: a notification failure must not block the
+        golden path — the run still sits in ``awaiting_approval`` and remains
+        visible via the API/board regardless.
+        """
+        try:
+            from telegram_service import NotificationDispatcher
+
+            plan = run.plan
+            goal = plan.goal if plan is not None else req.request
+            steps = [str(s.get("description", s)) for s in (plan.steps if plan is not None else [])]
+            risk_reason = ""
+            if plan is not None and plan.requires_risky_review:
+                risk_reason = "Plan touches a sensitive/risky path (requires_risky_review=true)."
+            # G5: surface how the change will land (and why we're gating it).
+            md = run.merge_decision
+            if md:
+                landing = f"Landing: {md.get('action')} — {md.get('reason') or ''}".strip()
+                risk_reason = f"{risk_reason} {landing}".strip() if risk_reason else landing
+
+            NotificationDispatcher().send_approval_gate(
+                run_id=run.run_id,
+                company_id=run.company_id,
+                goal=goal,
+                plan_steps=steps,
+                risk_reason=risk_reason,
+            )
+        except Exception as exc:  # noqa: BLE001 - best-effort cross-cutting notify
+            # WARNING (not DEBUG): a failed approval-gate push means the operator
+            # silently loses the alert channel while the run still pauses.
+            log.warning("Approval-gate notify failed for run %s (non-fatal): %s", run.run_id, exc)
+
+    async def _resolve_merge_decision(self, run: WorkflowRun):
+        """Consult the company's RepoConnection DeliveryPolicy (G5) to decide how
+        this run's code change should land.
+
+        Returns a ``services.repo_connection.MergeDecision`` (``open_pr`` /
+        ``direct_push`` / ``telegram_gate`` / ``awaiting_repo_connection``) or
+        ``None`` when there is no company or the lookup fails — in which case the
+        normal gate logic applies unchanged. Best-effort: never blocks the gate.
+        """
+        if not run.company_id:
+            return None
+        try:
+            from services.company_graph_store import get_company_graph_store
+            from services.repo_connection import decide_merge
+
+            store = get_company_graph_store()
+            company = await asyncio.wait_for(store.get_company(run.company_id), timeout=8.0)
+            conn = getattr(company, "repo_connection", None) if company is not None else None
+            return decide_merge(conn)
+        except Exception as exc:  # noqa: BLE001 — never block the gate on this
+            log.warning("Merge-decision resolve failed for run %s: %s", run.run_id, exc)
+            return None
+
+    async def _record_first_merge_consent(self, run: WorkflowRun) -> None:
+        """G5: once the operator approves a run that was gated specifically for the
+        first unattended merge on a newly connected repo, record consent on the
+        Company's RepoConnection so later merges follow the detected policy
+        instead of re-gating. Best-effort; never raises into the approve path.
+        """
+        md = run.merge_decision
+        if not md or md.get("action") != "telegram_gate" or not run.company_id:
+            return
+        try:
+            from services.company_graph_store import get_company_graph_store
+            from services.repo_connection import record_first_merge_consent
+
+            store = get_company_graph_store()
+            company = await asyncio.wait_for(store.get_company(run.company_id), timeout=8.0)
+            conn = getattr(company, "repo_connection", None) if company is not None else None
+            if conn is None:
+                return
+            updated = company.model_copy(
+                update={"repo_connection": record_first_merge_consent(conn)}
+            )
+            await asyncio.wait_for(store.update_company(updated), timeout=8.0)
+            log.info(
+                "G5: recorded first-merge consent for company %s (repo %s)",
+                run.company_id, conn.full_name,
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            log.warning("Could not record first-merge consent for run %s: %s", run.run_id, exc)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -974,16 +1064,31 @@ class WorkflowOrchestrator:
                 # #522: Checkpoint after each successful phase.
                 await self._checkpoint(run)
 
-                # ApprovalGate after PLAN
-                if phase == Phase.PLAN and not req.auto_approve and not run.approved:
-                    run.status = "awaiting_approval"
-                    await self._checkpoint(run)
-                    log.info(
-                        "WorkflowOrchestrator: run=%s PAUSED at ApprovalGate — "
-                        "call approve() to continue",
-                        run.run_id,
-                    )
-                    return run
+                # ApprovalGate after PLAN. The gate fires when the request is not
+                # auto-approved, OR when the target repo's delivery policy forces
+                # it (G5): the **first unattended merge on a newly connected repo**
+                # always pauses for Telegram approval, even under auto_approve,
+                # until the operator confirms its detected DeliveryPolicy.
+                if phase == Phase.PLAN and not run.approved:
+                    decision = await self._resolve_merge_decision(run)
+                    if decision is not None:
+                        run.merge_decision = {
+                            "action": decision.action,
+                            "requires_approval": decision.requires_approval,
+                            "reason": decision.reason,
+                        }
+                    gate_forced = decision is not None and decision.requires_approval
+                    if (not req.auto_approve) or gate_forced:
+                        run.status = "awaiting_approval"
+                        await self._checkpoint(run)
+                        await self._notify_approval_gate(run, req)
+                        log.info(
+                            "WorkflowOrchestrator: run=%s PAUSED at ApprovalGate%s — "
+                            "call approve() to continue",
+                            run.run_id,
+                            " (forced by repo first-merge policy)" if gate_forced else "",
+                        )
+                        return run
 
             except Exception as exc:
                 log.exception("WorkflowOrchestrator: run=%s phase=%s FAILED", run.run_id, phase)
@@ -1014,6 +1119,9 @@ class WorkflowOrchestrator:
         Returns the completed run after all phases finish.
         """
         run = self.approve(run_id, approved_by=approved_by)
+        # G5: record first-merge consent on the synchronous resume path too, so
+        # it is covered regardless of which approve API the caller used.
+        await self._record_first_merge_consent(run)
         if run._request is not None:
             return await self.execute(run._request, resume_run_id=run_id)
         return run
@@ -1024,8 +1132,31 @@ class WorkflowOrchestrator:
         Returns IMMEDIATELY (the caller gets 202) — the run executes asynchronously
         when a concurrency slot opens.  This prevents the approve endpoint from
         blocking (and timing out) on long-running executions.
+
+        Idempotent on the approval transition (#652 review): the Telegram gate
+        calls ``approve()`` synchronously first (fast validation + correct inline
+        feedback) and *then* fires ``approve_async()`` to resume. If the run is
+        already approved we skip the redundant second transition/log and just
+        enqueue it — avoiding a double-approve race.
         """
-        run = self.approve(run_id, approved_by=approved_by)
+        run = self._runs.get(run_id)
+        if run is None:
+            raise KeyError(f"WorkflowRun {run_id!r} not found")
+        # Reject repeat approvals before enqueueing (Codex P2): the API approve
+        # route calls approve_async() directly, so a retry/double-click on an
+        # already-approved run (now queued/running/done) must NOT be enqueued
+        # again — OrchestratorQueue has no dedup and runs 2 concurrently, which
+        # would duplicate side effects (commits/PRs). We keep the same
+        # status==awaiting_approval guard approve() enforces, then only skip the
+        # redundant approval *transition* when the Telegram gate already ran the
+        # synchronous approve() (approved=True, status still awaiting_approval).
+        if run.status != "awaiting_approval":
+            raise ValueError(f"Run {run_id} is {run.status!r}, not awaiting_approval")
+        if not run.approved:
+            run = self.approve(run_id, approved_by=approved_by)
+        # G5: persist first-merge consent so subsequent merges on this repo follow
+        # the detected DeliveryPolicy instead of re-gating (best-effort).
+        await self._record_first_merge_consent(run)
         try:
             from services.orchestrator_queue import get_orchestrator_queue
             queue = get_orchestrator_queue()
@@ -1066,15 +1197,27 @@ class WorkflowOrchestrator:
                 run.llm_provenance = snapshot.get("llm_provenance", {})
                 run.phase_attempts = snapshot.get("phase_attempts", {})
                 run.approved = snapshot.get("approved", False)
+                run.merge_decision = snapshot.get("merge_decision")
                 run.error = snapshot.get("error")
                 # Restore phase outputs so skip detection works on retry.
                 # Without this every resume re-runs all phases from scratch.
-                for _attr in ("classify","plan","specialist","preflight",
-                              "bound_context","execution","verification",
-                              "judge","summary","persist","monitor"):
+                # Reconstruct typed Pydantic models (not raw dicts) — downstream
+                # code accesses attributes like `run.verification.passed`, which
+                # raises AttributeError on a plain dict.
+                for _attr, _model_cls in _PHASE_OUTPUT_MODELS.items():
                     _val = snapshot.get(_attr)
-                    if _val is not None:
-                        setattr(run, _attr, _val)
+                    if _val is None:
+                        continue
+                    if isinstance(_val, dict):
+                        try:
+                            _val = _model_cls(**_val)
+                        except Exception:
+                            log.warning(
+                                "restore_in_flight: run=%s could not reconstruct "
+                                "%s from snapshot — phase will be re-run", run_id, _attr,
+                            )
+                            continue
+                    setattr(run, _attr, _val)
                 # Restore _request so supervisor can requeue without losing the original task.
                 _req_dict = snapshot.get("_request")
                 if _req_dict and isinstance(_req_dict, dict):
@@ -1083,6 +1226,15 @@ class WorkflowOrchestrator:
                     except Exception:
                         pass
                 self._runs[run_id] = run
+                # A run without its original request can never be resumed —
+                # execute() needs req.user_id/req.company_id/etc. Fail it now
+                # instead of leaving it queued/running for the supervisor to
+                # endlessly retry-and-crash on execute(None, ...).
+                if run.status in ("queued", "running", "pending") and run._request is None:
+                    run.status = "failed"
+                    run.error = (run.error or "") + " | Cannot resume: request not persisted in checkpoint"
+                    count += 1
+                    continue
                 # Re-enqueue queued/pending runs so they resume execution.
                 if run.status in ("queued", "running", "pending") and run._request is not None:
                     try:
@@ -1194,6 +1346,49 @@ class WorkflowOrchestrator:
         return [r.as_dict() for r in runs[-limit:]]
 
     # ── Default Phase Handlers ────────────────────────────────────────────────
+
+    async def update_task(
+        self,
+        run_id: str,
+        *,
+        additional_instructions: str | None = None,
+        operator: str = "admin",
+    ) -> WorkflowRun:
+        """Inject additional instructions into a paused or running WorkflowRun.
+
+        Used by the Telegram ``/redirect <run_id> <instruction>`` command and
+        the ``POST /api/workflow/orchestrator/update-task/{run_id}`` endpoint
+        so an operator can redirect the agent mid-flight (e.g. "actually,
+        only fix tests X and Y \u2014 leave the others alone") without replanning
+        from scratch. Always checkpoints so a bot\u2192orchestrator connection
+        drop cannot lose the redirect.
+        """
+        run = self._runs.get(run_id)
+        if run is None:
+            raise KeyError(f"WorkflowRun {run_id!r} not found")
+        if run.status in ("done", "failed", "cancelled"):
+            raise ValueError(
+                f"Run {run_id} is {run.status!r} and cannot accept new instructions"
+            )
+        req = run._request
+        if req is None:
+            raise ValueError(
+                f"Run {run_id} has no ExecutionRequest \u2014 cannot inject instructions"
+            )
+        meta = dict(req.metadata or {})
+        if additional_instructions is not None:
+            meta["additional_instructions"] = additional_instructions
+            meta["updated_by"] = operator
+            meta["updated_at_utc"] = time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+            )
+        run._request = req.model_copy(update={"metadata": meta})
+        await self._checkpoint(run)
+        log.info(
+            "WorkflowOrchestrator: run=%s update_task by=%s instructions=%s",
+            run_id, operator, bool(additional_instructions),
+        )
+        return run
 
     def _register_default_handlers(self) -> None:
         self._phase_handlers[Phase.CLASSIFY] = self._handle_classify
@@ -1619,8 +1814,7 @@ class WorkflowOrchestrator:
                 failed_urls: set[str] = (
                     set(u for u in _prev_failed.split(",") if u) if _prev_failed else set()
                 )
-                brain_base, brain_headers, brain_model = await resolve_provider_for(
-                    "task",
+                brain_base, brain_headers, brain_model = await _resolve_brain_provider(
                     exclude_base_urls=failed_urls,
                 )
                 # Record provider provenance for failover tracking.
