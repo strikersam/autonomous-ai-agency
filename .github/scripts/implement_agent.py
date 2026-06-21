@@ -17,8 +17,7 @@ Writes /tmp/impl_result.json with {"success": bool, "summary": str}
 import json
 import logging
 import os
-import random  # nosec B311 — used only for jitter in rate-limit backoff, not crypto
-import subprocess  # nosec B404 - used for constant-argv git/pytest calls below
+import subprocess
 import sys
 import textwrap
 import time
@@ -59,12 +58,17 @@ ISSUE_COMMENTS_RAW = _load_optional(_args.comments_file)
 RESULT_FILE = "/tmp/impl_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility; secure temp file used internally
 MAX_TURNS = 120
 
-# Shared NVIDIA model list — inject .github/scripts/ on sys.path so the
-# import works when this script is run directly (python implement_agent.py).
-_sd = os.path.dirname(os.path.abspath(__file__))
-if _sd not in sys.path:
-    sys.path.insert(0, _sd)
-from nvidia_models import NVIDIA_CANDIDATE_MODELS  # shared source of truth
+# Primary engine: NVIDIA NIM free-tier models (the real workhorse).
+# Anthropic fallback has been REMOVED — it burns paid credits when NVIDIA fails.
+# If NVIDIA exhausts all models, the run fails cleanly and is retried next cycle.
+NVIDIA_CANDIDATE_MODELS = [
+    ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
+    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
+    ("nvidia/llama-3.3-nemotron-super-49b-v1",  "reasoning (Nemotron Super 49B)"),
+    ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
+    ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
+    ("qwen/qwen3-coder-480b-a35b-instruct",     "coding (Qwen3-Coder 480B — last resort)"),
+]
 # Keep old name as alias
 CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
 
@@ -160,7 +164,7 @@ def tool_add_changelog_entry(entry: str) -> str:
 
 def tool_list_files(pattern: str = "**/*.py") -> str:
     try:
-        result = subprocess.run(  # nosec B603 B607 - constant git argv, list form (no shell)
+        result = subprocess.run(
             ["git", "ls-files", "--", pattern],
             capture_output=True, text=True, timeout=30,
         )
@@ -339,7 +343,7 @@ def _run_baseline_pytest() -> str:
     # Without this, NVIDIA_API_KEY in CI changes model-selection behaviour and causes
     # tests that assert local Ollama model names to fail spuriously.
     env = {k: v for k, v in os.environ.items() if k not in _API_KEY_ENV_VARS}
-    result = subprocess.run(  # nosec B603 B607 - constant pytest argv, list form (no shell)
+    result = subprocess.run(
         ["python", "-m", "pytest", "-x", "-q", "--tb=line", "--no-header"],
         capture_output=True, text=True, timeout=120, env=env,
     )
@@ -348,27 +352,6 @@ def _run_baseline_pytest() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Hardened model fallback helpers
-# ---------------------------------------------------------------------------
-def _classify_error(exc: Exception) -> str:
-    """Classify an exception from the NVIDIA NIM API.
-
-    Returns one of: '429_rate_limit', 'timeout', '404_not_found',
-    '422_unprocessable', or 'unknown'.
-    """
-    exc_msg = str(exc).lower()
-    exc_name = type(exc).__name__
-    if "429" in exc_msg or "rate limit" in exc_msg or "too many requests" in exc_msg:
-        return "429_rate_limit"
-    if "timeout" in exc_msg or "timed out" in exc_msg or exc_name.endswith("Timeout"):
-        return "timeout"
-    if "404" in exc_msg or "not found" in exc_msg:
-        return "404_not_found"
-    if "422" in exc_msg or "unprocessable" in exc_msg:
-        return "422_unprocessable"
-    return "unknown"
-
-
 # Main agent loop — NVIDIA NIM only (Anthropic fallback removed to prevent
 # burning paid credits when free models fail. Fail cleanly instead.)
 # ---------------------------------------------------------------------------
@@ -376,15 +359,15 @@ def main() -> None:
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
 
     if not nvidia_key:
-        log.error("ERROR: NVIDIA_API_KEY not set — cannot run agent")
+        print("ERROR: NVIDIA_API_KEY not set — cannot run agent", file=sys.stderr)
         sys.exit(1)
 
     note_path = Path("/tmp/note_content.txt")  # nosec: B108
     url_content = note_path.read_text() if note_path.exists() else ""
 
-    log.info("Running baseline pytest...")
+    print("Running baseline pytest...", flush=True)
     baseline = _run_baseline_pytest()
-    log.info(f"Baseline pytest output:\n{baseline}")
+    print(f"Baseline pytest output:\n{baseline}", flush=True)
 
     claude_md = _read_claude_md()
 
@@ -455,7 +438,7 @@ def main() -> None:
 
     while turns < MAX_TURNS:
         turns += 1
-        log.info(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}")
+        print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}", flush=True)
 
         try:
             res = client.chat.completions.create(
@@ -466,101 +449,21 @@ def main() -> None:
                 messages=messages,  # type: ignore[arg-type]
             )
         except Exception as exc:
-            err_kind = _classify_error(exc)
-            log.error(f"Model {model} error [{err_kind}]: {exc}")
-
-            # 429 rate-limit — transient; retry same model with exponential
-            # backoff + jitter before advancing. Up to 3 attempts.
-            if err_kind == "429_rate_limit":
-                retry_succeeded = False
-                for backoff_attempt in range(3):
-                    delay = (2 ** backoff_attempt) + random.uniform(0, 1)  # nosec B311 — jitter only, not crypto
-                    log.warning(
-                        f"Model {model} rate-limited (429) — retrying in {delay:.1f}s "
-                        f"(attempt {backoff_attempt+1}/3)"
-                    )
-                    time.sleep(delay)
-                    try:
-                        res = client.chat.completions.create(
-                            model=model,
-                            max_tokens=8192,
-                            tools=TOOLS,
-                            tool_choice="auto",
-                            messages=messages,
-                        )
-                        log.info(f"Model {model} recovered after rate-limit backoff")
-                        retry_succeeded = True
-                        break
-                    except Exception as retry_exc:
-                        retry_kind = _classify_error(retry_exc)
-                        log.warning(
-                            f"Model {model} retry {backoff_attempt+1}/3 failed [{retry_kind}]: {retry_exc}"
-                        )
-                        # If retry also gives 404/422, drop immediately (non-transient)
-                        if retry_kind in ("404_not_found", "422_unprocessable"):
-                            log.warning(
-                                f"Model {model} returned {retry_kind} on retry — "
-                                "dropping from rotation"
-                            )
-                            break
-                if retry_succeeded:
-                    pass  # fall through to msg processing below
-                else:
-                    # Either all 3 retries exhausted or 404/422 on retry — advance
-                    model_idx += 1
-                    if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
-                        log.error("All NVIDIA candidate models exhausted — failing cleanly.")
-                        break
-                    model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-                    final_model = model
-                    log.warning(f"Switching to: {model}")
-                    turns -= 1
-                    continue
-
-            # Timeout — advance immediately, no backoff
-            elif err_kind == "timeout":
-                log.warning(f"Model {model} timed out — advancing immediately")
-                model_idx += 1
-                if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
-                    log.error("All NVIDIA candidate models exhausted — failing cleanly.")
-                    break
-                model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-                final_model = model
-                log.warning(f"Switching to: {model}")
-                turns -= 1
-                continue
-
-            # 404 / 422 — model is not available or incompatible; drop and advance
-            elif err_kind in ("404_not_found", "422_unprocessable"):
-                log.warning(
-                    f"Model {model} returned {err_kind} — dropping from rotation for this run"
-                )
-                model_idx += 1
-                if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
-                    log.error("All NVIDIA candidate models exhausted — failing cleanly.")
-                    break
-                model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-                final_model = model
-                log.warning(f"Switching to: {model}")
-                turns -= 1
-                continue
-
-            # Unknown error — advance to next model
-            else:
-                model_idx += 1
-                if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
-                    log.error("All NVIDIA candidate models exhausted — failing cleanly.")
-                    break
-                model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-                final_model = model
-                log.warning(f"Switching to: {model}")
-                turns -= 1
-                continue
+            print(f"Model {model} error: {exc}", file=sys.stderr)
+            model_idx += 1
+            if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
+                print("All NVIDIA candidate models exhausted — failing cleanly.", file=sys.stderr)
+                break
+            model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+            final_model = model
+            print(f"Switching to: {model}", file=sys.stderr)
+            turns -= 1
+            continue
 
         msg = res.choices[0].message
 
         if msg.content:
-            log.info(f"[agent] {msg.content[:400]}")
+            print(f"[agent] {msg.content[:400]}", flush=True)
 
         # Serialise without null sentinel fields that NIM rejects with 422
         assistant_entry: dict = {"role": "assistant"}
@@ -583,16 +486,16 @@ def main() -> None:
             # Some models (e.g. Qwen3-coder) emit tool calls as XML text in content
             # instead of structured tool_calls. Detect and switch models.
             if "<tool_call>" in content or "<function=" in content:
-                log.warning(f"[agent] {model} emitted XML tool calls in content — switching model")
+                print(f"[agent] {model} emitted XML tool calls in content — switching model", file=sys.stderr)
                 messages.pop()  # discard the malformed assistant turn
                 model_idx += 1
                 if model_idx < len(NVIDIA_CANDIDATE_MODELS):
                     model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
                     final_model = model
-                    log.info(f"[agent] Switched to: {model}")
+                    print(f"[agent] Switched to: {model}", flush=True)
                     turns -= 1  # don't count this as a real turn
                 else:
-                    log.error("All candidate models exhausted.")
+                    print("All candidate models exhausted.", file=sys.stderr)
                     break
                 continue
             summary = content or summary
@@ -609,16 +512,16 @@ def main() -> None:
             except json.JSONDecodeError:
                 fn_args = {}
 
-            log.info(f"[tool] {fn_name}({list(fn_args.keys())})")
+            print(f"[tool] {fn_name}({list(fn_args.keys())})", flush=True)
             handler = TOOL_DISPATCH.get(fn_name)
             out = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
-            log.info(f"[tool result] {str(out)[:300]}")
+            print(f"[tool result] {str(out)[:300]}", flush=True)
 
             if fn_name == "bash":
                 cmd = fn_args.get("cmd", "")
                 if "pytest" in cmd:
                     last_pytest_passed = "[exit 0]" in out
-                    log.info(f"pytest exit 0: {last_pytest_passed}")
+                    print(f"pytest exit 0: {last_pytest_passed}", flush=True)
                 if "IMPLEMENTATION_COMPLETE" in out:
                     if last_pytest_passed:
                         success = True
@@ -641,7 +544,7 @@ def main() -> None:
     with open(RESULT_FILE, "w") as f:
         json.dump(result, f)
 
-    log.info(f"\n[agent] Done — success={success}, turns={turns}, model={final_model}")
+    print(f"\n[agent] Done — success={success}, turns={turns}, model={final_model}", flush=True)
     sys.exit(0 if success else 1)
 
 
