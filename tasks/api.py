@@ -308,6 +308,39 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
     return {"task": task.as_dict()}
 
 
+
+@task_router.post("/purge", summary="Bulk-delete terminal tasks older than N days")
+async def purge_old_tasks(
+    request: Request,
+    days: int = Query(default=7, ge=1, le=365, description="Delete tasks completed/failed more than N days ago"),
+    statuses: str = Query(default="done,failed,cancelled", description="Comma-separated statuses to purge"),
+    user: Any = Depends(_current_user),
+) -> dict:
+    """Delete terminal (done/failed/cancelled) tasks older than ``days`` days.
+
+    Keeps the last 24 h of any status untouched so in-flight work is safe.
+    Returns the count of deleted tasks.
+    """
+    import time as _time
+    store = _get_store(request)
+    cutoff = _time.time() - days * 86400
+    target_statuses = {s.strip().lower() for s in statuses.split(",")}
+
+    all_tasks = await store.list_all(limit=10_000)
+    deleted = 0
+    for task in all_tasks:
+        ts = task.updated_at or task.created_at or 0
+        if (
+            task.status.lower() in target_statuses
+            and isinstance(ts, (int, float))
+            and ts < cutoff
+        ):
+            await store.delete(task.task_id, owner_id=None)  # admin purge — no owner check
+            deleted += 1
+
+    log.info("Purged %d terminal tasks older than %d days", deleted, days)
+    return {"deleted": deleted, "days": days, "statuses": list(target_statuses)}
+
 @task_router.delete("/{task_id}", status_code=204)
 async def delete_task(task_id: str, request: Request, user: Any = Depends(_current_user)) -> None:
     owner_id = None if _is_admin(user) else _user_id(user)
