@@ -44,9 +44,6 @@ export function setBackendUrl(url) {
 export const API = axios.create({
   baseURL: getBackendUrl(),
   headers: { 'Content-Type': 'application/json' },
-  // Default request timeout. Long-running operations (website/repo scans,
-  // SEO audits) override this with a larger per-call timeout below.
-  timeout: 45000,
 });
 
 // Attach Bearer token and resolve dynamic backend URL on every request
@@ -136,7 +133,7 @@ API.interceptors.response.use(
 );
 
 export function fmtErr(detail) {
-  if (detail == null) return '';
+  if (detail == null) return 'Something went wrong.';
   if (typeof detail === 'string') return detail;
   if (detail.message) return detail.message;
   if (Array.isArray(detail)) return detail.map(e => {
@@ -387,10 +384,8 @@ export const getCompany = (id) => API.get(`/api/company/${id}`);
 export const updateCompany = (id, data) => API.patch(`/api/company/${id}`, data);
 export const getCompanyGraph = (id) => API.get(`/api/company/${id}/graph`);
 export const syncCompanyGraph = (id) => API.post(`/api/company/${id}/graph/sync`);
-// Website/repo scans can take well past the default timeout (e.g. crawling
-// multiple pages or a large repo), so allow up to 2 minutes.
-export const scanWebsite = (id, url) => API.post(`/api/company/${id}/scan/website`, { website_url: url }, { timeout: 120000 });
-export const scanRepo = (id, url) => API.post(`/api/company/${id}/scan/repo`, { repo_url: url }, { timeout: 120000 });
+export const scanWebsite = (id, url) => API.post(`/api/company/${id}/scan/website`, { website_url: url });
+export const scanRepo = (id, url) => API.post(`/api/company/${id}/scan/repo`, { repo_url: url });
 export const listSpecialists = (id) => API.get(`/api/company/${id}/specialists`);
 export const provisionSpecialist = (id, data) => API.post(`/api/company/${id}/specialists`, data);
 export const matchSpecialists = (id, systems) => API.post(`/api/company/${id}/specialists/match`, systems);
@@ -404,36 +399,29 @@ export const getPublicDoctorReport = () => API.get('/api/company/doctor/public')
 
 // ── SEO / GEO / AIO Audit (v5.1) ──────────────────────────────────────────────
 export const getSeoChecks = () => API.get('/api/seo/checks');
-// Browser-based crawls of up to ~50 pages can take several minutes.
 export const runSeoAudit = (companyId, request) =>
-  // Endpoint is now async — returns a {status:'pending', audit_id} stub immediately.
-  // Poll getSeoAudit() until status transitions to success/partial/failed.
-  API.post(`/api/company/${companyId}/seo/audit`, request, { timeout: 15000 });
+  API.post(`/api/company/${companyId}/seo/audit`, request);
 export const listSeoAudits = (companyId) =>
   API.get(`/api/company/${companyId}/seo/audits`);
 export const getSeoAudit = (companyId, auditId) =>
   API.get(`/api/company/${companyId}/seo/audits/${auditId}`);
 export const delegateSeoFindings = (companyId, auditId, data = {}) =>
   API.post(`/api/company/${companyId}/seo/audits/${auditId}/delegate`, data);
-// Export endpoint returns text (csv/markdown/urls/issues), JSON, or a PDF; fetch as blob.
+// Export endpoint returns text (csv/markdown/urls/issues) or JSON; fetch as blob.
 export const exportSeoAudit = (companyId, auditId, fmt) =>
   API.get(`/api/company/${companyId}/seo/audits/${auditId}/export`, {
     params: { fmt },
     responseType: 'blob',
   });
 
-const SEO_EXPORT_EXT = { json: 'json', markdown: 'md', pdf: 'pdf' };
-const SEO_EXPORT_MIME = { pdf: 'application/pdf' };
-
-// Trigger a browser download of an exported audit (csv / json / markdown / urls / issues / pdf).
+// Trigger a browser download of an exported audit (csv / json / markdown / urls / issues).
 export async function downloadSeoExport(companyId, auditId, fmt) {
   const resp = await exportSeoAudit(companyId, auditId, fmt);
-  const ext = SEO_EXPORT_EXT[fmt] || 'csv';
-  const blobOpts = SEO_EXPORT_MIME[fmt] ? { type: SEO_EXPORT_MIME[fmt] } : undefined;
-  const url = window.URL.createObjectURL(new Blob([resp.data], blobOpts));
+  const ext = fmt === 'json' ? 'json' : (fmt === 'markdown' ? 'md' : 'csv');
+  const url = window.URL.createObjectURL(new Blob([resp.data]));
   const a = document.createElement('a');
   a.href = url;
-  a.download = fmt === 'pdf' ? `seo-audit-${auditId}.pdf` : `seo-audit-${auditId}-${fmt}.${ext}`;
+  a.download = `seo-audit-${auditId}-${fmt}.${ext}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
