@@ -505,5 +505,6 @@ async def reset_wizard(request: Request):
         del _wizard_states[target_uid]
     await _delete_wizard_state(target_uid)
     audit("setup.reset", getattr(request.state, "user", {}), resource="setup", outcome="success")
-    log.info("Setup wizard reset for user %s by %s", target_uid, _uid(request))
+    _mask = lambda u: (str(u)[:3] + "***") if u else "?"
+    log.info("Setup wizard reset for user %s by %s", _mask(target_uid), _mask(_uid(request)))
     return {"reset": True, "user_id": target_uid}

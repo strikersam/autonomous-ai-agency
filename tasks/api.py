@@ -33,7 +33,13 @@ log = logging.getLogger("qwen-proxy")
 
 # Single-flight TTL upper bound (AGENTS.md: all config from env vars).
 # Override via TASKS_MAX_CACHE_TTL_SEC; default 3600s (1 hour cap).
-_MAX_CACHE_TTL_SEC: float = float(os.environ.get("TASKS_MAX_CACHE_TTL_SEC", "3600"))
+try:
+    _MAX_CACHE_TTL_SEC: float = float(os.environ.get("TASKS_MAX_CACHE_TTL_SEC", "3600"))
+    if not (0 < _MAX_CACHE_TTL_SEC < float("inf")):
+        raise ValueError("out of range")
+except (TypeError, ValueError):
+    log.warning("TASKS_MAX_CACHE_TTL_SEC invalid; defaulting to 3600s")
+    _MAX_CACHE_TTL_SEC = 3600.0
 
 
 def _safe_ttl(name: str, default: float) -> float:
@@ -203,6 +209,11 @@ async def list_tasks(
                 else:
                     tasks = await store.list_all(status=status, limit=limit, offset=offset)
                     _LIST_ALL_CACHE[cache_key] = {"tasks": tasks, "ts": time.monotonic()}
+                    # Evict expired entries to prevent unbounded growth.
+                    now = time.monotonic()
+                    stale = [k for k, v in _LIST_ALL_CACHE.items() if now - v["ts"] >= _LIST_ALL_CACHE_TTL]
+                    for k in stale:
+                        _LIST_ALL_CACHE.pop(k, None)
     else:
         tasks = await store.list_for_user(
             owner_id,
