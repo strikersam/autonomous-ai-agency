@@ -10,6 +10,13 @@ import React from 'react';
 
 const ACCENT = 'var(--accent)';
 
+/**
+ * ChartDatum — a single labelled data point rendered by BarChart / Donut.
+ * `label` is required (used as the React list key) and must be unique per
+ * chart so React can reconcile segments / bars without warnings.
+ * @typedef {{ label: string, value: number, color?: string }} ChartDatum
+ */
+
 function EmptyChart({ height = 64, label = 'No data yet' }) {
   return (
     <div
@@ -63,7 +70,8 @@ export function Sparkline({ values = [], height = 56, stroke = ACCENT, fill = 'r
 }
 
 /**
- * BarChart — labelled vertical bars. Each datum: { label, value, color? }.
+ * BarChart — labelled vertical bars.
+ * @param {{ data: ChartDatum[], height?: number, accent?: string }} props
  */
 export function BarChart({ data = [], height = 120, accent = ACCENT }) {
   const rows = (data || []).filter((d) => d && Number.isFinite(d.value));
@@ -75,7 +83,7 @@ export function BarChart({ data = [], height = 120, accent = ACCENT }) {
       {rows.map((d, i) => {
         const pct = Math.max(2, Math.round((d.value / max) * 100));
         return (
-          <div key={d.label ?? i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <div key={d.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, minWidth: 0 }}>
             <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end' }}>
               <div
                 title={`${d.label}: ${d.value}`}
@@ -109,8 +117,8 @@ export function BarChart({ data = [], height = 120, accent = ACCENT }) {
 }
 
 /**
- * Donut — proportional ring. Each datum: { label, value, color }.
- * Renders a center total and a compact legend.
+ * Donut — proportional ring.
+ * @param {{ data: ChartDatum[], size?: number, thickness?: number, centerLabel?: string }} props
  */
 export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
   const rows = (data || []).filter((d) => d && Number.isFinite(d.value) && d.value > 0);
@@ -121,34 +129,40 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
   const cx = size / 2;
   const cy = size / 2;
   const circ = 2 * Math.PI * r;
-  let offset = 0;
+
+  // Single pass: build SVG segments while threading the running dash offset
+  // through the accumulator. Avoids mutating a closure-captured `let offset`
+  // inside `rows.map(...)` (a side-effect-in-map smell).
+  const { elements: segments } = rows.reduce(
+    (acc, d) => {
+      const dash = (d.value / total) * circ;
+      acc.elements.push(
+        <circle
+          key={d.label}
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke={d.color || ACCENT}
+          strokeWidth={thickness}
+          strokeDasharray={`${dash} ${circ - dash}`}
+          strokeDashoffset={-acc.offset}
+          strokeLinecap="butt"
+          transform={`rotate(-90 ${cx} ${cy})`}
+          style={{ transition: 'stroke-dasharray 0.6s ease' }}
+        />,
+      );
+      acc.offset += dash;
+      return acc;
+    },
+    { elements: [], offset: 0 },
+  );
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="distribution donut">
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={thickness} />
-        {rows.map((d, i) => {
-          const frac = d.value / total;
-          const dash = frac * circ;
-          const seg = (
-            <circle
-              key={d.label ?? i}
-              cx={cx}
-              cy={cy}
-              r={r}
-              fill="none"
-              stroke={d.color || ACCENT}
-              strokeWidth={thickness}
-              strokeDasharray={`${dash} ${circ - dash}`}
-              strokeDashoffset={-offset}
-              strokeLinecap="butt"
-              transform={`rotate(-90 ${cx} ${cy})`}
-              style={{ transition: 'stroke-dasharray 0.6s ease' }}
-            />
-          );
-          offset += dash;
-          return seg;
-        })}
+        {segments}
         <text x={cx} y={cy - 2} textAnchor="middle" style={{ fontSize: 20, fontWeight: 800, fill: 'var(--text-primary)' }}>
           {total}
         </text>
@@ -157,8 +171,8 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
         </text>
       </svg>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 90 }}>
-        {rows.map((d, i) => (
-          <div key={d.label ?? i} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        {rows.map((d) => (
+          <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <span style={{ width: 9, height: 9, borderRadius: 3, background: d.color || ACCENT, flexShrink: 0 }} />
             <span style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1 }}>{d.label}</span>
             <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{d.value}</span>
@@ -169,4 +183,41 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
   );
 }
 
-export default { Sparkline, BarChart, Donut };
+/**
+ * ExecutionTimeline — a Gantt-style bar showing agent phase durations.
+ * @param {Array<{phase: string, duration_ms: number}>} log
+ */
+export function ExecutionTimeline({ log = [] }) {
+  const phases = (log || []).filter(e => e.phase && e.duration_ms > 0);
+  if (!phases.length) return null;
+  const total = phases.reduce((s, e) => s + e.duration_ms, 0) || 1;
+  const colors = { plan: '#3b82f6', execute: '#22c55e', verify: '#a855f7', failed: '#ef4444' };
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Execution timeline</div>
+      <div style={{ display: 'flex', height: 20, borderRadius: 4, overflow: 'hidden', gap: 1 }}>
+        {phases.map((e, i) => (
+          <div key={i}
+            title={`${e.phase}: ${(e.duration_ms/1000).toFixed(1)}s`}
+            style={{
+              flex: e.duration_ms / total,
+              background: colors[e.phase] || '#6b7280',
+              minWidth: 3,
+              transition: 'flex 0.3s'
+            }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
+        {phases.map((e, i) => (
+          <span key={i} style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            <span style={{ display:'inline-block', width:8, height:8, borderRadius:2, background: colors[e.phase]||'#6b7280', marginRight:3 }} />
+            {e.phase} {(e.duration_ms/1000).toFixed(1)}s
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const Charts = { Sparkline, BarChart, Donut, ExecutionTimeline };
+export default Charts;
