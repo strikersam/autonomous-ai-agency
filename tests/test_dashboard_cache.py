@@ -8,15 +8,12 @@ helpers added to speed up /api/stats and /api/observability/metrics:
 from __future__ import annotations
 
 import asyncio
-import os
 
 import pytest
 
-# Allow backend.server import without live infra (conftest also sets these).
-os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
-os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only")
-os.environ.setdefault("ADMIN_EMAIL", "admin@test.local")
-
+# backend.server is made importable by tests/conftest.py (it sets ADMIN_PASSWORD
+# and friends); server.py itself defaults JWT_SECRET/MONGO_URL/ADMIN_EMAIL when
+# unset, so no secrets are hardcoded here.
 from backend.server import _cached, _fast_count, _DASHBOARD_CACHE  # noqa: E402
 
 

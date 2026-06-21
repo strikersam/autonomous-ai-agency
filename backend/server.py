@@ -4875,8 +4875,21 @@ async def _compute_stats() -> dict:
     }
 
 
-@app.get("/api/stats")
-async def get_stats(user: dict = Depends(get_current_user)):
+class StatsResponse(BaseModel):
+    wiki_pages: int
+    sources: int
+    chat_sessions: int
+    activity_entries: int
+    providers: int
+    api_keys: int
+    recent_pages: list[dict[str, Any]]
+    llm_provider: str
+    ngrok_domain: str | None = None
+    langfuse_configured: bool
+
+
+@app.get("/api/stats", response_model=StatsResponse)
+async def get_stats(user: dict = Depends(get_current_user)) -> StatsResponse:
     # Global roll-up, polled every 30s by the dashboard — cache briefly so a
     # burst of tabs/refreshes doesn't recompute the counts each time.
     return await _cached("stats", ttl_s=15.0, producer=_compute_stats)
@@ -5674,7 +5687,11 @@ async def observability_dashboard(user: dict = Depends(get_current_user)):
 
 
 
-@app.get("/api/observability/metrics")
+class ObservabilityMetricsResponse(BaseModel):
+    summary_24h: dict[str, Any]
+    recent_traces: list[dict[str, Any]]
+
+
 async def _compute_observability_metrics() -> dict:
     now = datetime.now(timezone.utc)
     day_ago = now - timedelta(days=1)
@@ -5715,7 +5732,8 @@ async def _compute_observability_metrics() -> dict:
     return {"summary_24h": summary, "recent_traces": recent}
 
 
-async def observability_metrics(user: dict = Depends(get_current_user)):
+@app.get("/api/observability/metrics", response_model=ObservabilityMetricsResponse)
+async def observability_metrics(user: dict = Depends(get_current_user)) -> ObservabilityMetricsResponse:
     """Fetch basic usage metrics from the local_metrics collection.
 
     Global roll-up polled every 30s by the dashboard — cached briefly so the
