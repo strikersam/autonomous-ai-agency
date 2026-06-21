@@ -468,6 +468,21 @@ Agents MUST write checkpoints after significant milestones:
 | `.claude/state/session.log` | Activity log | Continuously |
 | `.claude/state/runner.lock` | Active session lock | On start/stop |
 
+**Convention split — share vs. share-not:**
+
+- **Parent `.claude/state/` (TRACKED in git, team-shared).** Use for: shared operator
+  checklists, runner locks, log streams, anything a teammate can pick up and read.
+  **Never** write session-private content here — it ships to master on the next commit,
+  including `git clone` history. Examples to AVOID in this dir: literal access tokens,
+  password strings, sender PII, full request/response payloads with credentials.
+- **Subdir `.claude/state/sessions/<session-id>/` (GITIGNORED, **session-private**).**
+  Use for: per-session memory dumps, narrative session logs, machine-readable
+  `STATE.json` for cross-session resume, replay scripts, anything that may contain
+  the operator's literal credentials. Each session creates its own dir and writes
+  `SESSION.md`, `NEXT.md`, `STATE.json`, and any replay scripts there. The
+  convention is documented in `.agents/SKILLS-CATALOG.md` under "Session state"
+  and the redaction discipline is in `replay-learnings`.
+
 ---
 
 ## Quick Reference — Key Commands

@@ -265,11 +265,13 @@ async def test_delegate_medium_complexity_fans_out(monkeypatch):
     """Medium complexity should fan out to 2 specialists via RuntimeManager.
 
     Verifies the actual runtime distribution: each sub-task is routed to its
-    ROLE_RUNTIME_PREFERENCE runtime (scout→internal_agent, dev→claude_code).
+    ROLE_RUNTIME_PREFERENCE runtime. Under the free-cloud-default policy both
+    scout and dev resolve to internal_agent (NVIDIA NIM); claude_code is a
+    paid escalation fallback only honoured when allow_paid_brain() is truthy.
     """
     fake = _FakeRuntimeManager(
         per_runtime_output={
-            "internal_agent": "scout analysis done",
+            "internal_agent": "specialist work done",
             "claude_code": "dev implementation done",
         }
     )
@@ -284,18 +286,17 @@ async def test_delegate_medium_complexity_fans_out(monkeypatch):
     roles = {s["role"] for s in result.specialists}
     assert "scout" in roles
     assert "dev" in roles
-    # CRITICAL: each sub-task was routed to its preferred runtime, not just
-    # the same ollama_base. This is the fix for the "fan-out doesn't actually
-    # use different runtimes" ship-blocker.
+    # CRITICAL: each sub-task was independently routed through RuntimeManager
+    # via its own provider_preference (not all collapsed onto one ollama_base).
+    # This is the fix for the "fan-out doesn't actually route per sub-task"
+    # ship-blocker. The free-cloud default puts both on internal_agent.
     runtimes_used = {s["runtime_id"] for s in result.specialists}
-    assert "internal_agent" in runtimes_used  # scout's preferred runtime
-    assert "claude_code" in runtimes_used     # dev's preferred runtime
+    assert runtimes_used == {"internal_agent"}  # free-cloud default for every role
     # RuntimeManager.execute was called twice (once per sub-task)
     assert len(fake.execute_calls) == 2
-    # Each call carried the right provider_preference
+    # Each call carried a resolved provider_preference (per-sub-task routing)
     prefs = [getattr(c, "provider_preference", None) for c in fake.execute_calls]
-    assert "internal_agent" in prefs
-    assert "claude_code" in prefs
+    assert prefs == ["internal_agent", "internal_agent"]
 
 
 @pytest.mark.asyncio
@@ -959,10 +960,15 @@ async def test_end_to_end_ceo_delegation_via_runtime_manager(monkeypatch, tmp_pa
     assert statuses == {"ok"}
     # Summary mentions fan-out
     assert "fan-out" in result.summary
-    # CRITICAL: actual runtime distribution happened (not all on one ollama_base)
+    # CRITICAL: actual per-sub-task routing happened via RuntimeManager.execute.
+    # Under the free-cloud-default policy every role resolves to internal_agent.
     runtimes_used = [s["runtime_id"] for s in result.specialists]
-    assert "internal_agent" in runtimes_used
-    assert "claude_code" in runtimes_used
-    # Dependencies respected: dev got scout's summary in its instruction
-    dev_call = next(c for c in fake.execute_calls if getattr(c, "provider_preference", "") == "claude_code")
+    assert runtimes_used == ["internal_agent", "internal_agent"]
+    assert len(fake.execute_calls) == 2
+    # Dependencies respected: dev (the dependent sub-task) got scout's summary
+    # injected into its instruction. Identify the dev call by that dependency.
+    dev_call = next(
+        c for c in fake.execute_calls
+        if "scout" in c.instruction.lower() or "found 3 files" in c.instruction
+    )
     assert "scout" in dev_call.instruction.lower() or "found 3 files" in dev_call.instruction
