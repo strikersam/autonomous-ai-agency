@@ -168,9 +168,10 @@ For ML/data/science stack.
 - **Hardware emulation / GPU kernel benchmarks.** Pure software only.
 - **Live Pay / PCI patterns.** Out of scope; triggers `risky-module-review` and
   routes to the operator's compliance team.
-- **Production deploy and master automation td>gh push master</td>.** PRs are the
-  contract. No "auto-merge to master from agent output" skill exists by design —
-  the Autonomy Charter G5 keeps this under Telegram-gated repo delivery policy.
+- **Production deploy and master automation (no auto-merge-to-master skill).** PRs
+  are the contract. No agent output flows directly to `master`; the Autonomy
+  Charter G5 keeps first-merge / outbound pushes under Telegram-gated Repo
+  Connection + Delivery Policy.
 
 ---
 
