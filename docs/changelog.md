@@ -1,154 +1,26 @@
-<!-- docs/changelog.md mirrors root CHANGELOG.md (the changelog-gate
-     keys on this file path). Keep both files in sync on every PR, or
-     move the gate to root. -->
-
-## [Unreleased]
-
-### Changed
-
-- **Dashboard + Task pages: cut per-poll DB cost on `/api/stats` and `/api/observability/metrics`** (2026-06-21). The v5 dashboard polls six unfiltered `count_documents({})` calls plus a metrics aggregation every 30s from every open tab. Three fixes: (1) the SQLite shim's `count_documents({})` now answers from `SELECT COUNT(*)` instead of pulling and JSON-decoding every row just to call `len()` — decisive for the unbounded `activity_log`/`local_metrics` tables — and a matching `estimated_document_count()` was added (Motor already has an O(1) one); (2) `/api/stats` now runs its six counts + recent-pages + active-provider concurrently via `asyncio.gather` and through a backend-agnostic `_fast_count` helper (prefers `estimated_document_count`); (3) both global, approximate roll-up endpoints are wrapped in a 15s single-flight in-process TTL cache (`_cached`) so a burst of tabs/refreshes computes once per window. New tests in `tests/test_dashboard_cache.py` and `tests/test_sqlite_store.py` (empty-query fast-count + `estimated_document_count`).
-- **Task board: push owner filter + sort/limit into SQL** (2026-06-21). The Tasks page (`/api/tasks/`, polled every 15s) filters by `owner_id`, but `owner_id` was not an indexed SQLite column, so every poll loaded and JSON-decoded the *entire* tasks table (all users + the unbounded `owner_id="system"` autonomous queue) and sorted in Python. Fixes: (1) `owner_id` is now an indexed column for `tasks`, with a safe auto-migration in `_init_schema` (`ALTER TABLE … ADD COLUMN` + `json_extract` backfill) so pre-existing databases gain the column without manual intervention; (2) a new fully-pushable fast path (`_fully_pushable` + `_Collection._find_pushed`) pushes `ORDER BY` + `LIMIT`/`OFFSET` into SQL when every query condition maps to an indexed column (equality/`$in`), materialising only the requested page instead of the whole owner set — queries that still need a Python post-filter (non-indexed field, range/`$ne`, etc.) fall back to the existing path unchanged. New tests in `tests/test_sqlite_store.py` (sorted/paginated push-down, non-pushable fallback, column-backfill migration).
-- **AGENTS.md "Convention split" closes the tracked-write footgun for `.claude/state/`** (2026-06-21). The "State Persistence" section now explicitly distinguishes the two state directories so a future agent that writes credentials to a session-restore checkpoint doesn't accidentally ship them to master: **parent `.claude/state/` is TRACKED in git (team-shared)** — use only for operator checklists, runner locks, log streams; never write session-private content (literal tokens/passwords/PII/full payloads) here; **subdir `.claude/state/sessions/<session-id>/` is GITIGNORED (session-private)** — per-session memory dumps, narrative logs, `STATE.json` for cross-session resume, replay scripts — anything that may carry operator-issued credentials is safe here. Companion: new `.agents/SKILLS-CATALOG.md` curates 60+ local skills plus per-task `[L]/[R]/[E]` map and an honest "Known Gaps" section. Mirrored: `docs/changelog.md` Unreleased; `.gitignore` adds `.claude/state/sessions/`.
-
-- **Auto-approve routine admin work from Telegram; gate only when the agent can't safely decide** (2026-06-20). `telegram_inbound_handlers._build_execution_request` previously hard-coded `auto_approve=False`, so every plain-text Telegram request — even a routine one from the operator — paused at the orchestrator ApprovalGate for a manual tap. It now sets `auto_approve=True` only when ALL hold: the intent classifier was confident enough to return `execute_now` (uncertain asks come back as `clarify_needed`/`execute_after_approval` and keep gating), the sender is an admin (`_is_admin`), and the request is not sensitive. A new `services.inbound_router.is_sensitive()` activates the previously-inert `_SENSITIVE_TARGETS` list (auth/keys/secrets/credentials/service_manager) as an explicit belt-and-braces floor so a classifier miss or prompt-injection can never auto-approve a credential/auth change. Everything else still gates (inline-keyboard human review), and outward-facing actions like protected-branch merges remain guarded by the agent autonomy gate regardless. The Telegram confirmation message now reflects the real decision (hands-free vs awaiting-approval). New tests in `tests/test_telegram_auto_approve.py`.
-
-- **Graceful degradation when no LLM brain is configured** (2026-06-20). `tasks/service.py` now runs a fail-open brain-availability preflight in `TaskExecutionCoordinator.execute()` before dispatch: if no brain is resolvable (no `AGENT_LLM_BASE_URL`/`OLLAMA_BASE`, no free `NVIDIA_API_KEY`, paid brain not allowed, and no configured provider record with a usable endpoint) the task is **deferred** — kept queued (`pending_agent_run=True`, status `TODO`) so the dispatcher auto-re-picks it the moment a brain is set — instead of spinning up a worktree per task and burning the full runtime-retry budget against a dead endpoint. After `_BRAIN_DEFER_LIMIT` (12) deferrals it parks the task as `BLOCKED` so a permanently-misconfigured deploy can't hot-loop. The check fails open, so the normal (brain-configured) path is unchanged. Separately, the `RuntimeUnavailableError` re-queue logic was extracted into a shared `_requeue_or_block_unavailable()` helper, and the generic execution-failure handler now routes brain/LLM-endpoint connection errors (httpx connect/timeout, "connection refused", …) through that same re-queue-then-block path instead of marking the task permanently `FAILED`. The autonomy probe already surfaces `status="no_brain"` for operator visibility. New tests in `tests/test_task_brain_preflight.py` (defer-keeps-queued, block-after-limit, brain-present-passes, connection-error-requeues).
-- **SQLite read-connection pool** (2026-06-20). `db/sqlite_store.py` now serves pure reads from a pool of WAL read-only connections instead of funnelling every query through the single shared writer connection. Under `STORAGE_BACKEND=sqlite` the previous design serialized *all* DB access process-wide, so on a busy single-instance deploy (autonomous background loops + Telegram bot writing constantly) the dashboard and task-board reads queued behind those writes — the "extra slow" symptom. WAL mode permits N concurrent readers + 1 writer, so the pool lets read endpoints run concurrently with each other and with the writer. Read-modify-write ops (`update_one`/`replace_one`/`delete_one`/`delete_many`) still read through the writer connection for view consistency. Added `PRAGMA busy_timeout=5000` to all connections (wait out a transient lock instead of erroring), `PRAGMA query_only=ON` on read connections (fail-closed), pool size via `SQLITE_READ_POOL_SIZE` (default 4), and automatic pool-disable for in-memory DBs (which are private per connection). New concurrency regression tests in `tests/test_sqlite_store.py`: 20 concurrent reads racing a write burst, in-memory fallback, and read-after-write consistency across the pool/writer boundary.
-
-- **SQLite indexed-column query push-down** (2026-06-20). `db/sqlite_store.py` now pushes equality and `$in` conditions on indexed columns (e.g. `tasks.user_id`/`tasks.status`, `website_scans.company_id`) into the SQL `WHERE` clause so the existing per-column indexes do the filtering, instead of `SELECT data FROM <table>` pulling and JSON-decoding *every* row and scanning it in Python (`_match`). This was the second half of the task-board / dashboard slowness: even with the read pool, each read still deserialized the full table. The push-down only ever *narrows* candidates — every pushed clause is a necessary AND-condition of the query, and the full Python `_match` still runs afterwards — so type coercion, `$or`/`$ne`/range operators, non-indexed fields, missing-field rows, and `None` equality all remain correct (left to `_match`). Column names come only from the `_INDEXED_FIELDS` whitelist and values are parameterised. New tests in `tests/test_sqlite_store.py`: WHERE/`IN` clause construction, operator/`None`/non-indexed exclusion, full-scan-equivalence end-to-end, and a missing-field guard proving no real match is ever dropped.
-
-- **Website scan wall-clock budget + DNS lifetime cap** (2026-06-20). `services/scanner.py` `WebsiteScanner.scan_website()` now runs under an overall `asyncio.wait_for` budget (`WEBSITE_SCAN_BUDGET_SEC`, default 90s — below the frontend's 120s `scanWebsite` client timeout) and returns a clean `status="failed"` instead of hanging. Its many serial network phases (DNS, primary fetch, headless render, the BuiltWith fallback — itself a second headless render — and the 12-host subdomain fan-out) previously had no aggregate cap, so a slow/blocked domain could spin for minutes and surface as a stuck "spinning" scan that eventually errored. Also caps DNS: `_analyze_dns` now uses a `dns.resolver.Resolver()` with `lifetime=3s`/`timeout=2s` instead of dnspython's ~5.4s default across four serial MX/NS/TXT/CNAME lookups (≈20s → ≈3s worst case on dead nameservers). New regression tests in `tests/test_scanner_headless.py` (budget-exceeded → failed result; fast scan unaffected).
-
-### Added
-
-- **Post-merge Telegram notification workflow** (2026-06-20). New `.github/workflows/post-merge-telegram-notify.yml` triggers on PR merges to `master` (`pull_request: closed` + `merged == true`). Delivers an HTML-formatted notification (✅ emoji, PR metadata, 300-char truncated PR-body preview, short SHA, GitHub PR URL) directly to the configured Telegram chat through the Bot API using Python stdlib `urllib` (no external GH Action dependencies). Enforces a fail-fast presence check on the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets; on `ok=false` from Telegram or any HTTP error the workflow logs the response body and exits 1 so the operator has a real signal during outage triage. Concurrency group `post-merge-telegram-notify` serializes rapid batch merges.
-
-- **Telegram operator diagnostics** (2026-06-20). New admin-only `/diag` command + silent-drop remediation hint + admin-bypass for `_is_allowed`. The `/diag` command surfaces a runtime config snapshot (masked token via first-4…last-4 with `len >= 16` overlap guard, allowlist IDs truncated to first-20 + `(+N more)` to fit Telegram's 4096-char Markdown-v1 cap, admin IDs, poller state, proxy base, "You" identifier). Silent-drop path now emits a one-shot WARNING with a `set TELEGRAM_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS` remediation hint when `ALLOWED_USER_IDS` is empty (throttled by `_EMPTY_ALLOWLIST_WARNED` flag; subsequent drops downgrade to INFO). `_is_allowed` now lets an admin seat authenticate regardless of allowlist so `/diag` stays reachable when the operator's allowlist is misconfigured. New `tests/test_telegram_diag.py` covers 6 TestDiagCommand + 2 TestSilentDropRemediation + 1 regression test for the admin-bypass contract (80 telegram-slice tests passing). `.env.example` Telegram block rewritten with the full BotFather → @userinfobot → `/diag` setup recipe including `TELEGRAM_CHAT_ID`, admin fallback, poller guard, and proxy + FreeBuff env keys. `_poller_disabled()` helper hoisted to module scope so the truthy-parser is no longer duplicated between `/diag` and `run_bot()`.
-
-- **Autonomy-v2 slice** (2026-06-20). Five high-leverage changes that close the gap from "mostly autonomous" to "fully autonomous" — operator still has to type a slash command, every HITL gate fires, every error needs human eyes, every URL needs an onboarding runbook. After this slice:
-  - **Runtime ApprovalPolicy evaluator** (`services/workflow_orchestrator.py`). New `_load_approval_policy(company_id)` helper fetches the company's ApprovalPolicy from `services.company_graph_store`. In `execute()`'s ApprovalGate block, when `require_human_approval=False` AND the first-merge gate is not forced, the run auto-approves (`req.auto_approve = True; run.approved = True`). This is the single change that lets a company opt-in to autonomous runs without per-action human review — the "kill the ceiling" change.
-  - **G2 self-heal close-loop** (`_handle_persist`). When a run carries `metadata.heal_signature` AND `judge.verdict` is in `(approve, approved, pass, passed)`, `agent.self_healing.get_self_healing_agent().mark_fix_landed(sig)` is invoked so the verification window opens without relying on an external CI webhook. A regression during the window still self-corrects via `note_recurrence`.
-  - **Zero-touch Telegram onboarding** (`telegram_inbound_handlers._launch_url_onboarding` + `services/inbound_router.extract_first_url` / `looks_like_url_only`). Pasting a single URL into the bot fires the 8-step onboarding flow + agency activation in the background (admin-only). Strict: rejects prose-bound URLs and multi-URL messages.
-  - **Intent-aware admin auto_approve** (`_build_execution_request`). New optional `intent` param: `auto_approve = (intent == "execute_now" and _is_admin(int(user_id)))`. Lower-risk intents (`execute_after_approval`, `plan_only`, `clarify_needed`) still trip the ApprovalGate so HITL keeps firing for non-admins and risky asks.
-  - **Graceful classifier degradation** (`services/inbound_router._verb_prefix_heuristic`). When the LLM intent classifier fails to import / returns None, verb-prefix commands (`Fix …`, `Add …`, `Run …`, …) now route to `execute_after_approval` instead of silently downgrading every actionable message to `answer_only`.
-- **Tests** added in `tests/test_autonomy_v2_inbound.py`, `tests/test_autonomy_v2_telegram.py`, `tests/test_autonomy_v2_orchestrator.py` — 24 cases covering URL extraction, admin gating, intent-aware auto_approve, the policy evaluator, and the G2 close-loop hook. 101/101 of the LLM-independent slice green; the pre-existing Ollama-dependent `test_workflow_orchestrator.py` failures are not affected.
-
-- **Dispatchable Telegram trigger workflow** (2026-06-20). New `.github/workflows/trigger-telegram.yml` with `on: workflow_dispatch` reads `secrets.DIGEST_SECRET` and POSTs to `${BACKEND_URL}/api/admin/digest/send` with header `X-Admin-Secret`. The server then uses its Render env vars (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`, already wired server-side because the daily-digest cron fires green) to send a real Telegram message via `NotificationDispatcher.send_daily_digest`. Workaround for `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` not being wired as GH repo secrets; fires any time without needing to merge a PR. Single-job, single-step; concurrency group `telegram-trigger` (`cancel-in-progress: true`) so accidental double-dispatches don't double-fire to the operator chat.
-
-### Added
-- **Telegram inbound routing + mid-flight redirection** (Daily Digest followup, 2026-06-19). Operators can now steer the bot without typing a slash command. `services/inbound_router.py` provides pure helpers (`classify_plain_text` reusing `agent.intent.classify_direct_chat_intent`, `should_big_paste`, `save_paste` with ``..``-traversal guard, `sanitize_paste_for_preview`). `telegram_inbound_handlers.py` wires three async handlers `handle_redirect`, `handle_paste`, `_route_plain_text` plus `_handle_big_paste` (>3500 chars → workspace paste + short pointer so 4096-char Markdown-v1 ceiling never trips) and `_resolve_reply_to_decision` (durable via new `bot_message_links` SQLite table in `services/decisions_store.py`). Plain-text fallback routes through `WorkflowOrchestrator.execute(auto_approve=False)` per the Golden Path rules; the bot's existing `_process_wfo_callback` picks up the ApprovalGate inline keyboard on the next poll. New `POST /api/workflow/orchestrator/update-task/{run_id}` admin endpoint (`backend/admin_update_task_router.py`) uses `X-Admin-Secret` auth (same as `admin_digest_router.py`) so `/redirect wfo_xxx "..."` can inject `additional_instructions` into the in-flight `ExecutionRequest.metadata` (Pydantic `model_copy(update=...)`) and trigger `_checkpoint(run)` for restart-survival. New operator commands: `/redirect <wfo_|dec_> <new instruction>` (admin-only, prefix-dispatched), `/paste <abs-path>` (admin-only read for big pastes). `telegram_bot._send_message` now returns `tuple[bool, Optional[int]]` so `bot_message_links.link_message` can capture the outbound `telegram_message_id` for durable reply-to lookup. 40 tests across `tests/test_inbound_router.py`, `tests/test_decisions_bot_links.py`, `tests/test_workflow_orchestrator_update_task.py`, `tests/test_telegram_inbound.py`.
-- **Per-model circuit breaker for Ollama (`router/circuit_breaker.py`, 2026-06-16).** New `OllamaCircuitBreaker` implements the CLOSED → OPEN → HALF_OPEN state machine per-model, mirroring the existing NIM pool circuit breaker (`services/nim_pool.py`). After `CIRCUIT_BREAKER_FAILURE_THRESHOLD` (default 3) consecutive 5xx errors on a model, the circuit opens and `is_model_available()` returns `False` for that model, forcing the router to use its fallback chain. After `CIRCUIT_BREAKER_RECOVERY_TIMEOUT` (default 60s) the circuit transitions to HALF_OPEN and allows one probe request; success closes the circuit, failure re-opens it. The fallback handler in `handlers/anthropic_compat.py` now records success/failure on each attempt. `CIRCUIT_BREAKER_ENABLED=false` disables the feature. 16 unit tests in `tests/test_circuit_breaker.py`. Inspired by resilience patterns from NIM pool implementation already in the codebase, now applied uniformly to all Ollama model routing.
-- **Extended cache token fields in Anthropic API responses (`handlers/anthropic_compat.py`, 2026-06-16).** `_build_anthropic_response()` and the streaming `message_start` SSE event now include `cache_read_input_tokens: 0` and `cache_creation_input_tokens: 0` in the `usage` block. These fields were added to the Anthropic API in version 2024-06-20 and are expected by Claude Code CLI ≥ v2.1.x and the Anthropic Python/TypeScript SDK when parsing responses — their absence caused `KeyError` or silent field-access failures in some SDK versions. For local Ollama models the values are always 0 (no server-side prompt cache), but the fields are present and parseable. 9 unit tests in `tests/test_anthropic_usage_fields.py`.
-
-- **Agency Core Autonomy Hardening** (#468): Replaced BackgroundAgent `_process()` no-op stub with real AgentRunner dispatch. Added Doctor diagnostics module with public/authenticated split and one-click fixes. Added AutonomyTracker KPI singleton. Added 21 Golden Path contract tests.
-- **RTK-style Output Filtering** (#463): Added `output_filter.py` with command-specific compressors for 60-90% token reduction. Fixed #462.
-- **Telegram Bot Service Manager & Log Monitoring** (#486): `telegram_service.py` integrates bot lifecycle into service_manager. `log_watcher.py` scans logs for errors and files GitHub issues automatically.
-- **MongoDB Skip Flag for CI** (#484): Added `SKIP_MONGO_TESTS` env var to allow CI to run without MongoDB.
-
-### Fixed
-
-- **Free-brain default pointed at a dead model** (2026-06-20). `brain_policy.DEFAULT_FREE_NVIDIA_MODEL` was still `nvidia/nemotron-3-super-120b-a12b`, which the curated live-endpoint testing found returns 404 — while the rest of the codebase (router/, services/, agents/, seeded provider records, 19 references) uses the live `nvidia/llama-3.3-nemotron-super-49b-v1`. A deploy that left `NVIDIA_DEFAULT_MODEL` unset would resolve a dead brain and every dispatched task would fail at EXECUTE with a 400/404. The default now matches the empirically-live Nemotron Super 49B. New tests in `tests/test_brain_default_model.py`.
-- **Specialist provisioning timeout (25000ms) + masked "Something went wrong" on scans/audits**: `OnboardingService.start_onboarding()` Step 8 previously awaited `CompanyAgencyService.activate_company()` (docker compose runtime startup) synchronously, regularly exceeding the onboarding Done step's 25s timeout. It now runs via `asyncio.create_task(self._activate_agency_background(...))` so the request returns promptly with an `in_progress` `activate_agency` step; `runtimes/control.py` `start_runtime`/`stop_runtime` move their blocking `docker compose` calls onto `asyncio.to_thread()` with a 10s timeout. Separately, `frontend/src/api.js`'s `fmtErr()` returned the literal `'Something went wrong.'` for `null`/`undefined` detail (network errors, timeouts, non-JSON responses — e.g. the gucci.com website scan and SEO/GEO/AIO audit), always masking the real `e.message` in `fmtErr(detail) || e.message || fallback` chains; it now returns `''`. Added a 45s default axios timeout plus longer per-call timeouts for `scanWebsite`/`scanRepo` (120s) and `runSeoAudit` (180s).
-- **Three pre-existing CI-blocking bugs on `master`**: `.github/scripts/implement_agent.py` had 2968 trailing NUL bytes causing `python -m py_compile` to fail with `SyntaxError: source code string cannot contain null bytes` (stripped); `frontend/src/v5/screens/CompanyScreen.jsx` was truncated mid-statement (`exp` instead of `export default CompanyScreen;`), breaking `npm run build` and the Docker-based Playwright E2E build (completed the statement); `proxy.py`'s `/v1/models` alias entries used the stale `"owned_by": "llm-relay-alias"` instead of `"autonomous-ai-agency-alias"`, failing `tests/test_daily_automation_2026_05_14.py::TestModelsEndpointAliases::test_list_models_includes_alias_entries` (updated to match the project's current name).
-- **Direct chat stuck at "planning" in Agent Mode**: the chat Agent-Mode job ran `AgentRunner.run()` with no aggregate wall-clock budget, so a hung provider connection (httpx read timeout is 300s/call across plan+execute+verify) left the job stuck at phase "planning" indefinitely. Added `CHAT_AGENT_RUN_BUDGET_SEC` (default 240s) `asyncio.wait_for` wrapper in `backend/server.py:_run_agent_loop` that fails the job cleanly with a recoverable message.
-- **Issue → implementation-PR autonomy regression**: `issue-context-generator.yml` closed each issue (`--reason completed`) immediately after creating the context-doc draft PR, but `process-quick-note.yml` only picks up *open* issues — so no issue was ever auto-implemented. The context generator now leaves the issue OPEN and auto-dispatches `process-quick-note.yml` for it via `gh workflow run`, restoring the issue→code-PR pipeline.
-- **Specialist loading hangs on "Loading specialists…"**: `OnboardingScreen` `DoneStep` only set the specialists state inside `startOnboarding().finally()`, so a hung provisioning request (the backend serializes onboarding under a global lock) never settled and the spinner ran forever. Added a 30s watchdog, a bounded 25s request timeout, and a guaranteed single-settle path so the UI always exits the loading state. `api.startOnboarding` now forwards a request config.
-- **`_resolve_brain_provider` import error broke the orchestrator-failover test suite** (`tests/test_orchestrator_failover.py` collection ImportError): promoted the nested provider resolver to a module-level `async _resolve_brain_provider(exclude_base_urls=None)` supporting `AGENT_LLM_*` env override, priority sorting, and exclusion-based failover. Wired the EXECUTE phase to re-raise on provider failure (so the retry loop engages) and accumulate failed provider URLs in `llm_provenance["_failed_execute"]`, giving real per-provider failover (#522 acceptance criterion 2).
-
-### Added
-- **Scanner parity with BuiltWith (off-HTML evidence)**: `services/scanner.py` now inspects the TLS certificate (`_analyze_ssl_cert` — issuer + Subject Alternative Names → CDN/host/cert-provider) and performs explicit high-signal response-header detection (`_analyze_response_headers` — CF-Ray, X-Served-By, X-Amz-Cf-Id, Server, X-Powered-By, etc.) on top of the existing DNS (MX/NS/TXT/CNAME) and regex-DB passes. All four evidence sources merge with highest-confidence-wins.
-
-- **PR #461**: Removed all hardcoded credential fallbacks from proxy.py and test configurations.
-- **PR #466**: Agent now accepts command/task/text as instruction aliases in spawn_subagent.
-
-### Fixed
-- **3 pre-existing test failures**: installed `reportlab` and `lxml` dependencies for `test_seo_report_pdf.py`; fixed `test_agent_tools_security.py` Windows path assertion using `os.path.realpath`; fixed `test_claude_setup_audit.py` Unicode errors by adding `encoding="utf-8"` to `read_text()` calls and replacing Unicode checkmark/dash characters with ASCII-safe alternatives.
-
-### Changed
-- **Extracted `NVIDIA_CANDIDATE_MODELS` to shared `.github/scripts/nvidia_models.py`** — single source of truth for implement_agent.py, review_agent.py, and apply_review.py. Uses sys.path injection for standalone CLI script compatibility. Exports both `NVIDIA_CANDIDATE_MODELS` (tuple list with labels) and `NVIDIA_MODEL_IDS` (plain string list).
-- **Replaced all remaining references to dead `nemotron-3-super-120b-a12b`** with live `llama-3.3-nemotron-super-49b-v1` across 26 files: router/model_router.py, agent/loop.py, agents/profiles.py, provider_router.py, direct_chat.py, setup/api.py, handlers/v3_models.py, agents/harness_adapter.py, runtimes/adapters/internal_agent.py, router/harness_routing.py, setup_local_models.py, services/cost_attribution.py, services/nim_pool.py, telegram_bot.py, scripts/test_nim_models.py, .github/scripts/generate_context.py, backend/server.py, and all test fixtures.
-- **Hardened `_call_review_llm()` fallback in `review_agent.py`** to match `implement_agent.py`: 429 rate-limit triggers exponential backoff retry (3 attempts, jittered) on same model before advancing; timeout advances immediately; 404/422 drops model from rotation; non-429 errors on retry break immediately.
-- **NVIDIA NIM model list curated from live endpoint testing.** Tested 10 candidate models against https://integrate.api.nvidia.com/v1 — only 3 returned OK (Nemotron Super 49B tool_calls=True 3.7s, Llama 4 Maverick 1.3s, Llama 3.3 70B tool_calls=True 6.0s); 7 returned 404/APIStatusError/BadRequest. Updated NVIDIA_CANDIDATE_MODELS in implement_agent.py, apply_review.py, and review_agent.py to the 3 live models, removed dead entries. Updated _default_agent_role_models() and _get_nim_provider_record() in backend/server.py to reference live Nemotron Super 49B. Hardened 429 rate-limit fallback with exponential backoff + jitter, timeout detection, and 404/422 model dropout.
-- **PR #459**: Deploy CI switched to wrangler-action v3 with --config wrangler.jsonc.
-# Changelog
-All notable changes to this project will be documented in this file.
-
-### Security
-
-- **.gitignore hardening: exclude operator secret file + scratchpad** (2026-06-21, mirror from docs/changelog.md). Two patterns added: `_claude_run_secret*.txt` (wildcarded from the original literal match so variants are caught) and `.tmp_local_secrets/` (transient operator scratchpad convention). The existing `bandit-report.json` exact match already covers bandit scanner output. Closes a credential-leak vector.
-- **Recover .gitignore leak-vector patterns dropped by PR #720 merge auto-resolution** (2026-06-21). PR #720's 3-way merge kept master's pre-existing `.gitignore` over the cherry-picked `_claude_run_secret*.txt` / `.tmp_local_secrets/` additions; this follow-up re-applies them so the working tree matches the documented hardening above.
-
-
-### Added
-
-- **Post-merge Telegram notification workflow** (2026-06-20). New `.github/workflows/post-merge-telegram-notify.yml` triggers on PR merges to `master` (`pull_request: closed` + `merged == true`). Delivers an HTML-formatted notification (✅ emoji, PR metadata, 300-char truncated PR-body preview, short SHA, GitHub PR URL) directly to the configured Telegram chat through the Bot API using Python stdlib `urllib` (no external GH Action dependencies). Enforces a fail-fast presence check on the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets; on `ok=false` from Telegram or any HTTP error the workflow logs the response body and exits 1 so the operator has a real signal during outage triage. Concurrency group `post-merge-telegram-notify` serializes rapid batch merges.
-
-- **Tests: shared `isolated_telegram_config` context manager** (2026-06-20). New `tests/_telegram_test_utils.py` exposes a `@contextlib.contextmanager` (plus a pytest `isolated_telegram` fixture wrapper) that snapshots and restores `tb.TELEGRAM_BOT_TOKEN`, `tb.ALLOWED_USER_IDS`, `tb.ADMIN_USER_IDS`, `tb._send_message`, `tb._send_message_with_id`, `tb._EMPTY_ALLOWLIST_WARNED`, and `TELEGRAM_POLLER_DISABLED` env var. Keyword arguments act as apply-filters; `reset_throttle=True` (default) hard-resets the silent-drop WARNING-throttle so a True flag from a prior test can never poison the next. `tests/test_telegram_diag.py` dropped its hand-rolled `_GlobalsRestorer` class and now drives the context manager from `setUp`/`tearDown`. `tests/test_telegram_inbound.py` replaced 4 instances of per-class `self._orig_*` orig/snapshot boilerplate with the same pattern. `tests/test_telegram_freebuff.py` autouse fixture `_admin_user` now wraps `yield` in a `with isolated_telegram_config(...)` block instead of pytest monkeypatch. Test method bodies are byte-identical to the pre-refactor versions; the change is purely structural. Eliminates the cascading-str_replace damage pattern flagged in prior reviews by giving all future telegram tests a single, well-tested isolation primitive.
-
-- **Telegram operator diagnostics** (2026-06-20). New admin-only `/diag` command + silent-drop remediation hint + admin-bypass for `_is_allowed`. The `/diag` command surfaces a runtime config snapshot (masked token via first-4…last-4 with `len >= 16` overlap guard, allowlist IDs truncated to first-20 + `(+N more)` to fit Telegram's 4096-char Markdown-v1 cap, admin IDs, poller state, proxy base, "You" identifier). Silent-drop path now emits a one-shot WARNING with a `set TELEGRAM_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS` remediation hint when `ALLOWED_USER_IDS` is empty (throttled by `_EMPTY_ALLOWLIST_WARNED` flag; subsequent drops downgrade to INFO). `_is_allowed` now lets an admin seat authenticate regardless of allowlist so `/diag` stays reachable when the operator's allowlist is misconfigured. New `tests/test_telegram_diag.py` covers 6 TestDiagCommand + 2 TestSilentDropRemediation + 1 regression test for the admin-bypass contract (80 telegram-slice tests passing). `.env.example` Telegram block rewritten with the full BotFather → @userinfobot → `/diag` setup recipe including `TELEGRAM_CHAT_ID`, admin fallback, poller guard, and proxy + FreeBuff env keys. `_poller_disabled()` helper hoisted to module scope so the truthy-parser is no longer duplicated between `/diag` and `run_bot()`.
-
-- **Autonomy-v2 slice** (2026-06-20). Five high-leverage changes that close the gap from "mostly autonomous" to "fully autonomous" — operator still has to type a slash command, every HITL gate fires, every error needs human eyes, every URL needs an onboarding runbook. After this slice:
-  - **Runtime ApprovalPolicy evaluator** (`services/workflow_orchestrator.py`). New `_load_approval_policy(company_id)` helper fetches the company's ApprovalPolicy from `services.company_graph_store`. In `execute()`'s ApprovalGate block, when `require_human_approval=False` AND the first-merge gate is not forced, the run auto-approves (`req.auto_approve = True; run.approved = True`). This is the single change that lets a company opt-in to autonomous runs without per-action human review — the "kill the ceiling" change.
-  - **G2 self-heal close-loop** (`_handle_persist`). When a run carries `metadata.heal_signature` AND `judge.verdict` is in `(approve, approved, pass, passed)`, `agent.self_healing.get_self_healing_agent().mark_fix_landed(sig)` is invoked so the verification window opens without relying on an external CI webhook. A regression during the window still self-corrects via `note_recurrence`.
-  - **Zero-touch Telegram onboarding** (`telegram_inbound_handlers._launch_url_onboarding` + `services/inbound_router.extract_first_url` / `looks_like_url_only`). Pasting a single URL into the bot fires the 8-step onboarding flow + agency activation in the background (admin-only). Strict: rejects prose-bound URLs and multi-URL messages.
-  - **Intent-aware admin auto_approve** (`_build_execution_request`). New optional `intent` param: `auto_approve = (intent == "execute_now" and _is_admin(int(user_id)))`. Lower-risk intents (`execute_after_approval`, `plan_only`, `clarify_needed`) still trip the ApprovalGate so HITL keeps firing for non-admins and risky asks.
-  - **Graceful classifier degradation** (`services/inbound_router._verb_prefix_heuristic`). When the LLM intent classifier fails to import / returns None, verb-prefix commands (`Fix …`, `Add …`, `Run …`, …) now route to `execute_after_approval` instead of silently downgrading every actionable message to `answer_only`.
-- **Tests** added in `tests/test_autonomy_v2_inbound.py`, `tests/test_autonomy_v2_telegram.py`, `tests/test_autonomy_v2_orchestrator.py` — 24 cases covering URL extraction, admin gating, intent-aware auto_approve, the policy evaluator, and the G2 close-loop hook. 101/101 of the LLM-independent slice green; the pre-existing Ollama-dependent `test_workflow_orchestrator.py` failures are not affected.
-
-
-
-### Added
-
-- **Post-merge Telegram notification workflow** (2026-06-20). New `.github/workflows/post-merge-telegram-notify.yml` triggers on PR merges to `master` (`pull_request: closed` + `merged == true`). Delivers an HTML-formatted notification (✅ emoji, PR metadata, 300-char truncated PR-body preview, short SHA, GitHub PR URL) directly to the configured Telegram chat through the Bot API using Python stdlib `urllib` (no external GH Action dependencies). Enforces a fail-fast presence check on the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets; on `ok=false` from Telegram or any HTTP error the workflow logs the response body and exits 1 so the operator has a real signal during outage triage. Concurrency group `post-merge-telegram-notify` serializes rapid batch merges.
-
-- **Tests: shared `isolated_telegram_config` context manager** (2026-06-20). New `tests/_telegram_test_utils.py` exposes a `@contextlib.contextmanager` (plus a pytest `isolated_telegram` fixture wrapper) that snapshots and restores `tb.TELEGRAM_BOT_TOKEN`, `tb.ALLOWED_USER_IDS`, `tb.ADMIN_USER_IDS`, `tb._send_message`, `tb._send_message_with_id`, `tb._EMPTY_ALLOWLIST_WARNED`, and `TELEGRAM_POLLER_DISABLED` env var. Keyword arguments act as apply-filters; `reset_throttle=True` (default) hard-resets the silent-drop WARNING-throttle so a True flag from a prior test can never poison the next. `tests/test_telegram_diag.py` dropped its hand-rolled `_GlobalsRestorer` class and now drives the context manager from `setUp`/`tearDown`. `tests/test_telegram_inbound.py` replaced 4 instances of per-class `self._orig_*` orig/snapshot boilerplate with the same pattern. `tests/test_telegram_freebuff.py` autouse fixture `_admin_user` now wraps `yield` in a `with isolated_telegram_config(...)` block instead of pytest monkeypatch. Test method bodies are byte-identical to the pre-refactor versions; the change is purely structural. Eliminates the cascading-str_replace damage pattern flagged in prior reviews by giving all future telegram tests a single, well-tested isolation primitive.
-
-- **Telegram operator diagnostics** (2026-06-20). New admin-only `/diag` command + silent-drop remediation hint + admin-bypass for `_is_allowed`. The `/diag` command surfaces a runtime config snapshot (masked token via first-4…last-4 with `len >= 16` overlap guard, allowlist IDs truncated to first-20 + `(+N more)` to fit Telegram's 4096-char Markdown-v1 cap, admin IDs, poller state, proxy base, "You" identifier). Silent-drop path now emits a one-shot WARNING with a `set TELEGRAM_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS` remediation hint when `ALLOWED_USER_IDS` is empty (throttled by `_EMPTY_ALLOWLIST_WARNED` flag; subsequent drops downgrade to INFO). `_is_allowed` now lets an admin seat authenticate regardless of allowlist so `/diag` stays reachable when the operator's allowlist is misconfigured. New `tests/test_telegram_diag.py` covers 6 TestDiagCommand + 2 TestSilentDropRemediation + 1 regression test for the admin-bypass contract (80 telegram-slice tests passing). `.env.example` Telegram block rewritten with the full BotFather → @userinfobot → `/diag` setup recipe including `TELEGRAM_CHAT_ID`, admin fallback, poller guard, and proxy + FreeBuff env keys. `_poller_disabled()` helper hoisted to module scope so the truthy-parser is no longer duplicated between `/diag` and `run_bot()`.
-
-- **Autonomy-v2 slice** (2026-06-20). Five high-leverage changes that close the gap from "mostly autonomous" to "fully autonomous" — operator still has to type a slash command, every HITL gate fires, every error needs human eyes, every URL needs an onboarding runbook. After this slice:
-  - **Runtime ApprovalPolicy evaluator** (`services/workflow_orchestrator.py`). New `_load_approval_policy(company_id)` helper fetches the company's ApprovalPolicy from `services.company_graph_store`. In `execute()`'s ApprovalGate block, when `require_human_approval=False` AND the first-merge gate is not forced, the run auto-approves (`req.auto_approve = True; run.approved = True`). This is the single change that lets a company opt-in to autonomous runs without per-action human review — the "kill the ceiling" change.
-  - **G2 self-heal close-loop** (`_handle_persist`). When a run carries `metadata.heal_signature` AND `judge.verdict` is in `(approve, approved, pass, passed)`, `agent.self_healing.get_self_healing_agent().mark_fix_landed(sig)` is invoked so the verification window opens without relying on an external CI webhook. A regression during the window still self-corrects via `note_recurrence`.
-  - **Zero-touch Telegram onboarding** (`telegram_inbound_handlers._launch_url_onboarding` + `services/inbound_router.extract_first_url` / `looks_like_url_only`). Pasting a single URL into the bot fires the 8-step onboarding flow + agency activation in the background (admin-only). Strict: rejects prose-bound URLs and multi-URL messages.
-  - **Intent-aware admin auto_approve** (`_build_execution_request`). New optional `intent` param: `auto_approve = (intent == "execute_now" and _is_admin(int(user_id)))`. Lower-risk intents (`execute_after_approval`, `plan_only`, `clarify_needed`) still trip the ApprovalGate so HITL keeps firing for non-admins and risky asks.
-  - **Graceful classifier degradation** (`services/inbound_router._verb_prefix_heuristic`). When the LLM intent classifier fails to import / returns None, verb-prefix commands (`Fix …`, `Add …`, `Run …`, …) now route to `execute_after_approval` instead of silently downgrading every actionable message to `answer_only`.
-- **Tests** added in `tests/test_autonomy_v2_inbound.py`, `tests/test_autonomy_v2_telegram.py`, `tests/test_autonomy_v2_orchestrator.py` — 24 cases covering URL extraction, admin gating, intent-aware auto_approve, the policy evaluator, and the G2 close-loop hook. 101/101 of the LLM-independent slice green; the pre-existing Ollama-dependent `test_workflow_orchestrator.py` failures are not affected.
-
-
-
-### Added
-- **Telegram inbound routing + mid-flight redirection** (Daily Digest followup, 2026-06-19). Operators can now steer the bot without typing a slash command. `services/inbound_router.py` provides pure helpers (`classify_plain_text` reusing `agent.intent.classify_direct_chat_intent`, `should_big_paste`, `save_paste` with ``..``-traversal guard, `sanitize_paste_for_preview`). `telegram_inbound_handlers.py` wires three async handlers `handle_redirect`, `handle_paste`, `_route_plain_text` plus `_handle_big_paste` (>3500 chars → workspace paste + short pointer so 4096-char Markdown-v1 ceiling never trips) and `_resolve_reply_to_decision` (durable via new `bot_message_links` SQLite table in `services/decisions_store.py`). Plain-text fallback routes through `WorkflowOrchestrator.execute(auto_approve=False)` per the Golden Path rules; the bot's existing `_process_wfo_callback` picks up the ApprovalGate inline keyboard on the next poll. New `POST /api/workflow/orchestrator/update-task/{run_id}` admin endpoint (`backend/admin_update_task_router.py`) uses `X-Admin-Secret` auth (same as `admin_digest_router.py`) so `/redirect wfo_xxx "..."` can inject `additional_instructions` into the in-flight `ExecutionRequest.metadata` (Pydantic `model_copy(update=...)`) and trigger `_checkpoint(run)` for restart-survival. New operator commands: `/redirect <wfo_|dec_> <new instruction>` (admin-only, prefix-dispatched), `/paste <abs-path>` (admin-only read for big pastes). `telegram_bot._send_message` now returns `tuple[bool, Optional[int]]` so `bot_message_links.link_message` can capture the outbound `telegram_message_id` for durable reply-to lookup. 40 tests across `tests/test_inbound_router.py`, `tests/test_decisions_bot_links.py`, `tests/test_workflow_orchestrator_update_task.py`, `tests/test_telegram_inbound.py`.
-- **Per-model circuit breaker for Ollama (`router/circuit_breaker.py`, 2026-06-16).** New `OllamaCircuitBreaker` implements the CLOSED → OPEN → HALF_OPEN state machine per-model, mirroring the existing NIM pool circuit breaker (`services/nim_pool.py`). After `CIRCUIT_BREAKER_FAILURE_THRESHOLD` (default 3) consecutive 5xx errors on a model, the circuit opens and `is_model_available()` returns `False` for that model, forcing the router to use its fallback chain. After `CIRCUIT_BREAKER_RECOVERY_TIMEOUT` (default 60s) the circuit transitions to HALF_OPEN and allows one probe request; success closes the circuit, failure re-opens it. The fallback handler in `handlers/anthropic_compat.py` now records success/failure on each attempt. `CIRCUIT_BREAKER_ENABLED=false` disables the feature. 16 unit tests in `tests/test_circuit_breaker.py`. Inspired by resilience patterns from NIM pool implementation already in the codebase, now applied uniformly to all Ollama model routing.
-- **Extended cache token fields in Anthropic API responses (`handlers/anthropic_compat.py`, 2026-06-16).** `_build_anthropic_response()` and the streaming `message_start` SSE event now include `cache_read_input_tokens: 0` and `cache_creation_input_tokens: 0` in the `usage` block. These fields were added to the Anthropic API in version 2024-06-20 and are expected by Claude Code CLI ≥ v2.1.x and the Anthropic Python/TypeScript SDK when parsing responses — their absence caused `KeyError` or silent field-access failures in some SDK versions. For local Ollama models the values are always 0 (no server-side prompt cache), but the fields are present and parseable. 9 unit tests in `tests/test_anthropic_usage_fields.py`.
-
-- **Agency Core Autonomy Hardening** (#468): Replaced BackgroundAgent `_process()` no-op stub with real AgentRunner dispatch. Added Doctor diagnostics module with public/authenticated split and one-click fixes. Added AutonomyTracker KPI singleton. Added 21 Golden Path contract tests.
-- **RTK-style Output Filtering** (#463): Added `output_filter.py` with command-specific compressors for 60-90% token reduction. Fixed #462.
-- **Telegram Bot Service Manager & Log Monitoring** (#486): `telegram_service.py` integrates bot lifecycle into service_manager. `log_watcher.py` scans logs for errors and files GitHub issues automatically.
-- **MongoDB Skip Flag for CI** (#484): Added `SKIP_MONGO_TESTS` env var to allow CI to run without MongoDB.
-
-### Fixed
-- **`SPA_PROTECTED_PREFIXES` hoisted to module scope (`backend/server.py`)**: the protected-prefix tuple was defined inside the `if _FRONTEND_BUILD.exists():` block, so in any environment without a built frontend (CI, fresh clones) the constant was absent at module scope. `tests/test_serve_spa_prefixes.py` read it as an empty tuple and failed, blocking the Python 3.13 test job. Moved the tuple above the conditional (the `serve_spa` catch-all still references it) so the prefix set — and the SPA-leak guard contract it encodes — exists regardless of whether the frontend build directory is present.
-- **Specialist provisioning timeout (25000ms) + masked "Something went wrong" on scans/audits**: `OnboardingService.start_onboarding()` Step 8 previously awaited `CompanyAgencyService.activate_company()` (docker compose runtime startup) synchronously, regularly exceeding the onboarding Done step's 25s timeout. It now runs via `asyncio.create_task(self._activate_agency_background(...))` so the request returns promptly with an `in_progress` `activate_agency` step; `runtimes/control.py` `start_runtime`/`stop_runtime` move their blocking `docker compose` calls onto `asyncio.to_thread()` with a 10s timeout. Separately, `frontend/src/api.js`'s `fmtErr()` returned the literal `'Something went wrong.'` for `null`/`undefined` detail (network errors, timeouts, non-JSON responses — e.g. the gucci.com website scan and SEO/GEO/AIO audit), always masking the real `e.message` in `fmtErr(detail) || e.message || fallback` chains; it now returns `''`. Added a 45s default axios timeout plus longer per-call timeouts for `scanWebsite`/`scanRepo` (120s) and `runSeoAudit` (180s).
-- **Three pre-existing CI-blocking bugs on `master`**: `.github/scripts/implement_agent.py` had 2968 trailing NUL bytes causing `python -m py_compile` to fail with `SyntaxError: source code string cannot contain null bytes` (stripped); `frontend/src/v5/screens/CompanyScreen.jsx` was truncated mid-statement (`exp` instead of `export default CompanyScreen;`), breaking `npm run build` and the Docker-based Playwright E2E build (completed the statement); `proxy.py`'s `/v1/models` alias entries used the stale `"owned_by": "llm-relay-alias"` instead of `"autonomous-ai-agency-alias"`, failing `tests/test_daily_automation_2026_05_14.py::TestModelsEndpointAliases::test_list_models_includes_alias_entries` (updated to match the project's current name).
-- **Direct chat stuck at "planning" in Agent Mode**: the chat Agent-Mode job ran `AgentRunner.run()` with no aggregate wall-clock budget, so a hung provider connection (httpx read timeout is 300s/call across plan+execute+verify) left the job stuck at phase "planning" indefinitely. Added `CHAT_AGENT_RUN_BUDGET_SEC` (default 240s) `asyncio.wait_for` wrapper in `backend/server.py:_run_agent_loop` that fails the job cleanly with a recoverable message.
-- **Issue → implementation-PR autonomy regression**: `issue-context-generator.yml` closed each issue (`--reason completed`) immediately after creating the context-doc draft PR, but `process-quick-note.yml` only picks up *open* issues — so no issue was ever auto-implemented. The context generator now leaves the issue OPEN and auto-dispatches `process-quick-note.yml` for it via `gh workflow run`, restoring the issue→code-PR pipeline.
-- **Specialist loading hangs on "Loading specialists…"**: `OnboardingScreen` `DoneStep` only set the specialists state inside `startOnboarding().finally()`, so a hung provisioning request (the backend serializes onboarding under a global lock) never settled and the spinner ran forever. Added a 30s watchdog, a bounded 25s request timeout, and a guaranteed single-settle path so the UI always exits the loading state. `api.startOnboarding` now forwards a request config.
-- **`_resolve_brain_provider` import error broke the orchestrator-failover test suite** (`tests/test_orchestrator_failover.py` collection ImportError): promoted the nested provider resolver to a module-level `async _resolve_brain_provider(exclude_base_urls=None)` supporting `AGENT_LLM_*` env override, priority sorting, and exclusion-based failover. Wired the EXECUTE phase to re-raise on provider failure (so the retry loop engages) and accumulate failed provider URLs in `llm_provenance["_failed_execute"]`, giving real per-provider failover (#522 acceptance criterion 2).
-
-### Added
-- **Scanner parity with BuiltWith (off-HTML evidence)**: `services/scanner.py` now inspects the TLS certificate (`_analyze_ssl_cert` — issuer + Subject Alternative Names → CDN/host/cert-provider) and performs explicit high-signal response-header detection (`_analyze_response_headers` — CF-Ray, X-Served-By, X-Amz-Cf-Id, Server, X-Powered-By, etc.) on top of the existing DNS (MX/NS/TXT/CNAME) and regex-DB passes. All four evidence sources merge with highest-confidence-wins.
-
-- **PR #461**: Removed all hardcoded credential fallbacks from proxy.py and test configurations.
-- **PR #466**: Agent now accepts command/task/text as instruction aliases in spawn_subagent.
-
-### Fixed
-- **3 pre-existing test failures**: installed `reportlab` and `lxml` dependencies for `test_seo_report_pdf.py`; fixed `test_agent_tools_security.py` Windows path assertion using `os.path.realpath`; fixed `test_claude_setup_audit.py` Unicode errors by adding `encoding="utf-8"` to `read_text()` calls and replacing Unicode checkmark/dash characters with ASCII-safe alternatives.
-
-### Changed
-- **Extracted `NVIDIA_CANDIDATE_MODELS` to shared `.github/scripts/nvidia_models.py`** — single source of truth for implement_agent.py, review_agent.py, and apply_review.py. Uses sys.path injection for standalone CLI script compatibility. Exports both `NVIDIA_CANDIDATE_MODELS` (tuple list with labels) and `NVIDIA_MODEL_IDS` (plain string list).
-- **Replaced all remaining references to dead `nemotron-3-super-120b-a12b`** with live `llama-3.3-nemotron-super-49b-v1` across 26 files: router/model_router.py, agent/loop.py, agents/profiles.py, provider_router.py, direct_chat.py, setup/api.py, handlers/v3_models.py, agents/harness_adapter.py, runtimes/adapters/internal_agent.py, router/harness_routing.py, setup_local_models.py, services/cost_attribution.py, services/nim_pool.py, telegram_bot.py, scripts/test_nim_models.py, .github/scripts/generate_context.py, backend/server.py, and all test fixtures.
-- **Hardened `_call_review_llm()` fallback in `review_agent.py`** to match `implement_agent.py`: 429 rate-limit triggers exponential backoff retry (3 attempts, jittered) on same model before advancing; timeout advances immediately; 404/422 drops model from rotation; non-429 errors on retry break immediately.
-- **NVIDIA NIM model list curated from live endpoint testing.** Tested 10 candidate models against https://integrate.api.nvidia.com/v1 — only 3 returned OK (Nemotron Super 49B tool_calls=True 3.7s, Llama 4 Maverick 1.3s, Llama 3.3 70B tool_calls=True 6.0s); 7 returned 404/APIStatusError/BadRequest. Updated NVIDIA_CANDIDATE_MODELS in implement_agent.py, apply_review.py, and review_agent.py to the 3 live models, removed dead entries. Updated _default_agent_role_models() and _get_nim_provider_record() in backend/server.py to reference live Nemotron Super 49B. Hardened 429 rate-limit fallback with exponential backoff + jitter, timeout detection, and 404/422 model dropout.
-- **PR #459**: Deploy CI switched to wrangler-action v3 with --config wrangler.jsonc.
+- **World-class SEO / GEO / AEO / AIO audit engine + repo-aware auto-fixer (issue #533, PR #534).**
+  *Engine:* `services/seo_audit.py` — async SSRF-safe crawler (robots.txt-aware, sitemap-seeded, up to 500 pages)
+  running a 102-check catalog (`services/seo_checks.py`) with full Screaming Frog issue-taxonomy parity
+  (Issue Name / Type / Priority / URLs / % of Total / Description / How To Fix / Help URL) plus
+  GEO (llms.txt, AI-crawler robots access, sitemaps, semantic landmarks, citable anchors) and
+  AIO/AEO (JSON-LD validity, Organization/Breadcrumb/FAQ schema, E-E-A-T, chunkability) pillars;
+  weighted 0-100 health score overall and per pillar.
+  *Revenue portfolio mechanism:* findings are quantified as estimated monthly revenue at risk
+  (capped at 35% of the `monthly_organic_revenue` baseline) and delegation packages are
+  WSJF-scored to slot directly into `agents/portfolio.py` Initiatives.
+  *Delegation:* every report includes an agent-ready delegation plan (priority, S/M/L effort,
+  suggested specialist family, instructions); `POST .../delegate` turns packages into real tasks.
+  *Auto-fixer:* `services/seo_fixer.py` — when a code repo is available, remediates fixable findings
+  with minimal targeted diffs (charset/viewport/lang, meta description, canonical, OG/Twitter tags,
+  noopener, protocol-relative URLs, image alt + Pillow-measured size attributes, lazy-loading,
+  robots.txt/sitemap.xml/llms.txt generation, platform-aware security-header suggestions);
+  dry-run by default, workspace-root jailed.
+  *API:* `backend/seo_api.py` — catalog, audit, list, full report, CSV/urls/issues/markdown/JSON
+  exports, delegate, fix. *Integration:* `seo-audit` runtime skill bound to seo/content/marketing/
+  analytics/frontend/ecommerce specialists; audits persisted to the Company Graph as KnowledgeItems;
+  SEO specialist family gains site_audit/issue_remediation/geo_optimization/aio_optimization.
+  *Tests:* 124 new tests across `tests/test_seo_audit.py`, `tests/test_seo_fixer.py`,
+  `tests/test_seo_api.py`. *Docs:* `docs/seo-audit.md`.
 
 - **Onboarding UX, logs, chat, admin fixes.** *Onboarding:* clickable breadcrumbs, restart button, Done back button. *Logs:* expandable messages (click to expand). *Chat:* ModelPicker two-step provider→model, mutual dropdown exclusion, repo URL input for code tasks. *Admin:* Companies tab with delete cleanup. *Backend:* DELETE /api/company/{id} endpoint.
 
@@ -208,100 +80,1047 @@ All notable changes to this project will be documented in this file.
 
   in `tests/e2e/test_live_server.py`. `tests/conftest.py` autouse fixture sets legacy workflow mode
 
-  for test suite compatibility with Phase 2 deprecation.## [Unreleased]
+  for test suite compatibility with Phase 2 deprecation.
+
+
+
+## [Unreleased]
+
+### Changed
+- **ECC skill enabled.** `ecc-harness-patterns` re-enabled in skill_bindings.py (was off since 2026-06-10). Cross-harness orchestration now available to engineering/devops/architecture runs.
+
+### Fixed
+- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
+
+### Fixed
+- **Checkpoint restore now preserves phase outputs and _request.** On retry/restart, `restore_in_flight` only restored status/heartbeat — all phase outputs (classify, plan, execution, etc.) were None, so skip detection never fired and every resume re-ran all phases from scratch. Restored all phase attrs and `_request` from snapshot so retries resume from their last successful phase.
+
+### Fixed
+- **bind_context no longer blocks the event loop.** Synchronous calls (`recommend_for_company`, `recall_all`) were blocking the async event loop, preventing `asyncio.wait_for` from cancelling timed-out phases. Wrapped in `run_in_executor` with 10s per-call timeouts. Stall timeout reduced from 300s to 90s for faster retries.
+
+### Added
+- **`GET /api/scheduler/tick/last` — Cloudflare cron keepalive monitoring endpoint.** Tracks `_last_cron_tick_at` (updated on each authenticated `POST /api/scheduler/tick` from the Cloudflare Worker). Public endpoint (no auth) returns last tick timestamp, seconds since last tick, staleness flag (>120s = stale), and human-readable message. Monitoring tools can poll this to confirm the Worker's `scheduled()` handler is successfully reaching Render.
+
+### Fixed
+- **Anthropic brain calls now authenticated correctly.** The brain resolver used `Authorization: Bearer` for all provider types including `type=anthropic`, which requires `x-api-key` + `anthropic-version` headers. This caused silent 401s that appeared as stalled runs. Fixed with a type check in the resolver.
+
+### Fixed
+- **Anthropic API calls no longer 404.** Seed records for `anthropic-claude` had `base_url` ending in `/v1`; the orchestrator resolver then appended `/v1/messages`, producing `https://api.anthropic.com/v1/v1/messages`. Changed both seed records to `https://api.anthropic.com` to match the env default.
+
+### Fixed
+- **Scheduler now actually fires jobs.** Two root causes fixed: (1) AgentScheduler was created without an on_fire callback so cron events had nowhere to go; wired to orchestrator execute with auto_approve. (2) Render free tier spins down after inactivity killing APScheduler; added Cloudflare cron trigger (every minute) in wrangler.jsonc and a Worker scheduled handler that pings /api/scheduler/tick on the Render backend. APScheduler now stays alive and overdue jobs are dispatched on every tick.
+
+### Added
+- **SEO audit: browser-fetch path (bot-protection bypass) + demoable UI + honest revenue model.**
+  - *Browser-use fetch backend* (`services/seo_fetch.py`): pluggable page fetchers — default `HttpxFetcher`,
+    a `BrowserFetcher` that renders pages with a real headless Chromium (browser-use / Playwright; local by
+    default, Browserbase only as an explicit `SEO_BROWSER_BACKEND=browserbase` opt-in), and a `ResilientFetcher`
+    that auto-escalates from httpx to a browser when a bot-block (Akamai/Cloudflare 403/challenge) is detected.
+    New `SeoAuditRequest.fetch_mode` (`auto`/`http`/`browser`, default `auto`). This lets the engine actually
+    crawl bot-protected enterprise sites (e.g. luxury retail) instead of recording a block page.
+  - *Honest revenue-at-risk model* (`services/seo_audit.py`): replaced the linear-sum-clipped-to-35% model
+    (which saturated the cap on almost any site) with a content-dependent diminishing-returns curve
+    `share = 35% × (1 − e^(−pressure/50))`, where pressure = Σ(severity × type × page-coverage). The dollar
+    figure now tracks what was measured; the Markdown report carries an explicit "model estimate, not a
+    measured loss" methodology note.
+  - *UI* (`frontend/src/v5/screens/CompanyScreen.jsx`, `frontend/src/api.js`): a new **SEO Audit** tab on the
+    company page — run an audit (URL, fetch mode, max pages, optional organic-revenue baseline), health score,
+    six pillar scores, revenue-at-risk with caveat, full findings table, **Download CSV/JSON/Markdown/URLs/Issues**
+    buttons, and one-click **Delegate to task board**.
+  - *Tests:* `tests/test_seo_fetch.py` (bot-block detection, httpx→FetchResult normalisation, auto-escalation,
+    backend selection). Note: the live Akamai bypass must be verified in an environment with Playwright browsers
+    installed; it cannot be exercised where the Chromium binary download is blocked.
+
+### Fixed
+- **Schedule duplication blocked: activate_company now idempotent.** Calling activate_company multiple times (retry, restart, onboarding re-trigger) created duplicate schedules for the same company. Added check: if a schedule with the same name already exists, skip creation and record it in the result with note=already_exists. Live evidence: 43 schedules across 2 companies reduced to 6 unique schedules after fix.
+
+### Fixed
+- **Agent brain now visible to FastAPI in Cloudflare Worker.** Env vars set via `--var` on deploy do not auto-populate process.env in Node.js; added `[env.production]` to wrangler.jsonc binding AGENT_LLM_BASE_URL, AGENT_LLM_MODEL, and AGENT_LLM_API_KEY so the orchestrator resolver can read them. Deploy now uses `--env production` and the secret upload targets the same environment.
+
+### Fixed
+- **Deploys unfrozen: Worker secret upload honors wrangler.jsonc.** Deploys failed with "Required Worker name missing" because the wrangler-action secrets input runs secret put without --config. Replaced with an explicit npx -y wrangler@4 secret put step; the first green deploy activates the env-pinned Claude brain.
+
+### Added
+- **Deploy pins the agent brain via env (immune to #537).** deploy-cloudflare.yml now passes AGENT_LLM_BASE_URL (Anthropic OpenAI-compat) and AGENT_LLM_MODEL=claude-sonnet-4-6 as Worker vars and uploads AGENT_LLM_API_KEY as a Worker secret from GitHub secrets on every deploy. The brain resolver checks env before provider records, so Claude stays the brain across restarts and instances; remove the vars to fall back to record-priority ordering (free models).
+
+### Fixed
+- **Brain resolver no longer re-sorts provider records.** The orchestrator local sort treated non-numeric priorities as 0, silently undoing the strict priority ordering introduced in #535 and keeping the env NIM record on top (verified live: llm_provenance stayed nemotron despite anthropic-claude at -50 and paid policy disabled). The upstream sorted list is now the single source of truth.
+
+### Fixed
+- **Provider priority now governs ALL records, including env-injected Nvidia NIM.** `_list_configured_provider_records` previously prepended the env NIM record unconditionally, so a user-promoted provider (e.g. Anthropic at -50) could never outrank it — verified live via llm_provenance showing nemotron despite Claude on top. Records are now merged and sorted strictly by priority (#524). Note: commercial providers additionally require the runtime policy `never_use_paid_providers` to be disabled.
+
+
+### Added
+- **#522: Orchestrator reliability — async approve queue, per-phase timeouts, heartbeat watchdog, deterministic supervisor, step-level checkpointing.** New modules:  (FIFO queue with configurable concurrency semaphore via ),  (zero-LLM periodic coroutine that detects stalled runs by heartbeat and re-enqueues them; configurable via  /  / ),  (durable Mongo/SQLite checkpoint store; in-flight runs survive restarts).  now wraps LLM phases (PLAN, EXECUTE, VERIFY, JUDGE) in per-phase timeouts (, default 120s) with exponential-backoff retries (, default 2) and  tracking.  enqueues approved runs via the FIFO queue instead of blocking inline (API returns 202).  rehydrates + re-enqueues runs after a restart. New endpoints:  (queue depth, active runs, supervisor state), , , , . Startup hooks hydrate persisted schedules and restore in-flight runs.
+- **#505: Durable scheduler store.** New module  persists  jobs to Mongo/SQLite so company cadences survive redeploys.  rehydrates on boot;  and  keep the store in sync (fire-and-forget with warning on failure).
+- **ECC harness adapter.** New modules  (10-harness catalog: Claude Code, Cursor, Codex, OpenCode, Gemini CLI, Zed, Copilot, Aider, Continue, Telegram) and  (session tracking with aggregated metrics). Harness detection from User-Agent / x-harness-id headers; request normalization per harness dialect.
+
+
 
 ### Fixed
 
-- **Single brain resolver: one UI control, every selector agrees** (2026-06-20). The CEO agent previously picked `claude-opus-4-8` (paid Anthropic) instead of the free NVIDIA NIM brain at three independent call-sites that did not agree with each other (`router/model_router._opus_model`, `runtimes/adapters/internal_agent._best_cloud_primary_base`, `agents/harness_adapter.HARNESS_CATALOG`, `services/ceo_dispatcher.ROLE_RUNTIME_PREFERENCE`). All brain selectors now defer to `brain_policy.resolve_active_brain()` (async) / `brain_policy.get_active_brain_sync()` (cached, for sync callers). Resolution order matches the binding contract pinned in `tests/test_brain_priority_scanner.py`: (1) `AGENT_LLM_BASE_URL` env override wins; (2) highest-priority configured provider record, free-first; (3) `brain_policy.resolve_free_nvidia_brain()` default when no records exist; (4) local Ollama fallback. Paid (Anthropic / Bedrock) records are only selected when `ALLOW_PAID_BRAIN=true` is explicit — default free-first is preserved across ALL paths. `services.workflow_orchestrator._resolve_brain_provider` is now a 3-line delegate. `router.model_router._opus_model` returns `None` when `ALLOW_PAID_BRAIN` is unset (downstream callers re-resolve through the canonical brain). `webui/providers` create/update/delete `invalidate_brain_cache()` so the next agent run picks up a drag-and-drop reorder immediately (no restart). `services/ceo_dispatcher.ROLE_RUNTIME_PREFERENCE` reordered to put `internal_agent` ahead of `claude_code` for the `dev`/`security`/`reviewer`/`release` roles. New tests in `tests/test_brain_resolver.py`: env override wins, free-first skip-paid, paid opt-in gated, records-but-all-excluded → Ollama, cache invalidation on provider edit, role-tag badges for the UI. The two `_opus_model` tests in `tests/test_daily_2026_06_04.py` were updated to set `ALLOW_PAID_BRAIN=true` so they continue to pin the paid-path contract (they previously pinned the implicit-paid behaviour that the fix explicitly removes). `tests/test_brain_resolver.py`, `tests/test_brain_default_model.py`, `tests/test_agent_free_brain.py`, `tests/test_brain_priority_scanner.py`, `tests/test_orchestrator_failover.py`: 30 passed / 18 skipped / 0 failed.
+- **Orchestrator execution brain now resolves its LLM endpoint from the provider setup.** `services/workflow_orchestrator.py` no longer hardwires `AgentRunner` to `OLLAMA_BASE`/localhost (root cause of every cloud run dying at planning with "All connection attempts failed"). New `_resolve_brain_provider()` picks the highest-priority configured provider record (the same store the Providers screen manages), passing its base URL, auth header, and default model to the runner; optional `AGENT_LLM_BASE_URL`/`AGENT_LLM_API_KEY`/`AGENT_LLM_MODEL` env override; local Ollama remains the last-resort fallback. Provider switching is now a priority change in the dashboard, no redeploy.
 
-- **Five long-failing GitHub Actions workflows made green** (2026-06-20).
-  - **`.github/workflows/ci-failure-autofix.yml`** — added explicit `timeout-minutes: 30` (default GitHub Actions timeout is 6h, but a job that runs pip install + 2823-test reproduction + Claude API + git apply was timing out under transient load). Wrapped the Claude `urllib` call in `try/except urllib.error.HTTPError` so a retired/unrecognised model ID degrades into the `TOO_COMPLEX` path (which opens an issue) instead of failing the workflow. The model itself stays `claude-sonnet-4-6` because `tests/test_daily_2026_06_14.py::test_ci_autofix_workflow_uses_sonnet_4_6` enforces it as the codebase's canonical non-retired Sonnet 4.6 ID.
-  - **`.github/workflows/nightly-regression.yml`** — removed the `sudo apt-get install -y chromium-browser fonts-liberation libnss3 …` step. The `chromium-browser` apt package no longer exists on Ubuntu 24.04+ runners (snap-only Chromium), so this step unconditionally failed. Playwright's `python -m playwright install --with-deps chromium` step already provides a self-contained Chromium + OS deps, matching `Dockerfile.backend`.
-  - **`.github/workflows/openclaw-auto-fix.yml`** — dropped `pip install -r requirements.txt --quiet 2>/dev/null || true`. Bandit is a static AST scanner and does not need the project's runtime deps (`boto3`, `motor`, `pymongo`, etc.); the heavy install was silently timing out under GitHub's default cloud install budget. Also added a `pip install --quiet bandit` non-fatal fallback.
-  - **`.github/workflows/daily-industry-update.yml`** — created the missing file (workflow was tracked by GitHub-side schedule for 22 days but never committed to master, so every cron tick failed). Mirrors the `daily-digest.yml` safety pattern: HTTP S + 60s timeout + `X-Idempotency-Key: ${{ github.run_id }}` + secrets validation + `::warning::` + `exit 0` on prod blips (don't wake the operator). Posts to `POST /api/admin/industry/refresh` (or `/preview` in dry-run).
-- **`.github/workflows/fix-security-alerts.yml`** — confirmed intentional removal. Removed in commit `88a4161` ("fix action versions and remove re-added fix-security-alerts workflow") because automated agency merges kept resurrecting it after manual deletion, and the replacement pipeline is already complete: `.github/workflows/security-gate.yml` runs bandit on every PR and fails the gate when new alerts are introduced; `.github/workflows/security-scan.yml` runs CodeQL + Bandit + Safety + secret-scan weekly on `master`. If a stale copy still exists on GitHub-side schedules, it must be deleted via the repository's Actions UI (one-off GitHub-side cleanup, no master change required).
-- **Three end-to-end orchestrator tests no longer fail when Ollama is reachable but the expected model is missing** (2026-06-20). The `_ollama_reachable()` helpers in `tests/test_workflow_orchestrator.py` and `tests/test_workflow_orchestrator_scoping.py` previously did a TCP-only `socket.create_connection` probe — a Docker container with only the port-listener (or only an unrelated model) answered, the `@pytest.mark.skipif` judged Ollama "reachable", the tests ran, and the agent crashed with `AgentPhaseError: planning: Client error '404 Not Found'` on `/v1/chat/completions`. New helper probes Ollama's `/api/tags`. `tests/test_workflow_orchestrator.py` accepts ANY model loaded (the AgentRunner + Orchestrator golden-path tests call into a configured planner/verifier that may legitimately vary by deployment). `tests/test_workflow_orchestrator_scoping.py` requires `qwen3-coder:30b` specifically because that is what `services.workflow_orchestrator._resolve_brain_provider` defaults to when no provider record is configured — the same brain config the end-to-end API/endpoint tests drive. Both helpers narrow the catch to `(urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, ConnectionError)` so unrelated `AttributeError`/`KeyError` style bugs surface loudly. `tests/test_workflow_orchestrator.py`: 24 passed / 7 skipped (was 24 passed / 3 failed); `tests/test_workflow_orchestrator_scoping.py`: 30 passed / 17 skipped (was 29 passed / 1 failed); dead `import socket` removed from both files; redundant inner `@pytest.mark.skipif` on `test_admin_may_auto_approve` dropped (the enclosing class already declares the same skip).
+- **Truthful run status.** A run whose verification fails can no longer end `done`: it is marked `failed` with the verification issues in `run.error`. Live evidence: five approved runs on 2026-06-10 reported `done` with zero changed files and `verification.passed=false`.
+
+
+
+### Added
+
+- **Autonomous loop enabled in deployment config.** `render.yaml` sets `LOG_WATCHER_AUTO_FILE=1` and `GITHUB_REPOSITORY` so production errors auto-file issues that agents pick up via the context-PR pipeline (mergeable since the docs-context stub workflow). New `docs/runbooks/credential-rotation.md` runbook for the exposed credentials.
+- **Claude 5 family in the model router (issue #495).** `claude-fable-5` registered (reasoning, 200K context); `claude-mythos-5` env-gated behind `ROUTER_ALLOW_MYTHOS` (approved-orgs-only). Tests in `tests/test_model_router.py::TestClaude5Registry`.
+- **Trend analysis module + authenticated `/api/trends` endpoint (issue #493).** `trend_analysis.py` applies a last30days-style 30-day window over the existing TrendWatcher (no duplicate subsystem, no external CLI), persists `trends/trend_summary.md`. Tests in `tests/test_trend_analysis.py`.
+- **Curated skill repos from BehiSecc/awesome-claude-skills (issue #491).** obra/superpowers and sanjay3290/ai-skills registered as nested skill registries; anthropics/skills already indexed.
+- **Weekly user-research scan workflow** (`.github/workflows/user-research-scan.yml`): Mondays 03:00 UTC, runs `scripts/scan_repo_with_user_research.py` and files/updates a `user-research-scan` issue when recommendations are produced. Implements the scan's own recommendation #3. Module docstrings added to all remaining flagged files (recommendation #2).
+- **External skill registry: borghei/Claude-Skills (338 skills) wired into company scan and post-onboarding.** New "nested" registry structure in `agent/skill_registry.py` indexes nested `SKILL.md` layouts via the git-trees API; onboarding post-scan skill refresh now recommends from these packs. Test: `tests/test_skill_registry.py::test_nested_registry_indexes_deeply_nested_skills`.
+- **Autonomous agency maturation — contract enforcement, KPI tracking, trend watcher, log watcher, and e2e test coverage.** New `agent/contract_enforcement.py` validates agent tool outputs against Pydantic schemas. `agent/kpi.py` provides thread-safe autonomy KPI tracking (13 metrics). `agent/trend_watcher.py` fetches AI trends from 13 public sources in parallel. `log_watcher.py` monitors logs and auto-creates GitHub issues. 16 new e2e tests in `tests/test_contracts_agency.py`.
+
+- ** **`spawn_subagent` — accept `command`/`task`/`text` as `instruction` aliases.** The executor model may emit spawn_subagent tool calls with command/task/text field names instead of instruction, causing 'missing 1 required keyword-only argument: instruction' on the CEO and any delegating agent. The _spawn_subagent() method now promotes any of those three field names to instruction before validating non-emptiness. Fixes CEO error: AgentRunner._spawn_subagent() missing 1 required keyword-only argument: instruction.
+
+- **`tasks/dispatcher.py` — auto-retry BLOCKED tasks.** The TaskDispatcher now periodically re-queues BLOCKED tasks that have cooled down (default: 5 min after last updated_at) up to `AUTO_RETRY_MAX` times (default: 5). Prevents tasks from being permanently stuck in BLOCKED without manual intervention. Tracks `auto_retry_count` on the `Task` model; human retry via `/retry` resets the counter. Configurable via `TASK_AUTO_RETRY_BLOCKED_EVERY_POLLS`, `TASK_BLOCKED_COOLDOWN_SEC`, `TASK_AUTO_RETRY_MAX` env vars.
+
+- **Unified TaskBoard upgrade — Agile REST API + TaskDetailPanel (`agents/agile_api.py`, `frontend/src/v5/screens/TaskDetailPanel.jsx`).** New `GET/POST /api/agile/sprints`, `POST /api/agile/sprints/{id}/start`, `POST /api/agile/sprints/{id}/complete`, and `GET /api/agile/velocity` endpoints backed by the shared `AgileManager`. Frontend TaskDetailPanel adds inline comment/editing support with real-time sprint metrics and burndown visualization. 8 tests in `tests/test_agile_api.py`. — Weekly autonomous maintenance workflow.** New scheduled workflow (Monday 02:00 UTC) runs test suite health checks, Bandit SAST, dependency CVE audit via Safety, and auto-merges safe Dependabot PRs. Creates a maintenance report issue on problems. Configurable scope via `workflow_dispatch` (full / security-only / deps-only / test-health-only).
+
+- **`AUTONOMOUS_AGENCY_SETUP.md` — Complete operator guide** for the autonomous agency system. Covers all scheduled workflows, required secrets and repo settings, the agency cycle detail, what happens when tests fail, monitoring health, troubleshooting, and Cloudflare Workers deployment.
+
+- **FreeBuff — self-hosted Codebuff-style coding agent on free NVIDIA models, with Telegram phone control.** New `FreeBuffAgent` (`agent/loop.py`) subclasses `AgentRunner` and pins model selection to a curated set of free NVIDIA NIM models (`nvidia/nemotron-3-super-120b-a12b`, `qwen/qwen2.5-coder-32b-instruct`, `meta/llama-3.3-70b-instruct`, `meta/llama-3.1-8b-instruct`, `deepseek-ai/deepseek-r1`; override via `FREEBUFF_MODELS`). `resolve_model()` coerces any paid/unknown model back to a free one so it never routes to a paid endpoint; the runner is pinned to the NVIDIA NIM base + key when `NVIDIA_API_KEY` is set and falls back to a local base otherwise. Three proxy endpoints (`GET /freebuff/models`, `POST /freebuff/plan` — read-only preview, `POST /freebuff/run` — execute with optional commit + draft PR). The Telegram bot (`telegram_bot.py`) gains an admin-only `/freebuff <task>` flow driven entirely by inline buttons: pick a free model → review the generated plan → **Accept & run** (commit + draft PR) or **Reject**; callbacks re-check admin auth and use compact `fb:<action>[:<arg>]` data with index-based model selection (64-byte limit safe). Tests in `tests/test_freebuff.py` and `tests/test_telegram_freebuff.py`. Docs in `docs/agents.md`.
+
+- **FreeBuff always-on Telegram bot (24×7 deploy).** New embedded mode lets `telegram_bot.py` run the FreeBuff agent in-process — no proxy server, MongoDB, or public port — so it deploys as a single self-contained worker. `_fb_models`/`_fb_plan`/`_fb_run` dispatch to either in-process `FreeBuffAgent` (when `FREEBUFF_EMBEDDED=true`) or the HTTP proxy (default). Embedded runs clone `FREEBUFF_REPO_URL` with the GitHub token, edit on free NVIDIA models, and open a draft PR (`AGENT_AUTO_PR_ENABLED`, `AGENCY_WORKFLOW_MODE=legacy`, base branch `FREEBUFF_BASE_BRANCH`). Ships `scripts/run_freebuff_bot.py` (launcher), `Dockerfile.telegram`, a `freebuff-telegram-bot` Render worker in `render.yaml`, and `docs/deploy/freebuff-telegram-bot.md`. 9 tests in `tests/test_freebuff_bot.py`.
+
+- **FreeBuff unlimited rate limiting.** `/freebuff/*` routes skip the per-key RPM limiter by default (`proxy._is_freebuff_unlimited`, toggle with `FREEBUFF_UNLIMITED=false`) so the Telegram-driven free coding agent is genuinely unlimited — the routes stay fully auth-gated and only run free NVIDIA models. Additionally, specific store-backed keys can be exempted on all endpoints via `FREEBUFF_RATELIMIT_EXEMPT_KEY_IDS` (`proxy.is_rate_limit_exempt`, opt-in, default empty; legacy keys never exempt), so paid/general endpoints stay protected.
+
+- **Autonomous portfolio intelligence (`agents/portfolio_intelligence.py`).** The Portfolio board no longer uses demo data — initiatives are auto-discovered from **real signals** and scored with WSJF heuristics: roadmap backlog + open sprint tasks (parsed from `.claude/state/active-tasks.md` / `docs/roadmap-killer-todos.md`, P0/P1 → Cost of Delay), the **bug log** (open rows → urgent, de-risking initiatives), **open GitHub PRs/issues** labelled `bug` (via the platform env token — PRs become `IN_PROGRESS`), and **research trends** (`agent/trend_watcher.py`, relevance → business value; best-effort, fails soft offline). Each initiative carries `source` + `rationale` provenance (new fields on `Initiative`), and titles are de-duplicated across signals keeping the higher-WSJF entry. A scheduled GitHub Action **`portfolio-refresh.yml`** (every 6h, `.github/scripts/portfolio_refresh.py`) re-sweeps signals, publishes a WSJF digest to the job summary, and pings the deployed backend (`POST /api/portfolio/refresh`) so the live dashboard re-builds. 13 tests in `tests/test_portfolio_intelligence.py`.
+
+- **Portfolio screen in the v5 dashboard (`frontend/src/v5/screens/PortfolioScreen.jsx`).** New **Portfolio** nav entry (AGENCY section): a metrics strip, a **Now/Next/Later roadmap board**, a **WSJF priority table** (Source · BV/TC/RR → Cost of Delay → Job Size → score bars), a backlog overflow row, **source-provenance badges** (bug/PR/roadmap/sprint/research/manual) + a sources legend + "updated Xm ago" freshness, an empty-state, and **sprint-health cards** rolled up from agentic-agile. Backed by `agents/portfolio_api.py` (`GET /api/portfolio/board` — auto-built from intelligence + cached 30 min, `POST /api/portfolio/refresh`, `POST`/`DELETE /api/portfolio/initiatives`) wired into `backend/server.py`. A **"Refresh intelligence"** button re-sweeps on demand. Client helpers in `frontend/src/api.js`. 5 tests in `tests/test_portfolio_api.py`.
+
+- **Per-session dynamic planning bootstrap (harness-native).** New SessionStart hook `.claude/hooks/session-plan-bootstrap` (wired into `.claude/settings.json` alongside the graphify refresh) injects the mandatory planning inputs into every Claude Code session's context — directing the agent to produce a PLAN + TODO (via the `session-planning` skill) before writing code, grounded in `AGENTS.md`, `CLAUDE.md`, `graphify-out/GRAPH_REPORT.md`, and the live `.claude/state/active-tasks.md` (surfaced inline). This is the harness equivalent of the `issue-context-generator` GitHub workflow: the running agent IS the LLM, so the hook only injects context rather than calling an API. Codex/Cursor/Aider get the same workflow by instruction via `AGENTS.md`. Brings the `session-planning` skill and `active-tasks.md` tracker onto `master` so the hook is functional.
+
+- **Agentic Portfolio Management (`agents/portfolio.py`).** New initiative/epic-level layer above `agentic-agile`: WSJF prioritisation (`Cost of Delay / Job Size`), greedy capacity allocation, Now/Next/Later roadmap planning, and delivery roll-up that reads linked agile sprints (`Initiative`, `PortfolioManager`, `CapacityAllocation`, `PortfolioMetrics`, `InitiativeProgress`). Registered as the `agentic-portfolio` runtime skill (bound to the `portfolio`/`product`/`operations`/`analytics` specialist families) with `add_initiative`/`prioritize`/`allocate_capacity`/`roadmap`/`get_metrics` actions, backed by a process-wide shared manager. Skill doc at `.claude/skills/agentic-portfolio/SKILL.md`; design context at `docs/context/agentic-portfolio.md`. 22 tests in `tests/test_portfolio.py`.
+
+- **Agentic Agile improvements (`agents/agile_sprints.py`).** `SprintHealth` signal on `SprintMetrics.health` (ON_TRACK / AT_RISK / OFF_TRACK / COMPLETE); mid-sprint scope-creep tracking via `committed_points` snapshot + `scope_added`; sprint `Retrospective` (went_well / went_poorly / action_items) with `add_retro_note()` / `add_action_item()` helpers. The `agentic-agile` skill binding is now stateful (shared `AgileManager`) and implements working `add_story`/`start`/`get_metrics`/`predict_velocity` actions instead of resetting every call and hard-coding `sprint_count: 0`.
+
+- **Issue → Context → Draft PR automation.** Three workflows turn every GitHub issue into a codebase-aware implementation plan: `issue-context-generator.yml` (triggers on any issue opened / `quick-note` label — fetches the linked URL, calls free NVIDIA NIM models with Claude Opus fallback, generates an implementation prompt + prioritised TODO list grounded in CLAUDE.md and the graphify graph, commits `docs/context/issue-N.md`, opens a **draft PR**, closes the issue); `bulk-issue-context.yml` (`workflow_dispatch` to backfill all open issues, with `dry_run`, label exclusions, explicit `issue_numbers` targeting, and `regenerate` mode that updates existing draft PRs in place); and `.github/scripts/generate_context.py` (the LLM engine — 4-model NVIDIA fallback chain, URL grounding via the shared `fetch_url.py`, structured JSON output). Replaces the old static-template `enrich-quick-note-context.yml` which added no LLM reasoning and never created PRs.
+
+- **README — "Issue → Context → Draft PR automation" section** documenting the pipeline, free-first NVIDIA model routing, backfill commands, and the master-branch auto-trigger caveat.
+
+- **Richer test failure diagnostics across improvement loop, self-healing agent, and CI.** `agent/improvement_loop.py`: `DetectedIssue.to_github_issue_body()` produces structured GitHub issue bodies with failure tracebacks, git blame hints, and suggested investigation steps. `_scan_test_failures()` now uses `--tb=short` for the baseline scan, captures per-test full tracebacks (`--tb=long`) for the first 5 failures, and captures recent git history for affected test files. `agent/self_healing.py`: new `FailureCategory` enum (8 types: syntax_error, test_failure, lint_error, timeout, import_error, out_of_memory, network_error, unknown) with `_classify_failure()` keyword-based classifier and `_failure_category_hint()` returning targeted fix suggestions per category. `.github/workflows/agency-cycle.yml`: new per-test failure detail capture step with expandable full tracebacks in the escalation issue, plus structured action-required guidance.
+
+- **SelfHealingAgent wired into the agency-cycle CI workflow.** `.github/workflows/agency-cycle.yml`: new "Classify failures via SelfHealingAgent" step runs after per-test traceback capture — classifies each failure using `SelfHealingAgent._classify_failure()`, registers issues with the `ImprovementLoop` for state tracking, and outputs classification data as JSON. The CEO Assessment now includes a per-category breakdown (e.g. "3× test_failure, 1× import_error"). The Dispatch Dev Agent step includes classification hints to guide the automated fix. The escalation issue now includes a **Self-Healing Classification** table with per-test category and suggested fix, before the traceback details.
+
+- **FreeBuff Telegram bot can run inside the web service (free-tier single-service deploy).** `backend/server.py` now optionally launches the bot in-process on startup (`RUN_TELEGRAM_BOT=true` + `TELEGRAM_BOT_TOKEN`), so one Render service hosts both the API and the phone-control bot. The embedded agent run sets a scoped orchestrator bypass so it works even though the web service runs in `orchestrator` mode (the same mechanism `TaskExecutionCoordinator` uses). A `BOT_KEEPALIVE` self-ping (to `RENDER_EXTERNAL_URL/api/ping` every 10 min) keeps the free instance awake since the bot's outbound long-poll doesn't. `Dockerfile.backend` now ships `telegram_bot.py`; `render.yaml` wires the bot env onto the web service. Docs: `docs/deploy/freebuff-telegram-bot.md` (Option A0).
+
+- **`services/shared_state.py` — Redis-backed shared-state service for cross-worker cooldown persistence.** Provider cooldown state was previously stored in module-level dicts that do not survive process restarts and cannot be shared across workers. Migrated to a SharedState service with optional Redis backend (from `REDIS_URL` env var), `cooldown_set`/`cooldown_get`/`cooldown_scan` operations, and in-memory fallback when Redis is unavailable. `provider_router.py` cooldowns are now async and durable across restarts. 20 tests in `tests/test_shared_state.py`.
+
+- **`services/kimi_bridge_server/` — Kimi web-bridge microservice (Task 1 / P0).** Standalone
+
+  OpenAI-compatible HTTP service (`POST /v1/chat/completions`, `GET /v1/models`, `GET /health`)
+
+  backed by a Playwright browser session logged in to kimi.com — no paid API key required.
+
+  `browser_driver.py`: persistent Chromium profile (`PLAYWRIGHT_USER_DATA_DIR`), asyncio lock for
+
+  request serialisation, one-time manual login helper (`--login` flag), and headless `ask()` for
+
+  inference. `app.py`: Pydantic request model matching OpenAI chat schema, hmac bearer-token auth
+
+  (`KIMI_BRIDGE_TOKEN`, `hmac.compare_digest`), OpenAI-shaped response with best-effort usage
+
+  counts, streaming rejected (not supported by web-UI approach). `Dockerfile.kimibridge` uses the
+
+  official Playwright base image; `README.md` covers one-time login, running, and Docker usage.
+
+  11 unit tests in `tests/test_kimi_bridge_server.py` (mocked driver, auth enforcement, response
+
+  shape, prompt helpers).
+
+- **`.claude/skills/browserbase-browser/` — Browserbase remote Chrome skill.** Full automation using the `browse` CLI with Browserbase cloud sessions — handles Cloudflare protection, CAPTCHA solving, and residential proxies. Covers navigation, snapshots, form filling, screenshots, and session management for the deployed platform.
+
+- **`.claude/skills/browserbase-fetch/` — Lightweight web fetch via Browserbase.** Static page content, HTTP headers, and API response inspection without launching a browser session. Includes Python snippet for checking platform health endpoints.
+
+- **`.claude/skills/browserbase-search/` — Structured web search via Browserbase.** Returns titles, URLs, authors, and dates without a browser. For finding documentation, researching CVEs, or locating competitor information before deeper investigation.
+
+- **`.claude/skills/browserbase-ui-test/` — Adversarial UI testing skill.** Three-round planning (core flows → adversarial scenarios → accessibility/mobile) then browser-driven test execution with `STEP_PASS`/`STEP_FAIL` structured reporting and screenshot evidence. Applied to the deployed platform.
+
+- **`.claude/skills/platform-setup/` — Full autonomous agency bootstrap skill.** Seven-phase setup walkthrough for `https://local-llm-server.strikersam.workers.dev`: health verification → admin login → company onboarding → specialist provisioning → GitHub integration → manual agency cycle trigger → schedule verification. Uses `browse` with Browserbase remote mode for Cloudflare-protected pages. Includes troubleshooting table and post-setup checklist.
+
+- **`.claude/skills/agent-browser/` — Browser automation skill via Chrome DevTools Protocol.** Teaches Claude to drive real Chrome sessions using the `agent-browser` CLI: navigate, snapshot, click, fill forms, take screenshots, and read JS errors — all without Playwright. ~93% fewer tokens per page interaction. Includes troubleshooting guide and platform-specific setup steps for testing `https://local-llm-server.strikersam.workers.dev`.
+
+- **`.claude/skills/perplexity/` — Web research skill via Perplexity API.** Structured instructions for using Perplexity's `sonar` and `sonar-pro` models to get cited, real-time web answers for CVE lookups, library docs, best-practice research, and competitive analysis — with inline Python snippets that require no extra dependencies.
+
+- **`AGENTS.md` — Complete repository governance document** replacing the previous minimal stub. Now contains: full architecture overview, codebase map, coding standards, security requirements, testing requirements, documentation requirements, deployment process, release process, monitoring standards, bug triage process, PR review checklist, definition of done, autonomous maintenance rules, agent escalation rules, production safety rules, and subagent roles. This becomes the authoritative source of truth for all AI agents operating in this repository.
+
+- **`audit/` directory** — Complete repository audit with 8 documents: `architecture.md`, `security-analysis.md`, `dependency-analysis.md`, `performance-analysis.md`, `technical-debt.md`, `testing-analysis.md`, `documentation-analysis.md`, `production-readiness.md`. Each document identifies issues, estimates severity, and proposes fixes with priorities.
+
+- **`roadmap/` directory** — Three roadmap documents (`next-30-days.md`, `next-90-days.md`, `next-180-days.md`) with prioritized improvements mapped to audit findings.
+
+- **`.claude/commands/` subagent commands** — Five new slash commands: `/security-audit` (Security Agent), `/qa-check` (QA Agent), `/arch-review` (Architecture Agent), `/devops-check` (DevOps Agent), `/fix-bug` (Bug Fix Agent), `/docs-update` (Documentation Agent). Each command provides a structured, step-by-step procedure for its domain.
+
+- **`SECURITY.md`** — Security disclosure policy with reporting instructions, response timeline, and security design documentation.
+
+- **`CONTRIBUTING.md`** — Developer onboarding guide with setup instructions, coding standards, testing requirements, changelog format, and PR review checklist.
+
+- **`backend/server.py` — `/v1/quick-notes` POST and GET endpoints** mirroring the proxy's quick-note routes so the dashboard FAB can reach them via `REACT_APP_BACKEND_URL` (backend server port) rather than the proxy port.
+
+- **README: complete product-focused rewrite targeting SMBs.** Five concrete use-case sections (SaaS startup, e-commerce, digital agency, professional services, enterprise ops), cost comparison table, 24x7 agency failure→countermeasure table, Quick Notes section, Phase 9 roadmap entry, all screenshots preserved. Changelog removed from README body; history lives in `docs/changelog.md`.
+
+- **Quick Notes pipeline — iPhone Shortcut → git push (`agent/quick_note.py`, `proxy.py`).** `QuickNoteQueue` (thread-safe, file-backed) queues URLs from the iPhone Shortcut. A background processor daemon picks them up every `QUICK_NOTE_INTERVAL_HOURS` (default 4 h), fetches the URL content, runs `claude --print --dangerously-skip-permissions` to implement it, commits, and pushes to `QUICK_NOTE_PUSH_BRANCH` (default `master`). `POST /v1/quick-notes` accepts `{url, instruction}` and creates a GitHub issue with the `quick-note` label when `GH_TOKEN`/`GITHUB_TOKEN` is set — enabling the `process-quick-note` workflow to pick it up for the full implement→PR→review→merge pipeline. `GET /v1/quick-notes` lists the local queue. New `createQuickNote` / `listQuickNotes` helpers in `frontend/src/api.js`.
+
+- **AI-powered onboarding questions & remediation (`backend/company_api.py`).** `POST /api/company/{id}/onboarding/questions` generates contextual questions using the LLM based on detected domain, site type, business category, and detected technologies — with hardcoded fallback per site type. `POST /api/company/{id}/onboarding/answers` accepts the answers, creates remediation tasks, and resolves skill/knowledge specialist recommendations from the detected systems.
+
+- **Skill registry upgrades — flat registries, dynamic tech relevance, GitHub API rate limiting (`agent/skill_registry.py`).** Support for "flat" GitHub skill registries (`.md` files at top level, e.g. `msitarzewski/agency-agents`) alongside subdir-based registries. Dynamic `_extract_tech_relevance_dynamic` finds any mentioned tech (not just TECH_SKILL_MAP keys) with word-boundary matching to avoid false positives. Semaphore-based concurrency limit (`_MAX_CONCURRENT=5`) + ETag conditional requests avoid hitting GitHub's 60 req/h unauthenticated limit. New `refresh_remote_force()` and `update_github_token()` public methods. Global `set_skill_registry` / `get_skill_registry_safe()` singleton helpers for cross-module access without circular imports.
+
+- **CEO Agency status endpoint (`proxy.py`).** `GET /agent/agency/status` returns the agency tick, phase, active agents, recent directives (as alerts), and overall running state for the AlertsBell and Doctor dashboards. Agency starts on proxy startup (`set_agency`, `_AGENCY.start()`) with graceful failure logging.
+
+- **`process-quick-note.yml` workflow re-enabled (`.github/workflows/process-quick-note.yml`).** Restored `schedule: '0 */4 * * *'` and `push: branches: [master]` triggers for the GitHub-issue-backed quick-note processing pipeline. Previously quarantined pending the re-enable gate.
+
+- **Live `graphify` and `council-review` skill executors — promoted from descriptor-only stubs to real, enabled skills (`services/skill_bindings.py`).** Both previously returned a `"skill_registered"` placeholder and were `is_enabled=False`. Now: **graphify** runs `graphify query` via the CLI when a built `graphify-out/graph.json` exists, degrades to a real keyword search over the committed `graphify-out/GRAPH_REPORT.md`, and returns `available=False` with a build hint when no artifacts exist (never a fake success). **council-review** performs deterministic, rules-based multi-perspective static analysis over a diff's *added* lines (security: eval/exec, hardcoded secrets, `shell=True`, string-built SQL; correctness: bare/silent except; performance: query-in-loop/N+1; maintainability: print/TODO), producing a structured verdict (`APPROVED` / `APPROVED_WITH_CONDITIONS` / `REJECTED`) with per-perspective PASS/WARN/FAIL — no LLM, no canned result. Both are now enabled in the production registry. Tests: `tests/test_skill_executors_live.py` (8).
+
+- **Business / domain specialist families — full domain coverage beyond engineering (`models/company_graph.py`, `services/specialist.py`, `services/company_agency.py`).** The `SpecialistFamily` literal gains 12 domain families: `seo`, `content`, `marketing`, `merchandising`, `pim`, `oms`, `dam`, `crm`, `support`, `trading`, `research`, `platform` (22 → 34 families). Each has a display name, default capabilities, default tools, and a `FAMILY_RUNTIME_MAP` runtime-preference chain (always ending in `internal_agent`). The onboarding system→family map now routes detected commerce/business systems to the right domain specialist (CRM→crm, support→support, payment/shipping/inventory→oms, PIM→pim, DAM→dam, marketing_automation→marketing, analytics→seo, etc.) so an onboarded store provisions merchandising/OMS/SEO specialists, not just generic engineering ones. Obsidian Knowledge Graph is now bound to the content/research/crm/support/seo/pim families. Tests: `tests/test_domain_specialists.py` (14) + updated `tests/test_onboarding_provisioning.py` expectations to the richer contract.
+
+- **Comprehensive CodeQL alert resolution (PR #358).** Fixed all 60 remaining CodeQL security alerts across 20 files: URL substring sanitization in scanner.py and tests, stack trace exposure in proxy.py, server.py, ide_bridge.py, and agent_runtime.py, path injection in service_daemon.py, code injection in process-quick-note.yml, clear-text logging in build_workflow.py, XSS in _oauth_popup_html, SSRF in source upload, and URL redirection sanitization.
+
+- **CodeQL required check enforcement (`.github/workflows/codeql.yml`).** New CodeQL analysis workflow runs `security-extended` and `security-and-quality` query suites on every PR to master (Python + JavaScript/TypeScript). Added `Analyze (python)` and `Analyze (javascript-typescript)` as required status checks on master branch protection — PRs are now blocked when CodeQL finds security issues, preventing silent alert accumulation.
+
+- **Skill registry system and 5 V5 screens wired to live backend (`agent/skill_registry.py`, `backend/server.py`, `frontend/src/v5/screens/IntelligenceScreen.jsx`, `frontend/src/v5/screens/ProvidersScreen.jsx`, `frontend/src/v5/screens/QuickNotesFAB.jsx`, `frontend/src/v5/screens/SkillsScreen.jsx`, `frontend/src/api.js`).** Introduces a dynamic skill registry that indexes local `.claude/skills/` files and fetches remote skill packs from GitHub registries with AI-powered recommendations. Backend: 5 skills endpoints (list, search, refresh, recommend, auto-recommend, detail) and 4 MCP server CRUD endpoints with MongoDB persistence. Frontend: `IntelligenceScreen` persists competitors/keywords to backend; `ProvidersScreen` loads live Ollama models and manages MCP servers via API; `QuickNotesFAB` creates real tasks; `SkillsScreen` fetches auto-recommendations and live registry skills.
+
+- **Persistent Memory System (#350) with auto-loading across AI coding tools (`agent/persistent_memory.py`, `agent/memory_middleware.py`, `scripts/memory_cli.py`, `tests/test_persistent_memory.py`, `docs/persistent-memory-system.md`).** Implements a comprehensive persistent memory system that enables AI coding tools (Claude Code, Cursor, VSCode, Zed, Aider, CLI) to maintain context across sessions, workspaces, and tools. Features: (1) Semantic categorization (preferences, context, learning, history, tool-config) for organized memory retrieval; (2) Scope-based auto-loading (global, workspace, session, tool) to control when memories are injected; (3) Priority-based retrieval (1-10) ensuring critical context loads first; (4) Cross-tool compatibility with automatic tool detection from request headers; (5) Memory middleware that transparently injects relevant memories into chat requests; (6) Full-featured CLI for memory management (save, recall, list, search, stats, export/import); (7) Access tracking and analytics for memory relevance scoring; (8) Tag support for flexible memory organization; (9) Bulk import/export for backup and migration. The system uses SQLite backend (shared with AgentSessionStore) with automatic fallback to temp storage on problematic filesystems. Environment variables: `MEMORY_AUTOLOAD_ENABLED` (default: true), `MEMORY_AUTOLOAD_MAX` (default: 50), `AGENT_DB_PATH` (default: .data/agent.db). Comprehensive test suite (231 tests) covers all memory operations, scoping, auto-loading, and migration scenarios.
+
+- **12 new quick-note agent modules (`agents/`, `services/`).** All modules have comprehensive tests (231 total, all passing) and `.claude/skills/` documentation: financial_analyst (#236), ai_insights (#264), research_coordinator (#238), cowork_session (#261), hybrid_reasoning (#237), memory_consolidation (#259), commands (#265), managed_agents (#260), knowledge_graph (#232), workflow_engine (#235), team_coordinator (#234), agile_sprints (#233).
+
+- **State docs (`.claude/state/`).** twitter-228-insights.md, twitter-231-insights.md, issue-230-duplicate.md.
+
+
+
+- **Website scanner headless-render fallback for JS-rendered / bot-protected sites (`services/scanner.py`, `Dockerfile.backend`, `backend/requirements.txt`).** Luxury/commerce sites like gucci.com run on heavily JS-rendered storefronts behind Akamai bot protection, so a plain HTTP fetch (even with `curl_cffi` Chrome impersonation) gets a bot wall or an empty SPA shell — and the scanner detected nothing (honest "No systems detected"). The scanner now, **when static detection finds nothing or the fetch looks blocked**, renders the page with a real headless **Chromium (Playwright)** — executing the site's JS and presenting a genuine browser fingerprint — then re-runs the existing ~1,270-signature detection on the fully-rendered DOM (e.g. exposing the `demandware.static` script URLs that identify Gucci's Salesforce Commerce Cloud platform). It degrades gracefully: if Playwright or the browser binary isn't present it falls back to the static result (so local/CI are unaffected); the Render image installs Chromium so the pass is active in production. Toggle with `SCANNER_HEADLESS_RENDER` (`auto` default / `off`). JS-initiated subrequests are SSRF-guarded (`_is_blocked_host`, fail-closed on empty/unparseable hosts) so a rendered page can't drive the browser to internal/metadata addresses. Tests in `tests/test_scanner_headless.py`.
+
+- **Website scanner CNAME/CDN DNS detection (BuiltWith-style off-site identification) (`services/scanner.py`).** Because DNS sits *outside* the site's bot wall, a CNAME chain still reveals the hosting/CDN/SaaS platform even when the HTML fetch is blocked (e.g. Akamai). `_analyze_dns` now resolves the apex and `www` CNAMEs and maps known targets (CloudFront, Akamai, Fastly, Cloudflare, Azure CDN/Front Door, GCP, Heroku, Netlify, Vercel, GitHub/Cloudflare Pages, Shopify, Wix, Squarespace, WP Engine, HubSpot, Zendesk, Imperva, Edgecast, Bunny, StackPath) to their platform — complementing the existing MX/NS/TXT records. Tests in `tests/test_scanner_headless.py` (`TestDnsCdnDetection`).
+
+- **Website scanner BuiltWith.com fallback for sites we can't fingerprint live (`services/scanner.py`).** When live detection comes back completely empty — the worst case: a JS-rendered storefront behind aggressive bot protection (Akamai) where even the headless render is blocked or unavailable — the scanner now asks **builtwith.com** what it already knows about the domain from its own historical crawl, and parses that public page. This is the technique behind the `ecrmnn/builtwith`, `ecrmnn/builtwith-cli`, and `noname01/builtwith-api` projects (fetch `builtwith.com/<domain>` rather than fight the target's bot wall), but **hardened in two ways those (now ~2015-era, unmaintained) scrapers are not**:
+
+  - **Bot protection / CAPTCHA:** those repos use a plain `got()`/`urllib` GET — which worked when they were written, but today's Cloudflare-fronted builtwith.com answers a fingerprintless GET with a "Just a moment" CAPTCHA interstitial. We fetch in two escalating tiers — `curl_cffi` Chrome TLS/JA3 impersonation (clears Cloudflare's fingerprint-only mode), then a **headless browser** (`_render_html`, clears Cloudflare's *automatic* JS challenge) — and, critically, **detect and refuse to parse a challenge page** (`_looks_like_bot_challenge`) so a CAPTCHA is never mistaken for results (which would also have falsely "detected" Cloudflare/reCAPTCHA as the *target's* tech). A hard interactive CAPTCHA still can't be solved for free, so we honestly return nothing rather than fabricate detections.
+
+  - **Markup drift:** those scrape fixed CSS classes (`.techItem`/`.titleBox`) BuiltWith has long since redesigned, so they silently return nothing. We instead **cross-reference the fetched page against our own ~1,270-app catalog** (whole-word match), so detection survives BuiltWith markup changes, with the legacy selectors as a secondary pass.
+
+
+
+  Free — no API key (scrapes the public page). Results merge at a lower confidence (0.80) than live detection, with evidence attributed to `builtwith.com`. Gated by `SCANNER_BUILTWITH_FALLBACK` (`auto` default / `off`); always degrades to an empty list, never raises into the scan. A shared `_classify_system_type` helper maps recovered tech names to `SystemType` via the catalog's category metadata plus keyword heuristics. Tests in `tests/test_scanner_headless.py` (`TestBuiltWithFallback`, `TestBotChallengeDetection`, `TestBotProtectionResilience`).
+
+- **Live (no-mocks) scanner verification for bot-protected sites (`tests/test_scanner_live.py`, `scripts/verify_scanner_live.py`, `.github/workflows/e2e.yml`).** The scanner's stubbed unit tests prove the *logic* but can't prove a tough site like gucci.com actually resolves on the real internet (the unit suite has no network / no Chromium). Added genuinely-live integration tests (`@pytest.mark.integration`, excluded from the default run so third-party flakiness never blocks CI) that scan real sites — a well-behaved control (wikipedia.org, must detect something), gucci.com (JS-rendered SFCC behind Akamai), and other bot-protected storefronts — plus the live BuiltWith fallback path. They assert the **honest contract** rather than a specific platform: a scan must never crash, must return `status="success"`, and must **never fabricate a challenge-vendor-only result** (parsing a Cloudflare/CAPTCHA wall as if it were the target's stack); a genuinely empty result on a fully-walled site is an accepted honest outcome. A dedicated **non-blocking** `e2e-scanner-live` CI job installs Chromium and runs these against the live internet (surfacing the real outcome in its log without gating merges). `scripts/verify_scanner_live.py` is the runnable equivalent for **post-deploy verification** on an environment with Chromium + real network (e.g. Render): `python scripts/verify_scanner_live.py gucci.com`.
+
+- **E2E coverage for the company-graph lifecycle, run against both storage backends (`tests/e2e/test_live_server.py`, `.github/workflows/e2e.yml`).** The live no-mocks suite previously exercised auth/chat/keys/providers/wiki/activation but **never touched `/api/company`** — which is exactly why BUG-1, the create-company 500, and the website-scan 500 all slipped through. Added a `test_company_lifecycle` section that walks `POST /api/company` → `GET /api/company/{id}` → `GET .../graph` → `POST .../scan/website`, asserting valid bodies are accepted (201) and the scan never 5xxs. Added a second `e2e-mongodb` job so the live suite runs against a real MongoDB (mongo:7 service), not just SQLite — so backend-specific bugs (like the Mongo-only create-company 500, which the SQLite path masks) surface in e2e instead of only in production.
+
+- **Website scanner signature database expanded from 27 to ~1,270 technologies.** `services/technologies.json` is now generated from the Wappalyzer fingerprint dataset (see `scripts/build_tech_db.py`) instead of a hand-rolled 27-app stub, so the scanner identifies far more of a site's real stack — jQuery, HubSpot, Hotjar, WooCommerce, Fastly, CloudFront, webpack, modern analytics, and hundreds more. The matching engine is unchanged; this is a data fix for poor detection coverage.
+
+- **Website tech-stack signature detection in the scanner.** `WebsiteScanner` fingerprints fetched HTML, script URLs, headers, cookies, and meta tags against a bundled Wappalyzer-style database, merged with the existing DNS heuristics. Covered by `tests/test_scanner_security.py`.
+
+- `scripts/activate.py`: CLI that mints and installs an Ed25519-signed activation token for the
+
+  current instance (generates a keypair if none exists; writes git-ignored files at `0600`).
+
+- `docs/runbooks/activation.md`: owner/admin activation procedure (disable gate · self-mint · request).
+
+- `activation.owner_public_key_b64()` / `activation.activation_required()` helpers, with
+
+  `tests/test_activation_selfservice.py` covering key round-trip, instance binding, untrusted-key
+
+  rejection, the escape hatch, and the CLI.
+
+- **Version single source of truth.** `version.py` (canonical Python) + `frontend/src/version.js`
+
+  (canonical frontend — CRA can't import `package.json` from `src/`). `scripts/bump_version.py X.Y.Z`
+
+  propagates the version to `version.py`, `version.js`, `frontend/package.json`,
+
+  `frontend/public/index.html`, and the README badge in one command;
+
+  `tests/test_version_consistency.py` fails CI if any of them drift.
+
+- **Phase 6 — Workflow engine:**
+
+- `agent/workflow.py`: `WorkflowPhase` state machine (CLASSIFY → PLAN → SELECT_SPECIALIST →
+
+  PREFLIGHT → EXECUTE → VERIFY → JUDGE → SUMMARIZE → DONE/FAILED/BLOCKED).
+
+  Every phase transition is persisted to the task store before advancing — crash-safe by design.
+
+  `WorkflowEngine.run()` drives the loop with configurable `max_phases` guard against infinite
+
+  loops; exhaustion marks the task FAILED and writes a log entry.
+
+  `classify_domain()` maps title+description keywords to domain tags (security / testing / docs /
+
+  infra / dev). Added "runbook" to docs keywords.
+
+  `_dispatch()` handles both sync and async phase methods via `inspect.iscoroutine`.
+
+- `agent/safe_agency.py`: async GitHub operations for the workflow VERIFY phase.
+
+  `verify_pr_exists()` — checks PR existence by number (404 → False, open/merged → True).
+
+  `safe_create_branch()` — creates a branch from a SHA; idempotent on 422 (already exists).
+
+  `safe_create_pr()` — creates a PR, falls back to fetching the existing PR on 422.
+
+  `add_pr_comment()` — posts an issue-thread comment on a PR.
+
+  All functions redact tokens from logs and raise descriptive errors.
+
+- `tasks/models.py`: `Task` gains two new fields:
+
+  `workflow_phase: str | None` — current workflow phase, updated by WorkflowEngine.
+
+  `workflow_history: list[dict]` — ordered append-only list of `WorkflowTransition` dicts.
+
+- `tasks/service.py`: `TaskExecutionCoordinator.execute()` now injects workflow phases into the
+
+  execution path: CLASSIFY (domain tagging) → EXECUTE → VERIFY on success, FAILED on timeout.
+
+  Phase transitions are logged as typed `execution_log` entries with `event_type=workflow_*`.
+
+- `tests/test_phase6_workflow.py`: 29 tests covering WorkflowPhase enum, classify_domain,
+
+  WorkflowTransition model, Task workflow fields, WorkflowEngine phase handlers (classify, judge,
+
+  summarize, happy-path run, max-phases guard), and all safe_agency operations with mocked httpx.
+
+- `scripts/enrich_quick_note_issues.py`: new automation script that finds all open GitHub quick-note issues and posts a standardized "LLM Implementation Context" comment to each issue, with repo constraints (`CLAUDE.md`, testing, changelog, risky-path guidance) to reduce low-signal implementations when source URLs are inaccessible. Supports `--dry-run` and skips issues that already contain the context marker.
+
+- `.github/workflows/enrich-quick-note-context.yml`: new scheduled workflow (every 15 minutes) plus manual dispatch to run `scripts/enrich_quick_note_issues.py` using `GITHUB_TOKEN`, ensuring open quick-note issues continuously receive standardized LLM implementation context comments.
+
+- `scripts/enrich_quick_note_issues.py`: new automation script that finds all open GitHub quick-note issues and posts a standardized "LLM Implementation Context" comment to each issue, with repo constraints (`CLAUDE.md`, testing, changelog, risky-path guidance) to reduce low-signal implementations when source URLs are inaccessible. Supports `--dry-run` and skips issues that already contain the context marker.
+
+- **Phase 4 — Runtime resilience:**
+
+- `tasks/store.py`: `TaskStore.reconcile_stranded_tasks(active_task_ids, stale_threshold_s)` —
+
+  re-queues tasks left stranded IN_PROGRESS by a prior server crash or hard-kill.
+
+  Skips tasks currently executing in this process (active_task_ids), tasks not yet past
+
+  the stale threshold (default 5 min), and tasks not in IN_PROGRESS status.
+
+- `tasks/dispatcher.py`: `TaskDispatcher` now calls reconcile once on startup (crash-recovery)
+
+  and every `TASK_RECONCILE_EVERY_POLLS` cycles (default 60 ≈ 5 min at 5 s poll interval).
+
+  Stale threshold is tunable via `TASK_STALE_THRESHOLD_SEC` (default 300 s).
+
+- `runtimes/adapters/internal_agent.py`: per-task worktree isolation via `git worktree add`.
+
+  Each task executes in its own detached worktree so concurrent tasks cannot clobber each
+
+  other's in-flight edits. Falls back to `shutil.copytree` when workspace is not a git repo.
+
+  Worktree is pruned after execution (success or failure).
+
+- `runtimes/manager.py`: `_env_flag()` helper; external runtimes (Hermes, OpenCode, Goose,
+
+  ClaudeCode, Aider, JCode, OpenHands, TaskHarness, Docker) are now opt-in via
+
+  `RUNTIME_<NAME>_ENABLED=true` env vars. `InternalAgentAdapter` is always registered as
+
+  the production default.
+
+- `tests/test_phase4_runtime_resilience.py`: 13 tests covering reconciliation logic,
+
+  dispatcher startup reconcile, env-flag gating, and worktree helpers.
+
+- `db/sqlite_store.py`: async SQLite storage backend with Motor-compatible collection API
+
+  (`find_one`, `find`, `insert_one`, `update_one`, `delete_one`, `count_documents`,
+
+  `aggregate`, `distinct`, `replace_one`). Supports full query operators: `$set`, `$push`,
+
+  `$pull`, `$addToSet`, `$inc`, `$or`, `$and`, `$in`, `$nin`, `$ne`, `$exists`, `$regex`.
+
+  Indexed columns for hot-path lookups (email, user_id, slug, etc.).
+
+- `db/mongo_store.py`: thin Motor wrapper making MongoStore interchangeable with SQLiteStore.
+
+- `db/__init__.py`: `get_store()` singleton — returns MongoStore or SQLiteStore based on
+
+  `STORAGE_BACKEND` env var (`mongo` default, `sqlite` for dev/CI).
+
+- `tests/test_sqlite_store.py`: 19 unit tests covering all collection operations, query
+
+  operators, upsert, cursor sort/limit, and the `get_store()` factory.
+
+- `backend/requirements.txt` and `requirements.txt`: added `aiosqlite>=0.19.0`.
+
+- `Dockerfile.backend`: added `COPY db/ db/`.
+
+- `infra_cost.py`: added to `Dockerfile.backend` COPY statements and `deploy-backend.yml`
+
+  trigger paths — was imported by `backend/server.py` at startup but never included in the
+
+  container build, causing `ModuleNotFoundError` on every Render deploy.
+
+- `activation.py` / `activation_api.py` added to `deploy-backend.yml` trigger paths so
+
+  changes to those files automatically re-trigger a Render deploy.
+
+- `Dockerfile.backend`: added `COPY activation.py` and `COPY activation_api.py` —
+
+  both files were imported at startup by `backend/server.py` but missing from the
+
+  Docker build context, causing all Render deploys to fail with `ModuleNotFoundError`.
+
+- `backend/requirements.txt`: added `cryptography>=41.0.0` — required by
+
+  `activation.py` (top-level Ed25519 import); without it the container crashes at import.
+
+- `backend/server.py`: `POST /api/chat/resume/{session_id}` — new HITL endpoint.
+
+  The frontend can submit `{action, input}` when an agent job reaches a
+
+  `needs_approval` or `needs_input` checkpoint. Action `deny` cancels the job
+
+  via `AgentJobManager.cancel_job()`; action `approve`/`input` records the
+
+  human decision as a progress event and sets `phase="resuming"`. Returns a
+
+  typed `AgentJobSnapshot`. (Phase 3 will fully suspend/resume the coroutine.)
+
+- `activation_api.py`: `POST /api/activation/users/{user_id}/role` — admin
+
+  endpoint to change a user's role (`user` | `power_user` | `admin`). Validates
+
+  role value, updates MongoDB, and emits an audit event.
+
+
 
 ### Changed
 
-- **Auto-approve routine admin work from Telegram; gate only when the agent can't safely decide** (2026-06-20). `telegram_inbound_handlers._build_execution_request` previously hard-coded `auto_approve=False`, so every plain-text Telegram request — even a routine one from the operator — paused at the orchestrator ApprovalGate for a manual tap. It now sets `auto_approve=True` only when ALL hold: the intent classifier was confident enough to return `execute_now` (uncertain asks come back as `clarify_needed`/`execute_after_approval` and keep gating), the sender is an admin (`_is_admin`), and the request is not sensitive. A new `services.inbound_router.is_sensitive()` activates the previously-inert `_SENSITIVE_TARGETS` list (auth/keys/secrets/credentials/service_manager) as an explicit belt-and-braces floor so a classifier miss or prompt-injection can never auto-approve a credential/auth change. Everything else still gates (inline-keyboard human review), and outward-facing actions like protected-branch merges remain guarded by the agent autonomy gate regardless. The Telegram confirmation message now reflects the real decision (hands-free vs awaiting-approval). New tests in `tests/test_telegram_auto_approve.py`.
+- **`deploy-cloudflare.yml` — now triggers on every push to master (post-PR-merge).** Added `branches: [master]` to the push trigger so the Cloudflare Workers deploy runs automatically after every merged PR. The existing `concurrency: cloudflare-deploy` group with `cancel-in-progress: true` handles rapid merges safely. This is the CI equivalent of `git pull origin master && wrangler deploy`.
 
-- **AGENTS.md "Convention split" closes the tracked-write footgun for `.claude/state/`** (2026-06-21). The "State Persistence" section now explicitly distinguishes the two state directories so a future agent that writes credentials to a session-restore checkpoint doesn't accidentally ship them to master: **parent `.claude/state/` is TRACKED in git (team-shared)** — use only for operator checklists, runner locks, log streams; never write session-private content (literal tokens/passwords/PII/full payloads) here; **subdir `.claude/state/sessions/<session-id>/` is GITIGNORED (session-private)** — per-session memory dumps, narrative logs, `STATE.json` for cross-session resume, replay scripts — anything that may carry operator-issued credentials is safe here. The convention is pinned at the top of every per-session `NEXT.md` as a "Pinned convention (read FIRST)" blockquote so resuming sessions absorb it before acting; mirrored in `.gitignore` (added `.claude/state/sessions/` to the existing Claude session-state exclusion block); cross-references resolve to `.agents/SKILLS-CATALOG.md` → "Session state" and `.agents/skills/replay-learnings/SKILL.md` (redaction discipline). Companion: new `.agents/SKILLS-CATALOG.md` curates 60+ local skills under `.agents/skills/<name>/SKILL.md` plus references to popular public skill repos (Anthropic-maintained catalog, `obra/superpowers`, Fabric, OWASP LLM Top 10, Conventional Commits, MCP, AutoGPT, Aider) with a per-task [L]ocal / [R]untime / [E]xternal map and an honest "Known Gaps" section so future sessions can pick the right skill per task without archaeology.
+- **`portfolio-refresh.yml`** — the 6-hourly refresh cron now reads the backend origin from the existing `RENDER_BACKEND_URL` secret (was a new `BACKEND_URL` repo variable), so no extra config is needed to ping the deployed dashboard.
 
-- **Graceful degradation when no LLM brain is configured** (2026-06-20). `tasks/service.py` now runs a fail-open brain-availability preflight in `TaskExecutionCoordinator.execute()` before dispatch: if no brain is resolvable (no `AGENT_LLM_BASE_URL`/`OLLAMA_BASE`, no free `NVIDIA_API_KEY`, paid brain not allowed, and no configured provider record with a usable endpoint) the task is **deferred** — kept queued (`pending_agent_run=True`, status `TODO`) so the dispatcher auto-re-picks it the moment a brain is set — instead of spinning up a worktree per task and burning the full runtime-retry budget against a dead endpoint. After `_BRAIN_DEFER_LIMIT` (12) deferrals it parks the task as `BLOCKED` so a permanently-misconfigured deploy can't hot-loop. The check fails open, so the normal (brain-configured) path is unchanged. Separately, the `RuntimeUnavailableError` re-queue logic was extracted into a shared `_requeue_or_block_unavailable()` helper, and the generic execution-failure handler now routes brain/LLM-endpoint connection errors (httpx connect/timeout, "connection refused", …) through that same re-queue-then-block path instead of marking the task permanently `FAILED`. The autonomy probe already surfaces `status="no_brain"` for operator visibility. New tests in `tests/test_task_brain_preflight.py` (defer-keeps-queued, block-after-limit, brain-present-passes, connection-error-requeues).
-- **SQLite read-connection pool** (2026-06-20). `db/sqlite_store.py` now serves pure reads from a pool of WAL read-only connections instead of funnelling every query through the single shared writer connection. Under `STORAGE_BACKEND=sqlite` the previous design serialized *all* DB access process-wide, so on a busy single-instance deploy (autonomous background loops + Telegram bot writing constantly) the dashboard and task-board reads queued behind those writes — the "extra slow" symptom. WAL mode permits N concurrent readers + 1 writer, so the pool lets read endpoints run concurrently with each other and with the writer. Read-modify-write ops (`update_one`/`replace_one`/`delete_one`/`delete_many`) still read through the writer connection for view consistency. Added `PRAGMA busy_timeout=5000` to all connections (wait out a transient lock instead of erroring), `PRAGMA query_only=ON` on read connections (fail-closed), pool size via `SQLITE_READ_POOL_SIZE` (default 4), and automatic pool-disable for in-memory DBs (which are private per connection). New concurrency regression tests in `tests/test_sqlite_store.py`: 20 concurrent reads racing a write burst, in-memory fallback, and read-after-write consistency across the pool/writer boundary.
+- **`process-quick-note.yml`** — PR creation now uses `--draft` (suppresses CodeRabbit/Copilot auto-reviews on implementation PRs). Branch creation detects and reuses an existing `claude/context-issue-N` branch so implementation commits land on the pre-built draft PR instead of opening a duplicate.
 
-- **SQLite indexed-column query push-down** (2026-06-20). `db/sqlite_store.py` now pushes equality and `$in` conditions on indexed columns (e.g. `tasks.user_id`/`tasks.status`, `website_scans.company_id`) into the SQL `WHERE` clause so the existing per-column indexes do the filtering, instead of `SELECT data FROM <table>` pulling and JSON-decoding *every* row and scanning it in Python (`_match`). This was the second half of the task-board / dashboard slowness: even with the read pool, each read still deserialized the full table. The push-down only ever *narrows* candidates — every pushed clause is a necessary AND-condition of the query, and the full Python `_match` still runs afterwards — so type coercion, `$or`/`$ne`/range operators, non-indexed fields, missing-field rows, and `None` equality all remain correct (left to `_match`). Column names come only from the `_INDEXED_FIELDS` whitelist and values are parameterised. New tests in `tests/test_sqlite_store.py`: WHERE/`IN` clause construction, operator/`None`/non-indexed exclusion, full-scan-equivalence end-to-end, and a missing-field guard proving no real match is ever dropped.
+- **CI no longer runs on draft PRs or docs-only context commits.** `paths-ignore: ["docs/context/**"]` added to the push/pull_request triggers of `ci.yml`, `e2e.yml`, `browser-e2e.yml`, `security-gate.yml`, `changelog-check.yml`, `security-scan.yml`, plus `if: github.event.pull_request.draft == false` job guards on `ci.yml`, `e2e.yml`, `browser-e2e.yml`, `security-gate.yml`, `changelog-check.yml`. Draft status only stops review bots, not GitHub Actions — these guards stop auto-generated context draft PRs from triggering the full CI suite.
 
-- **Website scan wall-clock budget + DNS lifetime cap** (2026-06-20). `services/scanner.py` `WebsiteScanner.scan_website()` now runs under an overall `asyncio.wait_for` budget (`WEBSITE_SCAN_BUDGET_SEC`, default 90s — below the frontend's 120s `scanWebsite` client timeout) and returns a clean `status="failed"` instead of hanging. Its many serial network phases (DNS, primary fetch, headless render, the BuiltWith fallback — itself a second headless render — and the 12-host subdomain fan-out) previously had no aggregate cap, so a slow/blocked domain could spin for minutes and surface as a stuck "spinning" scan that eventually errored. Also caps DNS: `_analyze_dns` now uses a `dns.resolver.Resolver()` with `lifetime=3s`/`timeout=2s` instead of dnspython's ~5.4s default across four serial MX/NS/TXT/CNAME lookups (≈20s → ≈3s worst case on dead nameservers). New regression tests in `tests/test_scanner_headless.py` (budget-exceeded → failed result; fast scan unaffected).
+- **Context PR titles use a `docs:` prefix** so the `changelog-check` gate exempts them (context PRs only add `docs/context/*.md`).
 
-### Added
+- CONTRIBUTING.md risky modules list now matches AGENTS.md (added agent/tools.py, handlers/v3_auth.py, rbac.py, social_auth.py)
 
-- **Post-merge Telegram notification workflow** (2026-06-20). New `.github/workflows/post-merge-telegram-notify.yml` triggers on PR merges to `master` (`pull_request: closed` + `merged == true`). Delivers an HTML-formatted notification (✅ emoji, PR metadata, 300-char truncated PR-body preview, short SHA, GitHub PR URL) directly to the configured Telegram chat through the Bot API using Python stdlib `urllib` (no external GH Action dependencies). Enforces a fail-fast presence check on the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets; on `ok=false` from Telegram or any HTTP error the workflow logs the response body and exits 1 so the operator has a real signal during outage triage. Concurrency group `post-merge-telegram-notify` serializes rapid batch merges.
+- roadmap/next-30-days.md: removed duplicate SECURITY.md task entry
 
-- **Telegram operator diagnostics** (2026-06-20). New admin-only `/diag` command + silent-drop remediation hint + admin-bypass for `_is_allowed`. The `/diag` command surfaces a runtime config snapshot (masked token via first-4…last-4 with `len >= 16` overlap guard, allowlist IDs truncated to first-20 + `(+N more)` to fit Telegram's 4096-char Markdown-v1 cap, admin IDs, poller state, proxy base, "You" identifier). Silent-drop path now emits a one-shot WARNING with a `set TELEGRAM_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS` remediation hint when `ALLOWED_USER_IDS` is empty (throttled by `_EMPTY_ALLOWLIST_WARNED` flag; subsequent drops downgrade to INFO). `_is_allowed` now lets an admin seat authenticate regardless of allowlist so `/diag` stays reachable when the operator's allowlist is misconfigured. New `tests/test_telegram_diag.py` covers 6 TestDiagCommand + 2 TestSilentDropRemediation + 1 regression test for the admin-bypass contract (80 telegram-slice tests passing). `.env.example` Telegram block rewritten with the full BotFather → @userinfobot → `/diag` setup recipe including `TELEGRAM_CHAT_ID`, admin fallback, poller guard, and proxy + FreeBuff env keys. `_poller_disabled()` helper hoisted to module scope so the truthy-parser is no longer duplicated between `/diag` and `run_bot()`.
+- **`agent/agency.py` — Strategic CEO intelligence upgrade.** Replaced the generic 8-line CEO system prompt with a full strategic framework: priority ladder (1=failing tests → 8=release prep), instruction quality bar (every directive must include file paths, commands, verification steps, and a changelog update), and guidance on when to return `[]` vs when to create work. Added `_collect_recent_git_context()` which feeds the last 10 commits and changed-file diff into every CEO assessment — the CEO now knows what changed since last cycle and can spot regressions or opportunities from code context, not just metric signals.
 
-- **Autonomy-v2 slice** (2026-06-20). Five high-leverage changes that close the gap from "mostly autonomous" to "fully autonomous" — operator still has to type a slash command, every HITL gate fires, every error needs human eyes, every URL needs an onboarding runbook. After this slice:
-  - **Runtime ApprovalPolicy evaluator** (`services/workflow_orchestrator.py`). New `_load_approval_policy(company_id)` helper fetches the company's ApprovalPolicy from `services.company_graph_store`. In `execute()`'s ApprovalGate block, when `require_human_approval=False` AND the first-merge gate is not forced, the run auto-approves (`req.auto_approve = True; run.approved = True`). This is the single change that lets a company opt-in to autonomous runs without per-action human review — the "kill the ceiling" change.
-  - **G2 self-heal close-loop** (`_handle_persist`). When a run carries `metadata.heal_signature` AND `judge.verdict` is in `(approve, approved, pass, passed)`, `agent.self_healing.get_self_healing_agent().mark_fix_landed(sig)` is invoked so the verification window opens without relying on an external CI webhook. A regression during the window still self-corrects via `note_recurrence`.
-  - **Zero-touch Telegram onboarding** (`telegram_inbound_handlers._launch_url_onboarding` + `services/inbound_router.extract_first_url` / `looks_like_url_only`). Pasting a single URL into the bot fires the 8-step onboarding flow + agency activation in the background (admin-only). Strict: rejects prose-bound URLs and multi-URL messages.
-  - **Intent-aware admin auto_approve** (`_build_execution_request`). New optional `intent` param: `auto_approve = (intent == "execute_now" and _is_admin(int(user_id)))`. Lower-risk intents (`execute_after_approval`, `plan_only`, `clarify_needed`) still trip the ApprovalGate so HITL keeps firing for non-admins and risky asks.
-  - **Graceful classifier degradation** (`services/inbound_router._verb_prefix_heuristic`). When the LLM intent classifier fails to import / returns None, verb-prefix commands (`Fix …`, `Add …`, `Run …`, …) now route to `execute_after_approval` instead of silently downgrading every actionable message to `answer_only`.
-- **Tests** added in `tests/test_autonomy_v2_inbound.py`, `tests/test_autonomy_v2_telegram.py`, `tests/test_autonomy_v2_orchestrator.py` — 24 cases covering URL extraction, admin gating, intent-aware auto_approve, the policy evaluator, and the G2 close-loop hook. 101/101 of the LLM-independent slice green; the pre-existing Ollama-dependent `test_workflow_orchestrator.py` failures are not affected.
+- **`services/company_agency.py` — Signal-driven task instructions.** Rewrote all 6 `COMPANY_SCHEDULES` task instructions from generic calendar-based descriptions to concrete step-by-step agent instructions with explicit signal-driven rules: health scan only creates GitHub issues on state change (not on every run), security audit separates HIGH/CRITICAL (new issue) from MEDIUM/LOW (comment on existing), stack-change-detection only fires an issue on delta, quality scan tracks trend not just snapshot, trend-watch only creates issues for trends directly applicable to the company's detected stack, and graph-sync alerts when a specialist is stalled (inactive for >2× its scheduled interval).
 
-- **Dispatchable Telegram trigger workflow** (2026-06-20). New `.github/workflows/trigger-telegram.yml` with `on: workflow_dispatch` reads `secrets.DIGEST_SECRET` and POSTs to `${BACKEND_URL}/api/admin/digest/send` with header `X-Admin-Secret`. The server then uses its Render env vars (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`, already wired server-side because the daily-digest cron fires green) to send a real Telegram message via `NotificationDispatcher.send_daily_digest`. Workaround for `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` not being wired as GH repo secrets; fires any time without needing to merge a PR. Single-job, single-step; concurrency group `telegram-trigger` (`cancel-in-progress: true`) so accidental double-dispatches don't double-fire to the operator chat.
+- **`services/scanner.py` — Broader tech stack detection.** Added detection for: Render hosting (x-render-id, onrender.com headers), FastAPI/Python (uvicorn server header, x-powered-by), gunicorn/hypercorn Python ASGI, Vite bundler, Tailwind CSS, MongoDB/SQLite (HTML hints), OpenAI-compatible API patterns, GitHub Pages, and expanded React detection to cover CRA bundle patterns (`static/js/main.*`), webpack, and data-reactroot — so modern PaaS + Python backend setups no longer scan as just 1–2 systems.
 
-### Added
-- **Telegram inbound routing + mid-flight redirection** (Daily Digest followup, 2026-06-19). Operators can now steer the bot without typing a slash command. `services/inbound_router.py` provides pure helpers (`classify_plain_text` reusing `agent.intent.classify_direct_chat_intent`, `should_big_paste`, `save_paste` with ``..``-traversal guard, `sanitize_paste_for_preview`). `telegram_inbound_handlers.py` wires three async handlers `handle_redirect`, `handle_paste`, `_route_plain_text` plus `_handle_big_paste` (>3500 chars → workspace paste + short pointer so 4096-char Markdown-v1 ceiling never trips) and `_resolve_reply_to_decision` (durable via new `bot_message_links` SQLite table in `services/decisions_store.py`). Plain-text fallback routes through `WorkflowOrchestrator.execute(auto_approve=False)` per the Golden Path rules; the bot's existing `_process_wfo_callback` picks up the ApprovalGate inline keyboard on the next poll. New `POST /api/workflow/orchestrator/update-task/{run_id}` admin endpoint (`backend/admin_update_task_router.py`) uses `X-Admin-Secret` auth (same as `admin_digest_router.py`) so `/redirect wfo_xxx "..."` can inject `additional_instructions` into the in-flight `ExecutionRequest.metadata` (Pydantic `model_copy(update=...)`) and trigger `_checkpoint(run)` for restart-survival. New operator commands: `/redirect <wfo_|dec_> <new instruction>` (admin-only, prefix-dispatched), `/paste <abs-path>` (admin-only read for big pastes). `telegram_bot._send_message` now returns `tuple[bool, Optional[int]]` so `bot_message_links.link_message` can capture the outbound `telegram_message_id` for durable reply-to lookup. 40 tests across `tests/test_inbound_router.py`, `tests/test_decisions_bot_links.py`, `tests/test_workflow_orchestrator_update_task.py`, `tests/test_telegram_inbound.py`.
-- **Per-model circuit breaker for Ollama (`router/circuit_breaker.py`, 2026-06-16).** New `OllamaCircuitBreaker` implements the CLOSED → OPEN → HALF_OPEN state machine per-model, mirroring the existing NIM pool circuit breaker (`services/nim_pool.py`). After `CIRCUIT_BREAKER_FAILURE_THRESHOLD` (default 3) consecutive 5xx errors on a model, the circuit opens and `is_model_available()` returns `False` for that model, forcing the router to use its fallback chain. After `CIRCUIT_BREAKER_RECOVERY_TIMEOUT` (default 60s) the circuit transitions to HALF_OPEN and allows one probe request; success closes the circuit, failure re-opens it. The fallback handler in `handlers/anthropic_compat.py` now records success/failure on each attempt. `CIRCUIT_BREAKER_ENABLED=false` disables the feature. 16 unit tests in `tests/test_circuit_breaker.py`. Inspired by resilience patterns from NIM pool implementation already in the codebase, now applied uniformly to all Ollama model routing.
-- **Extended cache token fields in Anthropic API responses (`handlers/anthropic_compat.py`, 2026-06-16).** `_build_anthropic_response()` and the streaming `message_start` SSE event now include `cache_read_input_tokens: 0` and `cache_creation_input_tokens: 0` in the `usage` block. These fields were added to the Anthropic API in version 2024-06-20 and are expected by Claude Code CLI ≥ v2.1.x and the Anthropic Python/TypeScript SDK when parsing responses — their absence caused `KeyError` or silent field-access failures in some SDK versions. For local Ollama models the values are always 0 (no server-side prompt cache), but the fields are present and parseable. 9 unit tests in `tests/test_anthropic_usage_fields.py`.
+- **`README.md` — Updated problem statement to reflect agentic platform reality.** Replaced the ChatGPT/Copilot framing with accurate statements about the effort required to set up agentic coding platforms (skills, workflows, context-building) and the value of compounding context that stays on your infrastructure.
 
-- **Agency Core Autonomy Hardening** (#468): Replaced BackgroundAgent `_process()` no-op stub with real AgentRunner dispatch. Added Doctor diagnostics module with public/authenticated split and one-click fixes. Added AutonomyTracker KPI singleton. Added 21 Golden Path contract tests.
-- **RTK-style Output Filtering** (#463): Added `output_filter.py` with command-specific compressors for 60-90% token reduction. Fixed #462.
-- **Telegram Bot Service Manager & Log Monitoring** (#486): `telegram_service.py` integrates bot lifecycle into service_manager. `log_watcher.py` scans logs for errors and files GitHub issues automatically.
-- **MongoDB Skip Flag for CI** (#484): Added `SKIP_MONGO_TESTS` env var to allow CI to run without MongoDB.
+- **`.github/workflows/` — Restored 5 quarantined agency workflows and removed duplicate/irrelevant automations.**  Un-quarantined: `agency-cycle.yml` (every 6 h), `continuous-improvement.yml` (daily 09:00 UTC), `weekly-trend-digest.yml` (Monday 08:00 UTC), `ci-failure-autofix.yml` (on CI failure, using `workflow_run`), `auto-merge.yml` (on CI success, `--admin` bypass removed so branch protection is respected). Deleted `deploy-pages.yml` (stale, targeting abandoned branches) and `pull-request.yml` (auto-created PRs on every push — noise). Reduced `enrich-quick-note-context.yml` from every 15 min to every 4 hours. Removed hardcoded admin password from `e2e.yml` — uses `${ADMIN_PASSWORD}` env var instead.
 
-### Added
+- **`.github/workflows/` — Removed duplicate and irrelevant automations.** Deleted `deploy-pages.yml` (stale, targeted `agency-core-v5-hardening`/`main` branches and deployed the root directory — fully superseded by `deploy-frontend.yml`) and `pull-request.yml` (auto-created a PR on every push to every branch, causing PR spam). Reduced `enrich-quick-note-context.yml` schedule from every 15 minutes to every 4 hours. Removed hardcoded admin password from `e2e.yml` — now uses env var.
 
-- **Live NVIDIA NIM smoke test (`@pytest.mark.livenim` `test_default_model_actually_responds_against_nim` in `tests/test_brain_default_model.py`)** (2026-06-20). Skips unless `NVIDIA_API_KEY` is in env. Hits `https://integrate.api.nvidia.com/v1/chat/completions` with whatever `brain_policy.DEFAULT_FREE_NVIDIA_MODEL` resolves to and asserts a non-empty reply. Catches the "default points at a 404" regression the operator just hit (bare-name `nemotron-3-super-120b-a12b` returns 404; only the namespaced `nvidia/nemotron-3-super-120b-a12b` is reachable on NIM today).
+- **Onboarding service refreshes dynamic skills after company setup (`services/onboarding.py`).** On `onboarding_status` → `completed`, calls `refresh_remote_force()` on the SkillRegistry and runs `recommend(tech_stack=detected_technologies)` — collecting detected frameworks, CMS, analytics, and database technologies to surface relevant skills for the newly onboarded company.
 
-### Changed
+- **CompanyGraph completeness scoring uses `detected_systems` not `systems` (`services/company_graph_store.py`).** `is_complete` is now `True` when `detected_systems > 0 or specialists > 0` (was always `False` on the `systems` field which was always empty). `completeness_score` bumps to 0.5 accordingly.
 
-- **Free-brain default flipped back to live `nvidia/nemotron-3-super-120b-a12b`** (2026-06-20). The operator reported "120B returns 404"; a fresh live-NIM probe (`curl https://integrate.api.nvidia.com/v1/chat/completions`) confirmed the namespaced `nvidia/nemotron-3-super-120b-a12b` returns **HTTP 200 in ~7s** with a coherent 577-char reasoning answer, while the *bare* id (no `nvidia/` prefix) returns 404 — i.e. the previous-session "404" claim was a prefix mistake, not a missing model. The default brain now points at the 120B-a12b (a reasoning-tuned 120B MoE with ~12B active params per call — comparable latency to the dense 49B, stronger step-on-step planning). The dense 49B is retained everywhere as the second-priority fallback that the resolver still honours when `NVIDIA_DEFAULT_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1` is explicitly set. Sweep touched 14 files: `brain_policy.py` (canonical default), `backend/server.py` (`_nvidia_model` + planner/executor/verifier + default seed record), `agents/profiles.py` (scout/coder/verifier defaults), `agents/harness_adapter.py` (telegram harness + normalize_request fallback), `runtimes/adapters/internal_agent.py` (`_NVIDIA_DEFAULT_MODEL`), `router/harness_routing.py` (`_coder`), `router/model_router.py` (`_heavy / _largest / _coder / _gen` + `nemotron-ultra` alias), `provider_router.py`, `direct_chat.py`, `setup/api.py` (Step2 + Step4 + `/detect/providers`), `agent/loop.py` (FreeBuff `_DEFAULT_FREE_NVIDIA_MODELS` rotated 120B → first), `.github/scripts/nvidia_models.py` (candidate list — 120B first), `.github/scripts/generate_context.py` (NIM rotation order — duplicate 49B dropped), `services/cost_attribution.py` (`$0/M` entry added alongside the 49B), `services/nim_pool.py` (docstring example), `handlers/v3_models.py` (`/api/activity` example), `setup_local_models.py` (wizard default). The repo's free-cloud brain rotation now starts at the strongest live, reasoning-capable, free-tier NIM model — with both 120B and 49B verified live today.
+- **Doctor screen action buttons wired to real backend hints (`frontend/src/v5/screens/DoctorScreen.jsx`).** `CheckRow` now accepts `onNavigate` (replacing `onSetup`) and renders action hints from the backend's `check.action { label, hint, href }` — showing either a navigation button (for GitHub/agent/provider screens) or an inline fix hint when no href is available. Gracefully handles `/runtimes`, `/providers`, `/tasks` path prefixes mapping to screen IDs.
 
-- **CHANGELOG correction: previous-session "Free-brain default pointed at a dead model" note is now empirically overturned** (2026-06-20). The 2026-06-20 `Fixed` entry above that flipped the default from `nemotron-3-super-120b-a12b` to `llama-3.3-nemotron-super-49b-v1` was based on a premature 404 report. The flipped 120B (with proper `nvidia/` prefix) is actually live on NIM today; the 120B MoE is the better default for reasoning-heavy agent tasks.
+- **Intelligence screen AI briefing navigation fixed (`frontend/src/v5/screens/IntelligenceScreen.jsx`).** AIInsightsPanel now accepts `onNavigate` prop; "Apply to Schedules" and "Apply to Tasks" links are no longer dead `#` anchors — they call `onNavigate('schedules')` / `onNavigate('tasks')`. The actions row below the briefing is now clickable, navigating to the respective screen.
+
+- **QuickNotesFAB GitHub-connected UX (`frontend/src/v5/screens/QuickNotesFAB.jsx`).** Checks GitHub connection status on mount (`GET /api/github/status`). When connected, submits to `/v1/quick-notes` (full pipeline) and shows the gh-issue confirmation. When not connected, falls back to the local task queue. Subheading label adapts to connection state. `createQuickNote` and `listQuickNotes` API helpers wired up.
+
+
+
+- **`agent/skill_registry.py` dynamic tech relevance scoring — skills that mention detected techs now score higher than the hardcoded map.** New `_add(skill_id, 4, f"skill mentions: {tech}")` path scores 4 pts vs 3 pts for hardcoded map matches, so a skill that explicitly discusses React in its content ranks above one that just happens to mention "shopify" in passing.
+
+- **Claude Opus 4.8 model-map entries (`router/model_router.py`).** Claude Code v2.1.154+ defaults to `claude-opus-4-8` as its primary model. The router now maps `claude-opus-4-8` and `claude-sonnet-4-7` to the appropriate local models (`deepseek-r1:671b` and `qwen3-coder:30b` respectively). Without these entries, Claude Code users on the new default would fall through to heuristic routing instead of the deterministic alias table.
+
+- **Bedrock ARN updated for Opus 4.8 (`router/model_router.py`).** `_opus_model()` now returns `us.anthropic.claude-opus-4-8-v1` (Bedrock) and `claude-opus-4-8` (direct API) — the latest cross-region inference ARN for the newest Opus model.
+
+- **2026 Claude Code beta tool variants stripped (`handlers/anthropic_compat.py`).** Claude Code v2.1.154+ (shipped June 2026) sends `text_editor_20260101`, `bash_20260101`, `computer_use_20260124`, and `web_search_20260101` tool types. These are now included in `_SERVER_TOOL_TYPES` so they are stripped before forwarding to Ollama (which would return 400 on any unrecognised tool type).
+
+- **`effort` parameter stripped from Anthropic requests forwarded to Ollama (`handlers/anthropic_compat.py`).** Claude Opus 4.8 always sends `effort: "high"` in its API requests. Ollama does not understand this parameter and would return an error. The compat handler now logs and discards it before building the forwarded OpenAI payload.
+
+- **`thinking` parameter stripped from Anthropic requests (`handlers/anthropic_compat.py`).** The `thinking` parameter (used for both extended and adaptive thinking in Opus 4.7/4.8) is stripped before forwarding to Ollama. Thinking content blocks (`type: "thinking"`) in message history are also silently removed, preventing wasted context tokens on another model's raw chain-of-thought.
+
+- **Regression tests for all of the above (`tests/test_daily_2026_06_04.py`).** 13 tests covering model-map routing for Opus 4.8 / Sonnet 4.7, Bedrock ARN correctness, 2026 tool-type stripping, effort/thinking payload hygiene, and thinking content-block filtering.
+
+- **Refreshed `graphify-out/GRAPH_REPORT.md` for the current codebase.** Regenerated by `graphify update` so the committed knowledge-graph report reflects post-#386 master instead of the stale commit it was previously built from. Generated artifact only — no functional code change.
+
+- **WorkflowOrchestrator contracts are now `extra="forbid"` (`services/workflow_orchestrator.py`).** All 12 transition models (`ExecutionRequest`, `ClassifyOutput`, `PlanOutput`, `SpecialistSelection`, `PreflightReport`, `BoundContext`, `ExecutionResult`, `VerificationResult`, `JudgeVerdict`, `SummaryOutput`, `PersistOutput`, `MonitorOutput`) reject unknown fields at parse time, so contract drift surfaces as a `ValidationError` instead of a silently-dropped field. Un-skipped `test_all_contracts_pydantic_extra_forbid` and added `test_extra_field_is_rejected`.
+
+- **Cloudflare deployment now serves the real app, not the static demo.** `wrangler.jsonc` builds the React app and a new `worker/index.js` reverse-proxies `/api/*` to the Render backend, so `local-llm-server.strikersam.workers.dev` is the real, working product on one origin (no CORS; auth token passes through). The static marketing `index.html` is no longer served there (still in the repo for use elsewhere). See `docs/runbooks/cloudflare-real-app.md`.
+
+- **`_detect_systems_generic` tag stripping + crash-safety (`services/scanner.py`).** Pattern metadata is now stripped on Wappalyzer's `\;` delimiter (previously `.split(';')`, which mangled tagged patterns), and header/cookie/meta regexes are exception-guarded so a single malformed signature can't fail an entire scan. The ~1,270-signature pass now runs in a worker thread (`asyncio.to_thread`) so it can't block the event loop on large pages.
+
+- **Curated-signature overlay preserved (`scripts/build_tech_db.py`).** The Wappalyzer snapshot is missing Datadog/Klarna/Klaviyo and ships Adyen without a usable pattern; a small curated overlay re-adds these (with explicit `SystemType`) wherever upstream lacks a signature, so the swap doesn't regress detections the scanner already supported. `scriptSrc`/`scripts` URL patterns are matched against extracted `<script src>` URLs instead of the whole document.
+
+- **Quick-note engine now runs on NVIDIA NIM as the primary engine.** The Opus-via-Anthropic
+
+  path was unreliable (Opus/Bedrock integration never worked), so `implement_agent.py`,
+
+  `review_agent.py`, and `apply_review.py` now use NVIDIA NIM (Qwen3-Coder 480B first) as the
+
+  real workhorse, with Claude Opus demoted to an optional fallback that only runs if NVIDIA fails
+
+  and `ANTHROPIC_API_KEY` is set. `tests/test_quick_note_engine.py` guards the NVIDIA-primary wiring.
+
+- **README screenshots restored.** The README rewrite dropped the screen gallery (and its
+
+  inject markers), so the page had no visuals. Re-added a `## Screens` section with the
+
+  `README_UI_GALLERY` markers and pointed `scripts/sync_readme_gallery.py` at the current
+
+  `docs/screenshots/readme/v4-*` set (the old config referenced `v3-*` and non-existent
+
+  `webui-*` files, which crashed the sync). Regenerated `docs/screenshots/manifest.json`.
+
+- **README**: complete rewrite — full feature reality, autonomous agency use cases, step-by-step
+
+  onboarding guide, screen-by-screen control plane reference, provider chain, security model,
+
+  and updated roadmap showing phases 1–5 complete. Deploy and config sections expanded with
+
+  Render free-tier notes and Nvidia NIM no-GPU path.
+
+- **Frontend mock data**: updated demo card labels from v4.1 → v5.0 in TaskBoardScreen and
+
+  ChatScreen; UI now consistently reflects the current release.
+
+- `runtimes/manager.py`: `_build_default_manager()` registers only `InternalAgentAdapter`
+
+  by default. All other adapters are opt-in. Eliminates health-poll churn against
+
+  unavailable external runtimes in standard deployments.
+
+- `tests/test_runtimes.py`: updated `TestJCodeAdapterMetadata` to assert JCode is opt-in
+
+  (RUNTIME_JCODE_ENABLED=true) rather than always-on.
+
+
+
+- **Phase 5 — Doctor & dashboard resilience:**
+
+- `GET /api/doctor` endpoint in `backend/server.py`: consolidated system health report
+
+  combining `DirectChatDoctor` preflight checks (git binary, GitHub token, repo access)
+
+  with `RuntimeManager` cached health for each registered runtime, plus Langfuse
+
+  configuration and LLM provider reachability checks. Partial-failure tolerant: each
+
+  check section is independently guarded so one failing probe doesn't abort the report.
+
+  Returns a typed `_DoctorReport` (ready, summary, checks[], run_at).
+
+- `frontend/src/v5/hooks/useSafeData.js`: `useSafeData(baseUrl, endpoints, options)` —
+
+  `Promise.allSettled`-based multi-fetch hook. Each endpoint slot gets its own
+
+  `{loading, error}` state so one dead API never blanks the whole page. Supports
+
+  auto-refresh (`refreshMs`), per-key transforms, and JWT auth from localStorage.
+
+- `frontend/src/v5/screens/DoctorScreen.jsx`: fully rewritten to consume live
+
+  `/api/doctor` data. Skeleton loading states per-check, inline error banner with
+
+  Retry button when the endpoint fails, live score bar (pass/warn/fail counts), and
+
+  auto-refresh every 60 s. No mock data remains.
+
+- `tests/test_phase5_doctor.py`: 8 tests covering response shape, field validation,
+
+  status constraint (pass/warn/fail only), Langfuse check presence, partial-failure
+
+  tolerance when RuntimeManager or DirectChatDoctor raises.
+
+- `backend/server.py`: `get_db()` now delegates to `db.get_store()` instead of directly
+
+  creating a Motor client. All 112+ call sites unchanged. Set `STORAGE_BACKEND=sqlite` to
+
+  run with zero external dependencies.
+
+- `frontend/package.json`: version `4.0.0` → `5.0.0`, name `llm-wiki-dashboard` → `local-llm-server`.
+
+- All frontend components updated from "LLM Relay v4.1" → "Agency Core v5.0"
+
+  (HeroSection, PanelSection, DashboardLayout, LoginPage, ControlPlanePage, SetupWizardPage).
+
+- `frontend/src/App.js`: V5 Agency Core UI is now the default authenticated route (`/v5`);
+
+  legacy v4 dashboard moved to `/legacy` for rollback access. Previously authenticated
+
+  users landed on the old dashboard by default.
+
+- `README.md`: full rewrite — covers the autonomous agency product story, onboarding
+
+  flow (5 steps), all 14 V5 screens, architecture diagram, full config reference,
+
+  deployment guide, security posture, and roadmap phases 1-7.
+
+- `README.md`: bumped version badge and "What's New" section from v4.1.0 → v5.0.0
+
+  with accurate feature descriptions for the v5 release.
+
+- Replaced all internal `CompanyHelm` references with generic names
+
+  (`prior-system`, `legacy-rt`) in `runtimes/adapters/docker_agent.py` and
+
+  two architecture docs — no company-specific branding in the public repo.
+
+- `backend/server.py`: `get_chat_agent_job` and `cancel_chat_agent_job` now
+
+  return `AgentJobSnapshot.from_agent_job(job).model_dump()` instead of the
+
+  raw `job.as_dict()` dict, giving callers a stable, typed response shape.
+
+- `backend/server.py`: Agent job creation in `chat_send` now validates inputs
+
+  through `AgentJobRequest` (Pydantic v2, `extra="forbid"`) before calling
+
+  `AgentJobManager.create_job()` — unknown kwargs now raise `ValidationError`
+
+  immediately rather than being silently dropped.
+
+- `backend/server.py` (Phase 2): Direct-chat path now calls
+
+  `ModelRouter.route(content)` to select the best model for the task type
+
+  (code, reasoning, fast-response, etc.) before falling back to the provider
+
+  default. Failures are non-fatal: the provider default is used on any
+
+  `ModelRouter` exception.
+
+- `runtimes/api.py`: All runtime read endpoints (`GET /runtimes/`,
+
+  `/runtimes/{id}`, `/runtimes/health`, `/runtimes/policy`,
+
+  `/runtimes/decisions`) and the task-execution endpoint (`POST
+
+  /runtimes/{id}/run`) now require a valid Bearer token via
+
+  `Depends(require_authenticated)`. Previously all reads were unauthenticated.
+
+
 
 ### Fixed
 
-- **Free-brain default pointed at a dead-but-revivable model** (2026-06-20). `brain_policy.DEFAULT_FREE_NVIDIA_MODEL` was still `nvidia/nemotron-3-super-120b-a12b`, which the curated live-endpoint testing found returns 404 — while the rest of the codebase (router/, services/, agents/, seeded provider records, 19 references) uses the live `nvidia/llama-3.3-nemotron-super-49b-v1`. A deploy that left `NVIDIA_DEFAULT_MODEL` unset would resolve a dead brain and every dispatched task would fail at EXECUTE with a 400/404. The default now matches the empirically-live Nemotron Super 49B. New tests in `tests/test_brain_default_model.py`.  *(Superseded the same day by the live-NIM probe above — see **Changed → "Free-brain default flipped back to live..."**: the 120B IS live when namespaced correctly; today's default is `nvidia/nemotron-3-super-120b-a12b`.)*
-- **Specialist provisioning timeout (25000ms) + masked "Something went wrong" on scans/audits**: `OnboardingService.start_onboarding()` Step 8 previously awaited `CompanyAgencyService.activate_company()` (docker compose runtime startup) synchronously, regularly exceeding the onboarding Done step's 25s timeout. It now runs via `asyncio.create_task(self._activate_agency_background(...))` so the request returns promptly with an `in_progress` `activate_agency` step; `runtimes/control.py` `start_runtime`/`stop_runtime` move their blocking `docker compose` calls onto `asyncio.to_thread()` with a 10s timeout. Separately, `frontend/src/api.js`'s `fmtErr()` returned the literal `'Something went wrong.'` for `null`/`undefined` detail (network errors, timeouts, non-JSON responses — e.g. the gucci.com website scan and SEO/GEO/AIO audit), always masking the real `e.message` in `fmtErr(detail) || e.message || fallback` chains; it now returns `''`. Added a 45s default axios timeout plus longer per-call timeouts for `scanWebsite`/`scanRepo` (120s) and `runSeoAudit` (180s).
-- **Three pre-existing CI-blocking bugs on `master`**: `.github/scripts/implement_agent.py` had 2968 trailing NUL bytes causing `python -m py_compile` to fail with `SyntaxError: source code string cannot contain null bytes` (stripped); `frontend/src/v5/screens/CompanyScreen.jsx` was truncated mid-statement (`exp` instead of `export default CompanyScreen;`), breaking `npm run build` and the Docker-based Playwright E2E build (completed the statement); `proxy.py`'s `/v1/models` alias entries used the stale `"owned_by": "llm-relay-alias"` instead of `"autonomous-ai-agency-alias"`, failing `tests/test_daily_automation_2026_05_14.py::TestModelsEndpointAliases::test_list_models_includes_alias_entries` (updated to match the project's current name).
-- **Direct chat stuck at "planning" in Agent Mode**: the chat Agent-Mode job ran `AgentRunner.run()` with no aggregate wall-clock budget, so a hung provider connection (httpx read timeout is 300s/call across plan+execute+verify) left the job stuck at phase "planning" indefinitely. Added `CHAT_AGENT_RUN_BUDGET_SEC` (default 240s) `asyncio.wait_for` wrapper in `backend/server.py:_run_agent_loop` that fails the job cleanly with a recoverable message.
-- **Issue → implementation-PR autonomy regression**: `issue-context-generator.yml` closed each issue (`--reason completed`) immediately after creating the context-doc draft PR, but `process-quick-note.yml` only picks up *open* issues — so no issue was ever auto-implemented. The context generator now leaves the issue OPEN and auto-dispatches `process-quick-note.yml` for it via `gh workflow run`, restoring the issue→code-PR pipeline.
-- **Specialist loading hangs on "Loading specialists…"**: `OnboardingScreen` `DoneStep` only set the specialists state inside `startOnboarding().finally()`, so a hung provisioning request (the backend serializes onboarding under a global lock) never settled and the spinner ran forever. Added a 30s watchdog, a bounded 25s request timeout, and a guaranteed single-settle path so the UI always exits the loading state. `api.startOnboarding` now forwards a request config.
-- **`_resolve_brain_provider` import error broke the orchestrator-failover test suite** (`tests/test_orchestrator_failover.py` collection ImportError): promoted the nested provider resolver to a module-level `async _resolve_brain_provider(exclude_base_urls=None)` supporting `AGENT_LLM_*` env override, priority sorting, and exclusion-based failover. Wired the EXECUTE phase to re-raise on provider failure (so the retry loop engages) and accumulate failed provider URLs in `llm_provenance["_failed_execute"]`, giving real per-provider failover (#522 acceptance criterion 2).
+- **Skill registry empty in production (Doctor: '0 skills loaded / repos configured but none fetched').** Two root causes found via browser E2E + pre-mortem probe: (1) the registry token fallback chain omitted `GH_TOKEN` (the var render.yaml and preflight actually use), so remote fetches ran unauthenticated and hit the 60/h GitHub rate limit; (2) the default local skills dir was CWD-relative, indexing 0 skills when the server starts outside the repo root. Token chain now includes GH_TOKEN; local dir resolves relative to the repo. Regression test added.
+- **V5 deep links: /v5/<screen> URLs now open the right screen.** `V5App.jsx` derived nothing from the URL — every load rendered Chat regardless of path; back/forward didn't work. Screen state now syncs with react-router location (deep links, history navigation, URL updates on nav).
+- **log_watcher: runtime LOG_WATCHER_AUTO_FILE flag + incremental scan_now(); Bandit-clean test fixtures; py3.13-safe asyncio in tests.** Security Gate and Test (3.13) CI blockers on PR #487 resolved.
+- **Doctor: optional sidecar runtimes (hermes/goose/aider) no longer fail readiness.** Beta sidecars now report `warn` when unavailable; only `internal_agent` is required in the default path. Aligns Doctor with feature-matrix gating of experimental runtimes.
+- **GET /api/company/{id} returned 500 for malformed IDs (production).** `MongoDBStore.get_company` raised ValueError on invalid ObjectId; now returns None so the API raises a clean 404. Regression test in `tests/test_company_graph.py::TestMalformedCompanyId`.
+- **Doctor public storage check: 'MotorCollection object is not callable' (production).** Replaced hasattr duck-typing with `store.companies.count_documents({})`. Regression test in `tests/test_phase5_doctor.py`.
+- **Login form accessibility — missing `id`/`name` attributes on email and password fields (`frontend/src/v5/screens/LoginScreen.jsx`).** Browser test found console warning: "A form field element should have an id or name attribute". Added `id="email" name="email"` to the email input and `id="password" name="password"` to the password input.
 
-### Added
-- **Scanner parity with BuiltWith (off-HTML evidence)**: `services/scanner.py` now inspects the TLS certificate (`_analyze_ssl_cert` — issuer + Subject Alternative Names → CDN/host/cert-provider) and performs explicit high-signal response-header detection (`_analyze_response_headers` — CF-Ray, X-Served-By, X-Amz-Cf-Id, Server, X-Powered-By, etc.) on top of the existing DNS (MX/NS/TXT/CNAME) and regex-DB passes. All four evidence sources merge with highest-confidence-wins.
+- **FreeBuff Telegram bot rejected valid allowlists (`TELEGRAM_ALLOWED_USER_IDS is empty or unparsable`).** The parser only accepted bare digit tokens, so a quoted (`"123"`), bracketed (`[123, 456]`), or otherwise-decorated value parsed to an empty set and nobody could use the bot. Now uses a tolerant digit-regex parser (`_parse_user_ids`) handling comma/space/semicolon separators, quotes, brackets, and negative (group) IDs; usernames still correctly rejected. `run_bot()` re-parses the allowlists from the environment at startup (robust to import order when launched in-process by the web service) and the error now logs a redacted preview of the offending value plus the exact expected format.
 
-- **PR #461**: Removed all hardcoded credential fallbacks from proxy.py and test configurations.
-- **PR #466**: Agent now accepts command/task/text as instruction aliases in spawn_subagent.
+- **FreeBuff Telegram bot worker crashed on startup (`ModuleNotFoundError: telegram_bot`).** The Render/Docker entrypoint `python scripts/run_freebuff_bot.py` put `scripts/` on `sys.path[0]` (not the repo root), so `from telegram_bot import run_bot` failed and the worker exited immediately — no bot, effectively no useful logs. Fixed by inserting the repo root into `sys.path` in the launcher and setting `PYTHONPATH=/app` in `Dockerfile.telegram`. The launcher now reliably reaches `run_bot()` regardless of working directory.
 
-### Fixed
-- **3 pre-existing test failures**: installed `reportlab` and `lxml` dependencies for `test_seo_report_pdf.py`; fixed `test_agent_tools_security.py` Windows path assertion using `os.path.realpath`; fixed `test_claude_setup_audit.py` Unicode errors by adding `encoding="utf-8"` to `read_text()` calls and replacing Unicode checkmark/dash characters with ASCII-safe alternatives.
+- **FreeBuff Telegram bot received no messages when reusing an existing bot.** If the bot token had previously been configured with a webhook (or another instance was polling it), Telegram rejects `getUpdates` with HTTP 409 and the worker silently received nothing — so `/freebuff` got no response. `run_bot()` now verifies the token via `getMe` (logs the bot @username), calls `deleteWebhook` on startup, and on a 409/conflict logs a clear actionable message and re-clears the webhook before retrying. Bare `/start` now greets + shows help instead of being treated as a service-control command. The GitHub token for embedded runs reads `GITHUB_TOKEN` **or** `GH_PAT` (either works).
 
-### Changed
-- **Extracted `NVIDIA_CANDIDATE_MODELS` to shared `.github/scripts/nvidia_models.py`** — single source of truth for implement_agent.py, review_agent.py, and apply_review.py. Uses sys.path injection for standalone CLI script compatibility. Exports both `NVIDIA_CANDIDATE_MODELS` (tuple list with labels) and `NVIDIA_MODEL_IDS` (plain string list).
-- **Replaced all remaining references to dead `nemotron-3-super-120b-a12b`** with live `llama-3.3-nemotron-super-49b-v1` across 26 files: router/model_router.py, agent/loop.py, agents/profiles.py, provider_router.py, direct_chat.py, setup/api.py, handlers/v3_models.py, agents/harness_adapter.py, runtimes/adapters/internal_agent.py, router/harness_routing.py, setup_local_models.py, services/cost_attribution.py, services/nim_pool.py, telegram_bot.py, scripts/test_nim_models.py, .github/scripts/generate_context.py, backend/server.py, and all test fixtures.
-- **Hardened `_call_review_llm()` fallback in `review_agent.py`** to match `implement_agent.py`: 429 rate-limit triggers exponential backoff retry (3 attempts, jittered) on same model before advancing; timeout advances immediately; 404/422 drops model from rotation; non-429 errors on retry break immediately.
-- **NVIDIA NIM model list curated from live endpoint testing.** Tested 10 candidate models against https://integrate.api.nvidia.com/v1 — only 3 returned OK (Nemotron Super 49B tool_calls=True 3.7s, Llama 4 Maverick 1.3s, Llama 3.3 70B tool_calls=True 6.0s); 7 returned 404/APIStatusError/BadRequest. Updated NVIDIA_CANDIDATE_MODELS in implement_agent.py, apply_review.py, and review_agent.py to the 3 live models, removed dead entries. Updated _default_agent_role_models() and _get_nim_provider_record() in backend/server.py to reference live Nemotron Super 49B. Hardened 429 rate-limit fallback with exponential backoff + jitter, timeout detection, and 404/422 model dropout.
-- **PR #459**: Deploy CI switched to wrangler-action v3 with --config wrangler.jsonc.
+- **Social login returned "Internal server error" (500) after the state-store fix.** `_valid_login_state` subtracted the stored `created_at` from `datetime.now(timezone.utc)`, but **MongoDB/motor returns naive UTC datetimes by default** — mixing offset-naive and offset-aware datetimes raises `TypeError`, which (being outside the token-exchange try/except) bubbled up as an unhandled 500 *after* the state check passed. Affected both GitHub and Google login. Fix: normalise a naive `created_at` to tz-aware (`replace(tzinfo=timezone.utc)`) before the expiry comparison. Regression test (`tests/test_social_login_oauth.py::test_naive_created_at_does_not_raise`) reproduces the naive-datetime path. The SQLite-backed tests passed before because SQLite round-trips the timestamp differently — the bug only surfaced against MongoDB.
+
+- **Social login still returned "Invalid OAuth state" (follow-up to the session-key fix).** The previous fix kept the CSRF state in a **session cookie**, which does not reliably survive the OAuth round-trip in the production split: the frontend is on Cloudflare (`*.workers.dev`) while the backend is on Render, and Render's free tier rotates the in-process `SESSION_SECRET` on every cold start when `JWT_SECRET` is unset — so the cookie written by `/login` was unreadable (or signed with a now-dead key) by the time `/callback` ran. The login flows now persist state **server-side in the shared `oauth_states` collection** (the same mechanism the GitHub repo-connect flow already uses; 10-minute TTL index), keyed by `flow_type="login"` + `provider`. State is validated (provider-scoped, expiry-checked) and consumed (deleted) on callback, so it is instance-agnostic and cannot be replayed. Removes all dependence on session cookies for login. `backend/server.py` `github_login`/`github_callback`/`google_login`/`google_callback`; new `_store_login_state` / `_valid_login_state` helpers. 8 regression tests in `tests/test_social_login_oauth.py`.
+
+- **Social login (GitHub & Google OAuth) broken by three bugs in `backend/server.py`.**
+
+  1. *Session key collision*: Both `github_login` and `google_login` wrote to the same `session["oauth_state"]` key; starting one flow after the other (or in a multi-tab scenario) silently overwrote the state, causing the callback's CSRF check to always fail with "Invalid OAuth state". Fixed by using provider-specific keys: `github_oauth_state` and `google_oauth_state`.
+
+  2. *Google redirect_uri mismatch*: The callback used `request.url_for("google_callback")` which generates the wrong scheme/host behind a reverse proxy, causing Google's token exchange to reject the request. Fixed: both `/api/auth/google/login` and `/api/auth/google/callback` now derive `redirect_uri` from the new `OAUTH_REDIRECT_BASE` env var (with a local-dev fallback to `url_for`).
+
+  3. *Missing redirect_uri for GitHub*: GitHub OAuth authorize URL was missing `redirect_uri`, relying on the default registered callback. Now explicitly passed from `OAUTH_REDIRECT_BASE`.
+
+  Additional: added `timeout=15` on all social-login `httpx.AsyncClient` calls; wrapped HTTP exchanges in `try/except` for clean 502 errors instead of unhandled exceptions.
+
+
+
+- **All 20 V5 screens audited for swallowed errors; approve/retry now show inline error banners.** `handleRetry` previously had a bare `catch (_) {}` swallowing all errors silently; now shows a yellow click-to-dismiss actionError banner. `handleApprove` filters out expected 404/400 (optimistic: no checkpoint to approve) but surfaces real failures.
+
+
+
+- **Browser E2E now covers 20 pages (was 13).** Added 7 missing V5 routes: `/intelligence`, `/company`, `/github`, `/skills`, `/doctor`, `/onboarding`, `/admin`.
+
+
+
+- **Flaky Playwright browser E2E timeouts fixed.** Changed all `wait_until=networkidle` to `domcontentloaded` with adjusted timeouts -- pages with auto-refresh polling (Dashboard 15s, etc.) never settle to `networkidle`, causing intermittent CI failures.
+
+
+
+- **TaskBoardScreen create-task modal swallowed API errors with bare `console.error` — no user feedback.** Added `createError` state with an inline red error banner inside the modal (matching the existing error-styling pattern). Error is cleared on modal open, Cancel click, and at the start of each new create attempt to prevent stale error persistence. Error message now uses the `api.fmtErr?.()` fallback chain for readable messages.
+
+
+
+- **NVIDIA NIM double `/v1` URL causing task execution failures on production.** `agent/loop.py` line 911 hardcoded `f"{self.ollama_base}/v1/chat/completions"` — when `ollama_base` already contained `/v1` (from `runtimes/adapters/internal_agent.py` `_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"`), the result was `/v1/v1/chat/completions` (404). Fix: (1) `agent/loop.py` now uses `_openai_url()` from `provider_router` which handles the `/v1` suffix correctly; (2) `_NVIDIA_BASE_URL` no longer includes `/v1`; `_best_cloud_primary_base()` and `_nvidia_provider_chain()` normalise the URL; (3) `setup/api.py`, `webui/providers.py`, `render.yaml`, `.env.example` updated to use the correct default URL without `/v1`. `docker/agent_runtime.py` intentionally unchanged — its `_chat_with_openai_compat` appends `/chat/completions` directly (does not inject `/v1`), so the base must contain it.
+
+- **RepoScanner GitHub API rate limiting — unauthenticated calls returned 500s on production.** `RepoScanner._scan_github_repo()` made unauthenticated GitHub API calls (60 req/hr limit), hitting rate limits and returning 500 errors. `RepoScanner` now accepts an optional `github_token` parameter; `scan_repo_endpoint` and `sync_company_graph` resolve the user's token from `user.github_repo_token` → `github_settings` collection → `GH_PAT`/`GH_TOKEN`/`GITHUB_TOKEN` env vars, enabling authenticated API calls (5000 req/hr).
+
+- **InternalAgentAdapter health check only recognised Nvidia and local Ollama — runtime appeared unhealthy when other cloud providers were configured.** `health_check()` now checks ALL 17 cloud providers in `_best_cloud_primary_base()` priority order (Nvidia, OpenCode Zen, DeepSeek, Groq, DashScope, OpenRouter, Together, Mistral, Google Gemini, Cloudflare, HuggingFace, ZhiPu, MiniMax). Cloudflare correctly requires both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Reports healthy immediately when any cloud key exists; falls back to local Ollama probe only when no cloud key is configured.
+
+- **Four broken GitHub Actions workflows repaired:** `auto-merge.yml` (PR detection condition fixed for empty arrays), `ci-failure-autofix.yml` (invalid Claude model name), `openclaw-auto-fix.yml` (bandit stderr/JSON handling), `nightly-regression.yml` (newline sanitization in shell contexts).
+
+- **`services/kimi_bridge_server/` — CodeRabbit review hardening.** `app.py`: logger renamed to
+
+  `"qwen-proxy"` (coding guideline); lifespan annotated `-> AsyncIterator[None]`; `_verify_token`
+
+  is now fail-closed (raises `HTTP 503`) when `KIMI_BRIDGE_TOKEN` is not configured; error detail
+
+  no longer exposes raw exception message; `total_tokens` is derived from `prompt_tokens +
+
+  completion_tokens` (not re-computed independently). `browser_driver.py`: logger renamed to
+
+  `"qwen-proxy"`; `import time` moved to module level; bare `assert` replaced with explicit
+
+  `RuntimeError`; `print()` replaced with `log.error()`. `Dockerfile.kimibridge`: packages pinned
+
+  (`fastapi==0.115.6`, `uvicorn==0.32.1`, `playwright==1.49.0`); non-root `pwuser` added.
+
+  `tests/test_kimi_bridge_server.py`: `"test-secret"` literal replaced by `auth_token` fixture
+
+  (`secrets.token_hex(16)`); return type annotations added to all test functions.
+
+  `services/kimi_bridge_server/__init__.py`: added `from __future__ import annotations`.
+
+  `README.md`: env-var fenced block marked as `bash`.
+
+- **`direct_chat.py` — Fixed module docstring ordering.** Moved docstring to top of file (before imports) per PEP 257. Consolidated scattered standard library imports.
+
+- **`.claude/state/improvement-state.json` — Resolved merge conflict markers.** Removed `<<<<<<< HEAD` / `=======` / `>>>>>>>` markers left from a rebase that corrupted the JSON state file.
+
+- Rate limiter concurrency test updated to use `async with _rate_lock` and `await check_rate_limit()` after lock was converted to `asyncio.Lock`
+
+- Rate limiter eviction now correctly detects keys whose timestamps have all expired, not just empty buckets
+
+- `_ADMIN_PASSWORD` assignment moved outside module docstring in `test_v4_reliability.py` (was causing `NameError`)
+
+- Removed redundant orchestrator bypass from `InternalAgentAdapter`; orchestrator already sets it via `WorkflowOrchestrator._handle_execute()`, preventing direct API callers from bypassing workflow gates
+
+- Added `# nosec B603,B607` to subprocess.run git calls in `agent/agency.py` to resolve 4 new Bandit security alerts
+
+- **`runtimes/adapters/internal_agent.py` — `AgentRunner.run() is blocked in orchestrator mode` runtime error.** `InternalAgentAdapter.execute()` is the legitimate execution layer for the `WorkflowOrchestrator` — it must call `AgentRunner.run()` directly. Added `_BYPASS` ContextVar token set before `runner.run()` and reset in a `finally` block, matching the pattern already used by `direct_chat.py` and `WorkflowOrchestrator._handle_execute()`. Tasks dispatched through any specialist family's `internal_agent` runtime now run without hitting the orchestrator-mode deprecation block.
+
+- **`proxy.py` security — hardcoded `strikersam/local-llm-server` default for `GITHUB_REPOSITORY` could route user content to wrong repo.** Changed default to `""` so the GitHub issue creation path is skipped when the env var is not set. Also replaced `str(exc)` in the skill-registry refresh and agency status error responses with generic messages + `log.exception()` to avoid leaking internal details.
+
+- **`QuickNotesFAB.jsx` — plain-text ideas were sent as URLs when GitHub connected.** Added `isUrl(input)` guard so the GitHub issue path is only taken when the input is actually a URL; plain-text ideas fall through to the internal task queue. Also added `failed` status to `NoteStatusPill` (was mapped to "Queued" before), and treat `data.channel === 'local'` as success so the confirmation message fires even when the backend falls back to local storage.
+
+- **`CompanyScreen.jsx` — duplicate React keys and hardcoded "Connected" badge for inactive systems.** Added stable `id` fields (`sys-N` / `det-N`) to merged systems/detected_systems objects; switched both `.map()` calls from `key={sys.name}` to `key={sys.id}`. Badge text and colour are now status-aware: inactive systems show "Inactive" in red instead of "Connected" in green.
+
+- **`services/company_graph_store.py` — `is_complete` and `completeness_score` semantics.** `is_complete` now requires both `detected_systems > 0 AND specialists > 0`; `completeness_score` is 0.0 / 0.5 / 1.0 based on how many signals are present (neither → 0.0, one → 0.5, both → 1.0).
+
+- **`agent/skill_registry.py` — logger name and bold-tag regex.** Changed logger from `"skill-registry"` to `"qwen-proxy"` per coding guidelines. Replaced the over-broad bold-tag pattern (matched arbitrary prose) with `\*\*([^\n*]{3,30})\*\*` and `__([^\n_]{3,30})__` that only capture actual Markdown bold text.
+
+- **`backend/server.py` — missing return type annotations on new endpoints.** Added `-> dict[str, object]` to `discover_remote_skills`, `ping`, and `system_status`.
+
+- **`tests/test_skill_registry.py` — `pass` placeholder, unused loop variable, missing `-> None`.** Replaced `test_single_word_no_false_positive` `pass` with a real assertion; replaced `test_recommend_favors_dynamic_match_over_map_match` `pass` with a meaningful check; renamed unused `wf` loop variable to `_wf`; added `-> None` return annotations to all test methods.
+
+- **`AgentsScreen.jsx` ESLint `react-hooks/exhaustive-deps` — `agentTaskStats` missing from `agents` useMemo deps (`frontend/src/v5/screens/AgentsScreen.jsx` line 589).** The `agents` useMemo accessed `agentTaskStats.weekTotal` and `agentTaskStats.avgMs` but did not list `agentTaskStats` in its dependency array, causing stale data and a CI ESLint error. Added `agentTaskStats` to the deps array.
+
+- **`DoctorScreen.jsx` ESLint `no-unused-vars` — `handleFix` never wired to a button.** `handleFix` was defined in `CheckRow` to call `onFix(check.id)` but was never attached to any JSX element. Added an "⚡ Fix it" button (shown when `check.fixable && onFix && check.status !== 'pass'`) that calls `handleFix`, with a disabled/loading state while the fix runs and error feedback via the existing `fixError` state.
+
+- **`DoctorScreen.jsx` P2 — `API.post is not a function` crash in Doctor fix buttons.** `API` is `process.env.REACT_APP_BACKEND_URL || ''` (a string), not an axios client. Replaced `API.post(...)` calls in `handleFixOne` and `handleFixAll` with native `fetch()` using auth headers from `localStorage.access_token`, keeping the same behaviour without introducing a new import.
+
+- **`backend/company_api.py` — `NameError: name 'json' is not defined` when generating onboarding questions.** `json.loads()` was called at line 1129 but `json` was only imported inline (`import re` nearby), not at module level. Added `import json` to the module-level imports.
+
+- **`process-quick-note.yml` P1 — escaped shell variables override env vars with literal strings.** In both the `implement` and `create PR` steps, lines `ISSUE_NUM="\$ISSUE_NUM"` / `ISSUE_URL="\$ISSUE_URL"` / `ISSUE_TASK="\$ISSUE_TASK"` re-assigned the env vars to literal `$ISSUE_URL` etc., so `implement_agent.py` received unexpanded variable names instead of real values. Removed the override lines; the env vars injected via the `env:` block expand correctly on their own.
+
+- **`AgentsScreen.jsx` build failure — `agentTaskStats` undefined in `mapBackendAgent` (`frontend/src/v5/screens/AgentsScreen.jsx`).** `mapBackendAgent` is a module-level function but referenced the component-scoped `agentTaskStats` useMemo directly. Added `agentTaskStats` as an explicit second parameter with a `{}` default; the `backendAgents` useMemo now passes it on every call. Fixes the `no-undef` ESLint error that prevented production builds.
+
+- **`count_by_agent` / `count_for_user` crash when using SQLite backend (`tasks/store.py`).** The SQLite `_Collection.aggregate()` is `async def` and returns a coroutine; the code called `.to_list()` directly on the un-awaited coroutine (AttributeError). Added `inspect.isawaitable` guards to `await` the cursor first when needed, keeping the existing Motor 3.x path (where `aggregate()` returns a cursor synchronously) working unchanged.
+
+- **`companies` and `user_secrets` SQLite tables missing — `sqlite3.OperationalError` on skills-recommend and secrets-status endpoints (`db/sqlite_store.py`).** Both collections are accessed by `CompanyGraphStore` and `SecretsStore` respectively but were absent from `_COLLECTIONS`, so `_init_schema` never created their tables. Added both collections so they are created at startup alongside all other tables.
+
+- **`/api/ping` and `/api/status` endpoints missing — E2E health / doctor tests returning 404 (`backend/server.py`).** Added `GET /api/ping` (unauthenticated liveness probe, `{"status":"ok","pong":true}`) and `GET /api/status` (authenticated system status summary with storage health and active provider). Both were referenced by `tests/e2e/test_all_features.py`.
+
+- **Read-only workflows (review/audit/research) always failed VERIFY (`services/workflow_orchestrator.py`).** `_handle_verify` required `changed_files` for *every* run, so a review/audit/research task that produced useful output with zero file changes was marked failed and the judge rejected it — breaking a core class of agency work. File changes are now required only for editing task types (`bug_fix`, `feature`, `refactor`, `release`); read-only tasks pass on non-empty output. Tests for both paths added.
+
+- **Preflight validated the wrong GitHub token + persist over-reported success on SQLite (`services/workflow_orchestrator.py`).** `_handle_preflight` checked the server-wide `GH_TOKEN`/`GITHUB_TOKEN` while execution uses the caller's token — so a caller with no/invalid GitHub connection could get a green preflight then fail at execution. Preflight now uses `req.github_token` (env fallback only for system runs). And `_handle_persist` re-reads the company after `update_company` and only reports `company_graph_updated=True` if the activity actually round-tripped (the SQLite fallback store has no `integration_config`/`last_activity` columns, so it would silently drop it); the activity is durably recorded in the session event log regardless of backend.
+
+- **Skill catalog API was unreachable — `GET /api/company/skills*` shadowed by `/{company_id}` (`backend/company_api.py`).** The static skills routes were registered *after* the dynamic `GET /{company_id}` route on the same router, so Starlette matched `/api/company/skills` as `company_id="skills"` and the catalog/recommend endpoints 404'd. Moved the static `/skills*` routes above the company-id routes. Regression test `tests/test_skills_route_order.py`.
+
+- **Orchestrator workflow execution used the server-wide GitHub token, not the caller's (`services/workflow_orchestrator.py`, `backend/server.py`).** An approved non-admin workflow ran `AgentRunner` with `GH_TOKEN`/`GITHUB_TOKEN` (the service account), so it could act on repos with more access than the caller. `ExecutionRequest` now carries a non-serialized (`exclude=True`) `github_token`; the execute endpoint sets it from the caller's `github_repo_token`; `_handle_execute` uses it and only falls back to the env token for internal/system runs (no `user_id`).
+
+- **`CompanyGraphStore.list_companies` tuple-unpacking bug — `/api/company` list endpoint and doctor company-graph check 500'd for any result count != 2 (`backend/company_api.py`, `backend/server.py`).** The store returns a plain `List[Company]` (no grand total), but three call sites unpacked it as `companies, total = …` — so the company-list API and `/api/doctor/diagnostics` raised `ValueError` for users with 0 or 1 companies (i.e. almost everyone). Fixed the call sites to treat the result as a list (`total = len(companies)`), and switched the doctor check to the shared `_resolve_user_id` resolver (was email-preferring, missing `_id`-owned companies). Contract test `tests/test_company_list_and_persist_contracts.py` locks the list return type.
+
+- **Workflow PERSIST silently never wrote to the Company Graph (`services/workflow_orchestrator.py`).** `_handle_persist` tried `company.activity_log = …` on the **frozen, `extra="forbid"`** `Company` model (no such field), which raised and was swallowed — so `company_graph_updated` was always `False`. Now records workflow activity into the existing mutable `integration_config["workflow_activity"]` (capped at 50) and bumps `last_activity` via `model_copy`, persisting a valid copy. Regression test included.
+
+- **WorkflowOrchestrator contract tests were flaky under the full suite / CI — 8 tests failed with `RuntimeError: There is no current event loop in thread 'MainThread'` (`tests/test_workflow_orchestrator.py`).** The new Phase-2 contract tests drove the event loop manually with `asyncio.get_event_loop().run_until_complete(...)` inside *synchronous* test methods. Under `asyncio_mode=auto` with a session-scoped loop, an earlier async test closes/detaches the loop, so `get_event_loop()` raised in the main thread — the classic "passes in isolation, fails in the full suite" CI-parity failure. Converted all 8 affected tests (`test_agent_runner_blocked_in_orchestrator_mode`, `test_agency_blocked_in_orchestrator_mode`, `test_multiswarm_blocked_in_orchestrator_mode`, `test_auto_approve_skips_approval_gate`, `test_classify_detects_domain`, `test_approve_then_resume`, `test_bind_context_resolves_skills`, `test_approve_non_waiting_run_raises`) to native `async def` tests that `await` the orchestrator directly, so pytest-asyncio owns loop lifecycle exactly like the rest of the suite. Full suite: 1920 passed, 0 failed (was 8 failed).
+
+- **Production scanner returned "No systems detected" for gucci.com (and all bot-protected / DNS-detectable sites) while CI found 19 systems — a CI-vs-prod dependency split (`backend/requirements.txt`, `services/scanner.py`).** The production Docker image installs `backend/requirements.txt` (see `Dockerfile.backend`), NOT the root `requirements.txt` that CI installs. The scanner imports `curl_cffi` (Chrome TLS/JA3 impersonation for the anti-bot HTTP fetch) and `dnspython` (the MX/NS/TXT/CNAME analysis that yields the ~11 "no-browser-needed" systems like Akamai, Microsoft 365, Salesforce), but **both were only in the root file** — so the production image lacked them. Result: the DNS path produced nothing and the curl_cffi anti-bot fetch fell back to plain httpx (which Akamai blocks), leaving a successful-but-empty scan rendered as "No systems detected" (the success path with `detected_systems=[]`, not an error). Fixes: (1) added `curl_cffi>=0.15.0` and `dnspython>=2.8.0` to `backend/requirements.txt`; (2) removed an un-guarded `import dns.resolver` at the top of `scan_website` (it sat outside the try/except and would 500 the whole scan on a missing dep) and made `_analyze_dns`'s import a soft import that degrades to an empty DNS result instead of crashing; (3) added `tests/test_scanner_deps_parity.py` asserting every third-party package the scanner imports is declared in `backend/requirements.txt`, so the two files can't drift again; (4) fixed `scripts/verify_scanner_live.py` to insert the repo root on `sys.path` so a bare `python scripts/verify_scanner_live.py` run (post-deploy on Render) imports `services.scanner` instead of failing with `ModuleNotFoundError`.
+
+- **CI: Browser E2E (Playwright) job was chronically red on master — five independent bugs (`db/sqlite_store.py`, `tests/e2e/test_browser.py`, `Dockerfile.backend`, `.github/workflows/browser-e2e.yml`).** The `Playwright browser tests (desktop + mobile)` job runs the backend in a Docker container with `STORAGE_BACKEND=sqlite` and drives the real UI; it had never passed. (1) **`SQLiteStore` not subscriptable:** `TaskStore`/`AgentStore` access collections Mongo-style via `self._db["tasks"]`, but `SQLiteStore` only supported attribute access (`__getattr__`), so the `TaskDispatcher` crash-looped with `TypeError: 'SQLiteStore' object is not subscriptable`. Added `__getitem__` to `SQLiteStore` so it's a drop-in for the subscript pattern (motor exposes collections via both `db.tasks` and `db["tasks"]`). (2) **Wrong health path:** the browser test and the workflow's wait-for-backend polled `/api/ping`, which doesn't exist (the app serves `/api/health`, which returns 200 even in SQLite/degraded mode) — so readiness never succeeded. Switched both to `/api/health`. (3) **Broken venv path:** the complementary API-test step ran `./.venv/bin/python`, but deps install to the job's system Python (no venv) → `No such file or directory`; changed to `python`. (4) **Container had no frontend:** the backend serves the built React SPA from `../frontend/build` (`backend/server.py` `_FRONTEND_BUILD`), but `Dockerfile.backend` never built or copied it and `frontend/build/` is gitignored — so inside the container `/login` (every UI route) served nothing and the browser login step found no form. `Dockerfile.backend` is now a **multi-stage build**: a `node:20` stage builds the SPA from the tracked `frontend/` source, and the Python stage `COPY --from`s the artifact in. This is self-contained — it works for BOTH the **Render production deploy** (which builds this Dockerfile from a clean checkout and previously would NOT have had `frontend/build/`, since `deploy-backend.yml` only triggers the deploy hook) and the CI job, without depending on an untracked directory in the build context (per Codex review). (5) **Complementary suite hit Mongo:** `tests/e2e/test_all_features.py` runs in-process via FastAPI `TestClient` on the runner host (no container env), so without `STORAGE_BACKEND=sqlite` it defaulted to mongo and every test failed with `ServerSelectionTimeoutError`; the step now sets the SQLite env (kept non-blocking as it still has a few out-of-scope test bugs). Regression tests in `tests/test_sqlite_store.py` (subscript access + `TaskStore` on the SQLite backend). Also (per review): added `frontend/**` to `deploy-backend.yml`'s push paths so a frontend-only change redeploys the backend (the image now bakes the SPA); generate the Browser E2E `JWT_SECRET` / admin password ephemerally per-run (`openssl rand`) instead of hardcoding them in the workflow; and validate the `RELAY_BASE_URL` scheme before the health probe in `test_browser.py`.
+
+- **CI: fix malformed `eslint-disable` comment breaking the production build (`frontend/src/v5/screens/CompanyScreen.jsx`).** The prior exhaustive-deps suppression put the prose explanation on the *same line* as the directive (`// eslint-disable-next-line react-hooks/exhaustive-deps — mount-only auto-select, re-trigger not desired`). ESLint parses everything after the rule name as a comma-separated rule list, so it tried to resolve rules named `— mount-only auto-select` and `re-trigger not desired`, failed (`Definition for rule … was not found`), and the `CI=true` `react-scripts build` treated those as hard errors — failing `Frontend test + build` on master. Moved the explanation to its own comment line above the directive so only the bare rule name follows `eslint-disable-next-line`.
+
+- **RuntimeManager missing delegate methods causing 500 errors on runtime endpoints.** `GET /runtimes/decisions`, `PUT /runtimes/policy`, and `GET /runtimes/health` all crashed with `AttributeError` because `RuntimeManager` lacked `get_decision_log()`, `update_policy()`, and `health_summary()` methods — the API called these on the manager but only the inner `_router`/`_health` objects had them. Added three delegate methods to `runtimes/manager.py` that forward to `self._router` and `self._health` respectively.
+
+- **Onboarding endpoints crashed with NameError — missing `get_onboarding_service` import.** `backend/company_api.py` imported `OnboardingService` but called the factory function `get_onboarding_service()` without importing it, causing all onboarding endpoints (`/api/company/{id}/onboarding/start`, `/pause`, `/resume`) to return 500. Fixed by adding `get_onboarding_service` to the import statement.
+
+- **Production website scanning requires Playwright + headless Chromium.** Sites behind JS-rendered storefronts (gucci.com, Shopify, etc.) returned "No systems detected" because the headless browser wasn't available. Added `playwright>=1.55.0` to `requirements.txt` and `RUN playwright install --with-deps chromium` to `Dockerfile` so the scanner's `_render_html` fallback works in production containers.
+
+- **Frontend dev server fails on newer Node/webpack versions.** The `frontend/package.json` `react-scripts start` uses `webpack-dev-server` which removed the `onAfterSetupMiddleware` option, causing startup failure on Node 22. The pre-built `frontend/build/` directory is served via the backend's static file mount as a workaround.
+
+- **Comprehensive e2e test suite added (44 tests, 21 test classes).** `tests/e2e/test_all_features.py` covers every API surface using FastAPI TestClient against `backend.server:app` (matching project conventions): health, auth, providers, keys, wiki, stats, activity, activation, tasks, schedules, agents, skills, company graph, onboarding, doctor, GitHub, runtimes (list/health/decisions/policy), features, setup, secrets, and chat.
+
+- **ProviderManager/ProviderRouter type mismatch in `direct_chat.py` causing AttributeError in agent jobs.** `app.state.PROVIDER_ROUTER` was assigned a `ProviderManager` (no `.providers` attribute), but `direct_chat.py` expected a `ProviderRouter`. Added `hasattr` guard with warning log for graceful fallback to default `OLLAMA_BASE` when providers list is unavailable.
+
+- **Test `test_agent_mode_returns_runtime_validation_errors` failing due to missing `PROVIDER_ROUTER` mock and leaking `GITHUB_TOKEN` env var.** Added `PROVIDER_ROUTER` mock consistent with sibling tests; patched `_get_github_token_for_user` to return `None` so the preflight doctor reliably returns `ready=False` regardless of host environment.
+
+- **Virtualenv dependencies restored.** Fresh `.venv` created with all requirements installed; full 1898-test suite passes.
+
+- **CI workflow permissions: replaced `GITHUB_TOKEN` with `GH_PAT` in write-capable workflows.** The repo's default workflow permissions are set to `read` and the repo-level setting blocks `GITHUB_TOKEN` from creating PRs (`'GitHub Actions is not permitted to create or approve pull requests'`). 8 write-capable workflows (`pull-request.yml`, `ci-failure-autofix.yml`, `openclaw-auto-fix.yml`, `process-quick-note.yml`, `dependabot-auto-merge.yml`, `auto-merge.yml`, `delete-merged-branch.yml`, `enrich-quick-note-context.yml`) now use the `GH_PAT` secret. `agency-cycle.yml` uses `GH_PAT` for git push and `GITHUB_TOKEN` for checkout. Read-only workflows (`weekly-trend-digest.yml`) retain `GITHUB_TOKEN` for least-privilege.
+
+- **CI test stability fixes for agency-cycle workflow.** (1) `pytest.ini` — suppressed `PytestUnhandledThreadExceptionWarning` to prevent spurious 'Event loop is closed' errors from aiosqlite background workers outliving test event loops. (2) `tests/test_scanner_security.py` — mocked `_render_html` in `test_scan_returns_failed_when_all_fetch_clients_fail` to prevent Playwright from spawning threads that outlive the test event loop. (3) `tests/test_tasks_workflow.py` — fixed `test_execution_timeout_marks_task_failed`: restored original `asyncio.sleep(10)` pattern so `asyncio.wait_for` cancellation works correctly. (4) `tests/test_company_graph.py` — `test_mongo_create_company_then_graph_roundtrip` now auto-detects MongoDB availability and skips gracefully when unreachable.
+
+- **macOS path resolution in scaffolding and MCP workspace (`agent/scaffolding.py`, `mcp_server/workspace.py`).** On macOS, `Path.resolve()` follows `/var` → `/private/var` symlinks, causing `relative_to()` comparisons to fail when one side was resolved and the other was not. Fixed scaffolding's temp-directory allowlist to include `/private/tmp/` and `/private/var/folders/`; fixed `_safe_path()` to resolve both root and target consistently; added `_resolved_root` property on `Workspace` class; changed `list_files()`, `search_code()`, and `commit()` to use resolved paths for `relative_to()` calls.
+
+- **Issue #363 — multiple V5 production bugs across 17 files.** Fixes include: scanner log.error→log.warning for HTTPX fallback; NVIDIA double `/v1` URL fix in `provider_router.py`, `llm_providers.py`, `server.py`; strip leading `www.` from company display name in `OnboardingScreen.jsx`/`CompanyScreen.jsx`; persist `v5_company_domain` to localStorage; '+ New task' button with modal in `TaskBoardScreen.jsx`; 401 interceptor race condition fix in `api.js`; `ModelPicker` component in `ChatScreen.jsx` wired to live providers API; context chips pass company context to `chatSend`; actual error detail shown in `IntelligenceScreen.jsx`; `WebkitLineClamp` for LogsScreen multi-line; knowledge-relevant event filtering in `KnowledgeScreen.jsx`; Doctor screen 'Setup GitHub' button wired to `onNavigate`; GitHub repos endpoint checks both token sources.
+
+- **Friday maintenance sweep 2026-06-03.** No open PRs found. Workflows audited — all action versions valid, openclaw correctly cloned from GitHub (not npm), no setup-cli usage detected. Agent state confirmed healthy (status: ready). PAT rotation still required to unblock GitHub write operations.
+
+- **V5 dashboard mock/broken API audit — wired real auth, alerts, logout, new-doc, and observability traces (`frontend/src/v5/screens/LoginScreen.jsx`, `frontend/src/v5/screens/AlertsBell.jsx`, `frontend/src/v5/AppShell.jsx`, `frontend/src/v5/screens/KnowledgeScreen.jsx`, `backend/server.py`).** Addresses all issues from the v5 mock & broken API audit: (1) `LoginScreen.jsx` — replaced fake `setTimeout` auth with real `useAuth().login()` call to `/api/auth/login`, actual credentials are validated, errors surfaced; (2) `AlertsBell.jsx` — replaced 5 hardcoded demo alerts with live polling of `/api/activity` every 30 s; read/dismiss state persisted in `localStorage` so dismissals survive page reload; (3) `AppShell.jsx` — logout button now has `onClick={logout}` wired to `AuthContext.logout()` which calls `POST /api/auth/logout` and clears tokens; sidebar now renders real authenticated user name and email from `useAuth()` instead of hardcoded `Sam Striker`/`admin@llmrelay.local`; (4) `KnowledgeScreen.jsx` — `+ New doc` button now opens a modal form that calls `createWikiPage()` and refreshes the docs list on success; (5) `backend/server.py` — added `GET /api/observability/traces` endpoint returning paginated LLM traces from `local_metrics` (the `/api/observability/metrics` endpoint already existed but `/traces` was missing, causing frontend 404s in the Logs screen).
+
+- **Agentic CFO margin checks now normalize cost categories before COGS calculations (`agents/financial_analyst.py`, `tests/test_financial_analyst.py`, `.claude/skills/financial-analyst/SKILL.md`).** Uppercase categories such as `COGS` now contribute to gross-margin and investigate recommendations correctly, ROI reallocation now uses `zip(..., strict=True)` for defensive validation, and the skill doc reflects the current 22-test suite.
+
+- **Graphify prompt integration repaired (`.claude/hooks/graphify-refresh`, `.claude/settings.json`, `.claude/hooks/post-commit`, `.agents/skills/graphify/SKILL.md`, `AGENTS.md`, `requirements.txt`, `.gitignore`).** The Claude hooks and post-commit hook were passing an unsupported `graphify update . --quiet` flag, causing silent exit-code-2 failures. A shared wrapper now runs `graphify update .` correctly, redirects output instead of using invalid flags, auto-loads the graph report on session start, exposes the graphify skill to Codex/agent skill discovery, and documents the graph-first protocol in `AGENTS.md`.
+
+- **Onboarding now actually provisions specialists (agents) — it previously spun up zero (`services/company_graph_store.py`, `models/company_graph.py`, `services/specialist.py`).** A full e2e across all domain types (e-commerce/Shopify, SaaS/CRM, WordPress, custom app, support/chat, marketing, ERP, JAMstack) surfaced a chain of bugs that silently broke `POST /api/company/{id}/onboarding/start`: (1) `SQLiteStore.create_website`/`update_website` read `doc["company_id"]`, but `Website` has no such field → `KeyError` (swallowed by best-effort persistence, so the website was never stored), and the table never persisted `inferred_stack`/`detected_systems` at all — so the detect step saw nothing; (2) on MongoDB the website was stored but without `company_id`, so `list_websites(company_id)` returned nothing (orphaned); (3) `Company.onboarding_status` was a `Literal` that rejected the lifecycle states the service writes (`in_progress`/`paused`/`failed`/`cancelled`), so reading the company back raised `ValidationError`; (4) SQLite `_prepare_doc` couldn't JSON-encode the nested `datetime`s inside `detected_systems`; (5) `SpecialistProvisionRequest` lacked the `tools`/`config` fields `provision_specialist` read (`AttributeError`); (6) the framework-derived `frontend`/`backend` pseudo-types were fed into the strict `SystemType` context field, raising `ValidationError`. Fixes: `company_id` is now threaded through `create_website`/`update_website` and stored on the row/doc (mirroring `detected_systems`), with the full `Website` persisted as a JSON blob in SQLite (new `data` column + guarded migration) so scan results round-trip; the `onboarding_status` Literal accepts the lifecycle states; `_prepare_doc` serialises nested datetimes (`default=str`); `SpecialistProvisionRequest` gained `tools`/`config`; and the specialist family map handles `frontend`/`backend` pseudo-types (React→frontend agent, Express→backend agent) while only valid `SystemType`s are written as agent context. Result: each detected system/stack maps to specialists with the right family, skills (capabilities), tools, and system-type context. Regression coverage in `tests/test_onboarding_provisioning.py` (drives the real onboarding→provisioning pipeline across 8 domain types against a real SQLite store). Review hardening: the SQLite `data`-column migration is now PRAGMA-checked (so a locked/read-only/corrupt DB surfaces instead of being swallowed); a present-but-corrupt website blob is treated as corruption (logged, returns `None`) rather than silently downgraded to the scalar columns (which would drop `detected_systems`); and `get_onboarding_progress` reports `paused`/`cancelled` faithfully instead of mislabelling them as `failed`.
+
+- **`GET /api/company/{id}/graph` no longer 500s (`services/company_graph.py`).** Found by the new e2e company-lifecycle coverage above. The endpoint calls `service.get_company_graph(company_id, include_detected_systems=…, include_specialists=…, include_workflows=…)` and `service.calculate_graph_completeness(company_id)`, but `CompanyGraphService.get_company_graph` accepted only `company_id` (→ `TypeError`) and `calculate_graph_completeness` didn't exist (only the private `_calculate_completeness_score`) (→ `AttributeError`) — both surfaced as HTTP 500. `get_company_graph` now accepts the `include_*` flags (API parity), and a public `calculate_graph_completeness` loads the graph, delegates to the scorer, and returns 0.0 for a graphless company instead of raising. Regression test in `tests/test_company_graph.py::TestGraphEndpointServiceContract`.
+
+- **Website scan no longer 500s on a successful detection (`services/company_graph_store.py`, `backend/company_api.py`).** `POST /api/company/{id}/scan/website` called `store.list_detected_systems` / `store.create_detected_system`, but **neither method existed** on any store — so as soon as a scan succeeded and detected systems, the persistence loop raised `AttributeError` → HTTP 500 (`Website scan failed: Request failed with status code 500`). This was latent until BUG-1 made the company/scan endpoints reachable. Implemented `create_detected_system` / `list_detected_systems` on the dispatcher, the MongoDB backend (a `detected_systems` collection; `company_id` stored on the doc, stripped on read), and the SQLite backend (a new `detected_systems` table storing the full model as a JSON blob). The scan endpoint's post-scan graph persistence is now **best-effort** — detected-systems and website-record persistence run in independent `try/except` blocks so a persistence error can never turn a successful scan into a 500 (the scan result is always returned). Also dropped a stale `company_id=` kwarg from the `Website(...)` construction (`Website` has no such field). Regression tests in `tests/test_company_graph.py::TestDetectedSystemPersistence`.
+
+- **Mobile UI: sidebar no longer overlaps content on small screens (`frontend/src/v5/AppShell.jsx`).** The `.desktop-sidebar` wrapper had `display:'flex'` in its inline style, which overrides the CSS class `display:none` — the full sidebar was always visible alongside the content pane on mobile. Removed it from the inline style and let the CSS media-query class handle visibility. Also improved mobile readability: bottom nav labels 9px → 11px, icons 18 → 22px, tap targets 52 → 60px; top bar title 15px → 17px, subtitle 9px → 12px; sidebar drawer labels 13px → 15px; "More" sheet item labels 12px → 14px; main scroll gets 72px bottom padding so content is never hidden behind the nav bar.
+
+- **Create-company no longer 500s after BUG-1 (`services/company_graph_store.py`, `services/company_graph.py`).** With the BUG-1 validation fix, `POST /api/company` finally executed its body and exposed a latent MongoDB-backend bug: `create_company_graph` writes a `graph_id` reference onto the *company* document, but `Company` is declared `extra="forbid"`, so reading the company back (`get_company` → `model_validate`) raised `ValidationError` → HTTP 500 (`Could not create company: Request failed with status code 500`). The Mongo store now strips persisted bookkeeping keys it doesn't model (`_prepare_result` + the `get_company_graph` assembly), so round-tripped documents validate. Also fixed a latent `AttributeError` in `CompanyGraphService.add_workflow` (`self.store.backend_type` → `self.store.backend`). The SQLite backend was unaffected (it reconstructs from typed columns). Regression tests in `tests/test_company_graph.py::TestMongoStoreExtraFieldTolerance` (a portable unit test plus a real-Mongo round-trip).
+
+- **Create-company (and all `/api/company/*`) endpoints no longer reject valid requests with "request: Field required" (`backend/company_api.py`).** The `_get_current_user_thunk` / `_get_optional_user_thunk` auth dependencies declared their `request` parameter **without** a `Request` type annotation, so FastAPI treated `request` as a required client-supplied field rather than injecting the actual `Request`. Every endpoint using these dependencies — including `POST /api/company` — failed validation with `{"loc": [..., "request"], "msg": "Field required"}`, surfaced in the v5 onboarding UI as *"Could not create company: request: Field required"*. This was BUG-1, previously (wrongly) assumed to be a stale-clone artefact. The thunks now annotate `request: Request` and `await` the async helpers they wrap. Regression test added in `tests/test_company_api.py::TestCreateCompanyValidation`.
+
+- **Broken `.claude/skills/*` references repaired.** Several skills listed `references:` pointing at files that don't exist: `fabric-patterns` and `repowise-intelligence` referenced non-existent skills (`prompt-library`, `system-prompt-audit`), and `modularity-review`/`test-first-executor` used `CLAUDE.md (… section)` paths that don't resolve. Frontmatter references now point at real files (e.g. the `patterns/` dir, `graphify`, `CLAUDE.md`), and the "Related Skills" prose lists that named non-existent skills are corrected (or marked "(planned)") so every skill's references resolve.
+
+- **v5 Skills screen honestly labelled as a preview (`frontend/src/v5/screens/SkillsScreen.jsx`).** The `COMMERCE_SKILLS` toggles only mutated local state, implying activation that never happened. There is no backend persistence/activation endpoint for these commerce-skill templates (the `/agent/skills` endpoint is a different concept — agent/Claude skills), so the screen now carries a clear "Preview" eyebrow + banner stating that toggling is session-only and does not activate or persist anything, and the stat is relabelled "Toggled on". A code comment marks where to wire a real skills API when one exists.
+
+- **v5 Company screen shows the real company graph, not a fake "Acme" preview (`frontend/src/v5/screens/CompanyScreen.jsx`, `frontend/src/v5/screens/OnboardingScreen.jsx`).** Removed `PREVIEW_COMPANY_DATA` and the wrong company-id derivation from `listSessions` (chat sessions). The screen now reads a persisted company id (`localStorage` key `v5_company_id`, written by Onboarding's `handleCompanyCreated`) and loads the real company + graph via `GET /api/company/{id}` plus specialists via `GET /api/company/{id}/specialists`. When there is no company id it shows an explicit "complete onboarding" empty state, and a real error state on failure — never the old preview. The non-functional Quick Actions card (dead buttons, no backend) was removed.
+
+- **v5 Admin screen wired to the real backend (`frontend/src/v5/screens/AdminScreen.jsx`, `frontend/src/api.js`).** Removed the `INITIAL_USERS`/`INITIAL_REQUESTS`/`INITIAL_KEYS` mocks and the `setUserOnboardingFlag` `console.log` stub. The Users tab now loads the real onboarding allow-list from `GET /api/activation/users`, the onboarding toggle calls `PUT /api/activation/users/{id}/onboarding`, and the role menu calls `POST /api/activation/users/{id}/role`. The API Keys tab lists/creates/revokes against the real `/api/keys` endpoints (create shows the one-time plaintext key). The fabricated "onboarding requests" panel and invented per-user `sessions`/`lastActive`/request-count fields were removed (no backend source); honest loading/empty/error states throughout. New typed helpers `setUserOnboarding`, `listApiKeys`, `createApiKey`, `deleteApiKey` added to `api.js`. Backend auth/key code is unchanged (frontend wiring only).
+
+- **v5 Knowledge screen wired to the real backend (`frontend/src/v5/screens/KnowledgeScreen.jsx`).** Removed the `KB_DOCS`, `KB_SOURCES`, and `KB_ACTIVITY` mock constants and the local-only add-source insert. Docs now come from `GET /api/wiki/pages`, sources from `GET /api/sources`, and the activity feed from `GET /api/activity` (mapped from real `event_type`/`message`/`created_at`, no fabricated actors). The add-source form posts a real `multipart/form-data` to `POST /api/sources/ingest` (URL / pasted text / file), remove calls `DELETE /api/sources/{id}`, both with refetch + busy/error handling. The fake "chunks indexed" stat is replaced with a real "Processed" count, and each tab has honest loading/empty/error states.
+
+- **v5 Schedules screen wired to the real scheduler (`frontend/src/v5/screens/SchedulesScreen.jsx`).** Removed the hardcoded `ACTIVE_JOBS` mock and the no-op `onRunNow`. The list now loads from `GET /api/schedules/` (`useSafeData`, 30 s refresh) and normalises real fields (`run_count`, `failures`/`fail_count`, `last_run`, `status`, `cron`/`schedule`, tags). The pause/resume toggle calls `PATCH /api/schedules/{id}` (`pauseSchedule`/`resumeSchedule`), **Run now** calls `POST /api/schedules/{id}/run`, and the custom-job form + template "Add" now `POST /api/schedules/` with a real cron expression (presets converted from human labels to cron) — all with refetch, busy state, and surfaced errors. Honest loading/empty/error states replace the always-on mock rows; the fabricated `nextRun` field is dropped (backend provides last-run, not next-run).
+
+- **v5 Providers screen now persists to the backend, not just localStorage (`frontend/src/v5/screens/ProvidersScreen.jsx`).** The Providers tab kept a static 17-entry catalogue with enable/key/model/priority state saved only to `localStorage` (`LS_KEY`, `loadConfig`/`saveConfig`) and removed two `window.__*` globals. It now loads the real configured providers from `GET /api/providers` (`useSafeData`), supports **Add** (`POST /api/providers` with the real `ProviderCreate` fields — `provider_id`, `name`, `type`, `base_url`, `api_key`, `default_model`), **Test** (`POST /api/providers/{id}/test`), **Set default** (`PUT /api/providers/{id}` `is_default`), and **Delete** (`DELETE /api/providers/{id}`), with honest loading/empty/error states. The previous catalogue is preserved as a collapsible read-only "Popular integrations" reference (these are env-configured) and as quick-fill templates for the add form. (Ollama and MCP tabs are unchanged in this fix.)
+
+- **v5 GitHub token is now actually persisted, plus a real GitHub screen (`frontend/src/v5/screens/OnboardingScreen.jsx`, `frontend/src/v5/screens/GitHubScreen.jsx`, `frontend/src/v5/V5App.jsx`, `frontend/src/v5/AppShell.jsx`).** Onboarding captured a GitHub PAT into `ghToken` state but `handleDetailsSubmit` never sent it anywhere, so the token was silently dropped. It now calls `PUT /api/github/token` (`api.setGithubToken`) and surfaces a hard error (bad scope/invalid token) instead of advancing; repo scans stay best-effort. A new **GitHub** screen (Infrastructure nav section) wires the previously-unused `githubStatus`/`setGithubToken`/`deleteGithubToken`/`listGithubRepos` helpers: it shows connection status + login, lets you connect/disconnect a token, and lists/searches repositories with honest loading/empty/error states.
+
+- **v5 Chat now has an explicit Agent Mode ON/OFF toggle (`frontend/src/v5/screens/ChatScreen.jsx`).** Agent mode was implicit — derived from `agent !== 'auto'` — so there was no visible control to turn it on/off and "Auto-select" could never run a real task. A labelled toggle switch now lives in the chat top bar; it is the source of truth for `agent_mode` on `POST /api/chat/send`. Picking a specific agent still flips it on automatically, but Auto-select + Agent Mode ON now lets the backend auto-route the task. The context tip, composer placeholder, and footer status all follow the toggle.
+
+- **v5 Agents can now actually be created and run (`frontend/src/v5/screens/AgentsScreen.jsx`).** The roster was static (`BUILTIN_AGENT_DEFS` + in-session local state) and never called the backend; `NewAgentForm.submit()` only pushed to `setCustomAgents` so new agents vanished on reload, and there was no way to run an agent. The screen now loads the real roster from `GET /api/agents/` (via `useSafeData`, 30 s refresh) and merges it with the built-in catalog (built-ins are hidden when the backend already returns an equivalent agent, matched by id or name). Creating an agent now `POST`s to `/api/agents/` (`AgentCreateRequest` field names) and refetches, with busy/error states. Each card gains a **Run task** action that dispatches the task through the real agent pipeline (`POST /api/chat/send` with `agent_mode=true` → polls `GET /api/chat/agent-jobs/{id}`) and streams progress/result/error honestly. An explicit error banner replaces silent failure when the roster can't load.
+
+- **v5 admin UI is gated on the real user role (`frontend/src/v5/V5App.jsx`).** `isAdmin` was hardcoded `true`, so every authenticated user saw the Admin screen and the onboarding non-admin gate (`NonAdminGate`) was dead code. It now derives from `useAuth().user.role === 'admin'` (fail-closed: non-admin until the role is confirmed), matching how the legacy dashboard gates admin nav.
+
+- **v5 validation errors now name the offending field (`frontend/src/v5/screens/OnboardingScreen.jsx`, `frontend/src/api.js`).** `extractErr`/`fmtErr` collapsed FastAPI 422 `detail[]` arrays to just `msg`, so a missing field surfaced as the opaque "Field required" with no field name (this is why onboarding's "Could not create company: Field required" was undiagnosable). Both helpers now prepend the field from `loc` (e.g. "name: Field required").
+
+- **v5 Dashboard "Open Tasks" widget shows real tasks (`frontend/src/v5/screens/DashboardScreen.jsx`).** The widget was hardcoded to `tasks={[]}` even though the screen already fetches via `useSafeData`. It now pulls `/api/tasks/`, filters out done/failed, and renders up to six open tasks with real status/priority (honest empty/error states preserved). The status dot covers `in_review` and falls back to a neutral colour for any unrecognised status so no task renders without a dot.
+
+- **v5 Dashboard Cost & Usage widget no longer shows duplicate/fake figures (`frontend/src/v5/screens/DashboardScreen.jsx`).** "This month" and "Cost saved" were both bound to `summary_24h.total_savings_usd` (identical numbers) and the "Local / free ratio" bar was hard-coded to 0 %. The `/api/observability/metrics` endpoint only exposes a 24 h window (`total_requests`, `total_tokens`, `total_savings_usd`) with no monthly spend and no cloud/local split, so the widget now renders four distinct real tiles (Cost saved 24h, Requests 24h, Tokens 24h, Avg tokens/req) and hides the local-ratio bar until the backend actually provides the split.
+
+- **v5 `useSafeData` now follows the token-refresh flow (`frontend/src/v5/hooks/useSafeData.js`).** The hook used a raw `fetch` that only attached the current `access_token` and never refreshed it, so once the 24 h access token expired (while the 7 d refresh token was still valid) every widget on the Dashboard, Logs, Tasks, and Doctor screens got a 401 and stayed in an error state until a full re-login. It now routes requests through the shared axios `API` instance (exported from `frontend/src/api.js`), inheriting the `401 → /api/auth/refresh → retry` interceptor and the same backend-URL resolution as the rest of the app. An explicit `baseUrl` first arg is still honoured as a per-request override.
+
+- **v5 Onboarding site-type classification fixed for real scans (`frontend/src/v5/screens/OnboardingScreen.jsx`).** The scanner-result→UI mapping only kept `id`/`label`, dropping `system_type`/`name`, so `detectSiteType()` saw empty strings for every scanned system and always fell back to the generic question set. The mapping now preserves `system_type` and `name`, so Shopify/WordPress/Stripe/etc. detections correctly steer the ecommerce/saas/media question sets.
+
+- **v5 TaskBoard, Logs, and Intelligence screens de-mocked.** Removed `BOARD_TASKS` (7 hardcoded fake tasks), `MOCK_REQUESTS`/`MOCK_TRACES`/`MOCK_ERRORS`, `DEFAULT_COMPETITORS`, `DEFAULT_KEYWORDS`, and the dead `window.claude.complete()` call. `TaskBoardScreen` now fetches `GET /api/tasks/` via `useSafeData` (15 s refresh); the board maps real `TaskStatus` values (`todo/in_progress/in_review/blocked/done/failed`) to columns and wires Approve/Retry actions to `api.approveTaskCheckpoint`/`api.retryTask`. `LogsScreen` fetches `/api/activity?limit=50` for the activity tab and `/api/observability/metrics` for aggregate stats; the separate traces tab is removed in favour of an honest empty state with a link to the Langfuse dashboard URL from `/api/observability/dashboard-url`. `IntelligenceScreen` now starts with empty competitor/keyword lists (user-editable, no backend persistence) and calls `api.chatSend(prompt, null, null, null, null, false)` for the AI Briefing instead of `window.claude.complete`.
+
+- **v5 Dashboard wired to the real backend — all 5 mock constants removed (`frontend/src/v5/screens/DashboardScreen.jsx`).** `MOCK_HEALTH`, `MOCK_JOBS`, `MOCK_TASKS`, `MOCK_COST`, and `MOCK_SIGNALS` are gone. The screen now fetches from `/api/health`, `/api/stats`, `/api/activity?limit=8`, `/api/observability/metrics`, and `/api/providers` in parallel via `useSafeData` (30 s auto-refresh). Widget components are hardened for null/optional fields; `SystemHealthWidget` suppresses the Ollama status row when `ollama_relevant=false`; `RecentJobsWidget` shows an honest empty state when no activity is logged; `CostWidget` reads real 24 h token/request counts from observability metrics. The Tasks widget shows an honest empty state (tasks endpoint not yet proxied through Cloudflare).
+
+- **v5 Onboarding wired to the real backend — silent mock fallback removed (`frontend/src/v5/screens/OnboardingScreen.jsx`).** `handleScan` defaulted `companyId` to `'preview_co'` and silently swallowed `createCompany()` failures, so the scan step was always skipped and `DETECTED_SYSTEMS_DEFAULT` (hardcoded Shopify/Gatsby/GTM stack) was always shown. The flow now surfaces auth errors ("log in to continue"), propagates real API failures, and gates the scan on the real `POST /api/company` + `POST /api/company/{id}/scan/website` responses. `SystemsStep` no longer falls back to mock data when zero systems are detected (honest empty state instead). `DoneStep` always loads specialists from `GET /api/company/{id}/specialists` — the hardcoded six-specialist mock list is removed and loading/error states are rendered.
+
+- **GitHub Pages workflow action versions updated (deploy-pages.yml).** Bumped `actions/configure-pages` v3→v6, `actions/upload-pages-artifact` v2→v5, `actions/deploy-pages` v2→v5 to latest supported versions. (PR #287, Friday maintenance 2026-05-29.)
+
+- **v5 Agents screen de-mocked (`frontend/src/v5/screens/AgentsScreen.jsx`).** Removed `DEFAULT_AGENTS` (8 agents with fake `status:'running'`, hardcoded `tasksWeek`/`avgMs`, `currentTask` strings) and `CEO_CYCLE` (5 hardcoded fake directives). Removed dead `resolveAgentModel`/`resolveAgentProvider` window-global helpers. Added `BUILTIN_AGENT_DEFS` (5 real agent definitions without fake dynamic data) and `useSafeData` fetching `/api/activity?limit=30` and `/api/providers` with 30 s auto-refresh. The CEO Cycle panel now shows real recent activity (honest empty state when no activity). The Agents grid shows the built-in catalog plus any custom agents created in-session; company-specific provisioned specialists appear after completing onboarding.
+
+- **v5 Direct Chat is wired to the real backend (`frontend/src/v5/screens/ChatScreen.jsx`).** `handleSend` was a fake `setInterval` animation that always appended a hardcoded `SAMPLE_RESULT` ("Fixed 3 failing tests in `cart/checkout.test.ts`…") and a fabricated PR/diff card — it never called the API. It now calls `POST /api/chat/send`: in direct mode it renders the real `{ response }`; with a specific agent selected it sends `agent_mode=true` and polls `GET /api/chat/agent-jobs/{id}`, streaming the job's real `progress_events` and final result. The history sidebar loads real conversations from `GET /api/chat/sessions` / `GET /api/chat/sessions/{id}` instead of the hardcoded `CHAT_HISTORY`, and failures now surface an honest error bubble rather than fake success. Removed the `SAMPLE_RESULT`, `CHAT_HISTORY`, and `FinalResultCard` mocks.
+
+- **`MongoStore` is now subscriptable (`db/mongo_store.py`).** It proxied attribute access (`.users`) but not subscript (`db["tasks"]`), so `tasks/store.py` raised `TypeError: 'MongoStore' object is not subscriptable` — crashing the task dispatcher and forcing the backend into "limited mode" (bootstrap deferred). Added `__getitem__` so it behaves like a motor `Database` for both access styles.
+
+- **Cloudflare app login fixed — force same-origin API base (`wrangler.jsonc`).** A baked-in `REACT_APP_BACKEND_URL` made the deployed app call the Render backend cross-origin, so login issued a CORS preflight that the backend rejected (`OPTIONS /api/auth/login → 400`) and the UI showed "Something went wrong." The Cloudflare build now forces `REACT_APP_BACKEND_URL=` empty so all API calls go through the same-origin `/api` proxy (also keeps OAuth session cookies same-origin).
+
+- **Render auto-deploy now triggers on `services/`, `models/`, `db/`, and `version.py` changes (`.github/workflows/deploy-backend.yml`).** `Dockerfile.backend` copies these into the image, but they were missing from the deploy workflow's path filter — so backend code changes there (notably the scanner upgrade in `services/`) merged to master without ever redeploying to Render, leaving the live backend on stale code. Path list now matches the Dockerfile's copy list.
+
+- **Onboarding scan results now show real categories & icons (`frontend/src/v5/screens/OnboardingScreen.jsx`).** The UI mapped `category`/`icon`/`description` fields that the scanner never returns, so every detected system rendered as "System" with a generic gear icon. It now derives a human label + icon from the backend's `system_type` and surfaces the matched evidence — so the real (upgraded) scanner's results are grouped and labelled instead of looking flat.
+
+- **Scanner no longer reports spurious success on unreachable hosts (`services/scanner.py`).** When both `curl_cffi` and the `httpx` fallback raise (DNS error, timeout, TLS failure), `scan_website` now returns `status="failed"` with the error instead of falling through to a `success` result with empty evidence (callers only reject non-success scans).
+
+- **Live scanner E2E tests excluded from the default suite.** `tests/test_scanner_e2e.py` is marked `integration` and `pytest.ini` excludes `-m "not integration"` by default, so CI no longer depends on third-party DNS/WAF/site availability. Run them explicitly with `pytest -m integration`.
+
+- **PR #271 CodeRabbit review — CI/CD YAML fixes.** `ci.yml` pytest command was at wrong indentation (column 0 instead of 10) making the workflow invalid. `e2e.yml` had `STORAGE_BACKEND: sqlite` outside the `env:` mapping, breaking the job entirely.
+
+- **PR #271 CodeRabbit review — shell injection in `apply_review.py`.** Replaced `subprocess.run(cmd, shell=True)` + `# nosec B602` suppression with `shlex.split(cmd)` + `shell=False` to properly eliminate the command-injection risk.
+
+- **PR #271 CodeRabbit review — `CompanyGraphResponse` missing fields.** Added `company_id` and `completeness_score` fields so handlers that construct this response don't raise a Pydantic validation error.
+
+- **PR #271 CodeRabbit review — `SpecialistListResponse` missing `limit`/`offset` fields.** Added pagination fields to match what the list-specialists handler returns.
+
+- **PR #271 CodeRabbit review — `company_graph_store.py` backend alias.** Default env value `"mongo"` was not matched by the `"mongodb"` branch check. Normalised both to `"mongodb"` and added explicit `ValueError` for unknown backends.
+
+- **PR #271 CodeRabbit review — `scanner.py` provider values.** `_detect_provider` returned `"azure"` and `"unknown"` which are not valid `Repo.provider` literals. Fixed to `"azure_devops"` and `"other"`.
+
+- **PR #271 CodeRabbit review — `company_api.py` missing service imports.** `get_company_graph_service`, `get_specialist_service`, and `get_onboarding_service` were called but never imported. Added proper imports.
+
+- **PR #271 CodeRabbit review — `company_api.py` free-function scan calls.** `scan_website(...)` and `scan_repo(...)` were called as free functions; replaced with `WebsiteScanner(...).scan_website(...)` and `RepoScanner(...).scan_repo(...)`.
+
+- **PR #271 CodeRabbit review — `/scan/repo` wrong response model.** Endpoint declared `response_model=WebsiteScanResult` but returned a `RepoScanResult`. Fixed to `response_model=RepoScanResult`.
+
+- **PR #271 CodeRabbit review — `OnboardingProgressResponse` extra-field error.** Replaced the bare alias `OnboardingProgressResponse = OnboardingProgress` (which has `extra="forbid"`) with a proper subclass that adds a `message` field.
+
+- **PR #271 CodeRabbit review — `pause_onboarding` missing service method.** `OnboardingService` had no `pause_onboarding` method. Implemented it to set `onboarding_status="paused"` on the company and return `OnboardingProgress` with `status="paused"`.
+
+- **PR #271 CodeRabbit review — specialist endpoint API mismatches.** `count_specialists` (non-existent) replaced with `len(specialists)`. `provision_specialist` now passes the `SpecialistProvisionRequest` object directly. `get_specialists_for_task` no longer passes the non-existent `task_description=` kwarg.
+
+- **Agency Core v5 Company Graph — fix import NameError.** `backend/company_api.py` had all model imports commented out with a placeholder comment, causing `NameError: name 'Company' is not defined` at module load time. This broke server startup, all Python tests, and the E2E suite. Uncommented the `models.company_graph` import block, added `from services.company_graph_store import get_company_graph_store`, added `status` to the FastAPI imports, and aliased `OnboardingProgressResponse = OnboardingProgress` (the canonical model already carries all required fields).
+
+- **Doctor page 404 on production.** `DoctorScreen.jsx` was using `REACT_APP_API_URL` (always `undefined` in the GitHub Pages build) instead of `REACT_APP_BACKEND_URL`. Requests were hitting the Pages domain instead of the Render backend. Also added `version.py` to the `deploy-backend.yml` path trigger list so changes to the version SSOT correctly trigger a Render redeploy.
+
+- **Render deploy fix.** `Dockerfile.backend` was missing `COPY version.py version.py`, causing `ModuleNotFoundError: No module named 'version'` on every deploy since the version SSOT refactor.
+
+- **Stale `v4.1` / wrong version strings.** The browser tab title and meta in
+
+  `frontend/public/index.html` said "LLM Relay v4.1", the FastAPI app title said
+
+  "LLM Relay v4.1 — Unified Platform" (`version="4.1.0"`), and `/api/platform` returned
+
+  `"2.0.0"`. All now read from `version.py`/`version.js` and show the current release.
+
+  Sidebar/topbar brand in `AppShell.jsx` also said "LLM Relay V5.0" (inconsistent with the
+
+  "Agency Core" branding elsewhere) — now sourced from `APP_LABEL`.
+
+- **Onboarding/activation showed "Instance ID: unknown" and could not activate.**
+
+  `ActivationGate` and `AdminOnboardingPanel` called the activation API with raw `axios`
+
+  keyed on `REACT_APP_API_BASE` — an env var used nowhere else in the app — instead of the
+
+  shared `src/api.js` client (which resolves the backend URL the same way as login and attaches
+
+  the auth header). When the dashboard and backend ran on different origins, the status fetch
+
+  hit the wrong origin and failed (→ "unknown"), and admin re-activation failed with no
+
+  `Authorization` header. Both screens now use the shared `api` client.
+
+- **`/openapi.json` returned 500 (broke `/docs` and the role endpoint).** `change_user_role`
+
+  in `activation_api.py` referenced undefined names `_RoleUpdateResponse` and `get_db`; the
+
+  missing response model crashed OpenAPI schema generation and the route itself. Added the
+
+  `_RoleUpdateResponse` model and switched to `get_store()` (matching all other call sites).
+
+  Added `tests/test_activation_api.py` covering status, OpenAPI generation, and the role route
+
+  (auth gate, role validation, update, and 404).
+
+- `backend/server.py`: `ModelRouter.route()` call used positional arg (`body.content`) and
+
+  invalid kwarg (`provider_id=`) — both illegal given `route()`'s keyword-only signature.
+
+  Corrected to `route(messages=[...], requested_model=...)`.
+
+- `frontend/src/api.js`: `getAuditLog` corrected from `/api/audit-log` →
+
+  `/api/activation/audit-log` to match the backend activation router.
+
+- `frontend/src/api.js`: `listUsers` corrected from `/api/auth/users` →
+
+  `/api/activation/users`.
+
+- `frontend/src/api.js`: `changeUserRole` corrected from
+
+  `/api/auth/users/{id}/role` → `/api/activation/users/{id}/role` (new
+
+  endpoint added in this release).
+
+
+
+# Changelog
 
 
 
 ### Security
 
-- **.gitignore hardening: exclude operator secret file + scratchpad** (2026-06-21). Two patterns added: `_claude_run_secret.txt` (operator credentials file that landed in `stash@{1}` during an earlier recovery session -- must remain out of git) and `.tmp_local_secrets/` (transient operator secret scratchpad). The existing `bandit-report.json` exact-match already covers bandit output, so no broader pattern was added. Closes a credential-leak vector.
+- **Removed tracked credentials file `memory/test_credentials.md` from version control** (user-research/pre-mortem finding). File remains locally; added to `.gitignore`. Admin password and proxy admin secret must be rotated — they were exposed in a public repo.
+- **`admin_auth.py` — timing-safe admin secret comparison.** Replaced Python `==` operator with `hmac.compare_digest()` for admin secret validation to prevent timing side-channel attacks (`SEC-003`).
+
+- **`proxy.py` — ADMIN_SECRET minimum length enforcement.** Added startup check requiring `ADMIN_SECRET` to be at least 32 characters; server refuses to start with a short secret (`PR-013`).
+
+- **`proxy.py` — CORS wildcard warning.** Added startup warning when `CORS_ORIGINS` is `"*"` to alert operators that wildcard CORS is active in their deployment (`SEC-005`).
+
+- **`key_store.py` — renamed API key prefix from `test-key-` to `llms-`.** Generated API keys and rotated keys previously had a misleading `test-key-` prefix that could cause operators to distrust valid production keys (`TD-005`, `SEC-001`).
+
+- **`.github/workflows/ci.yml` — removed hardcoded admin password.** Credentials now sourced exclusively from environment variables (`SEC-015`).
+
+- **Review-driven hardening of the orchestrator + company skill endpoints (`backend/server.py`, `backend/company_api.py`, `services/workflow_orchestrator.py`, `agent/loop.py`, `direct_chat.py`, `.bandit`).** Addressed automated-review (Codex + CodeRabbit) findings on PR #391: (1) `/api/workflow/orchestrator/execute` ignores `auto_approve` from non-admin callers (the HITL ApprovalGate can no longer be skipped by posting `auto_approve:true`) and validates company access via `get_company_access()` before passing a `company_id` into the orchestrator — previously a cross-tenant company-graph leak via `bound_context.company_graph_snapshot`; (2) `/approve/{run_id}` derives `approved_by` from the authenticated session, not a spoofable query string; (3) `/api/doctor/diagnostics` scopes orchestrator-run visibility to the caller (admins all) and uses only the user's own GitHub token with no server-env fallback; (4) `/api/company/skills/recommend/auto` enforces `get_company_access()` before reading another tenant's stack/systems/specialists; (5) `/{company_id}/specialists/{id}/skills` verifies the specialist belongs to the authorized company (cross-tenant IDOR). **Agent Mode regression:** under the default `AGENCY_WORKFLOW_MODE=orchestrator` the deprecation guard blocked the deliberate live-chat and direct-chat `AgentRunner.run()` paths; they now set the orchestrator bypass token so the guard still catches unintended parallel callers while Agent Mode works. **Correctness:** `_handle_bind_context` calls `recommend_for_company` with the required `specialist_families` and iterates the returned dicts (skill injection previously never fired); `_handle_execute` sends the full user request, not the 200-char truncated `plan.goal`; the council-review secret detector recognizes `SECRET_KEY`/`GITHUB_TOKEN`/`jwt_secret_key`/provider-prefixed variants; `recommend_for_company` returns the full catalog for empty context. **SAST:** `.bandit` no longer blanket-excludes core runtime files — restored Medium/High coverage by skipping only low-noise rules (B110/B112/B404/B603/B607) repo-wide. **Frontend:** `ErrorBoundary` recovers on a changing `resetKey`; dashboard Monitoring/SystemHealth widgets propagate `/api/stats` errors; DoctorScreen uses authenticated `/diagnostics`; SkillsScreen no longer auto-selects an arbitrary company. Regression tests added in `tests/test_workflow_orchestrator_scoping.py` and `tests/test_skill_executors_live.py`.
+
+- **Phase 8 multi-tenant isolation — closed an IDOR on the workflow orchestrator endpoints (`backend/server.py`, `services/workflow_orchestrator.py`).** `GET /api/workflow/orchestrator/runs`, `GET /runs/{id}`, and `POST /approve/{id}` were authenticated but **not scoped to the caller** — any logged-in user could list, read, and *approve* every other tenant's workflow runs (a cross-tenant Insecure Direct Object Reference). Fixes: (1) `WorkflowRun` now carries `user_id`/`company_id`, stamped from the originating `ExecutionRequest` at execute time and surfaced in `as_dict()`; (2) `list_runs(owner_id=...)` filters by owner; (3) the list endpoint scopes non-admins to their own runs (admins see all, with `scoped_to_user` flag); (4) `get`/`approve` resolve the run through a shared `_wfo_owned_run_or_404` guard that returns **404 (not 403)** for non-owned runs so run IDs can't be enumerated across tenants; (5) `execute` now stamps ownership via the same `_resolve_user_id` resolver the company endpoints use, so a run is scoped identically however the user authenticated (GitHub/Google/email). Regression suite `tests/test_workflow_orchestrator_scoping.py` (7 tests: owner stamping, owner filtering, resume keeps owner, list scoping, cross-tenant get/approve 404, admin-sees-all).
+
+- **Resolved ws uninitialized memory disclosure (GHSA-58qx-3vcg-4xpx).** Bumped npm override for `ws` from `>=8.17.1` to `>=8.21.0` in `frontend/package.json`, resolving the last moderate-severity vulnerability. Frontend now has 0 npm audit vulnerabilities.
+
+- **Resolved Dependabot alert #33 and Secret Scanning alert #1.** Added scoped npm override for `http-proxy-agent` to force `@tootallnate/once` from vulnerable `1.1.2` to patched `3.0.1` (GHSA-vpq2-c234-7xj6, CVE-2026-3449). Dismissed Secret Scanning alert for leaked Telegram bot token which was already removed in commit 0f46e21.
+
+- **Resolved 143 CodeQL security alerts.** Updated `.codeql/codeql-config.yml` with query-filters to suppress 132 intentional false-positive patterns (log-injection via parameterized %s, SSRF to env-controlled URLs, path-injection with validated paths). Fixed genuine stack-trace exposure in `backend/server.py`. Added `security-gate.yml` PR check to prevent new alert introduction. Re-enabled OpenClaw auto-fix workflow (`openclaw-auto-fix.yml`) for weekly background security remediation.
+
+- **Consolidated security scanning into unified workflow (PR #368).** Merged `codeql.yml` + `security-scan.yml` into single `security-scan.yml` covering CodeQL SAST (Python + JavaScript), Bandit, dependency CVE audit, and secret scanning. Deleted duplicate `codeql.yml` and quarantined `openclaw-security-automation.yml`. Expanded `.codeql/codeql-config.yml` paths-ignore to suppress intentional false-positive patterns (SSRF to known APIs, localStorage in SPA, OAuth callbacks, CLI tools). Fixed stack-trace exposure in `docker/agent_runtime.py` and `backend/server.py`. Fixed macOS symlink path resolution in `agent/scaffolding.py` and `mcp_server/workspace.py`.
+
+- **CodeQL configuration added to reduce alert noise (`.codeql/codeql-config.yml`, `.github/workflows/codeql.yml`).** Added workspace-level CodeQL configuration using `paths-ignore` to exclude test files, CI scripts with intentional `shell=True` patterns, dependencies, and generated code from scanning. The config file is referenced in the CodeQL workflow. This reduces noise from the `security-extended` query suite catching patterns in CI/agent workflows.
+
+- **Resolve 20 open CodeQL alerts and 5 Dependabot alerts across 10 files (`services/scanner.py`, `.github/workflows/process-quick-note.yml`, `service_daemon.py`, `agent/scaffolding.py`, `scripts/e2e_generate_key.py`, `scripts/generate_api_key.py`, `key_store.py`, `secrets_store.py`, `frontend/package.json`, `frontend/package-lock.json`).** Fixes all outstanding security scanning alerts on the repository. CodeQL fixes: (1) `services/scanner.py` — replaced 8 incomplete URL substring sanitization patterns (`'domain' in hostname`) with `_hostname_matches()` helper that validates whole-hostname matching for MX, NS, and CNAME records; (2) `.github/workflows/process-quick-note.yml` — converted 5 code-injection sinks (`${{ steps.X.outputs.Y }}` in `run:` blocks) to env variables referenced as `$VAR`, preventing shell injection from untrusted step outputs, and added missing `REPO`, `ISSUE_NUM`, `ISSUE_URL`, `ISSUE_TASK`, `BRANCH` env vars to PR create, commit, and review-push steps; (3) `service_daemon.py` — added `Path.resolve()` + prefix validation (must be under home or `/tmp`) to prevent path injection; (4) `agent/scaffolding.py` — annotated existing `relative_to()` validation with a suppression comment confirming path-traversal prevention; (5) `scripts/e2e_generate_key.py` — suppression comment confirming CI-only usage with masked output; (6) `scripts/generate_api_key.py` — suppression comment confirming CLI tool design; (7) `key_store.py` — suppression comments confirming SHA-256 is used for API key hashing (not password storage); (8) `secrets_store.py` — suppression comments confirming logs don't contain secret values. Dependabot fixes: (1) `frontend/package.json` — bumped `serialize-javascript` override to `>=7.0.5` (fixes high RCE + medium CPU-exhaustion CVEs); (2) added `webpack-dev-server` override `>=5.2.4` (fixes medium source-exposure CVEs).
+
+- **Scanner SSRF guard restored (`services/scanner.py`).** `WebsiteScanner.scan_website` now calls `_is_safe_url()` before any DNS/HTTP work and disables redirects on both the `curl_cffi` and `httpx` clients. An authenticated user can no longer point the scanner at loopback (`127.0.0.1`), the link-local cloud-metadata endpoint (`169.254.169.254`), or private/reserved ranges — directly or via a public URL that redirects inward. `_discover_sitemap` validates the derived `robots.txt` URL the same way.
+
+- **Frontend dependency security patches.** Bumped `qs` 6.14.2→6.15.2, `postcss` 7.0.39→8.5.13, `serialize-javascript` 4.0.0→6.0.2, and `nth-check` to resolve known CVEs in frontend build dependencies.
+
+- **Self-service instance activation (unblocks the owner/self-hoster).** The activation gate
+
+  previously had only one path — email the owner for a signed code — with no tool to mint one,
+
+  so the operator was locked out of their own instance. Added `ACTIVATION_REQUIRED=false`
+
+  (opt-in, off by default) to disable the gate for self-hosters, and `ACTIVATION_PUBLIC_KEY_B64`
+
+  so an operator can trust their own keypair via env without editing source. Signature
+
+  verification is unchanged — the escape hatch only stops *enforcing* the gate. Verified via the
+
+  `risky-module-review` skill.
+
+- `frontend/package-lock.json`: bump `qs` 6.14.2 → 6.15.2 (resolves moderate CVE in
+
+  indirect dev dependency; supersedes Dependabot PR #222).
+
+
+
+### Performance
+
+- **`proxy.py` — async rate limiter.** Converted rate limiter from `threading.Lock` (blocks event loop) to `asyncio.Lock` (non-blocking). Also changed `_rate_bucket_keys` from `list` (O(n) operations) to `set` (O(1) insert/discard), eliminating key eviction bottleneck under high concurrency (`PERF-001`, `PERF-002`).
+
+
+
+### Removed
+
+- `routing/` directory: dead code — the `routing_router` was never mounted in `proxy.py`
+
+  or `backend/server.py`. The equivalent `/api/routing/*` endpoints already exist in
+
+  `runtimes/api.py` (which IS mounted). Removed to eliminate router confusion.
+
+- `agent/v4_router.py`: dead code — not imported anywhere in the active codebase.
+
+  Comment reference in `agent/quick_note.py` updated.
+
+- `tests/test_control_plane_api.py`: removed duplicate `/api/routing/*` test section
+
+  (routing/ deleted); schedule tests retained.
+
+
 
 ## [5.0.0] — 2026-05-24
 
@@ -845,3 +1664,12 @@ All notable changes to this project will be documented in this file.
 
 
 
+
+- **Parameterised SEO audit skill + runner script.**
+  `scripts/run_seo_audit.py` — standalone CLI that accepts `--website-url`, `--max-pages`,
+  `--max-depth`, `--output-dir`, `--timeout-seconds`, and `--monthly-organic-revenue` parameters;
+  crawls any public site using curl_cffi Chrome-120 TLS impersonation (bypasses Akamai/Cloudflare);
+  writes executive PDF (reportlab), JSON, Markdown, findings CSV, pages CSV, and issues CSV.
+  `.claude/skills/seo-audit-report/SKILL.md` registers the skill with triggers, parameter docs,
+  quick-start instructions, output-file reference, bypass verification guide, and the load-bearing
+  revenue-at-risk disclaimer. Derived from the gucci.com audit proof-of-concept (commit 94a4bc7).
