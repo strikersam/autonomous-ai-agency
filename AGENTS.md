@@ -171,6 +171,22 @@ Before modifying ANY of these, invoke the `risky-module-review` skill:
 
 ---
 
+## Git Operations & Credentials
+
+**Use the `GH_PAT` environment variable for ALL git/GitHub authentication.** It is
+the single source of truth for the GitHub token and is rotated in one place
+(the `GH_PAT` GitHub Actions repository secret).
+
+- Git credentials are wired once, in the global git config
+  (`credential.https://github.com.helper`), to read `$GH_PAT` at runtime — never
+  hardcode or paste a token into config, code, commits, workflow files, or chat.
+- Workflows that run `git` against GitHub must expose the secret to the step:
+  `env: GH_PAT: ${{ secrets.GH_PAT }}`. The credential helper then supplies it.
+- On rotation, only the `GH_PAT` secret changes; nothing in the repo needs editing.
+- If a token is ever exposed, redact it and treat rotation as mandatory.
+
+---
+
 ## Testing Requirements
 
 ### Mandatory Rules

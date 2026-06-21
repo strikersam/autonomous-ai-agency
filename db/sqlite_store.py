@@ -18,9 +18,15 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
+
+# Sort keys are interpolated into ``json_extract(data, '$.<key>')`` for the SQL
+# ORDER BY push-down, so they must be validated as bare identifiers (they come
+# from our own callers, never user input, but validate defensively anyway).
+_SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 try:
     import aiosqlite
@@ -70,7 +76,7 @@ _INDEXED_FIELDS: dict[str, list[str]] = {
     "activity_log":    ["user_id", "action", "created_at"],
     "oauth_states":    ["state"],
     "github_settings": ["user_id"],
-    "tasks":           ["user_id", "status"],
+    "tasks":           ["user_id", "status", "owner_id"],
     "local_metrics":   ["user_id", "created_at"],
     "agent_definitions": ["agent_id"],
     "sources":         ["user_id"],
@@ -264,6 +270,32 @@ def _push_down_where(name: str, query: dict) -> tuple[str, list[str]]:
     return " WHERE " + " AND ".join(clauses), params
 
 
+def _fully_pushable(name: str, query: dict) -> bool:
+    """True if EVERY condition in *query* is expressible in the SQL WHERE.
+
+    Unlike ``_push_down_where`` (which narrows but leaves residual conditions to
+    the Python ``_match`` pass), this requires the SQL filter to be *equivalent*
+    to the query — every key is an indexed column constrained by scalar equality
+    or a ``$in`` of scalars. Only then is it safe to also push ``ORDER BY`` +
+    ``LIMIT``/``OFFSET`` into SQL, because no post-filter can drop rows from the
+    SQL-limited page.
+    """
+    indexed = set(_INDEXED_FIELDS.get(name, []))
+    for key, val in query.items():
+        if key not in indexed:
+            return False
+        if isinstance(val, dict):
+            if set(val.keys()) != {"$in"}:
+                return False
+            operand = val["$in"]
+            if not (isinstance(operand, (list, tuple)) and operand
+                    and all(_is_pushable_scalar(v) for v in operand)):
+                return False
+        elif not _is_pushable_scalar(val):
+            return False
+    return True
+
+
 def _apply_update(doc: dict, update: dict) -> dict:
     """Apply a MongoDB-style update operator dict to *doc* in place."""
     new = dict(doc)
@@ -356,6 +388,40 @@ class _Collection:
     async def _matching(self, query: dict, *, write_conn: bool = False) -> list[dict]:
         all_docs = await self._all_docs(query, write_conn=write_conn)
         return [d for d in all_docs if _match(d, query)]
+
+    async def _find_pushed(self, query: dict, sort_key: str | None,
+                           sort_dir: int, skip_n: int, limit_n: int) -> list[dict] | None:
+        """Try to satisfy a sorted/paginated find entirely in SQL.
+
+        Returns the decoded page when the query is fully expressible as a SQL
+        WHERE (so no Python post-filter is needed) and a valid sort key is
+        given — letting SQLite do the ORDER BY + LIMIT/OFFSET and materialise
+        only the requested page. Returns ``None`` to signal the caller to fall
+        back to the load-all-then-filter-in-Python path.
+        """
+        if not sort_key or not _SAFE_IDENT.match(sort_key):
+            return None
+        if not _fully_pushable(self._name, query):
+            return None
+        where_sql, params = _push_down_where(self._name, query)
+        indexed = set(_INDEXED_FIELDS.get(self._name, []))
+        # Sort on the extracted column when indexed (cheap, uses the index);
+        # otherwise read the value out of the JSON blob.
+        order_col = sort_key if sort_key in indexed else f"json_extract(data, '$.{sort_key}')"
+        direction = "DESC" if sort_dir == -1 else "ASC"
+        # table name whitelisted via _COLLECTIONS; order_col is an indexed column
+        # name (from _INDEXED_FIELDS) or json_extract of a key validated by
+        # _SAFE_IDENT; WHERE values are parameterised. (inline nosec required —
+        # Bandit only honours same-line suppressions.)
+        sql = f"SELECT data FROM {self._name}{where_sql} ORDER BY {order_col} {direction}"  # nosec B608
+        if limit_n:
+            sql += f" LIMIT {int(limit_n)} OFFSET {int(skip_n)}"
+        elif skip_n:
+            sql += f" LIMIT -1 OFFSET {int(skip_n)}"
+        async with self._store._read_conn() as conn:
+            async with conn.execute(sql, params) as cur:
+                rows = await cur.fetchall()
+        return [json.loads(r[0]) for r in rows]
 
     # ── public Motor-compatible API ───────────────────────────────────────
 
@@ -602,9 +668,20 @@ class _PendingCursor:
 
     async def _resolve(self) -> _Cursor:
         if self._resolved is None:
-            docs = await self._col._matching(self._query)
-            self._resolved = _Cursor(docs, self._sort_key, self._sort_dir,
-                                     self._skip_n, self._limit_n)
+            # Fast path: push ORDER BY + LIMIT/OFFSET into SQL when the query is
+            # fully expressible there, so only the requested page is decoded
+            # (instead of materialising + sorting every matching row in Python).
+            page = await self._col._find_pushed(
+                self._query, self._sort_key, self._sort_dir,
+                self._skip_n, self._limit_n,
+            )
+            if page is not None:
+                # Already sorted/sliced by SQL — wrap without re-sorting.
+                self._resolved = _Cursor(page)
+            else:
+                docs = await self._col._matching(self._query)
+                self._resolved = _Cursor(docs, self._sort_key, self._sort_dir,
+                                         self._skip_n, self._limit_n)
         return self._resolved
 
     def __aiter__(self):
@@ -744,6 +821,20 @@ class SQLiteStore:
                     {extra_cols}
                 )
             """)
+            # Auto-migrate pre-existing tables: CREATE TABLE IF NOT EXISTS won't
+            # add columns declared in _INDEXED_FIELDS after the table was first
+            # created. Add any missing indexed column and backfill it from the
+            # JSON blob so the push-down WHERE/ORDER BY can use it immediately.
+            cur = await self._conn.execute(f"PRAGMA table_info({table})")
+            existing_cols = {row[1] for row in await cur.fetchall()}
+            for col in indexed:
+                if col not in existing_cols:
+                    # nosec B608 — table/col are whitelisted constants, not input
+                    await self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+                    await self._conn.execute(
+                        f"UPDATE {table} SET {col} = json_extract(data, '$.{col}') "  # nosec B608
+                        f"WHERE {col} IS NULL"
+                    )
             for col in indexed:
                 await self._conn.execute(
                     f"CREATE INDEX IF NOT EXISTS idx_{table}_{col} ON {table}({col})"

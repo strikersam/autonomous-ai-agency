@@ -447,3 +447,68 @@ async def test_push_down_missing_field_not_dropped(store):
     await store.tasks.insert_one({"task_id": "x", "user_id": "u1"})  # no status
     rows = await store.tasks.find({"user_id": "u1"}).to_list(None)
     assert {r["task_id"] for r in rows} == {"x"}
+
+
+# ── tasks find push-down: ORDER BY + LIMIT in SQL ─────────────────────────────
+
+@pytest.mark.asyncio
+async def test_tasks_find_sorted_limit_pushdown(store):
+    """A fully-pushable owner_id query with sort+limit returns the correct page
+    (SQL ORDER BY + LIMIT path), newest-first."""
+    for i, oid in enumerate(["u1", "u1", "system", "u2", "u1"]):
+        await store.tasks.insert_one(
+            {"task_id": f"t{i}", "owner_id": oid, "status": "todo",
+             "created_at": f"2026-06-21T0{i}:00:00"}
+        )
+    q = {"owner_id": {"$in": ["u1", "system"]}}
+    rows = await store.tasks.find(q).sort("created_at", -1).limit(2).to_list(None)
+    assert [r["task_id"] for r in rows] == ["t4", "t2"]
+    # skip + limit paging stays correct
+    rows2 = await store.tasks.find(q).sort("created_at", -1).skip(1).limit(2).to_list(None)
+    assert [r["task_id"] for r in rows2] == ["t2", "t1"]
+    # u2 task never leaks into the u1/system page
+    assert "t3" not in {r["task_id"] for r in rows + rows2}
+
+
+@pytest.mark.asyncio
+async def test_tasks_find_nonpushable_query_falls_back(store):
+    """A query touching a non-indexed field (priority) is NOT fully pushable, so
+    it must fall back to the Python path and still filter + sort correctly."""
+    await store.tasks.insert_one({"task_id": "a", "owner_id": "u1", "priority": "high",
+                                  "created_at": "2026-01-01T00:00:00"})
+    await store.tasks.insert_one({"task_id": "b", "owner_id": "u1", "priority": "low",
+                                  "created_at": "2026-01-02T00:00:00"})
+    rows = await store.tasks.find({"owner_id": "u1", "priority": "high"}) \
+        .sort("created_at", -1).to_list(None)
+    assert [r["task_id"] for r in rows] == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_migration_backfills_new_indexed_column(tmp_path):
+    """Opening a legacy tasks table that predates the owner_id index column must
+    auto-add the column and backfill it from the JSON blob, so push-down queries
+    by owner_id work immediately."""
+    import aiosqlite
+    import json as _json
+
+    db = str(tmp_path / "legacy.db")
+    conn = await aiosqlite.connect(db)
+    # Legacy schema: no owner_id column.
+    await conn.execute(
+        "CREATE TABLE tasks (id TEXT PRIMARY KEY, data TEXT NOT NULL, "
+        "user_id TEXT, status TEXT)"
+    )
+    doc = {"_id": "t1", "task_id": "t1", "owner_id": "system", "status": "todo",
+           "created_at": "2026-01-01T00:00:00"}
+    await conn.execute(
+        "INSERT INTO tasks (id, data, user_id, status) VALUES (?, ?, ?, ?)",
+        ("t1", _json.dumps(doc), "", "todo"),
+    )
+    await conn.commit()
+    await conn.close()
+
+    store = SQLiteStore(db_path=db)
+    rows = await store.tasks.find({"owner_id": {"$in": ["system"]}}) \
+        .sort("created_at", -1).to_list(None)
+    assert [r["task_id"] for r in rows] == ["t1"]
+    await store.close()
