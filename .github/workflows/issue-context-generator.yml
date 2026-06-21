@@ -1,11 +1,10 @@
 name: Issue Context Generator
 
-# Triggers whenever ANY new issue is opened (not just quick-note labeled).
-# Also fires when the 'quick-note' label is added to an existing issue,
-# OR when any human applies a label to a previously-untracked issue.
+# Triggers whenever a new issue is opened (quick-note OR any issue).
+# Also fires when the 'quick-note' label is added to an existing issue.
 #
 # Pipeline:
-#   open issue → generate prompt + TODO → branch → commit context doc → DRAFT PR → dispatch implementation
+#   open issue → generate prompt + TODO → branch → commit context doc → DRAFT PR → close issue
 #
 # PRs are created in DRAFT status to prevent CodeRabbit / Copilot reviews
 # until a human or the process-quick-note workflow converts to ready.
@@ -26,33 +25,13 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Short-circuit path for self-test issues: post a verification comment, close
-  # the issue, and skip the full LLM/dispatch pipeline. Prevents the no-URL
-  # failure loop that left issue #584 stuck open across 3 retry attempts.
-  verify-automation-test:
-    if: contains(github.event.issue.labels.*.name, 'automation-test')
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - name: Verify pipeline and close automation-test issue
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          REPO: ${{ github.repository }}
-          ISSUE_NUM: ${{ github.event.issue.number }}
-        run: |
-          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "✅ **Automation self-test PASSED** — the issue→context generator pipeline is alive. Closing as completed."
-          gh issue close "$ISSUE_NUM" --repo "$REPO" --reason completed
-          echo "Closed automation-test issue #$ISSUE_NUM"
-
   generate-context:
-    # Process EVERY opened issue, and any labeled event regardless of which
-    # label was added (a human applying a label signals "please pick this up").
-    # Automation-test issues are short-circuited by the verify-automation-test
-    # job above; the !contains guard here is belt-and-suspenders.
+    # Skip labeled events unless the added label is 'quick-note'.
+    # This prevents spurious reruns when unrelated labels are added.
     if: >
-      !contains(github.event.issue.labels.*.name, 'automation-test') &&
-      (github.event.action == 'opened' ||
-       github.event.action == 'labeled')
+      github.event.action == 'opened' ||
+      (github.event.action == 'labeled' &&
+       github.event.label.name == 'quick-note')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -207,24 +186,6 @@ jobs:
           echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
           echo "pr_url=$PR_URL"    >> "$GITHUB_OUTPUT"
           echo "Draft PR: #$PR_NUM — $PR_URL"
-
-          # SAFETY: label the draft PR with quick-note:planning so housekeeping
-          # workflows (auto-merge, close-stale-prs, etc.) can identify planning-only
-          # PRs and skip them. The label is removed by process-quick-note after the
-          # implement agent pushes real code and marks the PR ready.
-          # NOTE: the `|| true` on the apply is intentional -- the canonical guard
-          # is the isDraft check in auto-merge.yml / process-quick-note.yml. The
-          # label is a fast-path filter for future housekeeping workflows; if the
-          # apply fails silently the isDraft check still protects the PR.
-          gh label create "quick-note:planning" \
-            --repo "$REPO" \
-            --color "fef2c0" \
-            --description "Planning-only draft PR (no code yet) -- do not auto-merge or close" \
-            2>/dev/null || true
-          gh pr edit "$PR_NUM" \
-            --repo "$REPO" \
-            --add-label "quick-note:planning" \
-            2>/dev/null || true
 
       # ── 7. Comment + dispatch auto-implementation — issue STAYS OPEN ──────────
       # REGRESSION FIX (2026-06-13): previously this step closed the issue with
