@@ -11,7 +11,9 @@ These tests pin down the fixes so they cannot silently regress.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import os
+import sys
 import textwrap
 from pathlib import Path
 
@@ -26,13 +28,8 @@ def test_scanner_imports_cleanly():
     which triggered NameError on import — breaking the whole company-onboarding
     flow (zero systems detected). The fix simply removes the orphan line.
     """
-    # Re-popping services.scanner from sys.modules here would create a second
-    # WebsiteScanner class object, breaking monkeypatch.setattr(scanner_mod.
-    # WebsiteScanner, ...) in later tests whose code imported the original
-    # class via `from services.scanner import WebsiteScanner` (e.g.
-    # services/onboarding.py). The module is already imported by the time the
-    # suite reaches this test, so importing it again is a cheap no-op that
-    # still proves the module is loadable.
+    # Clear any cached import from previous tests in the same session.
+    sys.modules.pop("services.scanner", None)
     import services.scanner  # noqa: F401  — must not raise
     # The module must be loadable AND have the public class we expect.
     assert hasattr(services.scanner, "WebsiteScanner")
@@ -85,7 +82,7 @@ def test_brain_skips_paid_when_free_configured(monkeypatch):
                 "type": "openai-compatible",
                 "base_url": "https://integrate.api.nvidia.com/v1",
                 "api_key": "nvapi-PLACEHOLDER",
-                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "default_model": "nvidia/nemotron-3-super-120b-a12b",
                 "priority": 50,  # lower, but FREE
             },
         ]
@@ -121,7 +118,7 @@ def test_brain_falls_through_to_ollama_when_all_free_excluded(monkeypatch):
                 "type": "openai-compatible",
                 "base_url": "https://integrate.api.nvidia.com/v1",
                 "api_key": "nvapi-PLACEHOLDER",
-                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "default_model": "nvidia/nemotron-3-super-120b-a12b",
                 "priority": 100,
             },
             {
@@ -159,7 +156,14 @@ def test_brain_falls_through_to_ollama_when_all_free_excluded(monkeypatch):
     )
 
 
-def _only_anthropic_records():
+def test_brain_allows_paid_when_no_free_configured(monkeypatch):
+    """When the ONLY configured provider is a paid one (e.g. operator set
+    ANTHROPIC_API_KEY and no other keys), the brain resolver must still
+    return that paid provider — but ONLY when allow_paid=True in the policy.
+    With allow_paid=False (the default failsafe), the resolver falls to Ollama.
+    """
+    from services import workflow_orchestrator
+
     async def fake_records():
         return [
             {
@@ -172,52 +176,66 @@ def _only_anthropic_records():
             },
         ]
 
-    return fake_records
-
-
-def test_brain_does_not_escalate_to_paid_by_default(monkeypatch):
-    """Free-brain policy (issue #656): when the ONLY configured provider is a
-    paid one (Anthropic) and ALLOW_PAID_BRAIN is unset, the brain must NOT
-    silently call Anthropic — that burns credits and, on a stale model id,
-    returns a 400 that blocks every task. It must fall through to local Ollama.
-    """
-    from services import workflow_orchestrator
-
-    monkeypatch.delenv("ALLOW_PAID_BRAIN", raising=False)
     monkeypatch.setattr(
         "backend.server._list_configured_provider_records",
-        _only_anthropic_records(),
+        fake_records,
         raising=False,
     )
-
-    base, _headers, _model = _run(workflow_orchestrator._resolve_brain_provider())
-    assert "anthropic" not in base.lower(), (
-        f"Brain must not silently escalate to paid Anthropic by default. Got base={base!r}"
-    )
-    assert "localhost" in base.lower() or "127.0.0.1" in base.lower() or "ollama" in base.lower(), (
-        f"Brain should fall through to local Ollama when only paid is configured "
-        f"and ALLOW_PAID_BRAIN is unset. Got base={base!r}"
-    )
-
-
-def test_brain_allows_paid_when_explicitly_opted_in(monkeypatch):
-    """When the ONLY configured provider is paid AND the operator explicitly
-    sets ALLOW_PAID_BRAIN=true, the brain resolver returns that paid provider —
-    single-tenant setups that legitimately rely on Anthropic can still opt in.
-    """
-    from services import workflow_orchestrator
-
-    monkeypatch.setenv("ALLOW_PAID_BRAIN", "true")
+    # Mock the policy to allow paid providers — the operator must explicitly
+    # opt in via the Providers screen for Anthropic-only setups to work.
+    async def fake_policy():
+        return {"allow_paid": True, "surfaces": {}}
     monkeypatch.setattr(
-        "backend.server._list_configured_provider_records",
-        _only_anthropic_records(),
+        "backend.server._get_provider_policy",
+        fake_policy,
         raising=False,
     )
 
     base, _headers, _model = _run(workflow_orchestrator._resolve_brain_provider())
     assert "anthropic" in base.lower(), (
-        f"With ALLOW_PAID_BRAIN=true and only Anthropic configured, the operator "
-        f"must still get Anthropic. Got base={base!r}"
+        f"Operator with only Anthropic configured and allow_paid=True must still get Anthropic. "
+        f"Got base={base!r}"
+    )
+
+
+def test_brain_falls_to_ollama_when_only_paid_and_killswitch_off(monkeypatch):
+    """When only Anthropic is configured AND allow_paid=False (default),
+    the resolver must fall to local Ollama — never auto-use a paid provider."""
+    from services import workflow_orchestrator
+
+    async def fake_records():
+        return [
+            {
+                "provider_id": "anthropic-claude",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-PLACEHOLDER",
+                "default_model": "claude-sonnet-4-6",
+                "priority": 10,
+            },
+        ]
+
+    monkeypatch.setattr(
+        "backend.server._list_configured_provider_records",
+        fake_records,
+        raising=False,
+    )
+
+    async def fake_policy():
+        return {"allow_paid": False, "surfaces": {}}
+    monkeypatch.setattr(
+        "backend.server._get_provider_policy",
+        fake_policy,
+        raising=False,
+    )
+
+    base, _headers, _model = _run(workflow_orchestrator._resolve_brain_provider())
+    assert "anthropic" not in base.lower(), (
+        f"With allow_paid=False and only Anthropic, must fall to Ollama, not Anthropic. "
+        f"Got base={base!r}"
+    )
+    assert "localhost" in base.lower() or "ollama" in base.lower(), (
+        f"Should fall to Ollama. Got base={base!r}"
     )
 
 
@@ -414,7 +432,7 @@ def test_put_handler_writes_priority_to_mongo_set(monkeypatch):
     # Build a minimal Request with an authenticated user, then call the handler directly.
     from backend.server import update_provider, ProviderUpdate
 
-    body = ProviderUpdate(priority=99, default_model="nvidia/llama-3.3-nemotron-super-49b-v1")
+    body = ProviderUpdate(priority=99, default_model="nvidia/nemotron-3-super-120b-a12b")
     user = {"_id": "u_test", "email": "admin@llmrelay.local"}
 
     result = _asyncio.run(update_provider(provider_id="nvidia-nim", body=body, user=user))
@@ -428,6 +446,6 @@ def test_put_handler_writes_priority_to_mongo_set(monkeypatch):
         f"update_provider must write priority to MongoDB $set. Got $set: {set_payload!r}"
     )
     # Other fields that were set on the body should also be present.
-    assert set_payload.get("default_model") == "nvidia/llama-3.3-nemotron-super-49b-v1"
+    assert set_payload.get("default_model") == "nvidia/nemotron-3-super-120b-a12b"
     # And the filter must target the right provider.
     assert captured["filter"] == {"provider_id": "nvidia-nim"}
