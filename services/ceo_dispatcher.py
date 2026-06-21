@@ -37,13 +37,8 @@ log = logging.getLogger("agency.ceo")
 
 # Role → preferred runtimes (first available wins, falls back through the list).
 ROLE_RUNTIME_PREFERENCE: dict[str, list[str]] = {
-    # internal_agent first everywhere so the CEO follows the brain the operator
-    # picked in the Providers screen (it routes through brain_policy.resolve_active_brain
-    # → NVIDIA NIM by default). claude_code remains as a paid escalation fallback
-    # honoured only when brain_policy.allow_paid_brain() is truthy — the agent
-    # loop in agent/loop.py enforces that gate independently.
-    "dev":       ["internal_agent", "claude_code", "hermes"],
-    "security":  ["internal_agent", "claude_code"],
+    "dev":       ["claude_code", "hermes", "internal_agent"],
+    "security":  ["claude_code", "internal_agent"],
     "reviewer":  ["internal_agent", "claude_code"],
     "release":   ["internal_agent", "claude_code"],
     "scout":     ["internal_agent"],
@@ -109,21 +104,7 @@ class CEOResult:
     complexity: str = "medium"
     fanout_used: bool = False
     runtimes_woken: list[str] = field(default_factory=list)
-    verdict: str | None = None  # OK | PARTIAL | FAILED
-
-    def __post_init__(self) -> None:
-        if self.verdict is not None:
-            return
-        if not self.specialists:
-            self.verdict = "OK"
-            return
-        ok_count = sum(1 for s in self.specialists if s.get("status") == "ok")
-        if ok_count == len(self.specialists):
-            self.verdict = "OK"
-        elif ok_count == 0:
-            self.verdict = "FAILED"
-        else:
-            self.verdict = "PARTIAL"
+    verdict: str = "OK"  # OK | PARTIAL | FAILED
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -310,6 +291,19 @@ class CEODispatcher:
         if not sub_tasks:
             return []
 
+        # Resolve LLM provider via the per-surface policy (honours allow_paid gating).
+        # The resolved base URL replaces the caller's ollama_base; auth headers are
+        # handled automatically by RuntimeManager in the primary path.
+        try:
+            from services.workflow_orchestrator import resolve_provider_for
+            ceo_base, _ceo_headers, _ceo_model = await resolve_provider_for("ceo")
+            if ceo_base:
+                resolved_base = ceo_base
+        except Exception:
+            resolved_base = ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+        else:
+            resolved_base = ceo_base or ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+
         # Try RuntimeManager first (real runtime routing). If it's unavailable
         # for any reason, fall back to MultiAgentSwarm under the orchestrator
         # bypass — better than failing the whole run.
@@ -319,7 +313,7 @@ class CEODispatcher:
             mgr = get_runtime_manager()
             return await self._run_via_runtime_manager(
                 mgr, sub_tasks,
-                ollama_base=ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
+                ollama_base=resolved_base,
                 workspace_root=workspace_root or os.getcwd(),
                 github_token=github_token,
                 user_id=user_id,
@@ -331,7 +325,7 @@ class CEODispatcher:
             )
             return await self._run_via_swarm(
                 sub_tasks,
-                ollama_base=ollama_base or os.environ.get("OLLAMA_BASE", "http://localhost:11434"),
+                ollama_base=resolved_base,
                 workspace_root=workspace_root or os.getcwd(),
                 github_token=github_token,
                 user_id=user_id,

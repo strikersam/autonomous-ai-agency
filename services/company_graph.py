@@ -76,19 +76,23 @@ class CompanyGraphService:
         **kwargs
     ) -> Company:
         """
-        Create a new company.
-        
-        Args:
-            name: Company name
-            domain: Primary domain
-            business_category: Business category
-            description: Company description
-            owner_id: User ID of the owner
-            **kwargs: Additional company fields
-            
-        Returns:
-            The created Company instance
+        Create a new company (idempotent — returns existing if domain matches).
+
+        Checks for an existing company with the same domain AND owner before
+        creating, so rapid double-clicks or paused/replayed onboarding flows
+        never create duplicate companies.
         """
+        # Idempotency: return existing company if domain + owner match.
+        if owner_id:
+            candidates = await self.store.list_companies(
+                owner_id=owner_id, limit=50, search=domain,
+            )
+            for c in candidates:
+                if c.domain == domain:
+                    log.info("Company %s already exists for domain=%s owner=%s — returning existing",
+                             c.id, domain, owner_id)
+                    return c
+
         company_data = {
             "name": name,
             "domain": domain,

@@ -29,13 +29,15 @@ logging.basicConfig(level=logging.INFO, format="[apply_review] %(message)s")
 log = logging.getLogger("apply_review")
 
 NVIDIA_BASE = "https://integrate.api.nvidia.com/v1"
+# Primary: Anthropic Claude Opus (CEO / agency grade).
 OPUS_MODEL = "claude-opus-4-6"
-
-# Inject .github/scripts/ on sys.path so import works when run directly.
-_sd = os.path.dirname(os.path.abspath(__file__))
-if _sd not in sys.path:
-    sys.path.insert(0, _sd)
-from nvidia_models import NVIDIA_CANDIDATE_MODELS  # shared source of truth
+# Fallback: NVIDIA NIM models.
+NVIDIA_CANDIDATE_MODELS = [
+    ("nvidia/nemotron-3-super-120b-a12b",      "reasoning (Nemotron 120B)"),
+    ("nvidia/llama-3.3-nemotron-super-49b-v1", "reasoning (Nemotron 49B)"),
+    ("meta/llama-3.3-70b-instruct",            "coding (Llama 3.3 70B)"),
+    ("qwen/qwen2.5-coder-32b-instruct",        "coding (Qwen2.5 32B)"),
+]
 # Keep old name as alias
 CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
 MAX_TURNS = 50
@@ -387,6 +389,19 @@ def main() -> None:
     token = os.environ.get("GH_TOKEN", "")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
+
+    # Gate Anthropic behind the provider policy (default: allow_paid=False).
+    # CI scripts must respect the kill switch so they never silently burn credits.
+    if anthropic_key:
+        try:
+            import sys as _sys, os as _os
+            _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+            from provider_policy import allow_paid
+            if not allow_paid():
+                print("Paid providers disabled by policy — skipping Anthropic", file=sys.stderr)
+                anthropic_key = ""
+        except ImportError:
+            pass  # policy module unavailable — respect the env var as-is
 
     result_path = Path("/tmp/review_apply_result.json")  # nosec B108 — ephemeral CI artifact, path matches the reader in process-quick-note.yml (lines ~511-512)
 

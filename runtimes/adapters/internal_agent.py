@@ -296,18 +296,19 @@ class InternalAgentAdapter(RuntimeAdapter):
         """
         nvidia_chain = _nvidia_provider_chain()
 
+        # Resolve LLM provider through the per-surface policy (honours allow_paid
+        # gating, explicit surface assignment, and failover exclusion). Falls
+        # back to the legacy _best_cloud_primary_base chain when the policy
+        # module is unavailable.
         provider_headers: dict[str, str] = {}
         primary_base = _best_cloud_primary_base(self._ollama_base)
         try:
-            from backend.server import _list_configured_provider_records
-            from provider_router import ProviderRouter
-
-            records = await _list_configured_provider_records()
-            router = ProviderRouter.from_provider_records(records)
-            if router.providers:
-                primary_provider = router.providers[0]
-                primary_base = primary_provider.normalized_base_url
-                provider_headers = primary_provider.auth_headers()
+            from services.workflow_orchestrator import resolve_provider_for
+            ia_base, ia_headers, ia_model = await resolve_provider_for("internal_agent")
+            if ia_base:
+                primary_base = ia_base
+            if ia_headers:
+                provider_headers = dict(ia_headers)
                 provider_headers.pop("Content-Type", None)
         except Exception:
             provider_headers = {}

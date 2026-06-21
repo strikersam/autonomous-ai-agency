@@ -30,7 +30,6 @@ jobs:
       github.event.workflow_run.head_branch != 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
@@ -111,14 +110,26 @@ jobs:
           echo "Master branch has failing tests — skipping autofix to avoid masking pre-existing issues."
           exit 0
 
+      - name: Check provider policy (skip if paid providers disabled)
+        id: policy
+        run: |
+          # Respect the provider policy — skip Anthropic calls when allow_paid=false.
+          # Default: do not call Anthropic (safe). Override with PROVIDER_POLICY_ALLOW_PAID=true.
+          if [ "${PROVIDER_POLICY_ALLOW_PAID:-false}" = "true" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Paid providers disabled — skipping Claude auto-fix"
+          fi
+
       - name: Generate fix with Claude
+        if: steps.policy.outputs.skip != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python3 - <<'PYEOF'
-          import os, json, pathlib, sys, textwrap
+          import os, json, pathlib, textwrap
           import urllib.request
-          import urllib.error
 
           api_key = os.environ["ANTHROPIC_API_KEY"]
 
@@ -156,7 +167,7 @@ jobs:
           """).strip()
 
           payload = {
-              "model": "claude-sonnet-4-6",
+              "model": "claude-sonnet-4-20250514",
               "max_tokens": 4096,
               "messages": [{"role": "user", "content": prompt}],
           }
@@ -170,18 +181,8 @@ jobs:
               },
               method="POST",
           )
-          try:
-              with urllib.request.urlopen(req, timeout=120) as resp:
-                  body = json.loads(resp.read())
-          except urllib.error.HTTPError as e:
-              err_body = (e.read() or b"")
-              if e.code in (400, 404) and b"model" in err_body.lower():
-                  pathlib.Path("/tmp/autofix.patch").write_text("TOO_COMPLEX")
-                  print(f"Model {payload['model']} not available on Anthropic API "
-                        f"(HTTP {e.code}). Degrading to TOO_COMPLEX so an issue is filed.")
-                  sys.exit(0)
-              print(f"::warning::Anthropic API error: HTTP {e.code}: {err_body[:200]!r}")
-              raise
+          with urllib.request.urlopen(req, timeout=120) as resp:
+              body = json.loads(resp.read())
 
           # Handle both streaming and non-streaming response formats
           if "content" in body and isinstance(body["content"], list):
