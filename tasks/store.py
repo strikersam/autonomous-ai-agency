@@ -392,6 +392,39 @@ class TaskStore:
                 task_id, stale_threshold_s,
             )
 
+        # Second pass: TODO tasks that were never queued for an agent run
+        # (pending_agent_run=False). These are stranded the moment they exist —
+        # the dispatcher only picks up pending_agent_run=True — so re-queue them
+        # regardless of staleness (CodeRabbit #724).
+        if self._mode == "mongo":
+            cursor = self._collection.find(
+                {"status": TaskStatus.TODO.value, "pending_agent_run": False},
+                {"_id": 0},
+            )
+            unqueued_todo = await cursor.to_list(length=500)
+        else:
+            unqueued_todo = [
+                v for v in self._mem.values()
+                if v.get("status") == TaskStatus.TODO.value
+                and v.get("pending_agent_run") is False
+            ]
+
+        for doc in unqueued_todo:
+            task_id = doc.get("task_id") or doc.get("_id")
+            if not task_id or task_id in active:
+                continue
+            task = Task.model_validate(doc)
+            task.pending_agent_run = True
+            task.add_log(
+                "Task re-queued by reconciler (TODO was never queued for an agent run)",
+                event_type="reconciled",
+                actor="system:reconciler",
+                task_status=TaskStatus.TODO,
+            )
+            await self.update(task)
+            reconciled += 1
+            log.info("Reconciler: re-queued unqueued TODO task %s", task_id)
+
         if reconciled:
             log.info("Reconciler: reset %d stranded task(s) to TODO/pending", reconciled)
         return reconciled

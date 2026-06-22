@@ -674,14 +674,10 @@ def main() -> None:
         if not success and turns >= MAX_TURNS:
             summary = f"Agent hit turn limit ({MAX_TURNS}) without completing"
 
-    # Optional fallback: Claude Opus via Anthropic, only if NVIDIA did not finish.
-    if not success and anthropic_key:
-        log.info("[agent] NVIDIA did not complete — trying Anthropic Claude Opus fallback")
-        final_model = OPUS_MODEL
-        try:
-            success, summary, turns = _run_anthropic_agent_loop(anthropic_key, user_msg)
-        except Exception as exc:
-            log.exception("[agent] Anthropic fallback failed: %s", exc)
+    # NVIDIA NIM is the sole engine. The Anthropic/Opus fallback was removed: it
+    # silently burned paid credits whenever NVIDIA failed. If NVIDIA can't finish
+    # the run fails loudly so the operator can act, rather than escalating to a
+    # paid provider behind the operator's back.
 
     result = {"success": success, "summary": summary, "turns": turns}
     with open(RESULT_FILE, "w") as f:

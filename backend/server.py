@@ -3498,6 +3498,41 @@ async def _get_provider_policy() -> dict:
     return {"allow_paid": False, "surfaces": {}}
 
 
+# Per-surface routing knobs exposed by the Providers screen. "auto" = let the
+# router decide; operators can pin a surface to a specific provider class.
+_POLICY_SURFACES: tuple[str, ...] = (
+    "brain", "ceo", "chat", "task", "sdlc", "scanner", "context", "review",
+)
+
+
+class ProviderPolicyUpdate(BaseModel):
+    """Editable subset of the durable provider policy (paid-provider kill switch)."""
+
+    allow_paid: bool = Field(
+        default=False,
+        description="When false, paid providers (Anthropic) are NEVER auto-selected",
+    )
+    surfaces: dict[str, str] = Field(
+        default_factory=lambda: {s: "auto" for s in _POLICY_SURFACES},
+        description="Per-surface routing override; 'auto' lets the router decide",
+    )
+
+
+async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
+    """Persist the durable provider policy and return the new state."""
+    now = datetime.now(timezone.utc).isoformat()
+    await get_db().providers.update_one(
+        {"provider_id": "provider_policy"},
+        {"$set": {
+            "allow_paid": update.allow_paid,
+            "surfaces": update.surfaces,
+            "updated_at": now,
+        }},
+        upsert=True,
+    )
+    return {"allow_paid": update.allow_paid, "surfaces": update.surfaces}
+
+
 def _chat_provider_policy(
     *, allow_commercial_fallback_once: bool = False
 ) -> dict[str, bool]:
@@ -7421,6 +7456,25 @@ except Exception as _mcp_err:
 # ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
 
+# Path prefixes (NO leading slash — FastAPI's {full_path:path} converter strips
+# it) that belong to the API/auth surface and must NEVER fall through to the SPA
+# catch-all. Without this guard, an anonymous GET to an orphan route under any of
+# these (e.g. /v1/models, /admin/keys, /telegram/webhook) returned 200 with the
+# React index.html instead of 401/404 JSON. Kept at module scope so tests and
+# downstream code can reference it regardless of whether the build dir exists.
+SPA_PROTECTED_PREFIXES: tuple[str, ...] = (
+    "api/",
+    "v1/",
+    "v2/",
+    "agent/",
+    "admin/",
+    "workflow/",
+    "runtimes/",
+    "ui/",
+    "telegram/",
+    "mcp-internal/",
+)
+
 _FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
 
 if _FRONTEND_BUILD.exists():
@@ -7430,21 +7484,10 @@ if _FRONTEND_BUILD.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
-
-
-_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
-
-if _FRONTEND_BUILD.exists():
-    app.mount(
-        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
+        # API/auth paths that reached the catch-all have no upstream handler —
+        # return 404 JSON rather than leaking the SPA shell to a protected route.
+        if any(full_path.startswith(p) for p in SPA_PROTECTED_PREFIXES):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
         index = _FRONTEND_BUILD / "index.html"
         if index.exists():
             return HTMLResponse(index.read_text())

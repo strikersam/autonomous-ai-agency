@@ -200,6 +200,85 @@ async def _resolve_brain_provider(
     )
 
 
+async def resolve_provider_for(
+    surface: str,
+) -> tuple[str, dict | None, str | None]:
+    """Resolve the LLM endpoint for a named surface (task/chat/ceo/sdlc/…).
+
+    Honours the per-surface assignment in the provider policy, but the paid
+    kill-switch always wins: when ``allow_paid`` is False, paid (Anthropic)
+    providers are skipped even if the surface explicitly assigns one — this is
+    the cost-critical contract that prevents silent credit burn. Falls back to
+    the highest-priority free provider, then local Ollama.
+
+    Returns ``(openai_compatible_base_url, auth_headers_or_None, model_or_None)``.
+    """
+    from backend.server import (
+        _get_provider_policy,
+        _list_configured_provider_records,
+    )
+
+    try:
+        policy = await _get_provider_policy()
+    except Exception:
+        policy = {"allow_paid": False, "surfaces": {}}
+    allow_paid = bool(policy.get("allow_paid", False))
+    preferred = (policy.get("surfaces") or {}).get(surface)
+
+    records = list(await _list_configured_provider_records())
+
+    def _prio(rec: dict) -> int:
+        try:
+            return int(rec.get("priority") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    records.sort(key=_prio, reverse=True)
+
+    def _is_paid(rec: dict) -> bool:
+        return str(rec.get("type") or "").lower() in ("anthropic", "emergent-anthropic")
+
+    def _build(rec: dict) -> tuple[str, dict | None, str | None]:
+        base = str(rec.get("base_url") or "").strip().rstrip("/")
+        rtype = str(rec.get("type") or "").lower()
+        key = str(rec.get("api_key") or "").strip()
+        if rtype != "anthropic" and not base.endswith("/v1"):
+            base = f"{base}/v1"
+        if rtype == "anthropic":
+            headers = {"x-api-key": key, "anthropic-version": "2023-06-01"} if key else None
+        else:
+            headers = {"Authorization": f"Bearer {key}"} if key else None
+        model = str(rec.get("default_model") or "").strip() or None
+        return base, headers, model
+
+    # Candidate order: the surface's explicit assignment first (unless "auto"),
+    # then everything else by descending priority.
+    ordered: list[dict] = []
+    if preferred and preferred != "auto":
+        ordered += [r for r in records if r.get("provider_id") == preferred]
+    ordered += [r for r in records if r not in ordered]
+
+    for rec in ordered:
+        if not str(rec.get("base_url") or "").strip():
+            continue
+        rtype = str(rec.get("type") or "").lower()
+        if rtype != "ollama" and not str(rec.get("api_key") or "").strip():
+            continue
+        if _is_paid(rec) and not allow_paid:
+            log.debug(
+                "resolve_provider_for(%s): skipping paid provider %r (allow_paid=False)",
+                surface, rec.get("provider_id"),
+            )
+            continue
+        return _build(rec)
+
+    # Local Ollama fallback.
+    return (
+        os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/"),
+        None,
+        None,
+    )
+
 
 def _orchestrator_bypass() -> bool:
     """True when the WorkflowOrchestrator is the caller (bypass deprecation)."""
@@ -751,6 +830,7 @@ class WorkflowOrchestrator:
                         "call approve() to continue",
                         run.run_id,
                     )
+                    await self._notify_approval_gate(run, req)
                     return run
 
             except Exception as exc:
@@ -835,13 +915,32 @@ class WorkflowOrchestrator:
                 run.phase_attempts = snapshot.get("phase_attempts", {})
                 run.approved = snapshot.get("approved", False)
                 run.error = snapshot.get("error")
-                # Restore phase outputs so skip detection works on retry.
-                # Without this every resume re-runs all phases from scratch.
-                for _attr in ("classify","plan","specialist","preflight",
-                              "bound_context","execution","verification",
-                              "judge","summary","persist","monitor"):
+                # Restore phase outputs as their TYPED models (not raw dicts) so
+                # skip-detection and the post-loop run.verification.passed check
+                # work on resume without AttributeError.
+                _phase_models = {
+                    "classify": ClassifyOutput,
+                    "plan": PlanOutput,
+                    "specialist": SpecialistSelection,
+                    "preflight": PreflightReport,
+                    "bound_context": BoundContext,
+                    "execution": ExecutionResult,
+                    "verification": VerificationResult,
+                    "judge": JudgeVerdict,
+                    "summary": SummaryOutput,
+                    "persist": PersistOutput,
+                    "monitor": MonitorOutput,
+                }
+                for _attr, _model in _phase_models.items():
                     _val = snapshot.get(_attr)
-                    if _val is not None:
+                    if _val is None:
+                        continue
+                    if isinstance(_val, dict):
+                        try:
+                            setattr(run, _attr, _model(**_val))
+                        except Exception:
+                            setattr(run, _attr, _val)
+                    else:
                         setattr(run, _attr, _val)
                 # Restore _request so supervisor can requeue without losing the original task.
                 _req_dict = snapshot.get("_request")
@@ -851,6 +950,17 @@ class WorkflowOrchestrator:
                     except Exception:
                         pass
                 self._runs[run_id] = run
+                # A checkpointed run with no persisted request can never be
+                # resumed (execute() needs req.user_id/company_id). Mark it
+                # failed instead of leaving it queued for the supervisor to
+                # crash on execute(None, ...).
+                if run._request is None and run.status in ("queued", "running", "pending"):
+                    run.status = "failed"
+                    run.error = (
+                        f"Cannot resume run {run_id}: checkpoint has no persisted request"
+                    )
+                    count += 1
+                    continue
                 # Re-enqueue queued/pending runs so they resume execution.
                 if run.status in ("queued", "running", "pending") and run._request is not None:
                     try:
@@ -889,6 +999,86 @@ class WorkflowOrchestrator:
         run.approved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         log.info("WorkflowOrchestrator: run=%s APPROVED by %s", run_id, approved_by)
         return run
+
+    async def update_task(
+        self,
+        run_id: str,
+        *,
+        additional_instructions: str,
+        operator: str | None = None,
+    ) -> WorkflowRun:
+        """Inject additional instructions into an in-flight run (no state change).
+
+        Backs the bot's ``/redirect <run_id> <instruction>`` command and the
+        ``POST /api/workflow/orchestrator/update-task/{run_id}`` endpoint. The
+        latest instruction wins (idempotent overwrite), pre-existing metadata is
+        preserved, and the run is checkpointed so the redirect survives a
+        restart. Raises ``KeyError`` for an unknown run and ``ValueError`` for a
+        terminal run or one with no original request.
+        """
+        run = self._runs.get(run_id)
+        if run is None:
+            raise KeyError(f"WorkflowRun {run_id!r} not found")
+        if run.status in ("done", "failed", "cancelled"):
+            raise ValueError(
+                f"Run {run_id} is {run.status!r} (terminal) — cannot update_task"
+            )
+        if run._request is None:
+            raise ValueError(
+                f"Run {run_id} has no original request to update"
+            )
+
+        meta = dict(getattr(run._request, "metadata", None) or {})
+        meta["additional_instructions"] = additional_instructions
+        if operator is not None:
+            meta["updated_by"] = operator
+        meta["updated_at_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        run._request.metadata = meta
+
+        log.info(
+            "WorkflowOrchestrator: run=%s updated by %s (+%d chars of instructions)",
+            run_id, operator, len(additional_instructions or ""),
+        )
+        await self._get_checkpoint_store().save(run)
+        return run
+
+    async def _notify_approval_gate(self, run: WorkflowRun, req: Any) -> None:
+        """Push a Telegram approval-gate notification when a run pauses (Charter G1).
+
+        Bridges the orchestrator's ApprovalGate to the bot's [Approve]/[Reject]
+        callbacks. Always non-fatal: a notification failure must never break the
+        pause itself.
+        """
+        try:
+            goal = ""
+            plan_steps: list[str] = []
+            risk_reason = ""
+            if run.plan is not None:
+                goal = getattr(run.plan, "goal", "") or ""
+                for step in (getattr(run.plan, "steps", None) or []):
+                    if isinstance(step, dict):
+                        plan_steps.append(str(step.get("description", "")))
+                    else:
+                        plan_steps.append(str(step))
+                if getattr(run.plan, "requires_risky_review", False):
+                    risk_reason = "Plan flagged for risky-module review"
+            if not goal:
+                goal = str(getattr(req, "request", "") or "")
+
+            import telegram_service
+            dispatcher = telegram_service.NotificationDispatcher()
+            dispatcher.send_approval_gate(
+                run_id=run.run_id,
+                company_id=run.company_id,
+                goal=goal,
+                plan_steps=plan_steps,
+                risk_reason=risk_reason,
+            )
+        except Exception as exc:  # noqa: BLE001 — notification is best-effort
+            log.warning(
+                "WorkflowOrchestrator: approval-gate notification failed for run=%s: %s",
+                getattr(run, "run_id", "?"), exc,
+            )
 
     def get_run(self, run_id: str) -> WorkflowRun | None:
         return self._runs.get(run_id)

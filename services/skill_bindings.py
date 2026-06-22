@@ -310,7 +310,7 @@ class SkillBindings:
                 SkillInput(name="request", type="dict", description="The request to normalize for the target harness"),
             ],
             outputs=SkillOutput(type="dict", description="Normalized request for the target harness"),
-            specialist_families=["engineering", "devops", "architecture", "fullstack"],
+            specialist_families=["engineering", "devops", "architecture", "fullstack", "delivery"],
             capabilities_added=["cross_harness_routing", "harness_normalization", "session_lifecycle"],
             trigger_keywords=["harness", "cursor", "codex", "cross-harness", "ECC", "multi-IDE"],
             source="local",

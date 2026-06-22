@@ -103,7 +103,9 @@ class MemoryKernel:
         row = conn.execute("SELECT * FROM facts WHERE fact_id = ?", (fid,)).fetchone()
         if row:
             new_count = row["reinforcement_count"] + 1
-            new_conf = min(1.0, row["confidence"] + 0.1)
+            # Reinforcement raises confidence above the initial 1.0 (capped at
+            # 2.0) so repeatedly-confirmed facts outrank single-mention ones.
+            new_conf = min(2.0, row["confidence"] + 0.1)
             conn.execute(
                 "UPDATE facts SET updated_at=?, reinforcement_count=?, confidence=? WHERE fact_id=?",
                 (now, new_count, new_conf, fid),
@@ -163,7 +165,7 @@ class MemoryKernel:
             conn = self._get_conn()
             conn.execute(
                 "UPDATE facts SET reinforcement_count = reinforcement_count + 1, "
-                "confidence = MIN(1.0, confidence + 0.1), updated_at = ? WHERE fact_id = ?",
+                "confidence = MIN(2.0, confidence + 0.1), updated_at = ? WHERE fact_id = ?",
                 (time.time(), fact_id),
             )
             conn.commit()
