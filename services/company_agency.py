@@ -415,9 +415,9 @@ class CompanyAgencyService:
                     family = schedule_def["specialist_family"]
                     runtime_id = self.resolve_runtime_for_family(family)
 
-                    schedule_name = (
-                        f"company:{company_id}:{schedule_def['name_suffix']}"
-                    )
+                    # Use company name (not ID) so the schedule list is human-readable.
+                    _co_label = (company.name or company_id).replace(" ", "-").lower()
+                    schedule_name = f"company:{_co_label}:{schedule_def['name_suffix']}"
 
                     # Idempotency: check if this schedule already exists.
                     # If it does, skip creation and record it (don't error).

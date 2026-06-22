@@ -359,6 +359,20 @@ jobs:
             echo "No file changes detected after implementation."
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
+            # ── Stub-only guard: reject PRs that only add docs/context/ files ──
+            # The issue-context-generator creates docs/context/issue-NNN.md stubs.
+            # Real implementations must change at least one non-context file.
+            # If the only staged changes are under docs/context/ this is a stub
+            # masquerading as an implementation — fail loudly instead of merging.
+            NON_CONTEXT=$(git diff --staged --name-only | grep -v '^docs/context/' | wc -l)
+            CONTEXT_ONLY=$(git diff --staged --name-only | grep '^docs/context/' | wc -l)
+            if [ "$NON_CONTEXT" -eq 0 ] && [ "$CONTEXT_ONLY" -gt 0 ]; then
+              echo "::error::STUB-ONLY PR detected — all ${CONTEXT_ONLY} changed file(s) are under docs/context/. This is a context stub, not an implementation. Aborting to prevent merge of empty work."
+              git diff --staged --name-only
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          
             SUMMARY=$(python3 -c "
           import json, sys
           try:
