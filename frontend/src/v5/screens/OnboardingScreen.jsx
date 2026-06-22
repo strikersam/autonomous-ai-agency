@@ -416,8 +416,8 @@ function DetailsStep({ onNext, onBack, companyId }) {
     const validCreds = creds.filter(c => c.service.trim() && c.key.trim());
     for (const c of validCreds) {
       try {
-        await API.post('/api/setup/secret', {
-          name: `onboarding_${c.service.trim().toLowerCase().replace(/\\s+/g, '_')}`,
+        await api.API.post('/api/setup/secret', {
+          name: `onboarding_${c.service.trim().toLowerCase().replace(/\s+/g, '_')}`,
           value: c.key.trim(),
           description: `API credential for ${c.service.trim()} (entered during onboarding)`,
         });

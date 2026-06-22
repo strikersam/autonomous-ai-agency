@@ -855,8 +855,9 @@ class SeoAuditEngine:
 
         # ---- Fast-fail: check root page for bot protection before crawling ----
         # (BUG-26). Cloudflare/Akamai-protected sites (gucci.com, etc.) return a
-        # non-200 status and/or challenge headers.  Failing fast saves 90–120s of
+        # non-200 status and/or challenge headers.  Failing fast saves 90-120s of
         # timeout-driven crawl retries and gives the operator a clear reason.
+        root_headers: Dict[str, str] = {}
         try:
             root_result = await fetcher.get(root)
             root_status = root_result.status_code
