@@ -3324,7 +3324,7 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
 
     alias_entries = [
 
-        {"id": alias, "object": "model", "owned_by": "llm-relay-alias", "description": f"Alias → {_get_model_map().get(alias, alias)}"}
+        {"id": alias, "object": "model", "owned_by": "autonomous-ai-agency-alias", "description": f"Alias → {_get_model_map().get(alias, alias)}"}
 
         for alias in _get_model_map()
 

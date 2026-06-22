@@ -5726,6 +5726,138 @@ async def get_public_kpis() -> dict:
     }
 
 
+@app.get("/api/autonomy/status")
+async def autonomy_status() -> dict[str, object]:
+    """Public autonomy readiness probe — no authentication required.
+
+    A live deploy that is missing its brain key (``NVIDIA_API_KEY``) leaves
+    every agent task with no LLM to reason with, which otherwise manifests as
+    "nothing happens" with no visible cause. This probe makes that state
+    explicit so a misconfigured deploy is diagnosable from the outside.
+
+    The shape is a stable contract (see ``tests/test_autonomy_status.py``):
+    ``brain`` (resolution + configured flag), ``loops`` (per-loop running
+    state), ``loops_running`` (any loop alive), ``missing_secrets`` (env vars
+    the operator still needs to set), and ``status`` — one of ``no_brain``,
+    ``idle``, ``partial``, or ``autonomous``.
+    """
+    import datetime
+    import importlib
+
+    # ── Brain resolution (read env fresh; never the cached resolver, so this
+    #    probe reflects the live environment rather than a startup snapshot). ──
+    brain: dict[str, object]
+    missing_secrets: list[str] = []
+    try:
+        from brain_policy import resolve_free_nvidia_brain
+        nvidia = resolve_free_nvidia_brain()
+    except Exception:  # pragma: no cover - defensive
+        log.exception("autonomy_status: NVIDIA brain resolution failed")
+        nvidia = None
+
+    if nvidia is not None:
+        nv_base, _nv_headers, nv_model = nvidia
+        brain = {
+            "configured": True,
+            "provider": "nvidia-nim",
+            "model": nv_model,
+            "base_url": nv_base,
+        }
+    else:
+        brain = {
+            "configured": False,
+            "provider": None,
+            "model": None,
+            "base_url": None,
+        }
+        missing_secrets.append("NVIDIA_API_KEY")
+
+    # ── Autonomy loops: report each engine's live running state. Under a bare
+    #    TestClient (no lifespan startup) none are bootstrapped, so they read
+    #    as not-running rather than erroring. ──
+    loop_specs = (
+        ("log_monitor", "agent.log_monitor", "get_log_monitor"),
+        ("self_healing", "agent.self_healing", "get_self_healing_agent"),
+        ("improvement_loop", "agent.improvement_loop", "get_improvement_loop"),
+        ("trend_watcher", "agent.trend_watcher", "get_trend_watcher"),
+    )
+    loops: dict[str, bool] = {}
+    for name, module_path, getter_name in loop_specs:
+        running = False
+        try:
+            getter = getattr(importlib.import_module(module_path), getter_name)
+            inst = getter()
+            if inst is not None:
+                # Engines that expose a `_running` flag report it; those that
+                # don't (presence == running) default to True when bootstrapped.
+                running = bool(getattr(inst, "_running", True))
+        except Exception:  # pragma: no cover - defensive
+            running = False
+        loops[name] = running
+
+    running_count = sum(1 for v in loops.values() if v)
+    if not brain["configured"]:
+        status = "no_brain"
+    elif running_count == 0:
+        status = "idle"
+    elif running_count == len(loops):
+        status = "autonomous"
+    else:
+        status = "partial"
+
+    return {
+        "status": status,
+        "brain": brain,
+        "loops": loops,
+        "loops_running": running_count > 0,
+        "missing_secrets": missing_secrets,
+        "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.post("/api/webhooks/github")
+async def github_webhook(request: Request) -> dict[str, object]:
+    """Public GitHub webhook sink → autonomous issue intake (Charter G3).
+
+    HMAC-verified against ``GITHUB_WEBHOOK_SECRET``: with no secret configured
+    the route refuses (503) rather than accepting unauthenticated payloads;
+    unsigned or tampered payloads are rejected (401). Valid ``issues`` events
+    are turned into board tasks via :func:`tasks.issue_intake.intake_issue`.
+    This is a thin shell — all logic lives in that module so it stays
+    unit-testable without HTTP.
+    """
+    secret = (os.environ.get("GITHUB_WEBHOOK_SECRET") or "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="GITHUB_WEBHOOK_SECRET not configured")
+
+    raw = await request.body()
+    from tasks.issue_intake import intake_issue, verify_signature
+
+    if not verify_signature(secret, raw, request.headers.get("X-Hub-Signature-256")):
+        raise HTTPException(status_code=401, detail="invalid webhook signature")
+
+    event = request.headers.get("X-GitHub-Event", "")
+    if event == "ping":
+        return {"ok": True, "pong": True}
+    if event != "issues":
+        return {"ok": True, "skipped": f"unhandled event: {event}"}
+
+    try:
+        payload = json.loads(raw or b"{}")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON payload") from exc
+
+    try:
+        task = await intake_issue(payload)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.exception("github_webhook: issue intake failed")
+        raise HTTPException(status_code=500, detail="issue intake failed") from exc
+
+    if task is None:
+        return {"ok": True, "intake": "skipped"}
+    return {"ok": True, "intake": "created", "task_id": task.task_id}
+
+
 @app.get("/api/status")
 async def system_status(user: dict = Depends(get_current_user)) -> dict[str, object]:
     """Authenticated system status summary for the Doctor screen."""
