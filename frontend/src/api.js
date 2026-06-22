@@ -443,6 +443,7 @@ export const deleteMcpServer  = (id)       => API.delete(`/api/mcp/servers/${id}
 // Skills Registry
 export const listSkills           = (params = {})  => API.get('/api/skills', { params });
 export const refreshSkills        = ()              => API.post('/api/skills/refresh');
+export const discoverRemoteSkills = ()              => API.get('/api/skills/discover');
 export const recommendSkills      = (data)          => API.post('/api/skills/recommend', data);
 export const autoRecommendSkills  = (params = {})   => API.get('/api/skills/recommend/auto', { params });
 export const getSkill             = (skillId)       => API.get(`/api/skills/${encodeURIComponent(skillId)}`);

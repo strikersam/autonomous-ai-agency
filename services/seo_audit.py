@@ -853,6 +853,44 @@ class SeoAuditEngine:
         llms_txt, llms_status = await fetcher.get_text(f"{base}/llms.txt")
         llms_present = llms_status == 200 and bool(llms_txt.strip()) and "<html" not in llms_txt[:500].lower()
 
+        # ---- Fast-fail: check root page for bot protection before crawling ----
+        # (BUG-26). Cloudflare/Akamai-protected sites (gucci.com, etc.) return a
+        # non-200 status and/or challenge headers.  Failing fast saves 90–120s of
+        # timeout-driven crawl retries and gives the operator a clear reason.
+        try:
+            root_result = await fetcher.get(root)
+            root_status = root_result.status_code
+            root_headers = dict(root_result.headers)
+            bot_block_codes = (403, 429, 503)
+            bot_headers = {"cf-ray", "x-served-by", "server"}
+            is_bot_block = root_status in bot_block_codes
+            if not is_bot_block:
+                for h in bot_headers:
+                    val = (root_headers.get(h) or "").lower()
+                    if "cloudflare" in val or "akamai" in val:
+                        is_bot_block = True
+                        break
+            if is_bot_block and root_result.text:
+                html_lower = root_result.text[:2000].lower()
+                if any(kw in html_lower for kw in (
+                    "cf-browser-verification", "cf-challenge", "cf-captcha",
+                    "attention required", "please enable javascript",
+                    "checking your browser", "ddos protection",
+                )):
+                    return SeoAuditReport(
+                        audit_id=audit_id, company_id=company_id, website_url=root,
+                        status="failed",
+                        error=(
+                            f"Root URL returned HTTP {root_status} with bot-protection "
+                            "challenge (Cloudflare/Akamai). The SEO audit requires "
+                            "unrestricted HTTP access; set fetch_mode='browser' to "
+                            "bypass JS challenges."
+                        ),
+                        started_at=started, completed_at=datetime.now(timezone.utc),
+                    )
+        except Exception as exc:  # noqa: BLE001 — fast-fail is best-effort
+            log.debug("SEO fast-fail preflight error (non-fatal): %s", exc)
+
         # ---- BFS crawl -------------------------------------------------------------
         queue: "OrderedDict[str, int]" = OrderedDict()
         queue[root] = 0
@@ -866,7 +904,6 @@ class SeoAuditEngine:
         redirect_map: Dict[str, str] = {}      # requested -> final
         status_map: Dict[str, int] = {}
         pages_failed = 0
-        root_headers: Dict[str, str] = {}
         semaphore = asyncio.Semaphore(CRAWL_CONCURRENCY)
 
         async def fetch_page(url: str, depth: int) -> Optional[PageFindings]:
