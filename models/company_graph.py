@@ -40,7 +40,8 @@ SystemType = Literal[
     "analytics", "payment_gateway", "shipping", "tax", "inventory",
     "marketing_automation", "email_service", "search", "database",
     "cache", "cdc", "message_queue", "api_gateway", "auth", "billing",
-    "support", "chat", "video", "voice", "iot", "ai_ml", "custom"
+    "support", "chat", "video", "voice", "iot", "ai_ml",
+    "frontend", "backend", "custom",
 ]
 
 # Specialist families for dynamic provisioning
