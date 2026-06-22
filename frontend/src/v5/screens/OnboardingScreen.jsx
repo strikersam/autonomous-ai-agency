@@ -209,9 +209,18 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
   const [progress, setProgress] = React.useState(0);
   const [errorText, setErrorText] = React.useState('');
   const mountedRef = React.useRef(true);
-  // BUG-15: guard the progressTimer interval so it doesn't keep calling
-  // setProgress after the DiscoveryStep unmounts mid-scan.
-  React.useEffect(() => () => { mountedRef.current = false; }, []);
+  const progressTimerRef = React.useRef(null);
+  // BUG-15: guard the progressTimer interval so it doesn't keep running
+  // after the DiscoveryStep unmounts mid-scan. The ref tracks the interval
+  // ID so the cleanup can clear it; without this the interval ticks every
+  // 300ms forever even though mountedRef blocks setState.
+  React.useEffect(() => () => {
+    mountedRef.current = false;
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+  }, []);
   const msgs = ['Registering company context...','Fetching page source...','Parsing JS bundles...','Detecting platforms...','Identifying data tools...','Almost done...'];
   const msgIdx = Math.min(Math.floor((progress/100)*msgs.length), msgs.length-1);
 
@@ -254,7 +263,7 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
 
     // Step 2: Animate progress while the real scan runs.
     let p = 5;
-    const progressTimer = setInterval(() => {
+    progressTimerRef.current = setInterval(() => {
       if (!mountedRef.current) return;
       p = Math.min(p + 12, 88);
       setProgress(p);
@@ -266,7 +275,8 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
       if (!cid) { setScanning(false); setErrorText('Company ID not found after creation.'); return; }
 
       const scanRes = await api.scanWebsite(cid, url);
-      clearInterval(progressTimer);
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
 
       const rawSystems = Array.isArray(scanRes?.data?.detected_systems)
         ? scanRes.data.detected_systems
@@ -303,7 +313,8 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
         onNext(detectedList, cid);
       }, 350);
     } catch (e) {
-      clearInterval(progressTimer);
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
       setScanning(false);
       setProgress(0);
       setErrorText('Website scan failed: ' + (api.fmtErr(e?.response?.data?.detail) || e?.message || 'Something went wrong.'));
