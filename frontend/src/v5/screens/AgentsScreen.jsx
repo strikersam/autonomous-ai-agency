@@ -592,7 +592,7 @@ function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
     const seenNames = new Set(backendAgents.map(a => (a.name || '').toLowerCase()));
     const builtins = BUILTIN_AGENT_DEFS
       .filter(b => !seenIds.has(b.id) && !seenNames.has(b.name.toLowerCase()))
-      .map(a => ({ ...a, status:'idle', currentTask:null, tasksWeek: agentTaskStats.weekTotal || 0, avgMs: agentTaskStats.avgMs || 0, lastRun: agentLastRun[a.id] || '—', origin:'builtin' }));
+      .map(a => ({ ...a, status:'idle', currentTask:null, tasksWeek: agentTaskStats.weekTotal || 0, avgMs: agentTaskStats.avgMs || 0, displayAvg: agentTaskStats.avgMs > 0 ? (agentTaskStats.avgMs >= 1000 ? `${(agentTaskStats.avgMs / 1000).toFixed(1)}s` : `${agentTaskStats.avgMs}ms`) : '—', lastRun: agentLastRun[a.id] || '—', origin:'builtin' }));
     return [...builtins, ...backendAgents];
   }, [backendAgents, agentLastRun, agentTaskStats]);
 
