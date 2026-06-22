@@ -537,6 +537,13 @@ class PersistentMemoryStore:
                 "category_breakdown": {row["category"]: row["count"] for row in category_breakdown},
             }
 
+    # ── lifecycle ─────────────────────────────────────────────────────────
+
+    def close(self) -> None:
+        with self._lock, self._connect() as conn:
+            conn.execute("PRAGMA optimize")
+            conn.commit()
+
     # ── private helpers ───────────────────────────────────────────────────────
 
     def _log_access(self, conn: sqlite3.Connection, user_id: str, key: str) -> None:
