@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   GitFork as Github, FolderOpen, FileText, GitBranch, GitPullRequest,
   ChevronRight, ChevronDown, Loader2, Plus, RefreshCw,
@@ -141,6 +141,8 @@ function FileEditor({ owner, repo, branch, filePath, onCommitted }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [saved, setSaved] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -168,7 +170,7 @@ function FileEditor({ owner, repo, branch, filePath, onCommitted }) {
       // Update SHA so the next save doesn't fail with a stale SHA conflict
       if (data.file_sha) setSha(data.file_sha);
       onCommitted && onCommitted(filePath, commitMsg);
-      setTimeout(() => setSaved(false), 3000);
+      setTimeout(() => { if (mountedRef.current) setSaved(false); }, 3000);
     } catch (e) {
       setErr(fmtErr(e?.response?.data?.detail) || e.message);
     } finally {

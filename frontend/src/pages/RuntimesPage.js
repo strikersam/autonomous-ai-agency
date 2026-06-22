@@ -4,7 +4,7 @@
  * Shows all registered runtimes with health status, capabilities,
  * tier classification, and allows running tasks directly on a runtime.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Cpu, CheckCircle, XCircle, AlertCircle, RefreshCw,
   Loader2, Zap, ChevronDown, PlayCircle, Shield, Power, PowerOff,
@@ -40,7 +40,9 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
   const [result, setResult] = useState(null);
   const [controlLoading, setControlLoading] = useState(false);
   const [controlErr, setControlErr] = useState('');
-  const [optimisticState, setOptimisticState] = useState(null); // 'starting' | 'stopping' | null
+  const [optimisticState, setOptimisticState] = useState(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []); // 'starting' | 'stopping' | null
 
   const h = runtime.health || {};
   const available = h.available;
@@ -82,12 +84,12 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
         setOptimisticState(null);
       } else if (res?.data?.mode === 'local_subprocess') {
         setDockerNote(`Started ${runtime.display_name} locally on ${res.data.base_url}. Refreshing health...`);
-        setTimeout(() => onRefresh?.(), 1500);
-        setTimeout(() => setOptimisticState(null), 4000);
+        setTimeout(() => { if (mountedRef.current) onRefresh?.(); }, 1500);
+        setTimeout(() => { if (mountedRef.current) setOptimisticState(null); }, 4000);
       } else {
         setDockerNote('Success: Start signal sent to ' + runtime.display_name);
-        setTimeout(() => onRefresh?.(), 2000);
-        setTimeout(() => setOptimisticState(null), 4000);
+        setTimeout(() => { if (mountedRef.current) onRefresh?.(); }, 2000);
+        setTimeout(() => { if (mountedRef.current) setOptimisticState(null); }, 4000);
       }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start runtime');
@@ -115,12 +117,12 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
         setOptimisticState(null);
       } else if (res?.data?.mode === 'local_subprocess') {
         setDockerNote(`Stopped ${runtime.display_name} local process.`);
-        setTimeout(() => onRefresh?.(), 1500);
-        setTimeout(() => setOptimisticState(null), 4000);
+        setTimeout(() => { if (mountedRef.current) onRefresh?.(); }, 1500);
+        setTimeout(() => { if (mountedRef.current) setOptimisticState(null); }, 4000);
       } else {
         setDockerNote('Success: Stop signal sent to ' + runtime.display_name);
-        setTimeout(() => onRefresh?.(), 2000);
-        setTimeout(() => setOptimisticState(null), 4000);
+        setTimeout(() => { if (mountedRef.current) onRefresh?.(); }, 2000);
+        setTimeout(() => { if (mountedRef.current) setOptimisticState(null); }, 4000);
       }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop runtime');
@@ -300,6 +302,8 @@ export default function RuntimesPage() {
   const [error, setError] = useState('');
   const [controlLoading, setControlLoading] = useState(false);
   const [success, setSuccess] = useState('');
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const load = useCallback(async (forceVerify = false) => {
     setLoading(true);
@@ -341,7 +345,7 @@ export default function RuntimesPage() {
         load();
       } else {
         setSuccess(anyLocal ? 'Runtimes started locally via subprocess. Refreshing health...' : 'All eligible runtimes are starting.');
-        setTimeout(() => { setSuccess(''); load(); }, 3000);
+        setTimeout(() => { if (mountedRef.current) { setSuccess(''); load(); } }, 3000);
       }
     } catch (e) {
       setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start all runtimes');
@@ -374,7 +378,7 @@ export default function RuntimesPage() {
         load();
       } else {
         setSuccess(anyLocal ? 'Runtimes stopped locally. Refreshing health...' : 'All eligible runtimes are stopping.');
-        setTimeout(() => { setSuccess(''); load(); }, 3000);
+        setTimeout(() => { if (mountedRef.current) { setSuccess(''); load(); } }, 3000);
       }
     } catch (e) {
       setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop all runtimes');

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Calendar, Play, Pause, Plus, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
 import { listSchedules, createSchedule, triggerSchedule, pauseSchedule, resumeSchedule, fmtErr } from '../api';
 
@@ -137,6 +137,8 @@ export default function SchedulesPage() {
   const [creating, setCreating]   = useState(false);
   const [running, setRunning]     = useState(null);
   const [error, setError]         = useState('');
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -183,7 +185,7 @@ export default function SchedulesPage() {
     } catch (e) {
       setError(fmtErr(e));
     } finally {
-      setTimeout(() => setRunning(r => r === id ? null : r), 2000);
+      setTimeout(() => { if (mountedRef.current) setRunning(r => r === id ? null : r); }, 2000);
     }
   }
 
