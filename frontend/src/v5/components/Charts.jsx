@@ -172,7 +172,8 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
 
 /**
  * ExecutionTimeline — compact Gantt-style timeline for task execution_log entries.
- * Each log entry: { step, status, started_at, ended_at, duration_ms? }
+ * Each log entry from the backend: { event_type, message, task_status, timestamp, ... }
+ * Falls back gracefully to available fields when step/status/duration_ms are absent.
  */
 export function ExecutionTimeline({ log = [] }) {
   const entries = (log || []).filter(Boolean);
@@ -180,25 +181,37 @@ export function ExecutionTimeline({ log = [] }) {
 
   const statusColor = (s) => {
     if (!s) return 'var(--text-muted)';
-    if (s === 'done' || s === 'success') return '#4ade80';
-    if (s === 'failed' || s === 'error') return '#f87171';
-    if (s === 'running') return 'var(--accent)';
+    const lower = String(s).toLowerCase();
+    if (lower === 'done' || lower === 'success' || lower === 'completed') return '#4ade80';
+    if (lower === 'failed' || lower === 'error') return '#f87171';
+    if (lower === 'in_progress' || lower === 'running' || lower === 'todo') return 'var(--accent)';
+    if (lower === 'blocked' || lower === 'in_review') return '#facc15';
     return '#facc15';
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {entries.map((e, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor(e.status), flexShrink: 0 }} />
-          <span style={{ flex: 1, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.step || e.name || ('Step ' + (i + 1))}</span>
-          {(e.duration_ms != null) && (
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', flexShrink: 0 }}>
-              {e.duration_ms < 1000 ? (e.duration_ms + 'ms') : ((e.duration_ms / 1000).toFixed(1) + 's')}
-            </span>
-          )}
-        </div>
-      ))}
+      {entries.map((e, i) => {
+        // BUG-08: backend supplies event_type / message / task_status, not step / status / duration_ms.
+        // Derive a human-readable label and status from whichever fields are present.
+        const label = e.step || e.name || e.event_type || e.message || ('Step ' + (i + 1));
+        const status = e.task_status || e.status || null;
+        const dotColor = statusColor(status);
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+            <span style={{ flex: 1, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+            {(e.duration_ms != null) && (
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', flexShrink: 0 }}>
+                {e.duration_ms < 1000 ? (e.duration_ms + 'ms') : ((e.duration_ms / 1000).toFixed(1) + 's')}
+              </span>
+            )}
+            {!e.duration_ms && e.event_type && (
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', flexShrink: 0, fontSize: 9 }}>{e.event_type.replace(/_/g, ' ')}</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

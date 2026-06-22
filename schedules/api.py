@@ -32,6 +32,7 @@ schedules_router = APIRouter(prefix="/api/schedules", tags=["schedules"])
 
 class ScheduleCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=200)  # BUG-11: human-readable one-liner
     agent_id: str | None = Field(default=None, max_length=64)
     cron: str = Field(..., min_length=9, max_length=100)
     instruction: str = Field(default="", max_length=4000)
@@ -44,6 +45,7 @@ class ScheduleCreateRequest(BaseModel):
 class ScheduleToggleRequest(BaseModel):
     status: Literal["active", "paused"] | None = None
     name: str | None = None  # optional rename
+    description: str | None = None  # BUG-11: optional description update
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -77,6 +79,7 @@ async def create_schedule(body: ScheduleCreateRequest, request: Request) -> dict
     sched = get_scheduler()
     job = sched.create(
         name=body.name,
+        description=body.description,  # BUG-11
         cron=body.cron,
         instruction=body.instruction,
         agent_id=body.agent_id,
@@ -110,6 +113,9 @@ async def toggle_schedule(
             raise KeyError(schedule_id)
         if body.name is not None:
             job = sched.rename(schedule_id, name=body.name)
+        if body.description is not None:  # BUG-11
+            job.description = body.description
+            await sched._persist(job)
         if body.status is not None:
             job = sched.toggle(schedule_id, enabled=(body.status == "active"))
     except KeyError:

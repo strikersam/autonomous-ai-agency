@@ -31,8 +31,13 @@ export function useSafeData(baseUrl, endpoints = {}, options = {}) {
 
     // Route through the shared axios instance so requests inherit the Bearer
     // token and the 401 → refresh-token retry flow from api.js interceptors.
+    // Each fetch carries a per-request timeout so a hung backend endpoint
+    // cannot leave the widget stuck in skeleton-loading forever (BUG-04).
     const results = await Promise.allSettled(
-      keys.map(k => API.get(endpoints[k], baseOverride ? { baseURL: baseOverride } : {}).then(r => r.data))
+      keys.map(k => API.get(endpoints[k], {
+        ...(baseOverride ? { baseURL: baseOverride } : {}),
+        timeout: (refreshMs > 0 ? refreshMs : 30000),  // never exceed the poll interval
+      }).then(r => r.data))
     );
 
     if (!mountedRef.current) return;

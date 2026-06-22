@@ -548,7 +548,13 @@ function ChatScreen() {
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     const selectedAg = agent === 'auto' ? 'dev' : agent;
-    setMessages((prev) => [...prev, { role:'user', content:text }]);
+    // BUG-02: defensive dedup — don't add the same user message twice (prevents
+    // double-bubble when a React re-render or rapid double-submit fires handleSend)
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === 'user' && last.content === text) return prev;
+      return [...prev, { role:'user', content:text }];
+    });
     setSending(true);
     setProgressEvents([]);
     setElapsed(0);

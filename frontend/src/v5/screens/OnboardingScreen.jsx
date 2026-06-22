@@ -412,6 +412,20 @@ function DetailsStep({ onNext, onBack, companyId }) {
       }
     }
 
+    // Service API credentials — persist via secrets store (BUG-25)
+    const validCreds = creds.filter(c => c.service.trim() && c.key.trim());
+    for (const c of validCreds) {
+      try {
+        await api.API.post('/api/setup/secret', {
+          name: `onboarding_${c.service.trim().toLowerCase().replace(/\s+/g, '_')}`,
+          value: c.key.trim(),
+          description: `API credential for ${c.service.trim()} (entered during onboarding)`,
+        });
+      } catch (e) {
+        console.warn('Credential save failed during onboarding (non-blocking)', c.service, e);
+      }
+    }
+
     // Repo scans — always attempt (no preview_co guard)
     try {
       if (companyId) {
@@ -423,13 +437,19 @@ function DetailsStep({ onNext, onBack, companyId }) {
       console.warn('Repo scan failed during onboarding (non-blocking)', e);
     }
 
-    // Save goals to localStorage for later use
+    // Save goals to localStorage AND send to company (BUG-25)
+    const cleanGoals = goals.filter(g => g.trim());
     try {
-      const cleanGoals = goals.filter(g => g.trim());
       if (cleanGoals.length > 0) {
         const stored = JSON.parse(localStorage.getItem('v5_onboarding_details') || '{}');
         stored.goals = cleanGoals;
         localStorage.setItem('v5_onboarding_details', JSON.stringify(stored));
+        // Also send goals to the backend so they become part of the company profile
+        if (companyId) {
+          await api.updateCompany(companyId, {
+            description: cleanGoals.slice(0, 3).join('; '),
+          }).catch(() => {});
+        }
       }
     } catch {}
 

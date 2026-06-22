@@ -66,7 +66,8 @@ class TestWorkspace:
         ws.write_file("sub/b.py", "b")
         files = ws.list_files()
         assert "a.py" in files
-        assert "sub/b.py" in files
+        # Path separators may be OS-native (\\ on Windows); normalize for comparison
+        assert any(os.path.normpath(f) == os.path.normpath("sub/b.py") for f in files)
 
     def test_search_code(self):
         ws = self._ws()
@@ -121,7 +122,12 @@ class TestWorkspace:
     def test_run_command_timeout(self):
         ws = self._ws()
         ws.ensure()
-        result = asyncio.run(ws.run_command("sleep 10", timeout=1))
+        # Commands that sleep > 1s (ping 10× on Windows ~= 10s; sleep on Unix)
+        if os.name == "nt":
+            cmd = "ping -n 11 127.0.0.1 >nul"  # ~10 second delay
+        else:
+            cmd = "sleep 10"
+        result = asyncio.run(ws.run_command(cmd, timeout=1))
         assert result["exit_code"] == -1
         assert "Timed out" in result["stderr"]
 

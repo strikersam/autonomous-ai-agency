@@ -7,7 +7,11 @@ import * as api from '../../api';
 
 function relTime(iso) {
   if (!iso) return '—';
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  const ms = new Date(iso).getTime();
+  // BUG-09: guard against epoch 0 / invalid dates that produce absurd diffs (> 50 years)
+  if (!ms || ms <= 0 || ms < new Date('2024-01-01').getTime()) return '—';
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 0) return '—';
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
@@ -289,7 +293,7 @@ function AgentCard({ agent, onChat, onRun }) {
       <div style={{ display:'flex', gap:10, padding:'8px 0', borderTop:'1px solid rgba(255,255,255,0.06)', borderBottom:'1px solid rgba(255,255,255,0.06)', marginBottom:10 }}>
         {[
           { label:'Week', value:agent.tasksWeek||0 },
-          { label:'Avg', value:agent.avgMs>=1000?`${(agent.avgMs/1000).toFixed(1)}s`:`${agent.avgMs}ms` },
+          { label:'Avg', value:agent.displayAvg || '—' },
           { label:'Last', value:agent.lastRun },
         ].map(m => (
           <div key={m.label} style={{ flex:1 }}>
@@ -508,7 +512,11 @@ function mapBackendAgent(a, agentTaskStats = {}) {
     specializations: a.task_specializations || [],
     origin,
     tasksWeek: agentTaskStats.weekTotal || a.use_count || 0,
+    // BUG-10: show '—' when avgMs is 0 (backend doesn't yet track per-agent duration)
     avgMs: agentTaskStats.avgMs || 0,
+    displayAvg: agentTaskStats.avgMs > 0
+      ? (agentTaskStats.avgMs >= 1000 ? `${(agentTaskStats.avgMs / 1000).toFixed(1)}s` : `${agentTaskStats.avgMs}ms`)
+      : '—',
     lastRun: a.last_used_at ? relTime(a.last_used_at) : '—',
     costPolicy: a.cost_policy || 'local_first',
     desc: a.description || builtin?.desc || '',
@@ -584,7 +592,7 @@ function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
     const seenNames = new Set(backendAgents.map(a => (a.name || '').toLowerCase()));
     const builtins = BUILTIN_AGENT_DEFS
       .filter(b => !seenIds.has(b.id) && !seenNames.has(b.name.toLowerCase()))
-      .map(a => ({ ...a, status:'idle', currentTask:null, tasksWeek: agentTaskStats.weekTotal || 0, avgMs: agentTaskStats.avgMs || 0, lastRun: agentLastRun[a.id] || '—', origin:'builtin' }));
+      .map(a => ({ ...a, status:'idle', currentTask:null, tasksWeek: agentTaskStats.weekTotal || 0, avgMs: agentTaskStats.avgMs || 0, displayAvg: agentTaskStats.avgMs > 0 ? (agentTaskStats.avgMs >= 1000 ? `${(agentTaskStats.avgMs / 1000).toFixed(1)}s` : `${agentTaskStats.avgMs}ms`) : '—', lastRun: agentLastRun[a.id] || '—', origin:'builtin' }));
     return [...builtins, ...backendAgents];
   }, [backendAgents, agentLastRun, agentTaskStats]);
 

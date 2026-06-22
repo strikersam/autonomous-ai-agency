@@ -23,6 +23,13 @@ from backend.server import app as backend_app
 
 
 def _ollama_reachable() -> bool:
+    """Check that Ollama is reachable AND has models loaded.
+
+    A bare TCP connect succeeds even when no models are pulled, which causes
+    the orchestrator tests to fail with 404 at the /v1/chat/completions
+    endpoint. Checking /api/tags ensures at least one model is available.
+    """
+    import urllib.request
     ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
     host = ollama_base.replace("http://", "").replace("https://", "").split(":")[0]
     try:
@@ -32,8 +39,16 @@ def _ollama_reachable() -> bool:
     try:
         s = socket.create_connection((host, port), timeout=2.0)
         s.close()
-        return True
     except OSError:
+        return False
+    # Also verify the API actually serves models (not just a port listener)
+    try:
+        req = urllib.request.Request(f"{ollama_base}/api/tags")
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            import json
+            body = json.loads(resp.read())
+            return bool(body.get("models"))
+    except Exception:
         return False
 
 

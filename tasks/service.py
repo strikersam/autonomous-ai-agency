@@ -1002,8 +1002,10 @@ class TaskExecutionCoordinator:
 
     def _compose_instruction(self, task: Task, agent: AgentDefinition | None) -> str:
         parts: list[str] = []
-        if agent and agent.system_prompt:
-            parts.append(f"System prompt:\n{agent.system_prompt.strip()}")
+        # BUG-07 fix: the system prompt is already available to the runtime via
+        # _build_spec()'s context.agent.system_prompt field. Prepending it here
+        # bloated task comments and logs with the full agent system prompt, making
+        # them unreadable. The instruction should carry only task-specific content.
         parts.append(f"Task title: {task.title}")
         if task.description:
             parts.append(f"Task description:\n{task.description.strip()}")

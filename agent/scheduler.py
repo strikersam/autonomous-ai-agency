@@ -36,6 +36,7 @@ class ScheduledJob:
     cron: str       # standard 5-field cron expression, e.g. "0 9 * * 1"
     instruction: str
     created_at: str
+    description: str | None = None  # BUG-11: human-readable one-liner (max 200 chars)
     agent_id: str | None = None
     runtime_id: str | None = None
     model: str | None = None
@@ -51,6 +52,7 @@ class ScheduledJob:
             "id": self.job_id,
             "job_id": self.job_id,
             "name": self.name,
+            "description": self.description or "",
             "cron": self.cron,
             "schedule": self.cron,
             "instruction": self.instruction,
@@ -76,6 +78,7 @@ class ScheduledJob:
         return cls(
             job_id=d.get("job_id", d.get("id", "")),
             name=d.get("name", ""),
+            description=d.get("description") or None,
             cron=d.get("cron", "0 0 * * *"),
             instruction=d.get("instruction", ""),
             created_at=d.get("created_at", ""),
@@ -129,6 +132,7 @@ class AgentScheduler:
         name: str,
         cron: str,
         instruction: str,
+        description: str | None = None,  # BUG-11
         agent_id: str | None = None,
         runtime_id: str | None = None,
         model: str | None = None,
@@ -157,6 +161,7 @@ class AgentScheduler:
         job = ScheduledJob(
             job_id=job_id,
             name=name,
+            description=description,
             cron=cron,
             instruction=instruction,
             created_at=_now(),
@@ -359,6 +364,7 @@ class AgentScheduler:
                 job = ScheduledJob(
                     job_id=job_id,
                     name=doc.get("name", "restored-job"),
+                    description=doc.get("description") or None,
                     cron=doc.get("cron", "0 0 * * *"),
                     instruction=doc.get("instruction", ""),
                     created_at=doc.get("created_at", _now()),

@@ -263,6 +263,7 @@ function WorkflowVisual() {
 function SkillsScreen() {
   const [skills,      setSkills]      = React.useState(COMMERCE_SKILLS);
   const [liveSkills,  setLiveSkills]  = React.useState(null);   // null = loading
+  const [remoteSkills, setRemoteSkills] = React.useState(null);  // null = not loaded
   const [recommended, setRecommended] = React.useState([]);
   const [techStack,   setTechStack]   = React.useState([]);
   const [wfTypes,     setWfTypes]     = React.useState([]);
@@ -312,6 +313,11 @@ function SkillsScreen() {
         const { data } = await api.listCompanySkills();
         if ((data.skills || []).length > 0) setLiveSkills(data.skills);
       } catch { /* non-critical */ }
+      // Load remote registry skills from GitHub repos (BUG-28)
+      try {
+        const { data } = await api.discoverRemoteSkills();
+        if ((data.skills || []).length > 0) setRemoteSkills(data.skills);
+      } catch { /* non-critical */ }
     };
     load();
   }, [companyId]);
@@ -319,8 +325,12 @@ function SkillsScreen() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      const { data } = await api.listCompanySkills();
-      setLiveSkills(data.skills || []);
+      const [{ data: companyData }, { data: remoteData }] = await Promise.all([
+        api.listCompanySkills(),
+        api.discoverRemoteSkills().catch(() => ({ data: { skills: [] } })),
+      ]);
+      setLiveSkills(companyData.skills || []);
+      if ((remoteData.skills || []).length > 0) setRemoteSkills(remoteData.skills);
       const recPromise = companyId
         ? api.autoRecommendCompanySkills(companyId)
         : api.autoRecommendCompanySkills();
@@ -370,9 +380,11 @@ function SkillsScreen() {
       </div>
 
       {/* Honest preview notice — templates are illustrative; registry comes from the backend */}
-      <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 }}>
-        <strong style={{ color:'var(--accent)' }}>Catalogue Preview.</strong> The commerce skill templates below are <strong>demo illustrations</strong> — toggling is session-only. The <strong>Recommended</strong> and <strong>Registry</strong> tabs call live backend APIs (<code>/api/company/skills</code>) and reflect real specialist skill bindings.
-      </div>
+      {tab === 'catalogue' && (
+        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 }}>
+          <strong style={{ color:'var(--accent)' }}>Catalogue.</strong> The commerce skill templates are <strong>illustrative examples</strong> — toggling is session-only. The <strong>Recommended</strong> and <strong>Registry</strong> tabs call live backend APIs and reflect real specialist skill bindings.
+        </div>
+      )}
 
       {/* Tab switcher — without this the Recommended/Registry (live, domain-aware)
           skills were unreachable and users only ever saw the commerce demo catalogue. */}
@@ -431,21 +443,50 @@ function SkillsScreen() {
       {/* Registry tab */}
       {tab === 'registry' && (
         <div style={{ marginBottom:16 }}>
-          {!liveSkills ? (
-            <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>Click "Refresh registry" to fetch skills from GitHub registries.</div>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+            <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.10em', textTransform:'uppercase' }}>
+              {liveSkills ? `${liveSkills.length} bound · ` : ''}{remoteSkills ? `${remoteSkills.length} remote` : ''}
+            </span>
+            <button onClick={handleRefresh} disabled={refreshing} style={{
+              padding:'4px 12px', borderRadius:999, fontSize:11, fontWeight:600, cursor:'pointer',
+              background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)',
+              color:'var(--accent)', fontFamily:'var(--font-mono)', letterSpacing:'0.04em',
+            }}>{refreshing ? 'Refreshing…' : 'Refresh registry'}</button>
+          </div>
+          {!liveSkills && !remoteSkills ? (
+            <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>Click "Refresh registry" to fetch skills from bound specialists and GitHub registries.</div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {liveSkills.map(skill => (
+              {(liveSkills || []).map(skill => (
                 <div key={skill.skill_id} style={{ padding:'12px 14px', borderRadius:14, background:'rgba(255,255,255,0.025)', border:'1px solid rgba(255,255,255,0.08)' }}>
                   <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:13, fontWeight:700, color:'#fff', marginBottom:2 }}>{skill.name}</div>
                       <div style={{ fontSize:11, color:'var(--text-tertiary)', lineHeight:1.5, marginBottom:4 }}>{skill.description}</div>
                       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-                        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(255,255,255,0.05)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.09em' }}>{skill.source}</span>
+                        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(255,255,255,0.05)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.09em' }}>{skill.source || 'bound'}</span>
                         {(skill.tech_relevance || []).slice(0,3).map(t => (
                           <span key={t} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(93,162,255,0.06)', color:'var(--accent)', border:'1px solid rgba(93,162,255,0.15)' }}>{t}</span>
                         ))}
+                        {skill.calls_last_24h != null && (
+                          <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(70,217,164,0.06)', color:'#46d9a4', border:'1px solid rgba(70,217,164,0.15)' }}>{skill.calls_last_24h} calls/24h</span>
+                        )}
+                      </div>
+                    </div>
+                    {skill.url && (
+                      <a href={skill.url} target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--accent)', textDecoration:'none', flexShrink:0, paddingTop:2 }}>→</a>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {(remoteSkills || []).filter(rs => !(liveSkills || []).some(ls => ls.skill_id === rs.skill_id)).map(skill => (
+                <div key={skill.skill_id} style={{ padding:'12px 14px', borderRadius:14, background:'rgba(255,255,255,0.02)', border:'1px dashed rgba(255,255,255,0.06)' }}>
+                  <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:'var(--text-secondary)', marginBottom:2 }}>{skill.name}</div>
+                      <div style={{ fontSize:11, color:'var(--text-tertiary)', lineHeight:1.5, marginBottom:4 }}>{skill.description}</div>
+                      <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(255,255,255,0.04)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.09em' }}>remote · {skill.source || 'github'}</span>
                       </div>
                     </div>
                     {skill.url && (
