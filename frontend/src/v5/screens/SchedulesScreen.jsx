@@ -10,7 +10,8 @@ import { useSafeData } from '../hooks/useSafeData';
 function relTime(iso) {
   if (!iso) return '—';
   const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '—';
+  // BUG-09: guard against epoch 0 / invalid dates that produce absurd diffs (> 50 years)
+  if (Number.isNaN(t) || t <= 0 || t < new Date('2024-01-01').getTime()) return '—';
   const diff = Math.floor((Date.now() - t) / 1000);
   if (diff < 0) return 'just now';
   if (diff < 60) return `${diff}s ago`;

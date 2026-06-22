@@ -7,7 +7,11 @@ import * as api from '../../api';
 
 function relTime(iso) {
   if (!iso) return '—';
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  const ms = new Date(iso).getTime();
+  // BUG-09: guard against epoch 0 / invalid dates that produce absurd diffs (> 50 years)
+  if (!ms || ms <= 0 || ms < new Date('2024-01-01').getTime()) return '—';
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 0) return '—';
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
