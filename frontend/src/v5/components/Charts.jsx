@@ -204,4 +204,5 @@ export function ExecutionTimeline({ log = [] }) {
 }
 
 // Default export for backward compatibility
-export default { Sparkline, BarChart, Donut, ExecutionTimeline };
+const Charts = { Sparkline, BarChart, Donut, ExecutionTimeline };
+export default Charts;

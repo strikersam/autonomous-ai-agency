@@ -65,6 +65,15 @@ class ExecutionLogEntry(BaseModel):
     def _coerce_timestamp(cls, v: Any) -> Any:
         return _coerce_ts(v)
 
+    def get(self, key: str, default: Any = None) -> Any:
+        """Dict-compatible accessor.
+
+        Log entries are serialized to/from dicts in many places; exposing a
+        ``.get`` lets call sites treat an entry uniformly whether it's a typed
+        ``ExecutionLogEntry`` or a raw dict.
+        """
+        return getattr(self, key, default)
+
 
 class TaskComment(BaseModel):
     """Comment or reply on a task."""

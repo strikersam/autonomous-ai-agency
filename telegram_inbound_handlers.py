@@ -158,9 +158,20 @@ def _build_execution_request(
     *,
     user_id: int,
     text: str,
+    intent: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> Optional[Any]:
     """Build a minimal ``ExecutionRequest`` for plain-text → orchestrator.execute.
+
+    Routine work runs hands-free; the approval gate only fires when the agent
+    can't safely decide on its own. ``auto_approve=True`` requires ALL of:
+      * a confident ``execute_now`` intent (uncertain asks come back as
+        ``clarify_needed`` / ``execute_after_approval`` and keep gating),
+      * an **admin** sender (``telegram_bot.ADMIN_USER_IDS``), and
+      * a **non-sensitive** request (``inbound_router.is_sensitive`` floor, so a
+        classifier miss or prompt-injection can never auto-approve an
+        auth/keys/secrets change).
+    Everything else gates (``auto_approve=False``).
 
     Returns None when the orchestrator module or model is unavailable so the
     caller can fall back to a chat-only reply.
@@ -169,16 +180,35 @@ def _build_execution_request(
         from services.workflow_orchestrator import ExecutionRequest
     except ImportError:
         return None
+
+    try:
+        import telegram_bot as _tb
+        admin_ids = getattr(_tb, "ADMIN_USER_IDS", set()) or set()
+    except Exception:
+        admin_ids = set()
+    is_admin = int(user_id) in admin_ids
+
+    from services import inbound_router as ir
+    auto_approve = (
+        intent == "execute_now"
+        and is_admin
+        and not ir.is_sensitive(text)
+    )
+
     request_meta: dict[str, Any] = {
         "source": "telegram_plain_text",
         "telegram_user_id": int(user_id),
     }
+    if intent:
+        request_meta["intent"] = intent
+    if auto_approve:
+        request_meta["auto_approved"] = True
     if metadata:
         request_meta.update(metadata)
     return ExecutionRequest(
         request=text,
         user_id=f"telegram:{user_id}",
-        auto_approve=False,  # explicit approval gate per design recommendation
+        auto_approve=auto_approve,
         max_steps=20,
         metadata=request_meta,
     )
@@ -210,7 +240,7 @@ async def _route_plain_text(
     )
 
     if intent in ("execute_now", "execute_after_approval"):
-        request = _build_execution_request(user_id=user_id, text=text)
+        request = _build_execution_request(user_id=user_id, text=text, intent=intent)
         if request is None:
             await _tb._send_message(
                 bot_token, chat_id,

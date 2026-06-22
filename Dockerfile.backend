@@ -44,18 +44,13 @@ COPY workflow/ workflow/
 COPY sync/ sync/
 COPY setup/ setup/
 COPY hardware/ hardware/
-COPY rbac.py rbac.py
-COPY secrets_store.py secrets_store.py
-COPY provider_router.py provider_router.py
-COPY commercial_equivalent.py commercial_equivalent.py
-COPY langfuse_obs.py langfuse_obs.py
-COPY tokens.py tokens.py
-COPY key_store.py key_store.py
-COPY version.py version.py
-COPY activation.py activation.py
-COPY activation_api.py activation_api.py
-COPY infra_cost.py infra_cost.py
-COPY telegram_bot.py telegram_bot.py
+# Ship EVERY root-level Python module wholesale. Copying them one-by-one
+# silently dropped newly-added modules from the image and caused
+# "works locally, ModuleNotFoundError in prod" outages (e.g. brain_policy.py →
+# "No module named brain_policy" blocked every agent task; telegram_service.py
+# → approval gate never fired). The wholesale copy is future-proof and is
+# enforced by tests/test_dockerfile_ships_root_modules.py.
+COPY *.py ./
 COPY models/ models/
 COPY services/ services/
 # Ship the skill library so /api/skills (SkillRegistry._index_local) finds the

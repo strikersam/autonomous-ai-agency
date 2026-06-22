@@ -880,6 +880,42 @@ except ImportError:
     log.warning("Could not import GITHUB_REGISTRIES — skill discover endpoint will show no registries")
     GITHUB_REGISTRIES = []  # type: ignore[assignment]
 
+
+# ── Dashboard hot-path helpers ─────────────────────────────────────────────────
+import asyncio as _asyncio
+import time as _time
+
+_DASHBOARD_CACHE: dict = {}
+
+
+async def _cached(key: str, *, ttl_s: float, producer) -> object:
+    """Single-flight TTL cache. Concurrent callers wait for the first producer."""
+    now = _time.monotonic()
+    entry = _DASHBOARD_CACHE.get(key)
+    if entry and "event" not in entry and entry.get("expires_at", 0) > now:
+        return entry["value"]
+    if entry and "event" in entry:
+        await entry["event"].wait()
+        e2 = _DASHBOARD_CACHE.get(key, {})
+        if "event" not in e2:
+            return e2.get("value")
+    evt = _asyncio.Event()
+    _DASHBOARD_CACHE[key] = {"expires_at": now + ttl_s, "event": evt, "value": None}
+    try:
+        value = await producer()
+        _DASHBOARD_CACHE[key] = {"expires_at": now + ttl_s, "value": value}
+        return value
+    finally:
+        evt.set()
+
+
+async def _fast_count(collection) -> int:
+    """Count without materialising rows — prefers estimated_document_count."""
+    try:
+        return await collection.estimated_document_count()
+    except AttributeError:
+        return await collection.count_documents({})
+
 # ─── Model Catalog ────────────────────────────────────────────────────────────────
 # Best-in-class models per provider, tagged by role and tier.
 # role: planner = strong reasoning; executor = instruction-following/coding; verifier = critical eval
@@ -3442,6 +3478,61 @@ async def _list_configured_provider_records() -> list[dict]:
     return filtered or [_fallback_local_provider_record()]
 
 
+async def _get_provider_policy() -> dict:
+    """Read the durable provider policy from DB, falling back to a safe default.
+
+    Returns a dict with at least {'allow_paid': bool}. Never raises.
+    Failsafe: returns allow_paid=False when the DB is unreachable or env
+    ALLOW_PAID_BRAIN=true overrides it.
+    """
+    from brain_policy import allow_paid_brain as _env_allow_paid
+    # Env var takes precedence over DB (operator kill-switch).
+    if _env_allow_paid():
+        return {"allow_paid": True, "surfaces": {}}
+    try:
+        doc = await get_db().providers.find_one({"provider_id": "provider_policy"})
+        if doc:
+            return {"allow_paid": bool(doc.get("allow_paid", False)), "surfaces": {}}
+    except Exception:
+        pass
+    return {"allow_paid": False, "surfaces": {}}
+
+
+# Per-surface routing knobs exposed by the Providers screen. "auto" = let the
+# router decide; operators can pin a surface to a specific provider class.
+_POLICY_SURFACES: tuple[str, ...] = (
+    "brain", "ceo", "chat", "task", "sdlc", "scanner", "context", "review",
+)
+
+
+class ProviderPolicyUpdate(BaseModel):
+    """Editable subset of the durable provider policy (paid-provider kill switch)."""
+
+    allow_paid: bool = Field(
+        default=False,
+        description="When false, paid providers (Anthropic) are NEVER auto-selected",
+    )
+    surfaces: dict[str, str] = Field(
+        default_factory=lambda: {s: "auto" for s in _POLICY_SURFACES},
+        description="Per-surface routing override; 'auto' lets the router decide",
+    )
+
+
+async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
+    """Persist the durable provider policy and return the new state."""
+    now = datetime.now(timezone.utc).isoformat()
+    await get_db().providers.update_one(
+        {"provider_id": "provider_policy"},
+        {"$set": {
+            "allow_paid": update.allow_paid,
+            "surfaces": update.surfaces,
+            "updated_at": now,
+        }},
+        upsert=True,
+    )
+    return {"allow_paid": update.allow_paid, "surfaces": update.surfaces}
+
+
 def _chat_provider_policy(
     *, allow_commercial_fallback_once: bool = False
 ) -> dict[str, bool]:
@@ -4782,6 +4873,7 @@ class ProviderUpdate(BaseModel):
     api_key: str = None
     default_model: str = None
     is_default: bool = None
+    priority: int = Field(default=None, ge=-100, le=1000)
 
 
 @app.get("/api/providers")
@@ -4829,7 +4921,7 @@ async def update_provider(
     provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
 ):
     updates = {}
-    for k, v in body.dict(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
         await get_db().providers.update_many(
@@ -5667,6 +5759,138 @@ async def get_public_kpis() -> dict:
         "summary": derived,
         "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
+
+
+@app.get("/api/autonomy/status")
+async def autonomy_status() -> dict[str, object]:
+    """Public autonomy readiness probe — no authentication required.
+
+    A live deploy that is missing its brain key (``NVIDIA_API_KEY``) leaves
+    every agent task with no LLM to reason with, which otherwise manifests as
+    "nothing happens" with no visible cause. This probe makes that state
+    explicit so a misconfigured deploy is diagnosable from the outside.
+
+    The shape is a stable contract (see ``tests/test_autonomy_status.py``):
+    ``brain`` (resolution + configured flag), ``loops`` (per-loop running
+    state), ``loops_running`` (any loop alive), ``missing_secrets`` (env vars
+    the operator still needs to set), and ``status`` — one of ``no_brain``,
+    ``idle``, ``partial``, or ``autonomous``.
+    """
+    import datetime
+    import importlib
+
+    # ── Brain resolution (read env fresh; never the cached resolver, so this
+    #    probe reflects the live environment rather than a startup snapshot). ──
+    brain: dict[str, object]
+    missing_secrets: list[str] = []
+    try:
+        from brain_policy import resolve_free_nvidia_brain
+        nvidia = resolve_free_nvidia_brain()
+    except Exception:  # pragma: no cover - defensive
+        log.exception("autonomy_status: NVIDIA brain resolution failed")
+        nvidia = None
+
+    if nvidia is not None:
+        nv_base, _nv_headers, nv_model = nvidia
+        brain = {
+            "configured": True,
+            "provider": "nvidia-nim",
+            "model": nv_model,
+            "base_url": nv_base,
+        }
+    else:
+        brain = {
+            "configured": False,
+            "provider": None,
+            "model": None,
+            "base_url": None,
+        }
+        missing_secrets.append("NVIDIA_API_KEY")
+
+    # ── Autonomy loops: report each engine's live running state. Under a bare
+    #    TestClient (no lifespan startup) none are bootstrapped, so they read
+    #    as not-running rather than erroring. ──
+    loop_specs = (
+        ("log_monitor", "agent.log_monitor", "get_log_monitor"),
+        ("self_healing", "agent.self_healing", "get_self_healing_agent"),
+        ("improvement_loop", "agent.improvement_loop", "get_improvement_loop"),
+        ("trend_watcher", "agent.trend_watcher", "get_trend_watcher"),
+    )
+    loops: dict[str, bool] = {}
+    for name, module_path, getter_name in loop_specs:
+        running = False
+        try:
+            getter = getattr(importlib.import_module(module_path), getter_name)
+            inst = getter()
+            if inst is not None:
+                # Engines that expose a `_running` flag report it; those that
+                # don't (presence == running) default to True when bootstrapped.
+                running = bool(getattr(inst, "_running", True))
+        except Exception:  # pragma: no cover - defensive
+            running = False
+        loops[name] = running
+
+    running_count = sum(1 for v in loops.values() if v)
+    if not brain["configured"]:
+        status = "no_brain"
+    elif running_count == 0:
+        status = "idle"
+    elif running_count == len(loops):
+        status = "autonomous"
+    else:
+        status = "partial"
+
+    return {
+        "status": status,
+        "brain": brain,
+        "loops": loops,
+        "loops_running": running_count > 0,
+        "missing_secrets": missing_secrets,
+        "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.post("/api/webhooks/github")
+async def github_webhook(request: Request) -> dict[str, object]:
+    """Public GitHub webhook sink → autonomous issue intake (Charter G3).
+
+    HMAC-verified against ``GITHUB_WEBHOOK_SECRET``: with no secret configured
+    the route refuses (503) rather than accepting unauthenticated payloads;
+    unsigned or tampered payloads are rejected (401). Valid ``issues`` events
+    are turned into board tasks via :func:`tasks.issue_intake.intake_issue`.
+    This is a thin shell — all logic lives in that module so it stays
+    unit-testable without HTTP.
+    """
+    secret = (os.environ.get("GITHUB_WEBHOOK_SECRET") or "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="GITHUB_WEBHOOK_SECRET not configured")
+
+    raw = await request.body()
+    from tasks.issue_intake import intake_issue, verify_signature
+
+    if not verify_signature(secret, raw, request.headers.get("X-Hub-Signature-256")):
+        raise HTTPException(status_code=401, detail="invalid webhook signature")
+
+    event = request.headers.get("X-GitHub-Event", "")
+    if event == "ping":
+        return {"ok": True, "pong": True}
+    if event != "issues":
+        return {"ok": True, "skipped": f"unhandled event: {event}"}
+
+    try:
+        payload = json.loads(raw or b"{}")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON payload") from exc
+
+    try:
+        task = await intake_issue(payload)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.exception("github_webhook: issue intake failed")
+        raise HTTPException(status_code=500, detail="issue intake failed") from exc
+
+    if task is None:
+        return {"ok": True, "intake": "skipped"}
+    return {"ok": True, "intake": "created", "task_id": task.task_id}
 
 
 @app.get("/api/status")
@@ -7232,6 +7456,25 @@ except Exception as _mcp_err:
 # ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
 
+# Path prefixes (NO leading slash — FastAPI's {full_path:path} converter strips
+# it) that belong to the API/auth surface and must NEVER fall through to the SPA
+# catch-all. Without this guard, an anonymous GET to an orphan route under any of
+# these (e.g. /v1/models, /admin/keys, /telegram/webhook) returned 200 with the
+# React index.html instead of 401/404 JSON. Kept at module scope so tests and
+# downstream code can reference it regardless of whether the build dir exists.
+SPA_PROTECTED_PREFIXES: tuple[str, ...] = (
+    "api/",
+    "v1/",
+    "v2/",
+    "agent/",
+    "admin/",
+    "workflow/",
+    "runtimes/",
+    "ui/",
+    "telegram/",
+    "mcp-internal/",
+)
+
 _FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
 
 if _FRONTEND_BUILD.exists():
@@ -7241,21 +7484,10 @@ if _FRONTEND_BUILD.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
-
-
-_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
-
-if _FRONTEND_BUILD.exists():
-    app.mount(
-        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
-    )
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
+        # API/auth paths that reached the catch-all have no upstream handler —
+        # return 404 JSON rather than leaking the SPA shell to a protected route.
+        if any(full_path.startswith(p) for p in SPA_PROTECTED_PREFIXES):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
         index = _FRONTEND_BUILD / "index.html"
         if index.exists():
             return HTMLResponse(index.read_text())

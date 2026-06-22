@@ -27,13 +27,22 @@ def test_scanner_imports_cleanly():
     """scanner.py used to end with a bare `systems` statement at module level,
     which triggered NameError on import — breaking the whole company-onboarding
     flow (zero systems detected). The fix simply removes the orphan line.
+
+    Load the module body in an ISOLATED namespace (no sys.modules mutation) so a
+    fresh execution is exercised without corrupting global module state. The old
+    pop()+import approach replaced sys.modules['services.scanner'] mid-session,
+    leaving services.onboarding bound to a stale WebsiteScanner class while later
+    tests patched the new one — silently breaking onboarding's scan step.
     """
-    # Clear any cached import from previous tests in the same session.
-    sys.modules.pop("services.scanner", None)
-    import services.scanner  # noqa: F401  — must not raise
+    import importlib.util
+
+    spec = importlib.util.find_spec("services.scanner")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # re-executes the module body; must not raise
     # The module must be loadable AND have the public class we expect.
-    assert hasattr(services.scanner, "WebsiteScanner")
-    assert hasattr(services.scanner, "RepoScanner")
+    assert hasattr(module, "WebsiteScanner")
+    assert hasattr(module, "RepoScanner")
 
 
 def test_scanner_file_has_no_bare_systems_at_end():

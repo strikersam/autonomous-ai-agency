@@ -70,6 +70,20 @@ _SENSITIVE_TARGETS: tuple[str, ...] = (
 )
 
 
+def is_sensitive(text: str) -> bool:
+    """True when *text* references a sensitive target (auth/keys/secrets/service
+    manager).
+
+    Used as a belt-and-braces floor: a sensitive request must NEVER auto-approve
+    regardless of how the intent classifier scored it, so a classifier miss or
+    prompt-injection can't silently push through a credential/auth change.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    low = text.lower()
+    return any(target in low for target in _SENSITIVE_TARGETS)
+
+
 def classify_plain_text(text: str) -> Literal[
     "answer_only", "clarify_needed", "plan_only", "execute_now", "execute_after_approval"
 ]:
