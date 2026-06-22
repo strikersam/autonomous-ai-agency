@@ -35,4 +35,4 @@ playwright>=1.60.0
 
 # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports (services/seo_report_pdf.py).
 # Must stay in sync with the root requirements.txt entry.
-reportlab>=4.5.1,<5
+reportlab>=5.0.0,<6
