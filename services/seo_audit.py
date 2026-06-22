@@ -39,6 +39,14 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import httpx
 from bs4 import BeautifulSoup
 
+# Use lxml parser when available (faster, more lenient); fall back to stdlib html.parser
+# so the audit degrades gracefully instead of crashing on systems without lxml.
+try:
+    import lxml as _lxml_check  # noqa: F401
+    _BS4_PARSER = "lxml"
+except ImportError:
+    _BS4_PARSER = "html.parser"
+
 from services.seo_fetch import PageFetcher, make_fetcher
 
 from models.seo_audit import (
@@ -335,7 +343,7 @@ def analyze_page(
             fire("validation_invalid_head_elements",
                  f"Invalid elements in <head>: {', '.join(bad)}", elements=bad)
 
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(html, _BS4_PARSER)
 
     # ---- <head> metadata ----------------------------------------------------
     titles = soup.find_all("title")
@@ -479,7 +487,7 @@ def analyze_page(
              f"None of the {len(sub_headings)} h2/h3 headings have id attributes")
 
     # ---- content -------------------------------------------------------------
-    text = _visible_text(BeautifulSoup(html, "lxml"))
+    text = _visible_text(BeautifulSoup(html, _BS4_PARSER))
     words = re.findall(r"[A-Za-z']+", text)
     word_count = len(words)
     if word_count < catalog.LOW_CONTENT_WORDS:
