@@ -565,6 +565,10 @@ export default function ChatPage() {
     setSending(true);
     if (agentModeOverride) setAgentConsoleTab('activity');
     setThinkingElapsed(0);
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
     elapsedTimerRef.current = setInterval(() => setThinkingElapsed(p => p + 1), 1000);
     if (appendUserBubble) {
       setMessages(prev => [...prev, { role: 'user', content }]);

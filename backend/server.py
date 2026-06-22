@@ -4876,6 +4876,29 @@ class ProviderUpdate(BaseModel):
     priority: int = Field(default=None, ge=-100, le=1000)
 
 
+
+# BUG-19 fix: Provider policy endpoints (paid-provider kill switch)
+@app.get("/api/providers/policy")
+async def get_provider_policy_route(user: dict = Depends(get_current_user)):
+    """Return the provider policy (paid-provider kill switch state)."""
+    return await _get_provider_policy()
+
+
+@app.put("/api/providers/policy")
+async def update_provider_policy_route(
+    update: ProviderPolicyUpdate,
+    user: dict = Depends(get_current_user),
+):
+    """Update the provider policy (paid-provider kill switch)."""
+    result = await _set_provider_policy(update)
+    log.info(
+        "Provider policy updated by %s: allow_paid=%s",
+        user.get("email", "unknown"),
+        update.allow_paid,
+    )
+    return result
+
+
 @app.get("/api/providers")
 async def list_providers(user: dict = Depends(get_current_user)):
     providers = []

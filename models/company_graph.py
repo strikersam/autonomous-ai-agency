@@ -40,7 +40,8 @@ SystemType = Literal[
     "analytics", "payment_gateway", "shipping", "tax", "inventory",
     "marketing_automation", "email_service", "search", "database",
     "cache", "cdc", "message_queue", "api_gateway", "auth", "billing",
-    "support", "chat", "video", "voice", "iot", "ai_ml", "custom"
+    "support", "chat", "video", "voice", "iot", "ai_ml",
+    "frontend", "backend", "custom",
 ]
 
 # Specialist families for dynamic provisioning
@@ -428,6 +429,23 @@ class DetectedSystem(BaseModel):
         description="Other systems this system integrates with"
     )
     
+    @field_validator("system_type", mode="before")
+    @classmethod
+    def _coerce_unknown_system_type(cls, v: Any) -> Any:
+        """Coerce unrecognised system_type values to 'custom' so the model never
+        crashes on new categories emitted by scanners (e.g. 'frontend')."""
+        _valid: set[str] = {
+            "CMS", "CRM", "OMS", "PIM", "DAM", "ERP", "HRM", "LMS",
+            "analytics", "payment_gateway", "shipping", "tax", "inventory",
+            "marketing_automation", "email_service", "search", "database",
+            "cache", "cdc", "message_queue", "api_gateway", "auth", "billing",
+            "support", "chat", "video", "voice", "iot", "ai_ml",
+            "frontend", "backend", "custom",
+        }
+        if isinstance(v, str) and v not in _valid:
+            return "custom"
+        return v
+
     @field_validator("name", mode="before")
     @classmethod
     def _strip_strings(cls, v: Any) -> Any:
@@ -2123,3 +2141,4 @@ CompanyResponse.model_rebuild()
 CompanyGraphResponse.model_rebuild()
 SpecialistListResponse.model_rebuild()
 WorkflowListResponse.model_rebuild()
+

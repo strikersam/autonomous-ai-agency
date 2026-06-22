@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Zap, Plus, X, AlertTriangle, Check } from 'lucide-react';
 import { getRoutingPolicy, updateRoutingPolicy, fmtErr } from '../api';
 
@@ -104,6 +104,8 @@ export default function RoutingPolicyPage() {
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
   const [saveError, setSaveError] = useState('');
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const load = useCallback(async () => {
     try {
@@ -125,7 +127,7 @@ export default function RoutingPolicyPage() {
     try {
       await updateRoutingPolicy({ pools, policy, triggers });
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => { if (mountedRef.current) setSaved(false); }, 2000);
     } catch (e) {
       setSaveError(fmtErr(e));
     } finally {

@@ -10,7 +10,8 @@ import { useSafeData } from '../hooks/useSafeData';
 function relTime(iso) {
   if (!iso) return '—';
   const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '—';
+  // BUG-09: guard against epoch 0 / invalid dates that produce absurd diffs (> 50 years)
+  if (Number.isNaN(t) || t <= 0 || t < new Date('2024-01-01').getTime()) return '—';
   const diff = Math.floor((Date.now() - t) / 1000);
   if (diff < 0) return 'just now';
   if (diff < 60) return `${diff}s ago`;
@@ -206,6 +207,13 @@ function SchedulesScreen() {
   const [busyId, setBusyId]           = React.useState(null);
   const [justRan, setJustRan]         = React.useState(null);
   const [actionErr, setActionErr]     = React.useState(null);
+  // BUG-16: mounted guard so runNow setTimeout doesn't update state after unmount
+  const mountedRef = React.useRef(true);
+  const runNowTimerRef = React.useRef(null);
+  React.useEffect(() => () => {
+    mountedRef.current = false;
+    if (runNowTimerRef.current) clearTimeout(runNowTimerRef.current);
+  }, []);
 
   const [data, states, refetch] = useSafeData(null, { schedules: '/api/schedules/' }, { refreshMs: 30000 });
   const jobs = (data.schedules?.schedules || []).map(normalizeJob);
@@ -224,7 +232,10 @@ function SchedulesScreen() {
     setJustRan(id); setActionErr(null);
     try { await api.triggerSchedule(id); await refetch(); }
     catch (e) { setActionErr(errText(e, 'Could not trigger the schedule.')); }
-    finally { setTimeout(() => setJustRan(null), 1500); }
+    finally {
+      if (runNowTimerRef.current) clearTimeout(runNowTimerRef.current);
+      runNowTimerRef.current = setTimeout(() => { if (mountedRef.current) setJustRan(null); }, 1500);
+    }
   };
 
   const createSchedule = async (payload) => {

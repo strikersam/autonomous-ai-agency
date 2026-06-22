@@ -17,6 +17,7 @@ Coverage:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -721,6 +722,8 @@ class TestMCPFullGitWorkflow:
 
 class TestMCPWorkspaceLifecycle:
 
+    @pytest.mark.skipif(os.name == "nt",
+        reason="git file locks prevent immediate rmtree on Windows")
     def test_delete_workspace_removes_directory(
         self, client: TestClient, bare_repo: Path, mcp_workspace_root
     ) -> None:

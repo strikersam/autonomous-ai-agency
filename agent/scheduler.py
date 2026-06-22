@@ -36,6 +36,7 @@ class ScheduledJob:
     cron: str       # standard 5-field cron expression, e.g. "0 9 * * 1"
     instruction: str
     created_at: str
+    description: str | None = None  # BUG-11: human-readable one-liner (max 200 chars)
     agent_id: str | None = None
     runtime_id: str | None = None
     model: str | None = None
@@ -51,6 +52,7 @@ class ScheduledJob:
             "id": self.job_id,
             "job_id": self.job_id,
             "name": self.name,
+            "description": self.description or "",
             "cron": self.cron,
             "schedule": self.cron,
             "instruction": self.instruction,
@@ -76,6 +78,7 @@ class ScheduledJob:
         return cls(
             job_id=d.get("job_id", d.get("id", "")),
             name=d.get("name", ""),
+            description=d.get("description") or None,
             cron=d.get("cron", "0 0 * * *"),
             instruction=d.get("instruction", ""),
             created_at=d.get("created_at", ""),
@@ -129,18 +132,36 @@ class AgentScheduler:
         name: str,
         cron: str,
         instruction: str,
+        description: str | None = None,  # BUG-11
         agent_id: str | None = None,
         runtime_id: str | None = None,
         model: str | None = None,
         task_type: str = "scheduled",
         requires_approval: bool = False,
         tags: list[str] | None = None,
+        run_once: bool = False,
     ) -> ScheduledJob:
-        """Register a new job.  Returns the created :class:`ScheduledJob`."""
+        """Register a new job.  Returns the created :class:`ScheduledJob`.
+
+        ``run_once=True`` fires the job once then auto-deletes it, preventing
+        accumulation of stale one-shot agency/fix schedules.
+
+        Dedup guard: if a job with the same ``name`` already exists the existing
+        job is returned unchanged (idempotent creation).
+        """
+        # Dedup: return existing job with same name instead of creating a duplicate.
+        for existing in self._jobs.values():
+            if existing.name == name:
+                log.debug("Scheduler dedup — %r already exists (id=%s)", name, existing.job_id)
+                return existing
         job_id = "job_" + secrets.token_hex(6)
+        _tags = list(tags or [])
+        if run_once and "run-once" not in _tags:
+            _tags.append("run-once")
         job = ScheduledJob(
             job_id=job_id,
             name=name,
+            description=description,
             cron=cron,
             instruction=instruction,
             created_at=_now(),
@@ -149,7 +170,7 @@ class AgentScheduler:
             model=model,
             task_type=task_type,
             requires_approval=requires_approval,
-            tags=list(tags or []),
+            tags=_tags,
         )
         self._jobs[job_id] = job
         self._register_aps(job)
@@ -202,6 +223,22 @@ class AgentScheduler:
     def shutdown(self) -> None:
         if self._aps and self._aps.running:
             self._aps.shutdown(wait=False)
+
+    def rename(self, job_id: str, *, name: str) -> ScheduledJob:
+        """Update the display name of a job."""
+        job = self._jobs.get(job_id)
+        if not job:
+            raise KeyError(f"Job {job_id!r} not found")
+        job.name = name
+        if self._running_loop() is not None:
+            asyncio.create_task(self._persist(job))
+        elif self._store is not None:
+            try:
+                self._store.upsert(job.as_dict())
+            except Exception:
+                pass
+        log.info("Job %s renamed to %r", job_id, name)
+        return job
 
     def toggle(self, job_id: str, *, enabled: bool) -> ScheduledJob:
         """Enable or disable a job without deleting it."""
@@ -327,6 +364,7 @@ class AgentScheduler:
                 job = ScheduledJob(
                     job_id=job_id,
                     name=doc.get("name", "restored-job"),
+                    description=doc.get("description") or None,
                     cron=doc.get("cron", "0 0 * * *"),
                     instruction=doc.get("instruction", ""),
                     created_at=doc.get("created_at", _now()),
@@ -409,6 +447,10 @@ class AgentScheduler:
             return
         job.last_run = _now()
         job.run_count += 1
+        # run-once: self-destruct after first fire so one-shot tasks don't accumulate.
+        if "run-once" in (job.tags or []):
+            self.delete(job_id)
+            log.info("run-once job %s fired and self-deleted", job_id)
         if self._running_loop() is not None:
             asyncio.create_task(self._persist(job))
         # else: no event loop (sync caller / APScheduler thread) — skip async persist

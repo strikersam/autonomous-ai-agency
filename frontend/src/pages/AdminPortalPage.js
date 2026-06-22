@@ -69,8 +69,12 @@ function Badge({ ok, label }) {
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
+  // BUG-24: mounted guard so setTimeout(() => setCopied(false), ...)
+  // doesn't update state after CopyButton unmounts.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
   function copy() {
-    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); });
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => { if (mountedRef.current) setCopied(false); }, 1800); });
   }
   return (
     <button onClick={copy} title="Copy"
@@ -136,6 +140,10 @@ export default function AdminPortalPage() {
   const [statusBusy,   setStatusBusy]   = useState(false);
   const [controlBusy,  setControlBusy]  = useState(false);
   const [controlMsg,   setControlMsg]   = useState('');
+  // BUG-24: mounted guard so setTimeout(() => setControlMsg(''), ...)
+  // doesn't update state after the admin portal unmounts.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   // Users / keys
   const [keys,        setKeys]        = useState([]);
@@ -220,7 +228,7 @@ export default function AdminPortalPage() {
         body: JSON.stringify({ action, target }),
       });
       setControlMsg(d.message || `${action} sent to ${target}`);
-      setTimeout(() => setControlMsg(''), 3000);
+      setTimeout(() => { if (mountedRef.current) setControlMsg(''); }, 3000);
       await loadStatus();
     } catch (e) {
       setControlMsg(`Error: ${e.message}`);

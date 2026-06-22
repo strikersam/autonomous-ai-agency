@@ -435,12 +435,19 @@ class ImprovementLoop:
     def _schedule_fix(self, issue: DetectedIssue) -> None:
         if not self._on_task:
             return
+        # Use severity to pick cron (CRITICAL fires within 60s, LOW is daily).
+        # run_once=True: the fix job self-deletes after executing once so stale
+        # fix: schedules don't accumulate across cycles.
         cron = _CRITICAL_CRON if issue.severity in (IssueSeverity.CRITICAL, IssueSeverity.HIGH) else _LOW_CRON
+        # Human-readable name so the schedule list is meaningful.
+        short_title = issue.title[:50].strip()
+        name = f"fix: {short_title} [{issue.category.value}]"
         try:
             self._on_task(
-                name=f"fix:{issue.issue_id}",
+                name=name,
                 cron=cron,
                 instruction=issue.to_instruction(),
+                run_once=True,
                 tags=["auto-improvement", issue.category.value],
             )
             log.info("ImprovementLoop: scheduled fix for %s (%s)", issue.issue_id, issue.title)

@@ -21,13 +21,22 @@ def temp_db():
         db_path = Path(f.name)
     yield db_path
     if db_path.exists():
-        db_path.unlink()
+        # Retry on Windows — sqlite3 may hold file handles briefly after close
+        import time as _time
+        for _ in range(5):
+            try:
+                db_path.unlink()
+                break
+            except PermissionError:
+                _time.sleep(0.1)
 
 
 @pytest.fixture
 def memory_store(temp_db):
     """Create a memory store instance for testing."""
-    return PersistentMemoryStore(db_path=temp_db)
+    store = PersistentMemoryStore(db_path=temp_db)
+    yield store
+    store.close()
 
 
 def test_save_and_recall_basic(memory_store):

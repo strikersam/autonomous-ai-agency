@@ -448,8 +448,19 @@ async def _handle_regular_chat(
                 if p.provider_id == req.provider_id:
                     provider = p
                     break
-        if provider: result = await ProviderRouter([provider]).chat_completion(payload)
-        else: result = await router.chat_completion(payload)
+        # ── BUG-01 fix: wrap LLM call in a timeout so hung providers don't
+        # leave the user with a blank chat. 60s is generous for a chat reply. ──
+        _chat_timeout = float(os.environ.get("DIRECT_CHAT_TIMEOUT_SEC", "60"))
+        if provider:
+            result = await asyncio.wait_for(
+                ProviderRouter([provider]).chat_completion(payload),
+                timeout=_chat_timeout,
+            )
+        else:
+            result = await asyncio.wait_for(
+                router.chat_completion(payload),
+                timeout=_chat_timeout,
+            )
         if not hasattr(result, "response"):
             log.error(f"Provider response object missing response: {type(result)}")
             raise HTTPException(status_code=500, detail="Invalid provider response format")
@@ -461,6 +472,12 @@ async def _handle_regular_chat(
             "response": assistant_message,
             "state": DirectChatState.ASSISTANT_REPLY
         })
+    except asyncio.TimeoutError:
+        log.error("Direct chat timed out for user %s", user.email)
+        raise HTTPException(
+            status_code=504,
+            detail="The AI service took too long to respond. Please try again or select a different model.",
+        )
     except Exception as e:
         log.error(f"Failed to get provider response: {e}")
         raise HTTPException(status_code=500, detail="The AI service is currently unavailable. Please try again or select a different model.")
@@ -649,8 +666,14 @@ async def _do_handle_agent_mode(
 
     async def _run_agent_job(heartbeat):
         log.info(f"Background agent job starting: job_id={job.job_id} session_id={session_id}")
+        # ── Timeout budget: prevent agent jobs from hanging indefinitely ──
+        timeout_sec = int(os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "1800"))
         try:
-            return await _do_run_agent_job(heartbeat)
+            return await asyncio.wait_for(_do_run_agent_job(heartbeat), timeout=timeout_sec)
+        except asyncio.TimeoutError:
+            log.error(f"Background agent job {job.job_id} timed out after {timeout_sec}s")
+            heartbeat("failed", f"Agent execution timed out after {timeout_sec}s. The LLM provider may be unreachable or overloaded.")
+            return {"session_id": session_id, "error": f"Timeout after {timeout_sec}s", "status": "failed"}
         except Exception as e:
             log.exception(f"Background agent job {job.job_id} failed")
             heartbeat("failed", str(e))
@@ -684,11 +707,25 @@ async def _do_handle_agent_mode(
             base_branch=req.repo_ref or "main",
         )
 
-        plan = await runner.plan(
-            instruction=req.content, history=history, requested_model=req.model,
-            max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore(),
-            metadata=req.metadata
-        )
+        # ── BUG-03 fix: wrap plan() in a timeout so a hung LLM call doesn't
+        # leave the job stuck at "planning" forever. The per-call httpx timeout
+        # inside loop.py is 300s; this outer budget ensures the plan phase plus
+        # approval check completes within 600s (or half the total job budget). ──
+        _job_timeout = int(os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "1800"))
+        _plan_timeout = min(600.0, _job_timeout / 2.0)
+        try:
+            plan = await asyncio.wait_for(
+                runner.plan(
+                    instruction=req.content, history=history, requested_model=req.model,
+                    max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore(),
+                    metadata=req.metadata
+                ),
+                timeout=_plan_timeout,
+            )
+        except asyncio.TimeoutError:
+            log.error(f"Agent plan phase timed out after {_plan_timeout:.0f}s for job {job.job_id}")
+            heartbeat("failed", f"Planning timed out after {_plan_timeout:.0f}s — the LLM provider may be unreachable. Check that OLLAMA_BASE or NVIDIA_API_KEY is configured and the provider is running.")
+            return {"session_id": session_id, "error": f"Planning timed out", "status": "failed"}
 
         requires_approval = getattr(plan, "requires_risky_review", False) or (req.metadata and req.metadata.get("require_approval"))
         if requires_approval:

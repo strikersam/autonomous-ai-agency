@@ -41,6 +41,10 @@ function QuickNotes({ onClose }) {
   const [submitErr, setSubmitErr] = React.useState(null);
   const [ghConnected, setGhConnected] = React.useState(false);
   const textareaRef = React.useRef(null);
+  // BUG-17: mounted guard so setTimeout(() => setSent(false), ...) doesn't
+  // update state after QuickNotes unmounts (e.g. user closes the FAB).
+  const mountedRef = React.useRef(true);
+  React.useEffect(() => () => { mountedRef.current = false; }, []);
 
   // Check if GitHub is connected (enables full implement→PR→merge pipeline)
   const checkGh = React.useCallback(async () => {
@@ -115,7 +119,7 @@ function QuickNotes({ onClose }) {
         if (data.channel === 'github' || data.channel === 'local') {
           setInput('');
           setSent(true);
-          setTimeout(() => setSent(false), 3000);
+          setTimeout(() => { if (mountedRef.current) setSent(false); }, 3000);
         }
       } else {
         // Plain-text idea, or no GitHub → create internal task
@@ -126,7 +130,7 @@ function QuickNotes({ onClose }) {
         });
         setInput('');
         setSent(true);
-        setTimeout(() => setSent(false), 2000);
+        setTimeout(() => { if (mountedRef.current) setSent(false); }, 2000);
       }
       await loadNotes();
     } catch (e) {

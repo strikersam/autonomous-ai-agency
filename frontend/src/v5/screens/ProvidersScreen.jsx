@@ -110,7 +110,7 @@ function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, onEdit,
       <div style={{ display:'flex', gap:10, fontSize:11, color:'var(--text-muted)', marginBottom:10, flexWrap:'wrap' }}>
         <span>Model: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.default_model || '—'}</span></span>
         {provider.api_key_masked ? <span>Key: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.api_key_masked}</span></span> : <span style={{ color:'#46d9a4' }}>no key</span>}
-        <span>Priority: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.priority ?? '—'}</span></span>
+        <span title="Higher number = tried first. Negative values allowed.">Priority: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.priority ?? '—'}</span></span>
       </div>
 
       {testState && (
@@ -122,7 +122,7 @@ function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, onEdit,
       <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
         <button onClick={test} disabled={testState==='testing'} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)' }}>Test</button>
         <button onClick={()=>onEdit(provider)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(196,181,253,0.10)', border:'1px solid rgba(196,181,253,0.25)', color:'#c4b5fd' }}>Edit</button>
-        {!isDefault && <button onClick={()=>onSetDefault(provider.provider_id)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.22)', color:'#46d9a4' }}>Set default</button>}
+        {!isDefault &&        <button onClick={()=>onSetDefault(provider.provider_id)} disabled={busy} title="Fallback provider when no routing rule matches" style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.22)', color:'#46d9a4' }}>Set default</button>}
         <button onClick={()=>onDelete(provider)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d', marginLeft:'auto' }}>Delete</button>
       </div>
     </div>

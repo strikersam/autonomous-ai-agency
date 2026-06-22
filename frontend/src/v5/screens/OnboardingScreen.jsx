@@ -208,11 +208,30 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
   const [scanning, setScanning] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [errorText, setErrorText] = React.useState('');
+  const mountedRef = React.useRef(true);
+  const progressTimerRef = React.useRef(null);
+  // BUG-15: guard the progressTimer interval so it doesn't keep running
+  // after the DiscoveryStep unmounts mid-scan. The ref tracks the interval
+  // ID so the cleanup can clear it; without this the interval ticks every
+  // 300ms forever even though mountedRef blocks setState.
+  React.useEffect(() => () => {
+    mountedRef.current = false;
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+  }, []);
   const msgs = ['Registering company context...','Fetching page source...','Parsing JS bundles...','Detecting platforms...','Identifying data tools...','Almost done...'];
   const msgIdx = Math.min(Math.floor((progress/100)*msgs.length), msgs.length-1);
 
   const handleScan = async () => {
     if (!url.trim()) return;
+    // Defensive: clear any orphaned interval from a previous scan (e.g. if
+    // the component remounts mid-scan or the disabled guard is removed).
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
     setScanning(true);
     setProgress(5);
     setErrorText('');
@@ -250,7 +269,8 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
 
     // Step 2: Animate progress while the real scan runs.
     let p = 5;
-    const progressTimer = setInterval(() => {
+    progressTimerRef.current = setInterval(() => {
+      if (!mountedRef.current) return;
       p = Math.min(p + 12, 88);
       setProgress(p);
     }, 300);
@@ -261,7 +281,8 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
       if (!cid) { setScanning(false); setErrorText('Company ID not found after creation.'); return; }
 
       const scanRes = await api.scanWebsite(cid, url);
-      clearInterval(progressTimer);
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
 
       const rawSystems = Array.isArray(scanRes?.data?.detected_systems)
         ? scanRes.data.detected_systems
@@ -298,7 +319,8 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
         onNext(detectedList, cid);
       }, 350);
     } catch (e) {
-      clearInterval(progressTimer);
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
       setScanning(false);
       setProgress(0);
       setErrorText('Website scan failed: ' + (api.fmtErr(e?.response?.data?.detail) || e?.message || 'Something went wrong.'));
@@ -412,6 +434,20 @@ function DetailsStep({ onNext, onBack, companyId }) {
       }
     }
 
+    // Service API credentials — persist via secrets store (BUG-25)
+    const validCreds = creds.filter(c => c.service.trim() && c.key.trim());
+    for (const c of validCreds) {
+      try {
+        await api.API.post('/api/setup/secret', {
+          name: `onboarding_${c.service.trim().toLowerCase().replace(/\s+/g, '_')}`,
+          value: c.key.trim(),
+          description: `API credential for ${c.service.trim()} (entered during onboarding)`,
+        });
+      } catch (e) {
+        console.warn('Credential save failed during onboarding (non-blocking)', c.service, e);
+      }
+    }
+
     // Repo scans — always attempt (no preview_co guard)
     try {
       if (companyId) {
@@ -423,13 +459,19 @@ function DetailsStep({ onNext, onBack, companyId }) {
       console.warn('Repo scan failed during onboarding (non-blocking)', e);
     }
 
-    // Save goals to localStorage for later use
+    // Save goals to localStorage AND send to company (BUG-25)
+    const cleanGoals = goals.filter(g => g.trim());
     try {
-      const cleanGoals = goals.filter(g => g.trim());
       if (cleanGoals.length > 0) {
         const stored = JSON.parse(localStorage.getItem('v5_onboarding_details') || '{}');
         stored.goals = cleanGoals;
         localStorage.setItem('v5_onboarding_details', JSON.stringify(stored));
+        // Also send goals to the backend so they become part of the company profile
+        if (companyId) {
+          await api.updateCompany(companyId, {
+            description: cleanGoals.slice(0, 3).join('; '),
+          }).catch(() => {});
+        }
       }
     } catch {}
 

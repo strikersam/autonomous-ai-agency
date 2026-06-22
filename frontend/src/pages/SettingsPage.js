@@ -36,6 +36,7 @@ export default function SettingsPage() {
   const [oauthLoading, setOauthLoading] = useState(false);
   const popupRef = useRef(null);
   const messageListenerRef = useRef(null);
+  const oauthPollRef = useRef(null);
 
   const refreshGhStatus = useCallback(() => {
     githubStatus().then(r => setGhStatus(r.data)).catch(() => setGhStatus({ connected: false, oauth_enabled: false }));
@@ -62,9 +63,10 @@ export default function SettingsPage() {
     }
   }, [location.search, navigate, refreshGhStatus]);
 
-  // Clean up any open popup + message listener when the component unmounts
+  // Clean up any open popup + message listener + poll interval when the component unmounts
   useEffect(() => {
     return () => {
+      if (oauthPollRef.current) clearInterval(oauthPollRef.current);
       if (messageListenerRef.current) window.removeEventListener('message', messageListenerRef.current);
       if (popupRef.current && !popupRef.current.closed) popupRef.current.close();
     };
@@ -117,9 +119,10 @@ export default function SettingsPage() {
       window.addEventListener('message', handler);
 
       // Fallback: poll until popup closes in case postMessage is blocked
-      const poll = setInterval(() => {
+      oauthPollRef.current = setInterval(() => {
         if (popup.closed) {
-          clearInterval(poll);
+          clearInterval(oauthPollRef.current);
+          oauthPollRef.current = null;
           if (messageListenerRef.current) {
             window.removeEventListener('message', messageListenerRef.current);
             messageListenerRef.current = null;
@@ -388,6 +391,10 @@ function GitHubAccessSection() {
   const [connecting, setConnecting] = useState(false);
   const [connErr, setConnErr] = useState('');
   const popupRef = useRef(null);
+  const oauthPollRef = useRef(null);
+  useEffect(() => () => {
+    if (oauthPollRef.current) clearInterval(oauthPollRef.current);
+  }, []);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -446,9 +453,10 @@ function GitHubAccessSection() {
         }
       };
       window.addEventListener('message', handler);
-      const poll = setInterval(() => {
+      oauthPollRef.current = setInterval(() => {
         if (popup.closed) {
-          clearInterval(poll);
+          clearInterval(oauthPollRef.current);
+          oauthPollRef.current = null;
           window.removeEventListener('message', handler);
           setConnecting(false);
           refresh();

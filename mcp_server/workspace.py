@@ -237,10 +237,15 @@ class Workspace:
         """Run a shell command inside the workspace via an explicit shell binary."""
         if not cmd or not isinstance(cmd, str):
             raise ValueError("cmd must be a non-empty string")
-        # Pass cmd as a positional argument to /bin/sh -c so the shell string is
+        # Pick the platform shell: /bin/sh on Unix, ComSpec on Windows.
+        # Pass cmd as a positional argument to SHELL -c so the shell string is
         # never interpolated by the Python subprocess layer (no shell=True).
+        # Use ComSpec (full path) because create_subprocess_exec does not
+        # resolve PATH or append .exe on Windows.
+        shell = os.environ.get("ComSpec", "cmd.exe") if os.name == "nt" else "/bin/sh"
+        shell_flag = "/c" if os.name == "nt" else "-c"
         proc = await asyncio.create_subprocess_exec(
-            "/bin/sh", "-c", cmd,
+            shell, shell_flag, cmd,
             cwd=str(self.root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -260,14 +265,19 @@ class Workspace:
     # ── lifecycle ────────────────────────────────────────────────────────
 
     def delete(self) -> None:
-        # Enumerate the constant WORKSPACE_BASE via the OS to get the canonical
-        # path from the filesystem rather than from the user-supplied ws_id.
-        # This breaks the taint flow that would arise from WORKSPACE_BASE / ws_id.
         try:
             with os.scandir(WORKSPACE_BASE) as entries:
                 for entry in entries:
                     if entry.name == self.ws_id and entry.is_dir(follow_symlinks=False):
-                        shutil.rmtree(entry.path, ignore_errors=True)
+                        # Retry loop to handle Windows file locks (git holds .git/
+                        # handles briefly after clone; shutil.rmtree with
+                        # ignore_errors=True can leave dirs behind on Windows).
+                        import time as _time
+                        for _ in range(3):
+                            shutil.rmtree(entry.path, ignore_errors=True)
+                            if not os.path.exists(entry.path):
+                                break
+                            _time.sleep(0.1)
                         break
         except OSError:
             pass

@@ -22,7 +22,8 @@ Runtime routing:
   • InternalAgent → quick analysis, simple fixes, fallback
 """
 from __future__ import annotations
-# nosec: B603,B607,B413,B301,B104,B608
+
+# nosec: B603,B607,B413,B301,B104,B608
 
 import asyncio
 import json
@@ -528,10 +529,13 @@ class Agency:
         from agent.scheduler import get_scheduler
         try:
             scheduler = get_scheduler()
+            # Derive a short human-readable label from the instruction (first 60 chars).
+            _label = directive.instruction.split("\n")[0][:60].strip()
             job = scheduler.create(
-                name=f"agency:{directive.directive_id}",
+                name=f"agency: {_label}" if _label else f"agency:{directive.directive_id}",
                 cron="* * * * *",
                 instruction=directive.instruction,
+                run_once=True,   # execute once and self-delete — prevents schedule spam
                 tags=["agency", directive.role.value,
                       f"priority-{directive.priority}",
                       f"runtime-{directive.preferred_runtime}"],

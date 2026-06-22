@@ -17,10 +17,14 @@ import api from '../../api';
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = React.useState(false);
+  // BUG-18: mounted guard so setTimeout(() => setCopied(false), ...)
+  // doesn't update state after CopyButton unmounts.
+  const mountedRef = React.useRef(true);
+  React.useEffect(() => () => { mountedRef.current = false; }, []);
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => { if (mountedRef.current) setCopied(false); }, 2000);
     }).catch(() => {
       // Fallback for non-HTTPS
       const el = document.createElement('textarea');
@@ -30,7 +34,7 @@ function CopyButton({ text, label }) {
       document.execCommand('copy');
       document.body.removeChild(el);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => { if (mountedRef.current) setCopied(false); }, 2000);
     });
   };
   return (
