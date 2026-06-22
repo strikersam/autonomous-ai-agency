@@ -66,7 +66,8 @@ class TestWorkspace:
         ws.write_file("sub/b.py", "b")
         files = ws.list_files()
         assert "a.py" in files
-        assert "sub/b.py" in files
+        # Path separators may be OS-native (\\ on Windows); normalize for comparison
+        assert any(os.path.normpath(f) == os.path.normpath("sub/b.py") for f in files)
 
     def test_search_code(self):
         ws = self._ws()
