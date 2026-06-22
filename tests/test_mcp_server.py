@@ -122,8 +122,11 @@ class TestWorkspace:
     def test_run_command_timeout(self):
         ws = self._ws()
         ws.ensure()
-        # Use platform-appropriate sleep command
-        cmd = "timeout /t 10 /nobreak >nul" if os.name == "nt" else "sleep 10"
+        # Commands that sleep > 1s (ping 10× on Windows ~= 10s; sleep on Unix)
+        if os.name == "nt":
+            cmd = "ping -n 11 127.0.0.1 >nul"  # ~10 second delay
+        else:
+            cmd = "sleep 10"
         result = asyncio.run(ws.run_command(cmd, timeout=1))
         assert result["exit_code"] == -1
         assert "Timed out" in result["stderr"]
