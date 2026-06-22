@@ -197,7 +197,11 @@ class WebsiteScanner:
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         self.timeout = 15.0
         self.max_redirects = 5
-        
+        # Wall-clock ceiling for a full scan. A slow/blocked domain must come
+        # back as a clean status='failed' instead of spinning until the client's
+        # own (120s) timeout fires. Override per-instance in tests/tuning.
+        self.scan_budget = 90.0
+
         # Load builtwith-style JSON database
         tech_path = os.path.join(os.path.dirname(__file__), 'technologies.json')
         if os.path.exists(tech_path):
@@ -207,6 +211,41 @@ class WebsiteScanner:
             self.tech_data = {"categories": {}, "apps": {}}
 
     async def scan_website(
+        self,
+        website_url: str,
+        scan_depth: str = "standard",
+        include_sitemap: bool = True,
+        max_pages: int = 20
+    ) -> WebsiteScanResult:
+        """Run a full scan under a wall-clock budget.
+
+        Delegates to :meth:`_scan_website_impl` but caps it at ``scan_budget``
+        seconds: a slow or blocked domain returns a well-formed
+        ``status='failed'`` result instead of hanging until the client's own
+        timeout fires.
+        """
+        scan_id = f"scan_{secrets.token_hex(8)}"
+        started_at = datetime.now(timezone.utc)
+        try:
+            return await asyncio.wait_for(
+                self._scan_website_impl(
+                    website_url,
+                    scan_depth=scan_depth,
+                    include_sitemap=include_sitemap,
+                    max_pages=max_pages,
+                ),
+                timeout=self.scan_budget,
+            )
+        except asyncio.TimeoutError:
+            return WebsiteScanResult(
+                scan_id=scan_id, website_url=website_url, company_id=self.company_id,
+                status="failed",
+                errors=[f"Scan exceeded wall-clock budget of {self.scan_budget:.0f}s"],
+                started_at=started_at.isoformat(),
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+
+    async def _scan_website_impl(
         self,
         website_url: str,
         scan_depth: str = "standard",
@@ -805,6 +844,42 @@ class WebsiteScanner:
 
         return systems
 
+    @staticmethod
+    def _decode_der_cert(der: bytes) -> dict:
+        """Decode a raw DER certificate into an ``ssl.getpeercert()``-shaped dict.
+
+        Returns ``{"issuer": ((("organizationName", v),), ...),
+        "subjectAltName": (("DNS", host), ...)}`` so the issuer/SAN mapping below
+        works identically whether the dict came from a verified handshake or
+        from decoding an unverified cert. Degrades to ``{}`` on any error so a
+        garbage cert can never raise into the scan.
+        """
+        try:
+            from cryptography import x509
+            from cryptography.x509.oid import NameOID
+
+            cert = x509.load_der_x509_certificate(der)
+            _oid_names = {
+                NameOID.COMMON_NAME: "commonName",
+                NameOID.ORGANIZATION_NAME: "organizationName",
+                NameOID.ORGANIZATIONAL_UNIT_NAME: "organizationalUnitName",
+                NameOID.COUNTRY_NAME: "countryName",
+            }
+            issuer = tuple(
+                ((_oid_names.get(attr.oid, attr.oid.dotted_string), attr.value),)
+                for attr in cert.issuer
+            )
+            sans: list[tuple[str, str]] = []
+            try:
+                ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+                for dns in ext.value.get_values_for_type(x509.DNSName):
+                    sans.append(("DNS", dns))
+            except Exception:
+                pass
+            return {"issuer": issuer, "subjectAltName": tuple(sans)}
+        except Exception:
+            return {}
+
     def _analyze_ssl_cert(self, domain: str) -> List[DetectedSystem]:
         """Inspect the TLS certificate (issuer + Subject Alternative Names) to
         infer hosting/CDN/cert platforms — BuiltWith-style off-HTML evidence.
@@ -828,15 +903,32 @@ class WebsiteScanner:
                 evidence=[Evidence(type=ev_type, value=str(ev_val)[:200], location="SSL", confidence=conf)]
             ))
 
-        try:
+        def _fetch_cert(verify: bool) -> dict:
+            """Return a parsed cert dict (ssl.getpeercert shape).
+
+            CPython only populates the parsed issuer/SAN dict for *verified*
+            certs, so we try a verifying handshake first. When that fails
+            (self-signed, hostname/expiry mismatch) we retry without
+            verification and decode the raw DER ourselves — otherwise the whole
+            analysis silently returns zero systems.
+            """
             ctx = _ssl.create_default_context()
-            # We only read cert metadata; tolerate hostname/expiry mismatches so
-            # detection still works on misconfigured or wildcard certs.
-            ctx.check_hostname = False
-            ctx.verify_mode = _ssl.CERT_NONE
+            if not verify:
+                ctx.check_hostname = False
+                ctx.verify_mode = _ssl.CERT_NONE
             with _socket.create_connection((domain, 443), timeout=min(self.timeout, 10)) as sock:
                 with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                    cert = ssock.getpeercert()
+                    parsed = ssock.getpeercert() or {}
+                    if not parsed:
+                        der = ssock.getpeercert(binary_form=True)
+                        parsed = self._decode_der_cert(der) if der else {}
+                    return parsed
+
+        try:
+            try:
+                cert = _fetch_cert(verify=True)
+            except Exception:
+                cert = _fetch_cert(verify=False)
             if not cert:
                 return systems
 
