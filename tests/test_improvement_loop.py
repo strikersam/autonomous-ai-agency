@@ -140,7 +140,9 @@ def test_schedule_fix_calls_on_task(tmp_path: Path):
     )
     loop._schedule_fix(issue)
     assert len(calls) == 1
-    assert "fix:tf_sched" in calls[0]["name"]
+    assert "fix:" in calls[0]["name"]
+    assert "Failing test: test_y" in calls[0]["name"]
+    assert "[test_failure]" in calls[0]["name"]
     assert "auto-improvement" in calls[0]["tags"]
 
 
