@@ -237,10 +237,13 @@ class Workspace:
         """Run a shell command inside the workspace via an explicit shell binary."""
         if not cmd or not isinstance(cmd, str):
             raise ValueError("cmd must be a non-empty string")
-        # Pass cmd as a positional argument to /bin/sh -c so the shell string is
+        # Pick the platform shell: /bin/sh on Unix, cmd.exe on Windows.
+        # Pass cmd as a positional argument to SHELL -c so the shell string is
         # never interpolated by the Python subprocess layer (no shell=True).
+        shell = "cmd" if os.name == "nt" else "/bin/sh"
+        shell_flag = "/c" if os.name == "nt" else "-c"
         proc = await asyncio.create_subprocess_exec(
-            "/bin/sh", "-c", cmd,
+            shell, shell_flag, cmd,
             cwd=str(self.root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

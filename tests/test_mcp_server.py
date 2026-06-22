@@ -122,7 +122,9 @@ class TestWorkspace:
     def test_run_command_timeout(self):
         ws = self._ws()
         ws.ensure()
-        result = asyncio.run(ws.run_command("sleep 10", timeout=1))
+        # Use platform-appropriate sleep command
+        cmd = "timeout /t 10 /nobreak >nul" if os.name == "nt" else "sleep 10"
+        result = asyncio.run(ws.run_command(cmd, timeout=1))
         assert result["exit_code"] == -1
         assert "Timed out" in result["stderr"]
 
