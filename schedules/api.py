@@ -42,7 +42,8 @@ class ScheduleCreateRequest(BaseModel):
 
 
 class ScheduleToggleRequest(BaseModel):
-    status: Literal["active", "paused"]
+    status: Literal["active", "paused"] | None = None
+    name: str | None = None  # optional rename
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -104,7 +105,13 @@ async def toggle_schedule(
     """Pause or activate a schedule."""
     sched = get_scheduler()
     try:
-        job = sched.toggle(schedule_id, enabled=(body.status == "active"))
+        job = sched.get(schedule_id)
+        if not job:
+            raise KeyError(schedule_id)
+        if body.name is not None:
+            job = sched.rename(schedule_id, name=body.name)
+        if body.status is not None:
+            job = sched.toggle(schedule_id, enabled=(body.status == "active"))
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Schedule '{schedule_id}' not found")
     return job.as_dict()

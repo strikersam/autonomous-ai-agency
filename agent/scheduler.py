@@ -135,9 +135,25 @@ class AgentScheduler:
         task_type: str = "scheduled",
         requires_approval: bool = False,
         tags: list[str] | None = None,
+        run_once: bool = False,
     ) -> ScheduledJob:
-        """Register a new job.  Returns the created :class:`ScheduledJob`."""
+        """Register a new job.  Returns the created :class:`ScheduledJob`.
+
+        ``run_once=True`` fires the job once then auto-deletes it, preventing
+        accumulation of stale one-shot agency/fix schedules.
+
+        Dedup guard: if a job with the same ``name`` already exists the existing
+        job is returned unchanged (idempotent creation).
+        """
+        # Dedup: return existing job with same name instead of creating a duplicate.
+        for existing in self._jobs.values():
+            if existing.name == name:
+                log.debug("Scheduler dedup — %r already exists (id=%s)", name, existing.job_id)
+                return existing
         job_id = "job_" + secrets.token_hex(6)
+        _tags = list(tags or [])
+        if run_once and "run-once" not in _tags:
+            _tags.append("run-once")
         job = ScheduledJob(
             job_id=job_id,
             name=name,
@@ -149,7 +165,7 @@ class AgentScheduler:
             model=model,
             task_type=task_type,
             requires_approval=requires_approval,
-            tags=list(tags or []),
+            tags=_tags,
         )
         self._jobs[job_id] = job
         self._register_aps(job)
@@ -202,6 +218,22 @@ class AgentScheduler:
     def shutdown(self) -> None:
         if self._aps and self._aps.running:
             self._aps.shutdown(wait=False)
+
+    def rename(self, job_id: str, *, name: str) -> ScheduledJob:
+        """Update the display name of a job."""
+        job = self._jobs.get(job_id)
+        if not job:
+            raise KeyError(f"Job {job_id!r} not found")
+        job.name = name
+        if self._running_loop() is not None:
+            asyncio.create_task(self._persist(job))
+        elif self._store is not None:
+            try:
+                self._store.upsert(job.as_dict())
+            except Exception:
+                pass
+        log.info("Job %s renamed to %r", job_id, name)
+        return job
 
     def toggle(self, job_id: str, *, enabled: bool) -> ScheduledJob:
         """Enable or disable a job without deleting it."""
@@ -409,6 +441,10 @@ class AgentScheduler:
             return
         job.last_run = _now()
         job.run_count += 1
+        # run-once: self-destruct after first fire so one-shot tasks don't accumulate.
+        if "run-once" in (job.tags or []):
+            self.delete(job_id)
+            log.info("run-once job %s fired and self-deleted", job_id)
         if self._running_loop() is not None:
             asyncio.create_task(self._persist(job))
         # else: no event loop (sync caller / APScheduler thread) — skip async persist
