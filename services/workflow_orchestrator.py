@@ -578,6 +578,8 @@ class WorkflowRun:
     approved_at: str | None = None
     current_phase: str | None = None
     error: str | None = None
+    # G5: the merge/land decision resolved from the company's DeliveryPolicy.
+    merge_decision: dict[str, Any] | None = None
     # Store the original request for resume-after-approval
     _request: Any = None
 
@@ -619,6 +621,25 @@ class WorkflowRun:
             "error": self.error,
             "_request": self._request.model_dump() if self._request and hasattr(self._request, 'model_dump') else None,
         }
+
+
+@dataclass
+class MergeDecision:
+    """G5: how a completed run should land, derived from the company's
+    DeliveryPolicy.
+
+    action is one of:
+      * ``telegram_gate``            — first merge for this repo; pause for human
+        consent before any push (``requires_approval=True``).
+      * ``open_pr``                  — consented + protected: open a PR.
+      * ``direct_push``              — consented + direct-push policy: push to the
+        default branch.
+      * ``awaiting_repo_connection`` — the company has no repo wired up yet.
+    """
+
+    action: str
+    requires_approval: bool = False
+    reason: str = ""
 
 
 class WorkflowOrchestrator:
@@ -1079,6 +1100,84 @@ class WorkflowOrchestrator:
                 "WorkflowOrchestrator: approval-gate notification failed for run=%s: %s",
                 getattr(run, "run_id", "?"), exc,
             )
+
+    async def _resolve_merge_decision(self, run: WorkflowRun) -> MergeDecision | None:
+        """G5: resolve how a run should land from the company's DeliveryPolicy.
+
+        Returns ``None`` when the run isn't tied to a company. Otherwise:
+          * no repo wired         → ``awaiting_repo_connection`` (no approval)
+          * first merge (no consent) → ``telegram_gate`` (requires approval)
+          * consented + protected → ``open_pr``
+          * consented + direct    → ``direct_push``
+        """
+        if not run.company_id:
+            return None
+
+        from services import company_graph_store as cgs
+        store = cgs.get_company_graph_store()
+        company = await store.get_company(run.company_id)
+        if company is None:
+            return None
+
+        conn = getattr(company, "repo_connection", None)
+        if conn is None:
+            return MergeDecision(
+                action="awaiting_repo_connection",
+                requires_approval=False,
+                reason="Company has no repo connection wired up yet.",
+            )
+
+        policy = getattr(conn, "policy", None)
+        consent = bool(getattr(policy, "first_merge_consent", False))
+        if not consent:
+            return MergeDecision(
+                action="telegram_gate",
+                requires_approval=True,
+                reason="First merge for this repo — operator consent required.",
+            )
+
+        mode = getattr(policy, "mode", "pr_required")
+        if mode == "direct_push":
+            return MergeDecision(
+                action="direct_push",
+                requires_approval=False,
+                reason="Consented + direct-push policy.",
+            )
+        return MergeDecision(
+            action="open_pr",
+            requires_approval=False,
+            reason="Consented + protected branch → open a PR.",
+        )
+
+    async def _record_first_merge_consent(self, run: WorkflowRun) -> None:
+        """Persist first-merge consent once an operator approves a ``telegram_gate``.
+
+        No-op when the run carries no merge decision, or the decision wasn't a
+        first-merge gate (nothing to consent to).
+        """
+        decision = run.merge_decision
+        if not decision or decision.get("action") != "telegram_gate":
+            return
+
+        from services import company_graph_store as cgs
+        store = cgs.get_company_graph_store()
+        company = await store.get_company(run.company_id)
+        if company is None:
+            return
+        conn = getattr(company, "repo_connection", None)
+        policy = getattr(conn, "policy", None) if conn else None
+        if policy is None:
+            return
+        # DeliveryPolicy/RepoConnection/Company are frozen pydantic models, so
+        # rebuild the chain via model_copy rather than mutating in place.
+        new_policy = policy.model_copy(update={"first_merge_consent": True})
+        new_conn = conn.model_copy(update={"policy": new_policy})
+        new_company = company.model_copy(update={"repo_connection": new_conn})
+        await store.update_company(new_company)
+        log.info(
+            "WorkflowOrchestrator: recorded first-merge consent for company=%s",
+            run.company_id,
+        )
 
     def get_run(self, run_id: str) -> WorkflowRun | None:
         return self._runs.get(run_id)
