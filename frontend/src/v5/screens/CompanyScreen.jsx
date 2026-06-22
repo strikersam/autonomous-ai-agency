@@ -69,7 +69,17 @@ function CompanyHeader({ data, isPreview }) {
             {[
               { label: `${(data.systems || []).length} systems`, color: 'var(--accent)' },
               { label: `${(data.repos || []).length} repos`, color: '#c4b5fd' },
-              { label: `${(data.specialists || []).filter(s=>s.status==='active'||s.status==='running').length} agents active`, color: '#46d9a4' },
+              { label: `${(data.specialists || []).filter(s => {
+                // BUG-27: count active/running specialists AND any specialist
+                // with a last_used_at timestamp within the last 24 hours
+                if (s.status === 'active' || s.status === 'running') return true;
+                const last = s.last_used_at || s.lastRun;
+                if (last && last !== '—') {
+                  const ms = new Date(last).getTime();
+                  if (ms > 0 && (Date.now() - ms) < 24 * 3600 * 1000) return true;
+                }
+                return false;
+              }).length} agents active`, color: '#46d9a4' },
             ].map(b => (
               <span key={b.label} style={{
                 fontSize: 11, fontFamily: 'var(--font-mono)', padding: '3px 10px', borderRadius: 999,
