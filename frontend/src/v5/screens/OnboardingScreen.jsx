@@ -226,6 +226,12 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
 
   const handleScan = async () => {
     if (!url.trim()) return;
+    // Defensive: clear any orphaned interval from a previous scan (e.g. if
+    // the component remounts mid-scan or the disabled guard is removed).
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
     setScanning(true);
     setProgress(5);
     setErrorText('');
