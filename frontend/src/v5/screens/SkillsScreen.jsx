@@ -347,7 +347,9 @@ function SkillsScreen() {
   const toggle = (id) => {
     const next = { ...enabled, [id]: !enabled[id] };
     setEnabled(next);
-    localStorage.setItem('skills_enabled', JSON.stringify(next));
+    // BUG-06: wrap localStorage.setItem in try/catch so a blocked or
+    // quota-exceeded storage doesn't crash the React component tree.
+    try { localStorage.setItem('skills_enabled', JSON.stringify(next)); } catch {}
   };
 
   const effectiveSkills = skills.map(s => ({ ...s, enabled: enabled[s.id] !== undefined ? enabled[s.id] : s.enabled }));

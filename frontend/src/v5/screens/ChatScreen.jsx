@@ -515,10 +515,10 @@ function ChatScreen() {
         const { data } = await api.getAgentChatJob(jobId);
         snap = data;
       } catch (err) {
+        // BUG-12: transient network errors (502/504, connection reset) should
+        // not kill the entire polling loop; continue polling on next cycle.
         if (!mountedRef.current) return;
-        setSending(false); setPhase(null);
-        setMessages((prev) => [...prev, { role:'assistant', agent:selectedAg, content:'Lost connection to the agent job. It may still be running on the server.', isError:true }]);
-        return;
+        continue;
       }
       if (!mountedRef.current) return;
       setPhase(snap.phase || 'running');
@@ -560,14 +560,22 @@ function ChatScreen() {
     setElapsed(0);
     setPhase(agentMode ? 'planning' : null);
     try {
-      // Build context payload from active chips (company, wiki, sources, repo)
-      const repoChip = chips.find(c => c.id === 'repo');
-      const repoUrl = repoChip?._rawUrl || (localStorage.getItem('v5_chat_repo_url') || null);
-      const contextPayload = chips.length > 0 ? {
-        company_id: localStorage.getItem('v5_company_id') || null,
-        company_name: chips.find(c => c.id === 'company')?.label || localStorage.getItem('v5_company_name') || null,
-        context_labels: chips.map(c => c.label),
-      } : null;
+      // Build context payload from active chips (company, wiki, sources, repo).
+      // BUG-05: wrap localStorage reads in try/catch so a browser that blocks
+      // third-party storage (SecurityError) doesn't crash the send path.
+      let repoUrl = null;
+      let contextPayload = null;
+      try {
+        const repoChip = chips.find(c => c.id === 'repo');
+        repoUrl = repoChip?._rawUrl || localStorage.getItem('v5_chat_repo_url') || null;
+        if (chips.length > 0) {
+          contextPayload = {
+            company_id: localStorage.getItem('v5_company_id') || null,
+            company_name: chips.find(c => c.id === 'company')?.label || localStorage.getItem('v5_company_name') || null,
+            context_labels: chips.map(c => c.label),
+          };
+        }
+      } catch { /* storage blocked — proceed without context */ }
       const { data } = await api.chatSend(text, sessionId, selectedModel?.model || null, selectedModel?.provider || null, null, agentMode, false, contextPayload, repoUrl);
       if (!mountedRef.current) return;
       if (data?.session_id) setSessionId(data.session_id);

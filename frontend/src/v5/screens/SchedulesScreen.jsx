@@ -207,6 +207,9 @@ function SchedulesScreen() {
   const [busyId, setBusyId]           = React.useState(null);
   const [justRan, setJustRan]         = React.useState(null);
   const [actionErr, setActionErr]     = React.useState(null);
+  // BUG-16: mounted guard so runNow setTimeout doesn't update state after unmount
+  const mountedRef = React.useRef(true);
+  React.useEffect(() => () => { mountedRef.current = false; }, []);
 
   const [data, states, refetch] = useSafeData(null, { schedules: '/api/schedules/' }, { refreshMs: 30000 });
   const jobs = (data.schedules?.schedules || []).map(normalizeJob);
@@ -225,7 +228,7 @@ function SchedulesScreen() {
     setJustRan(id); setActionErr(null);
     try { await api.triggerSchedule(id); await refetch(); }
     catch (e) { setActionErr(errText(e, 'Could not trigger the schedule.')); }
-    finally { setTimeout(() => setJustRan(null), 1500); }
+    finally { setTimeout(() => { if (mountedRef.current) setJustRan(null); }, 1500); }
   };
 
   const createSchedule = async (payload) => {

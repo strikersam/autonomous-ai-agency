@@ -41,7 +41,7 @@ SystemType = Literal[
     "marketing_automation", "email_service", "search", "database",
     "cache", "cdc", "message_queue", "api_gateway", "auth", "billing",
     "support", "chat", "video", "voice", "iot", "ai_ml",
-    "frontend", "custom"
+    "frontend", "backend", "custom",
 ]
 
 # Specialist families for dynamic provisioning
@@ -440,7 +440,7 @@ class DetectedSystem(BaseModel):
             "marketing_automation", "email_service", "search", "database",
             "cache", "cdc", "message_queue", "api_gateway", "auth", "billing",
             "support", "chat", "video", "voice", "iot", "ai_ml",
-            "frontend", "custom",
+            "frontend", "backend", "custom",
         }
         if isinstance(v, str) and v not in _valid:
             return "custom"
