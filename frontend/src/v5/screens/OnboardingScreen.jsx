@@ -208,6 +208,10 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
   const [scanning, setScanning] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [errorText, setErrorText] = React.useState('');
+  const mountedRef = React.useRef(true);
+  // BUG-15: guard the progressTimer interval so it doesn't keep calling
+  // setProgress after the DiscoveryStep unmounts mid-scan.
+  React.useEffect(() => () => { mountedRef.current = false; }, []);
   const msgs = ['Registering company context...','Fetching page source...','Parsing JS bundles...','Detecting platforms...','Identifying data tools...','Almost done...'];
   const msgIdx = Math.min(Math.floor((progress/100)*msgs.length), msgs.length-1);
 
@@ -251,6 +255,7 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
     // Step 2: Animate progress while the real scan runs.
     let p = 5;
     const progressTimer = setInterval(() => {
+      if (!mountedRef.current) return;
       p = Math.min(p + 12, 88);
       setProgress(p);
     }, 300);
