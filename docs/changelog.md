@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **CEO agency: dispatch run_cycle on FastAPI main loop** (2026-06-24). The CEO thread used `asyncio.run(run_cycle())` which created a fresh event loop that couldn't see Motor/aiosqlite clients bound to the FastAPI main loop — the self-bootstrap and quick-note fetch crashed silently with `RuntimeError: Future attached to a different loop`. Fix: new `Agency.attach_main_loop(loop)` captures the FastAPI main loop (same pattern as the scheduler fix); `_loop()` uses `asyncio.run_coroutine_threadsafe(run_cycle(), main_loop)` so the CEO cycle runs on the same loop that owns the DB clients.
+
 - **Self-bootstrap: CEO agency retries on every cycle** (2026-06-24). The startup background task (`asyncio.create_task(ensure_self_company())`) gets cancelled when Render's free tier spins down the instance between requests — the company is never created. Fix: the CEO agency's `run_cycle()` now calls `ensure_self_company()` on every 5-min tick. It's idempotent (no-ops if the company already exists with specialists) so it safely retries until the company is created, then stops doing anything.
 
 - **Self-bootstrap: fallback to direct company creation on timeout/failure** (2026-06-24). `start_onboarding` was timing out (120s) or failing on Render because the repo scan hit GitHub rate-limits or the Mongo connection was slow. The self-bootstrap swallowed the error and left `company_count=0`. Fix: on `TimeoutError` or any exception from `start_onboarding`, fall back to `_create_company_directly()` which creates the company via the graph service, marks onboarding complete, and provisions baseline specialists directly — so the agency always has something to operate on.
