@@ -5883,12 +5883,22 @@ async def autonomy_status() -> dict[str, object]:
     except Exception:  # pragma: no cover - defensive
         pass
     try:
-        from services.self_bootstrap import ensure_self_company
-        # If self-bootstrap is enabled, try to ensure the company exists.
-        # This is idempotent — no-ops if the company already exists.
+        # If self-bootstrap is enabled AND no company exists yet, try to
+        # ensure the company exists. This runs on the request's event loop
+        # (the FastAPI main loop), so it safely touches Motor/aiosqlite
+        # clients. On Render free tier, the CEO agency thread can't reliably
+        # dispatch because the event loop stops pumping between requests.
+        # Skip in tests (SELF_BOOTSTRAP_ENABLED=false) to avoid interfering
+        # with E2E/unit tests.
         if self_bootstrap_status.get("enabled"):
-            bootstrap_result = await ensure_self_company()
-            self_bootstrap_status["last_result"] = bootstrap_result.get("status")
+            from services.self_bootstrap import _find_self_company
+            existing = await _find_self_company()
+            if existing is None:
+                # No company yet — trigger ensure_self_company() on this
+                # request's event loop. Idempotent: subsequent calls no-op.
+                from services.self_bootstrap import ensure_self_company
+                bootstrap_result = await ensure_self_company()
+                self_bootstrap_status["last_result"] = bootstrap_result.get("status")
         from services.self_bootstrap import _find_self_company
         existing = await _find_self_company()
         if existing is not None:
