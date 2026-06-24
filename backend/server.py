@@ -5953,6 +5953,14 @@ async def autonomy_status() -> dict[str, object]:
                 ceo_status["quick_notes_exhausted_closed"] = qn.get("exhausted_closed", 0)
             except Exception:
                 pass
+            # Show the GitHub API response status
+            try:
+                import agent.agency as _ag
+                ceo_status["gh_api_status"] = _ag._last_gh_fetch_status
+                ceo_status["gh_api_count"] = _ag._last_gh_fetch_count
+                ceo_status["gh_api_error"] = _ag._last_gh_fetch_error[:100] if _ag._last_gh_fetch_error else ""
+            except Exception:
+                pass
             ceo_status["cycle_id"] = result.cycle_id
     except Exception as exc:
         ceo_status["error"] = str(exc)[:200]
