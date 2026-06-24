@@ -16,6 +16,7 @@ Design notes:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from urllib.parse import urlparse
@@ -120,11 +121,28 @@ async def ensure_self_company(*, owner_id: str | None = None) -> dict:
         # start_onboarding creates the company when the id is unknown; pass the
         # existing id when we have one so we resume rather than duplicate.
         company_id = existing.id if existing is not None else "self-bootstrap"
-        progress = await onboarding.start_onboarding(
-            company_id=company_id,
-            website_urls=[SELF_WEBSITE_URL],
-            repo_urls=[SELF_REPO_URL],
-            owner_id=owner_id,
+        # Skip the website scan: SELF_WEBSITE_URL points at *this server*, so
+        # scanning it during startup creates a self-referential HTTP request
+        # that hangs (the server isn't fully ready to serve yet) and blocks the
+        # entire onboarding inside start_onboarding's asyncio.Lock. The repo
+        # scan is kept — it detects the tech stack from GitHub and is needed
+        # for specialist provisioning. If the repo scan fails (rate-limit,
+        # network), the onboarding falls back to the baseline specialist set
+        # (backend, frontend, analytics) so the agency still gets 6 cadences.
+        #
+        # Wrap the entire onboarding in a 120s timeout so a hung repo scan
+        # (GitHub rate-limit, network blip) can't block the background task
+        # forever. On timeout the company is still created (start_onboarding
+        # creates it before scanning), so the agency can still activate.
+        progress = await asyncio.wait_for(
+            onboarding.start_onboarding(
+                company_id=company_id,
+                website_urls=[SELF_WEBSITE_URL],
+                repo_urls=[SELF_REPO_URL],
+                skip_website_scan=True,
+                owner_id=owner_id,
+            ),
+            timeout=120.0,
         )
         resolved_company_id = getattr(progress, "company_id", company_id)
 
