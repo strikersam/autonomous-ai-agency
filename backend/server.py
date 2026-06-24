@@ -5946,6 +5946,13 @@ async def autonomy_status() -> dict[str, object]:
             ceo_status["cycle_id"] = result.cycle_id
             ceo_status["ceo_assessment"] = result.ceo_assessment[:200]
             ceo_status["quick_notes_seen"] = result.improvement_issues_seen
+            # Show the actual quick-note fetch result
+            try:
+                qn = agency._last_quick_notes
+                ceo_status["quick_notes_actionable"] = len(qn.get("actionable", []))
+                ceo_status["quick_notes_exhausted_closed"] = qn.get("exhausted_closed", 0)
+            except Exception:
+                pass
             ceo_status["cycle_id"] = result.cycle_id
     except Exception as exc:
         ceo_status["error"] = str(exc)[:200]
