@@ -230,7 +230,7 @@ services:
       - key: SELF_BOOTSTRAP_URL
         value: "https://local-llm-server.onrender.com"
       - key: SELF_BOOTSTRAP_REPO
-        value: "https://github.com/strikersam/local-llm-server"
+        value: "https://github.com/strikersam/autonomous-ai-agency"
 
       # ================================================================
       # KIMI (MOONSHOT) WEB BRIDGE — free Kimi access without an API key.

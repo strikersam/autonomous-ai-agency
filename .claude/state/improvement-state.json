@@ -435,6 +435,18 @@
       "detected_at": "2026-05-18T20:07:58Z",
       "task_id": null,
       "resolved": false
+    },
+    {
+      "issue_id": "he_829107cb9d0e",
+      "category": "todo_fixme",
+      "severity": "medium",
+      "title": "Backend ERROR: company_graph.onboarding \u2014 2026-06-24 04:48:13,702 [ERROR] company_graph.onboarding: Repository scan failed",
+      "description": "The server emitted a `ERROR` log entry from `company_graph.onboarding`.\n\n**Full message:**\n```\n2026-06-24 04:48:13,702 [ERROR] company_graph.onboarding: Repository scan failed for https://github.com/strikersam/local-llm-server: Repository scan failed: ['GitHub API error: 301']\n```\n\nPlease investigate the root cause and apply the minimum fix.",
+      "file_path": null,
+      "line_number": null,
+      "detected_at": "2026-06-24T04:48:13Z",
+      "task_id": null,
+      "resolved": false
     }
   ],
   "resolved_issues": [
