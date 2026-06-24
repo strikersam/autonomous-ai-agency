@@ -117,6 +117,12 @@ class AgentScheduler:
         # when None the scheduler behaves exactly as before (in-memory only).
         self._persistence = persistence
         self._store = persistence  # #505: durable store (lazy-init if None)
+        # Main event loop reference — set by ``attach_main_loop()`` from the
+        # FastAPI lifespan so APScheduler's background thread can schedule
+        # coroutines on it via ``asyncio.run_coroutine_threadsafe`` instead of
+        # ``asyncio.run`` (which would create a *new* loop that can't reach
+        # Motor/aiosqlite resources bound to the main loop).
+        self._main_loop: Any = None
         if _HAS_APSCHEDULER:
             self._aps = BackgroundScheduler()
             self._aps.start()
@@ -267,6 +273,20 @@ class AgentScheduler:
 
     def set_on_fire(self, on_fire: Callable[[ScheduledJob], Any] | None) -> None:
         self._on_fire = on_fire
+
+    def attach_main_loop(self, loop: Any) -> None:
+        """Capture the FastAPI main event loop so APScheduler's background
+        thread can dispatch coroutines back onto it.
+
+        Without this, ``_fire`` would fall back to ``asyncio.run(coro)`` which
+        spins up a *fresh* event loop in the APScheduler thread. That fresh
+        loop can't see Motor/aiosqlite clients bound to the main loop, so the
+        on_fire coroutine (which creates a Task in the shared store) crashes
+        with ``RuntimeError: Future attached to a different loop`` — and the
+        agency's 24x7 cadences silently never produce any work.
+        """
+        self._main_loop = loop
+        log.info("Scheduler main loop attached (loop=%r)", loop)
 
     # ------------------------------------------------------------------
     # Async scheduling helper
@@ -451,20 +471,41 @@ class AgentScheduler:
         if "run-once" in (job.tags or []):
             self.delete(job_id)
             log.info("run-once job %s fired and self-deleted", job_id)
-        if self._running_loop() is not None:
+        # Persist the updated last_run/run_count. When called from the
+        # APScheduler thread (no running loop) prefer the captured main loop
+        # so the coroutine can safely touch Motor/aiosqlite clients bound to
+        # it. ``asyncio.run`` would create a fresh loop that can't reach
+        # those clients and crashes with "Future attached to a different loop".
+        running = self._running_loop()
+        if running is not None:
             asyncio.create_task(self._persist(job))
-        # else: no event loop (sync caller / APScheduler thread) — skip async persist
+        elif self._main_loop is not None:
+            try:
+                asyncio.run_coroutine_threadsafe(self._persist(job), self._main_loop)
+            except Exception as exc:  # pragma: no cover - defensive
+                log.debug("Scheduler persist thread-safe dispatch failed: %s", exc)
+        # else: no loop at all — skip async persist (same as before)
         log.info("Firing job %s (%s)", job_id, job.name)
         if self._on_fire:
             try:
                 result = self._on_fire(job)
                 if inspect.isawaitable(result):
-                    try:
-                        loop = asyncio.get_running_loop()
-                    except RuntimeError:
-                        asyncio.run(result)
+                    running = self._running_loop()
+                    if running is not None:
+                        # Called from an async context (e.g. scheduler.trigger()
+                        # invoked from a request handler) — schedule on this loop.
+                        running.create_task(result)
+                    elif self._main_loop is not None:
+                        # Called from APScheduler's background thread — dispatch
+                        # onto the FastAPI main loop so the coroutine can safely
+                        # use Motor/aiosqlite clients bound to it.
+                        asyncio.run_coroutine_threadsafe(result, self._main_loop)
                     else:
-                        loop.create_task(result)
+                        # Last-resort fallback: only used before the lifespan
+                        # wires ``attach_main_loop`` (e.g. tests). Creates a
+                        # fresh loop — fine for pure-Python coroutines but will
+                        # fail if the coroutine touches main-loop-bound resources.
+                        asyncio.run(result)
             except Exception as exc:
                 log.error("on_fire callback for job %s raised: %s", job_id, exc)
 

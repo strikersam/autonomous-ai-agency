@@ -280,7 +280,7 @@ Three capabilities landed in June 2026, each verified end-to-end against the liv
 
 **Self-supervising backlog.** Three standing cadences run the improvement loop: an **agency supervisor** (every 4 h) re-files failed runs, picks up unchecked items from the [autonomy epic](../../issues/504), and verifies PRs exist for completed work; a **post-deploy verifier** (daily) health-checks Doctor, runs a smoke task, and resurrects the cadences if a deploy wiped them; and a **tech-debt burndown** (Mon/Thu) that fixes three tracked code markers per run with PRs. Work is tracked where it survives restarts — GitHub issues and PRs — and the operating manual lives in `docs/knowledge/agency-operational-knowledge.md`, mirrored as a wiki page in the Knowledge screen.
 
-> Honest status: schedule and run persistence across redeploys is in progress ([#505](../../issues/504)); until it merges, the daily verifier self-heals the cadences. Capture-hub FAB ([#517](../../issues/517)) and automatic README/changelog/knowledge ingestion on repo connect ([#518](../../issues/518)) are specced and queued.
+> Honest status: schedule and run persistence across redeploys landed ([#505](../../issues/504)) — the `ScheduleStore` now honours `STORAGE_BACKEND=sqlite` (the README's zero-dependency default) as well as Mongo, and the `AgentScheduler` rehydrates every company cadence on boot (`Hydrated N scheduled job(s) from durable store`). The APScheduler worker thread now dispatches `on_fire` coroutines onto the FastAPI main loop via `asyncio.run_coroutine_threadsafe`, so 24x7 cadences actually produce tasks instead of silently dying on a "Future attached to a different loop" error. Capture-hub FAB ([#517](../../issues/517)) and automatic README/changelog/knowledge ingestion on repo connect ([#518](../../issues/518)) are specced and queued.
 
 ---
 
@@ -572,7 +572,7 @@ We'd rather under-promise. Here's the honest split (see `docs/architecture/featu
 | Multi-provider routing + failover | **Stable** | Bedrock -> NIM -> DeepSeek -> Anthropic -> Ollama chain with per-provider cooldown. |
 | Technology scanner (HTML + DNS + TLS + headers) | **Stable** | BuiltWith-parity off-HTML evidence; headless escalation for bot-walled sites is best-effort and needs Chromium installed in the deployment. |
 | Task workflow + dispatcher + HITL gates | **Stable** | Persisted state machine, crash-recovery reconciler. |
-| Scheduled tasks / persistent schedule store | **Stable** | Reconciles on boot; nothing silently skipped. |
+| Scheduled tasks / persistent schedule store | **Stable** | Durable across redeploys — `ScheduleStore` works with both Mongo and SQLite; `AgentScheduler` rehydrates every cadence on boot; APScheduler's worker thread dispatches `on_fire` coroutines onto the FastAPI main loop via `run_coroutine_threadsafe`, so 24x7 cadences produce tasks instead of dying on a cross-loop error. |
 | Skill bindings + dynamic skill registry | **Stable** | GitHub discovery with ETag caching and rate-limit semaphores. |
 | Langfuse observability + local TCO cost model | **Stable** | Cost figures are an estimated commercial-equivalent model, not a billed invoice. |
 | Telegram bot remote control | **Beta** | Works; long-running 24x7 deployment paths are still hardening. |

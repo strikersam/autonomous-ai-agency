@@ -153,9 +153,11 @@ async def test_sync_rehydrate_on_running_loop_does_not_leak() -> None:
 
 
 def test_store_falls_back_to_memory_without_mongo() -> None:
-    # No Mongo in the test sandbox → store must degrade to in-memory, not crash.
+    # No Mongo in the test sandbox → store must degrade to a working backend
+    # (sqlite when STORAGE_BACKEND=sqlite, or in-memory as the Mongo fallback),
+    # not crash. Either way the round-trip must work.
     store = ScheduleStore()
-    assert store.mode in ("mongo", "memory")
+    assert store.mode in ("mongo", "memory", "sqlite")
     store.upsert({"job_id": "j1", "name": "n", "cron": "* * * * *"})
     assert any(d["job_id"] == "j1" for d in store.load_all())
     store.remove("j1")
