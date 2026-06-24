@@ -5970,31 +5970,34 @@ async def autonomy_status() -> dict[str, object]:
     #    when the instance spins down. Pending tasks pile up. This executes
     #    ONE pending task per status check, directly on the request's event
     #    loop, so work gets done even without the background dispatcher.
+    #    Skip in tests (SELF_BOOTSTRAP_ENABLED=false) to avoid interfering
+    #    with unit tests that mock the DB and assert exact call counts.
     dispatch_status: dict[str, object] = {"ran": False}
-    try:
-        from tasks.store import get_task_store
-        from tasks.service import TaskExecutionCoordinator
-        store = get_task_store()
-        pending = await store.list_pending(limit=1)
-        if pending:
-            task_id = pending[0].task_id
-            dispatch_status["task_id"] = task_id
-            dispatch_status["task_title"] = pending[0].title[:60]
-            coord = TaskExecutionCoordinator(
-                store=store,
-                workspace_root=str(ROOT_DIR),
-            )
-            import asyncio as _aio2
-            result_task = await _aio2.wait_for(
-                coord.execute(task_id), timeout=120.0
-            )
-            dispatch_status["ran"] = True
-            dispatch_status["result_status"] = result_task.status
-            dispatch_status["result_error"] = (result_task.error_message or "")[:100]
-        else:
-            dispatch_status["pending_count"] = 0
-    except Exception as exc:
-        dispatch_status["error"] = str(exc)[:200]
+    if os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").strip().lower() in ("true", "1", "yes"):
+        try:
+            from tasks.store import get_task_store
+            from tasks.service import TaskExecutionCoordinator
+            store = get_task_store()
+            pending = await store.list_pending(limit=1)
+            if pending:
+                task_id = pending[0].task_id
+                dispatch_status["task_id"] = task_id
+                dispatch_status["task_title"] = pending[0].title[:60]
+                coord = TaskExecutionCoordinator(
+                    store=store,
+                    workspace_root=str(ROOT_DIR),
+                )
+                import asyncio as _aio2
+                result_task = await _aio2.wait_for(
+                    coord.execute(task_id), timeout=120.0
+                )
+                dispatch_status["ran"] = True
+                dispatch_status["result_status"] = result_task.status
+                dispatch_status["result_error"] = (result_task.error_message or "")[:100]
+            else:
+                dispatch_status["pending_count"] = 0
+        except Exception as exc:
+            dispatch_status["error"] = str(exc)[:200]
 
     # ── Company count: mirrors the /api/doctor/public storage check so the
     #    autonomy probe is self-contained. Uses the safe list helper so a
