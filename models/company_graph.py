@@ -1213,6 +1213,10 @@ class Company(BaseModel):
         # Lifecycle states written by OnboardingService.start_onboarding
         "in_progress", "paused", "failed", "cancelled",
         "complete",
+        # Legacy state written by a previous deploy (PR #780) before #781
+        # fixed the write to 'cancelled'. Accepted here so list_companies()
+        # doesn't crash on stale rows — the self-bootstrap handles archival.
+        "archived",
     ] = Field(
         default="not_started",
         description="Current onboarding status"
