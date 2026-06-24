@@ -5889,11 +5889,12 @@ async def autonomy_status() -> dict[str, object]:
         self_bootstrap_status["error"] = str(exc)
 
     # ── Company count: mirrors the /api/doctor/public storage check so the
-    #    autonomy probe is self-contained. ──
+    #    autonomy probe is self-contained. Uses the safe list helper so a
+    #    stale row with an invalid onboarding_status doesn't crash the probe. ──
     company_count = 0
     try:
-        from services.company_graph_store import get_company_graph_store
-        companies = await get_company_graph_store().list_companies(limit=500)
+        from services.self_bootstrap import _list_companies_safe
+        companies = await _list_companies_safe()
         company_count = len(companies)
     except Exception:  # pragma: no cover - defensive
         pass
