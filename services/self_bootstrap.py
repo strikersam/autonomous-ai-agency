@@ -35,9 +35,11 @@ log = logging.getLogger("qwen-proxy")
 # Render via render.yaml line 34-35 as a `value:`, not `sync: false`).
 _STALE_DOMAINS = {
     "local-llm-server.strikersam.workers.dev",
-    "local-llm-server.onrender.com",
+    # NOTE: 'local-llm-server.onrender.com' is NOT stale — it's the current
+    # Render service URL (the service hasn't been renamed yet). Treat it as
+    # the valid self-bootstrap target.
 }
-_STALE_REPO_FRAGMENTS = ("local-llm-server",)
+_STALE_REPO_FRAGMENTS = ("strikersam/local-llm-server",)  # only the old repo path is stale
 
 
 def _resolve_website_url() -> str:
@@ -150,19 +152,23 @@ async def _find_self_company():
 
 async def _find_stale_self_companies():
     """Return companies that look like a previous self-bootstrap run but have
-    a stale domain (pre-rebrand). These get deactivated so the fresh run
-    creates a new company with the correct URLs."""
+    a stale domain (pre-rebrand workers.dev only — NOT the current Render URL).
+
+    Note: 'local-llm-server.onrender.com' is the CURRENT Render service URL
+    (the service hasn't been renamed yet), so it must NOT be treated as stale.
+    Only 'local-llm-server.strikersam.workers.dev' (the pre-Render Cloudflare
+    Workers URL) is stale.
+    """
     stale = []
     current_domain = _self_domain()
     companies = await _list_companies_safe()
     for company in companies:
         domain = (company.domain or "").lower()
-        # Match any domain that looks like a previous self-bootstrap target:
-        # the old workers.dev URL, the old onrender.com URL, or the old repo name.
-        if domain in (
-            "local-llm-server.strikersam.workers.dev",
-            "local-llm-server.onrender.com",
-        ) and domain != current_domain:
+        # Only the workers.dev URL is stale. The onrender.com URL is the
+        # current Render service (it hasn't been renamed) so we must NOT
+        # archive companies with that domain — otherwise the self-bootstrap
+        # archives the company it just created.
+        if domain == "local-llm-server.strikersam.workers.dev" and domain != current_domain:
             stale.append(company)
     return stale
 
