@@ -279,11 +279,14 @@ class Agency:
         # Render free-tier cold-start spin-down), retry it here on every CEO
         # cycle. This is idempotent — ensure_self_company() no-ops if the
         # company already exists with specialists.
-        try:
-            from services.self_bootstrap import ensure_self_company
-            await ensure_self_company()
-        except Exception as exc:
-            log.debug("Agency: self-bootstrap retry skipped: %s", exc)
+        # Skip in tests (SELF_BOOTSTRAP_ENABLED=false) to avoid interfering
+        # with E2E tests that create their own companies.
+        if os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").strip().lower() in ("true", "1", "yes"):
+            try:
+                from services.self_bootstrap import ensure_self_company
+                await ensure_self_company()
+            except Exception as exc:
+                log.debug("Agency: self-bootstrap retry skipped: %s", exc)
 
         state_context = self._build_state_context()
         state_context["quick_notes"] = self._last_quick_notes
