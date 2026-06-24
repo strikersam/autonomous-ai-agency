@@ -43,6 +43,11 @@ import httpx
 
 log = logging.getLogger("qwen-proxy")
 
+# Cache the last GitHub API response for diagnostics
+_last_gh_fetch_status: int | None = None
+_last_gh_fetch_count: int = 0
+_last_gh_fetch_error: str = ""
+
 
 # ── GitHub helpers ─────────────────────────────────────────────────────────────
 
@@ -93,12 +98,16 @@ async def _fetch_github_quick_notes() -> list[dict]:
                 "Accept": "application/vnd.github+json",
             },
         )
+    global _last_gh_fetch_status, _last_gh_fetch_count, _last_gh_fetch_error
+    _last_gh_fetch_status = resp.status_code
     if resp.status_code != 200:
+        _last_gh_fetch_error = resp.text[:200]
         log.warning(
             "Agency: GitHub issue fetch returned %d for %s — body: %s",
             resp.status_code, repo, resp.text[:200],
         )
         return []
+    _last_gh_fetch_error = ""
     issues = [
         {
             "number": i["number"],
@@ -110,6 +119,7 @@ async def _fetch_github_quick_notes() -> list[dict]:
         for i in resp.json()
         if "pull_request" not in i  # exclude PRs
     ]
+    _last_gh_fetch_count = len(issues)
     log.info("Agency: fetched %d quick-note issues from %s", len(issues), repo)
     return issues
 

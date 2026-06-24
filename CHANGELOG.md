@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **CEO diagnostic: show GitHub API response status code** (2026-06-24). `quick_notes_actionable: 0` but no way to tell if the GitHub API call succeeded. Added `gh_api_status`, `gh_api_count`, and `gh_api_error` to the `ceo` field so the status response shows the actual HTTP response code and error body from the GitHub API.
+
 - **CEO diagnostic: show quick_notes_actionable count in status** (2026-06-24). The `quick_notes_seen` field was actually the improvement loop's issue count, not the GitHub quick-note count. Added `quick_notes_actionable` and `quick_notes_exhausted_closed` fields that show the actual result of `_fetch_github_quick_notes()`.
 
 - **CEO: derive GitHub repo from SELF_REPO_URL when GITHUB_REPOSITORY is missing** (2026-06-24). The diagnostic showed `gh_repo: MISSING` — `GITHUB_REPOSITORY` is not set on Render's web service (render.yaml `value:` is overridden by the dashboard). The CEO couldn't fetch quick-note issues. Fix: `_gh_repo()` now falls back to deriving the repo from `SELF_REPO_URL` (resolved by `services.self_bootstrap` to `https://github.com/strikersam/autonomous-ai-agency`).
