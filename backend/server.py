@@ -5919,6 +5919,29 @@ async def autonomy_status() -> dict[str, object]:
     #    event loop, so it safely touches Motor/aiosqlite clients.
     ceo_status: dict[str, object] = {"triggered": False}
     try:
+        # Ensure the scheduler's on_fire is wired to TaskAutomationService.
+        # On Render, start_background_services() may not have run
+        # (RUN_BACKGROUND_IN_WEB might be false on the dashboard), so the
+        # scheduler's on_fire callback was never set. Without this, CEO
+        # directives go to scheduler.create() → _fire() → no-op (on_fire=None).
+        try:
+            from agent.scheduler import get_scheduler
+            from tasks.automation import TaskAutomationService
+            from tasks.store import get_task_store
+            sched = get_scheduler()
+            if sched._on_fire is None:
+                task_automation = TaskAutomationService(store=get_task_store())
+                sched.set_on_fire(task_automation.handle_scheduled_job)
+                # Also attach the main loop so _fire() can dispatch coroutines
+                try:
+                    import asyncio as _aio_loop
+                    sched.attach_main_loop(_aio_loop.get_running_loop())
+                except Exception:
+                    pass
+                ceo_status["scheduler_wired"] = True
+        except Exception as exc:
+            ceo_status["scheduler_wire_error"] = str(exc)[:100]
+
         from agent.agency import Agency, get_agency, set_agency, _gh_token, _gh_repo
         # Diagnostic: show what the CEO sees for GH_TOKEN / GITHUB_REPOSITORY
         ceo_status["gh_token_set"] = bool(_gh_token())

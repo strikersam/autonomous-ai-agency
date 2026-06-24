@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Scheduler: ensure on_fire is wired before CEO dispatches** (2026-06-24). The CEO dispatched 2 directives but `pending_count: 0` — no Tasks were created. Root cause: `start_background_services()` never ran on Render (RUN_BACKGROUND_IN_WEB might be false on the dashboard), so the scheduler's `on_fire` callback was never set. CEO directives went to `scheduler.create()` → `_fire()` → no-op (`on_fire=None`). Fix: `/api/autonomy/status` now wires `scheduler.set_on_fire(TaskAutomationService.handle_scheduled_job)` + `scheduler.attach_main_loop()` before the CEO fires, so directives actually create Tasks.
+
 - **Task dispatcher: execute one pending task on every /api/autonomy/status check** (2026-06-24). On Render free tier, the TaskDispatcher background task gets killed when the instance spins down. Pending tasks pile up. Fix: `/api/autonomy/status` now executes ONE pending task per status check, directly on the request's event loop, so work gets done even without the background dispatcher. The response includes a `dispatch` field showing `ran`, `task_id`, `task_title`, `result_status`, and `result_error`.
 
 - **CEO diagnostic: show GitHub API response status code** (2026-06-24). `quick_notes_actionable: 0` but no way to tell if the GitHub API call succeeded. Added `gh_api_status`, `gh_api_count`, and `gh_api_error` to the `ceo` field so the status response shows the actual HTTP response code and error body from the GitHub API.
