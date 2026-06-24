@@ -43,6 +43,10 @@ if not os.environ.get("ADMIN_PASSWORD"):
 # test_autonomous_agency_e2e). Unit tests must be hermetic, so disable the loop
 # process-wide; tests that exercise the loop itself call _start_ceo_agency directly.
 os.environ.setdefault("AGENCY_CEO_ENABLED", "false")
+# Disable self-bootstrap in tests — the /api/autonomy/status endpoint calls
+# ensure_self_company() which triggers onboarding + specialist provisioning,
+# interfering with unit tests that mock the DB and assert exact call counts.
+os.environ.setdefault("SELF_BOOTSTRAP_ENABLED", "false")
 
 # ── Keep the web lifespan from starting the background service stack ──────────
 # `TestClient(app)` runs the FastAPI lifespan, which (when RUN_BACKGROUND_IN_WEB
