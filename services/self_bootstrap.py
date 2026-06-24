@@ -276,7 +276,7 @@ async def ensure_self_company(*, owner_id: str | None = None) -> dict:
                 from services.company_graph_store import get_company_graph_store
                 store = get_company_graph_store()
                 updated = old_company.model_copy(update={
-                    "onboarding_status": "archived",
+                    "onboarding_status": "cancelled",
                 })
                 await store.update_company(updated)
                 log.info(
