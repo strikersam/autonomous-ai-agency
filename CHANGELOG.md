@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Self-bootstrap: /api/autonomy/status triggers ensure_self_company()** (2026-06-24). On Render free tier, the CEO agency thread can't reliably dispatch `run_cycle()` because the event loop stops pumping between requests. Fix: the public `/api/autonomy/status` endpoint now calls `ensure_self_company()` directly on the request's event loop — so every time the status is checked, the self-bootstrap gets a chance to run. This is idempotent (no-ops if the company already exists).
+
 - **CEO agency: dispatch run_cycle on FastAPI main loop** (2026-06-24). The CEO thread used `asyncio.run(run_cycle())` which created a fresh event loop that couldn't see Motor/aiosqlite clients bound to the FastAPI main loop — the self-bootstrap and quick-note fetch crashed silently with `RuntimeError: Future attached to a different loop`. Fix: new `Agency.attach_main_loop(loop)` captures the FastAPI main loop (same pattern as the scheduler fix); `_loop()` uses `asyncio.run_coroutine_threadsafe(run_cycle(), main_loop)` so the CEO cycle runs on the same loop that owns the DB clients.
 
 - **Self-bootstrap: CEO agency retries on every cycle** (2026-06-24). The startup background task (`asyncio.create_task(ensure_self_company())`) gets cancelled when Render's free tier spins down the instance between requests — the company is never created. Fix: the CEO agency's `run_cycle()` now calls `ensure_self_company()` on every 5-min tick. It's idempotent (no-ops if the company already exists with specialists) so it safely retries until the company is created, then stops doing anything.

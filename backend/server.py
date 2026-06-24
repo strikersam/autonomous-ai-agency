@@ -5866,7 +5866,14 @@ async def autonomy_status() -> dict[str, object]:
     # ── Self-bootstrap status: shows whether the platform has onboarded itself
     #    as a company. Without this, "0 companies" on /api/doctor/public is
     #    opaque — the operator can't tell if self-bootstrap hasn't run yet,
-    #    failed silently, or is still in progress. ──
+    #    failed silently, or is still in progress.
+    #
+    #    Also TRIGGERS ensure_self_company() if no company exists yet — this
+    #    runs on the request's event loop (the FastAPI main loop), so it
+    #    safely touches Motor/aiosqlite clients. On Render free tier, the
+    #    CEO agency thread can't reliably dispatch because the event loop
+    #    stops pumping between requests. This probe ensures the self-bootstrap
+    #    runs every time someone checks the status. ──
     self_bootstrap_status: dict[str, object] = {"enabled": False}
     try:
         from services.self_bootstrap import self_bootstrap_enabled, SELF_WEBSITE_URL, SELF_REPO_URL
@@ -5876,8 +5883,23 @@ async def autonomy_status() -> dict[str, object]:
     except Exception:  # pragma: no cover - defensive
         pass
     try:
+        # If self-bootstrap is enabled AND no company exists yet, try to
+        # ensure the company exists. This runs on the request's event loop
+        # (the FastAPI main loop), so it safely touches Motor/aiosqlite
+        # clients. On Render free tier, the CEO agency thread can't reliably
+        # dispatch because the event loop stops pumping between requests.
+        # Skip in tests (SELF_BOOTSTRAP_ENABLED=false) to avoid interfering
+        # with E2E/unit tests.
         from services.self_bootstrap import _find_self_company
         existing = await _find_self_company()
+        if existing is None and self_bootstrap_status.get("enabled"):
+            # No company yet — trigger ensure_self_company() on this
+            # request's event loop. Idempotent: subsequent calls no-op.
+            from services.self_bootstrap import ensure_self_company
+            bootstrap_result = await ensure_self_company()
+            self_bootstrap_status["last_result"] = bootstrap_result.get("status")
+            # Re-read after bootstrap
+            existing = await _find_self_company()
         if existing is not None:
             self_bootstrap_status["company_id"] = existing.id
             self_bootstrap_status["onboarding_status"] = existing.onboarding_status
