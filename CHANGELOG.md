@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Dispatch diagnostic: show pending_agent_run + brain_configured** (2026-06-24). The task was created but not executed (result_status: todo). Added `pending_agent_run` and `brain_configured` to the dispatch status to diagnose whether the coordinator is gating on brain availability.
+
 - **Dispatch: force pending_agent_run=True + 500ms sync wait** (2026-06-24). The direct task creation created a Task but the coordinator skipped execution because `pending_agent_run` was `False` (Mongo write lag — the store hadn't synced the `pending_agent_run=True` flag yet). Fix: set `pending_agent_run=True` explicitly in the `Task()` constructor AND add a 500ms sleep after `create_task()` to let the store sync.
 
 - **Dispatch: direct task creation fallback when scheduler on_fire fails** (2026-06-24). The CEO dispatches directives via `scheduler.create()` → `_fire()` → `on_fire` (fire-and-forget `create_task`), but the Task was never created — the callback failed silently. Fix: if no pending tasks exist but the CEO dispatched directives, `/api/autonomy/status` creates a Task directly (bypassing the scheduler) by fetching the first quick-note issue from GitHub and creating a Task for it. This ensures work gets done even when the scheduler's callback chain breaks.

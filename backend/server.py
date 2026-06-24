@@ -6056,6 +6056,13 @@ async def autonomy_status() -> dict[str, object]:
                 task_id = pending[0].task_id
                 dispatch_status["task_id"] = task_id
                 dispatch_status["task_title"] = pending[0].title[:60]
+                dispatch_status["pending_agent_run"] = pending[0].pending_agent_run
+                # Check if brain is configured (the coordinator gates on this)
+                try:
+                    from tasks.service import _brain_is_configured
+                    dispatch_status["brain_configured"] = await _brain_is_configured()
+                except Exception as exc:
+                    dispatch_status["brain_configured"] = f"error: {exc}"[:100]
                 coord = TaskExecutionCoordinator(
                     store=store,
                     workspace_root=str(ROOT_DIR),
