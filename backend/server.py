@@ -5910,6 +5910,32 @@ async def autonomy_status() -> dict[str, object]:
     except Exception as exc:  # pragma: no cover - defensive
         self_bootstrap_status["error"] = str(exc)
 
+    # ── CEO agency: trigger a cycle on every status check ─────────────────
+    #    On Render free tier, the CEO agency thread gets killed when the
+    #    instance spins down between requests. The 5-min tick never fires.
+    #    Triggering run_cycle() here ensures the CEO dispatches quick-note
+    #    issues every time someone checks the status. The cycle is
+    #    idempotent (deduplicates directives) and runs on the request's
+    #    event loop, so it safely touches Motor/aiosqlite clients.
+    ceo_status: dict[str, object] = {"triggered": False}
+    try:
+        from agent.agency import get_agency
+        agency = get_agency()
+        if agency is not None and agency._running:
+            # Fire a CEO cycle on the request's event loop
+            import asyncio as _asyncio
+            result = await _asyncio.wait_for(agency.run_cycle(), timeout=60.0)
+            ceo_status["triggered"] = True
+            ceo_status["directives_issued"] = result.directives_issued
+            ceo_status["cycle_id"] = result.cycle_id
+        elif agency is None:
+            # CEO agency not started yet — start it
+            from services.background import _start_ceo_agency
+            _start_ceo_agency()
+            ceo_status["started"] = True
+    except Exception as exc:
+        ceo_status["error"] = str(exc)[:200]
+
     # ── Company count: mirrors the /api/doctor/public storage check so the
     #    autonomy probe is self-contained. Uses the safe list helper so a
     #    stale row with an invalid onboarding_status doesn't crash the probe. ──
@@ -5928,6 +5954,7 @@ async def autonomy_status() -> dict[str, object]:
         "loops_running": running_count > 0,
         "missing_secrets": missing_secrets,
         "self_bootstrap": self_bootstrap_status,
+        "ceo": ceo_status,
         "company_count": company_count,
         "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
