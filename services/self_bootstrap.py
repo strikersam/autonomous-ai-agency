@@ -25,20 +25,68 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("qwen-proxy")
 
-# ── Defaults point at the ACTUAL repo and Render deploy ──────────────────────
-# The env vars (SELF_BOOTSTRAP_URL / SELF_BOOTSTRAP_REPO) override these, but
-# Render does NOT auto-apply render.yaml env-var changes without a manual
-# dashboard sync. The stale defaults below (local-llm-server.strikersam.workers.dev
-# / local-llm-server) were the pre-rebrand values and caused the agency to
-# onboard against a redirect URL, leaving it with 0 specialists and no PRs.
-# The correct defaults are the current repo + Render deploy so the agency works
-# out-of-the-box even when the env vars aren't synced.
-SELF_WEBSITE_URL = os.environ.get(
-    "SELF_BOOTSTRAP_URL", "https://autonomous-ai-agency.onrender.com"
-)
-SELF_REPO_URL = os.environ.get(
-    "SELF_BOOTSTRAP_REPO", "https://github.com/strikersam/autonomous-ai-agency"
-)
+# ── Stale domains / repos from the pre-rebrand era ───────────────────────────
+# Render's dashboard keeps env vars from the first deploy; render.yaml changes
+# don't auto-sync. So SELF_BOOTSTRAP_URL / SELF_BOOTSTRAP_REPO on Render are
+# still the old values (local-llm-server.strikersam.workers.dev /
+# github.com/strikersam/local-llm-server). These domains are stale — the repo
+# was rebranded to autonomous-ai-agency. Detect them and override with the
+# correct values derived from GITHUB_REPOSITORY (which IS set correctly on
+# Render via render.yaml line 34-35 as a `value:`, not `sync: false`).
+_STALE_DOMAINS = {
+    "local-llm-server.strikersam.workers.dev",
+    "local-llm-server.onrender.com",
+}
+_STALE_REPO_FRAGMENTS = ("local-llm-server",)
+
+
+def _resolve_website_url() -> str:
+    """Return the correct self-bootstrap website URL.
+
+    Priority:
+    1. SELF_BOOTSTRAP_URL env var IF it doesn't point at a stale domain.
+    2. RENDER_EXTERNAL_URL env var (set by Render automatically).
+    3. Fallback: autonomous-ai-agency.onrender.com (the current Render deploy).
+    """
+    raw = os.environ.get("SELF_BOOTSTRAP_URL", "").strip()
+    if raw:
+        domain = (urlparse(raw).netloc or raw).lower()
+        if domain not in _STALE_DOMAINS:
+            return raw
+        log.warning(
+            "Self-bootstrap: SELF_BOOTSTRAP_URL=%s is stale (pre-rebrand) — ignoring",
+            raw,
+        )
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
+    if render_url:
+        return render_url
+    return "https://autonomous-ai-agency.onrender.com"
+
+
+def _resolve_repo_url() -> str:
+    """Return the correct self-bootstrap repo URL.
+
+    Priority:
+    1. SELF_BOOTSTRAP_REPO env var IF it doesn't contain a stale fragment.
+    2. GITHUB_REPOSITORY env var (set correctly on Render via render.yaml).
+    3. Fallback: github.com/strikersam/autonomous-ai-agency.
+    """
+    raw = os.environ.get("SELF_BOOTSTRAP_REPO", "").strip()
+    if raw:
+        if not any(frag in raw.lower() for frag in _STALE_REPO_FRAGMENTS):
+            return raw
+        log.warning(
+            "Self-bootstrap: SELF_BOOTSTRAP_REPO=%s is stale (pre-rebrand) — ignoring",
+            raw,
+        )
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if gh_repo:
+        return f"https://github.com/{gh_repo}"
+    return "https://github.com/strikersam/autonomous-ai-agency"
+
+
+SELF_WEBSITE_URL = _resolve_website_url()
+SELF_REPO_URL = _resolve_repo_url()
 SELF_COMPANY_NAME = os.environ.get("SELF_BOOTSTRAP_NAME", "Autonomous AI Agency (self)")
 
 
