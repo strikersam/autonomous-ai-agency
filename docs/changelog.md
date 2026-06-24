@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Self-bootstrap: fix raw query fallback for Mongo + SQLite** (2026-06-24). The `_list_companies_safe()` fallback tried `store._db` but `CompanyGraphStore` wraps `MongoDBStore` (via `_mongodb_store._get_db()`) or `SQLiteStore` (via `_sqlite_store._get_connection()`). The fallback never matched, so stale 'archived' rows still crashed `list_companies()` and `company_count` stayed at 0. Fixed: the fallback now correctly accesses both backends.
+
 - **Self-bootstrap: /api/autonomy/status triggers ensure_self_company()** (2026-06-24). On Render free tier, the CEO agency thread can't reliably dispatch `run_cycle()` because the event loop stops pumping between requests. Fix: the public `/api/autonomy/status` endpoint now calls `ensure_self_company()` directly on the request's event loop — so every time the status is checked, the self-bootstrap gets a chance to run. This is idempotent (no-ops if the company already exists).
 
 - **CEO agency: dispatch run_cycle on FastAPI main loop** (2026-06-24). The CEO thread used `asyncio.run(run_cycle())` which created a fresh event loop that couldn't see Motor/aiosqlite clients bound to the FastAPI main loop — the self-bootstrap and quick-note fetch crashed silently with `RuntimeError: Future attached to a different loop`. Fix: new `Agency.attach_main_loop(loop)` captures the FastAPI main loop (same pattern as the scheduler fix); `_loop()` uses `asyncio.run_coroutine_threadsafe(run_cycle(), main_loop)` so the CEO cycle runs on the same loop that owns the DB clients.
