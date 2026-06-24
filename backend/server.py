@@ -5919,7 +5919,10 @@ async def autonomy_status() -> dict[str, object]:
     #    event loop, so it safely touches Motor/aiosqlite clients.
     ceo_status: dict[str, object] = {"triggered": False}
     try:
-        from agent.agency import Agency, get_agency, set_agency
+        from agent.agency import Agency, get_agency, set_agency, _gh_token, _gh_repo
+        # Diagnostic: show what the CEO sees for GH_TOKEN / GITHUB_REPOSITORY
+        ceo_status["gh_token_set"] = bool(_gh_token())
+        ceo_status["gh_repo"] = _gh_repo() or "MISSING"
         agency = get_agency()
         if agency is None or not agency._running:
             # Force-start the CEO agency — AGENCY_CEO_ENABLED may be false
@@ -5940,6 +5943,9 @@ async def autonomy_status() -> dict[str, object]:
             result = await _asyncio.wait_for(agency.run_cycle(), timeout=60.0)
             ceo_status["triggered"] = True
             ceo_status["directives_issued"] = result.directives_issued
+            ceo_status["cycle_id"] = result.cycle_id
+            ceo_status["ceo_assessment"] = result.ceo_assessment[:200]
+            ceo_status["quick_notes_seen"] = result.improvement_issues_seen
             ceo_status["cycle_id"] = result.cycle_id
     except Exception as exc:
         ceo_status["error"] = str(exc)[:200]

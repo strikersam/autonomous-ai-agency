@@ -58,6 +58,11 @@ async def _fetch_github_quick_notes() -> list[dict]:
     """Return open GitHub issues labelled 'quick-note' for this repo."""
     token, repo = _gh_token(), _gh_repo()
     if not token or not repo:
+        log.warning(
+            "Agency: quick-note fetch skipped — token=%s repo=%s",
+            "set" if token else "MISSING",
+            repo or "MISSING",
+        )
         return []
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(
@@ -69,9 +74,12 @@ async def _fetch_github_quick_notes() -> list[dict]:
             },
         )
     if resp.status_code != 200:
-        log.debug("Agency: GitHub issue fetch returned %d", resp.status_code)
+        log.warning(
+            "Agency: GitHub issue fetch returned %d for %s — body: %s",
+            resp.status_code, repo, resp.text[:200],
+        )
         return []
-    return [
+    issues = [
         {
             "number": i["number"],
             "title": i["title"],
@@ -80,7 +88,10 @@ async def _fetch_github_quick_notes() -> list[dict]:
             "created_at": i.get("created_at", ""),
         }
         for i in resp.json()
+        if "pull_request" not in i  # exclude PRs
     ]
+    log.info("Agency: fetched %d quick-note issues from %s", len(issues), repo)
+    return issues
 
 
 async def _close_github_issue(number: int, reason: str = "not_planned") -> None:
