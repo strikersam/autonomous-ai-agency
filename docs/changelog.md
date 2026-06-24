@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **CEO diagnostic: show quick_notes_actionable count in status** (2026-06-24). The `quick_notes_seen` field was actually the improvement loop's issue count, not the GitHub quick-note count. Added `quick_notes_actionable` and `quick_notes_exhausted_closed` fields that show the actual result of `_fetch_github_quick_notes()`.
+
 - **CEO: derive GitHub repo from SELF_REPO_URL when GITHUB_REPOSITORY is missing** (2026-06-24). The diagnostic showed `gh_repo: MISSING` — `GITHUB_REPOSITORY` is not set on Render's web service (render.yaml `value:` is overridden by the dashboard). The CEO couldn't fetch quick-note issues. Fix: `_gh_repo()` now falls back to deriving the repo from `SELF_REPO_URL` (resolved by `services.self_bootstrap` to `https://github.com/strikersam/autonomous-ai-agency`).
 
 - **CEO diagnostic: show gh_token_set + gh_repo + quick_notes_seen in /api/autonomy/status** (2026-06-24). The CEO was firing (`triggered: True`) but `directives_issued: 0` — no way to tell if the quick-note fetch was working. Fix: add `gh_token_set`, `gh_repo`, `ceo_assessment`, and `quick_notes_seen` to the `ceo` field so the status response shows exactly what the CEO sees.
