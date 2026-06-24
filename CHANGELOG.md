@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **CEO diagnostic: show gh_token_set + gh_repo + quick_notes_seen in /api/autonomy/status** (2026-06-24). The CEO was firing (`triggered: True`) but `directives_issued: 0` — no way to tell if the quick-note fetch was working. Fix: add `gh_token_set`, `gh_repo`, `ceo_assessment`, and `quick_notes_seen` to the `ceo` field so the status response shows exactly what the CEO sees.
+
 - **CEO agency: force-start on /api/autonomy/status regardless of AGENCY_CEO_ENABLED** (2026-06-24). The CEO agency wasn't starting because `AGENCY_CEO_ENABLED` was false on Render's dashboard. The `/api/autonomy/status` endpoint tried to start it via `_start_ceo_agency()` which respects the env var. Fix: force-start the `Agency` directly — create it, attach the main loop, call `start()`, and fire `run_cycle()` on the request's event loop, regardless of the env var.
 
 - **CEO agency: trigger run_cycle on every /api/autonomy/status check** (2026-06-24). On Render free tier, the CEO agency thread gets killed when the instance spins down between requests — the 5-min tick never fires. Fix: `/api/autonomy/status` now triggers `agency.run_cycle()` directly on the request's event loop, so every status check dispatches quick-note issues to specialists. The response includes a `ceo` field showing `triggered`, `directives_issued`, and `cycle_id`.
