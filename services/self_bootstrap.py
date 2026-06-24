@@ -122,9 +122,9 @@ async def _list_companies_safe():
         log.warning("Self-bootstrap: list_companies failed (%s) — trying raw query", exc)
         # Fall back to a raw query that skips the problematic rows
         try:
-            db = store._db if hasattr(store, '_db') else None
-            if db is not None:
-                # Mongo path
+            # CompanyGraphStore wraps either MongoDBStore or SQLiteStore
+            if hasattr(store, '_mongodb_store') and store._mongodb_store is not None:
+                db = store._mongodb_store._get_db()
                 cursor = db.companies.find({})
                 docs = await cursor.to_list(length=500)
                 companies = []
@@ -135,8 +135,24 @@ async def _list_companies_safe():
                     except Exception:
                         continue
                 return companies
-        except Exception:
-            pass
+            elif hasattr(store, '_sqlite_store') and store._sqlite_store is not None:
+                # SQLite path — query directly
+                conn = await store._sqlite_store._get_connection()
+                cursor = await conn.execute("SELECT * FROM companies")
+                rows = await cursor.fetchall()
+                companies = []
+                for row in rows:
+                    try:
+                        from models.company_graph import Company
+                        # SQLite rows are tuples — convert to dict via column names
+                        cols = [desc[0] for desc in cursor.description]
+                        doc = dict(zip(cols, row))
+                        companies.append(Company.model_validate(doc))
+                    except Exception:
+                        continue
+                return companies
+        except Exception as exc2:
+            log.warning("Self-bootstrap: raw query fallback also failed: %s", exc2)
         return []
 
 
