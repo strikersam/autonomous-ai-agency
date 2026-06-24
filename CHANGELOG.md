@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Provider routing: free NVIDIA brain always wins over DB provider records** (2026-06-24). `resolve_provider_for()` was picking DB provider records by priority — a stale MiniMax record with bad credentials (401 Unauthorized) intercepted every agent task because it had higher priority than NVIDIA NIM in the Render DB. Fix: `resolve_provider_for()` now checks `brain_policy.resolve_free_nvidia_brain()` FIRST — when NVIDIA_API_KEY is set, the free NVIDIA brain always wins, regardless of DB priorities. This unblocks every agent task that was failing with 401 from minimax.chat.
+
 - **Company model: accept 'archived' as a valid onboarding_status** (2026-06-24). A previous deploy (PR #780) wrote `onboarding_status='archived'` to a Mongo row before #781 fixed the write to `'cancelled'`. That stale row crashed `list_companies()` with a Pydantic ValidationError on every call — the raw query fallback in `_list_companies_safe()` couldn't skip it because Motor's cursor failed on the bad doc. Fix: add `'archived'` to the `Literal` so the model deserializes it. The self-bootstrap still treats it as stale and archives it, but `list_companies()` no longer crashes.
 
 - **Self-bootstrap: fix raw query fallback for Mongo + SQLite** (2026-06-24). The `_list_companies_safe()` fallback tried `store._db` but `CompanyGraphStore` wraps `MongoDBStore` (via `_mongodb_store._get_db()`) or `SQLiteStore` (via `_sqlite_store._get_connection()`). The fallback never matched, so stale 'archived' rows still crashed `list_companies()` and `company_count` stayed at 0. Fixed: the fallback now correctly accesses both backends.

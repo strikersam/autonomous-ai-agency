@@ -211,8 +211,26 @@ async def resolve_provider_for(
     the cost-critical contract that prevents silent credit burn. Falls back to
     the highest-priority free provider, then local Ollama.
 
+    **Brain-policy first**: when a free NVIDIA NIM brain is configured
+    (NVIDIA_API_KEY is set), it wins over every DB provider record — this
+    prevents a stale/bad-credential MiniMax/DeepSeek record from intercepting
+    every agent task with a 401.
+
     Returns ``(openai_compatible_base_url, auth_headers_or_None, model_or_None)``.
     """
+    # ── Brain-policy first: free NVIDIA NIM always wins when configured ──
+    try:
+        import brain_policy
+        nvidia = brain_policy.resolve_free_nvidia_brain()
+        if nvidia is not None:
+            base, headers, model = nvidia
+            log.debug(
+                "resolve_provider_for(%s): using free NVIDIA brain (model=%s)", surface, model,
+            )
+            return base, headers, model
+    except Exception:
+        pass
+
     from backend.server import (
         _get_provider_policy,
         _list_configured_provider_records,
