@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Company model: accept 'archived' as a valid onboarding_status** (2026-06-24). A previous deploy (PR #780) wrote `onboarding_status='archived'` to a Mongo row before #781 fixed the write to `'cancelled'`. That stale row crashed `list_companies()` with a Pydantic ValidationError on every call — the raw query fallback in `_list_companies_safe()` couldn't skip it because Motor's cursor failed on the bad doc. Fix: add `'archived'` to the `Literal` so the model deserializes it. The self-bootstrap still treats it as stale and archives it, but `list_companies()` no longer crashes.
+
 - **Self-bootstrap: fix raw query fallback for Mongo + SQLite** (2026-06-24). The `_list_companies_safe()` fallback tried `store._db` but `CompanyGraphStore` wraps `MongoDBStore` (via `_mongodb_store._get_db()`) or `SQLiteStore` (via `_sqlite_store._get_connection()`). The fallback never matched, so stale 'archived' rows still crashed `list_companies()` and `company_count` stayed at 0. Fixed: the fallback now correctly accesses both backends.
 
 - **Self-bootstrap: /api/autonomy/status triggers ensure_self_company()** (2026-06-24). On Render free tier, the CEO agency thread can't reliably dispatch `run_cycle()` because the event loop stops pumping between requests. Fix: the public `/api/autonomy/status` endpoint now calls `ensure_self_company()` directly on the request's event loop — so every time the status is checked, the self-bootstrap gets a chance to run. This is idempotent (no-ops if the company already exists).
