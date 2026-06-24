@@ -5863,12 +5863,49 @@ async def autonomy_status() -> dict[str, object]:
     else:
         status = "partial"
 
+    # ── Self-bootstrap status: shows whether the platform has onboarded itself
+    #    as a company. Without this, "0 companies" on /api/doctor/public is
+    #    opaque — the operator can't tell if self-bootstrap hasn't run yet,
+    #    failed silently, or is still in progress. ──
+    self_bootstrap_status: dict[str, object] = {"enabled": False}
+    try:
+        from services.self_bootstrap import self_bootstrap_enabled, SELF_WEBSITE_URL, SELF_REPO_URL
+        self_bootstrap_status["enabled"] = self_bootstrap_enabled()
+        self_bootstrap_status["website_url"] = SELF_WEBSITE_URL
+        self_bootstrap_status["repo_url"] = SELF_REPO_URL
+    except Exception:  # pragma: no cover - defensive
+        pass
+    try:
+        from services.self_bootstrap import _find_self_company
+        existing = await _find_self_company()
+        if existing is not None:
+            self_bootstrap_status["company_id"] = existing.id
+            self_bootstrap_status["onboarding_status"] = existing.onboarding_status
+            self_bootstrap_status["domain"] = existing.domain
+        else:
+            self_bootstrap_status["company_id"] = None
+            self_bootstrap_status["onboarding_status"] = "not_started"
+    except Exception as exc:  # pragma: no cover - defensive
+        self_bootstrap_status["error"] = str(exc)
+
+    # ── Company count: mirrors the /api/doctor/public storage check so the
+    #    autonomy probe is self-contained. ──
+    company_count = 0
+    try:
+        from services.company_graph_store import get_company_graph_store
+        companies = await get_company_graph_store().list_companies(limit=500)
+        company_count = len(companies)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
     return {
         "status": status,
         "brain": brain,
         "loops": loops,
         "loops_running": running_count > 0,
         "missing_secrets": missing_secrets,
+        "self_bootstrap": self_bootstrap_status,
+        "company_count": company_count,
         "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
