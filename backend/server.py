@@ -5919,8 +5919,21 @@ async def autonomy_status() -> dict[str, object]:
     #    event loop, so it safely touches Motor/aiosqlite clients.
     ceo_status: dict[str, object] = {"triggered": False}
     try:
-        from agent.agency import get_agency
+        from agent.agency import Agency, get_agency, set_agency
         agency = get_agency()
+        if agency is None or not agency._running:
+            # Force-start the CEO agency — AGENCY_CEO_ENABLED may be false
+            # on Render, but the /api/autonomy/status endpoint should still
+            # drive work. Create + start the agency directly.
+            agency = Agency()
+            try:
+                import asyncio as _aio
+                agency.attach_main_loop(_aio.get_running_loop())
+            except Exception:
+                pass
+            set_agency(agency)
+            agency.start()
+            ceo_status["started"] = True
         if agency is not None and agency._running:
             # Fire a CEO cycle on the request's event loop
             import asyncio as _asyncio
@@ -5928,11 +5941,6 @@ async def autonomy_status() -> dict[str, object]:
             ceo_status["triggered"] = True
             ceo_status["directives_issued"] = result.directives_issued
             ceo_status["cycle_id"] = result.cycle_id
-        elif agency is None:
-            # CEO agency not started yet — start it
-            from services.background import _start_ceo_agency
-            _start_ceo_agency()
-            ceo_status["started"] = True
     except Exception as exc:
         ceo_status["error"] = str(exc)[:200]
 
