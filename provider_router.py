@@ -825,10 +825,10 @@ class ProviderRouter:
                             response=response, provider=provider, model=model, attempts=list(attempts)
                         )
                     last_status = response.status_code
-                    if response.status_code == 429:
-                        # Rate-limited: do NOT burn retries on this provider — cool it
-                        # and fail over to the next working provider immediately. This
-                        # is the "40 rpm → another provider kicks in" path.
+                    if response.status_code in (429, 419):
+                        # Rate-limited (429 = standard, 419 = NVIDIA NIM):
+                        # do NOT burn retries on this provider — cool it
+                        # and fail over to the next working provider immediately.
                         rate_limited = True
                         retry_after_sec = self._parse_retry_after(response)
                         break

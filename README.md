@@ -577,7 +577,7 @@ We'd rather under-promise. Here's the honest split (see `docs/architecture/featu
 | Langfuse observability + local TCO cost model | **Stable** | Cost figures are an estimated commercial-equivalent model, not a billed invoice. |
 | Telegram bot remote control | **Beta** | Works; long-running 24x7 deployment paths are still hardening. |
 | Multi-agent orchestration (CEO -> specialists) | **Beta** | Plan->execute->verify loop is solid for single-specialist jobs; deep multi-hop swarms are experimental. |
-| External agent runtimes (Goose / Hermes / OpenHands) | **Experimental** | Optional sidecars; the Doctor reports them as warnings, never gating, when absent. |
+| External agent runtimes (Goose / Hermes / OpenHands / Aider / OpenCode) | **Experimental** | Optional sidecars — must be deployed separately. When absent, the agency automatically falls back to the Internal Agent (NVIDIA NIM) so work continues. The Doctor reports absent sidecars as warnings, never blocking. |
 
 If a screen or capability isn't listed above, treat it as experimental.
 
@@ -718,15 +718,17 @@ Only providers with keys configured are tried. Set just the keys you have.
 
 | Specialist family | Runtime | Type |
 |---|---|---|
-| `frontend` · `ux` · `design` · `docs` · `operations` | **Goose** | 🐳 Docker |
-| `backend` · `mobile` · `ecommerce` · `qa` | **OpenCode** | 🐳 Docker |
-| `security` · `engineering` · `architecture` · `ml` | **Claude Code** | 💻 CLI |
-| `devops` · `cloud` · `infra` | **Aider** | 🐳 Docker |
-| `analytics` · `data` | **Hermes** | 🐳 Docker |
-| Long-running workflows | **Task Harness** | 🐳 Docker |
-| `agile` · `portfolio` · `delivery` | **Internal Agent** | 🏠 Built-in |
+| `frontend` · `ux` · `design` · `docs` · `operations` | **Goose** | 🐳 Docker (sidecar) |
+| `backend` · `mobile` · `ecommerce` · `qa` | **OpenCode** | 🐳 Docker (sidecar) |
+| `security` · `engineering` · `architecture` · `ml` | **Claude Code** | 💻 CLI (sidecar) |
+| `devops` · `cloud` · `infra` | **Aider** | 🐳 Docker (sidecar) |
+| `analytics` · `data` | **Hermes** | 🐳 Docker (sidecar) |
+| Long-running workflows | **Task Harness** | 🐳 Docker (sidecar) |
+| `agile` · `portfolio` · `delivery` · all fallbacks | **Internal Agent** | 🏠 Built-in (always available) |
 
-⚡ **Wake All Runtimes** on the Runtimes page starts every container for a company's specialists in one click.
+> **Runtime availability**: The **Internal Agent** is always available (runs on NVIDIA NIM or any configured cloud provider — no sidecar needed). Goose, OpenCode, Claude Code, Aider, and Hermes are optional sidecars that need to be deployed separately. When a sidecar is absent, the agency automatically falls back to the Internal Agent so work continues without interruption. The Doctor page reports absent sidecars as warnings, never as blocking errors.
+
+⚡ **Wake All Runtimes** on the Runtimes page starts every available sidecar for a company's specialists in one click.
 
 ---
 
