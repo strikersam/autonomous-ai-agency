@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Self-bootstrap: CEO agency retries on every cycle** (2026-06-24). The startup background task (`asyncio.create_task(ensure_self_company())`) gets cancelled when Render's free tier spins down the instance between requests — the company is never created. Fix: the CEO agency's `run_cycle()` now calls `ensure_self_company()` on every 5-min tick. It's idempotent (no-ops if the company already exists with specialists) so it safely retries until the company is created, then stops doing anything.
+
 - **Self-bootstrap: fallback to direct company creation on timeout/failure** (2026-06-24). `start_onboarding` was timing out (120s) or failing on Render because the repo scan hit GitHub rate-limits or the Mongo connection was slow. The self-bootstrap swallowed the error and left `company_count=0`. Fix: on `TimeoutError` or any exception from `start_onboarding`, fall back to `_create_company_directly()` which creates the company via the graph service, marks onboarding complete, and provisions baseline specialists directly — so the agency always has something to operate on.
 
 - **Self-bootstrap: stop archiving the current Render URL as stale** (2026-06-24). The stale-domain detection included `local-llm-server.onrender.com`, but that's the CURRENT Render service URL (the service hasn't been renamed). The self-bootstrap was archiving the company it just created on every cycle — `company_count` stayed at 0. Fix: only `local-llm-server.strikersam.workers.dev` (the pre-Render Cloudflare Workers URL) is stale; the onrender.com URL is valid. Also narrowed the stale repo fragment to `strikersam/local-llm-server` so it doesn't match the current Render service name.

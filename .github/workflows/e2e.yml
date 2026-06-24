@@ -27,6 +27,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       STORAGE_BACKEND: sqlite
+      SELF_BOOTSTRAP_ENABLED: "false"
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
       ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-e2e-admin-do-not-use-in-production' }}
@@ -163,6 +164,7 @@ jobs:
           --health-retries 15
     env:
       STORAGE_BACKEND: mongodb
+      SELF_BOOTSTRAP_ENABLED: "false"
       MONGO_URL: mongodb://localhost:27017
       DB_NAME: e2e_mongodb
       KEYS_FILE: e2e-keys.json

@@ -274,6 +274,20 @@ class Agency:
         # Quick-note maintenance: close exhausted issues, dispatch pending ones to Dev
         qn_directives = await self._handle_quick_notes()
 
+        # Self-bootstrap retry: if the platform hasn't onboarded itself as a
+        # company yet (e.g. the startup background task was cancelled by a
+        # Render free-tier cold-start spin-down), retry it here on every CEO
+        # cycle. This is idempotent — ensure_self_company() no-ops if the
+        # company already exists with specialists.
+        # Skip in tests (SELF_BOOTSTRAP_ENABLED=false) to avoid interfering
+        # with E2E tests that create their own companies.
+        if os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").strip().lower() in ("true", "1", "yes"):
+            try:
+                from services.self_bootstrap import ensure_self_company
+                await ensure_self_company()
+            except Exception as exc:
+                log.debug("Agency: self-bootstrap retry skipped: %s", exc)
+
         state_context = self._build_state_context()
         state_context["quick_notes"] = self._last_quick_notes
 
