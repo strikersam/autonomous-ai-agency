@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Self-bootstrap hung scanning its own URL during startup** (2026-06-24). `ensure_self_company()` called `start_onboarding(website_urls=[SELF_WEBSITE_URL])` where `SELF_WEBSITE_URL` points at *this server*. During startup the server isn't fully ready to serve, so the self-referential HTTP scan hung inside `start_onboarding`'s `asyncio.Lock` — blocking the entire onboarding and leaving the agency with 0 companies on every fresh deploy. Fixed: pass `skip_website_scan=True` (the platform doesn't need to scan itself) and wrap the entire onboarding in a 120s `asyncio.wait_for` timeout so a hung repo scan can't block forever either. The company is still created, specialists are still provisioned (baseline fallback if the repo scan fails), and the 6 cadences are still created.
+
 - **Self-bootstrap repo URL pointed at the old repo name** (2026-06-24). `render.yaml` had `SELF_BOOTSTRAP_REPO=https://github.com/strikersam/local-llm-server` (the repo's pre-rebrand name) instead of `https://github.com/strikersam/autonomous-ai-agency`. This meant the agency's self-onboarding tried to scan a non-existent/redirect repo, so the platform never registered itself as a company and the CEO agency had nothing to operate on after a fresh deploy. Fixed: `SELF_BOOTSTRAP_REPO` now points at the correct URL so the platform onboards its own repo on startup, provisions specialists, and the 24x7 cadences start driving work.
 
 - **Agency autonomy pipeline: schedules now actually fire and persist** (2026-06-24). Three coupled bugs were silently killing the 24x7 agency after onboarding:
