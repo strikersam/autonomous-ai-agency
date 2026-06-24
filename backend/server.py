@@ -5997,6 +5997,10 @@ async def autonomy_status() -> dict[str, object]:
     #    with unit tests that mock the DB and assert exact call counts.
     dispatch_status: dict[str, object] = {"ran": False}
     if os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").strip().lower() in ("true", "1", "yes"):
+        # Give the scheduler's fire-and-forget create_task a moment to
+        # actually create the Task record before we check for pending tasks.
+        import asyncio as _aio_wait
+        await _aio_wait.sleep(0.5)
         try:
             from tasks.store import get_task_store
             from tasks.service import TaskExecutionCoordinator

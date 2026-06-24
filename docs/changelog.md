@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Dispatch: wait 500ms for task creation before checking pending** (2026-06-24). The CEO's `_dispatch_directive()` calls `scheduler.create()` which calls `_fire()` which calls `on_fire` via `create_task` (fire-and-forget). The Task record wasn't created yet when `/api/autonomy/status` checked for pending tasks. Fix: add a 500ms `asyncio.sleep` between the CEO cycle and the dispatch check.
+
 - **E2E tests: disable all autonomy loops to fix Playwright timeout** (2026-06-24). The E2E test's Playwright browser timed out (15s) because the server was busy running the CEO agency, improvement loop, and self-healing during startup. Fix: set `AGENCY_CEO_ENABLED=false`, `AGENCY_IMPROVEMENT_ENABLED=false`, `AGENCY_SELF_HEAL_ENABLED=false`, `AGENCY_LOG_MONITOR_ENABLED=false`, `AGENCY_TREND_WATCH_ENABLED=false`, and `RUN_BACKGROUND_IN_WEB=false` in both E2E jobs (sqlite + mongodb).
 - **NVIDIA NIM: handle 419 rate limit alongside 429** (2026-06-24). NVIDIA NIM returns HTTP 419 (not 429) for rate limiting. The provider router only checked for 429, so 419 errors were treated as regular failures and burned all retries instead of failing over immediately. Fix: treat both 429 and 419 as rate-limit signals — cool the provider and fail over to the next one.
 - **README: honest about Hermes and external runtimes** (2026-06-24). The README implied Goose/Hermes/OpenCode/Aider were always available. In reality they're optional sidecars that must be deployed separately. Updated the runtime table and feature maturity matrix to clarify that the Internal Agent (NVIDIA NIM) is the always-available fallback, and external runtimes degrade gracefully when absent.
