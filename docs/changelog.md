@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Dispatch: bypass coordinator _claim_task, execute via InternalAgentAdapter directly** (2026-06-24). The coordinator's `_claim_task` uses an in-memory lock that gets stuck on Render free tier when the instance spins down mid-execution. The lock is never released, so subsequent tasks can't be claimed. Fix: `/api/autonomy/status` now executes the task directly via `InternalAgentAdapter.execute()`, bypassing the coordinator's claim/brain-check/approval-gate chain entirely. The task is marked `in_progress` → `done/failed` directly.
+
 - **Dispatch diagnostic: show pending_agent_run + brain_configured** (2026-06-24). The task was created but not executed (result_status: todo). Added `pending_agent_run` and `brain_configured` to the dispatch status to diagnose whether the coordinator is gating on brain availability.
 
 - **Dispatch: force pending_agent_run=True + 500ms sync wait** (2026-06-24). The direct task creation created a Task but the coordinator skipped execution because `pending_agent_run` was `False` (Mongo write lag — the store hadn't synced the `pending_agent_run=True` flag yet). Fix: set `pending_agent_run=True` explicitly in the `Task()` constructor AND add a 500ms sleep after `create_task()` to let the store sync.

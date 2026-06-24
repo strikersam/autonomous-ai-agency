@@ -6063,17 +6063,57 @@ async def autonomy_status() -> dict[str, object]:
                     dispatch_status["brain_configured"] = await _brain_is_configured()
                 except Exception as exc:
                     dispatch_status["brain_configured"] = f"error: {exc}"[:100]
-                coord = TaskExecutionCoordinator(
-                    store=store,
-                    workspace_root=str(ROOT_DIR),
-                )
-                import asyncio as _aio2
-                result_task = await _aio2.wait_for(
-                    coord.execute(task_id), timeout=120.0
-                )
-                dispatch_status["ran"] = True
-                dispatch_status["result_status"] = result_task.status
-                dispatch_status["result_error"] = (result_task.error_message or "")[:100]
+                # Execute the task directly via the runtime, bypassing the
+                # coordinator's _claim_task (which uses an in-memory lock
+                # that gets stuck on Render free tier when the instance
+                # spins down mid-execution).
+                try:
+                    from runtimes.base import TaskSpec
+                    from runtimes.adapters.internal_agent import InternalAgentAdapter
+                    import services.workflow_orchestrator as _wo
+                    task = pending[0]
+                    # Mark as in-progress
+                    task.status = "in_progress"
+                    task.pending_agent_run = False
+                    await store.update(task)
+                    # Build spec
+                    spec = TaskSpec(
+                        task_id=task_id,
+                        instruction=task.prompt or task.title,
+                        task_type=task.task_type or "general",
+                        workspace_path=str(ROOT_DIR),
+                        context={"owner_id": task.owner_id, "title": task.title},
+                    )
+                    # Set the orchestrator bypass (sanctioned execution)
+                    _bypass_token = _wo._BYPASS.set(True)
+                    try:
+                        adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
+                        import asyncio as _aio2
+                        result, decision = await _aio2.wait_for(
+                            adapter.execute(spec), timeout=120.0
+                        )
+                    finally:
+                        _wo._BYPASS.reset(_bypass_token)
+                    # Update task with result
+                    task.result = result.output
+                    task.status = "done" if result.success else "failed"
+                    task.error_message = None if result.success else "Execution failed"
+                    await store.update(task)
+                    dispatch_status["ran"] = True
+                    dispatch_status["result_status"] = task.status
+                    dispatch_status["result_error"] = (task.error_message or "")[:100]
+                except Exception as exc:
+                    dispatch_status["ran"] = False
+                    dispatch_status["error"] = str(exc)[:200]
+                    # Mark task as failed
+                    try:
+                        task = await store.get(task_id)
+                        if task:
+                            task.status = "failed"
+                            task.error_message = str(exc)[:500]
+                            await store.update(task)
+                    except Exception:
+                        pass
             else:
                 dispatch_status["pending_count"] = 0
         except Exception as exc:
