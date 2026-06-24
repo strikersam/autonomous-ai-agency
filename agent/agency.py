@@ -117,7 +117,7 @@ def _build_quick_note_instruction(issue: dict) -> str:
     )
 
 _REPO_ROOT = Path(__file__).parent.parent
-TICK_INTERVAL_MINUTES = int(os.environ.get("AGENCY_TICK_MINUTES", "15"))
+TICK_INTERVAL_MINUTES = int(os.environ.get("AGENCY_TICK_MINUTES", "5"))
 PROXY_BASE_URL = os.environ.get("AGENCY_PROXY_URL", "http://localhost:8000")
 CEO_MODEL = os.environ.get("AGENCY_CEO_MODEL", "qwen3-coder:14b")
 

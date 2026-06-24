@@ -8,7 +8,9 @@ dispatcher and the PR-autonomy gate), so the agents do the connecting.
 
 Design notes:
   * Idempotent: keyed on the self domain. A second run no-ops when a self company
-    already exists (re-onboarding only happens if it never completed).
+    already exists AND has specialists AND the domain matches the current config.
+    If the domain is stale (e.g. the platform was rebranded), the old company is
+    deactivated and a fresh one is created with the correct URLs.
   * Never blocks or crashes startup: callers should fire it as a background task and
     it swallows/logs all errors (a missing DB at boot must not take the server down).
   * Gated by SELF_BOOTSTRAP_ENABLED (default on; tests turn it off).
@@ -23,11 +25,19 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("qwen-proxy")
 
+# ── Defaults point at the ACTUAL repo and Render deploy ──────────────────────
+# The env vars (SELF_BOOTSTRAP_URL / SELF_BOOTSTRAP_REPO) override these, but
+# Render does NOT auto-apply render.yaml env-var changes without a manual
+# dashboard sync. The stale defaults below (local-llm-server.strikersam.workers.dev
+# / local-llm-server) were the pre-rebrand values and caused the agency to
+# onboard against a redirect URL, leaving it with 0 specialists and no PRs.
+# The correct defaults are the current repo + Render deploy so the agency works
+# out-of-the-box even when the env vars aren't synced.
 SELF_WEBSITE_URL = os.environ.get(
-    "SELF_BOOTSTRAP_URL", "https://local-llm-server.strikersam.workers.dev"
+    "SELF_BOOTSTRAP_URL", "https://autonomous-ai-agency.onrender.com"
 )
 SELF_REPO_URL = os.environ.get(
-    "SELF_BOOTSTRAP_REPO", "https://github.com/strikersam/local-llm-server"
+    "SELF_BOOTSTRAP_REPO", "https://github.com/strikersam/autonomous-ai-agency"
 )
 SELF_COMPANY_NAME = os.environ.get("SELF_BOOTSTRAP_NAME", "Autonomous AI Agency (self)")
 
@@ -56,6 +66,108 @@ async def _find_self_company():
         if (company.domain or "").lower() == domain:
             return company
     return None
+
+
+async def _find_stale_self_companies():
+    """Return companies that look like a previous self-bootstrap run but have
+    a stale domain (pre-rebrand). These get deactivated so the fresh run
+    creates a new company with the correct URLs."""
+    from services.company_graph_store import get_company_graph_store
+
+    store = get_company_graph_store()
+    stale = []
+    current_domain = _self_domain()
+    companies = await store.list_companies(limit=500)
+    for company in companies:
+        domain = (company.domain or "").lower()
+        # Match any domain that looks like a previous self-bootstrap target:
+        # the old workers.dev URL, the old onrender.com URL, or the old repo name.
+        if domain in (
+            "local-llm-server.strikersam.workers.dev",
+            "local-llm-server.onrender.com",
+        ) and domain != current_domain:
+            stale.append(company)
+    return stale
+
+
+async def _count_specialists(company_id: str) -> int:
+    """Return the number of provisioned specialists for a company."""
+    try:
+        from services.company_graph_store import get_company_graph_store
+        store = get_company_graph_store()
+        specialists = await store.list_specialists(company_id)
+        return len(specialists)
+    except Exception:
+        return 0
+
+
+async def _reprovision_specialists(company_id: str, owner_id: str) -> int:
+    """Re-run specialist provisioning for an existing company that has 0 specialists.
+
+    Returns the number of specialists provisioned.
+    """
+    try:
+        from services.specialist import get_specialist_service
+        from services.company_graph_store import get_company_graph_store
+
+        store = get_company_graph_store()
+        svc = get_specialist_service()
+
+        # Gather detected system types from websites + repos
+        websites = await store.list_websites(company_id)
+        repos = await store.list_repos(company_id)
+
+        detected_system_types: set[str] = set()
+        for website in websites:
+            if website.detected_systems:
+                for system in website.detected_systems:
+                    detected_system_types.add(system.system_type)
+            if website.inferred_stack:
+                stack = website.inferred_stack
+                if stack.cms:
+                    detected_system_types.add("CMS")
+                if stack.analytics:
+                    detected_system_types.add("analytics")
+                if stack.frameworks:
+                    for fw in stack.frameworks:
+                        if fw.lower() in ["react", "vue", "angular", "svelte"]:
+                            detected_system_types.add("frontend")
+                        elif fw.lower() in ["django", "flask", "rails", "laravel", "express"]:
+                            detected_system_types.add("backend")
+        for repo in repos:
+            if repo.inferred_stack:
+                stack = repo.inferred_stack
+                if stack.frameworks:
+                    for fw in stack.frameworks:
+                        if fw.lower() in ["django", "flask", "rails", "laravel", "express"]:
+                            detected_system_types.add("backend")
+                        elif fw.lower() in ["react", "vue", "angular", "svelte"]:
+                            detected_system_types.add("frontend")
+                if stack.databases:
+                    detected_system_types.add("database")
+
+        # Baseline fallback so we always provision at least a few useful specialists
+        if not detected_system_types:
+            log.info(
+                "Self-bootstrap re-provision: no system types detected for %s — "
+                "using baseline fallback (backend, frontend, analytics, security, devops).",
+                company_id,
+            )
+            detected_system_types = {"backend", "frontend", "analytics", "security", "devops"}
+
+        results = await svc.provision_specialists_for_company(
+            company_id=company_id,
+            system_types=list(detected_system_types),
+        )
+        count = len(results)
+        log.info(
+            "Self-bootstrap re-provisioned %d specialists for company %s (types: %s)",
+            count, company_id, sorted(detected_system_types),
+        )
+        return count
+    except Exception as exc:
+        log.warning("Self-bootstrap re-provision failed for %s: %s", company_id, exc)
+        return 0
 
 
 async def _seed_connect_task(company_id: str, owner_id: str) -> str | None:
@@ -107,12 +219,59 @@ async def ensure_self_company(*, owner_id: str | None = None) -> dict:
     try:
         owner_id = owner_id or os.environ.get("ADMIN_EMAIL") or "admin@llmrelay.local"
 
+        # Deactivate stale self-bootstrap companies (wrong domain from a previous
+        # deploy with old defaults) so the fresh run creates a new company with
+        # the correct URLs.
+        stale = await _find_stale_self_companies()
+        for old_company in stale:
+            try:
+                from services.company_graph_store import get_company_graph_store
+                store = get_company_graph_store()
+                updated = old_company.model_copy(update={
+                    "onboarding_status": "archived",
+                })
+                await store.update_company(updated)
+                log.info(
+                    "Self-bootstrap: archived stale company %s (domain=%s) "
+                    "— will create a fresh one with domain=%s",
+                    old_company.id, old_company.domain, _self_domain(),
+                )
+            except Exception as exc:
+                log.warning("Self-bootstrap: could not archive stale company %s: %s",
+                            old_company.id, exc)
+
         existing = await _find_self_company()
+
+        # If the company exists and onboarding completed, verify it has specialists.
+        # A previous deploy may have completed onboarding with 0 specialists because
+        # the repo scan hit a redirect/404. Re-provision if missing.
         if existing is not None and existing.onboarding_status == "complete":
+            specialist_count = await _count_specialists(existing.id)
+            if specialist_count > 0:
+                log.info(
+                    "Self-bootstrap: company %s already exists with %d specialist(s) — skipping",
+                    existing.id, specialist_count,
+                )
+                return {
+                    "status": "exists",
+                    "company_id": existing.id,
+                    "onboarding_status": existing.onboarding_status,
+                    "specialist_count": specialist_count,
+                }
+            # 0 specialists — re-provision before returning
+            log.info(
+                "Self-bootstrap: company %s exists but has 0 specialists — re-provisioning",
+                existing.id,
+            )
+            provisioned = await _reprovision_specialists(existing.id, owner_id)
+            # Also seed a connect task so the agency starts doing work immediately
+            task_id = await _seed_connect_task(existing.id, owner_id)
             return {
-                "status": "exists",
+                "status": "reprovisioned",
                 "company_id": existing.id,
                 "onboarding_status": existing.onboarding_status,
+                "specialist_count": provisioned,
+                "connect_task_id": task_id,
             }
 
         from services.onboarding import get_onboarding_service
@@ -146,18 +305,30 @@ async def ensure_self_company(*, owner_id: str | None = None) -> dict:
         )
         resolved_company_id = getattr(progress, "company_id", company_id)
 
+        # Verify specialists were provisioned; re-provision if 0 (defensive —
+        # the onboarding fallback should have caught this, but a transient
+        # store error could leave the company with no specialists).
+        specialist_count = await _count_specialists(resolved_company_id)
+        if specialist_count == 0:
+            log.warning(
+                "Self-bootstrap: onboarding completed but 0 specialists — re-provisioning"
+            )
+            specialist_count = await _reprovision_specialists(resolved_company_id, owner_id)
+
         task_id = await _seed_connect_task(resolved_company_id, owner_id)
 
         log.info(
-            "Self-bootstrap complete: company=%s status=%s connect_task=%s",
+            "Self-bootstrap complete: company=%s status=%s specialists=%d connect_task=%s",
             resolved_company_id,
             getattr(progress, "status", "unknown"),
+            specialist_count,
             task_id,
         )
         return {
             "status": "onboarded",
             "company_id": resolved_company_id,
             "onboarding_status": getattr(progress, "status", "unknown"),
+            "specialist_count": specialist_count,
             "connect_task_id": task_id,
         }
     except Exception as exc:  # bootstrap must never crash the server
