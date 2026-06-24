@@ -213,6 +213,11 @@ class Agency:
         self._directives: list[AgentDirective] = []
         self._cycle_count = 0
         self._last_quick_notes: dict = {}  # cached for CEO prompt
+        # FastAPI main loop — captured by attach_main_loop() so the CEO
+        # thread can dispatch run_cycle() onto it via run_coroutine_threadsafe.
+        # Without this, asyncio.run(run_cycle()) creates a fresh loop that
+        # can't see Motor/aiosqlite clients bound to the main loop.
+        self._main_loop: Any = None
         # Company Graph integration
         try:
             from services.specialist import get_specialist_service
@@ -237,6 +242,17 @@ class Agency:
 
     def stop(self) -> None:
         self._running = False
+
+    def attach_main_loop(self, loop: Any) -> None:
+        """Capture the FastAPI main event loop so the CEO thread can dispatch
+        run_cycle() onto it via run_coroutine_threadsafe.
+
+        Without this, asyncio.run(run_cycle()) creates a fresh loop that
+        can't see Motor/aiosqlite clients bound to the main loop — the
+        self-bootstrap and quick-note fetch crash silently.
+        """
+        self._main_loop = loop
+        log.info("CEO agency main loop attached (loop=%r)", loop)
 
     def get_status(self) -> dict[str, Any]:
         return {
@@ -589,9 +605,21 @@ class Agency:
             return 0
 
     def _loop(self) -> None:
+        # Fire immediately on startup so the first cycle runs before the
+        # instance spins down (Render free tier: 15 min inactivity timeout).
+        # Subsequent cycles sleep for self._tick (default 5 min).
         while self._running:
             try:
-                asyncio.run(self.run_cycle())
+                if self._main_loop is not None:
+                    # Dispatch onto the FastAPI main loop so coroutines can
+                    # safely touch Motor/aiosqlite clients bound to it.
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.run_cycle(), self._main_loop
+                    )
+                    future.result(timeout=300)  # 5-min cap per cycle
+                else:
+                    # Fallback: fresh loop (only used before attach_main_loop)
+                    asyncio.run(self.run_cycle())
             except Exception as exc:
                 log.error("Agency tick error: %s", exc)
             time.sleep(self._tick)

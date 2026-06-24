@@ -306,6 +306,15 @@ def _start_ceo_agency() -> None:
         if get_agency() is not None:
             return  # already started
         agency = Agency()
+        # Capture the FastAPI main loop so the CEO thread can dispatch
+        # run_cycle() onto it via run_coroutine_threadsafe — same fix as
+        # the scheduler. Without this, asyncio.run() creates a fresh loop
+        # that can't see Motor/aiosqlite clients bound to the main loop.
+        try:
+            main_loop = asyncio.get_running_loop()
+            agency.attach_main_loop(main_loop)
+        except RuntimeError:
+            log.warning("CEO agency main-loop attach skipped (no running loop)")
         set_agency(agency)
         agency.start()
         log.info("CEO agency loop started — proactive 24×7 work generation is live")
