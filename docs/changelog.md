@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Dispatch: direct task creation fallback when scheduler on_fire fails** (2026-06-24). The CEO dispatches directives via `scheduler.create()` → `_fire()` → `on_fire` (fire-and-forget `create_task`), but the Task was never created — the callback failed silently. Fix: if no pending tasks exist but the CEO dispatched directives, `/api/autonomy/status` creates a Task directly (bypassing the scheduler) by fetching the first quick-note issue from GitHub and creating a Task for it. This ensures work gets done even when the scheduler's callback chain breaks.
+
 - **Dispatch: wait 500ms for task creation before checking pending** (2026-06-24). The CEO's `_dispatch_directive()` calls `scheduler.create()` which calls `_fire()` which calls `on_fire` via `create_task` (fire-and-forget). The Task record wasn't created yet when `/api/autonomy/status` checked for pending tasks. Fix: add a 500ms `asyncio.sleep` between the CEO cycle and the dispatch check.
 
 - **E2E tests: disable all autonomy loops to fix Playwright timeout** (2026-06-24). The E2E test's Playwright browser timed out (15s) because the server was busy running the CEO agency, improvement loop, and self-healing during startup. Fix: set `AGENCY_CEO_ENABLED=false`, `AGENCY_IMPROVEMENT_ENABLED=false`, `AGENCY_SELF_HEAL_ENABLED=false`, `AGENCY_LOG_MONITOR_ENABLED=false`, `AGENCY_TREND_WATCH_ENABLED=false`, and `RUN_BACKGROUND_IN_WEB=false` in both E2E jobs (sqlite + mongodb).
