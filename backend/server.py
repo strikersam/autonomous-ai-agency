@@ -6000,12 +6000,54 @@ async def autonomy_status() -> dict[str, object]:
         # Give the scheduler's fire-and-forget create_task a moment to
         # actually create the Task record before we check for pending tasks.
         import asyncio as _aio_wait
-        await _aio_wait.sleep(0.5)
+        await _aio_wait.sleep(1.0)
         try:
             from tasks.store import get_task_store
             from tasks.service import TaskExecutionCoordinator
             store = get_task_store()
             pending = await store.list_pending(limit=1)
+            # If no pending tasks but the CEO dispatched directives, create
+            # a task directly (bypass the scheduler) as a fallback. This
+            # ensures work gets done even if the scheduler's on_fire
+            # callback failed silently.
+            if not pending and ceo_status.get("directives_issued", 0) > 0:
+                from tasks.models import Task, TaskStatus
+                from tasks.service import TaskWorkflowService
+                wf = TaskWorkflowService(store=store)
+                # Create a task for the first actionable quick-note
+                try:
+                    import agent.agency as _ag
+                    qn = _ag._last_gh_fetch_count
+                    if qn > 0:
+                        # Fetch the first quick-note issue directly
+                        import httpx
+                        token = _ag._gh_token()
+                        repo = _ag._gh_repo()
+                        if token and repo:
+                            async with httpx.AsyncClient(timeout=15) as client:
+                                resp = await client.get(
+                                    f"https://api.github.com/repos/{repo}/issues",
+                                    params={"state": "open", "labels": "quick-note", "per_page": "1"},
+                                    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+                                )
+                                if resp.status_code == 200:
+                                    issues = resp.json()
+                                    if issues:
+                                        issue = issues[0]
+                                        task = Task(
+                                            owner_id="system",
+                                            title=f"quick-note #{issue['number']}: {issue['title'][:50]}",
+                                            description=f"Implement GitHub issue #{issue['number']}",
+                                            prompt=issue.get("body", "")[:2000],
+                                            task_type="quick_note",
+                                            tags=["quick-note", "needs-implementation"],
+                                            source="ceo_direct",
+                                        )
+                                        await wf.create_task(task, actor="system:ceo_direct")
+                                        dispatch_status["direct_task_created"] = task.task_id
+                                        pending = await store.list_pending(limit=1)
+                except Exception as exc:
+                    dispatch_status["direct_task_error"] = str(exc)[:100]
             if pending:
                 task_id = pending[0].task_id
                 dispatch_status["task_id"] = task_id
