@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Dispatch: force pending_agent_run=True + 500ms sync wait** (2026-06-24). The direct task creation created a Task but the coordinator skipped execution because `pending_agent_run` was `False` (Mongo write lag — the store hadn't synced the `pending_agent_run=True` flag yet). Fix: set `pending_agent_run=True` explicitly in the `Task()` constructor AND add a 500ms sleep after `create_task()` to let the store sync.
+
 - **Dispatch: direct task creation fallback when scheduler on_fire fails** (2026-06-24). The CEO dispatches directives via `scheduler.create()` → `_fire()` → `on_fire` (fire-and-forget `create_task`), but the Task was never created — the callback failed silently. Fix: if no pending tasks exist but the CEO dispatched directives, `/api/autonomy/status` creates a Task directly (bypassing the scheduler) by fetching the first quick-note issue from GitHub and creating a Task for it. This ensures work gets done even when the scheduler's callback chain breaks.
 
 - **Dispatch: wait 500ms for task creation before checking pending** (2026-06-24). The CEO's `_dispatch_directive()` calls `scheduler.create()` which calls `_fire()` which calls `on_fire` via `create_task` (fire-and-forget). The Task record wasn't created yet when `/api/autonomy/status` checked for pending tasks. Fix: add a 500ms `asyncio.sleep` between the CEO cycle and the dispatch check.

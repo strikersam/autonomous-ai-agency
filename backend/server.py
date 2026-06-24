@@ -6042,9 +6042,13 @@ async def autonomy_status() -> dict[str, object]:
                                             task_type="quick_note",
                                             tags=["quick-note", "needs-implementation"],
                                             source="ceo_direct",
+                                            pending_agent_run=True,
                                         )
                                         await wf.create_task(task, actor="system:ceo_direct")
                                         dispatch_status["direct_task_created"] = task.task_id
+                                        # Wait for the store to sync
+                                        import asyncio as _aio_sync
+                                        await _aio_sync.sleep(0.5)
                                         pending = await store.list_pending(limit=1)
                 except Exception as exc:
                     dispatch_status["direct_task_error"] = str(exc)[:100]
