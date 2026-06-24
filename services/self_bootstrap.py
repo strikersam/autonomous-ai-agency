@@ -103,13 +103,45 @@ def _self_domain() -> str:
     return netloc.lower()
 
 
-async def _find_self_company():
-    """Return the existing self company (matched by domain), or None."""
+async def _list_companies_safe():
+    """List companies, skipping any that fail to deserialize.
+
+    A previous deploy wrote onboarding_status='archived' which is not a valid
+    Literal value — store.list_companies() raises ValidationError on that row.
+    This wrapper skips bad rows so the self-bootstrap can still find/create the
+    correct company instead of crashing on stale data.
+    """
     from services.company_graph_store import get_company_graph_store
 
     store = get_company_graph_store()
+    try:
+        return await store.list_companies(limit=500)
+    except Exception as exc:
+        log.warning("Self-bootstrap: list_companies failed (%s) — trying raw query", exc)
+        # Fall back to a raw query that skips the problematic rows
+        try:
+            db = store._db if hasattr(store, '_db') else None
+            if db is not None:
+                # Mongo path
+                cursor = db.companies.find({})
+                docs = await cursor.to_list(length=500)
+                companies = []
+                for doc in docs:
+                    try:
+                        from models.company_graph import Company
+                        companies.append(Company.model_validate({k: v for k, v in doc.items() if k != '_id'}))
+                    except Exception:
+                        continue
+                return companies
+        except Exception:
+            pass
+        return []
+
+
+async def _find_self_company():
+    """Return the existing self company (matched by domain), or None."""
+    companies = await _list_companies_safe()
     domain = _self_domain()
-    companies = await store.list_companies(limit=500)
     for company in companies:
         if (company.domain or "").lower() == domain:
             return company
@@ -120,12 +152,9 @@ async def _find_stale_self_companies():
     """Return companies that look like a previous self-bootstrap run but have
     a stale domain (pre-rebrand). These get deactivated so the fresh run
     creates a new company with the correct URLs."""
-    from services.company_graph_store import get_company_graph_store
-
-    store = get_company_graph_store()
     stale = []
     current_domain = _self_domain()
-    companies = await store.list_companies(limit=500)
+    companies = await _list_companies_safe()
     for company in companies:
         domain = (company.domain or "").lower()
         # Match any domain that looks like a previous self-bootstrap target:
