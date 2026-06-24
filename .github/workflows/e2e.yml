@@ -28,6 +28,12 @@ jobs:
     env:
       STORAGE_BACKEND: sqlite
       SELF_BOOTSTRAP_ENABLED: "false"
+      AGENCY_CEO_ENABLED: "false"
+      AGENCY_IMPROVEMENT_ENABLED: "false"
+      AGENCY_SELF_HEAL_ENABLED: "false"
+      AGENCY_LOG_MONITOR_ENABLED: "false"
+      AGENCY_TREND_WATCH_ENABLED: "false"
+      RUN_BACKGROUND_IN_WEB: "false"
       KEYS_FILE: e2e-keys.json
       ADMIN_EMAIL: admin@llmrelay.local
       ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-e2e-admin-do-not-use-in-production' }}
@@ -165,6 +171,12 @@ jobs:
     env:
       STORAGE_BACKEND: mongodb
       SELF_BOOTSTRAP_ENABLED: "false"
+      AGENCY_CEO_ENABLED: "false"
+      AGENCY_IMPROVEMENT_ENABLED: "false"
+      AGENCY_SELF_HEAL_ENABLED: "false"
+      AGENCY_LOG_MONITOR_ENABLED: "false"
+      AGENCY_TREND_WATCH_ENABLED: "false"
+      RUN_BACKGROUND_IN_WEB: "false"
       MONGO_URL: mongodb://localhost:27017
       DB_NAME: e2e_mongodb
       KEYS_FILE: e2e-keys.json
