@@ -184,6 +184,47 @@ async def _count_specialists(company_id: str) -> int:
         return 0
 
 
+async def _create_company_directly(owner_id: str) -> str:
+    """Fallback: create the company directly via the graph service.
+
+    Used when start_onboarding times out or fails — the agency still needs a
+    company record to attach specialists, schedules, and tasks to. This bypasses
+    the full onboarding flow (scan, detect systems, etc.) and creates a minimal
+    company with the correct domain, then provisions baseline specialists.
+    """
+    from services.company_graph import get_company_graph_service
+    from services.company_graph_store import get_company_graph_store
+
+    graph_svc = get_company_graph_service()
+    store = get_company_graph_store()
+
+    # Check if a company with this domain already exists (maybe onboarding
+    # created it before timing out)
+    existing = await _find_self_company()
+    if existing is not None:
+        log.info("Self-bootstrap fallback: company %s already exists", existing.id)
+        return existing.id
+
+    # Create the company directly
+    company = await graph_svc.create_company(
+        name=SELF_COMPANY_NAME,
+        domain=_self_domain(),
+        owner_id=owner_id,
+    )
+    # Mark onboarding as complete so the agency activation runs
+    company = company.model_copy(update={
+        "onboarding_status": "complete",
+        "onboarding_progress": 1.0,
+    })
+    await store.update_company(company)
+    log.info("Self-bootstrap fallback: created company %s (domain=%s)",
+             company.id, company.domain)
+
+    # Provision baseline specialists directly
+    await _reprovision_specialists(company.id, owner_id)
+    return company.id
+
+
 async def _reprovision_specialists(company_id: str, owner_id: str) -> int:
     """Re-run specialist provisioning for an existing company that has 0 specialists.
 
@@ -376,17 +417,32 @@ async def ensure_self_company(*, owner_id: str | None = None) -> dict:
         # (GitHub rate-limit, network blip) can't block the background task
         # forever. On timeout the company is still created (start_onboarding
         # creates it before scanning), so the agency can still activate.
-        progress = await asyncio.wait_for(
-            onboarding.start_onboarding(
-                company_id=company_id,
-                website_urls=[SELF_WEBSITE_URL],
-                repo_urls=[SELF_REPO_URL],
-                skip_website_scan=True,
-                owner_id=owner_id,
-            ),
-            timeout=120.0,
-        )
-        resolved_company_id = getattr(progress, "company_id", company_id)
+        try:
+            progress = await asyncio.wait_for(
+                onboarding.start_onboarding(
+                    company_id=company_id,
+                    website_urls=[SELF_WEBSITE_URL],
+                    repo_urls=[SELF_REPO_URL],
+                    skip_website_scan=True,
+                    owner_id=owner_id,
+                ),
+                timeout=120.0,
+            )
+            resolved_company_id = getattr(progress, "company_id", company_id)
+        except asyncio.TimeoutError:
+            log.warning(
+                "Self-bootstrap: start_onboarding timed out after 120s — "
+                "creating company directly as fallback"
+            )
+            # Fallback: create the company directly so the agency has something
+            # to operate on, even if the full onboarding flow didn't complete.
+            resolved_company_id = await _create_company_directly(owner_id)
+        except Exception as exc:
+            log.warning(
+                "Self-bootstrap: start_onboarding failed (%s) — "
+                "creating company directly as fallback", exc,
+            )
+            resolved_company_id = await _create_company_directly(owner_id)
 
         # Verify specialists were provisioned; re-provision if 0 (defensive —
         # the onboarding fallback should have caught this, but a transient
