@@ -42,7 +42,10 @@ def _restore_pymongo() -> None:
     sys.modules.pop("pymongo", None)
 
 
-def test_schedule_store_creates_index_with_background_true() -> None:
+def test_schedule_store_creates_index_with_background_true(monkeypatch) -> None:
+    # Force the Mongo path even when STORAGE_BACKEND=sqlite in the test env
+    # (this test stubs pymongo and verifies Mongo index creation specifically).
+    monkeypatch.setenv("STORAGE_BACKEND", "mongo")
     from agent.schedule_store import ScheduleStore
 
     fake_collection = MagicMock()
@@ -64,7 +67,9 @@ def test_schedule_store_creates_index_with_background_true() -> None:
     assert captured_kwargs.get("unique") is True, "unique constraint MUST be preserved"
 
 
-def test_schedule_store_skips_index_already_present() -> None:
+def test_schedule_store_skips_index_already_present(monkeypatch) -> None:
+    # Force the Mongo path even when STORAGE_BACKEND=sqlite in the test env.
+    monkeypatch.setenv("STORAGE_BACKEND", "mongo")
     from agent.schedule_store import ScheduleStore
 
     fake_collection = MagicMock()

@@ -436,7 +436,11 @@ class CompanyAgencyService:
                             "name": schedule_name,
                             "cron": schedule_def["cron"],
                             "runtime": runtime_id,
-                            "status": existing_job.status,
+                            # ScheduledJob has ``enabled`` (bool), not ``status`` —
+                            # synthesise the active/paused label that the README
+                            # and UI expect so this branch stops raising
+                            # AttributeError and aborting every schedule after it.
+                            "status": "active" if existing_job.enabled else "paused",
                             "note": "already_exists",
                         })
                         continue
@@ -466,7 +470,10 @@ class CompanyAgencyService:
                         "name": schedule_name,
                         "cron": schedule_def["cron"],
                         "runtime": runtime_id,
-                        "status": job.status,
+                        # ScheduledJob exposes ``enabled`` (bool) — derive the
+                        # active/paused label that callers expect instead of
+                        # touching a non-existent ``status`` attribute.
+                        "status": "active" if job.enabled else "paused",
                     })
                     log.info(
                         "CompanyAgency: created schedule '%s' (cron=%s, runtime=%s)",
@@ -593,7 +600,9 @@ class CompanyAgencyService:
                     "name": j.name,
                     "cron": j.cron,
                     "enabled": j.enabled,
-                    "status": j.status,
+                    # ScheduledJob stores ``enabled`` (bool); the health payload
+                    # is read by the dashboard which expects "active"/"paused".
+                    "status": "active" if j.enabled else "paused",
                     "last_run": j.last_run.isoformat() if j.last_run else None,
                     "run_count": j.run_count,
                 }

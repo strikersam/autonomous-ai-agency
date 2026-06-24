@@ -112,6 +112,19 @@ async def start_background_services(
 
     task_automation = TaskAutomationService(store=task_store)
     scheduler.set_on_fire(task_automation.handle_scheduled_job)
+    # Capture the FastAPI main event loop so APScheduler's background thread
+    # can dispatch on_fire coroutines back onto it via
+    # ``asyncio.run_coroutine_threadsafe``. Without this, ``_fire`` would
+    # ``asyncio.run()`` a fresh loop in the APScheduler thread — that fresh
+    # loop can't reach Motor/aiosqlite clients bound to the main loop, so the
+    # on_fire coroutine (which creates a Task in the shared store) crashes
+    # with "Future attached to a different loop" and the agency's 24x7
+    # cadences silently never produce any work.
+    try:
+        main_loop = asyncio.get_running_loop()
+        scheduler.attach_main_loop(main_loop)
+    except RuntimeError:
+        log.warning("Scheduler main-loop attach skipped (no running loop)")
     log.info("Scheduler automation wired to task workflow")
 
     # Durable schedule persistence + boot rehydration (#505): without this, the

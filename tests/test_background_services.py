@@ -59,9 +59,16 @@ class _StubTaskAutomation:
 class _StubScheduler:
     def __init__(self) -> None:
         self.on_fire_handler = None
+        self.attached_loop = None
 
     def set_on_fire(self, handler) -> None:
         self.on_fire_handler = handler
+
+    def attach_main_loop(self, loop) -> None:
+        # Mirror AgentScheduler.attach_main_loop so the lifespan wiring
+        # (services/background.py) can capture the FastAPI main loop on the
+        # stub during tests.
+        self.attached_loop = loop
 
 
 # ─── Tests ────────────────────────────────────────────────────────────────────
