@@ -51,7 +51,27 @@ def _gh_token() -> str:
 
 
 def _gh_repo() -> str:
-    return os.environ.get("GITHUB_REPOSITORY", "")
+    """Return the GitHub repo in 'owner/name' format.
+
+    Priority:
+    1. GITHUB_REPOSITORY env var (set on Render via render.yaml — but the
+       dashboard may have a stale/empty value).
+    2. Derive from SELF_REPO_URL (resolved by services.self_bootstrap to
+       https://github.com/strikersam/autonomous-ai-agency).
+    3. Empty string (quick-note fetch will be skipped).
+    """
+    raw = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if raw:
+        return raw
+    # Fallback: derive from SELF_REPO_URL
+    try:
+        from services.self_bootstrap import SELF_REPO_URL
+        # SELF_REPO_URL is like "https://github.com/strikersam/autonomous-ai-agency"
+        if "github.com/" in SELF_REPO_URL:
+            return SELF_REPO_URL.split("github.com/", 1)[1].rstrip("/")
+    except Exception:
+        pass
+    return ""
 
 
 async def _fetch_github_quick_notes() -> list[dict]:
