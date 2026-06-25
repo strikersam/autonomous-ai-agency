@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **README screenshots broken & duplicated**. README referenced byte-identical placeholder images under `docs/screenshots/web/` and `docs/screenshots/mobile/`, and the UI gallery rendered the stale `docs/screenshots/readme/v4-*` set even though `scripts/sync_readme_gallery.py` already targeted the live `docs/screenshots/v5/` capture. Regenerated the gallery (v5), replaced the broken hero/mobile images, regenerated `docs/screenshots/manifest.json`.
+
+### Added
+
+- **One-click local-agency launcher** (`start-local-agency.ps1` + `Start-Local-Agency.cmd`): starts Ollama against the real model store, boots `backend.server:app` on the local brain (`qwen3-coder:30b` / `qwen3.6:35b-a3b`) with background loops, and triggers the autonomy cycle — no terminal required.
+- **`scripts/check_doc_images.py` + pre-commit guard**: blocks commits with missing doc images or a README gallery out of sync with `scripts/sync_readme_gallery.py`; warns on duplicate/placeholder screenshots.
+
 ### Added
 
 - **DeepSeek V4 model support + legacy name deprecation aliases** (2026-06-25). Added `deepseek-v4-0324` to the model registry (1.6T MoE, 49B active, 131k context). Added forward-compatible aliases: `deepseek-v4`, `deepseek-v4-pro`, and legacy names `deepseek-chat` / `deepseek-reasoner` which DeepSeek is deprecating on July 24, 2026. Clients using the old API names will be transparently routed to V4 / R1 models. Files: `router/registry.py`, `router/model_router.py`.
