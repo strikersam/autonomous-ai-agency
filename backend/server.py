@@ -6202,7 +6202,7 @@ async def autonomy_tick() -> dict[str, object]:
         if agency is not None and agency._running:
             try:
                 import asyncio as _asyncio
-                ceo_result = await _asyncio.wait_for(agency.run_cycle(), timeout=15.0)
+                ceo_result = await _asyncio.wait_for(agency.run_cycle(), timeout=10.0)
                 result["ceo"] = {
                     "triggered": True,
                     "directives_issued": ceo_result.directives_issued,
@@ -6299,7 +6299,7 @@ async def autonomy_tick() -> dict[str, object]:
                 try:
                     adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
                     exec_result, decision = await asyncio.wait_for(
-                        adapter.execute(spec), timeout=20.0
+                        adapter.execute(spec), timeout=40.0
                     )
                     task.result = exec_result.output
                     task.status = "done" if exec_result.success else "failed"

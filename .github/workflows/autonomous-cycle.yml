@@ -15,7 +15,7 @@ concurrency:
 jobs:
   drive-agency:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - name: Execute agency tick
         env:
@@ -28,7 +28,7 @@ jobs:
           
           # Execute one task synchronously (blocks up to 20s for NVIDIA NIM)
           echo "--- Executing agency tick ---"
-          curl -s --max-time 60 "$BASE_URL/api/autonomy/tick" | python3 -c "
+          curl -s --max-time 90 "$BASE_URL/api/autonomy/tick" | python3 -c "
           import json,sys
           d=json.load(sys.stdin)
           ceo=d.get('ceo',{})
