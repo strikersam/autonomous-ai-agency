@@ -34,14 +34,17 @@ jobs:
       - name: Install minimal deps
         run: pip install --quiet pydantic pyyaml
 
+      # Invoke as a standalone file (not `python -m agent.loop_registry`) so it
+      # never triggers agent/__init__.py, which imports the full agent stack
+      # (httpx, fastapi, …). The module itself only needs stdlib + pydantic + yaml.
       - name: Run loop-audit (report)
-        run: python -m agent.loop_registry audit
+        run: python agent/loop_registry.py audit
 
       # On PRs: fail fast if the registry has drifted (a new scheduled workflow
       # was not catalogued, or a catalogued loop's source file was deleted).
       - name: Enforce no drift (PR gate)
         if: github.event_name == 'pull_request'
-        run: python -m agent.loop_registry audit --check
+        run: python agent/loop_registry.py audit --check
 
       # On the weekly schedule: detect drift and file/refresh a tracking issue
       # so the catalogue self-heals instead of silently rotting.
@@ -49,7 +52,7 @@ jobs:
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         id: drift
         run: |
-          if python -m agent.loop_registry audit --check > audit.txt 2>&1; then
+          if python agent/loop_registry.py audit --check > audit.txt 2>&1; then
             echo "drift=false" >> "$GITHUB_OUTPUT"
           else
             echo "drift=true" >> "$GITHUB_OUTPUT"
