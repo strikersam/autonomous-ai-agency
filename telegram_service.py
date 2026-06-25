@@ -226,6 +226,24 @@ class TelegramBotManager:
 
 # ─── Notification Dispatcher ──────────────────────────────────────────────────
 
+
+def _telegram_sends_suppressed() -> bool:
+    """True when outbound Telegram sends must be suppressed.
+
+    Tests must never page a human: a test that exercises an escalation /
+    approval / digest path would otherwise fire a real Telegram message every
+    time the suite runs in an environment that has ``TELEGRAM_BOT_TOKEN`` set
+    (CI, nightly-regression, continuous-improvement, a live deploy running
+    tests). ``PYTEST_CURRENT_TEST`` is set by pytest for the duration of every
+    test, so we hard-suppress under it unless an operator explicitly opts in
+    via ``ALLOW_TEST_TELEGRAM=1``. This is the systemic guard behind the
+    recurring "self-heal escalation — recurring boom" pages.
+    """
+    if os.environ.get("ALLOW_TEST_TELEGRAM", "").strip() == "1":
+        return False
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
 class NotificationDispatcher:
     """Routes background task results to configured notification channels.
 
@@ -301,6 +319,9 @@ class NotificationDispatcher:
         """Send notification to configured Telegram chat IDs."""
         if not self.telegram_token or not self.telegram_chat_ids:
             return
+        if _telegram_sends_suppressed():
+            log.debug("Telegram send suppressed under pytest (set ALLOW_TEST_TELEGRAM=1 to override)")
+            return
         import httpx
 
         def _send():
@@ -366,6 +387,9 @@ class NotificationDispatcher:
         """Send a Telegram message with an inline keyboard to all configured chats."""
         if not self.telegram_token or not self.telegram_chat_ids:
             return
+        if _telegram_sends_suppressed():
+            log.debug("Telegram keyboard send suppressed under pytest (set ALLOW_TEST_TELEGRAM=1 to override)")
+            return
         import httpx
 
         def _send():
@@ -410,6 +434,9 @@ class NotificationDispatcher:
             return False
         if not self.telegram_token or not self.telegram_chat_ids:
             log.warning("telegram_service.send_daily_digest.disabled")
+            return False
+        if _telegram_sends_suppressed():
+            log.debug("Telegram digest send suppressed under pytest (set ALLOW_TEST_TELEGRAM=1 to override)")
             return False
         import httpx
 
