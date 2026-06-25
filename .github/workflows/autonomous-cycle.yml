@@ -1,19 +1,8 @@
 name: Autonomous Agency Cycle
 
-# ─────────────────────────────────────────────────────────────────────────────
-# The agency's heartbeat. Runs every 2 minutes from GitHub Actions to:
-#   1. Keep the Render free-tier instance warm (prevents spin-down)
-#   2. Hit /api/autonomy/status which triggers the CEO cycle + task dispatch
-#   3. Log the result so the agency's activity is visible in the Actions tab
-#
-# This replaces the need for a paid Render instance or external cron service.
-# GitHub Actions cron is best-effort (can be delayed 5-15 min under load), but
-# it's free and runs 24/7. For stricter timing, add UptimeRobot as a backup.
-# ─────────────────────────────────────────────────────────────────────────────
-
 on:
   schedule:
-    - cron: "*/2 * * * *"   # every 2 minutes
+    - cron: "*/2 * * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -28,92 +17,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Drive agency cycle
+      - name: Wake and drive agency
         env:
           BASE_URL: ${{ vars.KEEPALIVE_URL || 'https://local-llm-server.onrender.com' }}
         run: |
-          set -u
-          echo "=== Autonomous Agency Cycle — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
-
-          # 1. Wake the instance (Render free tier cold-starts after 15 min)
-          echo "--- Waking instance ---"
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE_URL/api/ping" || echo "000")
-          echo "GET /api/ping -> $code"
-          if [ "$code" != "200" ]; then
-            echo "::warning::Instance not responding to ping — may be cold-starting"
-          fi
-
-          # 2. Hit /api/autonomy/status to trigger CEO cycle + task dispatch
-          # This endpoint returns instantly (non-blocking) and fires a
-          # background task that:
-          #   - CEO: fetches open issues, dispatches directives
-          #   - Dispatch: creates tasks, executes via NVIDIA NIM
-          echo "--- Triggering CEO + dispatch ---"
-          response=$(curl -s --max-time 30 "$BASE_URL/api/autonomy/status" 2>/dev/null || echo '{}')
-          if [ -z "$response" ] || [ "$response" = '{}' ]; then
-            echo "::warning::Empty response from /api/autonomy/status"
-            exit 0
-          fi
-
-          # 3. Parse and log the key fields
-          echo "--- Autonomy status ---"
-          echo "$response" | python3 -c "
-import json, sys
-try:
-    d = json.load(sys.stdin)
-except:
-    print('  (invalid JSON)')
-    sys.exit(0)
-
-brain = d.get('brain', {})
-ceo = d.get('ceo', {})
-dispatch = d.get('dispatch', {})
-
-print(f'  status: {d.get(\"status\")}')
-print(f'  brain: {brain.get(\"model\")}')
-print(f'  company_count: {d.get(\"company_count\")}')
-print(f'  loops_running: {d.get(\"loops_running\")}')
-print(f'  CEO triggered: {ceo.get(\"triggered\")}')
-print(f'  CEO gh_api_count: {ceo.get(\"gh_api_count\")}')
-print(f'  CEO directives: {ceo.get(\"directives_issued\")}')
-if ceo.get('gh_api_status'):
-    print(f'  CEO gh_api_status: {ceo.get(\"gh_api_status\")}')
-if dispatch.get('direct_issue_number'):
-    print(f'  Dispatch issue: #{dispatch.get(\"direct_issue_number\")}')
-if dispatch.get('task_title'):
-    print(f'  Dispatch task: {dispatch.get(\"task_title\")[:60]}')
-if dispatch.get('ran') is not None:
-    print(f'  Dispatch ran: {dispatch.get(\"ran\")}')
-if dispatch.get('result_status'):
-    print(f'  Dispatch result: {dispatch.get(\"result_status\")}')
-if dispatch.get('error'):
-    print(f'  Dispatch error: {str(dispatch.get(\"error\"))[:100]}')
-if dispatch.get('direct_task_error'):
-    print(f'  Direct task error: {dispatch.get(\"direct_task_error\")}')
-" 2>/dev/null || echo "  (parse error)"
-
-          # 4. Keep the instance warm for 30s to let the background task
-          # execute (NVIDIA NIM call takes 10-30s)
-          echo "--- Keeping instance warm for 30s ---"
+          echo "=== Autonomous Agency Cycle $(date -u) ==="
+          
+          # Wake the instance
+          curl -s -o /dev/null -w "ping: %{http_code}\n" --max-time 30 "$BASE_URL/api/ping" || echo "ping: failed"
+          
+          # Trigger CEO + dispatch (returns instantly)
+          curl -s --max-time 30 "$BASE_URL/api/autonomy/status" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          print('status:', d.get('status'))
+          print('brain:', d.get('brain',{}).get('model'))
+          print('companies:', d.get('company_count'))
+          ceo=d.get('ceo',{})
+          print('CEO triggered:', ceo.get('triggered'))
+          print('CEO issues:', ceo.get('gh_api_count'))
+          dispatch=d.get('dispatch',{})
+          print('Dispatch ran:', dispatch.get('ran'))
+          print('Dispatch issue:', dispatch.get('direct_issue_number'))
+          print('Dispatch result:', dispatch.get('result_status'))
+          if dispatch.get('error'):
+              print('Dispatch error:', str(dispatch.get('error'))[:200])
+          " 2>/dev/null || echo "status: (parse error)"
+          
+          # Keep warm for 30s
+          echo "Keeping warm 30s..."
           sleep 30
-
-          # 5. Check the updated status (background task may have completed)
-          echo "--- Post-wait status ---"
-          response2=$(curl -s --max-time 15 "$BASE_URL/api/autonomy/status" 2>/dev/null || echo '{}')
-          echo "$response2" | python3 -c "
-import json, sys
-try:
-    d = json.load(sys.stdin)
-except:
-    sys.exit(0)
-dispatch = d.get('dispatch', {})
-if dispatch.get('ran'):
-    print(f'  ✅ Task executed: {dispatch.get(\"task_title\",\"\")[:60]}')
-    print(f'     result: {dispatch.get(\"result_status\")}')
-elif dispatch.get('error'):
-    print(f'  ❌ Task error: {str(dispatch.get(\"error\"))[:100]}')
-else:
-    print(f'  ⏳ Task still in progress (will complete on next cycle)')
-" 2>/dev/null || true
-
+          
+          # Check result
+          curl -s --max-time 15 "$BASE_URL/api/autonomy/status" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          dispatch=d.get('dispatch',{})
+          if dispatch.get('ran'):
+              print('RESULT: task done -', dispatch.get('task_title','')[:60])
+          elif dispatch.get('error'):
+              print('RESULT: error -', str(dispatch.get('error'))[:100])
+          else:
+              print('RESULT: still in progress')
+          " 2>/dev/null || echo "RESULT: (parse error)"
+          
           echo "=== Cycle complete ==="
