@@ -38,7 +38,7 @@ from runtimes.base import (
 # NOTE: do NOT include /v1 in the base URL; the downstream OpenAI-compatible
 # URL builders (_openai_url, AgentRunner._chat_text) append it themselves.
 _NVIDIA_BASE_URL = "https://integrate.api.nvidia.com"
-_NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b"
+_NVIDIA_DEFAULT_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1"
 
 
 def _nvidia_provider_chain() -> list[ProviderConfig]:

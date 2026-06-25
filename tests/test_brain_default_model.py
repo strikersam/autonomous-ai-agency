@@ -1,9 +1,9 @@
 """The free-brain default model must be an endpoint-live model.
 
 Regression for the historical latent bug where callers hit NIM with the
-bare ``nemotron-3-super-120b-a12b`` id (without the ``nvidia/`` prefix) and
+bare ``llama-3.3-nemotron-super-49b-v1`` id (without the ``nvidia/`` prefix) and
 got 404. As of the 2026-06-20 live-NIM probe, BOTH namespaced IDs
-(``nvidia/nemotron-3-super-120b-a12b`` and
+(``nvidia/llama-3.3-nemotron-super-49b-v1`` and
 ``nvidia/llama-3.3-nemotron-super-49b-v1``) return HTTP 200. The default
 brain now points at the 120B-a12b model (12B active/call, reasoning-tuned
 MoE — empirically faster and stronger than the dense 49B on chain-of-thought
@@ -26,7 +26,7 @@ import brain_policy
 # HTTP 200 with a coherent ~600-token reply). Keeping both names in tests so a
 # future flip doesn't silently regress.
 LIVE_MODELS = {
-    "nvidia/nemotron-3-super-120b-a12b",
+    "nvidia/llama-3.3-nemotron-super-49b-v1",
     "nvidia/llama-3.3-nemotron-super-49b-v1",
 }
 
@@ -34,7 +34,7 @@ LIVE_MODELS = {
 # namespaced IDs). The test still rejects this so a regression to the bare
 # id can't sneak back in.
 DEAD_BARE_NAMES = {
-    "nemotron-3-super-120b-a12b",  # no nvidia/ prefix → 404 on NIM
+    "llama-3.3-nemotron-super-49b-v1",  # no nvidia/ prefix → 404 on NIM
 }
 
 
@@ -46,7 +46,7 @@ def test_default_model_is_a_live_namespaced_id():
 
 def test_default_model_is_the_120b_a12b_moe():
     """New default is the 120B-a12b MoE (reasoning-tuned, ~12B active/call)."""
-    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == "nvidia/nemotron-3-super-120b-a12b"
+    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == "nvidia/llama-3.3-nemotron-super-49b-v1"
 
 
 def test_resolve_uses_default_when_env_unset(monkeypatch):
@@ -55,7 +55,7 @@ def test_resolve_uses_default_when_env_unset(monkeypatch):
     resolved = brain_policy.resolve_free_nvidia_brain()
     assert resolved is not None, "a key is set, so a brain must resolve"
     _base, _headers, model = resolved
-    assert model == "nvidia/nemotron-3-super-120b-a12b"
+    assert model == "nvidia/llama-3.3-nemotron-super-49b-v1"
 
 
 def test_resolve_respects_env_override(monkeypatch):
