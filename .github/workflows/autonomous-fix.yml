@@ -1,0 +1,243 @@
+name: Autonomous Fix
+
+# Monitors PRs with failing CI tests and automatically fixes them.
+# Runs every 30 minutes. For each PR with failing tests:
+# 1. Fetches the failing test logs
+# 2. Calls NVIDIA NIM to generate a fix
+# 3. Pushes the fix to the PR's branch
+# 4. CI re-runs automatically
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Specific PR number to fix (optional)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  checks: read
+
+concurrency:
+  group: autonomous-fix
+  cancel-in-progress: false
+
+jobs:
+  fix-failing-prs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install deps
+        run: pip install httpx 2>&1 | tail -3
+
+      - name: Find and fix failing PRs
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER_INPUT: ${{ github.event.inputs.pr_number }}
+        run: |
+          set -e
+          
+          # Get all open PRs
+          if [ -n "$PR_NUMBER_INPUT" ]; then
+            PRS=$(echo "[{\"number\": $PR_NUMBER_INPUT}]")
+          else
+            PRS=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/pulls?state=open&per_page=30" \
+              | python3 -c "
+          import json, sys
+          prs = json.load(sys.stdin)
+          # Filter out dependabot PRs and draft PRs
+          actionable = [p for p in prs if not p.get('draft') and 'dependabot' not in p.get('head',{}).get('label','')]
+          print(json.dumps([{'number': p['number'], 'head': p['head']['ref'], 'title': p['title'][:60]} for p in actionable]))
+          ")
+          fi
+          
+          echo "Open PRs: $PRS"
+          
+          echo "$PRS" | python3 -c "
+          import json, sys, os, subprocess, httpx
+          
+          prs = json.load(sys.stdin)
+          gh_token = os.environ['GH_TOKEN']
+          nvidia_key = os.environ['NVIDIA_API_KEY']
+          repo = os.environ['REPO']
+          
+          for pr in prs:
+              pr_number = pr['number']
+              head_branch = pr['head']
+              print(f'\n=== Checking PR #{pr_number} ({head_branch}) ===')
+              
+              # Get check runs for the PR's head commit
+              # First get the head SHA
+              pr_data = subprocess.run(
+                  ['gh', 'pr', 'view', str(pr_number), '--json', 'headRefOid', '-q', '.headRefOid'],
+                  capture_output=True, text=True
+              )
+              if pr_data.returncode != 0:
+                  print(f'  Could not get PR #{pr_number} head SHA — skipping')
+                  continue
+              head_sha = pr_data.stdout.strip()
+              
+              # Get check runs
+              resp = httpx.get(
+                  f'https://api.github.com/repos/{repo}/commits/{head_sha}/check-runs',
+                  headers={'Authorization': f'Bearer {gh_token}', 'Accept': 'application/vnd.github+json'},
+                  params={'per_page': '50'},
+                  timeout=30.0,
+              )
+              runs = resp.json().get('check_runs', [])
+              
+              # Find failed checks (excluding non-blocking ones)
+              failed = [r for r in runs if r.get('conclusion') == 'failure' and r['name'] not in ('Security Gate — No New Alerts',)]
+              if not failed:
+                  print(f'  No failing tests — PR #{pr_number} is green')
+                  continue
+              
+              print(f'  {len(failed)} failing check(s):')
+              for f in failed:
+                  print(f'    - {f[\"name\"]}')
+              
+              # Get the logs from the first failing check
+              failed_check = failed[0]
+              log_url = failed_check.get('html_url', '')
+              print(f'  Fetching logs from: {log_url}')
+              
+              # Get the job logs
+              job_id = failed_check.get('id')
+              if not job_id:
+                  print('  No job ID — cannot fetch logs')
+                  continue
+              
+              log_resp = httpx.get(
+                  f'https://api.github.com/repos/{repo}/actions/jobs/{job_id}/logs',
+                  headers={'Authorization': f'Bearer {gh_token}', 'Accept': 'application/vnd.github+json'},
+                  follow_redirects=True,
+                  timeout=30.0,
+              )
+              
+              if log_resp.status_code != 200:
+                  print(f'  Could not fetch logs (HTTP {log_resp.status_code})')
+                  # Use the check run output instead
+                  output = failed_check.get('output', {})
+                  log_text = output.get('summary', '') + '\\n' + output.get('text', '')
+              else:
+                  log_text = log_resp.text[-3000:]  # last 3000 chars (usually has the error)
+              
+              # Extract FAILED lines
+              failed_lines = [line for line in log_text.split('\\n') if 'FAILED' in line or 'Error' in line or 'assert' in line]
+              if not failed_lines:
+                  failed_lines = log_text.split('\\n')[-20:]
+              
+              error_summary = '\\n'.join(failed_lines[:20])
+              print(f'  Error summary: {error_summary[:200]}')
+              
+              # Call NVIDIA NIM to generate a fix
+              fix_prompt = f'''You are fixing a failing CI test in the Autonomous AI Agency repository.
+          
+          PR #{pr_number}: {pr.get('title', '')}
+          Branch: {head_branch}
+          
+          Failing check: {failed_check['name']}
+          
+          Error logs (last 20 relevant lines):
+          {error_summary}
+          
+          Instructions:
+          1. Identify the test that's failing and why.
+          2. Write a minimal fix that makes the test pass.
+          3. Output the fix as JSON with the file path and full content.
+          
+          Format:
+          {{
+            \"summary\": \"What was wrong and how it was fixed\",
+            \"files\": [
+              {{
+                \"path\": \"path/to/file.py\",
+                \"action\": \"modify\",
+                \"content\": \"full file content\"
+              }}
+            ]
+          }}
+          
+          Output only the JSON.'''
+          
+              print('  Calling NVIDIA NIM for fix...')
+              try:
+                  nim_resp = httpx.post(
+                      'https://integrate.api.nvidia.com/v1/chat/completions',
+                      headers={'Authorization': f'Bearer {nvidia_key}', 'Content-Type': 'application/json'},
+                      json={
+                          'model': 'nvidia/llama-3.3-nemotron-super-49b-v1',
+                          'messages': [
+                              {'role': 'system', 'content': 'You are an expert Python developer. Output only valid JSON.'},
+                              {'role': 'user', 'content': fix_prompt},
+                          ],
+                          'max_tokens': 4096,
+                          'temperature': 0.2,
+                          'stream': False,
+                      },
+                      timeout=120.0,
+                  )
+                  nim_resp.raise_for_status()
+                  content = nim_resp.json()['choices'][0]['message']['content']
+                  
+                  # Parse JSON
+                  start = content.find('{')
+                  end = content.rfind('}') + 1
+                  if start < 0 or end <= start:
+                      print(f'  No JSON in NIM response — skipping')
+                      continue
+                  
+                  fix = json.loads(content[start:end])
+                  print(f'  Fix summary: {fix.get(\"summary\", \"\")}')
+                  print(f'  Files to change: {len(fix.get(\"files\", []))}')
+                  
+                  # Save the fix
+                  with open('/tmp/fix_result.json', 'w') as f:
+                      json.dump(fix, f)
+                  
+                  # Apply the fix
+                  os.makedirs('.git', exist_ok=True)
+                  subprocess.run(['git', 'config', 'user.name', 'Autonomous Agency'], check=True)
+                  subprocess.run(['git', 'config', 'user.email', 'agency@autonomous.ai'], check=True)
+                  subprocess.run(['git', 'fetch', 'origin', head_branch], check=True)
+                  subprocess.run(['git', 'checkout', head_branch], check=True)
+                  
+                  for file_info in fix.get('files', []):
+                      path = file_info.get('path', '')
+                      content = file_info.get('content', '')
+                      if path:
+                          os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+                          with open(path, 'w') as f:
+                              f.write(content)
+                          print(f'  Applied fix: {path}')
+                  
+                  # Commit and push
+                  subprocess.run(['git', 'add', '-A'], check=True)
+                  subprocess.run(['git', 'commit', '-m', f'fix: autonomous CI fix for PR #{pr_number}'], check=True)
+                  subprocess.run(['git', 'push', 'origin', head_branch], check=True)
+                  print(f'  ✅ Fix pushed to {head_branch} — CI will re-run automatically')
+                  
+              except Exception as exc:
+                  print(f'  ❌ Fix failed: {exc}')
+          
+          print('\n=== Fix cycle complete ===')
+          " 2>&1 || echo "Fix cycle error"

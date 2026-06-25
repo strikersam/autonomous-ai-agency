@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Autonomous Fix workflow: auto-fix failing CI tests on PRs** (2026-06-25). New `autonomous-fix.yml` workflow that runs every 30 min, finds PRs with failing CI tests, reads the error logs, calls NVIDIA NIM to generate a fix, and pushes it to the PR's branch. CI re-runs automatically. This closes the loop: agent creates PR → CI fails → agent fixes tests → CI passes → auto-merge.
+- **Fix: _FakeResponse missing status_code attribute** (2026-06-25). The rate-limit retry code added `resp.status_code` checks but the test's `_FakeResponse` mock didn't have that attribute. Added `self.status_code = 200` to the mock.
+
 - **Autonomous Agent workflow: execute tasks directly in GitHub Actions** (2026-06-25). Render free tier doesn't reliably rebuild Docker images or keep the instance warm. GitHub Actions cron is rate-limited to ~1 run/hour (not every 2 min). Fix: new `autonomous-agent.yml` workflow that runs every 30 min and processes ONE open issue directly in the GitHub Actions runner — bypasses Render entirely for task execution. Each run: (1) fetches the oldest open issue, (2) calls NVIDIA NIM directly, (3) generates code, (4) commits to a branch, (5) opens a PR. Render stays as the dashboard/backend but the actual agent work runs on GitHub's infrastructure.
 
 - **Autonomy tick: synchronous task execution endpoint + cron workflow** (2026-06-25). The background task approach failed because Render kills the event loop when the HTTP response is sent. Fix: new `/api/autonomy/tick` endpoint that executes ONE pending task SYNCHRONOUSLY with a 20s timeout. The cron workflow (`autonomous-cycle.yml`) hits this endpoint every 2 minutes. Each tick: (1) fires CEO cycle (15s timeout), (2) creates a task from the oldest open issue, (3) executes it via NVIDIA NIM (20s timeout), (4) returns the result. No background tasks — everything is synchronous within the request.
