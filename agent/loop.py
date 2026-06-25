@@ -1171,12 +1171,6 @@ class AgentRunner:
             except Exception:  # nosec B110 -- KPI tracking is best-effort
                 pass
 
-        # Reasoning token budget (★3): inject thinking_token_budget for supported models
-        _budget_key = os.environ.get("AGENT_REASONING_BUDGET", _REASONING_BUDGET_DEFAULT).strip().lower()
-        _budget_tokens = _REASONING_BUDGET_MAP.get(_budget_key)
-        if _budget_tokens is not None and _budget_tokens > 0:
-            payload["thinking_token_budget"] = _budget_tokens
-
         # SteerLM steering injection (B2): inject quality-biasing instruction
         # Only inject for execution-phase calls; planning/verification use
         # their own prompt structures that shouldn't be steered.
@@ -1196,14 +1190,24 @@ class AgentRunner:
 
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
-        if self.num_ctx:
-            payload["options"] = {"num_ctx": self.num_ctx}
-        if self.keep_alive:
-            payload["keep_alive"] = self.keep_alive
 
         normalized_base = self.ollama_base.rstrip("/")
         explicit_provider_configured = bool(self.provider_headers)
         provider_header_names = {key.lower() for key in self.provider_headers}
+
+        # Ollama-specific fields — ONLY add when targeting a local Ollama
+        # endpoint. NVIDIA NIM and other OpenAI-compatible endpoints reject
+        # unknown fields with HTTP 400 Bad Request.
+        _is_ollama_target = "localhost:11434" in normalized_base or "ollama" in normalized_base.lower()
+        if _is_ollama_target:
+            if self.num_ctx:
+                payload["options"] = {"num_ctx": self.num_ctx}
+            if self.keep_alive:
+                payload["keep_alive"] = self.keep_alive
+        else:
+            # NVIDIA NIM / OpenAI-compatible: add max_tokens (required by NIM)
+            if "max_tokens" not in payload:
+                payload["max_tokens"] = 4096
         provider_is_anthropic = (
             "x-api-key" in provider_header_names
             or (urlparse(normalized_base).hostname or "").lower().endswith("anthropic.com")
