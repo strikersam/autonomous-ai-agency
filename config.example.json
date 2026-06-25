@@ -1,0 +1,9 @@
+{
+  "claude_url": "https://example.claude.com",
+  "api_key": "YOUR_CLAUDE_API_KEY",
+  "agents": [
+    {
+      "name": "example_agent",
+      "type": "web_scraper"
+    }
+  ]}
