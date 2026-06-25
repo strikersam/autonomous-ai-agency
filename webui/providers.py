@@ -233,6 +233,7 @@ class ProviderManager:
                     "base_url": nvidia_base,
                     "api_key": nvidia_key,
                     "kind": "openai_compat",
+                    "priority": 10,
                     "default_model": (
                         os.environ.get("NVIDIA_DEFAULT_MODEL")
                         or "meta/llama-3.3-70b-instruct"
@@ -253,6 +254,7 @@ class ProviderManager:
                 "base_url": _normalize_base_url(local_base_url),
                 "api_key": None,
                 "kind": "openai_compat",
+                "priority": 0,
                 "default_model": os.environ.get("AGENT_EXECUTOR_MODEL") or None,
                 "default_temperature": float(os.environ.get("DEFAULT_TEMPERATURE") or 0.2),
                 "created_at": now,
