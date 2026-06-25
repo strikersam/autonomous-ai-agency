@@ -31,7 +31,7 @@ log = logging.getLogger("brain_policy")
 # 404, so the free-brain default is the empirically-live Nemotron Super 49B.
 # Without this, a deploy that leaves NVIDIA_DEFAULT_MODEL unset would resolve a
 # dead model and every dispatched task would fail at EXECUTE with a 400/404.
-DEFAULT_FREE_NVIDIA_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1"
+DEFAULT_FREE_NVIDIA_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -44,6 +44,23 @@ def allow_paid_brain() -> bool:
     permit paid Anthropic / Bedrock as a last resort.
     """
     return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in _TRUTHY
+
+
+def get_brain_preference() -> str:
+    """Return the operator's brain provider preference.
+
+    Values:
+      - ``"nvidia"``  — prefer NVIDIA NIM cloud (default)
+      - ``"ollama"``  — prefer local Ollama
+      - ``"auto"``    — let priority decide (same as "nvidia" in practice)
+
+    Set via ``BRAIN_PREFERENCE`` env var or the Admin SPA toggle
+    (``PATCH /admin/api/policy/brain``).
+    """
+    raw = os.environ.get("BRAIN_PREFERENCE", "nvidia").strip().lower()
+    if raw in ("nvidia", "ollama", "auto"):
+        return raw
+    return "nvidia"
 
 
 def is_anthropic_model(model: str | None) -> bool:
@@ -186,6 +203,7 @@ async def resolve_active_brain(
          - any base_url whose /v1-normalised form is in ``exclude_base_urls``
            is skipped (failover retry path).
       3. ``brain_policy.resolve_free_nvidia_brain()`` default (role: free_fallback)
+         - Skipped when ``BRAIN_PREFERENCE=ollama`` — operator wants local only.
       4. Local Ollama fallback (role: ollama_local)
     """
     global _cached_brain
@@ -215,25 +233,33 @@ async def resolve_active_brain(
         return resolution
 
     # 2. Configured provider records — read the same source the Providers UI uses.
-    records, fetch_failed = await _read_provider_records()
-    if records:
-        picked = _pick_from_records(records, exclude)
-        if picked is not None:
-            _cached_brain = picked
-            return picked
-        # Records exist but none are usable (all excluded / all missing key /
-        # only paid with ALLOW_PAID_BRAIN unset). Even when NVIDIA_API_KEY is
-        # set we refuse to silently call it here — the operator configured
-        # explicit records and they're all unavailable. Going to NVIDIA would
-        # be a fresh HTTP blast they didn't sanction. Fall through to local
-        # Ollama (mirrors services.workflow_orchestrator._resolve_brain_provider
-        # precedent and the binding contract in
-        # tests/test_brain_priority_scanner.py).
-        log.warning(
-            "brain_policy: provider records exist but no usable brain "
-            "(exclude_set=%d); falling back to local Ollama.",
-            len(exclude),
-        )
+    #
+    # When BRAIN_PREFERENCE=ollama, skip provider records entirely — the operator
+    # wants the local Ollama brain, not the cloud. This bypasses the priority-based
+    # record selection so the toggle works even when NVIDIA records exist in MongoDB.
+    if get_brain_preference() != "ollama":
+        records, fetch_failed = await _read_provider_records()
+        if records:
+            picked = _pick_from_records(records, exclude)
+            if picked is not None:
+                _cached_brain = picked
+                return picked
+            # Records exist but none are usable (all excluded / all missing key /
+            # only paid with ALLOW_PAID_BRAIN unset). Even when NVIDIA_API_KEY is
+            # set we refuse to silently call it here — the operator configured
+            # explicit records and they're all unavailable. Going to NVIDIA would
+            # be a fresh HTTP blast they didn't sanction. Fall through to local
+            # Ollama (mirrors services.workflow_orchestrator._resolve_brain_provider
+            # precedent and the binding contract in
+            # tests/test_brain_priority_scanner.py).
+            log.warning(
+                "brain_policy: provider records exist but no usable brain "
+                "(exclude_set=%d); falling back to local Ollama.",
+                len(exclude),
+            )
+    else:
+        records: list = []
+        fetch_failed = False
 
     # 3. Free NVIDIA NIM brain — default ONLY when the operator has no
     # configured provider records (not a DB outage). Skipping on fetch-failed
@@ -241,7 +267,9 @@ async def resolve_active_brain(
     # contract: when MongoDB is down, fall straight to local Ollama rather
     # than firing an environment-based NVIDIA request the operator didn't
     # sanction.
-    if not records and not fetch_failed:
+    #
+    # BRAIN_PREFERENCE=ollama skips this step — the operator wants local only.
+    if not records and not fetch_failed and get_brain_preference() != "ollama":
         nv = resolve_free_nvidia_brain()
         if nv is not None:
             nv_base, nv_headers, nv_model = nv
@@ -430,5 +458,3 @@ def _pick_from_records(
             built = _build(rec, role="brain", source="records")
             if built is not None:
                 return built
-
-    return None
