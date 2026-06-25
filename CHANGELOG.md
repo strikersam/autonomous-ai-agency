@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **NVIDIA NIM: switch from dead model (410 Gone) to live Nemotron Super 49B** (2026-06-25). The default model `nvidia/nemotron-3-super-120b-a12b` returns HTTP 410 Gone (retired by NVIDIA). Every agent task failed at the NVIDIA NIM call with 400/410/429. Fix: switched all 15+ references to `nvidia/llama-3.3-nemotron-super-49b-v1` (the live, endpoint-tested model already used by the issue-context-generator workflow). Files: `brain_policy.py`, `runtimes/adapters/internal_agent.py`, `agent/loop.py`, `render.yaml`, `.env.example`, `README.md`, test files.
+
 - **Dispatch: bypass coordinator _claim_task, execute via InternalAgentAdapter directly** (2026-06-24). The coordinator's `_claim_task` uses an in-memory lock that gets stuck on Render free tier when the instance spins down mid-execution. The lock is never released, so subsequent tasks can't be claimed. Fix: `/api/autonomy/status` now executes the task directly via `InternalAgentAdapter.execute()`, bypassing the coordinator's claim/brain-check/approval-gate chain entirely. The task is marked `in_progress` → `done/failed` directly.
 
 - **Dispatch diagnostic: show pending_agent_run + brain_configured** (2026-06-24). The task was created but not executed (result_status: todo). Added `pending_agent_run` and `brain_configured` to the dispatch status to diagnose whether the coordinator is gating on brain availability.

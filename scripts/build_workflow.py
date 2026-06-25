@@ -14,7 +14,7 @@ Usage
 
   # With explicit model overrides
   CRISPY_CODER_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1 \\
-  CRISPY_REVIEWER_MODEL=nvidia/nemotron-3-super-120b-a12b \\
+  CRISPY_REVIEWER_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1 \\
   build-workflow "Refactor the auth module"
 
   # Target a specific project directory
@@ -38,10 +38,10 @@ Configuration (via environment variables)
 Agent Team (default)
 --------------------
   Scout     [meta/llama-3.3-70b-instruct]     — research, read-only
-  Architect [nvidia/nemotron-3-super-120b-a12b]     — planning, structure, report
+  Architect [nvidia/llama-3.3-nemotron-super-49b-v1]     — planning, structure, report
   Coder     [nvidia/llama-3.3-nemotron-super-49b-v1]     — implementation (write-permitted)
-  Reviewer  [nvidia/nemotron-3-super-120b-a12b]     — adversarial review, DIFFERENT model
-  Verifier  [nvidia/nemotron-3-super-120b-a12b]      — generates test commands, execution only
+  Reviewer  [nvidia/llama-3.3-nemotron-super-49b-v1]     — adversarial review, DIFFERENT model
+  Verifier  [nvidia/llama-3.3-nemotron-super-49b-v1]      — generates test commands, execution only
 
 Workflow Lifecycle
 ------------------
