@@ -45,7 +45,25 @@ client-configs/       Example configs for Cursor, Aider, Continue, Zed, VSCode
 docs/                 All documentation (architecture, runbooks, ADRs)
 .claude/              AI engineering system (skills, hooks, agents, state)
 scripts/              Automation scripts including ai_runner.py watchdog
+loops/                Loop Engineering governance — registry.yaml + LOOP.md (autonomous loop fleet)
 ```
+
+---
+
+## The Autonomous Loop Fleet
+
+This repo keeps *itself* up to date, learns, and self-heals through ~30 autonomous
+**loops** (cron workflows + in-process daemons). They are catalogued, scored, and
+kept honest by the Loop Engineering governance layer:
+
+- **`loops/registry.yaml`** — the single machine-readable catalogue of every loop
+  (pattern, maturity level L1/L2/L3, cadence, cost tier, source, self-heal, gate).
+- **`loops/LOOP.md`** — the governance narrative, maturity ladder, and how to add a loop.
+- **`agent/loop_registry.py`** — typed loop-audit / loop-cost / drift-detection code.
+  Run `python -m agent.loop_registry audit` for a readiness report. Every
+  cron-scheduled workflow **must** have a registry entry — the `loop-audit`
+  workflow fails the PR otherwise. Readiness is also live at
+  `GET /api/autonomy/status` → `loop_readiness`.
 
 ---
 

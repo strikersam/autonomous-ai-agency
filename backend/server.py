@@ -297,10 +297,10 @@ def _default_agent_role_models() -> dict[str, str]:
     )
     if nim_enabled:
         return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
             "planner": os.environ.get("AGENT_PLANNER_MODEL") or "qwen/qwen3-coder-480b-a35b-instruct",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
             "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
         }
     return {
@@ -2391,7 +2391,7 @@ async def seed_default_providers():
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
     _nvidia_model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1"
     )
     defaults = [
         {
@@ -2413,7 +2413,8 @@ async def seed_default_providers():
             "api_key": _nvidia_key,
             "default_model": _nvidia_model,
             "is_default": LLM_PROVIDER == "nvidia-nim",
-            "priority": 10,            "status": "configured" if _nvidia_key else "unconfigured",
+            "priority": -10,
+            "status": "configured" if _nvidia_key else "unconfigured",
         },
         {
             "provider_id": "ollama-local",
@@ -3415,7 +3416,8 @@ def _fallback_local_provider_record() -> Dict[str, Union[str, int]]:
         "base_url": _resolve_ollama_url(OLLAMA_BASE),
         "api_key": "",
         "default_model": OLLAMA_MODEL,
-        "priority": -10,    }
+        "priority": 0,
+    }
 
 
 def _nvidia_nim_provider_record() -> Optional[Dict]:
@@ -3429,7 +3431,7 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
     model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1"
     )
     return {
         "provider_id": "nvidia-nim",
@@ -3439,7 +3441,8 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
         "api_key": key,
         "default_model": model,
         "status": "configured",
-        "priority": 10,    }
+        "priority": -10,
+    }
 
 
 async def _list_configured_provider_records() -> list[dict]:
@@ -6010,17 +6013,18 @@ async def autonomy_status() -> dict[str, object]:
             "base_url": nv_base,
         }
     else:
-        # Check if a local Ollama brain is available instead
+        # No NVIDIA brain — check whether a local Ollama brain is configured
+        # instead (laptop/desktop usage via BRAIN_PREFERENCE=ollama or a plain
+        # OLLAMA_BASE). Only fall through to "no_brain" when neither is set.
         ollama_base = (
             os.environ.get("OLLAMA_BASE", "").strip()
             or os.environ.get("OLLAMA_BASE_URL", "").strip()
         )
         if ollama_base:
-            ollama_model = OLLAMA_MODEL
             brain = {
                 "configured": True,
                 "provider": "ollama",
-                "model": ollama_model,
+                "model": OLLAMA_MODEL,
                 "base_url": ollama_base,
             }
         else:
@@ -6144,11 +6148,35 @@ async def autonomy_status() -> dict[str, object]:
     except Exception:  # pragma: no cover - defensive
         pass
 
+    # ── Loop fleet readiness: a legible, scored view of the whole autonomous
+    #    loop fleet (Loop Engineering's loop-audit). Defensive — a missing or
+    #    malformed registry must never break this contract, so failures degrade
+    #    to None rather than raising. ──
+    loop_readiness_summary: dict[str, object] | None = None
+    try:
+        from agent.loop_registry import load_registry_sync, loop_readiness, audit_drift
+        _registry = load_registry_sync()
+        _report = loop_readiness(_registry)
+        _drift = audit_drift(_registry)
+        loop_readiness_summary = {
+            "score": _report.score,
+            "grade": _report.grade,
+            "total_loops": _report.total_loops,
+            "by_level": _report.by_level,
+            "self_heal_coverage": _report.self_heal_coverage,
+            "dimensions": _report.dimensions,
+            "drift_ok": _drift.ok,
+            "est_monthly_tokens": _registry.estimate_monthly_tokens(),
+        }
+    except Exception:  # pragma: no cover - defensive
+        log.exception("autonomy_status: loop readiness computation failed")
+
     return {
         "status": status,
         "brain": brain,
         "loops": loops,
         "loops_running": running_count > 0,
+        "loop_readiness": loop_readiness_summary,
         "missing_secrets": missing_secrets,
         "self_bootstrap": self_bootstrap_status,
         "ceo": ceo_status,
@@ -7165,6 +7193,7 @@ async def create_github_pr(
     token = await _get_github_token(user["_id"])
     if not token:
         raise HTTPException(status_code=400, detail="GitHub not connected")
+    try:
         async with httpx.AsyncClient(timeout=20) as c:
             r = await c.post(
                 f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
@@ -7177,9 +7206,818 @@ async def create_github_pr(
                 },
             )
         r.raise_for_status()
+        pr = r.json()
         await log_activity(
             "github",
-            f"Created PR #{pr["number"]} in {owner}/{repo}",
-            meta={"pr_url": pr.get("html_url", "")},
+            f"Created PR #{pr['number']} in {owner}/{repo}",
+            user_id=user["_id"],
         )
-        return JSONResponse(content=pr, status_code=201)
+        return {
+            "ok": True,
+            "number": pr["number"],
+            "html_url": pr["html_url"],
+            "title": pr["title"],
+        }
+    except httpx.HTTPStatusError as exc:
+        log.error(
+            "GitHub API %s error: %s", exc.response.status_code, exc.response.text
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="GitHub API error"
+        ) from exc
+
+
+# ─── Legacy scheduler compatibility (pre-Control Plane frontend builds) ─────
+
+
+class LegacyScheduleJobRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    cron: str = Field(..., min_length=9, max_length=100)
+    instruction: str = Field(..., min_length=1, max_length=4000)
+    agent_id: Optional[str] = Field(default=None, max_length=64)
+    runtime_id: Optional[str] = Field(default=None, max_length=64)
+    model: Optional[str] = Field(default=None, max_length=200)
+    task_type: str = Field(default="scheduled", max_length=64)
+    requires_approval: bool = False
+    tags: list[str] = Field(default_factory=list)
+
+
+class LegacyScheduleToggleRequest(BaseModel):
+    status: str = Field(..., pattern="^(active|paused)$")
+
+
+@app.post("/agent/scheduler/jobs")
+async def legacy_scheduler_create(
+    body: LegacyScheduleJobRequest, user: dict = Depends(get_current_user)
+):
+    job = get_scheduler().create(
+        name=body.name,
+        cron=body.cron,
+        instruction=body.instruction,
+        agent_id=body.agent_id,
+        runtime_id=body.runtime_id,
+        model=body.model,
+        task_type=body.task_type,
+        requires_approval=body.requires_approval,
+        tags=body.tags,
+    )
+    return job.as_dict()
+
+
+@app.get("/agent/scheduler/jobs")
+async def legacy_scheduler_list(user: dict = Depends(get_current_user)):
+    return {"jobs": [job.as_dict() for job in get_scheduler().list()]}
+
+
+@app.get("/agent/scheduler/jobs/{job_id}")
+async def legacy_scheduler_get(job_id: str, user: dict = Depends(get_current_user)):
+    job = get_scheduler().get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.as_dict()
+
+
+@app.post("/agent/scheduler/jobs/{job_id}/trigger")
+async def legacy_scheduler_trigger(job_id: str, user: dict = Depends(get_current_user)):
+    try:
+        return get_scheduler().trigger(job_id).as_dict()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+
+
+@app.delete("/agent/scheduler/jobs/{job_id}")
+async def legacy_scheduler_delete(job_id: str, user: dict = Depends(get_current_user)):
+    return {"deleted": get_scheduler().delete(job_id)}
+
+
+@app.patch("/agent/scheduler/jobs/{job_id}")
+async def legacy_scheduler_toggle(
+    job_id: str, body: LegacyScheduleToggleRequest, user: dict = Depends(get_current_user)
+):
+    try:
+        return get_scheduler().toggle(job_id, enabled=(body.status == "active")).as_dict()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+
+
+
+
+# ─── Doctor / System Health endpoint ────────────────────────────────────────────
+
+class _DoctorCheck(BaseModel):
+    id: str
+    category: str
+    label: str
+    status: Literal["pass", "warn", "fail"]
+    detail: str
+    action: Optional[dict] = None
+    explanation: Optional[str] = None
+
+
+class _DoctorReport(BaseModel):
+    ready: bool
+    summary: str
+    checks: list[_DoctorCheck] = []
+    run_at: str
+
+
+@app.get("/api/doctor", response_model=_DoctorReport)
+async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -> _DoctorReport:
+    """Consolidated system health report: preflight checks + runtime health.
+
+    Returns a structured list of named checks (pass / warn / fail) sourced from:
+    - DirectChatDoctor: git binary, GitHub token, GitHub API access
+    - RuntimeManager: each registered runtime's circuit-breaker state
+    - Internal probes: Ollama reachability, Langfuse configuration
+    """
+    from agent.doctor import DirectChatDoctor
+    import datetime
+
+    github_token = (
+        (user or {}).get("github_repo_token")
+        or os.environ.get("GH_PAT") 
+        or os.environ.get("GH_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+    )
+    doctor = DirectChatDoctor(github_token=github_token)
+
+    checks: list[_DoctorCheck] = []
+
+    # ── 1. Preflight report from agent.doctor ────────────────────────────────
+    try:
+        preflight = await doctor.check_all()
+        if not preflight.issues:
+            checks.append(_DoctorCheck(
+                id="preflight",
+                category="Setup",
+                label="Preflight checks",
+                status="pass",
+                detail="git binary found, GitHub token valid and repo accessible.",
+            ))
+        else:
+            for issue in preflight.issues:
+                checks.append(_DoctorCheck(
+                    id=issue.code,
+                    category="Setup",
+                    label=issue.message[:80],
+                    status="fail",
+                    detail=issue.message,
+                    action={"label": "Fix", "hint": issue.fix_hint},
+                    explanation=issue.fix_hint,
+                ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="preflight_error",
+            category="Setup",
+            label="Preflight check failed",
+            status="warn",
+            detail=f"Could not run preflight checks: {exc}",
+        ))
+
+    # ── 2. Runtime health (from RuntimeManager cache — non-blocking) ─────────
+    try:
+        mgr = get_runtime_manager()
+        for rt in mgr.list_runtimes():
+            rid = rt["runtime_id"]
+            available = rt.get("available", False)
+            health = rt.get("health") or {}
+            circuit_open = (health.get("circuit_open") is True)
+            detail_parts = []
+            if health.get("details"):
+                for k, v in health["details"].items():
+                    detail_parts.append(f"{k}: {v}")
+            detail = health.get("error") or (", ".join(detail_parts) if detail_parts else ("Healthy" if available else "Unavailable"))
+            checks.append(_DoctorCheck(
+                id=f"runtime_{rid}",
+                category="Runtime",
+                label=f"Runtime: {rid}",
+                # Sidecar runtimes (hermes/goose/aider/...) are optional beta
+                # features — their absence must not flip Doctor to not-ready.
+                # Only the internal agent runtime is required in the default path.
+                status="pass" if available else (
+                    "fail" if rid == "internal_agent" else "warn"
+                ),
+                detail=str(detail)[:200],
+                action={"label": "Check health", "href": f"/runtimes/{rid}/health"} if not available else None,
+                explanation="Circuit breaker is OPEN — runtime failed 3+ consecutive health checks." if circuit_open else None,
+            ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="runtime_error",
+            category="Runtime",
+            label="Runtime health unavailable",
+            status="warn",
+            detail=f"Could not query RuntimeManager: {exc}",
+        ))
+
+    # ── 3. Langfuse configuration ─────────────────────────────────────────────
+    langfuse_pk = os.environ.get("LANGFUSE_PUBLIC_KEY") or os.environ.get("LANGFUSE_PK")
+    langfuse_sk = os.environ.get("LANGFUSE_SECRET_KEY") or os.environ.get("LANGFUSE_SK")
+    checks.append(_DoctorCheck(
+        id="langfuse",
+        category="Observability",
+        label="Langfuse tracing",
+        status="pass" if (langfuse_pk and langfuse_sk) else "warn",
+        detail="Langfuse keys configured — traces will be emitted." if (langfuse_pk and langfuse_sk)
+               else "LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set — tracing disabled.",
+        action=None if (langfuse_pk and langfuse_sk) else {"label": "Configure", "hint": "Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in environment."},
+        explanation=None if (langfuse_pk and langfuse_sk) else "Without Langfuse, LLM call traces are not stored. Set the keys and restart to enable observability.",
+    ))
+
+    # ── 4. Ollama reachability (quick probe via RuntimeManager health cache) ──
+    try:
+        mgr = get_runtime_manager()
+        internal_health = mgr.get_runtime("internal_agent")
+        if internal_health:
+            available = internal_health.get("health", {}).get("available", False)
+            provider = (internal_health.get("health", {}).get("details") or {}).get("provider", "unknown")
+            checks.append(_DoctorCheck(
+                id="llm_provider",
+                category="Models",
+                label=f"LLM provider ({provider})",
+                status="pass" if available else "fail",
+                detail=f"Provider '{provider}' is {'reachable' if available else 'unreachable'}.",
+                action=None if available else {"label": "Check config", "hint": "Set NVIDIA_API_KEY or ensure Ollama is running on OLLAMA_BASE."},
+            ))
+    except Exception:
+        pass
+
+    ready = all(c.status != "fail" for c in checks)
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    warn_count = sum(1 for c in checks if c.status == "warn")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+
+    if ready and warn_count == 0:
+        summary = f"All {pass_count} checks passing — system healthy."
+    elif ready:
+        summary = f"{pass_count} passing, {warn_count} warning(s) — review recommended."
+    else:
+        summary = f"{fail_count} check(s) failing — action required."
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
+@app.get("/api/doctor/public", response_model=_DoctorReport)
+async def get_public_doctor() -> _DoctorReport:
+    """Public Doctor endpoint — no authentication required.
+
+    Returns system-level diagnostics only (git, storage, provider health).
+    No user-specific checks (GitHub token, workspace, repo access).
+    """
+    import datetime
+    import shutil
+
+    checks: list[_DoctorCheck] = []
+
+    # 1. Git binary
+    git_ok = bool(shutil.which("git"))
+    checks.append(_DoctorCheck(
+        id="git_binary",
+        category="Setup",
+        label="Git binary",
+        status="pass" if git_ok else "fail",
+        detail="git found on PATH" if git_ok else "git not found on PATH",
+        explanation="Install git for repository operations" if not git_ok else None,
+    ))
+
+    # 2. Storage backend
+    try:
+        from db import get_store
+        store = get_store()
+        # NOTE: don't duck-type with hasattr() — MongoStore.__getattr__ proxies
+        # any attribute to a Motor *collection*, so store.count_companies is a
+        # collection named "count_companies", not a method (TypeError at call).
+        count = await store.companies.count_documents({})
+        checks.append(_DoctorCheck(
+            id="storage",
+            category="Storage",
+            label="Storage backend",
+            status="pass",
+            detail=f"Connected ({count} companies)",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="storage",
+            category="Storage",
+            label="Storage backend",
+            status="fail",
+            detail=f"Unavailable: {exc}",
+        ))
+
+    # 3. Provider health (Ollama reachability)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+            r = await client.get(f"{OLLAMA_BASE}/api/tags")
+            ollama_ok = r.status_code == 200
+    except Exception:
+        ollama_ok = False
+    checks.append(_DoctorCheck(
+        id="ollama",
+        category="Provider",
+        label="Ollama provider",
+        status="pass" if ollama_ok else "warn",
+        detail="Ollama reachable" if ollama_ok else "Ollama unreachable — start with ollama serve",
+        explanation="Ollama is the local LLM engine. Ensure it is running." if not ollama_ok else None,
+    ))
+
+    # 4. Runtime health
+    try:
+        mgr = get_runtime_manager()
+        runtimes = mgr.list_runtimes()
+        running = sum(1 for rt in runtimes if rt.get("available", False))
+        checks.append(_DoctorCheck(
+            id="runtimes",
+            category="Runtime",
+            label="Agent runtimes",
+            status="pass" if running > 0 else "warn",
+            detail=f"{running}/{len(runtimes)} runtimes available" if runtimes else "No runtimes registered",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="runtimes",
+            category="Runtime",
+            label="Agent runtimes",
+            status="warn",
+            detail=f"Could not query: {exc}",
+        ))
+
+    # 5. Feature gate status
+    workflow_mode = os.environ.get("AGENCY_WORKFLOW_MODE", "orchestrator")
+    checks.append(_DoctorCheck(
+        id="workflow_mode",
+        category="Feature",
+        label="Workflow mode",
+        status="pass" if workflow_mode == "orchestrator" else "warn",
+        detail=f"Golden path enforced ({workflow_mode})" if workflow_mode == "orchestrator" else f"Legacy mode ({workflow_mode})",
+        explanation="Set AGENCY_WORKFLOW_MODE=orchestrator for the production-grade golden path." if workflow_mode != "orchestrator" else None,
+    ))
+
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+    ready = fail_count == 0
+    summary = f"{pass_count}/{len(checks)} checks passing — {'healthy' if ready else 'action required'}"
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
+@app.get("/api/doctor/diagnostics", response_model=_DoctorReport)
+async def get_doctor_diagnostics(
+    user: dict = Depends(get_current_user),
+) -> _DoctorReport:
+    """Authenticated Doctor endpoint — full diagnostics.
+
+    Returns all system-level checks plus user-specific diagnostics:
+    GitHub token, workspace integrity, company graph health.
+    Requires authentication.
+    """
+    from agent.doctor import DirectChatDoctor
+    import datetime
+
+    # User-specific diagnostics: use ONLY the caller's own GitHub token, never
+    # the server-wide env fallback — otherwise a user with no GitHub connection
+    # would falsely report healthy against the host's token.
+    github_token = user.get("github_repo_token")
+    doctor = DirectChatDoctor(github_token=github_token)
+
+    checks: list[_DoctorCheck] = []
+
+    # 1. Preflight (GitHub token, git binary, repo access)
+    try:
+        preflight = await doctor.check_all()
+        if not preflight.issues:
+            checks.append(_DoctorCheck(
+                id="preflight",
+                category="Setup",
+                label="Git & GitHub setup",
+                status="pass",
+                detail="git found, GitHub token valid, repo accessible",
+            ))
+        else:
+            for issue in preflight.issues:
+                checks.append(_DoctorCheck(
+                    id=issue.code,
+                    category="Setup",
+                    label=issue.message[:80],
+                    status="fail",
+                    detail=issue.message,
+                    explanation=issue.fix_hint,
+                ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="preflight_error",
+            category="Setup",
+            label="Preflight checks",
+            status="warn",
+            detail=f"Could not run: {exc}",
+        ))
+
+    # 2. Company graph integrity
+    try:
+        # Use the same resolver as company creation so a user whose companies
+        # are owned by `_id` (not email) is matched correctly.
+        user_id = _wfo_resolve_user_id(user)
+        store = get_company_graph_store()
+        # list_companies returns a plain List[Company] (not a (list, total) tuple).
+        companies = await store.list_companies(owner_id=user_id, limit=10)
+        checks.append(_DoctorCheck(
+            id="company_graph",
+            category="Company",
+            label="Company Graph",
+            status="pass" if companies else "warn",
+            detail=f"{len(companies)} company(s) onboarded" if companies else "No companies onboarded yet",
+            explanation="Create a company via the Onboarding flow to start using the platform." if not companies else None,
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="company_graph",
+            category="Company",
+            label="Company Graph",
+            status="warn",
+            detail=f"Could not query: {exc}",
+        ))
+
+    # 3. Workspace integrity
+    workspace_root = os.environ.get("WORKSPACE_ROOT", str(ROOT_DIR))
+    workspace_exists = Path(workspace_root).exists()
+    checks.append(_DoctorCheck(
+        id="workspace",
+        category="Workspace",
+        label="Workspace",
+        status="pass" if workspace_exists else "fail",
+        detail=f"Workspace at {workspace_root}" if workspace_exists else f"Workspace not found: {workspace_root}",
+    ))
+
+    # 4. Skill library health
+    try:
+        from agent.skills import SkillLibrary
+        lib = SkillLibrary()
+        skill_count = len(lib.list())
+        checks.append(_DoctorCheck(
+            id="skills",
+            category="Skills",
+            label="Skill Library",
+            status="pass" if skill_count > 0 else "warn",
+            detail=f"{skill_count} skills loaded",
+        ))
+    except Exception:
+        checks.append(_DoctorCheck(
+            id="skills",
+            category="Skills",
+            label="Skill Library",
+            status="warn",
+            detail="Skill library unavailable",
+        ))
+
+    # 4b. Skill registry ("skills repos") connectivity — this is what the operator
+    # means by "skills repo connected": the GitHub-backed SkillRegistry that pulls
+    # skills from the configured registries (anthropics/skills, this repo, etc.).
+    try:
+        from agent.skill_registry import (
+            GITHUB_REGISTRIES,
+            get_skill_registry_safe,
+        )
+
+        registry = get_skill_registry_safe()
+        if registry is None:
+            checks.append(_DoctorCheck(
+                id="skill_registry",
+                category="Skills",
+                label="Skills Repos",
+                status="fail",
+                detail="Skill registry not initialised — skills repos are not connected.",
+                explanation="Set GITHUB_TOKEN so the server can fetch the configured "
+                "skill registries, then restart. Local .claude/skills still load without it.",
+            ))
+        else:
+            all_skills = registry.list()
+            local_n = sum(1 for s in all_skills if s.source == "local")
+            remote_sources = {
+                s.source for s in all_skills if s.source.startswith("github:")
+            }
+            n_registries = len(GITHUB_REGISTRIES)
+            if remote_sources:
+                checks.append(_DoctorCheck(
+                    id="skill_registry",
+                    category="Skills",
+                    label="Skills Repos",
+                    status="pass",
+                    detail=f"Connected: {len(remote_sources)}/{n_registries} skill "
+                    f"repos, {len(all_skills)} skills ({local_n} local).",
+                ))
+            else:
+                checks.append(_DoctorCheck(
+                    id="skill_registry",
+                    category="Skills",
+                    label="Skills Repos",
+                    status="warn",
+                    detail=f"{local_n} local skills loaded; {n_registries} remote skill "
+                    "repos configured but none fetched yet.",
+                    explanation="Remote skill repos load asynchronously and need network "
+                    "(and GITHUB_TOKEN to avoid rate limits). They will appear after the "
+                    "first refresh.",
+                ))
+    except Exception as exc:
+        log.exception("Skill registry check failed")
+        checks.append(_DoctorCheck(
+            id="skill_registry",
+            category="Skills",
+            label="Skills Repos",
+            status="warn",
+            detail="Skill registry check failed",
+        ))
+
+    # 5. Workflow orchestrator status
+    try:
+        from services.workflow_orchestrator import get_workflow_orchestrator
+        orchestrator = get_workflow_orchestrator()
+        # Scope run visibility to the caller (admins see all) so diagnostics
+        # never leak other tenants' recent activity.
+        owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+        runs = orchestrator.list_runs(limit=5, owner_id=owner_id)
+        checks.append(_DoctorCheck(
+            id="orchestrator",
+            category="Workflow",
+            label="Workflow Orchestrator",
+            status="pass",
+            detail=f"Active ({len(runs)} recent runs)",
+        ))
+    except Exception as exc:
+        checks.append(_DoctorCheck(
+            id="orchestrator",
+            category="Workflow",
+            label="Workflow Orchestrator",
+            status="warn",
+            detail=f"Not available: {exc}",
+        ))
+
+    fail_count = sum(1 for c in checks if c.status == "fail")
+    pass_count = sum(1 for c in checks if c.status == "pass")
+    ready = fail_count == 0
+    summary = f"{pass_count}/{len(checks)} checks passing — {'healthy' if ready else 'action required'}"
+
+    return _DoctorReport(
+        ready=ready,
+        summary=summary,
+        checks=checks,
+        run_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+
+
+
+# ─── Feature Routers ────────────────────────────────────────────────────────────
+app.include_router(agent_router)
+app.include_router(runtime_router)
+app.include_router(task_router)
+app.include_router(schedules_router, dependencies=[Depends(get_current_user)])
+app.include_router(setup_router)
+app.include_router(activation_router)
+app.include_router(secrets_router)
+
+# Portfolio + Agile board API (powers the v5 PortfolioScreen)
+from agents.portfolio_api import portfolio_router
+app.include_router(portfolio_router)
+
+try:
+    from agents.agile_api import agile_router
+    app.include_router(agile_router)
+except Exception as _agile_err:
+    log.warning("Agile API not mounted: %s", _agile_err)
+
+# Company Graph API
+from services.company_graph_store import get_company_graph_store
+import backend.company_api as company_api_module
+app.include_router(company_api_module.router)
+
+# SEO / GEO / AIO Audit API (issue #533)
+try:
+    import backend.seo_api as seo_api_module
+    app.include_router(seo_api_module.router)
+except Exception as _seo_err:  # noqa: BLE001 - SEO API must not block startup
+    log.warning("SEO audit API not mounted: %s", _seo_err, exc_info=True)
+
+# Workflow Orchestrator API --- canonical execution backbone
+from services.workflow_orchestrator import (
+    ExecutionRequest,
+    get_workflow_orchestrator,
+)
+
+
+from backend.company_api import _resolve_user_id as _wfo_resolve_user_id
+from backend.company_api import _is_admin as _wfo_is_admin
+from backend.company_api import get_company_access as _wfo_company_access
+
+
+def _wfo_owned_run_or_404(orchestrator, run_id: str, user: dict):
+    """Fetch a run, enforcing per-user ownership (admins bypass).
+
+    Returns 404 — not 403 — when a non-admin requests a run they don't own,
+    so run IDs can't be enumerated across tenants (IDOR-safe).
+    """
+    run = orchestrator.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    if not _wfo_is_admin(user):
+        if run.user_id != _wfo_resolve_user_id(user):
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return run
+
+
+@app.post("/api/workflow/orchestrator/execute")
+async def workflow_orchestrator_execute(
+    body: ExecutionRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Execute work through the 11-phase golden path."""
+    orchestrator = get_workflow_orchestrator()
+    is_admin = _wfo_is_admin(user)
+
+    # If a company is targeted, the caller must have access to it — otherwise a
+    # user could run/approve a workflow against another tenant's company and read
+    # its graph snapshot back via bound_context (cross-tenant leak).
+    if body.company_id:
+        await _wfo_company_access(body.company_id, user)
+
+    # auto_approve bypasses the HITL ApprovalGate and is for trusted/internal
+    # callers only.  Never honor it from a non-admin, user-facing request.
+    if not is_admin:
+        body.auto_approve = False
+
+    # Stamp the run with a stable, auth-method-agnostic owner id so it can be
+    # scoped on list/get/approve.  Same resolver as the company endpoints.
+    body.user_id = _wfo_resolve_user_id(user)
+    # Execution must act with the CALLER's GitHub permissions, never the
+    # server-wide service-account token.
+    body.github_token = user.get("github_repo_token")
+    run = await orchestrator.execute(body)
+    return {"status": run.status, "run": run.as_dict()}
+
+
+@app.post("/api/workflow/orchestrator/approve/{run_id}")
+async def workflow_orchestrator_approve(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Approve a run paused at the ApprovalGate and resume execution."""
+    orchestrator = get_workflow_orchestrator()
+    # Ownership check first — a user may only approve their own runs (admin: any).
+    _wfo_owned_run_or_404(orchestrator, run_id, user)
+    # Attribute the approval to the authenticated user — never an arbitrary
+    # client-supplied string (audit-log integrity).
+    approved_by = _wfo_resolve_user_id(user)
+    try:
+        # #522: approve_async enqueues the run via the FIFO queue instead of
+        # blocking inline. Returns 202 immediately; the run executes
+        # asynchronously when a concurrency slot opens.
+        run = await orchestrator.approve_async(run_id, approved_by=approved_by)
+        status_code = 202 if run.status == "queued" else 200
+        return JSONResponse(
+            {"status": run.status, "run": run.as_dict()},
+            status_code=status_code,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+
+
+@app.get("/api/workflow/orchestrator/status")
+async def workflow_orchestrator_status(
+    user: dict = Depends(get_current_user),
+):
+    """Return orchestrator queue depth, active runs, and supervisor state (#522)."""
+    orchestrator = get_workflow_orchestrator()
+    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+    runs = orchestrator.list_runs(limit=200, owner_id=owner_id)
+
+    queue_status = {"max_concurrent": 2, "active": 0, "queued": 0}
+    try:
+        from services.orchestrator_queue import get_orchestrator_queue
+        q = get_orchestrator_queue()
+        queue_status = q.status()
+    except Exception:
+        pass
+
+    supervisor_state = {}
+    try:
+        from services.orchestrator_supervisor import get_orchestrator_supervisor
+        sv = get_orchestrator_supervisor()
+        st = sv.state
+        supervisor_state = {
+            "running": st.running,
+            "ticks": st.ticks,
+            "stalled_recovered": st.stalled_recovered,
+            "failed_retried": st.failed_retried,
+            "alerts_emitted": st.alerts_emitted,
+        }
+    except Exception:
+        pass
+
+    return {
+        "runs": len(runs),
+        "by_status": {
+            "pending": sum(1 for r in runs if r.get("status") == "pending"),
+            "running": sum(1 for r in runs if r.get("status") == "running"),
+            "awaiting_approval": sum(1 for r in runs if r.get("status") == "awaiting_approval"),
+            "queued": sum(1 for r in runs if r.get("status") == "queued"),
+            "done": sum(1 for r in runs if r.get("status") == "done"),
+            "failed": sum(1 for r in runs if r.get("status") == "failed"),
+        },
+        "queue": queue_status,
+        "supervisor": supervisor_state,
+    }
+
+@app.get("/api/workflow/orchestrator/runs")
+async def workflow_orchestrator_list_runs(
+    limit: int = 50,
+    user: dict = Depends(get_current_user),
+):
+    """List recent workflow orchestrator runs.
+
+    Non-admin users see only their own runs; admins see every run.
+    """
+    orchestrator = get_workflow_orchestrator()
+    owner_id = None if _wfo_is_admin(user) else _wfo_resolve_user_id(user)
+    return {
+        "runs": orchestrator.list_runs(limit=limit, owner_id=owner_id),
+        "scoped_to_user": owner_id is not None,
+    }
+
+
+@app.get("/api/workflow/orchestrator/runs/{run_id}")
+async def workflow_orchestrator_get_run(
+    run_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Get a single workflow orchestrator run by ID (owner or admin only)."""
+    orchestrator = get_workflow_orchestrator()
+    run = _wfo_owned_run_or_404(orchestrator, run_id, user)
+    return {"run": run.as_dict()}
+
+# Initialise the secrets store with our MongoDB handle so it persists to the
+# same database as the rest of the app.
+get_secrets_store(db=get_db())
+
+# ─── Mount MCP server in-process ────────────────────────────────────────────
+# Serves at /mcp-internal so MCP_SERVER_BASE_URL can point at this service's
+# own external URL without needing a separate container or paid disk.
+try:
+    from mcp_server.server import app as _mcp_app
+    app.mount("/mcp-internal", _mcp_app)
+    log.info("MCP server mounted at /mcp-internal")
+except Exception as _mcp_err:
+    log.warning("MCP server not mounted: %s", _mcp_err)
+
+# ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
+# Mount the built React app and serve index.html for unknown routes (SPA routing)
+
+# Path prefixes (NO leading slash — FastAPI's {full_path:path} converter strips
+# it) that belong to the API/auth surface and must NEVER fall through to the SPA
+# catch-all. Without this guard, an anonymous GET to an orphan route under any of
+# these (e.g. /v1/models, /admin/keys, /telegram/webhook) returned 200 with the
+# React index.html instead of 401/404 JSON. Kept at module scope so tests and
+# downstream code can reference it regardless of whether the build dir exists.
+SPA_PROTECTED_PREFIXES: tuple[str, ...] = (
+    "api/",
+    "v1/",
+    "v2/",
+    "agent/",
+    "admin/",
+    "workflow/",
+    "runtimes/",
+    "ui/",
+    "telegram/",
+    "mcp-internal/",
+)
+
+_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
+
+if _FRONTEND_BUILD.exists():
+    app.mount(
+        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
+    )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        # API/auth paths that reached the catch-all have no upstream handler —
+        # return 404 JSON rather than leaking the SPA shell to a protected route.
+        if any(full_path.startswith(p) for p in SPA_PROTECTED_PREFIXES):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        index = _FRONTEND_BUILD / "index.html"
+        if index.exists():
+            return HTMLResponse(index.read_text())
+        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
+
+# Force rebuild Thu Jun 25 14:08:14 UTC 2026
+# Force rebuild Thu Jun 25 14:22:25 UTC 2026
