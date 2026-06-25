@@ -6133,11 +6133,35 @@ async def autonomy_status() -> dict[str, object]:
     except Exception:  # pragma: no cover - defensive
         pass
 
+    # ── Loop fleet readiness: a legible, scored view of the whole autonomous
+    #    loop fleet (Loop Engineering's loop-audit). Defensive — a missing or
+    #    malformed registry must never break this contract, so failures degrade
+    #    to None rather than raising. ──
+    loop_readiness_summary: dict[str, object] | None = None
+    try:
+        from agent.loop_registry import load_registry_sync, loop_readiness, audit_drift
+        _registry = load_registry_sync()
+        _report = loop_readiness(_registry)
+        _drift = audit_drift(_registry)
+        loop_readiness_summary = {
+            "score": _report.score,
+            "grade": _report.grade,
+            "total_loops": _report.total_loops,
+            "by_level": _report.by_level,
+            "self_heal_coverage": _report.self_heal_coverage,
+            "dimensions": _report.dimensions,
+            "drift_ok": _drift.ok,
+            "est_monthly_tokens": _registry.estimate_monthly_tokens(),
+        }
+    except Exception:  # pragma: no cover - defensive
+        log.exception("autonomy_status: loop readiness computation failed")
+
     return {
         "status": status,
         "brain": brain,
         "loops": loops,
         "loops_running": running_count > 0,
+        "loop_readiness": loop_readiness_summary,
         "missing_secrets": missing_secrets,
         "self_bootstrap": self_bootstrap_status,
         "ceo": ceo_status,
