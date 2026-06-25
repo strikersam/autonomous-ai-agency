@@ -387,7 +387,7 @@ class ProviderRouter:
                     api_key=nvidia_key,
                     default_model=(
                         os.environ.get("NVIDIA_DEFAULT_MODEL")
-                        or "nvidia/nemotron-3-super-120b-a12b"
+                        or "nvidia/llama-3.3-nemotron-super-49b-v1"
                     ),
                     priority=-10,  # before everything else
                 )
