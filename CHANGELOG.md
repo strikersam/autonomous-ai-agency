@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Added Self-Improving Agent (SIA) capability with dynamic model and harness updates (issue #'383')
+
 - **Autonomous Fix workflow: auto-fix failing CI tests on PRs** (2026-06-25). New `autonomous-fix.yml` workflow that runs every 30 min, finds PRs with failing CI tests, reads the error logs, calls NVIDIA NIM to generate a fix, and pushes it to the PR's branch. CI re-runs automatically. This closes the loop: agent creates PR → CI fails → agent fixes tests → CI passes → auto-merge.
 - **Fix: _FakeResponse missing status_code attribute** (2026-06-25). The rate-limit retry code added `resp.status_code` checks but the test's `_FakeResponse` mock didn't have that attribute. Added `self.status_code = 200` to the mock.
 
