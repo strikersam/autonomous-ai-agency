@@ -6013,6 +6013,8 @@ async def autonomy_status() -> dict[str, object]:
             # on Render free tier).
             if not pending:
                 try:
+                    from tasks.models import Task
+                    from tasks.service import TaskWorkflowService
                     import agent.agency as _ag
                     import httpx
                     token = _ag._gh_token()
@@ -6046,6 +6048,7 @@ async def autonomy_status() -> dict[str, object]:
                                         source="ceo_direct",
                                         pending_agent_run=True,
                                     )
+                                    wf = TaskWorkflowService(store=store)
                                     await wf.create_task(task, actor="system:ceo_direct")
                                     dispatch_status["direct_task_created"] = task.task_id
                                     dispatch_status["direct_issue_number"] = issue["number"]
