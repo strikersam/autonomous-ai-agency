@@ -7,7 +7,7 @@ class AgentOrchestrator:
 
     def deploy_agent(self, agent_config):
         headers = {'Authorization': f'Bearer {self.api_key}'}
-        response = requests.post(f'{self.claude_url}/agents', json=agent_config, headers=headers)
+        response = requests.post(f'{self.claude_url}/agents', json=agent_config, headers=headers, timeout=30)
         if response.status_code == 201:
             return response.json()['agent_id']
         else:
@@ -15,7 +15,7 @@ class AgentOrchestrator:
 
     def list_agents(self):
         headers = {'Authorization': f'Bearer {self.api_key}'}
-        response = requests.get(f'{self.claude_url}/agents', headers=headers)
+        response = requests.get(f'{self.claude_url}/agents', headers=headers, timeout=30)
         if response.status_code == 200:
             return response.json()
         else:
