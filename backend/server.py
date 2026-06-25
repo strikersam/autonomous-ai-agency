@@ -7980,3 +7980,4 @@ if _FRONTEND_BUILD.exists():
             return HTMLResponse(index.read_text())
         return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
+# Force rebuild Thu Jun 25 14:08:14 UTC 2026
