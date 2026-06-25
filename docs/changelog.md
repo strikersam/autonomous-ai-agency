@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- **Heal master: restore ~800 lines accidentally truncated from `backend/server.py`** (2026-06-25). Commit `d8d9980` ("NVIDIA cloud default brain") unintentionally deleted ~800 lines — taking out `/api/doctor*`, the agile/sprints endpoints, the workflow-orchestrator endpoints, the legacy scheduler endpoints, and the SPA catch-all — which turned `master` red (Test + E2E). Restored the full endpoint set while preserving the intended brain changes: kept the new Ollama-fallback in `/api/autonomy/status` (NVIDIA absent + `OLLAMA_BASE` set ⇒ brain reported as `ollama`), kept the NVIDIA-default brain-priority swap in `brain_policy.py`/`webui/`, and aligned `tests/test_brain_default_model.py` to the new `nvidia/llama-3.3-nemotron-super-49b-v1.5` default (the `livenim` live-probe still guards against a dead default when `NVIDIA_API_KEY` is set). Full suite: 3221 passed.
 - **Autonomous Fix workflow: auto-fix failing CI tests on PRs** (2026-06-25). New `autonomous-fix.yml` workflow that runs every 30 min, finds PRs with failing CI tests, reads the error logs, calls NVIDIA NIM to generate a fix, and pushes it to the PR's branch. CI re-runs automatically. This closes the loop: agent creates PR → CI fails → agent fixes tests → CI passes → auto-merge.
 - **Fix: _FakeResponse missing status_code attribute** (2026-06-25). The rate-limit retry code added `resp.status_code` checks but the test's `_FakeResponse` mock didn't have that attribute. Added `self.status_code = 200` to the mock.
 

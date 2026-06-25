@@ -6013,13 +6013,28 @@ async def autonomy_status() -> dict[str, object]:
             "base_url": nv_base,
         }
     else:
-        brain = {
-            "configured": False,
-            "provider": None,
-            "model": None,
-            "base_url": None,
-        }
-        missing_secrets.append("NVIDIA_API_KEY")
+        # No NVIDIA brain — check whether a local Ollama brain is configured
+        # instead (laptop/desktop usage via BRAIN_PREFERENCE=ollama or a plain
+        # OLLAMA_BASE). Only fall through to "no_brain" when neither is set.
+        ollama_base = (
+            os.environ.get("OLLAMA_BASE", "").strip()
+            or os.environ.get("OLLAMA_BASE_URL", "").strip()
+        )
+        if ollama_base:
+            brain = {
+                "configured": True,
+                "provider": "ollama",
+                "model": OLLAMA_MODEL,
+                "base_url": ollama_base,
+            }
+        else:
+            brain = {
+                "configured": False,
+                "provider": None,
+                "model": None,
+                "base_url": None,
+            }
+            missing_secrets.append("NVIDIA_API_KEY")
 
     # ── Autonomy loops: report each engine's live running state. Under a bare
     #    TestClient (no lifespan startup) none are bootstrapped, so they read
