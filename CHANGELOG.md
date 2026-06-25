@@ -1,5 +1,17 @@
 All notable changes to this project will be documented in this file.
 
+### Added
+
+- **DeepSeek V4 model support + legacy name deprecation aliases** (2026-06-25). Added `deepseek-v4-0324` to the model registry (1.6T MoE, 49B active, 131k context). Forward-compatible aliases: `deepseek-v4`, `deepseek-v4-pro`, and legacy names `deepseek-chat` / `deepseek-reasoner` (deprecated July 24, 2026). Files: `router/registry.py`, `router/model_router.py`.
+
+- **Qwen 3.6 27B dense model** (2026-06-25). Added `qwen3.6:27b` to the registry — consensus best local coding model (77.2% SWE-bench, fits 24GB VRAM at Q4). Short aliases: `qwen3.6`, `qwen3.6-27b`, `qwen3.6-35b`. Files: `router/registry.py`, `router/model_router.py`.
+
+### Changed
+
+- **Continue.dev EOL notice** (2026-06-25). v2.0.0 is the final release (repo now read-only). Updated client configs with migration guidance.
+
+- **Cursor 3.9 proxy troubleshooting** (2026-06-25). Added HTTP/2 disable guidance to `client-configs/cursor_settings.json`.
+
 ### Fixed
 
 - **Agents idle despite TODO tasks: reconciler now re-queues unqueued TODO tasks** (2026-06-21). `TaskStore.reconcile_stranded_tasks()` previously only handled IN_PROGRESS tasks that were stranded mid-execution (crash recovery). It never touched TODO tasks where `pending_agent_run=False`. Fix: reconciler now also queries TODO tasks with `pending_agent_run=False` and sets `pending_agent_run=True` so the dispatcher picks them up. File: `tasks/store.py`.

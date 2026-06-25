@@ -754,6 +754,16 @@ See [`CLAUDE.md`](CLAUDE.md) for the contributor guide, skill map, risky-module 
 
 ## What's New
 
+### 2026-06-25
+
+- **DeepSeek V4 routing + legacy name migration** — `deepseek-v4-0324` added to the model registry. Forward-compatible aliases (`deepseek-v4`, `deepseek-v4-pro`) and legacy API names (`deepseek-chat`, `deepseek-reasoner`) now route correctly. DeepSeek is deprecating the old names on July 24, 2026 — no client changes needed if you're going through this proxy.
+
+- **Qwen 3.6 27B** — Best-in-class local coding model (77.2% SWE-bench, 24GB at Q4) added to the registry. Use short aliases: `qwen3.6`, `qwen3.6-27b`.
+
+- **Continue.dev EOL notice** — Continue.dev v2.0.0 is the final release (repo now read-only after Cursor acquisition). Client configs updated with migration guidance.
+
+- **Cursor 3.9 proxy fix** — Added HTTP/2 disable guidance for proxy users (`http.experimental.useHTTP2: false`).
+
 ### 2026-06-16
 
 - **Per-model circuit breaker** (`router/circuit_breaker.py`) — Models that return 5xx errors consecutively are now automatically quarantined for a configurable recovery window (default 60 s) and the router uses the fallback chain instead. This prevents hammering a stuck or overloaded model on every request. Configuration: `CIRCUIT_BREAKER_FAILURE_THRESHOLD` (default 3), `CIRCUIT_BREAKER_RECOVERY_TIMEOUT` (default 60 s), `CIRCUIT_BREAKER_ENABLED` (default `true`).

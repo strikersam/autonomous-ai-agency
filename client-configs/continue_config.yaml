@@ -2,6 +2,11 @@ name: Local LLM Server (CRISPY Workflow)
 version: 2.0.0
 schema: v1
 
+# ── NOTICE ────────────────────────────────────────────────────────────────────
+# Continue.dev v2.0.0 (June 19, 2026) is the FINAL release.
+# The repo is now read-only. The bring-your-own-LLM path works but is frozen.
+# Consider migrating to Cursor (which acquired Continue) or Aider.
+
 # ── Chat models ────────────────────────────────────────────────────────────────
 models:
   # Default coding model — routes through CRISPY workflow engine.

@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **DeepSeek V4 model support + legacy name deprecation aliases** (2026-06-25). Added `deepseek-v4-0324` to the model registry (1.6T MoE, 49B active, 131k context). Added forward-compatible aliases: `deepseek-v4`, `deepseek-v4-pro`, and legacy names `deepseek-chat` / `deepseek-reasoner` which DeepSeek is deprecating on July 24, 2026. Clients using the old API names will be transparently routed to V4 / R1 models. Files: `router/registry.py`, `router/model_router.py`.
+
+- **Qwen 3.6 27B dense model** (2026-06-25). Added `qwen3.6:27b` to the registry — the consensus best local coding model as of June 2026 (77.2% SWE-bench, fits 24GB VRAM at Q4). Short aliases: `qwen3.6`, `qwen3.6-27b`, `qwen3.6-35b`. Files: `router/registry.py`, `router/model_router.py`.
+
+### Changed
+
+- **Continue.dev EOL notice** (2026-06-25). Continue.dev v2.0.0 (June 19, 2026) is the final release — the repo is now read-only after Cursor's acquisition. Updated `client-configs/continue_config.json` and `continue_config.yaml` with migration guidance.
+
+- **Cursor 3.9 proxy troubleshooting** (2026-06-25). Added HTTP/2 disable guidance to `client-configs/cursor_settings.json` — the highest-impact fix for proxy users. Cursor 3.9's `http.proxySupport` defaults to `override`, which ignores system proxy settings.
+
 ### Fixed
 
 - **Autonomous cycle: GitHub Actions cron workflow hits /api/autonomy/status every 2 minutes** (2026-06-25). Render free tier spins down the instance between requests, killing background tasks. The cron workflow keeps the instance warm AND drives the CEO + dispatch cycle. Each run: (1) pings /api/ping to wake the instance, (2) hits /api/autonomy/status to trigger CEO + task creation, (3) waits 30s for background task execution, (4) checks the result. File: `.github/workflows/autonomous-cycle.yml`.
