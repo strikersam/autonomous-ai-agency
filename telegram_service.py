@@ -236,8 +236,14 @@ def _telegram_sends_suppressed() -> bool:
     (CI, nightly-regression, continuous-improvement, a live deploy running
     tests). ``PYTEST_CURRENT_TEST`` is set by pytest for the duration of every
     test, so we hard-suppress under it unless an operator explicitly opts in
-    via ``ALLOW_TEST_TELEGRAM=1``. This is the systemic guard behind the
-    recurring "self-heal escalation — recurring boom" pages.
+    via ``ALLOW_TEST_TELEGRAM=1``. This is the guard behind the recurring
+    "self-heal escalation — recurring boom" pages.
+
+    Scope: applied to ``_notify_telegram`` (the ad-hoc / escalation / manual
+    notification path that the boom escalation uses and which is *not* mocked
+    by the offending test). The approval-gate (``_send_telegram_keyboard``) and
+    daily-digest paths intentionally remain un-suppressed because their tests
+    mock ``httpx`` and assert the send shape — they never egress for real.
     """
     if os.environ.get("ALLOW_TEST_TELEGRAM", "").strip() == "1":
         return False
@@ -387,9 +393,6 @@ class NotificationDispatcher:
         """Send a Telegram message with an inline keyboard to all configured chats."""
         if not self.telegram_token or not self.telegram_chat_ids:
             return
-        if _telegram_sends_suppressed():
-            log.debug("Telegram keyboard send suppressed under pytest (set ALLOW_TEST_TELEGRAM=1 to override)")
-            return
         import httpx
 
         def _send():
@@ -434,9 +437,6 @@ class NotificationDispatcher:
             return False
         if not self.telegram_token or not self.telegram_chat_ids:
             log.warning("telegram_service.send_daily_digest.disabled")
-            return False
-        if _telegram_sends_suppressed():
-            log.debug("Telegram digest send suppressed under pytest (set ALLOW_TEST_TELEGRAM=1 to override)")
             return False
         import httpx
 

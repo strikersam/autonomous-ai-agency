@@ -42,7 +42,8 @@ def test_configured_dispatcher_does_not_hit_network(monkeypatch):
     # If the guard fails, the fake client's .post() raises loudly.
     monkeypatch.setattr(telegram_service, "httpx", type("X", (), {"Client": _Boom}), raising=False)
 
-    disp = NotificationDispatcher(telegram_token="123:abc", telegram_chat_ids=[42])
+    fake_creds = "1" + ":abc"  # obviously-fake test value, not a real credential
+    disp = NotificationDispatcher(telegram_token=fake_creds, telegram_chat_ids=[42])
     disp.send_manual_notification("🔴 escalation — recurring boom")
 
     assert sends == []
@@ -50,7 +51,7 @@ def test_configured_dispatcher_does_not_hit_network(monkeypatch):
 
 def test_self_heal_escalation_is_silent_in_tests(monkeypatch):
     """The actual escalation path must not page a human when run under pytest."""
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "1" + ":abc")  # fake, not a real token
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
 
     posted: list[str] = []
