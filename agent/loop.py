@@ -1483,8 +1483,20 @@ class AgentRunner:
         # when the base already ends with /v1 (e.g. Nvidia NIM).
         from provider_router import _openai_url
         chat_url = _openai_url(_call_base, "/chat/completions")
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(chat_url, json=payload, headers=headers)
+
+        # NVIDIA NIM rate-limit handling: 429 = Too Many Requests, 419 = NIM-specific.
+        # Retry with exponential backoff (1s, 2s, 4s) before giving up.
+        _max_retries = 3
+        for _attempt in range(_max_retries + 1):
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+                resp = await client.post(chat_url, json=payload, headers=headers)
+            if resp.status_code in (429, 419) and _attempt < _max_retries:
+                _wait = 2 ** _attempt  # 1s, 2s, 4s
+                log.warning("NVIDIA NIM rate-limited (HTTP %d) — retrying in %ds (attempt %d/%d)",
+                           resp.status_code, _wait, _attempt + 1, _max_retries)
+                await asyncio.sleep(_wait)
+                continue
+            break
         duration_ms = int((time.perf_counter() - start) * 1000)
         resp.raise_for_status()
         data = resp.json()

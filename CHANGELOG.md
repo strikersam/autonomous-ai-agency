@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Autonomous cycle: GitHub Actions cron workflow hits /api/autonomy/status every 2 minutes** (2026-06-25). Render free tier spins down the instance between requests, killing background tasks. The cron workflow keeps the instance warm AND drives the CEO + dispatch cycle. Each run: (1) pings /api/ping to wake the instance, (2) hits /api/autonomy/status to trigger CEO + task creation, (3) waits 30s for background task execution, (4) checks the result. File: `.github/workflows/autonomous-cycle.yml`.
+- **NVIDIA NIM: exponential backoff retry for 429/419 rate limiting** (2026-06-25). NVIDIA NIM free tier allows ~40 req/min. The AgentRunner now retries 429/419 responses with 1s/2s/4s backoff before failing. This prevents task failures from transient rate limits.
+- **Handoff document: HANDOFF_TO_CLAUDE.md** (2026-06-25). Full summary of all 33+ PRs, current state, known issues, and next steps. Use this as context when continuing the work in Claude Code.
+
 - **Autonomy status: non-blocking — CEO + dispatch run as background task** (2026-06-25). `/api/autonomy/status` was timing out because the CEO cycle + task execution (NVIDIA NIM call) takes 60-120s. The endpoint blocked the entire request. Fix: the CEO cycle + dispatch now run as a fire-and-forget `asyncio.create_task` in the background. The endpoint returns immediately with the cached result from the last cycle. The background task fires at most once every 30 seconds.
 
 - **NVIDIA NIM 400 Bad Request: remove Ollama-specific fields from payload** (2026-06-25). The AgentRunner's `_chat_text()` added `thinking_token_budget`, `options`, and `keep_alive` to EVERY request payload. NVIDIA NIM's OpenAI-compatible endpoint rejects unknown fields with HTTP 400 Bad Request. Fix: (1) removed `thinking_token_budget` entirely (not supported by any OpenAI-compatible endpoint); (2) `options` and `keep_alive` are now only added when the target is a local Ollama endpoint; (3) `max_tokens: 4096` is added for NVIDIA NIM / OpenAI-compatible endpoints (NIM requires it).
