@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Autonomy tick: synchronous task execution endpoint + cron workflow** (2026-06-25). The background task approach failed because Render kills the event loop when the HTTP response is sent. Fix: new `/api/autonomy/tick` endpoint that executes ONE pending task SYNCHRONOUSLY with a 20s timeout. The cron workflow (`autonomous-cycle.yml`) hits this endpoint every 2 minutes. Each tick: (1) fires CEO cycle (15s timeout), (2) creates a task from the oldest open issue, (3) executes it via NVIDIA NIM (20s timeout), (4) returns the result. No background tasks — everything is synchronous within the request.
+
 - **Autonomous cycle: GitHub Actions cron workflow hits /api/autonomy/status every 2 minutes** (2026-06-25). Render free tier spins down the instance between requests, killing background tasks. The cron workflow keeps the instance warm AND drives the CEO + dispatch cycle. Each run: (1) pings /api/ping to wake the instance, (2) hits /api/autonomy/status to trigger CEO + task creation, (3) waits 30s for background task execution, (4) checks the result. File: `.github/workflows/autonomous-cycle.yml`.
 - **NVIDIA NIM: exponential backoff retry for 429/419 rate limiting** (2026-06-25). NVIDIA NIM free tier allows ~40 req/min. The AgentRunner now retries 429/419 responses with 1s/2s/4s backoff before failing. This prevents task failures from transient rate limits.
 - **Handoff document: HANDOFF_TO_CLAUDE.md** (2026-06-25). Full summary of all 33+ PRs, current state, known issues, and next steps. Use this as context when continuing the work in Claude Code.
