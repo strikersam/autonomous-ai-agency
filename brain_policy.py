@@ -27,7 +27,7 @@ log = logging.getLogger("brain_policy")
 # This MUST match the live, endpoint-tested model the rest of the codebase uses
 # (router/, services/, agents/, and seeded provider records all reference it). A
 # later curation pass (see the docs/changelog entry "NVIDIA NIM model list curated
-# from live endpoint testing") found the old `nemotron-3-super-120b-a12b` returns 410 Gone
+# from live endpoint testing") found the old `llama-3.3-nemotron-super-49b-v1` returns 410 Gone
 # 404, so the free-brain default is the empirically-live Nemotron Super 49B.
 # Without this, a deploy that leaves NVIDIA_DEFAULT_MODEL unset would resolve a
 # dead model and every dispatched task would fail at EXECUTE with a 400/404.

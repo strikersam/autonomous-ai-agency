@@ -81,7 +81,7 @@ HARNESS_CATALOG: dict[str, HarnessSpec] = {
         display_name="Aider",
         context_key="workspace",
         supports=["streaming", "tool_use", "multi_step"],
-        default_model="nvidia/nemotron-3-super-120b-a12b",
+        default_model="nvidia/llama-3.3-nemotron-super-49b-v1",
     ),
     "continue": HarnessSpec(
         harness_id="continue",
@@ -95,7 +95,7 @@ HARNESS_CATALOG: dict[str, HarnessSpec] = {
         display_name="Telegram Bot",
         context_key="chat",
         supports=["streaming", "freebuff"],
-        default_model="nvidia/nemotron-3-super-120b-a12b",
+        default_model="nvidia/llama-3.3-nemotron-super-49b-v1",
     ),
 }
 
@@ -189,7 +189,7 @@ class HarnessAdapter:
         elif harness_id == "cursor":
             normalized.setdefault("model", spec.default_model or "nvidia/llama-3.3-nemotron-super-49b-v1")
         elif harness_id == "telegram":
-            normalized.setdefault("model", spec.default_model or "nvidia/nemotron-3-super-120b-a12b")
+            normalized.setdefault("model", spec.default_model or "nvidia/llama-3.3-nemotron-super-49b-v1")
 
         return normalized
 

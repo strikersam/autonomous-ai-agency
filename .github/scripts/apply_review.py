@@ -33,7 +33,7 @@ NVIDIA_BASE = "https://integrate.api.nvidia.com/v1"
 OPUS_MODEL = "claude-opus-4-6"
 # Fallback: NVIDIA NIM models.
 NVIDIA_CANDIDATE_MODELS = [
-    ("nvidia/nemotron-3-super-120b-a12b",      "reasoning (Nemotron 120B)"),
+    ("nvidia/llama-3.3-nemotron-super-49b-v1",      "reasoning (Nemotron 120B)"),
     ("nvidia/llama-3.3-nemotron-super-49b-v1", "reasoning (Nemotron 49B)"),
     ("meta/llama-3.3-70b-instruct",            "coding (Llama 3.3 70B)"),
     ("qwen/qwen2.5-coder-32b-instruct",        "coding (Qwen2.5 32B)"),
