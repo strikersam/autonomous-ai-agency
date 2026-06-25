@@ -1191,6 +1191,10 @@ class AgentRunner:
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
 
+        normalized_base = self.ollama_base.rstrip("/")
+        explicit_provider_configured = bool(self.provider_headers)
+        provider_header_names = {key.lower() for key in self.provider_headers}
+
         # Ollama-specific fields — ONLY add when targeting a local Ollama
         # endpoint. NVIDIA NIM and other OpenAI-compatible endpoints reject
         # unknown fields with HTTP 400 Bad Request.
@@ -1204,10 +1208,6 @@ class AgentRunner:
             # NVIDIA NIM / OpenAI-compatible: add max_tokens (required by NIM)
             if "max_tokens" not in payload:
                 payload["max_tokens"] = 4096
-
-        normalized_base = self.ollama_base.rstrip("/")
-        explicit_provider_configured = bool(self.provider_headers)
-        provider_header_names = {key.lower() for key in self.provider_headers}
         provider_is_anthropic = (
             "x-api-key" in provider_header_names
             or (urlparse(normalized_base).hostname or "").lower().endswith("anthropic.com")
