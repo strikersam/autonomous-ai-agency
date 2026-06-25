@@ -5943,7 +5943,7 @@ async def _autonomy_bg_cycle():
                             adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
                             import asyncio as _aio2
                             result, decision = await _aio2.wait_for(
-                                adapter.execute(spec), timeout=90.0
+                                adapter.execute(spec), timeout=30.0
                             )
                         finally:
                             _wo._BYPASS.reset(_bypass_token)
