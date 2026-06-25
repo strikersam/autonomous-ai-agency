@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Loop Engineering governance layer — a legible, scored view of the autonomous loop fleet** (2026-06-25, closes #820). The repo already runs ~30 autonomous loops (cron workflows + in-process daemons such as `self_healing`, `log_monitor`, `improvement_loop`, `trend_watcher`), but they were uncatalogued and ungoverned. Inspired by [Loop Engineering](https://github.com/cobusgreyling/loop-engineering), this adds the "durable spine" the framework calls for, applied to this repo's reality rather than as new automations:
+  - `loops/registry.yaml` — single machine-readable catalogue of every loop (pattern, maturity level L1/L2/L3, cadence, token-cost tier, source, self-heal flag, human gate).
+  - `loops/LOOP.md` — self-referential governance doc: the maturity ladder, the five Loop Engineering primitives mapped to this repo, and how to add/promote a loop.
+  - `agent/loop_registry.py` — typed Pydantic module implementing **loop-audit** (`loop_readiness()` scores fleet maturity 0–100 across maturity/self-heal/governance/safety), **loop-cost** (`estimate_monthly_tokens()`), and **drift self-heal** (`audit_drift()` fails if a cron-scheduled workflow is uncatalogued or a loop's source file is gone). Ships a CLI: `python -m agent.loop_registry audit [--check] [--min-score N]`.
+  - `.github/workflows/loop-audit.yml` — a meta-loop that runs the audit weekly and on workflow changes; gates PRs on registry drift and files an issue when the catalogue drifts, so it can never silently rot.
+  - `/api/autonomy/status` now surfaces a `loop_readiness` summary (score, grade, per-level counts, drift status, estimated monthly token spend) so fleet health is observable from outside.
+
 ### Fixed
 
 - **Autonomous Fix workflow: auto-fix failing CI tests on PRs** (2026-06-25). New `autonomous-fix.yml` workflow that runs every 30 min, finds PRs with failing CI tests, reads the error logs, calls NVIDIA NIM to generate a fix, and pushes it to the PR's branch. CI re-runs automatically. This closes the loop: agent creates PR → CI fails → agent fixes tests → CI passes → auto-merge.

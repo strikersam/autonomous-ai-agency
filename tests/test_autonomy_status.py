@@ -30,6 +30,20 @@ def test_status_is_public_and_well_shaped(client):
     assert body["status"] in {"no_brain", "idle", "partial", "autonomous"}
 
 
+def test_loop_readiness_is_surfaced(client):
+    """The probe carries the loop fleet readiness summary (loop-audit)."""
+    body = client.get("/api/autonomy/status").json()
+    assert "loop_readiness" in body
+    lr = body["loop_readiness"]
+    # Defensive contract: present and well-shaped, or None if registry missing.
+    if lr is not None:
+        assert 0 <= lr["score"] <= 100
+        assert lr["grade"] in {"A", "B", "C", "D", "F"}
+        assert lr["total_loops"] >= 1
+        assert set(lr["dimensions"]) == {"maturity", "self_heal", "governance", "safety"}
+        assert "drift_ok" in lr
+
+
 def test_no_brain_when_nvidia_key_absent(client, monkeypatch):
     """Without an NVIDIA key the probe must report no_brain + name the secret."""
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
