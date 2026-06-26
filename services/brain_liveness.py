@@ -71,6 +71,7 @@ async def probe_model_liveness(
     model: str,
     *,
     timeout: float = _PROBE_TIMEOUT_SECONDS,
+    base_url: str | None = None,
 ) -> ProbeResult:
     """Probe ``(provider, model)`` for liveness. Never raises.
 
@@ -78,6 +79,10 @@ async def probe_model_liveness(
     responded with HTTP 2xx and a parseable body. Any 4xx/5xx, network
     error, or timeout returns ``live=False`` with a human-readable reason
     suitable for surfacing in the UI.
+
+    ``base_url`` overrides the resolved provider base URL. The Brain card uses
+    it to **Test a typed-but-not-yet-saved Ollama tunnel URL** before Apply —
+    so the operator can verify a new tunnel before persisting it.
     """
     if not model or not model.strip():
         return ProbeResult(
@@ -92,7 +97,8 @@ async def probe_model_liveness(
             reason=f"Unknown provider: {provider!r}",
         )
 
-    base_url = provider_base_url(provider_norm)
+    override = (base_url or "").strip()
+    base_url = override.rstrip("/") if override else provider_base_url(provider_norm)
     api_key = provider_api_key(provider_norm)
 
     # Ollama is local — no key required. Other providers need a key.

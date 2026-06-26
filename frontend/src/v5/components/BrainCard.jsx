@@ -86,6 +86,7 @@ export default function BrainCard() {
         verifier_model:   data.config.verifier_model,
         judge_model:      data.config.judge_model,
         max_tokens:       data.config.max_tokens,
+        ollama_base_url:  data.config.ollama_base_url || '',
       });
     } catch (e) {
       setError(errText(e, 'Could not load brain config.'));
@@ -132,7 +133,10 @@ export default function BrainCard() {
     if (!model) return;
     setTestState(prev => ({ ...prev, [role]: { busy: true, result: null } }));
     try {
-      const { data } = await api.testBrainModel(selectedProvider, model);
+      // For Ollama, test against the typed-but-unsaved tunnel URL so the
+      // operator can validate a new tunnel before Apply.
+      const baseUrl = selectedProvider === 'ollama' ? (draft.ollama_base_url || '') : '';
+      const { data } = await api.testBrainModel(selectedProvider, model, baseUrl);
       setTestState(prev => ({ ...prev, [role]: { busy: false, result: data }}));
     } catch (e) {
       setTestState(prev => ({ ...prev, [role]: { busy: false, result: { live: false, reason: errText(e, 'Test failed') }}}));
@@ -151,6 +155,7 @@ export default function BrainCard() {
     if (draft.verifier_model   !== config.verifier_model)   patch.verifier_model   = draft.verifier_model;
     if (draft.judge_model      !== config.judge_model)      patch.judge_model      = draft.judge_model;
     if (draft.max_tokens       !== config.max_tokens)       patch.max_tokens       = draft.max_tokens;
+    if ((draft.ollama_base_url || '') !== (config.ollama_base_url || '')) patch.ollama_base_url = draft.ollama_base_url || '';
     if (Object.keys(patch).length === 0) {
       setApplyError('No changes to apply.');
       setApplyBusy(false);
@@ -221,11 +226,22 @@ export default function BrainCard() {
             </div>
           )}
           {selectedProvider === 'ollama' && (
-            <div style={{ marginTop: 6, fontSize: 11, color: '#8fb6ff', fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>
-              ℹ On a cloud deploy, the backend reaches Ollama via <b>OLLAMA_BASE</b> — set it to your
-              tunnel URL (e.g. a named Cloudflare Tunnel), not localhost. Test probes that URL and checks
-              the model is pulled. If your machine sleeps, the probe fails and Apply is blocked — keep a
-              cloud brain as the default fallback.
+            <div style={{ marginTop: 10 }}>
+              <label style={styles.label}>Ollama base URL (your tunnel)</label>
+              <input
+                type="text"
+                value={draft?.ollama_base_url || ''}
+                onChange={(e) => updateDraft('ollama_base_url', e.target.value)}
+                placeholder="https://your-tunnel.trycloudflare.com  (blank = OLLAMA_BASE env / localhost)"
+                style={styles.select}
+              />
+              <div style={{ marginTop: 6, fontSize: 11, color: '#8fb6ff', fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>
+                ℹ Point the brain at your own machine — run <b>ollama serve</b>, expose it with a tunnel
+                (a named Cloudflare Tunnel is best; ngrok's free URL rotates), and paste the URL here. No
+                Render/env edit needed — it's saved in the DB. Test probes this URL and checks the model is
+                pulled; if your machine sleeps the probe fails and Apply is blocked, so keep a cloud brain
+                as the fallback.
+              </div>
             </div>
           )}
           <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>

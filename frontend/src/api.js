@@ -481,7 +481,7 @@ export const updateProviderPolicy = (data) => API.put('/api/providers/policy', d
 // liveness before save and refuses (422) any that 404/410.
 export const getBrainConfig       = ()                  => API.get('/admin/api/policy/brain');
 export const patchBrainConfig     = (patch)             => API.patch('/admin/api/policy/brain', patch);
-export const testBrainModel       = (provider, model)   => API.post('/admin/api/policy/brain/test', { provider, model });
+export const testBrainModel       = (provider, model, baseUrl) => API.post('/admin/api/policy/brain/test', { provider, model, base_url: baseUrl || null });
 
 // Loop Engineering fleet view — catalogued autonomous loops + loop-audit
 // readiness score, loop-cost estimate, and drift status. Powers the Loops screen.

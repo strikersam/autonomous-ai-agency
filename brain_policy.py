@@ -332,8 +332,14 @@ async def resolve_active_brain(
             )
             return _cached_brain
 
-    # 4. Local Ollama fallback.
-    ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/")
+    # 4. Local Ollama fallback. The base URL is UI-configurable (DB-persisted)
+    #    so the operator can point the brain at a local/tunnelled Ollama from
+    #    the Brain card without a Render env edit. DB value wins over env.
+    try:
+        from services.brain_config_store import resolve_ollama_base_url
+        ollama_base = resolve_ollama_base_url()
+    except Exception:  # pragma: no cover - defensive; keep the fallback alive
+        ollama_base = os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/")
     _cached_brain = BrainResolution(
         provider_id="ollama-local-fallback",
         base_url=ollama_base,

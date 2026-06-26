@@ -103,8 +103,38 @@ PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
 }
 
 
+def resolve_ollama_base_url() -> str:
+    """Resolve the Ollama base URL the UI controls — DB value wins over env.
+
+    Precedence:
+      1. The ``ollama_base_url`` saved from the Brain card (read synchronously
+         from the sqlite mirror, which is written on every Apply even when Mongo
+         is primary). This is how the operator points the brain at a local /
+         tunnelled Ollama **from the UI, with no env/redeploy**.
+      2. ``OLLAMA_BASE`` / ``OLLAMA_BASE_URL`` env (legacy / dev).
+      3. ``http://localhost:11434`` default.
+
+    Sync + never raises so it is safe to call from hot resolution paths
+    (``provider_base_url``, ``brain_policy``, the internal-agent adapter).
+    """
+    try:
+        cfg = BrainConfigStore()._load_sqlite_mirror()
+        if cfg is not None:
+            ui_url = (getattr(cfg, "ollama_base_url", "") or "").strip()
+            if ui_url:
+                return ui_url.rstrip("/")
+    except Exception:  # pragma: no cover - defensive; never break resolution
+        pass
+    env_url = (os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or "").strip()
+    return (env_url or "http://localhost:11434").rstrip("/")
+
+
 def provider_base_url(provider: str) -> str:
-    """Return the OpenAI-compatible base URL for *provider* (env-aware)."""
+    """Return the OpenAI-compatible base URL for *provider* (env- and UI-aware)."""
+    # Ollama's base URL is UI-configurable (DB-persisted) so a local/tunnelled
+    # Ollama can be the brain without touching Render env. DB value wins.
+    if provider == "ollama":
+        return resolve_ollama_base_url()
     env_key = PROVIDER_BASE_URL_ENV.get(provider)
     if env_key:
         v = (os.environ.get(env_key) or "").strip()
@@ -148,6 +178,11 @@ class BrainConfig(BaseModel):
     verifier_model: str = Field(default=SAFE_DEFAULT_MODEL, min_length=1, max_length=200)
     judge_model: str = Field(default=SAFE_DEFAULT_MODEL, min_length=1, max_length=200)
     max_tokens: int = Field(default=4096, ge=256, le=32768)
+    # UI-configurable Ollama base URL (a tunnel URL when the brain runs on a
+    # local/remote Ollama). Empty → fall back to OLLAMA_BASE env / localhost.
+    # Lets the operator point the brain at their own GPU from the Brain card
+    # with no Render env edit. Never holds a secret.
+    ollama_base_url: str = Field(default="", max_length=300)
     updated_at: str = Field(default="")
     updated_by: str = Field(default="")
 
@@ -210,6 +245,9 @@ class BrainConfigPatch(BaseModel):
     verifier_model: str | None = Field(default=None, min_length=1, max_length=200)
     judge_model: str | None = Field(default=None, min_length=1, max_length=200)
     max_tokens: int | None = Field(default=None, ge=256, le=32768)
+    # Empty string is allowed (clears the override → fall back to env/localhost);
+    # min_length is therefore 0, unlike the model fields.
+    ollama_base_url: str | None = Field(default=None, max_length=300)
 
 
 # ── Store ───────────────────────────────────────────────────────────────────
