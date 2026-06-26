@@ -157,7 +157,11 @@ jobs:
           content = resp.json()['choices'][0]['message']['content']
           print('NVIDIA NIM response received')
           
-          # Parse the JSON response
+          # Parse the JSON response — NIM often generates malformed JSON
+          # (missing commas, unescaped quotes, trailing commas, etc.)
+          # Use a robust extraction + repair approach.
+          import re, ast
+          
           # Find the JSON block
           start = content.find('{')
           end = content.rfind('}') + 1
@@ -166,7 +170,50 @@ jobs:
               print(content[:500])
               sys.exit(1)
           
-          result = json.loads(content[start:end])
+          json_str = content[start:end]
+          
+          # Try strict JSON first
+          result = None
+          try:
+              result = json.loads(json_str)
+          except json.JSONDecodeError:
+              print('Strict JSON parse failed — trying repair...')
+              # Common fixes:
+              # 1. Remove trailing commas before } or ]
+              fixed = re.sub(r',\s*([}\]])', r'\1', json_str)
+              # 2. Fix unescaped newlines in strings
+              fixed = fixed.replace('\\n', '\\\\n').replace('\\t', '\\\\t')
+              try:
+                  result = json.loads(fixed)
+              except json.JSONDecodeError:
+                  # 3. Try ast.literal_eval (handles single quotes, etc.)
+                  try:
+                      # Convert to Python dict literal
+                      py_str = fixed.replace('true', 'True').replace('false', 'False').replace('null', 'None')
+                      result = ast.literal_eval(py_str)
+                  except Exception:
+                      # 4. Last resort: extract files using regex
+                      print('JSON repair failed — extracting files via regex')
+                      files = []
+                      # Find all "path": "..." and "content": "..." pairs
+                      path_matches = re.findall(r'\"path\":\s*\"([^\"]+)\"', json_str)
+                      content_matches = re.findall(r'\"content\":\s*\"((?:[^\"\\]|\\.)*)\"', json_str)
+                      for i, path in enumerate(path_matches):
+                          file_content = content_matches[i] if i < len(content_matches) else ''
+                          # Unescape
+                          file_content = file_content.replace('\\\\n', '\\n').replace('\\\\t', '\\t').replace('\\\\"', '\"')
+                          files.append({'path': path, 'action': 'create', 'content': file_content})
+                      summary_match = re.search(r'\"summary\":\s*\"([^\"]+)\"', json_str)
+                      result = {
+                          'summary': summary_match.group(1) if summary_match else 'Extracted via regex',
+                          'files': files,
+                          'changelog': 'Agent implementation',
+                      }
+          
+          if not result or not result.get('files'):
+              print('ERROR: No files in result')
+              print(json.dumps(result, indent=2)[:500] if result else 'No result')
+              sys.exit(1)
           
           # Save the result
           with open('/tmp/agent_result.json', 'w') as f:
@@ -196,10 +243,14 @@ jobs:
             exit 0
           fi
           
-          # Create a branch
+          # Create a branch — delete existing branch first if it exists
           BRANCH="agent/issue-${ISSUE_NUMBER}"
           git config user.name "Autonomous Agency"
           git config user.email "agency@autonomous.ai"
+          # Delete the branch if it already exists (from a previous failed run)
+          git branch -D "$BRANCH" 2>/dev/null || true
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          # Create fresh branch from current master
           git checkout -b "$BRANCH"
           
           # Apply file changes from the agent result
