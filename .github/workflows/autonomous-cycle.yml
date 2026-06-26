@@ -17,48 +17,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Wake and drive agency
+      - name: Execute agency tick
         env:
           BASE_URL: ${{ vars.KEEPALIVE_URL || 'https://local-llm-server.onrender.com' }}
         run: |
-          echo "=== Autonomous Agency Cycle $(date -u) ==="
+          echo "=== Agency Tick $(date -u) ==="
           
           # Wake the instance
           curl -s -o /dev/null -w "ping: %{http_code}\n" --max-time 30 "$BASE_URL/api/ping" || echo "ping: failed"
           
-          # Trigger CEO + dispatch (returns instantly)
-          curl -s --max-time 30 "$BASE_URL/api/autonomy/status" | python3 -c "
+          # Execute one task synchronously (blocks up to 90s for CEO + NVIDIA NIM)
+          echo "--- Executing tick ---"
+          curl -s --max-time 90 "$BASE_URL/api/autonomy/tick" | python3 -c "
           import json,sys
           d=json.load(sys.stdin)
-          print('status:', d.get('status'))
-          print('brain:', d.get('brain',{}).get('model'))
-          print('companies:', d.get('company_count'))
           ceo=d.get('ceo',{})
-          print('CEO triggered:', ceo.get('triggered'))
-          print('CEO issues:', ceo.get('gh_api_count'))
           dispatch=d.get('dispatch',{})
-          print('Dispatch ran:', dispatch.get('ran'))
-          print('Dispatch issue:', dispatch.get('direct_issue_number'))
-          print('Dispatch result:', dispatch.get('result_status'))
-          if dispatch.get('error'):
-              print('Dispatch error:', str(dispatch.get('error'))[:200])
-          " 2>/dev/null || echo "status: (parse error)"
+          print(f'CEO: triggered={ceo.get(\"triggered\")} issues={ceo.get(\"gh_api_count\")} directives={ceo.get(\"directives_issued\")}')
+          if ceo.get('error'): print(f'CEO error: {ceo[\"error\"]}')
+          print(f'Dispatch: ran={dispatch.get(\"ran\")} issue={dispatch.get(\"direct_issue_number\")} result={dispatch.get(\"result_status\")}')
+          if dispatch.get('task_title'): print(f'  task: {dispatch[\"task_title\"][:60]}')
+          if dispatch.get('error'): print(f'  error: {dispatch[\"error\"][:150]}')
+          " 2>/dev/null || echo "(tick timed out — task may still be running)"
           
-          # Keep warm for 30s
-          echo "Keeping warm 30s..."
-          sleep 30
-          
-          # Check result
-          curl -s --max-time 15 "$BASE_URL/api/autonomy/status" | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)
-          dispatch=d.get('dispatch',{})
-          if dispatch.get('ran'):
-              print('RESULT: task done -', dispatch.get('task_title','')[:60])
-          elif dispatch.get('error'):
-              print('RESULT: error -', str(dispatch.get('error'))[:100])
-          else:
-              print('RESULT: still in progress')
-          " 2>/dev/null || echo "RESULT: (parse error)"
-          
-          echo "=== Cycle complete ==="
+          echo "=== Done ==="

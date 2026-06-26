@@ -6013,13 +6013,28 @@ async def autonomy_status() -> dict[str, object]:
             "base_url": nv_base,
         }
     else:
-        brain = {
-            "configured": False,
-            "provider": None,
-            "model": None,
-            "base_url": None,
-        }
-        missing_secrets.append("NVIDIA_API_KEY")
+        # No NVIDIA brain — check whether a local Ollama brain is configured
+        # instead (laptop/desktop usage via BRAIN_PREFERENCE=ollama or a plain
+        # OLLAMA_BASE). Only fall through to "no_brain" when neither is set.
+        ollama_base = (
+            os.environ.get("OLLAMA_BASE", "").strip()
+            or os.environ.get("OLLAMA_BASE_URL", "").strip()
+        )
+        if ollama_base:
+            brain = {
+                "configured": True,
+                "provider": "ollama",
+                "model": OLLAMA_MODEL,
+                "base_url": ollama_base,
+            }
+        else:
+            brain = {
+                "configured": False,
+                "provider": None,
+                "model": None,
+                "base_url": None,
+            }
+            missing_secrets.append("NVIDIA_API_KEY")
 
     # ── Autonomy loops: report each engine's live running state. Under a bare
     #    TestClient (no lifespan startup) none are bootstrapped, so they read
@@ -6133,11 +6148,35 @@ async def autonomy_status() -> dict[str, object]:
     except Exception:  # pragma: no cover - defensive
         pass
 
+    # ── Loop fleet readiness: a legible, scored view of the whole autonomous
+    #    loop fleet (Loop Engineering's loop-audit). Defensive — a missing or
+    #    malformed registry must never break this contract, so failures degrade
+    #    to None rather than raising. ──
+    loop_readiness_summary: dict[str, object] | None = None
+    try:
+        from agent.loop_registry import load_registry_sync, loop_readiness, audit_drift
+        _registry = load_registry_sync()
+        _report = loop_readiness(_registry)
+        _drift = audit_drift(_registry)
+        loop_readiness_summary = {
+            "score": _report.score,
+            "grade": _report.grade,
+            "total_loops": _report.total_loops,
+            "by_level": _report.by_level,
+            "self_heal_coverage": _report.self_heal_coverage,
+            "dimensions": _report.dimensions,
+            "drift_ok": _drift.ok,
+            "est_monthly_tokens": _registry.estimate_monthly_tokens(),
+        }
+    except Exception:  # pragma: no cover - defensive
+        log.exception("autonomy_status: loop readiness computation failed")
+
     return {
         "status": status,
         "brain": brain,
         "loops": loops,
         "loops_running": running_count > 0,
+        "loop_readiness": loop_readiness_summary,
         "missing_secrets": missing_secrets,
         "self_bootstrap": self_bootstrap_status,
         "ceo": ceo_status,
@@ -6145,6 +6184,196 @@ async def autonomy_status() -> dict[str, object]:
         "company_count": company_count,
         "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
+
+
+@app.get("/api/autonomy/tick")
+async def autonomy_tick() -> dict[str, object]:
+    """Execute ONE pending task synchronously. Called by the cron workflow every 2 min.
+
+    This is the agency's execution heartbeat. It:
+    1. Fires the CEO cycle (background — fast)
+    2. Picks up the oldest pending task
+    3. Executes it via InternalAgentAdapter (NVIDIA NIM) with a 20s timeout
+    4. Returns the result
+
+    Unlike /api/autonomy/status, this endpoint BLOCKS until the task
+    completes (or times out at 20s). The cron workflow is designed to
+    wait for this.
+    """
+    import datetime
+    result: dict[str, object] = {
+        "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "ceo": {},
+        "dispatch": {},
+    }
+
+    # 1. Fire CEO cycle in background (non-blocking)
+    try:
+        from agent.agency import Agency, get_agency, set_agency, _gh_token, _gh_repo
+        # Wire scheduler on_fire if not done
+        try:
+            from agent.scheduler import get_scheduler
+            from tasks.automation import TaskAutomationService
+            from tasks.store import get_task_store
+            sched = get_scheduler()
+            if sched._on_fire is None:
+                task_automation = TaskAutomationService(store=get_task_store())
+                sched.set_on_fire(task_automation.handle_scheduled_job)
+                try:
+                    import asyncio as _aio_loop
+                    sched.attach_main_loop(_aio_loop.get_running_loop())
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        agency = get_agency()
+        if agency is None or not agency._running:
+            agency = Agency()
+            try:
+                import asyncio as _aio
+                agency.attach_main_loop(_aio.get_running_loop())
+            except Exception:
+                pass
+            set_agency(agency)
+            agency.start()
+
+        if agency is not None and agency._running:
+            try:
+                import asyncio as _asyncio
+                ceo_result = await _asyncio.wait_for(agency.run_cycle(), timeout=float(os.environ.get("AGENCY_CEO_TIMEOUT_SEC", "10")))
+                result["ceo"] = {
+                    "triggered": True,
+                    "directives_issued": ceo_result.directives_issued,
+                    "gh_api_count": None,
+                }
+                try:
+                    import agent.agency as _ag
+                    result["ceo"]["gh_api_count"] = _ag._last_gh_fetch_count
+                    result["ceo"]["gh_api_status"] = _ag._last_gh_fetch_status
+                except Exception:
+                    pass
+            except asyncio.TimeoutError:
+                result["ceo"] = {"triggered": True, "error": "CEO cycle timed out (15s)"}
+            except Exception as exc:
+                result["ceo"] = {"triggered": False, "error": str(exc)[:200]}
+    except Exception as exc:
+        result["ceo"] = {"error": str(exc)[:200]}
+
+    # 2. Pick up the oldest pending task and execute it synchronously
+    if os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").strip().lower() not in ("true", "1", "yes"):
+        result["dispatch"] = {"skipped": "SELF_BOOTSTRAP_ENABLED=false"}
+        return result
+
+    try:
+        from tasks.store import get_task_store
+        store = get_task_store()
+        pending = await store.list_pending(limit=1)
+
+        # If no pending tasks, create one from the oldest GitHub issue
+        if not pending:
+            try:
+                from tasks.models import Task
+                from tasks.service import TaskWorkflowService
+                import agent.agency as _ag
+                import httpx
+                token = _ag._gh_token()
+                repo = _ag._gh_repo()
+                if token and repo:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        resp = await client.get(
+                            f"https://api.github.com/repos/{repo}/issues",
+                            params={"state": "open", "per_page": "5", "sort": "created", "direction": "asc"},
+                            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+                        )
+                        if resp.status_code == 200:
+                            all_issues = [i for i in resp.json() if "pull_request" not in i]
+                            actionable = [i for i in all_issues if "quick-note:exhausted" not in [lb.get("name","") for lb in i.get("labels", [])]]
+                            if actionable:
+                                issue = actionable[0]
+                                is_qn = "quick-note" in [lb.get("name","") for lb in issue.get("labels", [])]
+                                prefix = "quick-note" if is_qn else "issue"
+                                task = Task(
+                                    owner_id="system",
+                                    title=f"{prefix} #{issue['number']}: {issue['title'][:50]}",
+                                    description=f"Implement GitHub issue #{issue['number']}: {issue['title']}",
+                                    prompt=(issue.get("body") or "")[:2000],
+                                    task_type="quick_note" if is_qn else "issue",
+                                    tags=[lb["name"] for lb in issue.get("labels", [])] + ["needs-implementation"],
+                                    source="ceo_direct",
+                                    pending_agent_run=True,
+                                )
+                                wf = TaskWorkflowService(store=store)
+                                await wf.create_task(task, actor="system:ceo_direct")
+                                result["dispatch"]["direct_issue_number"] = issue["number"]
+                                result["dispatch"]["direct_task_created"] = task.task_id
+                                await asyncio.sleep(0.3)
+                                pending = await store.list_pending(limit=1)
+            except Exception as exc:
+                result["dispatch"]["direct_task_error"] = str(exc)[:100]
+
+        # Execute the pending task synchronously with a 20s timeout
+        if pending:
+            task_id = pending[0].task_id
+            result["dispatch"]["task_id"] = task_id
+            result["dispatch"]["task_title"] = pending[0].title[:60]
+
+            try:
+                from runtimes.base import TaskSpec
+                from runtimes.adapters.internal_agent import InternalAgentAdapter
+                import services.workflow_orchestrator as _wo
+                task = pending[0]
+                task.status = "in_progress"
+                task.pending_agent_run = False
+                await store.update(task)
+
+                spec = TaskSpec(
+                    task_id=task_id,
+                    instruction=task.prompt or task.title,
+                    task_type=task.task_type or "general",
+                    workspace_path=str(ROOT_DIR),
+                    context={"owner_id": task.owner_id, "title": task.title},
+                )
+                _bypass_token = _wo._BYPASS.set(True)
+                try:
+                    adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
+                    exec_result, decision = await asyncio.wait_for(
+                        adapter.execute(spec), timeout=float(os.environ.get("AGENCY_TASK_TIMEOUT_SEC", "40"))
+                    )
+                    task.result = exec_result.output
+                    task.status = "done" if exec_result.success else "failed"
+                    task.error_message = None if exec_result.success else "Execution failed"
+                    await store.update(task)
+                    result["dispatch"]["ran"] = True
+                    result["dispatch"]["result_status"] = task.status
+                    result["dispatch"]["result_error"] = (task.error_message or "")[:100]
+                except asyncio.TimeoutError:
+                    result["dispatch"]["ran"] = False
+                    result["dispatch"]["result_status"] = "timeout"
+                    result["dispatch"]["error"] = "Task timed out (20s) — will retry next cycle"
+                    task.status = "todo"
+                    task.pending_agent_run = True
+                    await store.update(task)
+                finally:
+                    _wo._BYPASS.reset(_bypass_token)
+            except Exception as exc:
+                result["dispatch"]["ran"] = False
+                result["dispatch"]["error"] = str(exc)[:200]
+                try:
+                    task = await store.get(task_id)
+                    if task:
+                        task.status = "failed"
+                        task.error_message = str(exc)[:500]
+                        await store.update(task)
+                except Exception:
+                    pass
+        else:
+            result["dispatch"]["pending_count"] = 0
+            result["dispatch"]["ran"] = False
+    except Exception as exc:
+        result["dispatch"]["error"] = str(exc)[:200]
+
+    return result
 
 
 @app.post("/api/webhooks/github")
@@ -7790,3 +8019,5 @@ if _FRONTEND_BUILD.exists():
             return HTMLResponse(index.read_text())
         return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
+# Force rebuild Thu Jun 25 14:08:14 UTC 2026
+# Force rebuild Thu Jun 25 14:22:25 UTC 2026
