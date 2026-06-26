@@ -13,7 +13,7 @@ NVIDIA NIM provides free API access to:
 | Model | Role | Use case |
 |-------|------|----------|
 | `qwen/qwen3-coder-480b-a35b-instruct` | Executor | Primary coding agent |
-| `nvidia/nemotron-3-super-120b-a12b` | Planner/Verifier | Planning and review |
+| `nvidia/llama-3.3-nemotron-super-49b-v1` | Planner/Verifier | Planning and review |
 | `nvidia/llama-3.1-nemotron-ultra-253b-v1` | Reasoning | Complex analysis |
 
 The Agency auto-selects the best model for each agent role when NVIDIA NIM is configured.

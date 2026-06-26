@@ -67,10 +67,10 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_PLANNER_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Model used for task planning (breaks task into ≤5 steps, returns JSON). Reasoning models work best. |
+| `AGENT_PLANNER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used for task planning (breaks task into ≤5 steps, returns JSON). Reasoning models work best. |
 | `AGENT_EXECUTOR_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used for code writing and file manipulation. Coding-specialist models recommended. |
-| `AGENT_VERIFIER_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Model used to validate each code change (returns pass/fail JSON). |
-| `AGENT_JUDGE_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Final release-gate judge model (verdict / security / correctness). |
+| `AGENT_VERIFIER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used to validate each code change (returns pass/fail JSON). |
+| `AGENT_JUDGE_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Final release-gate judge model (verdict / security / correctness). |
 | `AGENT_WORKSPACE_ROOT` | (repo root) | Absolute path to the workspace the agent operates on. Defaults to the directory containing `proxy.py`. |
 
 ---

@@ -183,7 +183,7 @@ def test_patch_rejects_dead_model_with_422(app_client, monkeypatch):
     with patch("backend.server.probe_model_liveness", fake_probe):
         r = app_client.patch(
             "/admin/api/policy/brain",
-            json={"executor_model": "nvidia/nemotron-3-super-120b-a12b"},
+            json={"executor_model": "nvidia/llama-3.3-nemotron-super-49b-v1"},
         )
 
     assert r.status_code == 422

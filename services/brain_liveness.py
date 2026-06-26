@@ -218,7 +218,7 @@ def _describe_http_status(status_code: int, body: str, provider: str) -> str:
     """Turn an HTTP status into a short, human-readable reason.
 
     The plan specifically calls out 410 Gone (the symptom of the retired
-    ``nvidia/nemotron-3-super-120b-a12b``) and 404 — those get explicit
+    ``nvidia/llama-3.3-nemotron-super-49b-v1``) and 404 — those get explicit
     "dead model" wording so the UI shows the operator what happened.
     """
     body_excerpt = (body or "")[:200].replace("\n", " ").strip()

@@ -11,7 +11,7 @@ The live `https://local-llm-server.onrender.com/api/autonomy/status` reports
 
 — the **slow** 550B-a55b ultra (≈55B params/token) is still pinned in the Render
 dashboard env. `render.yaml` on `master` already specifies the faster
-`nvidia/nemotron-3-super-120b-a12b` (≈12B params/token, same-generation MoE,
+`nvidia/llama-3.3-nemotron-super-49b-v1` (≈12B params/token, same-generation MoE,
 free, no rate limit). **Render does not auto-apply `render.yaml` env changes on
 a code redeploy**, so this runbook is the manual sync step.
 
@@ -28,7 +28,7 @@ a code redeploy**, so this runbook is the manual sync step.
 | **B. Manual per-service editor** | The Blueprint won't sync (e.g. YAML drift, locked infra) | ~5 minutes per service |
 
 After either path, the verification curls at the bottom of this doc must show
-`status:"autonomous"`, `brain.model:"nvidia/nemotron-3-super-120b-a12b"`,
+`status:"autonomous"`, `brain.model:"nvidia/llama-3.3-nemotron-super-49b-v1"`,
 `missing_secrets:[]`, and all four loops `true`.
 
 ---
@@ -40,7 +40,7 @@ For reference, the *current* correct values (read from `render.yaml` on
 
 - Web service `local-llm-server`:
   `NVIDIA_DEFAULT_MODEL`, `AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`,
-  `AGENT_VERIFIER_MODEL`, `AGENT_JUDGE_MODEL` = `nvidia/nemotron-3-super-120b-a12b`
+  `AGENT_VERIFIER_MODEL`, `AGENT_JUDGE_MODEL` = `nvidia/llama-3.3-nemotron-super-49b-v1`
 - Worker service `local-llm-server-worker`: same five keys.
 - `LLM_PROVIDER` = `nvidia-nim` on both.
 - `RUN_BACKGROUND_IN_WEB` = `true` on the **web** service (loops run here on
@@ -86,11 +86,11 @@ Set (or update) the **same value** on both services:
 
 | Key | Value |
 |-----|-------|
-| `NVIDIA_DEFAULT_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
-| `AGENT_PLANNER_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
-| `AGENT_EXECUTOR_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
-| `AGENT_VERIFIER_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
-| `AGENT_JUDGE_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
+| `NVIDIA_DEFAULT_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` |
+| `AGENT_PLANNER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` |
+| `AGENT_EXECUTOR_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` |
+| `AGENT_VERIFIER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` |
+| `AGENT_JUDGE_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` |
 
 If `AGENT_JUDGE_MODEL` is **not yet present** in the dashboard (older
 deploys only had four `AGENT_*_MODEL` keys), add it as a new key.
@@ -163,7 +163,7 @@ Expect (key fields):
 |-------|----------|
 | `status` | `"autonomous"` (warm) or `"partial"` (still warming — re-run in 30 s) |
 | `brain.configured` | `true` |
-| `brain.model` | `"nvidia/nemotron-3-super-120b-a12b"` |
+| `brain.model` | `"nvidia/llama-3.3-nemotron-super-49b-v1"` |
 | `brain.provider` | `"nvidia-nim"` |
 | `brain.paid_allowed` | `false` |
 | `missing_secrets` | `[]` |
@@ -189,7 +189,7 @@ only the harmless `Ollama unreachable — start with ollama serve` warn —
 
 The five env keys are independent. If the 120B-a12b endpoint starts returning
 errors (rare; it briefly 404'd around issue #656 — re-confirmed live at
-<https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b>), revert each
+<https://build.nvidia.com/nvidia/llama-3.3-nemotron-super-49b-v1>), revert each
 key on both services to its prior value. The documented rollback target is
 `nvidia/llama-3.3-nemotron-super-49b-v1` — also a free NIM model, denser, and
 in the curated live list.

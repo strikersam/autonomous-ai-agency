@@ -323,7 +323,7 @@ Mirror of the **Definition of Done** in `AUTONOMOUS_AGENCY_SETUP.md`:
 
 | # | Item | Evidence | PASS / FAIL |
 |---|------|----------|-------------|
-| 1 | `/api/autonomy/status` reports `status:"autonomous"`, `brain.model:"nvidia/nemotron-3-super-120b-a12b"`, `missing_secrets:[]`, all 4 loops `true` | curl + JSON dump | ☐ |
+| 1 | `/api/autonomy/status` reports `status:"autonomous"`, `brain.model:"nvidia/llama-3.3-nemotron-super-49b-v1"`, `missing_secrets:[]`, all 4 loops `true` | curl + JSON dump | ☐ |
 | 2 | `/api/doctor/public` shows no critical failures (5/5 passing, or 4/5 with the harmless Ollama warn) | curl + JSON dump | ☐ |
 | 3 | Telegram bot responds (`/start`), and an `awaiting_approval` run pushed a message with both buttons | Telegram screenshot + run id | ☐ |
 | 4 | Pressing Approve resumed a run; pressing Reject cancelled one | two runs, terminal `done` and `cancelled` | ☐ |
