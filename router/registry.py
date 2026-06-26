@@ -332,7 +332,70 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["lightweight", "fast", "installed"],
     ),
+    # ── Anthropic API — Claude 4 family (direct API) ───────────────────────────
+    # Opus 4.8: latest Opus; adds effort parameter + faster output.
+    "claude-opus-4-8": ModelCapability(
+        name="claude-opus-4-8",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+            "math",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["anthropic", "claude", "claude4", "flagship"],
+    ),
+    # Sonnet 4.6: best balance of speed and capability in Claude 4 family.
+    "claude-sonnet-4-6": ModelCapability(
+        name="claude-sonnet-4-6",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "analysis",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="coder",
+        cost_tier=2,
+        tags=["anthropic", "claude", "claude4"],
+    ),
     # ── AWS Bedrock — Claude 4 family ─────────────────────────────────────────
+    # Opus 4.8: latest, requires Bedrock cross-region inference profile
+    "us.anthropic.claude-opus-4-8": ModelCapability(
+        name="us.anthropic.claude-opus-4-8",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+            "math",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["bedrock", "claude", "flagship", "claude4"],
+    ),
     # Opus 4.7: requires AWS Sales approval; listed for when access is granted
     "us.anthropic.claude-opus-4-7": ModelCapability(
         name="us.anthropic.claude-opus-4-7",
@@ -402,6 +465,8 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     ),
     # ── Anthropic API — Claude 5 family (Mythos-class tier, above Opus) ──────
     # Fable 5: most intelligent generally available model; standard safeguards.
+    # NOTE: suspended under US export-control directive as of 2026-06-12.
+    # Gated behind ROUTER_ALLOW_FABLE5=1 so it stays out of default routing.
     "claude-fable-5": ModelCapability(
         name="claude-fable-5",
         strengths=[
@@ -421,7 +486,7 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         context_window=200000,
         type="reasoning",
         cost_tier=3,
-        tags=["anthropic", "claude", "claude5", "flagship", "mythos-class"],
+        tags=["anthropic", "claude", "claude5", "flagship", "mythos-class", "suspended"],
     ),
     # Mythos 5: same underlying model as Fable 5, fewer dual-use safeguards;
     # ONLY available to Anthropic-approved organizations. Gated behind
@@ -465,6 +530,11 @@ def get_registry() -> dict[str, ModelCapability]:
     # out of the default routing pool unless explicitly enabled.
     if os.environ.get("ROUTER_ALLOW_MYTHOS", "0").strip().lower() not in ("1", "true", "yes", "on"):
         registry.pop("claude-mythos-5", None)
+
+    # claude-fable-5 is suspended under US export-control directive (2026-06-12);
+    # keep out of routing unless the operator explicitly opts in.
+    if os.environ.get("ROUTER_ALLOW_FABLE5", "0").strip().lower() not in ("1", "true", "yes", "on"):
+        registry.pop("claude-fable-5", None)
 
     raw = os.environ.get("ROUTER_EXTRA_MODELS", "").strip()
     if raw:

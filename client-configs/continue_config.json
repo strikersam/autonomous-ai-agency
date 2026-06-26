@@ -1,12 +1,16 @@
 {
   "_setup": [
-    "NOTICE: Continue.dev v2.0.0 (June 19 2026) is the FINAL release.",
-    "The Continue repo is now read-only — no further updates from the original team.",
-    "The bring-your-own-LLM / local-Ollama path still works but is frozen.",
-    "Consider migrating to Cursor (which acquired Continue) or Aider.",
+    "⚠️  DEPRECATED — Continue.dev was acquired by Cursor and is shutting down.",
+    "Continue.dev v2.0.0 (June 19 2026) is the FINAL release.",
+    "DATA EXPORT DEADLINE: July 15, 2026 — after this date your data is deleted.",
+    "Export your data NOW: Settings > Export Data in the Continue extension.",
     "",
-    "Legacy Continue config for older installs that still use config.json",
-    "Prefer client-configs/continue_config.yaml on current Continue versions",
+    "Migration paths:",
+    "  - Cursor (free tier available) — acquired Continue, closest replacement",
+    "  - Aider (open-source, terminal-first) — works with this proxy out of the box",
+    "  - Claude Code CLI — works with this proxy via Anthropic compat layer",
+    "",
+    "This config still works for existing installs but receives no updates.",
     "Replace YOUR_TUNNEL_URL with the output of get_tunnel_url.ps1 on your home PC",
     "Replace YOUR_API_KEY with one of the keys from your .env file"
   ],

@@ -11,14 +11,26 @@
     "If you get connection errors through a proxy, add this to your Cursor settings.json:",
     "  \"http.proxySupport\": \"on\"",
     "  \"http.experimental.useHTTP2\": false",
-    "Disabling HTTP/2 is the highest-impact fix for proxy users (Cursor defaults to override)."
+    "Disabling HTTP/2 is the highest-impact fix for proxy users (Cursor defaults to override).",
+    "",
+    "NOTE: If you were using Continue.dev, Cursor acquired it (June 2026).",
+    "Your Continue configs can be imported: Cursor > Settings > Import from Continue."
   ],
   "openai_api_key": "YOUR_API_KEY",
   "openai_base_url": "https://YOUR_TUNNEL_URL/v1",
   "models": [
-    "deepseek-r1:671b",
+    "qwen3.6:27b",
+    "qwen3-coder:30b",
+    "deepseek-v4-0324",
     "deepseek-r1:32b",
-    "qwen3-coder:30b"
+    "gemma4:27b"
   ],
+  "_model_notes": {
+    "qwen3.6:27b": "Best local coder — 77.2% SWE-bench, fits 24GB VRAM at Q4",
+    "qwen3-coder:30b": "Strong general coding, proven reliable",
+    "deepseek-v4-0324": "Flagship DeepSeek V4, 1M context, strong reasoning+code",
+    "deepseek-r1:32b": "Best for deep reasoning, analysis, planning",
+    "gemma4:27b": "Google multimodal — code + vision + 128k context"
+  },
   "_note": "Tunnel URL changes on server restart. Run get_tunnel_url.ps1 to get the current one."
 }

@@ -599,7 +599,7 @@ We'd rather under-promise. Here's the honest split (see `docs/architecture/featu
 
 | Area | Maturity | Notes |
 |---|---|---|
-| OpenAI-compatible proxy (`/v1/chat/completions`) | **Stable** | Used daily by Claude Code, Cursor, Aider, Continue. |
+| OpenAI-compatible proxy (`/v1/chat/completions`) | **Stable** | Used daily by Claude Code, Cursor, Codex CLI, Aider. Continue (EOL — acquired by Cursor). |
 | Multi-provider routing + failover | **Stable** | Bedrock -> NIM -> DeepSeek -> Anthropic -> Ollama chain with per-provider cooldown. |
 | Technology scanner (HTML + DNS + TLS + headers) | **Stable** | BuiltWith-parity off-HTML evidence; headless escalation for bot-walled sites is best-effort and needs Chromium installed in the deployment. |
 | Task workflow + dispatcher + HITL gates | **Stable** | Persisted state machine, crash-recovery reconciler. |
@@ -690,7 +690,7 @@ curl -X POST http://localhost:8001/api/company/{id}/onboarding/start \
 }
 ```
 
-See [`client-configs/`](client-configs/) for Aider, Continue, Zed, VSCode, and Claude Code.
+See [`client-configs/`](client-configs/) for Aider, Codex CLI, Continue (EOL), Cursor, Zed, VSCode, and Claude Code.
 
 ---
 
@@ -828,6 +828,16 @@ See [`CLAUDE.md`](CLAUDE.md) for the contributor guide, skill map, risky-module 
 ---
 
 ## What's New
+
+### 2026-06-26
+
+- **Opus 4.8 + Fable 5 routing** — Claude Opus 4.8 (latest flagship) and Fable 5/Mythos 5 added to the model registry and alias table. Requests for any of these models are transparently routed to the best local model. Fable 5 is gated behind `ROUTER_ALLOW_FABLE5=1` due to the US export-control suspension.
+
+- **Continue.dev shutdown deadline** — Continue was acquired by Cursor. **Export your data by July 15, 2026** or it will be deleted. Client configs updated with migration guidance to Cursor, Aider, or Claude Code CLI.
+
+- **Codex CLI support** — New `client-configs/codex_config.md` with setup instructions for OpenAI Codex CLI (v0.142+). Point `OPENAI_BASE_URL` at your proxy and use any local model.
+
+- **Cursor config refresh** — Recommended models updated: Qwen 3.6 27B (best local coder), DeepSeek V4, Gemma4 27B. Added Continue-to-Cursor migration note.
 
 ### 2026-06-25
 

@@ -2,10 +2,15 @@ name: Local LLM Server (CRISPY Workflow)
 version: 2.0.0
 schema: v1
 
-# ── NOTICE ────────────────────────────────────────────────────────────────────
+# ── ⚠️  DEPRECATED — Continue.dev acquired by Cursor, shutting down ─────────
 # Continue.dev v2.0.0 (June 19, 2026) is the FINAL release.
-# The repo is now read-only. The bring-your-own-LLM path works but is frozen.
-# Consider migrating to Cursor (which acquired Continue) or Aider.
+# DATA EXPORT DEADLINE: July 15, 2026 — after this date your data is deleted.
+# Export now: Settings > Export Data in the Continue extension.
+#
+# Migration paths:
+#   - Cursor (free tier) — acquired Continue, closest replacement
+#   - Aider (open-source, terminal) — works with this proxy out of the box
+#   - Claude Code CLI — works via the Anthropic compat layer (/v1/messages)
 
 # ── Chat models ────────────────────────────────────────────────────────────────
 models:
