@@ -526,7 +526,7 @@ class RepowiseIntelligence:
 
     def find_entry_points(self) -> List[str]:
         """Guesses entry points based on file names and common patterns."""
-        entry_patterns = ["main.py", "app.py", "server.py", "proxy.py", "index.js", "index.ts", "run.sh", "Makefile"]
+        entry_patterns = ["main.py", "app.py", "server.py", "proxy.py", "index.js", "index.ts", "Makefile"]
         found = []
         for pattern in entry_patterns:
             matches = list(self.root.glob(pattern)) + list(self.root.glob(f"*/{pattern}"))

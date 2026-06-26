@@ -185,11 +185,20 @@ def _build_builtin_model_map() -> dict[str, str]:
         "llama4": "llama4-maverick:17b",
         "llama4-scout": "llama4-scout:17b",
         "llama4-maverick": "llama4-maverick:17b",
-        # DeepSeek V3 short-name aliases
+        # DeepSeek V3/V4 short-name aliases
         "deepseek-v3": "deepseek-v3:685b",
+        "deepseek-v4": "deepseek-v4-0324",
+        "deepseek-v4-pro": "deepseek-v4-0324",
+        # Legacy API names (deprecated July 24 2026)
+        "deepseek-chat": "deepseek-v4-0324",
+        "deepseek-reasoner": _reason,
         # Qwen3 short-name aliases (local)
         "qwen3-coder": "qwen3-coder:30b",
         "qwen3-coder-235b": "qwen3-coder:235b",
+        # Qwen 3.6 short-name aliases
+        "qwen3.6": "qwen3.6:27b",
+        "qwen3.6-27b": "qwen3.6:27b",
+        "qwen3.6-35b": "qwen3.6:35b",
     }
 
 
@@ -206,8 +215,12 @@ _LOCAL_SHORT_ALIASES = {
     "llama4-scout",
     "llama4-maverick",
     "deepseek-v3",
+    "deepseek-v4",
     "qwen3-coder",
     "qwen3-coder-235b",
+    "qwen3.6",
+    "qwen3.6-27b",
+    "qwen3.6-35b",
 }
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -114,6 +115,12 @@ class ProviderReorderBody(BaseModel):
     """Drag-and-drop reorder payload — list of provider_ids in the desired top-to-bottom order."""
 
     provider_ids: list[str] = Field(..., min_length=1, max_length=200)
+
+
+class BrainPolicyUpdate(BaseModel):
+    """Toggle brain provider preference — nvidia (cloud NIM) vs ollama (local)."""
+
+    brain_preference: str = Field(default="nvidia", pattern="^(nvidia|ollama|auto)$")
 
 
 def register_webui(
@@ -377,9 +384,13 @@ def register_webui(
         var on the server (Render / .env) and restarting. The UI is intentionally
         NOT given a write toggle to avoid accidental silent billing on a
         single misclick.
+
+        ``brain_preference`` (``BRAIN_PREFERENCE`` env var) controls whether the
+        brain defaults to NVIDIA cloud NIM ("nvidia") or local Ollama ("ollama").
+        Toggle via ``PATCH /admin/api/policy/brain`` — no restart required.
         """
         try:
-            from brain_policy import allow_paid_brain, resolve_active_brain
+            from brain_policy import allow_paid_brain, get_brain_preference, resolve_active_brain
             brain = await resolve_active_brain()
         except Exception as exc:
             log.exception("admin_get_brain_policy: brain resolution failed: %s", exc)
@@ -399,11 +410,51 @@ def register_webui(
                 else None
             ),
             "allow_paid_brain": allow_paid_brain(),
+            "brain_preference": get_brain_preference(),
             "env_var": "ALLOW_PAID_BRAIN",
             "hint": (
                 "Set ALLOW_PAID_BRAIN=true in the server environment to enable "
                 "paid (Anthropic/Bedrock) providers as the CEO brain. Free-first "
                 "is the safe default; changes here WILL incur costs."
+            ),
+            "admin": _admin_out(admin),
+        }
+
+    @admin_router.patch("/policy/brain")
+    async def admin_patch_brain_policy(
+        request: Request,
+        body: BrainPolicyUpdate,
+        admin: Any = Depends(get_admin_identity),
+    ):
+        """Toggle the brain provider preference without restarting the server.
+
+        Sets the in-process ``BRAIN_PREFERENCE`` env var to ``"nvidia"`` or
+        ``"ollama"`` and invalidates the brain cache so the next agent run
+        picks up the new preference immediately.
+        """
+        os.environ["BRAIN_PREFERENCE"] = body.brain_preference
+        try:
+            from brain_policy import invalidate_brain_cache, resolve_active_brain
+            invalidate_brain_cache()
+            brain = await resolve_active_brain()
+        except Exception as exc:
+            log.exception("admin_patch_brain_policy: re-resolution failed: %s", exc)
+            raise HTTPException(status_code=503, detail="brain_policy unavailable") from exc
+        return {
+            "brain_preference": body.brain_preference,
+            "resolution": {
+                "provider_id": brain.provider_id,
+                "base_url": brain.base_url,
+                "model": brain.model,
+                "role": brain.role,
+                "free_tier": brain.free_tier,
+                "source": brain.source,
+                "priority": brain.priority,
+            },
+            "message": (
+                "Brain preference toggled — agents will use "
+                + ("local Ollama" if body.brain_preference == "ollama" else "NVIDIA NIM cloud")
+                + " on the next run."
             ),
             "admin": _admin_out(admin),
         }

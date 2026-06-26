@@ -30,14 +30,44 @@ def test_status_is_public_and_well_shaped(client):
     assert body["status"] in {"no_brain", "idle", "partial", "autonomous"}
 
 
+def test_loop_readiness_is_surfaced(client):
+    """The probe carries the loop fleet readiness summary (loop-audit)."""
+    body = client.get("/api/autonomy/status").json()
+    assert "loop_readiness" in body
+    lr = body["loop_readiness"]
+    # Defensive contract: present and well-shaped, or None if registry missing.
+    if lr is not None:
+        assert 0 <= lr["score"] <= 100
+        assert lr["grade"] in {"A", "B", "C", "D", "F"}
+        assert lr["total_loops"] >= 1
+        assert set(lr["dimensions"]) == {"maturity", "self_heal", "governance", "safety"}
+        assert "drift_ok" in lr
+
+
 def test_no_brain_when_nvidia_key_absent(client, monkeypatch):
-    """Without an NVIDIA key the probe must report no_brain + name the secret."""
+    """Without NVIDIA key AND without Ollama, the probe must report no_brain."""
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("NVidiaApiKey", raising=False)
+    monkeypatch.setenv("OLLAMA_BASE", "")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "")
     body = client.get("/api/autonomy/status").json()
     assert body["brain"]["configured"] is False
     assert body["status"] == "no_brain"
     assert "NVIDIA_API_KEY" in body["missing_secrets"]
+
+
+def test_brain_configured_with_ollama_fallback(client, monkeypatch):
+    """When NVIDIA is absent but Ollama is configured, report brain as ollama."""
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    monkeypatch.setenv("OLLAMA_BASE", "http://localhost:11434")
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen3-coder:30b")
+    body = client.get("/api/autonomy/status").json()
+    assert body["brain"]["configured"] is True
+    assert body["brain"]["provider"] == "ollama"
+    assert body["brain"]["model"] == "qwen3-coder:30b"
+    assert "NVIDIA_API_KEY" not in body["missing_secrets"]
+    assert body["status"] in {"idle", "partial", "autonomous"}
 
 
 def test_brain_configured_when_nvidia_key_present(client, monkeypatch):
