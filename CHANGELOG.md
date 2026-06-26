@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Added Self-Improving Agent (SIA) for dynamic model and harness updates based on Issue #383 (issue #383)
+
 - Added preliminary SIA framework for self-improving agents, requiring model and harness implementation. (issue #383)
 
 - **DeepSeek V4 routing, Qwen 3.6 27B support, Continue EOL detection** (2026-06-25). Added routing support for DeepSeek V4 models and Qwen 3.6 27B. Updated Continue config for EOL detection.
