@@ -43,6 +43,7 @@ def test_agency_initial_status(agency: Agency):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_run_cycle_no_issues(tmp_path: Path, agency: Agency) -> None:
     """With no improvement loop available, falls back to rule-based, nominal."""
     with patch("agent.improvement_loop.get_improvement_loop", return_value=None), \
@@ -58,6 +59,7 @@ async def test_run_cycle_no_issues(tmp_path: Path, agency: Agency) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_run_cycle_with_failing_tests(tmp_path: Path, agency: Agency) -> None:
     """Failing tests should trigger a Dev agent directive."""
     from agent.improvement_loop import ImprovementLoop, set_improvement_loop
@@ -80,6 +82,7 @@ async def test_run_cycle_with_failing_tests(tmp_path: Path, agency: Agency) -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_run_cycle_with_security_issues(tmp_path: Path, agency: Agency) -> None:
     """Security issues should trigger a Security agent directive."""
     from agent.improvement_loop import (
@@ -109,6 +112,7 @@ async def test_run_cycle_with_security_issues(tmp_path: Path, agency: Agency) ->
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_ceo_assessment_nominal(tmp_path: Path, agency: Agency) -> None:
     """With no issues, CEO should report nominal."""
     from agent.improvement_loop import ImprovementLoop, set_improvement_loop
@@ -188,6 +192,7 @@ def test_build_ceo_prompt_includes_context():
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_run_cycle_with_trend_issues(tmp_path: Path, agency: Agency) -> None:
     """Trend issues should trigger a Scout directive on eligible cycles."""
     from agent.improvement_loop import (
@@ -221,6 +226,7 @@ async def test_run_cycle_with_trend_issues(tmp_path: Path, agency: Agency) -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_directive_has_preferred_runtime(tmp_path: Path, agency: Agency) -> None:
     """Dev directives should prefer claude_code runtime."""
     from agent.improvement_loop import ImprovementLoop, set_improvement_loop
@@ -242,6 +248,7 @@ async def test_directive_has_preferred_runtime(tmp_path: Path, agency: Agency) -
     set_improvement_loop(None)
 
 
+@pytest.mark.timeout(120)
 def test_history_is_capped(agency: Agency):
     """Agency should cap history to 50 entries."""
     import asyncio
