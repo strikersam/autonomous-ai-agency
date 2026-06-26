@@ -5,9 +5,6 @@ import os
 
 import pytest
 
-pytestmark = pytest.mark.skip(reason="Agile sprints API not yet implemented — routes return 404")
-
-
 @pytest.fixture()
 def auth_headers(client):
     """Get auth headers for an admin user."""

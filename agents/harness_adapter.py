@@ -228,4 +228,4 @@ def get_harness_adapter() -> HarnessAdapter:
     global _adapter
     if _adapter is None:
         _adapter = HarnessAdapter()
-    r
+    return _adapter
