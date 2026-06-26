@@ -134,6 +134,11 @@ subprocess.run(['git', 'checkout', '-b', branch], check=True)
 for file_info in result.get('files', []):
     path = file_info.get('path', '')
     file_content = file_info.get('content', '')
+    # NIM sometimes returns content as a list of lines — convert to string
+    if isinstance(file_content, list):
+        file_content = '\n'.join(str(line) for line in file_content)
+    elif not isinstance(file_content, str):
+        file_content = str(file_content)
     if path:
         pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
         pathlib.Path(path).write_text(file_content)
