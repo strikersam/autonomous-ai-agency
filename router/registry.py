@@ -199,6 +199,29 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         tags=["llama4", "meta", "moe", "multimodal", "lightweight"],
         vision=True,
     ),
+    # ── DeepSeek V4 (June 2026) ────────────────────────────────────────────────
+    # V4 Pro: 1.6T MoE (49B active), 1M context. Replaces V3 as flagship.
+    # API names deepseek-chat/deepseek-reasoner deprecated July 24 2026.
+    "deepseek-v4-0324": ModelCapability(
+        name="deepseek-v4-0324",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "reasoning",
+            "analysis",
+            "planning",
+            "long_context",
+            "data_analysis",
+            "conversation",
+            "complex_tasks",
+        ],
+        context_window=131072,
+        type="coder",
+        cost_tier=3,
+        tags=["deepseek", "moe", "flagship", "v4"],
+    ),
     # ── DeepSeek V3 (Dec 2024) ────────────────────────────────────────────────
     # 685B MoE model; strong code + reasoning; lower cost than R1.
     "deepseek-v3:685b": ModelCapability(
@@ -244,6 +267,27 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=3,
         tags=["alias"],
     ),
+    # ── Qwen 3.6 (June 2026) ────────────────────────────────────────────────
+    # 27B dense: 77.2% SWE-bench, fits 24GB VRAM at Q4. Best local coder.
+    "qwen3.6:27b": ModelCapability(
+        name="qwen3.6:27b",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "reasoning",
+            "analysis",
+            "long_context",
+            "data_analysis",
+            "conversation",
+        ],
+        context_window=128000,
+        type="coder",
+        cost_tier=2,
+        tags=["qwen3.6", "dense", "swe-bench-top"],
+    ),
+    # 35B MoE (35B-A3B): efficient variant, 13GB at IQ3.
     "qwen3.6:35b": ModelCapability(
         name="qwen3.6:35b",
         strengths=[

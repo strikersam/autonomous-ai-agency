@@ -1,11 +1,17 @@
 {
   "_setup": [
-    "In Cursor: Settings (Ctrl+,) -> Models -> scroll to bottom",
+    "In Cursor 3.9+: Settings (Ctrl+,) -> Models -> scroll to bottom",
     "1. Toggle ON 'OpenAI API Key'",
     "2. Paste your API key (from .env) into the API Key field",
     "3. Paste your tunnel URL + /v1 into 'Override OpenAI Base URL'",
     "4. Click Verify — model list auto-populates",
-    "5. Type any model name below and press Enter to add it"
+    "5. Type any model name below and press Enter to add it",
+    "",
+    "PROXY TROUBLESHOOTING (Cursor 3.9+):",
+    "If you get connection errors through a proxy, add this to your Cursor settings.json:",
+    "  \"http.proxySupport\": \"on\"",
+    "  \"http.experimental.useHTTP2\": false",
+    "Disabling HTTP/2 is the highest-impact fix for proxy users (Cursor defaults to override)."
   ],
   "openai_api_key": "YOUR_API_KEY",
   "openai_base_url": "https://YOUR_TUNNEL_URL/v1",
