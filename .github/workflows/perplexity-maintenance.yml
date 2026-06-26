@@ -1,0 +1,43 @@
+name: Perplexity Maintenance
+on:
+  schedule:
+    - cron: '0 7 * * 2'
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Run test suite health check
+        run: |
+          python -m unittest discover -s tests -p 'test_*.py'
+      - name: Bandit security scan
+        run: |
+          bandit -r .
+      - name: Count stale branches, dependabot PRs, quick-note queue
+        run: |
+          git fetch --all
+          stale_branches=$(git branch -r | grep -v 'origin/HEAD' | grep -v 'origin/main' | wc -l)
+          dependabot_prs=$(git log --all --reflog --since='7 days ago' --grep='dependabot' | wc -l)
+          quick_notes=$(git log --all --reflog --since='7 days ago' --grep='quick-note' | wc -l)
+          echo "Stale branches: $stale_branches, Dependabot PRs: $dependabot_prs, Quick notes: $quick_notes"
+      - name: Auto-merge safe dependabot patches
+        run: |
+          git config --global user.name 'Perplexity Bot'
+          git config --global user.email 'perplexity-bot@example.com'
+          git fetch --all
+          git checkout main
+          git pull
+          git merge --no-ff --no-commit origin/dependabot
+          git commit -m 'Auto-merge dependabot patches'
+          git push
+      - name: Post weekly health summary
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            github.issues.createComment(
+              context.repo.owner + '/' + context.repo.repo,
+              397,
+              'Weekly health summary: \nStale branches: $stale_branches\nDependabot PRs: $dependabot_prs\nQuick notes: $quick_notes'
+            )
