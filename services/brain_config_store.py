@@ -103,6 +103,17 @@ PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
 }
 
 
+def resolve_hermes_base_url() -> str:
+    """Resolve the base URL of the agency's own Hermes server.
+
+    Precedence: ``HERMES_BASE_URL`` env → ``http://localhost:8100`` default.
+    In docker-compose the backend gets ``HERMES_BASE_URL=http://hermes:8100``
+    so the Hermes runtime (``services/hermes_server.py``) is reachable with no
+    extra config. Sync + never raises; safe for the adapter's hot path.
+    """
+    return (os.environ.get("HERMES_BASE_URL") or "http://localhost:8100").strip().rstrip("/")
+
+
 def resolve_ollama_base_url() -> str:
     """Resolve the Ollama base URL the UI controls — DB value wins over env.
 
