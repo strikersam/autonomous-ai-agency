@@ -38,8 +38,8 @@ REPO_ROOT = Path(os.environ.get("REPO_ROOT", str(Path(__file__).parent.parent.pa
 # NVIDIA NIM models tried in order.
 # nvidia/llama-3.1-nemotron-ultra-253b-v1 removed — returns 404 on this account.
 NVIDIA_MODELS = [
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
     "meta/llama-3.3-70b-instruct",
     "qwen/qwen2.5-coder-32b-instruct",
 ]
@@ -402,4 +402,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    ma

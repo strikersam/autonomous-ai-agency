@@ -317,7 +317,7 @@ class TestIsBedrockModelId:
         assert _is_bedrock_model_id("anthropic.claude-opus-4-7") is True
 
     def test_nim_model_not_bedrock(self) -> None:
-        assert _is_bedrock_model_id("nvidia/llama-3.3-nemotron-super-49b-v1") is False
+        assert _is_bedrock_model_id("nvidia/llama-3.3-nemotron-super-49b-v1.5") is False
 
     def test_deepseek_not_bedrock(self) -> None:
         assert _is_bedrock_model_id("deepseek-ai/deepseek-v4-pro") is False
@@ -342,7 +342,7 @@ class TestBedrockRoutingAffinity:
             type="nvidia-nim",
             base_url="https://integrate.api.nvidia.com/v1",
             api_key="nvapi-test",
-            default_model="nvidia/llama-3.3-nemotron-super-49b-v1",
+            default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
             priority=5,
         )
 
@@ -443,7 +443,7 @@ class TestBedrockRoutingAffinity:
         with patch.object(ProviderRouter, "_post_chat", mock_post_chat):
             router = ProviderRouter([nim, bedrock])
             payload = {
-                "model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
                 "messages": [{"role": "user", "content": "hi"}],
             }
             result = await router.chat_completion(payload)
@@ -541,13 +541,4 @@ class TestPostBedrockConverse:
             "messages": [{"role": "user", "content": "Hello"}],
         }
         real_boto3 = sys.modules.get("boto3")
-        sys.modules["boto3"] = None  # type: ignore[assignment]
-        try:
-            router = ProviderRouter([provider])
-            with pytest.raises(RuntimeError, match="boto3 is required"):
-                await router._post_bedrock_converse(provider, payload, 30.0)
-        finally:
-            if real_boto3 is not None:
-                sys.modules["boto3"] = real_boto3
-            else:
-                sys.modules.pop("boto3", None)
+        sys.modules["boto3"] = None  # type: ignor

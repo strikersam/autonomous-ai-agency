@@ -152,7 +152,7 @@ class NIMConnectionPool:
         result = await pool.request(
             method="POST",
             url="https://integrate.api.nvidia.com/v1/chat/completions",
-            json={"model": "nvidia/llama-3.3-nemotron-super-49b-v1", "messages": [...]},
+            json={"model": "nvidia/llama-3.3-nemotron-super-49b-v1.5", "messages": [...]},
             provider="nvidia",
         )
     """
@@ -350,4 +350,4 @@ def get_nim_pool() -> NIMConnectionPool:
     global _nim_pool
     if _nim_pool is None:
         _nim_pool = NIMConnectionPool()
-    return _nim_pool
+    return _nim_
