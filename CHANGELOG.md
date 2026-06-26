@@ -359,6 +359,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Tick endpoint: requeue blocked tasks automatically** (2026-06-26). Old tasks blocked from the dead 120b model and asyncio bug are stuck in BLOCKED state. The `/api/autonomy/tick` endpoint now requeues up to 5 blocked tasks per tick by resetting them to TODO with pending_agent_run=True and auto_retry_count=0. This clears the backlog of 20+ blocked tasks over 4-5 ticks (~10 min with the 2-min cron).
+
 - **Fix asyncio scoping bug: 'cannot access local variable'** (2026-06-26). Three `import asyncio` statements inside `_chat_text()` shadowed the module-level import, causing `asyncio.sleep()` in the rate-limit retry code to fail with `UnboundLocalError: cannot access local variable 'asyncio'`. Fix: removed all local `import asyncio` — the module-level import at line 18 is sufficient.
 - **Remove all dead 120b model references** (2026-06-26). The dead `nemotron-3-super-120b-a12b` model (410 Gone) was still referenced in `deploy/helm/values.yaml`, `AGENTS.md`, `agent/CLAUDE.md`, `docs/`, and test files. Updated all to `nvidia/llama-3.3-nemotron-super-49b-v1`. Also: the user set up a new BrainConfig UI override with `nemotron-3-nano-omni-30b-a3b-reasoning` as planner, `z-ai/glm-5.1` as executor, `49b` as verifier, and `120b` as judge — the code now reads these from the DB config via `resolve_role_model_sync()`.
 
