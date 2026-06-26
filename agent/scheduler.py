@@ -204,8 +204,18 @@ class AgentScheduler:
         if job_id not in self._jobs:
             return False
         del self._jobs[job_id]
-        if self._running_loop() is not None:
+        running = self._running_loop()
+        if running is not None:
             asyncio.create_task(self._remove_persisted(job_id))
+        elif self._main_loop is not None:
+            # APScheduler thread: dispatch persistence delete onto the FastAPI
+            # main loop so it can safely reach Motor/aiosqlite clients.
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._remove_persisted(job_id), self._main_loop,
+                )
+            except Exception:
+                pass
         elif self._store is not None:
             # No event loop — delete synchronously.
             try:
@@ -368,6 +378,9 @@ class AgentScheduler:
     async def hydrate(self) -> int:
         """#505: Rehydrate persisted schedules on boot.
 
+        Skips stale run-once jobs (already fired) and deletes them from the
+        durable store so they don't accumulate across restarts (#844).
+
         Returns the number of jobs restored from durable storage.
         """
         await self._ensure_store()
@@ -377,9 +390,24 @@ class AgentScheduler:
             result = self._store.load_all()
             docs = (await result) if inspect.isawaitable(result) else result
             count = 0
+            cleaned = 0
             for doc in docs:
                 job_id = doc.get("job_id") or doc.get("id")
                 if not job_id or job_id in self._jobs:
+                    continue
+                tags = doc.get("tags") or []
+                run_count = doc.get("run_count", 0)
+                # Skip stale run-once jobs that already fired — they lived
+                # their one life and should not be rehydrated. Also delete
+                # them from the durable store so they don't pile up forever.
+                if "run-once" in tags and run_count > 0:
+                    try:
+                        remove_result = self._store.remove(job_id)
+                        if inspect.isawaitable(remove_result):
+                            await remove_result
+                        cleaned += 1
+                    except Exception:
+                        pass
                     continue
                 job = ScheduledJob(
                     job_id=job_id,
@@ -393,9 +421,9 @@ class AgentScheduler:
                     model=doc.get("model"),
                     task_type=doc.get("task_type", "scheduled"),
                     requires_approval=doc.get("requires_approval", False),
-                    tags=doc.get("tags", []),
+                    tags=tags,
                     last_run=doc.get("last_run"),
-                    run_count=doc.get("run_count", 0),
+                    run_count=run_count,
                     enabled=doc.get("enabled", True),
                 )
                 self._jobs[job_id] = job
@@ -403,6 +431,8 @@ class AgentScheduler:
                 count += 1
             if count:
                 log.info("Hydrated %d scheduled job(s) from durable store", count)
+            if cleaned:
+                log.info("Cleaned %d stale run-once job(s) from durable store", cleaned)
             return count
         except Exception as exc:
             log.warning("Scheduler hydration failed: %s", exc)
