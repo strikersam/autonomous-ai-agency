@@ -295,7 +295,7 @@ This means you get the leverage of a 24x7 team without the risk of autonomous ag
 
 Three capabilities landed in June 2026, each verified end-to-end against the live Cloudflare deployment:
 
-**Switchable execution brain.** The agent runtime resolves its LLM from your provider setup at run time — highest priority wins (Claude via the Anthropic OpenAI-compatible layer, DeepSeek V4 Pro or Nemotron via NVIDIA NIM, or local Ollama). Swapping the brain is a one-field priority change in the Providers screen; no redeploy, no code. Failed runs report `failed` with the real error — verification results can never be masked as success.
+**Switchable execution brain.** The agent runtime resolves its LLM from a DB-persisted brain config at run time. The **Brain card** on the Providers screen lets you set the provider and the per-role models (planner / executor / verifier / judge) in one click — persisted in the DB, picked up on the next agent run, **no redeploy, no code**. Every model is liveness-probed before it's saved, so you can never land on a dead model. The recommended free-cloud chain is **Cerebras → Groq → NVIDIA NIM → Ollama**, and the brain **auto-selects the first provider whose API key is present** in the environment — so just adding `CEREBRAS_API_KEY` switches the brain to Cerebras with no UI step. (You can also run the brain from your own machine — see [Running the brain on local Ollama](#running-the-brain-on-local-ollama-via-a-tunnel).) Failed runs report `failed` with the real error — verification results can never be masked as success.
 
 **Live alerts (the 🔔 actually rings).** The top-right bell derives alerts on every read with zero stored state: failed runs surface as P1, runs awaiting your approval as P2 with a one-tap jump to the Tasks board, and an empty scheduler raises a wipe warning. Because alerts are computed from live platform state rather than a log table, the monitoring layer itself cannot be lost to a restart.
 
@@ -723,9 +723,11 @@ Live demo:
 | `SECRET_KEY` | *(required)* | JWT signing key — `openssl rand -hex 32` |
 | `STORAGE_BACKEND` | `mongo` | `sqlite` for zero-dependency storage |
 | `MONGO_URL` | `mongodb://localhost:27017` | MongoDB connection string |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Local Ollama server |
-| `LLM_PROVIDER` | `ollama` | `ollama` · `nvidia-nim` · `deepseek` · `bedrock` · `anthropic` |
-| `NVIDIA_API_KEY` | *(optional)* | Free-tier cloud inference — no GPU required |
+| `OLLAMA_BASE` / `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL. On a cloud deploy, set this to your **tunnel URL** to drive the brain from a local GPU — see [Running the brain on local Ollama](#running-the-brain-on-local-ollama-via-a-tunnel). |
+| `LLM_PROVIDER` | `ollama` | `ollama` · `cerebras` · `groq` · `nvidia-nim` · `deepseek` · `bedrock` · `anthropic` |
+| `CEREBRAS_API_KEY` | *(optional)* | **Recommended free brain** — fast, generous free tier, free at [cloud.cerebras.ai](https://cloud.cerebras.ai). The brain auto-selects it when present. |
+| `GROQ_API_KEY` | *(optional)* | Fast free fallback brain — free at [console.groq.com](https://console.groq.com) |
+| `NVIDIA_API_KEY` | *(optional)* | Free-tier cloud inference (NIM) — no GPU required; the always-on safe floor |
 | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | *(optional)* | AWS Bedrock |
 | `ANTHROPIC_API_KEY` | *(optional)* | Direct Anthropic API |
 | `DEEPSEEK_API_KEY` | *(optional)* | DeepSeek cloud API |
@@ -742,6 +744,48 @@ AWS Bedrock (15) → Nvidia NIM (10) → DeepSeek (8) → Anthropic (7) → Hugg
 ```
 
 Only providers with keys configured are tried. Set just the keys you have.
+
+> **Brain config takes precedence.** The legacy numeric chain above is the
+> *fallback* used when no brain is explicitly chosen. The **Brain card** on the
+> Providers screen (DB-persisted, liveness-probed) is the recommended way to pick
+> the active provider + per-role models — and when no brain is saved, the runtime
+> auto-selects the recommended free-cloud chain **Cerebras → Groq → NVIDIA NIM →
+> Ollama** based on which API key is present. See [Running the brain on local
+> Ollama](#running-the-brain-on-local-ollama-via-a-tunnel) to point it at your own GPU.
+
+### Running the brain on local Ollama (via a tunnel)
+
+Want the agency's brain powered by a model on **your own machine** instead of a
+cloud provider? Expose your local Ollama through a tunnel and point the cloud
+backend at it. Because the agent loop runs on the cloud host, `localhost:11434`
+means *nothing* there — the backend has to reach your box over the network.
+
+1. **Run Ollama locally** and pull a model:
+   ```bash
+   ollama serve
+   ollama pull qwen3-coder:30b        # and/or deepseek-r1:32b
+   ```
+2. **Expose it with a _stable_ tunnel.** Prefer a **named Cloudflare Tunnel** over
+   ngrok-free — ngrok's free URL rotates on every restart and would silently break
+   the brain:
+   ```bash
+   cloudflared tunnel --url http://localhost:11434
+   # → https://<random>.trycloudflare.com   (quick tunnel; use a *named* tunnel for a fixed hostname)
+   ```
+3. **Tell the backend where Ollama lives.** Set `OLLAMA_BASE` on the deploy
+   (e.g. in Render → Environment) to the tunnel URL:
+   ```bash
+   OLLAMA_BASE=https://<your-tunnel>.trycloudflare.com
+   ```
+4. **Select it in the Brain card.** Providers screen → Brain → provider **Ollama**
+   → set the role models to your local ids (`qwen3-coder:30b`, `deepseek-r1:32b`)
+   → **Test** (probes `OLLAMA_BASE/api/tags` and checks the model is pulled) →
+   **Apply**.
+
+> **Keep it as a fallback, not the primary.** If your machine sleeps, the tunnel
+> dies and the brain can't reach it. The robust setup is a cloud brain (Cerebras)
+> as the default with local Ollama as a "use my GPU when it's awake" override — the
+> liveness probe stops you from Applying Ollama while the tunnel is down.
 
 ---
 

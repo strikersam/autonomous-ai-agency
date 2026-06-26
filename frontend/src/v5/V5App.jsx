@@ -12,6 +12,7 @@ import PortfolioScreen from './screens/PortfolioScreen';
 import IntelligenceScreen from './screens/IntelligenceScreen';
 import KnowledgeScreen from './screens/KnowledgeScreen';
 import ProvidersScreen from './screens/ProvidersScreen';
+import LoopsScreen from './screens/LoopsScreen';
 import GitHubScreen from './screens/GitHubScreen';
 import LogsScreen from './screens/LogsScreen';
 import CompanyScreen from './screens/CompanyScreen';
@@ -58,7 +59,7 @@ function AdminLocked() {
 
 const V5_SCREENS = [
   'chat', 'dashboard', 'tasks', 'agents', 'schedules', 'skills', 'portfolio',
-  'intelligence', 'knowledge', 'providers', 'github', 'logs', 'company',
+  'intelligence', 'knowledge', 'providers', 'loops', 'github', 'logs', 'company',
   'onboarding', 'doctor', 'admin',
 ];
 
@@ -100,6 +101,7 @@ export default function V5App() {
     intelligence: <IntelligenceScreen onNavigate={go} />,
     knowledge:    <KnowledgeScreen />,
     providers:    <ProvidersScreen />,
+    loops:        <LoopsScreen />,
     github:       <GitHubScreen />,
     logs:         <LogsScreen />,
     company:      <CompanyScreen />,
