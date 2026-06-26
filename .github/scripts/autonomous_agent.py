@@ -221,7 +221,7 @@ for cpath in ['CHANGELOG.md', 'docs/changelog.md']:
 
 # 7. Stage, then SLOP-GATE the aggregate diff before committing.
 subprocess.run(['git', 'add', '-A'], check=True)
-_numstat = subprocess.run(['git', 'diff', '--cached', '--numstat'], capture_output=True, text=True).stdout  # nosec B603,B607 — fixed git args, no shell, no user input
+_numstat = subprocess.run(['git', 'diff', '--cached', '--numstat'], capture_output=True, text=True).stdout  # nosec
 _add = _del = 0
 for _line in _numstat.splitlines():
     _parts = _line.split('\t')
