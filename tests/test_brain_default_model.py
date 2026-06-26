@@ -27,7 +27,7 @@ import brain_policy
 # future flip doesn't silently regress.
 LIVE_MODELS = {
     "nvidia/llama-3.3-nemotron-super-49b-v1",
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
 }
 
 # Bare-name form that the previous-session 404 hit (NIM accepts only
@@ -44,9 +44,9 @@ def test_default_model_is_a_live_namespaced_id():
     assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL in LIVE_MODELS
 
 
-def test_default_model_is_the_120b_a12b_moe():
-    """New default is the 120B-a12b MoE (reasoning-tuned, ~12B active/call)."""
-    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == "nvidia/llama-3.3-nemotron-super-49b-v1"
+def test_default_model_is_the_nemotron_super_49b():
+    """Default is the Nemotron Super 49B (v1.5 as of the NVIDIA-default-brain change)."""
+    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 
 
 def test_resolve_uses_default_when_env_unset(monkeypatch):
@@ -55,7 +55,7 @@ def test_resolve_uses_default_when_env_unset(monkeypatch):
     resolved = brain_policy.resolve_free_nvidia_brain()
     assert resolved is not None, "a key is set, so a brain must resolve"
     _base, _headers, model = resolved
-    assert model == "nvidia/llama-3.3-nemotron-super-49b-v1"
+    assert model == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 
 
 def test_resolve_respects_env_override(monkeypatch):

@@ -1,0 +1,422 @@
+# loops/registry.yaml — The autonomous loop fleet that runs this agency.
+#
+# This is the single machine-readable catalogue of every recurring,
+# self-iterating loop in the repo (scheduled workflows + in-process daemons),
+# the "durable spine" Loop Engineering calls for. It is validated and scored by
+# agent/loop_registry.py (loop-audit / loop-cost) and kept honest by the
+# loop-audit workflow, which fails if a cron-scheduled workflow is missing here.
+#
+# Fields per loop:
+#   id           stable kebab-case identifier
+#   name         human-readable name
+#   pattern      Loop Engineering pattern (or repo-native pattern)
+#   level        maturity — L1 report-only · L2 assisted/gated · L3 unattended
+#   trigger      schedule | event | daemon
+#   cadence      human-readable cadence
+#   runs_per_day approximate runs/day (0 for event-driven)
+#   cost         token tier — low | medium | high | very_high
+#   source       backing workflow file or module
+#   self_heal    true if it detects & repairs failures/drift
+#   gate         human-approval gate — none | telegram | human
+#   purpose      one-line intent
+#
+# See loops/LOOP.md for the governance narrative.
+
+version: 1
+
+loops:
+  # ── Core autonomy tick ──────────────────────────────────────────────────
+  - id: autonomous-cycle
+    name: Autonomous Agency Cycle
+    pattern: autonomy-tick
+    level: L3
+    trigger: schedule
+    cadence: every 2 min
+    runs_per_day: 720
+    cost: high
+    source: .github/workflows/autonomous-cycle.yml
+    self_heal: true
+    gate: telegram
+    purpose: Drive one plan→execute→verify tick of the agency loop unattended.
+
+  - id: autonomous-agent
+    name: Autonomous Agent
+    pattern: issue-triage
+    level: L2
+    trigger: schedule
+    cadence: every 30 min
+    runs_per_day: 48
+    cost: high
+    source: .github/workflows/autonomous-agent.yml
+    self_heal: false
+    gate: telegram
+    purpose: Execute queued issue/task work in GitHub Actions.
+
+  # ── Self-healing loops ──────────────────────────────────────────────────
+  - id: autonomous-fix
+    name: Autonomous Fix
+    pattern: ci-sweeper
+    level: L2
+    trigger: schedule
+    cadence: every 30 min
+    runs_per_day: 48
+    cost: high
+    source: .github/workflows/autonomous-fix.yml
+    self_heal: true
+    gate: telegram
+    purpose: Detect failing checks/logs and open fix PRs automatically.
+
+  - id: ci-failure-autofix
+    name: CI Failure Auto-Fix
+    pattern: ci-sweeper
+    level: L2
+    trigger: event
+    cadence: on CI failure (workflow_run)
+    runs_per_day: 0
+    cost: very_high
+    source: .github/workflows/ci-failure-autofix.yml
+    self_heal: true
+    gate: telegram
+    purpose: React to a red CI run by diagnosing and pushing a fix.
+
+  - id: openclaw-auto-fix
+    name: OpenClaw Auto-Fix
+    pattern: ci-sweeper
+    level: L2
+    trigger: schedule
+    cadence: weekly (Sun 03:00 UTC)
+    runs_per_day: 0.14
+    cost: medium
+    source: .github/workflows/openclaw-auto-fix.yml
+    self_heal: true
+    gate: telegram
+    purpose: Weekly sweep that repairs known fragile surfaces.
+
+  - id: log-monitor
+    name: Log Monitor (in-agent)
+    pattern: self-heal
+    level: L2
+    trigger: daemon
+    cadence: continuous (~30s scan)
+    runs_per_day: 24
+    cost: medium
+    source: agent/log_monitor.py
+    self_heal: true
+    gate: telegram
+    purpose: Watch app logs, fingerprint errors, file issues, propose fixes.
+
+  - id: log-watcher
+    name: Log Watcher (proxy daemon)
+    pattern: self-heal
+    level: L2
+    trigger: daemon
+    cadence: continuous (LOG_WATCHER_INTERVAL)
+    runs_per_day: 24
+    cost: medium
+    source: log_watcher.py
+    self_heal: true
+    gate: telegram
+    purpose: Daemon beside the proxy that turns error logs into issues/PRs.
+
+  - id: self-healing
+    name: Self-Healing Agent
+    pattern: self-heal
+    level: L2
+    trigger: daemon
+    cadence: continuous
+    runs_per_day: 24
+    cost: high
+    source: agent/self_healing.py
+    self_heal: true
+    gate: telegram
+    purpose: Diagnose runtime failures and apply bounded recovery actions.
+
+  # ── Learn / improve loops ───────────────────────────────────────────────
+  - id: continuous-improvement
+    name: Continuous Improvement
+    pattern: daily-triage
+    level: L2
+    trigger: schedule
+    cadence: daily (09:00 UTC)
+    runs_per_day: 1
+    cost: medium
+    source: .github/workflows/continuous-improvement.yml
+    self_heal: true
+    gate: none
+    purpose: Scan → test → report; file issues for regressions and TODOs.
+
+  - id: improvement-loop
+    name: Improvement Loop (in-agent)
+    pattern: daily-triage
+    level: L2
+    trigger: daemon
+    cadence: continuous
+    runs_per_day: 4
+    cost: medium
+    source: agent/improvement_loop.py
+    self_heal: false
+    gate: none
+    purpose: In-process loop that proposes incremental codebase improvements.
+
+  - id: trend-watcher
+    name: Trend Watcher (in-agent)
+    pattern: learn-scan
+    level: L1
+    trigger: daemon
+    cadence: continuous
+    runs_per_day: 2
+    cost: low
+    source: agent/trend_watcher.py
+    self_heal: false
+    gate: none
+    purpose: Watch industry trends and scope them against the repo.
+
+  - id: daily-industry-update
+    name: Daily Industry Update
+    pattern: learn-scan
+    level: L1
+    trigger: schedule
+    cadence: daily (08:00 UTC)
+    runs_per_day: 1
+    cost: low
+    source: .github/workflows/daily-industry-update.yml
+    self_heal: false
+    gate: none
+    purpose: Morning roll-up of industry/AI news for the agency.
+
+  - id: weekly-trend-digest
+    name: Weekly AI Trend Digest
+    pattern: learn-scan
+    level: L1
+    trigger: schedule
+    cadence: weekly (Mon 08:00 UTC)
+    runs_per_day: 0.14
+    cost: low
+    source: .github/workflows/weekly-trend-digest.yml
+    self_heal: false
+    gate: none
+    purpose: Distil the week's AI trends into actionable notes.
+
+  - id: user-research-scan
+    name: Weekly User-Research Scan
+    pattern: learn-scan
+    level: L1
+    trigger: schedule
+    cadence: weekly (Mon 03:00 UTC)
+    runs_per_day: 0.14
+    cost: low
+    source: .github/workflows/user-research-scan.yml
+    self_heal: false
+    gate: none
+    purpose: Mine user-research signals from the repo and issues.
+
+  - id: perplexity-maintenance
+    name: Perplexity Maintenance
+    pattern: dependency-sweeper
+    level: L2
+    trigger: schedule
+    cadence: weekly (Mon 02:00 UTC)
+    runs_per_day: 0.14
+    cost: medium
+    source: .github/workflows/perplexity-maintenance.yml
+    self_heal: false
+    gate: none
+    purpose: Research-backed maintenance — deps, advisories, doc freshness.
+
+  # ── Triage / orchestration loops ────────────────────────────────────────
+  - id: agency-cycle
+    name: Agency Cycle
+    pattern: daily-triage
+    level: L2
+    trigger: schedule
+    cadence: every 6 h
+    runs_per_day: 4
+    cost: medium
+    source: .github/workflows/agency-cycle.yml
+    self_heal: false
+    gate: telegram
+    purpose: Periodic agency orchestration — plan and dispatch work.
+
+  - id: process-quick-note
+    name: Process Quick Note
+    pattern: issue-triage
+    level: L2
+    trigger: schedule
+    cadence: every 4 h
+    runs_per_day: 6
+    cost: medium
+    source: .github/workflows/process-quick-note.yml
+    self_heal: false
+    gate: telegram
+    purpose: Turn quick-note issues into context + implementation PRs.
+
+  - id: enrich-quick-note-context
+    name: Enrich Quick-Note Context
+    pattern: issue-triage
+    level: L1
+    trigger: schedule
+    cadence: every 4 h
+    runs_per_day: 6
+    cost: low
+    source: .github/workflows/enrich-quick-note-context.yml
+    self_heal: false
+    gate: none
+    purpose: Propose-only context enrichment for quick-note issues.
+
+  - id: issue-context-generator
+    name: Issue Context Generator
+    pattern: issue-triage
+    level: L1
+    trigger: event
+    cadence: on issue opened
+    runs_per_day: 0
+    cost: low
+    source: .github/workflows/issue-context-generator.yml
+    self_heal: false
+    gate: none
+    purpose: Generate a context plan + draft PR for each new issue.
+
+  - id: agile-ceremonies
+    name: Agile Ceremonies
+    pattern: daily-triage
+    level: L1
+    trigger: schedule
+    cadence: weekdays (08:00 UTC)
+    runs_per_day: 0.71
+    cost: low
+    source: .github/workflows/agile-ceremonies.yml
+    self_heal: false
+    gate: none
+    purpose: Standup/retro ceremony automation and agile health checks.
+
+  - id: portfolio-refresh
+    name: Portfolio Refresh
+    pattern: daily-triage
+    level: L1
+    trigger: schedule
+    cadence: every 6 h
+    runs_per_day: 4
+    cost: low
+    source: .github/workflows/portfolio-refresh.yml
+    self_heal: false
+    gate: none
+    purpose: Recompute WSJF portfolio prioritisation.
+
+  - id: daily-digest
+    name: Daily Digest
+    pattern: daily-triage
+    level: L1
+    trigger: schedule
+    cadence: daily (09:00 UTC)
+    runs_per_day: 1
+    cost: low
+    source: .github/workflows/daily-digest.yml
+    self_heal: false
+    gate: none
+    purpose: Low-cost daily activity/status report.
+
+  # ── Housekeeping / hygiene loops ────────────────────────────────────────
+  - id: quick-note-claim-sweeper
+    name: Quick-Note Claim TTL Sweeper
+    pattern: post-merge-cleanup
+    level: L1
+    trigger: schedule
+    cadence: hourly
+    runs_per_day: 24
+    cost: low
+    source: .github/workflows/quick-note-claim-sweeper.yml
+    self_heal: true
+    gate: none
+    purpose: Reclaim expired quick-note claims so work never stalls.
+
+  - id: delete-merged-branch
+    name: Delete Merged Branch
+    pattern: post-merge-cleanup
+    level: L2
+    trigger: event
+    cadence: on PR merge
+    runs_per_day: 0
+    cost: low
+    source: .github/workflows/delete-merged-branch.yml
+    self_heal: false
+    gate: none
+    purpose: Keep the repo to master-only by deleting merged branches.
+
+  - id: dependabot-auto-merge
+    name: Dependabot Auto-merge
+    pattern: dependency-sweeper
+    level: L2
+    trigger: event
+    cadence: on dependabot PR
+    runs_per_day: 0
+    cost: low
+    source: .github/workflows/dependabot-auto-merge.yml
+    self_heal: false
+    gate: none
+    purpose: Auto-merge green dependency bumps.
+
+  - id: auto-merge
+    name: Auto-merge PR
+    pattern: pr-babysitter
+    level: L2
+    trigger: event
+    cadence: on checks complete (workflow_run)
+    runs_per_day: 0
+    cost: low
+    source: .github/workflows/auto-merge.yml
+    self_heal: false
+    gate: none
+    purpose: Merge PRs once required checks pass.
+
+  # ── Quality / safety gate loops ─────────────────────────────────────────
+  - id: nightly-regression
+    name: Nightly Regression
+    pattern: ci-sweeper
+    level: L1
+    trigger: schedule
+    cadence: nightly (00:00 UTC)
+    runs_per_day: 1
+    cost: medium
+    source: .github/workflows/nightly-regression.yml
+    self_heal: false
+    gate: none
+    purpose: Full regression run; file an issue on failure.
+
+  - id: security-scan
+    name: Security Scan
+    pattern: security-scan
+    level: L1
+    trigger: schedule
+    cadence: weekly (Mon 02:30 UTC)
+    runs_per_day: 0.14
+    cost: low
+    source: .github/workflows/security-scan.yml
+    self_heal: false
+    gate: none
+    purpose: Weekly dependency/secret/security scan.
+
+  - id: loop-audit
+    name: Loop Audit (meta)
+    pattern: self-heal
+    level: L1
+    trigger: schedule
+    cadence: weekly (Mon 06:00 UTC)
+    runs_per_day: 0.14
+    cost: low
+    source: .github/workflows/loop-audit.yml
+    self_heal: true
+    gate: none
+    purpose: Score fleet readiness and file an issue when the registry drifts.
+
+  - id: keepalive
+    name: Keep-alive Heartbeat
+    pattern: infra-heartbeat
+    level: L1
+    trigger: schedule
+    cadence: every 5 min
+    runs_per_day: 288
+    cost: low
+    source: .github/workflows/keepalive.yml
+    self_heal: true
+    gate: none
+    purpose: Ping the deploy to prevent free-tier spin-down.
