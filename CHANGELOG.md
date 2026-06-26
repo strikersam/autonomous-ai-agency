@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **DeepSeek V4 routing, Qwen 3.6 27B support, Continue EOL detection** (2026-06-25). Added routing support for DeepSeek V4 models and Qwen 3.6 27B. Updated Continue config for EOL detection.
+
 - **Self-heal Telegram escalations are now self-contained and actionable** (2026-06-25). The escalation page used to be an opaque heal id + title, forcing the operator to relay it to an agent to understand. `SelfHealingAgent._format_escalation()` now builds a message that carries the failure context inline (the error + category + suggested fix, lifted from the heal's description) plus clickable links built from `GITHUB_REPOSITORY`/`PUBLIC_URL` (Issues/PRs search, CI runs for CI failures, and the dashboard) so it can be acted on directly. Degrades gracefully when those env vars are unset.
 - **Layman README section: "Portfolio Management vs. Loop Engineering"** explaining the common ground and the differences (deciding *what* to do vs. the machine that gets it done and self-heals), including the note that the portfolio refresh is itself one of the catalogued loops.
 - **Loop Engineering governance layer — a legible, scored view of the autonomous loop fleet** (2026-06-25, closes #820). The repo already runs ~30 autonomous loops (cron workflows + in-process daemons such as `self_healing`, `log_monitor`, `improvement_loop`, `trend_watcher`), but they were uncatalogued and ungoverned. Inspired by [Loop Engineering](https://github.com/cobusgreyling/loop-engineering), this adds the "durable spine" the framework calls for, applied to this repo's reality rather than as new automations:

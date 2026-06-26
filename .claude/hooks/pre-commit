@@ -93,6 +93,18 @@ for f in $RISKY_PATHS; do
     fi
 done
 
+# ── 5. Documentation image links + README gallery sync ────────────────
+
+DOC_PY=$(command -v python3 || command -v python || echo "")
+if [ -n "$DOC_PY" ] && [ -f scripts/check_doc_images.py ]; then
+    if ! "$DOC_PY" scripts/check_doc_images.py; then
+        _error "Documentation image check failed (broken link or stale README gallery)."
+        ERRORS=$((ERRORS + 1))
+    else
+        _info "Doc image links + README gallery OK"
+    fi
+fi
+
 # ── Result ─────────────────────────────────────────────────────────────────────
 
 echo ""

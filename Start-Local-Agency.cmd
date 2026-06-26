@@ -1,5 +1,8 @@
 @echo off
 REM Double-click me to launch the Autonomous AI Agency on the local Ollama brain.
+<<<<<<< HEAD
+powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0start-local-agency.ps1"
+=======
 REM Requires: PowerShell 5.1+, Ollama, Python 3.13+, and models pulled via download_models.ps1
 
 REM Check if PowerShell is available
@@ -27,3 +30,4 @@ if %ERRORLEVEL% NEQ 0 (
     echo [FAIL] Agency launcher exited with error code %ERRORLEVEL%.
     pause
 )
+>>>>>>> origin/master
