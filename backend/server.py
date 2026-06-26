@@ -3533,6 +3533,205 @@ async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
     return {"allow_paid": update.allow_paid, "surfaces": update.surfaces}
 
 
+# ─── Brain config (DB-persisted, UI-switchable) ─────────────────────────────
+# PR #824 follow-up: implements docs/plans/db-brain-switcher.md.
+# The agency's "brain" (provider + planner/executor/verifier/judge models)
+# can be changed from the admin UI in one click, persisted in the DB, with
+# no redeploy. The store lives in services/brain_config_store.py and the
+# liveness prober in services/brain_liveness.py.
+#
+# Hard constraints (from the plan):
+#   1. Never land on a dead model — PATCH probes each changed model before
+#      saving and refuses (422) any that 404/410.
+#   2. Always keep the known-good ``nvidia/llama-3.3-nemotron-super-49b-v1``
+#      as the safe default.
+#   3. Admin-gated — reuse the existing ``get_current_user`` dependency +
+#      ``_is_admin`` check from ``backend.company_api``.
+#   4. Never log key values; the response shape includes only
+#      ``key_present`` flags, never the keys themselves.
+
+from services.brain_config_store import (  # noqa: E402 — late import to avoid cycle
+    BrainConfigPatch,
+    PROVIDER_KEY_ENV,
+    PROVIDER_PRESETS,
+    PROVIDER_DEFAULT_BASE_URL,
+    get_brain_config,
+    get_brain_config_store,
+    invalidate_brain_config_cache,
+    provider_api_key,
+    provider_base_url,
+    provider_key_present,
+    refresh_brain_config_cache,
+    set_brain_config as _set_brain_config,
+)
+from services.brain_liveness import probe_model_liveness  # noqa: E402
+
+
+def _require_admin(user: dict) -> None:
+    """Raise 403 unless *user* has the admin role.
+
+    Reuses ``backend.company_api._is_admin`` so the brain endpoints honour
+    the same role-tag convention as the rest of the admin surface.
+    """
+    from backend.company_api import _is_admin
+    if not _is_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Admin role required to view or change the brain config",
+        )
+
+
+def _brain_provider_status() -> list[dict]:
+    """Return per-provider metadata for the GET endpoint.
+
+    Surfaces ``key_present`` (bool) and the env-var name the operator would
+    need to set if the key is missing. Never includes the key itself.
+    """
+    out: list[dict] = []
+    for provider in ("cerebras", "groq", "nvidia", "ollama"):
+        out.append({
+            "provider_id": provider,
+            "key_present": provider_key_present(provider),
+            "key_env_var": PROVIDER_KEY_ENV.get(provider),
+            "base_url": provider_base_url(provider),
+            "presets": PROVIDER_PRESETS.get(provider, {}),
+        })
+    return out
+
+
+@app.get("/admin/api/policy/brain")
+async def get_brain_policy_route(user: dict = Depends(get_current_user)):
+    """Return the active brain config + per-provider key-present flags.
+
+    The response shape:
+      ``{config: BrainConfig, providers: [...], last_probe: {...}|null}``
+
+    Never includes API keys — only ``key_present`` booleans so the UI can
+    disable the "Apply" button when the chosen provider's key is missing.
+    """
+    _require_admin(user)
+    cfg = await refresh_brain_config_cache()
+    return {
+        "config": cfg.model_dump(mode="json"),
+        "providers": _brain_provider_status(),
+        "safe_default": {
+            "primary_provider": "nvidia",
+            "model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+        },
+    }
+
+
+@app.patch("/admin/api/policy/brain")
+async def patch_brain_policy_route(
+    patch: BrainConfigPatch,
+    user: dict = Depends(get_current_user),
+):
+    """Apply a partial brain config update.
+
+    Hard constraint: every changed model id is **probed for liveness before
+    save**. If any probe returns non-2xx (410/404/5xx/etc.) the entire
+    PATCH is rejected with HTTP 422 and a probe report — the persisted
+    config is unchanged so the agent loop keeps running on the last-known
+    good brain. The plan calls this the "never land on a dead model" guard.
+
+    Returns the applied config + the probe report so the UI can show a
+    green check on each role model.
+    """
+    _require_admin(user)
+    actor = str(user.get("email") or user.get("_id") or "admin")
+
+    # 1. Build the list of (role, model, provider) tuples to probe.
+    # Only probe fields the PATCH actually changes — if the operator only
+    # touched ``executor_model``, we don't re-probe planner/verifier/judge.
+    current = await get_brain_config()
+    new_provider = patch.primary_provider or current.primary_provider
+    fields_to_probe: list[tuple[str, str]] = []
+    if patch.planner_model is not None:
+        fields_to_probe.append(("planner", patch.planner_model))
+    if patch.executor_model is not None:
+        fields_to_probe.append(("executor", patch.executor_model))
+    if patch.verifier_model is not None:
+        fields_to_probe.append(("verifier", patch.verifier_model))
+    if patch.judge_model is not None:
+        fields_to_probe.append(("judge", patch.judge_model))
+
+    # 2. Probe each (provider, model) pair. Provider keys must be present
+    #    (or it must be Ollama) — otherwise the probe short-circuits with
+    #    a clear reason instead of firing a doomed HTTP request.
+    probe_report: list[dict] = []
+    failures: list[dict] = []
+    for role, model in fields_to_probe:
+        result = await probe_model_liveness(new_provider, model)
+        entry = {
+            "role": role,
+            "provider": new_provider,
+            "model": model,
+            "live": result.live,
+            "status_code": result.status_code,
+            "reason": result.reason,
+            "elapsed_ms": result.elapsed_ms,
+        }
+        probe_report.append(entry)
+        if not result.live:
+            failures.append(entry)
+
+    if failures:
+        # Refuse to persist — return 422 with the full probe report so the
+        # UI can highlight which role model failed and why.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Refusing to persist a dead model (liveness probe failed)",
+                "failures": failures,
+                "probe_report": probe_report,
+            },
+        )
+
+    # 3. All probes green — persist. ``set_brain_config`` invalidates the
+    #    brain_policy cache too so the next agent run picks up the change.
+    applied = await _set_brain_config(patch, actor=actor)
+    log.info(
+        "Brain config updated by %s: provider=%s planner=%s executor=%s verifier=%s judge=%s",
+        actor, applied.primary_provider,
+        applied.planner_model, applied.executor_model,
+        applied.verifier_model, applied.judge_model,
+    )
+    return {
+        "config": applied.model_dump(mode="json"),
+        "probe_report": probe_report,
+    }
+
+
+class BrainTestRequest(BaseModel):
+    """Body for POST /admin/api/policy/brain/test — probe without saving."""
+
+    provider: str
+    model: str
+
+
+@app.post("/admin/api/policy/brain/test")
+async def test_brain_model_route(
+    body: BrainTestRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Probe a ``(provider, model)`` pair without persisting.
+
+    Powers the UI "Test" button next to each model field. Returns the same
+    :class:`ProbeResult` shape the PATCH endpoint produces so the UI can
+    reuse the same render code.
+    """
+    _require_admin(user)
+    result = await probe_model_liveness(body.provider, body.model)
+    return {
+        "provider": result.provider,
+        "model": result.model,
+        "live": result.live,
+        "status_code": result.status_code,
+        "reason": result.reason,
+        "elapsed_ms": result.elapsed_ms,
+    }
+
+
 def _chat_provider_policy(
     *, allow_commercial_fallback_once: bool = False
 ) -> dict[str, bool]:

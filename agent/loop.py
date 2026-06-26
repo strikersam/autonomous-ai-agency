@@ -111,6 +111,18 @@ _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "anal
 # (``deepseek-r1:32b`` / ``qwen3-coder:30b``) are retained as last-resort
 # fallbacks for installs without NVIDIA_API_KEY — they remained usable when
 # this constant was introduced but the cloud-first defaults now win.
+#
+# ── DB-driven brain config (PR #824 follow-up) ──────────────────────────────
+# These constants are kept as the *final* fallback so nothing regresses, but
+# the **call-time** resolver ``_resolve_role_model`` (defined below) now sits
+# in front of them with precedence:
+#
+#     requested_model  →  BrainConfig (DB)  →  env var  →  safe default
+#
+# A DB change applied via the admin UI therefore takes effect on the next
+# agent run without a redeploy. The resolver lives in
+# ``services.brain_config_store`` so it can be reused by the workflow
+# orchestrator and the brain_policy module without circular imports.
 DEFAULT_PLANNER_MODEL = (
     os.environ.get("AGENT_PLANNER_MODEL")
     or os.environ.get("NVIDIA_DEFAULT_MODEL")
@@ -125,10 +137,44 @@ DEFAULT_VERIFIER_MODEL = (
     or os.environ.get("NVIDIA_DEFAULT_MODEL")
     or "nvidia/llama-3.3-nemotron-super-49b-v1"
 )
+# Default judge model — historically fell through to ``DEFAULT_VERIFIER_MODEL``.
+# Promoted to a named constant so the call-time resolver can route it through
+# the DB field ``judge_model`` (part of the BrainConfig card on the UI).
+DEFAULT_JUDGE_MODEL = (
+    os.environ.get("AGENT_JUDGE_MODEL")
+    or DEFAULT_VERIFIER_MODEL
+)
 # Ollama-local last-resort fallback when no NVIDIA key is configured.
 _DEFAULT_PLANNER_MODEL_OLLAMA = "deepseek-r1:32b"
 _DEFAULT_EXECUTOR_MODEL_OLLAMA = "qwen3-coder:30b"
 _DEFAULT_VERIFIER_MODEL_OLLAMA = "deepseek-r1:32b"
+
+
+def _resolve_role_model(role: str, requested: str | None = None) -> str:
+    """Call-time resolver for an agent role model id.
+
+    Delegates to ``services.brain_config_store.resolve_role_model_sync`` so
+    the DB-driven ``BrainConfig`` (set from the admin UI) takes effect
+    without a redeploy. Falls back to the module-level
+    ``DEFAULT_<ROLE>_MODEL`` constants if the store module is unavailable
+    (e.g. during early boot or in stripped-down test environments).
+
+    Never raises — returns the safe default on any error so the agent loop
+    can keep running.
+    """
+    try:
+        from services.brain_config_store import resolve_role_model_sync
+        return resolve_role_model_sync(role, requested)
+    except Exception:  # noqa: BLE001 — defensive; never block the loop
+        if requested and requested.strip():
+            return requested.strip()
+        const_map = {
+            "planner": DEFAULT_PLANNER_MODEL,
+            "executor": DEFAULT_EXECUTOR_MODEL,
+            "verifier": DEFAULT_VERIFIER_MODEL,
+            "judge": DEFAULT_JUDGE_MODEL,
+        }
+        return const_map.get(role, DEFAULT_VERIFIER_MODEL)
 
 # Nemotron Reward Model toggle (B1).  When NVIDIA_API_KEY is set, the reward
 # model scores step outputs as a cheaper/faster alternative to the LLM verifier.
@@ -452,7 +498,8 @@ class AgentRunner:
             # Judge the overall run result
             judge: dict[str, Any] = {}
             if step_results:
-                judge_model = requested_model or DEFAULT_VERIFIER_MODEL
+                # Call-time resolution: requested → BrainConfig (DB) → env → safe default.
+                judge_model = _resolve_role_model("judge", requested_model)
                 judge_messages = [
                     {
                         "role": "system",
@@ -615,7 +662,8 @@ class AgentRunner:
         )
         planner_model = planner_decision.resolved_model if not requested_model else requested_model
         if not planner_model:
-            planner_model = DEFAULT_PLANNER_MODEL
+            # Call-time resolution: requested → BrainConfig (DB) → env → safe default.
+            planner_model = _resolve_role_model("planner", requested_model)
         log.debug(
             "agent plan: model=%s [%s/%s]",
             planner_model, planner_decision.mode, planner_decision.selection_source,
@@ -656,7 +704,8 @@ class AgentRunner:
         )
         executor_model = executor_decision.resolved_model if not requested_model else requested_model
         if not executor_model:
-            executor_model = DEFAULT_EXECUTOR_MODEL
+            # Call-time resolution: requested → BrainConfig (DB) → env → safe default.
+            executor_model = _resolve_role_model("executor", requested_model)
         # Consult sub-agent configs for per-phase model selection (★2)
         editor_cfg = self.sub_agents.get("editor")
         if editor_cfg and editor_cfg.model:
@@ -668,7 +717,8 @@ class AgentRunner:
         )
         verifier_model = verifier_decision.resolved_model if not requested_model else requested_model
         if not verifier_model:
-            verifier_model = DEFAULT_VERIFIER_MODEL
+            # Call-time resolution: requested → BrainConfig (DB) → env → safe default.
+            verifier_model = _resolve_role_model("verifier", requested_model)
         # Consult sub-agent configs for verifier role (★2)
         reviewer_cfg = self.sub_agents.get("reviewer")
         if reviewer_cfg and reviewer_cfg.model:
