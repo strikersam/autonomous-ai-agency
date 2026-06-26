@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import secrets
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,84 @@ v4_router = APIRouter(prefix="/v4", tags=["v4 dashboard"])
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _STATE_FILE = _REPO_ROOT / ".claude" / "state" / "improvement-state.json"
 
+# ── TTL cache for expensive TaskStore queries ────────────────────────────────
+# Single-flight TTL cache prevents dashboard refresh bursts from hitting
+# MongoDB for every open tab. Default 8s, override via V4_TASKS_CACHE_TTL_SEC.
+# Reuses tasks/api.py's _safe_ttl so bounds/guards agree (rejects NaN/inf/zero).
+
+_TASKS_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_TASKS_CACHE_LOCK: asyncio.Lock | None = None
+
+try:
+    from tasks.api import _safe_ttl
+    _TASKS_CACHE_TTL: float = _safe_ttl("V4_TASKS_CACHE_TTL_SEC", 8.0)
+except ImportError:
+    _TASKS_CACHE_TTL = 8.0
+
+
+def _get_tasks_cache_lock() -> asyncio.Lock:
+    global _TASKS_CACHE_LOCK
+    if _TASKS_CACHE_LOCK is None:
+        _TASKS_CACHE_LOCK = asyncio.Lock()
+    return _TASKS_CACHE_LOCK
+
+
+async def _get_cached_tasks(limit: int = 50) -> list[dict]:
+    """Return cached task dicts; fetches + caches from TaskStore when stale.
+
+    Uses single-flight locking (same pattern as tasks/api.py) so concurrent
+    dashboard pollers share one MongoDB query per TTL window.
+    """
+    cache_key = f"tasks:{limit}"
+
+    # Fast path: serve from cache (no lock needed for read, CPython GIL-safe)
+    now = time.monotonic()
+    if cache_key in _TASKS_CACHE:
+        ts, cached = _TASKS_CACHE[cache_key]
+        if now - ts < _TASKS_CACHE_TTL:
+            return cached
+
+    try:
+        from tasks.store import get_task_store
+        store = get_task_store()
+
+        async with _get_tasks_cache_lock():
+            # Double-check: another waiter may have already populated the cache
+            now2 = time.monotonic()
+            if cache_key in _TASKS_CACHE:
+                ts, cached = _TASKS_CACHE[cache_key]
+                if now2 - ts < _TASKS_CACHE_TTL:
+                    return cached
+
+            tasks = await store.list_all(limit=limit)
+            result: list[dict] = [
+                {
+                    "task_id": t.task_id,
+                    "title": t.title,
+                    "status": t.status.value if hasattr(t.status, "value") else str(t.status),
+                    "priority": t.priority.value if hasattr(t.priority, "value") else str(t.priority),
+                    "agent_id": t.agent_id,
+                    "task_type": t.task_type,
+                    "tags": t.tags,
+                    "created_at": t.created_at,
+                    "updated_at": t.updated_at,
+                    "source": getattr(t, "source", "manual"),
+                }
+                for t in tasks
+            ]
+            _TASKS_CACHE[cache_key] = (time.monotonic(), result)
+
+            # Evict stale entries to prevent unbounded growth
+            now3 = time.monotonic()
+            stale = [k for k, (ts2, _) in _TASKS_CACHE.items() if now3 - ts2 >= _TASKS_CACHE_TTL]
+            for k in stale:
+                _TASKS_CACHE.pop(k, None)
+
+            return result
+    except Exception as exc:
+        log.debug("v4 tasks cache: TaskStore unavailable: %s", exc)
+        return []
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,6 +115,7 @@ async def _load_improvement_state() -> dict:
         return await asyncio.to_thread(lambda: json.loads(_STATE_FILE.read_text()))
     except Exception:
         return {}
+
 
 async def _save_improvement_state(data: dict) -> None:
     """Save the improvement state to disk (non-blocking)."""
@@ -100,9 +180,6 @@ async def v4_improvements_scan(request: Request) -> dict[str, Any]:
         if not loop:
             raise HTTPException(status_code=503, detail="ImprovementLoop not running")
 
-        # Fire scan in background to avoid blocking the HTTP request
-        # (pytest can take 60-120s). The dashboard polls /v4/improvements
-        # separately to see results.
         asyncio.create_task(_run_scan_background(loop))
         return {"accepted": True, "detail": "Scan started in background"}
     except HTTPException:
@@ -161,28 +238,25 @@ async def v4_improvements_resolve(issue_id: str, request: Request) -> dict[str, 
 
 @v4_router.get("/quick-notes")
 async def v4_quick_notes(request: Request) -> dict[str, Any]:
-    """List queued quick notes from the TaskStore."""
-    try:
-        from tasks.store import get_task_store
-        store = get_task_store()
-        tasks = await store.list_all(limit=50)
-        notes = []
-        pending = 0
-        for t in tasks:
-            if getattr(t, "task_type", "") == "quick_note":
-                d = t.as_dict()
-                notes.append({
-                    "note_id": d.get("task_id", ""),
-                    "content": d.get("title", ""),
-                    "status": d.get("status", "todo"),
-                    "added_at": d.get("created_at", ""),
-                })
-                if d.get("status") in ("todo", "in_progress", "blocked"):
-                    pending += 1
-        return {"notes": notes, "count": len(notes), "pending": pending}
-    except Exception as exc:
-        log.debug("v4/quick-notes: TaskStore unavailable, returning empty: %s", exc)
-        return {"notes": [], "count": 0, "pending": 0}
+    """List queued quick notes from the TaskStore.
+
+    Reuses the shared tasks cache so dashboard refresh bursts hit at most
+    one MongoDB query per TTL window for all task-related endpoints.
+    """
+    tasks = await _get_cached_tasks(limit=50)
+    notes = []
+    pending = 0
+    for t in tasks:
+        if t.get("task_type") == "quick_note":
+            notes.append({
+                "note_id": t.get("task_id", ""),
+                "content": t.get("title", ""),
+                "status": t.get("status", "todo"),
+                "added_at": t.get("created_at", ""),
+            })
+            if t.get("status") in ("todo", "in_progress", "blocked"):
+                pending += 1
+    return {"notes": notes, "count": len(notes), "pending": pending}
 
 
 # ── POST /v4/quick-notes ─────────────────────────────────────────────────────
@@ -215,6 +289,8 @@ async def v4_quick_notes_submit(body: V4QuickNoteBody, request: Request) -> dict
             pending_agent_run=True,
         )
         await workflow.create_task(task, actor="system:dashboard")
+        # Invalidate cache so the new note appears immediately in the dashboard
+        _TASKS_CACHE.clear()
         return {"note_id": task.task_id, "status": "queued", "channel": "task_store"}
     except Exception as exc:
         log.warning("v4/quick-notes: create failed, falling back to file: %s", exc)
@@ -323,28 +399,11 @@ async def v4_scheduler_trigger(job_id: str, request: Request) -> dict[str, Any]:
 
 @v4_router.get("/tasks")
 async def v4_tasks(request: Request, limit: int = 50) -> dict[str, Any]:
-    """List tasks from the TaskStore for the dashboard tasks screen."""
-    try:
-        from tasks.store import get_task_store
-        store = get_task_store()
-        tasks = await store.list_all(limit=limit)
-        return {
-            "tasks": [
-                {
-                    "task_id": t.task_id,
-                    "title": t.title,
-                    "status": t.status.value if hasattr(t.status, "value") else str(t.status),
-                    "priority": t.priority.value if hasattr(t.priority, "value") else str(t.priority),
-                    "agent_id": t.agent_id,
-                    "task_type": t.task_type,
-                    "tags": t.tags,
-                    "created_at": t.created_at,
-                    "updated_at": t.updated_at,
-                    "source": getattr(t, "source", "manual"),
-                }
-                for t in tasks
-            ]
-        }
-    except Exception as exc:
-        log.debug("v4/tasks: TaskStore unavailable: %s", exc)
-        return {"tasks": []}
+    """List tasks from the TaskStore for the dashboard tasks screen.
+
+    Delegates to _get_cached_tasks() which uses a single-flight TTL cache
+    (default 8s) to prevent dashboard refresh bursts from hitting MongoDB
+    for every open tab.
+    """
+    tasks = await _get_cached_tasks(limit=limit)
+    return {"tasks": tasks}
