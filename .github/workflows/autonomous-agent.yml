@@ -40,6 +40,11 @@ jobs:
       - name: Run autonomous agent
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          # Recommended free-cloud brain chain (Cerebras -> Groq -> NVIDIA NIM),
+          # selected by which key is present — the auto-PR scripts no longer
+          # hardcode the weak NIM 49B. Set CEREBRAS_API_KEY for the best results.
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           REPO: ${{ github.repository }}
           ISSUE_NUMBER_INPUT: ${{ github.event.inputs.issue_number }}

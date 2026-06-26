@@ -81,7 +81,7 @@ def find_duplicate_images() -> list[str]:
         return []
     by_hash: dict[str, list[str]] = {}
     for png in shots.rglob("*.png"):
-        digest = hashlib.md5(png.read_bytes()).hexdigest()
+        digest = hashlib.sha256(png.read_bytes()).hexdigest()
         by_hash.setdefault(digest, []).append(str(png.relative_to(ROOT)))
     return [", ".join(sorted(g)) for g in by_hash.values() if len(g) > 1]
 

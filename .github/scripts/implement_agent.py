@@ -64,7 +64,7 @@ OPUS_MODEL = "claude-opus-4-6"
 NVIDIA_CANDIDATE_MODELS = [
     ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
     ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
-    ("nvidia/llama-3.3-nemotron-super-49b-v1",  "reasoning (Nemotron Super 49B)"),
+    ("nvidia/llama-3.3-nemotron-super-49b-v1.5",  "reasoning (Nemotron Super 49B)"),
     ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
     ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
     ("qwen/qwen3-coder-480b-a35b-instruct",     "coding (Qwen3-Coder 480B — last resort)"),

@@ -28,6 +28,7 @@ from agent.prompts import (
     build_tool_prompt,
     build_verification_prompt,
 )
+from agent.harness_enrichment import get_enrichment
 from agent.react_loop import ReactScratchpad
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
@@ -106,7 +107,7 @@ _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "anal
 # Live-verified default brain models (2026-06-20 probe). The planner/verifier
 # path uses the reasoning-tuned 120B-a12b MoE; the executor path uses the dense
 # 49B (JSON-clean tool-calling). The dense 49B is also the explicit-opt-in
-# fallback — set AGENT_*_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1 anywhere
+# fallback — set AGENT_*_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1.5 anywhere
 # the operator prefers the dense model. The legacy Ollama-local names
 # (``deepseek-r1:32b`` / ``qwen3-coder:30b``) are retained as last-resort
 # fallbacks for installs without NVIDIA_API_KEY — they remained usable when
@@ -126,16 +127,16 @@ _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "anal
 DEFAULT_PLANNER_MODEL = (
     os.environ.get("AGENT_PLANNER_MODEL")
     or os.environ.get("NVIDIA_DEFAULT_MODEL")
-    or "nvidia/llama-3.3-nemotron-super-49b-v1"
+    or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 )
 DEFAULT_EXECUTOR_MODEL = (
     os.environ.get("AGENT_EXECUTOR_MODEL")
-    or "nvidia/llama-3.3-nemotron-super-49b-v1"
+    or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 )
 DEFAULT_VERIFIER_MODEL = (
     os.environ.get("AGENT_VERIFIER_MODEL")
     or os.environ.get("NVIDIA_DEFAULT_MODEL")
-    or "nvidia/llama-3.3-nemotron-super-49b-v1"
+    or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 )
 # Default judge model — historically fell through to ``DEFAULT_VERIFIER_MODEL``.
 # Promoted to a named constant so the call-time resolver can route it through
@@ -654,6 +655,8 @@ class AgentRunner:
     ) -> AgentPlan:
         user_memories = memory_store.recall_all(user_id) if memory_store and user_id else {}
         messages = build_planning_prompt(instruction, history, user_memories=user_memories)
+        # ── Harness enrichment: inject available tools + skills into planner ───
+        self._inject_enrichment(messages)
         planner_decision = get_router().route(
             requested_model=requested_model,
             messages=messages,
@@ -745,6 +748,8 @@ class AgentRunner:
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
                 tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                # ── Harness enrichment: inject tool + skill catalog into tool prompt ───
+                self._inject_enrichment(tool_messages)
                 # Inject ReAct scratchpad trace into the system message so the
                 # model can see its own reasoning across tool calls (A2)
                 scratchpad_ctx = scratchpad.to_prompt_context()
@@ -781,6 +786,20 @@ class AgentRunner:
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 scratchpad.record_thought(call.args.get("reason", "step complete"))
                 break
+            if call.tool == "execute_skill":
+                skill_result = self._execute_skill_tool(call.args)
+                observations.append({"tool": "execute_skill", "result": skill_result})
+                context_items.append({"tool": "execute_skill", "result": skill_result})
+                scratchpad.record_action("execute_skill", call.args)
+                scratchpad.record_observation(skill_result)
+                continue
+            if call.tool == "recommend_skills":
+                rec_result = self._recommend_skills_tool(call.args)
+                observations.append({"tool": "recommend_skills", "result": rec_result})
+                context_items.append({"tool": "recommend_skills", "result": rec_result})
+                scratchpad.record_action("recommend_skills", call.args)
+                scratchpad.record_observation(rec_result)
+                continue
             if call.tool == "spawn_subagent":
                 sub_result = await self._spawn_subagent(**call.args)
                 observations.append({"tool": "spawn_subagent", "result": sub_result.get("summary", str(sub_result))})
@@ -1079,7 +1098,13 @@ class AgentRunner:
             if not memory_store or not user_id:
                 return "(memory not available)"
             return self.tools.save_memory(str(args.get("key", "")), str(args.get("value", "")), user_id=user_id, memory_store=memory_store)
-        
+        # ├─ Skill execution (harness enrichment)
+        if tool == "execute_skill":
+            return self._execute_skill_tool(args)
+        if tool == "recommend_skills":
+            return self._recommend_skills_tool(args)
+
+        # ═══════════════════════════════════════════════════════════════════
         # GitHub Tools
         if tool == "github_read_repo_file":
             return await self.github.read_repo_file(
@@ -1313,7 +1338,7 @@ class AgentRunner:
                 _base = (os.environ.get("NVIDIA_BASE_URL") or "").strip().rstrip("/") or "https://integrate.api.nvidia.com"
                 if not _base.endswith("/v1"):
                     _base = f"{_base}/v1"
-                _model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or "nvidia/llama-3.3-nemotron-super-49b-v1"
+                _model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
                 return _base, {"Authorization": f"Bearer {_key}"}, _model
         _paid_allowed = _allow_paid_brain_fn()
         if (not _paid_allowed) and (_is_anthropic_model(model) or provider_is_anthropic):
@@ -1379,7 +1404,6 @@ class AgentRunner:
                     # Try to emit Langfuse observation asynchronously
                     if self.email:
                         try:
-                            
                             from langfuse_obs import emit_chat_observation
                             usage = {}
                             await asyncio.to_thread(
@@ -1441,7 +1465,6 @@ class AgentRunner:
                         out_text = "\n".join(out_parts)
                         if self.email:
                             try:
-                                
                                 from langfuse_obs import emit_chat_observation
                                 await asyncio.to_thread(
                                     emit_chat_observation,
@@ -1559,7 +1582,6 @@ class AgentRunner:
             ct = int(usage.get("completion_tokens") or 0)
             try:
                 from langfuse_obs import emit_chat_observation
-                
                 await asyncio.to_thread(
                     emit_chat_observation,
                     email=self.email,
@@ -1764,6 +1786,79 @@ class AgentRunner:
             log.warning("Auto-commit failed: %s", exc)
             return None
 
+    # ── Harness enrichment helpers ───────────────────────────────────────────
+
+    @staticmethod
+    def _inject_enrichment(messages: list[dict[str, str]]) -> None:
+        """Inject available tools + skills catalog into the system message.
+
+        Best-effort — never raises, never blocks the agent loop.
+        """
+        try:
+            enrichment = get_enrichment()
+            full = enrichment.build_full_enrichment()
+            if full:
+                sys_content = str(messages[0].get("content", ""))
+                messages[0]["content"] = f"{sys_content}\n\n{full}"
+        except Exception:
+            pass  # enrichment is best-effort — never break agent loop
+
+    # ── Skill execution helpers (harness enrichment) ─────────────────────────
+
+    @staticmethod
+    def _execute_skill_tool(args: dict[str, Any]) -> str:
+        """Execute a named skill via SkillBindings.
+
+        Called from the tool-call loop when the model selects 'execute_skill'.
+        """
+        skill_id = str(args.get("skill_id") or args.get("skill") or "")
+        if not skill_id:
+            return "[error: execute_skill requires a skill_id]"
+        try:
+            from services.skill_bindings import get_skill_bindings
+            sb = get_skill_bindings()
+            result = sb.execute_skill(skill_id, args.get("params") or {})
+            if result.get("success"):
+                res = result.get("result", "done")
+                return str(res)[:2000]
+            return f"[skill error: {result.get('error', 'unknown')}]"
+        except Exception as exc:
+            return f"[skill error: {exc}]"
+
+    @staticmethod
+    def _recommend_skills_tool(args: dict[str, Any]) -> str:
+        """Recommend skills relevant to the current task.
+
+        Called from the tool-call loop when the model selects 'recommend_skills'.
+        """
+        query = str(args.get("query") or args.get("task") or "")
+        try:
+            from services.skill_bindings import get_skill_bindings
+            sb = get_skill_bindings()
+            skills = sb.search(query) if query else sb.list_all()
+            # Return top 10 enabled skills with one-line descriptions
+            enabled = [s for s in skills if getattr(s, "is_enabled", True)][:10]
+            if not enabled:
+                # Try the SkillRegistry for a broader search
+                try:
+                    from agent.skill_registry import get_skill_registry_safe
+                    sr = get_skill_registry_safe()
+                    if sr:
+                        registry_skills = sr.search(query) if query else sr.list()
+                        top = registry_skills[:10]
+                        lines = [f"- {s.skill_id}: {s.description[:120]}" for s in top]
+                        return "RECOMMENDED SKILLS (from registry):\n" + "\n".join(lines) if lines else "(no relevant skills found)"
+                except Exception:
+                    pass
+                return "(no enabled skills match your query)"
+            lines = [
+                f"- {s.skill_id}: {s.description[:120]}"
+                for s in enabled
+            ]
+            return "RECOMMENDED SKILLS:\n" + "\n".join(lines) if lines else "(no skills found)"
+        except Exception as exc:
+            return f"[skill search error: {exc}]"
+
     async def _maybe_run_parallel(
         self,
         *,
@@ -1940,8 +2035,8 @@ class AgentRunner:
 # (undocumented on free tier at the time of probe), and deepseek-ai/deepseek-r1
 # (404) are removed — they would silently 4xx every FreeBuff run.
 _DEFAULT_FREE_NVIDIA_MODELS: tuple[str, ...] = (
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
     "meta/llama-3.3-70b-instruct",
     "meta/llama-3.1-70b-instruct",
 )

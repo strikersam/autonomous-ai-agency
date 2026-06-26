@@ -2390,8 +2390,13 @@ async def seed_default_providers():
     _nvidia_base = (
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
+    # Seed from the single source of truth so the seeded provider record never
+    # drifts from DEFAULT_FREE_NVIDIA_MODEL / the tests (a hardcoded `...49b-v1`
+    # here lagged the `...49b-v1.5` default and broke the brain/provider tests
+    # under MongoDB, where the seeded record persists and is read back).
+    from brain_policy import DEFAULT_FREE_NVIDIA_MODEL
     _nvidia_model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or DEFAULT_FREE_NVIDIA_MODEL
     )
     defaults = [
         {
@@ -8106,8 +8111,9 @@ app.include_router(portfolio_router)
 try:
     from agents.agile_api import agile_router
     app.include_router(agile_router)
+    log.info("Agile sprints API mounted at /api/agile")
 except Exception as _agile_err:
-    log.warning("Agile API not mounted: %s", _agile_err)
+    log.warning("Agile API not mounted: %s", _agile_err, exc_info=True)
 
 # Company Graph API
 from services.company_graph_store import get_company_graph_store

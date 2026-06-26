@@ -43,9 +43,12 @@ def test_agency_initial_status(agency: Agency):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_run_cycle_no_issues(tmp_path: Path, agency: Agency) -> None:
     """With no improvement loop available, falls back to rule-based, nominal."""
     with patch("agent.improvement_loop.get_improvement_loop", return_value=None), \
+         patch("agent.agency._fetch_github_quick_notes", new_callable=AsyncMock, return_value=[]), \
+         patch.dict("os.environ", {"SELF_BOOTSTRAP_ENABLED": "false"}), \
          patch.object(agency, "_dispatch_directive"), \
          patch.object(agency, "_ceo_assess_llm", new_callable=AsyncMock,
                       side_effect=lambda state: agency._ceo_assess_rules(state)):
@@ -56,6 +59,7 @@ async def test_run_cycle_no_issues(tmp_path: Path, agency: Agency) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_run_cycle_with_failing_tests(tmp_path: Path, agency: Agency) -> None:
     """Failing tests should trigger a Dev agent directive."""
     from agent.improvement_loop import ImprovementLoop, set_improvement_loop
@@ -65,7 +69,9 @@ async def test_run_cycle_with_failing_tests(tmp_path: Path, agency: Agency) -> N
     loop._state.last_test_result = "fail"
     set_improvement_loop(loop)
 
-    with patch.object(agency, "_dispatch_directive"), \
+    with patch("agent.agency._fetch_github_quick_notes", new_callable=AsyncMock, return_value=[]), \
+         patch.dict("os.environ", {"SELF_BOOTSTRAP_ENABLED": "false"}), \
+         patch.object(agency, "_dispatch_directive"), \
          patch.object(agency, "_ceo_assess_llm", new_callable=AsyncMock,
                       side_effect=lambda state: agency._ceo_assess_rules(state)):
         result = await agency.run_cycle()
@@ -76,6 +82,7 @@ async def test_run_cycle_with_failing_tests(tmp_path: Path, agency: Agency) -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_run_cycle_with_security_issues(tmp_path: Path, agency: Agency) -> None:
     """Security issues should trigger a Security agent directive."""
     from agent.improvement_loop import (
@@ -93,7 +100,9 @@ async def test_run_cycle_with_security_issues(tmp_path: Path, agency: Agency) ->
     loop._state.active_issues = [issue.as_dict()]
     set_improvement_loop(loop)
 
-    with patch.object(agency, "_dispatch_directive"), \
+    with patch("agent.agency._fetch_github_quick_notes", new_callable=AsyncMock, return_value=[]), \
+         patch.dict("os.environ", {"SELF_BOOTSTRAP_ENABLED": "false"}), \
+         patch.object(agency, "_dispatch_directive"), \
          patch.object(agency, "_ceo_assess_llm", new_callable=AsyncMock,
                       side_effect=lambda state: agency._ceo_assess_rules(state)):
         result = await agency.run_cycle()
@@ -103,6 +112,7 @@ async def test_run_cycle_with_security_issues(tmp_path: Path, agency: Agency) ->
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_ceo_assessment_nominal(tmp_path: Path, agency: Agency) -> None:
     """With no issues, CEO should report nominal."""
     from agent.improvement_loop import ImprovementLoop, set_improvement_loop
@@ -110,7 +120,9 @@ async def test_ceo_assessment_nominal(tmp_path: Path, agency: Agency) -> None:
     loop = ImprovementLoop(repo_root=tmp_path, scan_interval_hours=99)
     set_improvement_loop(loop)
 
-    with patch.object(agency, "_dispatch_directive"), \
+    with patch("agent.agency._fetch_github_quick_notes", new_callable=AsyncMock, return_value=[]), \
+         patch.dict("os.environ", {"SELF_BOOTSTRAP_ENABLED": "false"}), \
+         patch.object(agency, "_dispatch_directive"), \
          patch.object(agency, "_ceo_assess_llm", new_callable=AsyncMock,
                       side_effect=lambda state: agency._ceo_assess_rules(state)):
         result = await agency.run_cycle()
@@ -180,6 +192,7 @@ def test_build_ceo_prompt_includes_context():
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_run_cycle_with_trend_issues(tmp_path: Path, agency: Agency) -> None:
     """Trend issues should trigger a Scout directive on eligible cycles."""
     from agent.improvement_loop import (
@@ -200,7 +213,9 @@ async def test_run_cycle_with_trend_issues(tmp_path: Path, agency: Agency) -> No
     # Force cycle_count so that cycle % 3 == 0 (Scout condition)
     agency._cycle_count = 2  # will be incremented to 3 in run_cycle
 
-    with patch.object(agency, "_dispatch_directive"), \
+    with patch("agent.agency._fetch_github_quick_notes", new_callable=AsyncMock, return_value=[]), \
+         patch.dict("os.environ", {"SELF_BOOTSTRAP_ENABLED": "false"}), \
+         patch.object(agency, "_dispatch_directive"), \
          patch.object(agency, "_ceo_assess_llm", new_callable=AsyncMock,
                       side_effect=lambda state: agency._ceo_assess_rules(state)):
         result = await agency.run_cycle()
@@ -211,6 +226,7 @@ async def test_run_cycle_with_trend_issues(tmp_path: Path, agency: Agency) -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_directive_has_preferred_runtime(tmp_path: Path, agency: Agency) -> None:
     """Dev directives should prefer claude_code runtime."""
     from agent.improvement_loop import ImprovementLoop, set_improvement_loop
@@ -221,7 +237,9 @@ async def test_directive_has_preferred_runtime(tmp_path: Path, agency: Agency) -
     set_improvement_loop(loop)
 
     dispatched = []
-    with patch.object(agency, "_dispatch_directive", side_effect=dispatched.append), \
+    with patch("agent.agency._fetch_github_quick_notes", new_callable=AsyncMock, return_value=[]), \
+         patch.dict("os.environ", {"SELF_BOOTSTRAP_ENABLED": "false"}), \
+         patch.object(agency, "_dispatch_directive", side_effect=dispatched.append), \
          patch.object(agency, "_ceo_assess_llm", new_callable=AsyncMock,
                       side_effect=lambda state: agency._ceo_assess_rules(state)):
         result = await agency.run_cycle()
@@ -230,6 +248,7 @@ async def test_directive_has_preferred_runtime(tmp_path: Path, agency: Agency) -
     set_improvement_loop(None)
 
 
+@pytest.mark.timeout(120)
 def test_history_is_capped(agency: Agency):
     """Agency should cap history to 50 entries."""
     import asyncio
@@ -237,6 +256,8 @@ def test_history_is_capped(agency: Agency):
     async def _fill():
         for _ in range(55):
             with patch("agent.improvement_loop.get_improvement_loop", return_value=None), \
+                 patch("agent.agency._fetch_github_quick_notes", new_callable=AsyncMock, return_value=[]), \
+                 patch.dict("os.environ", {"SELF_BOOTSTRAP_ENABLED": "false"}), \
                  patch.object(agency, "_dispatch_directive"), \
                  patch.object(agency, "_ceo_assess_llm", new_callable=AsyncMock,
                               side_effect=lambda state: agency._ceo_assess_rules(state)):

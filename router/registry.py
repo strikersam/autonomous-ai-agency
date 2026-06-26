@@ -594,7 +594,7 @@ def best_model_for(
         candidates.sort(key=lambda c: c.cost_tier, reverse=True)
         return candidates[0].name
 
-    return os.environ.get("AGENT_EXECUTOR_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1")
+    return os.environ.get("AGENT_EXECUTOR_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1.5")
 
 
 def best_vision_model(registry: dict[str, ModelCapability] | None = None) -> str | None:
