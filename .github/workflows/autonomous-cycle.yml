@@ -1,0 +1,43 @@
+name: Autonomous Agency Cycle
+
+on:
+  schedule:
+    - cron: "*/2 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autonomous-cycle
+  cancel-in-progress: false
+
+jobs:
+  drive-agency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Execute agency tick
+        env:
+          BASE_URL: ${{ vars.KEEPALIVE_URL || 'https://local-llm-server.onrender.com' }}
+        run: |
+          echo "=== Agency Tick $(date -u) ==="
+          
+          # Wake the instance
+          curl -s -o /dev/null -w "ping: %{http_code}\n" --max-time 30 "$BASE_URL/api/ping" || echo "ping: failed"
+          
+          # Execute one task synchronously (blocks up to 90s for CEO + NVIDIA NIM)
+          echo "--- Executing tick ---"
+          curl -s --max-time 90 "$BASE_URL/api/autonomy/tick" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          ceo=d.get('ceo',{})
+          dispatch=d.get('dispatch',{})
+          print(f'CEO: triggered={ceo.get(\"triggered\")} issues={ceo.get(\"gh_api_count\")} directives={ceo.get(\"directives_issued\")}')
+          if ceo.get('error'): print(f'CEO error: {ceo[\"error\"]}')
+          print(f'Dispatch: ran={dispatch.get(\"ran\")} issue={dispatch.get(\"direct_issue_number\")} result={dispatch.get(\"result_status\")}')
+          if dispatch.get('task_title'): print(f'  task: {dispatch[\"task_title\"][:60]}')
+          if dispatch.get('error'): print(f'  error: {dispatch[\"error\"][:150]}')
+          " 2>/dev/null || echo "(tick timed out — task may still be running)"
+          
+          echo "=== Done ==="

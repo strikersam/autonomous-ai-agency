@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 WORKDIR /app
 
 COPY backend/requirements.txt backend/requirements.txt
+RUN echo "Cache bust: $CACHE_BUST"
+ARG CACHE_BUST=1
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Install the Chromium browser (+ OS deps) that Playwright drives for the
@@ -30,6 +32,7 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 RUN python -m playwright install --with-deps chromium
 
 COPY backend/ backend/
+RUN echo "Cache bust: $CACHE_BUST"
 COPY db/ db/
 COPY agent/ agent/
 COPY router/ router/
