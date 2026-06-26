@@ -271,7 +271,7 @@ class TestOrchestratorProviderFailover:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                raise asyncio.TimeoutError("provider A timed out")
+                raise TimeoutError("provider A timed out")
             return {"summary": "fallback worked", "steps": [], "judge": {}}
 
         records = _mock_provider_records(

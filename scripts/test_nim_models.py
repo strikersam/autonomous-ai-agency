@@ -19,7 +19,7 @@ BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 MODELS_TO_TEST = {
     "planner":           "qwen/qwen3-coder-480b-a35b-instruct",
-    "executor/verifier": "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "executor/verifier": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
     "judge":             "deepseek-ai/deepseek-v4-pro",
 }
 

@@ -470,7 +470,7 @@ def _parse_callback(data: str) -> tuple[str, str | None]:
 def _model_keyboard(models: list[str]) -> list[list[dict]]:
     """Build an inline keyboard mapping each free model to ``fb:model:<idx>``.
 
-    Model IDs (e.g. ``nvidia/llama-3.3-nemotron-super-49b-v1``) can exceed Telegram's
+    Model IDs (e.g. ``nvidia/llama-3.3-nemotron-super-49b-v1.5``) can exceed Telegram's
     64-byte callback_data limit, so we send the index and resolve it server-side
     from the per-user stored model list.
     """

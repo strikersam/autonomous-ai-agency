@@ -106,7 +106,7 @@ _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "anal
 # Live-verified default brain models (2026-06-20 probe). The planner/verifier
 # path uses the reasoning-tuned 120B-a12b MoE; the executor path uses the dense
 # 49B (JSON-clean tool-calling). The dense 49B is also the explicit-opt-in
-# fallback — set AGENT_*_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1 anywhere
+# fallback — set AGENT_*_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1.5 anywhere
 # the operator prefers the dense model. The legacy Ollama-local names
 # (``deepseek-r1:32b`` / ``qwen3-coder:30b``) are retained as last-resort
 # fallbacks for installs without NVIDIA_API_KEY — they remained usable when
@@ -114,16 +114,16 @@ _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "anal
 DEFAULT_PLANNER_MODEL = (
     os.environ.get("AGENT_PLANNER_MODEL")
     or os.environ.get("NVIDIA_DEFAULT_MODEL")
-    or "nvidia/llama-3.3-nemotron-super-49b-v1"
+    or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 )
 DEFAULT_EXECUTOR_MODEL = (
     os.environ.get("AGENT_EXECUTOR_MODEL")
-    or "nvidia/llama-3.3-nemotron-super-49b-v1"
+    or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 )
 DEFAULT_VERIFIER_MODEL = (
     os.environ.get("AGENT_VERIFIER_MODEL")
     or os.environ.get("NVIDIA_DEFAULT_MODEL")
-    or "nvidia/llama-3.3-nemotron-super-49b-v1"
+    or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 )
 # Ollama-local last-resort fallback when no NVIDIA key is configured.
 _DEFAULT_PLANNER_MODEL_OLLAMA = "deepseek-r1:32b"
@@ -1263,7 +1263,7 @@ class AgentRunner:
                 _base = (os.environ.get("NVIDIA_BASE_URL") or "").strip().rstrip("/") or "https://integrate.api.nvidia.com"
                 if not _base.endswith("/v1"):
                     _base = f"{_base}/v1"
-                _model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or "nvidia/llama-3.3-nemotron-super-49b-v1"
+                _model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
                 return _base, {"Authorization": f"Bearer {_key}"}, _model
         _paid_allowed = _allow_paid_brain_fn()
         if (not _paid_allowed) and (_is_anthropic_model(model) or provider_is_anthropic):
@@ -1329,7 +1329,6 @@ class AgentRunner:
                     # Try to emit Langfuse observation asynchronously
                     if self.email:
                         try:
-                            import asyncio
                             from langfuse_obs import emit_chat_observation
                             usage = {}
                             await asyncio.to_thread(
@@ -1391,7 +1390,6 @@ class AgentRunner:
                         out_text = "\n".join(out_parts)
                         if self.email:
                             try:
-                                import asyncio
                                 from langfuse_obs import emit_chat_observation
                                 await asyncio.to_thread(
                                     emit_chat_observation,
@@ -1509,7 +1507,6 @@ class AgentRunner:
             ct = int(usage.get("completion_tokens") or 0)
             try:
                 from langfuse_obs import emit_chat_observation
-                import asyncio
                 await asyncio.to_thread(
                     emit_chat_observation,
                     email=self.email,
@@ -1890,8 +1887,8 @@ class AgentRunner:
 # (undocumented on free tier at the time of probe), and deepseek-ai/deepseek-r1
 # (404) are removed — they would silently 4xx every FreeBuff run.
 _DEFAULT_FREE_NVIDIA_MODELS: tuple[str, ...] = (
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
     "meta/llama-3.3-70b-instruct",
     "meta/llama-3.1-70b-instruct",
 )
