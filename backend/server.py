@@ -3645,6 +3645,16 @@ async def patch_brain_policy_route(
     # touched ``executor_model``, we don't re-probe planner/verifier/judge.
     current = await get_brain_config()
     new_provider = patch.primary_provider or current.primary_provider
+    # The Ollama base URL is UI-configurable. Probe (and later persist) against
+    # the URL being set in this PATCH if supplied, else the currently-saved one,
+    # so a brand-new tunnel URL is validated against itself before it's stored.
+    probe_ollama_base: str | None = None
+    if new_provider == "ollama":
+        probe_ollama_base = (
+            patch.ollama_base_url
+            if patch.ollama_base_url is not None
+            else (current.ollama_base_url or None)
+        ) or None
     fields_to_probe: list[tuple[str, str]] = []
     if patch.planner_model is not None:
         fields_to_probe.append(("planner", patch.planner_model))
@@ -3655,13 +3665,24 @@ async def patch_brain_policy_route(
     if patch.judge_model is not None:
         fields_to_probe.append(("judge", patch.judge_model))
 
+    # If the operator only changed the Ollama tunnel URL (no model fields),
+    # still validate it by probing the current executor model against the new
+    # URL — otherwise a typo'd/dead tunnel could be persisted unchecked.
+    if (
+        new_provider == "ollama"
+        and patch.ollama_base_url is not None
+        and patch.ollama_base_url != (current.ollama_base_url or "")
+        and not fields_to_probe
+    ):
+        fields_to_probe.append(("executor", current.executor_model))
+
     # 2. Probe each (provider, model) pair. Provider keys must be present
     #    (or it must be Ollama) — otherwise the probe short-circuits with
     #    a clear reason instead of firing a doomed HTTP request.
     probe_report: list[dict] = []
     failures: list[dict] = []
     for role, model in fields_to_probe:
-        result = await probe_model_liveness(new_provider, model)
+        result = await probe_model_liveness(new_provider, model, base_url=probe_ollama_base)
         entry = {
             "role": role,
             "provider": new_provider,
@@ -3707,6 +3728,8 @@ class BrainTestRequest(BaseModel):
 
     provider: str
     model: str
+    # Optional Ollama base URL to test a typed-but-unsaved tunnel before Apply.
+    base_url: str | None = None
 
 
 @app.post("/admin/api/policy/brain/test")
@@ -3718,10 +3741,11 @@ async def test_brain_model_route(
 
     Powers the UI "Test" button next to each model field. Returns the same
     :class:`ProbeResult` shape the PATCH endpoint produces so the UI can
-    reuse the same render code.
+    reuse the same render code. ``base_url`` lets the Brain card validate a
+    new Ollama tunnel URL before it's saved.
     """
     _require_admin(user)
-    result = await probe_model_liveness(body.provider, body.model)
+    result = await probe_model_liveness(body.provider, body.model, base_url=body.base_url)
     return {
         "provider": result.provider,
         "model": result.model,

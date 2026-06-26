@@ -142,8 +142,18 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
+        # Ollama base URL is UI-configurable (DB-persisted via the Brain card)
+        # so a local/tunnelled Ollama can be the brain with no env edit. An
+        # explicit config value still wins; otherwise the DB/env/default resolver.
+        _resolved_ollama_base: str | None = None
+        try:
+            from services.brain_config_store import resolve_ollama_base_url
+            _resolved_ollama_base = resolve_ollama_base_url()
+        except Exception:  # pragma: no cover - defensive
+            _resolved_ollama_base = None
         self._ollama_base = (
             (config or {}).get("ollama_base")
+            or _resolved_ollama_base
             or os.environ.get("OLLAMA_BASE")
             or os.environ.get("OLLAMA_BASE_URL")
             or "http://localhost:11434"

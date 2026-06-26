@@ -772,15 +772,15 @@ means *nothing* there — the backend has to reach your box over the network.
    cloudflared tunnel --url http://localhost:11434
    # → https://<random>.trycloudflare.com   (quick tunnel; use a *named* tunnel for a fixed hostname)
    ```
-3. **Tell the backend where Ollama lives.** Set `OLLAMA_BASE` on the deploy
-   (e.g. in Render → Environment) to the tunnel URL:
-   ```bash
-   OLLAMA_BASE=https://<your-tunnel>.trycloudflare.com
-   ```
-4. **Select it in the Brain card.** Providers screen → Brain → provider **Ollama**
-   → set the role models to your local ids (`qwen3-coder:30b`, `deepseek-r1:32b`)
-   → **Test** (probes `OLLAMA_BASE/api/tags` and checks the model is pulled) →
-   **Apply**.
+3. **Paste the tunnel URL into the Brain card — no Render/env edit.** Providers
+   screen → Brain → provider **Ollama**. An **Ollama base URL** field appears:
+   paste your tunnel URL there (it's saved in the DB, not an env var). Set the
+   role models to your local ids (`qwen3-coder:30b`, `deepseek-r1:32b`) →
+   **Test** (probes *that* URL's `/api/tags` and checks the model is pulled) →
+   **Apply**. The saved URL is what the brain uses on the next run.
+
+   > `OLLAMA_BASE` env still works as a fallback if you'd rather set it on the
+   > deploy, but the UI field wins and is the recommended path.
 
 > **Keep it as a fallback, not the primary.** If your machine sleeps, the tunnel
 > dies and the brain can't reach it. The robust setup is a cloud brain (Cerebras)
