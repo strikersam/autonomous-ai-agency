@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- **NVIDIA NIM cloud default brain + BRAIN_PREFERENCE toggle for local Ollama** (2026-06-26). Makes NVIDIA NIM cloud the default brain provider for agent execution, with a runtime toggle to switch to local Ollama without restart:
+  - `brain_policy.py`: added `get_brain_preference()` reading `BRAIN_PREFERENCE` env var ("nvidia"/"ollama"/"auto"). When "ollama", filters to ollama-type provider records (supports custom Ollama endpoints) and skips cloud providers (NVIDIA, DeepSeek, etc.).
+  - `webui/router.py`: `GET /admin/api/policy/brain` returns `brain_preference` alongside the resolved brain. New `PATCH /admin/api/policy/brain` endpoint toggles NVIDIA/Ollama at runtime without restart.
+  - `webui/providers.py`: `ensure_defaults` seeds NVIDIA priority=10, Ollama priority=0.
+  - `backend/server.py`: `seed_default_providers` NVIDIA NIM priority=10 (was -10), Ollama local priority=0. Autonomy status endpoint detects Ollama brain fallback when NVIDIA key is absent.
+  - `.env.example`: documented `BRAIN_PREFERENCE` with toggle instructions.
+  - All NVIDIA model references updated to `nvidia/llama-3.3-nemotron-super-49b-v1.5` across the codebase (32 files).
+  - Tests: `test_autonomy_status.py` updated for Ollama brain detection. New tests in `test_brain_resolver.py`, `test_brain_default_model.py` for brain preference and default model resolution.
+
 ### Fixed
 
 - **Autonomous Fix workflow: auto-fix failing CI tests on PRs** (2026-06-25). New `autonomous-fix.yml` workflow that runs every 30 min, finds PRs with failing CI tests, reads the error logs, calls NVIDIA NIM to generate a fix, and pushes it to the PR's branch. CI re-runs automatically. This closes the loop: agent creates PR → CI fails → agent fixes tests → CI passes → auto-merge.
