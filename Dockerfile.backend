@@ -41,6 +41,7 @@ COPY mcp_server/ mcp_server/
 COPY schedules/ schedules/
 COPY docker/ docker/
 COPY runtimes/ runtimes/
+COPY loops/ loops/
 COPY tasks/ tasks/
 COPY handlers/ handlers/
 COPY workflow/ workflow/
