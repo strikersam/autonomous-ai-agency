@@ -28,6 +28,7 @@ from agent.prompts import (
     build_tool_prompt,
     build_verification_prompt,
 )
+from agent.harness_enrichment import get_enrichment
 from agent.react_loop import ReactScratchpad
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
@@ -654,6 +655,8 @@ class AgentRunner:
     ) -> AgentPlan:
         user_memories = memory_store.recall_all(user_id) if memory_store and user_id else {}
         messages = build_planning_prompt(instruction, history, user_memories=user_memories)
+        # ── Harness enrichment: inject available tools + skills into planner ───
+        self._inject_enrichment(messages)
         planner_decision = get_router().route(
             requested_model=requested_model,
             messages=messages,
@@ -745,6 +748,8 @@ class AgentRunner:
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
                 tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                # ── Harness enrichment: inject tool + skill catalog into tool prompt ───
+                self._inject_enrichment(tool_messages)
                 # Inject ReAct scratchpad trace into the system message so the
                 # model can see its own reasoning across tool calls (A2)
                 scratchpad_ctx = scratchpad.to_prompt_context()
@@ -781,6 +786,20 @@ class AgentRunner:
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 scratchpad.record_thought(call.args.get("reason", "step complete"))
                 break
+            if call.tool == "execute_skill":
+                skill_result = self._execute_skill_tool(call.args)
+                observations.append({"tool": "execute_skill", "result": skill_result})
+                context_items.append({"tool": "execute_skill", "result": skill_result})
+                scratchpad.record_action("execute_skill", call.args)
+                scratchpad.record_observation(skill_result)
+                continue
+            if call.tool == "recommend_skills":
+                rec_result = self._recommend_skills_tool(call.args)
+                observations.append({"tool": "recommend_skills", "result": rec_result})
+                context_items.append({"tool": "recommend_skills", "result": rec_result})
+                scratchpad.record_action("recommend_skills", call.args)
+                scratchpad.record_observation(rec_result)
+                continue
             if call.tool == "spawn_subagent":
                 sub_result = await self._spawn_subagent(**call.args)
                 observations.append({"tool": "spawn_subagent", "result": sub_result.get("summary", str(sub_result))})
@@ -1079,7 +1098,13 @@ class AgentRunner:
             if not memory_store or not user_id:
                 return "(memory not available)"
             return self.tools.save_memory(str(args.get("key", "")), str(args.get("value", "")), user_id=user_id, memory_store=memory_store)
-        
+        # ├─ Skill execution (harness enrichment)
+        if tool == "execute_skill":
+            return self._execute_skill_tool(args)
+        if tool == "recommend_skills":
+            return self._recommend_skills_tool(args)
+
+        # ═══════════════════════════════════════════════════════════════════
         # GitHub Tools
         if tool == "github_read_repo_file":
             return await self.github.read_repo_file(
@@ -1760,6 +1785,79 @@ class AgentRunner:
         except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
             log.warning("Auto-commit failed: %s", exc)
             return None
+
+    # ── Harness enrichment helpers ───────────────────────────────────────────
+
+    @staticmethod
+    def _inject_enrichment(messages: list[dict[str, str]]) -> None:
+        """Inject available tools + skills catalog into the system message.
+
+        Best-effort — never raises, never blocks the agent loop.
+        """
+        try:
+            enrichment = get_enrichment()
+            full = enrichment.build_full_enrichment()
+            if full:
+                sys_content = str(messages[0].get("content", ""))
+                messages[0]["content"] = f"{sys_content}\n\n{full}"
+        except Exception:
+            pass  # enrichment is best-effort — never break agent loop
+
+    # ── Skill execution helpers (harness enrichment) ─────────────────────────
+
+    @staticmethod
+    def _execute_skill_tool(args: dict[str, Any]) -> str:
+        """Execute a named skill via SkillBindings.
+
+        Called from the tool-call loop when the model selects 'execute_skill'.
+        """
+        skill_id = str(args.get("skill_id") or args.get("skill") or "")
+        if not skill_id:
+            return "[error: execute_skill requires a skill_id]"
+        try:
+            from services.skill_bindings import get_skill_bindings
+            sb = get_skill_bindings()
+            result = sb.execute_skill(skill_id, args.get("params") or {})
+            if result.get("success"):
+                res = result.get("result", "done")
+                return str(res)[:2000]
+            return f"[skill error: {result.get('error', 'unknown')}]"
+        except Exception as exc:
+            return f"[skill error: {exc}]"
+
+    @staticmethod
+    def _recommend_skills_tool(args: dict[str, Any]) -> str:
+        """Recommend skills relevant to the current task.
+
+        Called from the tool-call loop when the model selects 'recommend_skills'.
+        """
+        query = str(args.get("query") or args.get("task") or "")
+        try:
+            from services.skill_bindings import get_skill_bindings
+            sb = get_skill_bindings()
+            skills = sb.search(query) if query else sb.list_all()
+            # Return top 10 enabled skills with one-line descriptions
+            enabled = [s for s in skills if getattr(s, "is_enabled", True)][:10]
+            if not enabled:
+                # Try the SkillRegistry for a broader search
+                try:
+                    from agent.skill_registry import get_skill_registry_safe
+                    sr = get_skill_registry_safe()
+                    if sr:
+                        registry_skills = sr.search(query) if query else sr.list()
+                        top = registry_skills[:10]
+                        lines = [f"- {s.skill_id}: {s.description[:120]}" for s in top]
+                        return "RECOMMENDED SKILLS (from registry):\n" + "\n".join(lines) if lines else "(no relevant skills found)"
+                except Exception:
+                    pass
+                return "(no enabled skills match your query)"
+            lines = [
+                f"- {s.skill_id}: {s.description[:120]}"
+                for s in enabled
+            ]
+            return "RECOMMENDED SKILLS:\n" + "\n".join(lines) if lines else "(no skills found)"
+        except Exception as exc:
+            return f"[skill search error: {exc}]"
 
     async def _maybe_run_parallel(
         self,
