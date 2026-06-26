@@ -234,32 +234,37 @@ async def resolve_active_brain(
 
     # 2. Configured provider records — read the same source the Providers UI uses.
     #
-    # When BRAIN_PREFERENCE=ollama, skip provider records entirely — the operator
-    # wants the local Ollama brain, not the cloud. This bypasses the priority-based
-    # record selection so the toggle works even when NVIDIA records exist in MongoDB.
-    if get_brain_preference() != "ollama":
-        records, fetch_failed = await _read_provider_records()
-        if records:
+    # When BRAIN_PREFERENCE=ollama, prefer Ollama-type records over cloud providers
+    # rather than skipping records entirely (operator may have custom Ollama endpoints).
+    records, fetch_failed = await _read_provider_records()
+    if records:
+        if get_brain_preference() == "ollama":
+            # Filter to Ollama-type records only so a custom Ollama endpoint
+            # (e.g. a remote Ollama server) is preferred over the local fallback.
+            ollama_records = [r for r in records if str(r.get("type") or "").lower() == "ollama"]
+            if ollama_records:
+                picked = _pick_from_records(ollama_records, exclude)
+                if picked is not None:
+                    _cached_brain = picked
+                    return picked
+        else:
             picked = _pick_from_records(records, exclude)
             if picked is not None:
                 _cached_brain = picked
                 return picked
-            # Records exist but none are usable (all excluded / all missing key /
-            # only paid with ALLOW_PAID_BRAIN unset). Even when NVIDIA_API_KEY is
-            # set we refuse to silently call it here — the operator configured
-            # explicit records and they're all unavailable. Going to NVIDIA would
-            # be a fresh HTTP blast they didn't sanction. Fall through to local
-            # Ollama (mirrors services.workflow_orchestrator._resolve_brain_provider
-            # precedent and the binding contract in
-            # tests/test_brain_priority_scanner.py).
-            log.warning(
-                "brain_policy: provider records exist but no usable brain "
-                "(exclude_set=%d); falling back to local Ollama.",
-                len(exclude),
-            )
-    else:
-        records: list = []
-        fetch_failed = False
+        # Records exist but none are usable (all excluded / all missing key /
+        # only paid with ALLOW_PAID_BRAIN unset). Even when NVIDIA_API_KEY is
+        # set we refuse to silently call it here — the operator configured
+        # explicit records and they're all unavailable. Going to NVIDIA would
+        # be a fresh HTTP blast they didn't sanction. Fall through to local
+        # Ollama (mirrors services.workflow_orchestrator._resolve_brain_provider
+        # precedent and the binding contract in
+        # tests/test_brain_priority_scanner.py).
+        log.warning(
+            "brain_policy: provider records exist but no usable brain "
+            "(exclude_set=%d); falling back to local Ollama.",
+            len(exclude),
+        )
 
     # 3. Free NVIDIA NIM brain — default ONLY when the operator has no
     # configured provider records (not a DB outage). Skipping on fetch-failed
