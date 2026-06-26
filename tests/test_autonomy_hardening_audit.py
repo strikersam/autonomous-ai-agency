@@ -19,6 +19,18 @@ from agent.trend_watcher import TrendWatcher
 
 async def test_regress_redispatch_failure_escalates(monkeypatch):
     """If the re-dispatch coroutine raises, the heal escalates instead of stranding."""
+    # Belt-and-suspenders: this test drives a REAL escalation, which calls
+    # NotificationDispatcher.send_manual_notification(). Hard-disable it here so the
+    # test can NEVER page a human via Telegram even if the runtime pytest send-guard
+    # in telegram_service regresses or runs on an environment/branch that lacks it
+    # (the operator was paged with "recurring boom" from exactly such a stale run).
+    import telegram_service
+    monkeypatch.setattr(
+        telegram_service.NotificationDispatcher,
+        "send_manual_notification",
+        lambda self, message: None,
+    )
+
     healer = SelfHealingAgent()
     sig = heal_signature("manual", "recurring boom")
     await healer.on_manual_report("recurring boom", "context", signature=sig)
