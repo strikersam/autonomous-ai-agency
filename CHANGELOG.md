@@ -361,6 +361,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Zhipu GLM provider: update default model to glm-5.2 + fix provider resolution** (2026-06-26). The default Zhipu model was `glm-4-flash`/`glm-4.5-air` — updated to `glm-5.2`. Also: `resolve_provider_for()` now checks the DB BrainConfig FIRST (user's UI override), then falls back to brain_policy (NVIDIA), then DB provider records. Previously brain_policy always won, preventing Zhipu from being used even when configured via the UI.
+- **Dependabot PRs: fix changelog-check exemption for `chore(deps):` prefix** (2026-06-26). The changelog-check.yml case pattern `chore:*` didn't match `chore(deps):` because the `(` breaks the glob. Added `chore*:*` pattern to also match Dependabot's `chore(deps):` prefix.
+
 - **Tick endpoint: requeue blocked tasks automatically** (2026-06-26). Old tasks blocked from the dead 120b model and asyncio bug are stuck in BLOCKED state. The `/api/autonomy/tick` endpoint now requeues up to 5 blocked tasks per tick by resetting them to TODO with pending_agent_run=True and auto_retry_count=0. This clears the backlog of 20+ blocked tasks over 4-5 ticks (~10 min with the 2-min cron).
 
 - **Fix asyncio scoping bug: 'cannot access local variable'** (2026-06-26). Three `import asyncio` statements inside `_chat_text()` shadowed the module-level import, causing `asyncio.sleep()` in the rate-limit retry code to fail with `UnboundLocalError: cannot access local variable 'asyncio'`. Fix: removed all local `import asyncio` — the module-level import at line 18 is sufficient.

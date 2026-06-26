@@ -32,7 +32,7 @@ jobs:
           # Skip if this is a chore/ci/docs/style/test-only PR
           # (detected by PR title prefix — requires PR title convention)
           case "$PR_TITLE" in
-            chore:*|docs:*|style:*|ci:*|test:*|revert:*|build:*)
+            chore:*|chore*:*|docs:*|style:*|ci:*|test:*|revert:*|build:*)
               echo "ℹ Exempt PR prefix detected ('$PR_TITLE') — changelog check skipped."
               exit 0
               ;;

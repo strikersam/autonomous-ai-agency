@@ -1107,7 +1107,7 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
     ],
     "zhipu": [
         {
-            "id": "glm-4.5-air",
+            "id": "glm-5.2",
             "name": "GLM-4.5 Air",
             "role": ["planner", "executor", "verifier"],
             "tier": "balanced",
@@ -1182,9 +1182,9 @@ AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
         "verifier": "deepseek-reasoner",
     },
     "zhipu": {
-        "planner": "glm-4.5-air",
-        "executor": "glm-4.5-air",
-        "verifier": "glm-4.5-air",
+        "planner": "glm-5.2",
+        "executor": "glm-5.2",
+        "verifier": "glm-5.2",
     },
     "dashscope": {
         "planner": "qwen3-coder-30b-a3b",
@@ -2477,7 +2477,7 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": ZHIPU_BASE_URL,
             "api_key": ZHIPU_API_KEY,
-            "default_model": "glm-4.5-air",
+            "default_model": "glm-5.2",
             "is_default": LLM_PROVIDER == "zhipu",
             "priority": 60,
             "status": "configured" if ZHIPU_API_KEY else "unconfigured",

@@ -218,7 +218,39 @@ async def resolve_provider_for(
 
     Returns ``(openai_compatible_base_url, auth_headers_or_None, model_or_None)``.
     """
-    # ── Brain-policy first: free NVIDIA NIM always wins when configured ──
+    # ── DB BrainConfig first (user's UI override takes precedence) ──
+    # The admin UI lets the operator set per-role models (planner/executor/
+    # verifier/judge) via the BrainConfig card. This should take precedence
+    # over env-var-based brain_policy resolution.
+    from backend.server import (
+        _get_provider_policy,
+        _list_configured_provider_records,
+    )
+    try:
+        from services.brain_config_store import resolve_role_model_sync
+        db_model = resolve_role_model_sync(surface, None)
+        if db_model and db_model != "nvidia/llama-3.3-nemotron-super-49b-v1":
+            # DB config returned a non-default model — find the matching provider
+            records = list(await _list_configured_provider_records())
+            for rec in records:
+                rec_model = str(rec.get("default_model") or "").strip()
+                rec_base = str(rec.get("base_url") or "").strip()
+                rec_key = str(rec.get("api_key") or "").strip()
+                rec_type = str(rec.get("type") or "").lower()
+                if not rec_base or (rec_type != "ollama" and not rec_key):
+                    continue
+                # Match by model name or provider type
+                if rec_model == db_model or (rec_model and db_model and rec_model.split("/")[-1] == db_model.split("/")[-1]):
+                    if not rec_base.endswith("/v1") and rec_type != "anthropic":
+                        rec_base = f"{rec_base}/v1"
+                    headers = {"Authorization": f"Bearer {rec_key}"} if rec_key else None
+                    log.debug("resolve_provider_for(%s): using DB BrainConfig model=%s via %s", surface, db_model, rec.get("provider_id"))
+                    return rec_base, headers, db_model
+            # Model not found in provider records — try brain_policy as fallback
+    except Exception:
+        pass
+
+    # ── Brain-policy fallback: free NVIDIA NIM when no DB config ──
     try:
         import brain_policy
         nvidia = brain_policy.resolve_free_nvidia_brain()
@@ -230,11 +262,6 @@ async def resolve_provider_for(
             return base, headers, model
     except Exception:
         pass
-
-    from backend.server import (
-        _get_provider_policy,
-        _list_configured_provider_records,
-    )
 
     try:
         policy = await _get_provider_policy()

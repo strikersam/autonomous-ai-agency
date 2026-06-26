@@ -457,7 +457,7 @@ class ProviderRouter:
                     type="openai-compatible",
                     base_url="https://open.bigmodel.cn/api/paas/v4",
                     api_key=zhipu_key,
-                    default_model=os.environ.get("ZHIPU_MODEL") or "glm-4-flash",
+                    default_model=os.environ.get("ZHIPU_MODEL") or "glm-5.2",
                     priority=46,
                 )
             )
