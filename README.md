@@ -186,6 +186,37 @@ You see it in the morning: "PR merged, page restored at 3:12 AM"
 
 ---
 
+## Two layers, plain English: Portfolio Management vs. Loop Engineering
+
+People often ask how the **portfolio process** differs from **loop engineering**. They sound similar — both are about the agency running itself — but they answer two *different* questions and work at two *different* layers. You need both.
+
+> **The kitchen analogy.** Imagine a restaurant that runs itself.
+> - **Portfolio Management is the manager** deciding *what to cook tonight* — which dishes are worth the kitchen's limited time, based on what sells and how much effort each takes.
+> - **Loop Engineering is the kitchen line** that actually *cooks the food, tastes it, and re-cooks anything that's wrong* — on its own, every night, without someone standing over it.
+>
+> The manager points the kitchen at the right work; the kitchen is the machine that does the work and keeps itself running. A great manager with no kitchen ships nothing; a great kitchen with no manager cooks the wrong food.
+
+**What they have in common**
+- Both let the agency operate **without you micromanaging** every step.
+- Both are **continuous** — they run on a cadence, not once.
+- Both **feed each other**: the portfolio decides priorities; the loops carry them out and report back what got done.
+
+**Where they differ**
+
+| | **Portfolio Management** | **Loop Engineering** |
+|---|---|---|
+| **The question it answers** | *What should we work on, and in what order?* | *How does the work get done — and stay healthy — without me?* |
+| **Layer** | Deciding / prioritising (strategy) | Doing / orchestrating (execution) |
+| **How it decides** | **WSJF** — ranks big initiatives by *value ÷ effort* and lays out a Now / Next / Later roadmap | A repeating **schedule → do → check → fix → repeat** cycle with memory and self-healing |
+| **Time horizon** | Weeks to quarters (epics, roadmap) | Seconds to hours (each run, continuous) |
+| **If it's missing** | The agency works hard on the *wrong* things | The right work *never actually gets done or maintained* |
+
+**The neat part:** in this repo, the portfolio process is *itself just one of the loops*. The roadmap refresh runs on its own cadence (every 6 h) like every other autonomous loop — catalogued alongside the rest in [`loops/registry.yaml`](loops/registry.yaml). So **Loop Engineering is the operating model for the whole machine, and Portfolio Management is the planning discipline that one of those loops runs to aim the others.**
+
+One line to remember: **Portfolio Management points the machine at the highest-value work; Loop Engineering *is* the machine that runs itself.**
+
+---
+
 ## The full agent capability roster
 
 ### Engineering

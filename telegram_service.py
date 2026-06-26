@@ -239,6 +239,14 @@ def _telegram_sends_suppressed() -> bool:
     via ``ALLOW_TEST_TELEGRAM=1``. This is the guard behind the recurring
     "self-heal escalation — recurring boom" pages.
 
+    We check **both** ``PYTEST_CURRENT_TEST`` *and* ``"pytest" in sys.modules``.
+    The former is cleared between tests, so a send fired from a background
+    daemon thread (e.g. the self-heal re-dispatch task that escalates *after*
+    the test function returns) could otherwise slip through. ``"pytest" in
+    sys.modules`` stays true for the entire pytest-launched process — including
+    background threads and post-test callbacks — and is never true in a normal
+    production deploy, which doesn't import pytest. That closes the gap.
+
     Scope: applied to ``_notify_telegram`` (the ad-hoc / escalation / manual
     notification path that the boom escalation uses and which is *not* mocked
     by the offending test). The approval-gate (``_send_telegram_keyboard``) and
@@ -247,7 +255,7 @@ def _telegram_sends_suppressed() -> bool:
     """
     if os.environ.get("ALLOW_TEST_TELEGRAM", "").strip() == "1":
         return False
-    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    return bool(os.environ.get("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules)
 
 
 class NotificationDispatcher:
