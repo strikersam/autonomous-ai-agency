@@ -197,14 +197,17 @@ async def resolve_active_brain(
     ``tests/test_brain_priority_scanner.py``):
 
       1. ``AGENT_LLM_BASE_URL`` env override (role: env_override)
-      2. Highest-priority configured provider record (role: brain)
+      2. **DB-persisted ``BrainConfig``** (PR #824 follow-up) — when the
+         admin UI has applied a brain config, that provider wins over both
+         env vars and provider records. role: ``brain_config``.
+      3. Highest-priority configured provider record (role: brain)
          - paid providers skipped unless no free alternative exists AND
            ``ALLOW_PAID_BRAIN=true`` is explicitly set.
          - any base_url whose /v1-normalised form is in ``exclude_base_urls``
            is skipped (failover retry path).
-      3. ``brain_policy.resolve_free_nvidia_brain()`` default (role: free_fallback)
+      4. ``brain_policy.resolve_free_nvidia_brain()`` default (role: free_fallback)
          - Skipped when ``BRAIN_PREFERENCE=ollama`` — operator wants local only.
-      4. Local Ollama fallback (role: ollama_local)
+      5. Local Ollama fallback (role: ollama_local)
     """
     global _cached_brain
     exclude = {_norm(u) for u in (exclude_base_urls or set())}
@@ -231,6 +234,50 @@ async def resolve_active_brain(
         )
         _cached_brain = resolution
         return resolution
+
+    # 2. DB-persisted BrainConfig (PR #824). The admin UI writes here via
+    # PATCH /admin/api/policy/brain, with a mandatory liveness probe before
+    # save so we never persist a dead model. When set, it wins over both
+    # env vars (other than the kill-switch above) and the provider records
+    # — that's the whole point of "one-click change from the UI".
+    try:
+        from services.brain_config_store import (
+            get_brain_config,
+            provider_api_key,
+            provider_base_url,
+            SAFE_DEFAULT_MODEL,
+        )
+        cfg = await get_brain_config()
+        # Only honour the DB config when it has actually been set by an
+        # operator (updated_at is empty on the safe-default boot state).
+        # This keeps the existing test contract intact: when no PATCH has
+        # been issued, the resolver falls through to provider records / env.
+        if cfg.updated_at:
+            provider = cfg.primary_provider
+            base = provider_base_url(provider)
+            if base:
+                key = provider_api_key(provider)
+                if provider == "ollama" or key:
+                    if not base.endswith("/v1") and provider != "ollama":
+                        base = f"{base}/v1"
+                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                    # Pick the role model — executor is the hot-path call.
+                    model = cfg.executor_model or cfg.planner_model or SAFE_DEFAULT_MODEL
+                    if _norm(base) not in exclude:
+                        resolution = BrainResolution(
+                            provider_id=f"brain_config:{provider}",
+                            base_url=base,
+                            auth_headers=headers,
+                            model=model,
+                            role="brain_config",
+                            free_tier=True,
+                            source="brain_config_store",
+                            priority=9_000,
+                        )
+                        _cached_brain = resolution
+                        return resolution
+    except Exception as exc:  # noqa: BLE001 — never block resolution
+        log.debug("brain_policy: BrainConfig lookup failed (%s) — continuing", exc)
 
     # 2. Configured provider records — read the same source the Providers UI uses.
     #

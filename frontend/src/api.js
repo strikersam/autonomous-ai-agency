@@ -473,3 +473,12 @@ export const getAgencyStatus = () => API.get('/agent/agency/status');
 // ── Provider Policy ─────────────────────────────────────────────────────────
 export const getProviderPolicy    = ()     => API.get('/api/providers/policy');
 export const updateProviderPolicy = (data) => API.put('/api/providers/policy', data);
+
+// ── Brain config (DB-persisted, UI-switchable) ─────────────────────────────
+// PR #824 follow-up: change the agency's brain (provider + planner/executor/
+// verifier/judge models) from the admin UI in one click, persisted in the DB,
+// with no redeploy. Hard constraint: PATCH probes each changed model for
+// liveness before save and refuses (422) any that 404/410.
+export const getBrainConfig       = ()                  => API.get('/admin/api/policy/brain');
+export const patchBrainConfig     = (patch)             => API.patch('/admin/api/policy/brain', patch);
+export const testBrainModel       = (provider, model)   => API.post('/admin/api/policy/brain/test', { provider, model });

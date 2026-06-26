@@ -2,6 +2,7 @@
 import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
 import * as api from '../../api';
+import BrainCard from '../components/BrainCard';
 
 
 // providers.jsx — V5.0: All providers + Ollama model management + MCP servers tab
@@ -669,6 +670,10 @@ function ProvidersScreen() {
 
       {tab === 'providers' && (
         <>
+          {/* DB-persisted brain config (PR #824) — change provider + per-role
+              models in one click, persisted in DB, no redeploy. */}
+          <BrainCard />
+
           {/* Paid-Provider Kill Switch */}
           <div style={{
             borderRadius: 16,
