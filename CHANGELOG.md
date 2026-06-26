@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Added preliminary SIA framework for self-improving agents, requiring model and harness implementation. (issue #383)
+
 - **DeepSeek V4 routing, Qwen 3.6 27B support, Continue EOL detection** (2026-06-25). Added routing support for DeepSeek V4 models and Qwen 3.6 27B. Updated Continue config for EOL detection.
 
 - **Self-heal Telegram escalations are now self-contained and actionable** (2026-06-25). The escalation page used to be an opaque heal id + title, forcing the operator to relay it to an agent to understand. `SelfHealingAgent._format_escalation()` now builds a message that carries the failure context inline (the error + category + suggested fix, lifted from the heal's description) plus clickable links built from `GITHUB_REPOSITORY`/`PUBLIC_URL` (Issues/PRs search, CI runs for CI failures, and the dashboard) so it can be acted on directly. Degrades gracefully when those env vars are unset.
