@@ -19,6 +19,7 @@ import CompanyScreen from './screens/CompanyScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import DoctorScreen from './screens/DoctorScreen';
 import AdminScreen from './screens/AdminScreen';
+import SamVoiceScreen from './screens/SamVoiceScreen';
 import AlertsBell from './screens/AlertsBell';
 import QuickNotesFAB from './screens/QuickNotesFAB';
 import ActivationGate from './screens/ActivationGate';
@@ -60,7 +61,7 @@ function AdminLocked() {
 const V5_SCREENS = [
   'chat', 'dashboard', 'tasks', 'agents', 'schedules', 'skills', 'portfolio',
   'intelligence', 'knowledge', 'providers', 'loops', 'github', 'logs', 'company',
-  'onboarding', 'doctor', 'admin',
+  'onboarding', 'doctor', 'admin', 'sam',
 ];
 
 function screenFromPath(pathname) {
@@ -108,6 +109,7 @@ export default function V5App() {
     onboarding:   <OnboardingScreen onComplete={() => go('company')} isAdmin={isAdmin} />,
     doctor:       <DoctorScreen onNavigate={go} />,
     admin:        isAdmin ? <AdminScreen /> : <AdminLocked />,
+    sam:          <SamVoiceScreen />,
   };
   return (
     <ActivationGate>
