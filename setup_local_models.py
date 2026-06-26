@@ -121,7 +121,7 @@ class LocalLLMSetup:
         # namespaced id. Kept as the explicit value the user sees in the wizard;
         # always pass through the operator's input unchanged when they type a
         # custom name. Free tooling over hardcoded defaults wins on coverage.
-        default_model = "nvidia/llama-3.3-nemotron-super-49b-v1"
+        default_model = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
         model_choice = input(
             f"Model to use [{default_model}]: "
         ).strip()
@@ -318,4 +318,4 @@ class LocalLLMSetup:
 
 if __name__ == "__main__":
     setup = LocalLLMSetup()
-    setup.run()
+    setup.r

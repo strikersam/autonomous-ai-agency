@@ -15,8 +15,8 @@ Ordered for agentic/tool-calling workloads:
 # List of (model_id, human_label) tuples — used by implement_agent.py and
 # apply_review.py which display the label in logs.
 NVIDIA_CANDIDATE_MODELS: list[tuple[str, str]] = [
-    ("nvidia/llama-3.3-nemotron-super-49b-v1",      "Nemotron-3 Super 120B (primary - reasoning MoE, ~12B active/call)"),
-    ("nvidia/llama-3.3-nemotron-super-49b-v1", "Nemotron Super 49B (fast dense fallback)"),
+    ("nvidia/llama-3.3-nemotron-super-49b-v1.5",      "Nemotron-3 Super 120B (primary - reasoning MoE, ~12B active/call)"),
+    ("nvidia/llama-3.3-nemotron-super-49b-v1.5", "Nemotron Super 49B (fast dense fallback)"),
     ("meta/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick (fast fallback)"),
     ("meta/llama-3.3-70b-instruct",            "Llama 3.3 70B (reliable last resort)"),
 ]
@@ -26,4 +26,4 @@ NVIDIA_CANDIDATE_MODELS: list[tuple[str, str]] = [
 NVIDIA_MODEL_IDS: list[str] = [model_id for model_id, _label in NVIDIA_CANDIDATE_MODELS]
 
 # Keep old name as alias for backward compatibility
-CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
+CANDIDATE_MODELS = NVIDIA_CANDIDATE_MO

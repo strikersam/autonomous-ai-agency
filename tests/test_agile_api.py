@@ -5,12 +5,14 @@ import os
 
 import pytest
 
+from backend.server import ADMIN_EMAIL
+
 
 @pytest.fixture()
 def auth_headers(client):
-    """Get auth headers for an admin user."""
+    """Get auth headers for the seeded admin user (matched to seed_admin email)."""
     admin_password = os.environ.get("ADMIN_PASSWORD", "")
-    resp = client.post("/api/auth/login", json={"email": "admin@test.local", "password": admin_password})
+    resp = client.post("/api/auth/login", json={"email": ADMIN_EMAIL, "password": admin_password})
     if resp.status_code == 200:
         token = resp.json().get("access_token") or resp.json().get("token")
         if token:

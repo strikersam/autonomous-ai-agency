@@ -99,7 +99,7 @@ def test_brain_skips_paid_when_free_configured(monkeypatch):
              "default_model": "claude-sonnet-4-6", "priority": 999},
             {"provider_id": "nvidia-nim", "type": "openai-compatible",
              "base_url": "https://integrate.api.nvidia.com", "api_key": "nvapi-x",
-             "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1", "priority": 5},
+             "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5", "priority": 5},
         ),
     )
 
@@ -210,7 +210,7 @@ def test_cache_invalidates_on_next_resolution(monkeypatch):
         lambda: _records(
             {"provider_id": "nvidia-nim", "type": "openai-compatible",
              "base_url": "https://integrate.api.nvidia.com", "api_key": "nv-x",
-             "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1", "priority": 5},
+             "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5", "priority": 5},
         ),
     )
 
@@ -240,7 +240,7 @@ def test_workflow_orchestrator_still_returns_same_tuple_shape(monkeypatch):
         lambda: _records(
             {"provider_id": "nvidia-nim", "type": "openai-compatible",
              "base_url": "https://integrate.api.nvidia.com", "api_key": "nv-x",
-             "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1", "priority": 5},
+             "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5", "priority": 5},
         ),
     )
 
@@ -249,7 +249,7 @@ def test_workflow_orchestrator_still_returns_same_tuple_shape(monkeypatch):
     assert "nvidia" in base.lower()
     # Headers passed through unchanged.
     assert headers and "nv-x" in str(headers)
-    assert model == "nvidia/llama-3.3-nemotron-super-49b-v1"
+    assert model == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 
 
 def test_workflow_orchestrator_supports_exclude_base_urls(monkeypatch):
@@ -285,7 +285,7 @@ def test_role_tags_classify_correctly(monkeypatch):
         lambda: _records(
             {"provider_id": "nvidia-nim", "type": "openai-compatible",
              "base_url": "https://integrate.api.nvidia.com", "api_key": "nv-x",
-             "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1", "priority": 0},
+             "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5", "priority": 0},
             {"provider_id": "anthropic", "type": "anthropic",
              "base_url": "https://api.anthropic.com/v1", "api_key": "sk-x",
              "default_model": "claude-sonnet-4-6", "priority": -90},

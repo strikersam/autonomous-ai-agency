@@ -45,11 +45,11 @@ def _nvidia_defaults() -> dict[str, str]:
         # routing reviewer through the 120B-a12b reasoning model rather than
         # the dense 49B used for coder.
         return {
-            "architect": "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "architect": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
             "scout":     "meta/llama-3.3-70b-instruct",
-            "coder":     "nvidia/llama-3.3-nemotron-super-49b-v1",
-            "reviewer":  "nvidia/llama-3.3-nemotron-super-49b-v1",
-            "verifier":  "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "coder":     "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "reviewer":  "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "verifier":  "nvidia/llama-3.3-nemotron-super-49b-v1.5",
         }
     if os.environ.get("DEEPSEEK_API_KEY"):
         return {

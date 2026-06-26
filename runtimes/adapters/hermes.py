@@ -77,9 +77,21 @@ class HermesAdapter(RuntimeAdapter):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
+        # Base URL resolution: explicit config → our own resolver (HERMES_BASE_URL
+        # env → http://localhost:8100). The resolver is the single source of truth
+        # so the in-repo Hermes server (services/hermes_server.py) is reachable via
+        # the docker-compose default with no extra config.
+        _resolved_hermes: str | None = None
+        try:
+            from services.brain_config_store import resolve_hermes_base_url
+            _resolved_hermes = resolve_hermes_base_url()
+        except Exception:  # pragma: no cover - defensive
+            _resolved_hermes = None
         self._base_url = (
-            config.get("base_url") if config else None
-        ) or os.environ.get("HERMES_BASE_URL", "http://localhost:8100")
+            (config.get("base_url") if config else None)
+            or _resolved_hermes
+            or os.environ.get("HERMES_BASE_URL", "http://localhost:8100")
+        )
         self._api_key = (
             config.get("api_key") if config else None
         ) or os.environ.get("HERMES_API_KEY", "")
