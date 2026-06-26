@@ -8106,8 +8106,9 @@ app.include_router(portfolio_router)
 try:
     from agents.agile_api import agile_router
     app.include_router(agile_router)
+    log.info("Agile sprints API mounted at /api/agile")
 except Exception as _agile_err:
-    log.warning("Agile API not mounted: %s", _agile_err)
+    log.warning("Agile API not mounted: %s", _agile_err, exc_info=True)
 
 # Company Graph API
 from services.company_graph_store import get_company_graph_store
