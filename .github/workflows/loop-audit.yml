@@ -1,0 +1,76 @@
+name: Loop Audit
+
+# Loop Engineering's loop-audit, run as a loop. Keeps the loop fleet catalogue
+# (loops/registry.yaml) honest: it fails a PR that adds a cron-scheduled
+# workflow without cataloguing it, and on a weekly cadence files an issue if the
+# registry has drifted from the workflows on disk. See loops/LOOP.md.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "loops/registry.yaml"
+      - "agent/loop_registry.py"
+  schedule:
+    - cron: "0 6 * * 1"   # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    name: Audit loop fleet readiness & drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install minimal deps
+        run: pip install --quiet pydantic pyyaml
+
+      # Invoke as a standalone file (not `python -m agent.loop_registry`) so it
+      # never triggers agent/__init__.py, which imports the full agent stack
+      # (httpx, fastapi, …). The module itself only needs stdlib + pydantic + yaml.
+      - name: Run loop-audit (report)
+        run: python agent/loop_registry.py audit
+
+      # On PRs: fail fast if the registry has drifted (a new scheduled workflow
+      # was not catalogued, or a catalogued loop's source file was deleted).
+      - name: Enforce no drift (PR gate)
+        if: github.event_name == 'pull_request'
+        run: python agent/loop_registry.py audit --check
+
+      # On the weekly schedule: detect drift and file/refresh a tracking issue
+      # so the catalogue self-heals instead of silently rotting.
+      - name: Detect drift (scheduled)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        id: drift
+        run: |
+          if python agent/loop_registry.py audit --check > audit.txt 2>&1; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+          fi
+          cat audit.txt
+
+      - name: File drift issue
+        if: steps.drift.outputs.drift == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          TITLE="loop-audit: loop registry has drifted"
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number' || echo "")
+          BODY=$(printf 'The weekly loop-audit detected drift between `loops/registry.yaml` and the workflows on disk.\n\n```\n%s\n```\n\nFix by updating the registry (see `loops/LOOP.md`).' "$(cat audit.txt)")
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --label "loop-audit" || \
+              gh issue create --title "$TITLE" --body "$BODY"
+          fi

@@ -5784,6 +5784,197 @@ async def get_public_kpis() -> dict:
     }
 
 
+# ── Autonomy status cache (non-blocking) ──────────────────────────────────────
+# The CEO cycle + task execution can take 60-120s (NVIDIA NIM call).
+# /api/autonomy/status must return immediately, so the CEO + dispatch
+# run as a background task and the result is cached here. The cache is
+# refreshed on every hit if the previous background task has completed.
+_autonomy_ceo_cache: dict[str, object] = {"triggered": False}
+_autonomy_dispatch_cache: dict[str, object] = {"ran": False}
+_autonomy_bg_task: asyncio.Task | None = None
+_autonomy_bg_last_run: float = 0.0
+
+async def _autonomy_bg_cycle():
+    """Background CEO cycle + task dispatch. Runs fire-and-forget."""
+    global _autonomy_ceo_cache, _autonomy_dispatch_cache, _autonomy_bg_last_run
+    try:
+        import datetime
+        # ── CEO agency: force-start + fire cycle ──
+        ceo_status: dict[str, object] = {"triggered": False}
+        try:
+            from agent.scheduler import get_scheduler
+            from tasks.automation import TaskAutomationService
+            from tasks.store import get_task_store
+            sched = get_scheduler()
+            if sched._on_fire is None:
+                task_automation = TaskAutomationService(store=get_task_store())
+                sched.set_on_fire(task_automation.handle_scheduled_job)
+                try:
+                    import asyncio as _aio_loop
+                    sched.attach_main_loop(_aio_loop.get_running_loop())
+                except Exception:
+                    pass
+                ceo_status["scheduler_wired"] = True
+        except Exception as exc:
+            ceo_status["scheduler_wire_error"] = str(exc)[:100]
+
+        try:
+            from agent.agency import Agency, get_agency, set_agency, _gh_token, _gh_repo
+            ceo_status["gh_token_set"] = bool(_gh_token())
+            ceo_status["gh_repo"] = _gh_repo() or "MISSING"
+            agency = get_agency()
+            if agency is None or not agency._running:
+                agency = Agency()
+                try:
+                    import asyncio as _aio
+                    agency.attach_main_loop(_aio.get_running_loop())
+                except Exception:
+                    pass
+                set_agency(agency)
+                agency.start()
+                ceo_status["started"] = True
+            if agency is not None and agency._running:
+                import asyncio as _asyncio
+                result = await _asyncio.wait_for(agency.run_cycle(), timeout=60.0)
+                ceo_status["triggered"] = True
+                ceo_status["directives_issued"] = result.directives_issued
+                ceo_status["cycle_id"] = result.cycle_id
+                ceo_status["ceo_assessment"] = result.ceo_assessment[:200]
+                ceo_status["quick_notes_seen"] = result.improvement_issues_seen
+                try:
+                    qn = agency._last_quick_notes
+                    ceo_status["quick_notes_actionable"] = len(qn.get("actionable", []))
+                    ceo_status["quick_notes_exhausted_closed"] = qn.get("exhausted_closed", 0)
+                except Exception:
+                    pass
+                try:
+                    import agent.agency as _ag
+                    ceo_status["gh_api_status"] = _ag._last_gh_fetch_status
+                    ceo_status["gh_api_count"] = _ag._last_gh_fetch_count
+                    ceo_status["gh_api_error"] = _ag._last_gh_fetch_error[:100] if _ag._last_gh_fetch_error else ""
+                except Exception:
+                    pass
+                ceo_status["cycle_id"] = result.cycle_id
+        except Exception as exc:
+            ceo_status["error"] = str(exc)[:200]
+        _autonomy_ceo_cache = ceo_status
+
+        # ── Task dispatch ──
+        dispatch_status: dict[str, object] = {"ran": False}
+        if os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").strip().lower() in ("true", "1", "yes"):
+            import asyncio as _aio_wait
+            await _aio_wait.sleep(1.0)
+            try:
+                from tasks.store import get_task_store
+                from tasks.service import TaskExecutionCoordinator
+                store = get_task_store()
+                pending = await store.list_pending(limit=1)
+                if not pending:
+                    try:
+                        from tasks.models import Task
+                        from tasks.service import TaskWorkflowService
+                        import agent.agency as _ag
+                        import httpx
+                        token = _ag._gh_token()
+                        repo = _ag._gh_repo()
+                        if token and repo:
+                            async with httpx.AsyncClient(timeout=15) as client:
+                                resp = await client.get(
+                                    f"https://api.github.com/repos/{repo}/issues",
+                                    params={"state": "open", "per_page": "50", "sort": "created", "direction": "asc"},
+                                    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+                                )
+                                if resp.status_code == 200:
+                                    all_issues = [i for i in resp.json() if "pull_request" not in i]
+                                    actionable = [
+                                        i for i in all_issues
+                                        if "quick-note:exhausted" not in [lb.get("name","") for lb in i.get("labels", [])]
+                                    ]
+                                    if actionable:
+                                        issue = actionable[0]
+                                        is_qn = "quick-note" in [lb.get("name","") for lb in issue.get("labels", [])]
+                                        prefix = "quick-note" if is_qn else "issue"
+                                        task = Task(
+                                            owner_id="system",
+                                            title=f"{prefix} #{issue['number']}: {issue['title'][:50]}",
+                                            description=f"Implement GitHub issue #{issue['number']}: {issue['title']}",
+                                            prompt=(issue.get("body") or "")[:2000],
+                                            task_type="quick_note" if is_qn else "issue",
+                                            tags=[lb["name"] for lb in issue.get("labels", [])] + ["needs-implementation"],
+                                            source="ceo_direct",
+                                            pending_agent_run=True,
+                                        )
+                                        wf = TaskWorkflowService(store=store)
+                                        await wf.create_task(task, actor="system:ceo_direct")
+                                        dispatch_status["direct_task_created"] = task.task_id
+                                        dispatch_status["direct_issue_number"] = issue["number"]
+                                        import asyncio as _aio_sync
+                                        await _aio_sync.sleep(0.5)
+                                        pending = await store.list_pending(limit=1)
+                    except Exception as exc:
+                        dispatch_status["direct_task_error"] = str(exc)[:100]
+                if pending:
+                    task_id = pending[0].task_id
+                    dispatch_status["task_id"] = task_id
+                    dispatch_status["task_title"] = pending[0].title[:60]
+                    dispatch_status["pending_agent_run"] = pending[0].pending_agent_run
+                    try:
+                        from tasks.service import _brain_is_configured
+                        dispatch_status["brain_configured"] = await _brain_is_configured()
+                    except Exception as exc:
+                        dispatch_status["brain_configured"] = f"error: {exc}"[:100]
+                    try:
+                        from runtimes.base import TaskSpec
+                        from runtimes.adapters.internal_agent import InternalAgentAdapter
+                        import services.workflow_orchestrator as _wo
+                        task = pending[0]
+                        task.status = "in_progress"
+                        task.pending_agent_run = False
+                        await store.update(task)
+                        spec = TaskSpec(
+                            task_id=task_id,
+                            instruction=task.prompt or task.title,
+                            task_type=task.task_type or "general",
+                            workspace_path=str(ROOT_DIR),
+                            context={"owner_id": task.owner_id, "title": task.title},
+                        )
+                        _bypass_token = _wo._BYPASS.set(True)
+                        try:
+                            adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
+                            import asyncio as _aio2
+                            result, decision = await _aio2.wait_for(
+                                adapter.execute(spec), timeout=30.0
+                            )
+                        finally:
+                            _wo._BYPASS.reset(_bypass_token)
+                        task.result = result.output
+                        task.status = "done" if result.success else "failed"
+                        task.error_message = None if result.success else "Execution failed"
+                        await store.update(task)
+                        dispatch_status["ran"] = True
+                        dispatch_status["result_status"] = task.status
+                        dispatch_status["result_error"] = (task.error_message or "")[:100]
+                    except Exception as exc:
+                        dispatch_status["ran"] = False
+                        dispatch_status["error"] = str(exc)[:200]
+                        try:
+                            task = await store.get(task_id)
+                            if task:
+                                task.status = "failed"
+                                task.error_message = str(exc)[:500]
+                                await store.update(task)
+                        except Exception:
+                            pass
+                else:
+                    dispatch_status["pending_count"] = 0
+            except Exception as exc:
+                dispatch_status["error"] = str(exc)[:200]
+        _autonomy_dispatch_cache = dispatch_status
+        _autonomy_bg_last_run = time.time()
+    except Exception as exc:
+        log.warning("Autonomy background cycle error: %s", exc)
+
+
 @app.get("/api/autonomy/status")
 async def autonomy_status() -> dict[str, object]:
     """Public autonomy readiness probe — no authentication required.
@@ -5822,13 +6013,28 @@ async def autonomy_status() -> dict[str, object]:
             "base_url": nv_base,
         }
     else:
-        brain = {
-            "configured": False,
-            "provider": None,
-            "model": None,
-            "base_url": None,
-        }
-        missing_secrets.append("NVIDIA_API_KEY")
+        # No NVIDIA brain — check whether a local Ollama brain is configured
+        # instead (laptop/desktop usage via BRAIN_PREFERENCE=ollama or a plain
+        # OLLAMA_BASE). Only fall through to "no_brain" when neither is set.
+        ollama_base = (
+            os.environ.get("OLLAMA_BASE", "").strip()
+            or os.environ.get("OLLAMA_BASE_URL", "").strip()
+        )
+        if ollama_base:
+            brain = {
+                "configured": True,
+                "provider": "ollama",
+                "model": OLLAMA_MODEL,
+                "base_url": ollama_base,
+            }
+        else:
+            brain = {
+                "configured": False,
+                "provider": None,
+                "model": None,
+                "base_url": None,
+            }
+            missing_secrets.append("NVIDIA_API_KEY")
 
     # ── Autonomy loops: report each engine's live running state. Under a bare
     #    TestClient (no lifespan startup) none are bootstrapped, so they read
@@ -5917,209 +6123,21 @@ async def autonomy_status() -> dict[str, object]:
     #    issues every time someone checks the status. The cycle is
     #    idempotent (deduplicates directives) and runs on the request's
     #    event loop, so it safely touches Motor/aiosqlite clients.
-    ceo_status: dict[str, object] = {"triggered": False}
-    try:
-        # Ensure the scheduler's on_fire is wired to TaskAutomationService.
-        # On Render, start_background_services() may not have run
-        # (RUN_BACKGROUND_IN_WEB might be false on the dashboard), so the
-        # scheduler's on_fire callback was never set. Without this, CEO
-        # directives go to scheduler.create() → _fire() → no-op (on_fire=None).
+    # Return cached CEO + dispatch results (populated by background task)
+    ceo_status = dict(_autonomy_ceo_cache)
+    dispatch_status = dict(_autonomy_dispatch_cache)
+
+    # Fire background CEO + dispatch cycle if not already running and
+    # at least 30 seconds since last run
+    import time as _time_mod
+    global _autonomy_bg_task
+    if (_autonomy_bg_task is None or _autonomy_bg_task.done()) and        (_time_mod.time() - _autonomy_bg_last_run > 30):
         try:
-            from agent.scheduler import get_scheduler
-            from tasks.automation import TaskAutomationService
-            from tasks.store import get_task_store
-            sched = get_scheduler()
-            if sched._on_fire is None:
-                task_automation = TaskAutomationService(store=get_task_store())
-                sched.set_on_fire(task_automation.handle_scheduled_job)
-                # Also attach the main loop so _fire() can dispatch coroutines
-                try:
-                    import asyncio as _aio_loop
-                    sched.attach_main_loop(_aio_loop.get_running_loop())
-                except Exception:
-                    pass
-                ceo_status["scheduler_wired"] = True
-        except Exception as exc:
-            ceo_status["scheduler_wire_error"] = str(exc)[:100]
+            _autonomy_bg_task = asyncio.create_task(_autonomy_bg_cycle())
+        except Exception:
+            pass
 
-        from agent.agency import Agency, get_agency, set_agency, _gh_token, _gh_repo
-        # Diagnostic: show what the CEO sees for GH_TOKEN / GITHUB_REPOSITORY
-        ceo_status["gh_token_set"] = bool(_gh_token())
-        ceo_status["gh_repo"] = _gh_repo() or "MISSING"
-        agency = get_agency()
-        if agency is None or not agency._running:
-            # Force-start the CEO agency — AGENCY_CEO_ENABLED may be false
-            # on Render, but the /api/autonomy/status endpoint should still
-            # drive work. Create + start the agency directly.
-            agency = Agency()
-            try:
-                import asyncio as _aio
-                agency.attach_main_loop(_aio.get_running_loop())
-            except Exception:
-                pass
-            set_agency(agency)
-            agency.start()
-            ceo_status["started"] = True
-        if agency is not None and agency._running:
-            # Fire a CEO cycle on the request's event loop
-            import asyncio as _asyncio
-            result = await _asyncio.wait_for(agency.run_cycle(), timeout=60.0)
-            ceo_status["triggered"] = True
-            ceo_status["directives_issued"] = result.directives_issued
-            ceo_status["cycle_id"] = result.cycle_id
-            ceo_status["ceo_assessment"] = result.ceo_assessment[:200]
-            ceo_status["quick_notes_seen"] = result.improvement_issues_seen
-            # Show the actual quick-note fetch result
-            try:
-                qn = agency._last_quick_notes
-                ceo_status["quick_notes_actionable"] = len(qn.get("actionable", []))
-                ceo_status["quick_notes_exhausted_closed"] = qn.get("exhausted_closed", 0)
-            except Exception:
-                pass
-            # Show the GitHub API response status
-            try:
-                import agent.agency as _ag
-                ceo_status["gh_api_status"] = _ag._last_gh_fetch_status
-                ceo_status["gh_api_count"] = _ag._last_gh_fetch_count
-                ceo_status["gh_api_error"] = _ag._last_gh_fetch_error[:100] if _ag._last_gh_fetch_error else ""
-            except Exception:
-                pass
-            ceo_status["cycle_id"] = result.cycle_id
-    except Exception as exc:
-        ceo_status["error"] = str(exc)[:200]
-
-    # ── Task dispatcher: execute one pending task on the request's event loop ──
-    #    On Render free tier, the TaskDispatcher background task gets killed
-    #    when the instance spins down. Pending tasks pile up. This executes
-    #    ONE pending task per status check, directly on the request's event
-    #    loop, so work gets done even without the background dispatcher.
-    #    Skip in tests (SELF_BOOTSTRAP_ENABLED=false) to avoid interfering
-    #    with unit tests that mock the DB and assert exact call counts.
-    dispatch_status: dict[str, object] = {"ran": False}
-    if os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").strip().lower() in ("true", "1", "yes"):
-        # Give the scheduler's fire-and-forget create_task a moment to
-        # actually create the Task record before we check for pending tasks.
-        import asyncio as _aio_wait
-        await _aio_wait.sleep(1.0)
-        try:
-            from tasks.store import get_task_store
-            from tasks.service import TaskExecutionCoordinator
-            store = get_task_store()
-            pending = await store.list_pending(limit=1)
-            # If no pending tasks but the CEO dispatched directives, create
-            # a task directly (bypass the scheduler) as a fallback. This
-            # ensures work gets done even if the scheduler's on_fire
-            # callback failed silently.
-            if not pending and ceo_status.get("directives_issued", 0) > 0:
-                from tasks.models import Task, TaskStatus
-                from tasks.service import TaskWorkflowService
-                wf = TaskWorkflowService(store=store)
-                # Create a task for the first actionable quick-note
-                try:
-                    import agent.agency as _ag
-                    qn = _ag._last_gh_fetch_count
-                    if qn > 0:
-                        # Fetch the first quick-note issue directly
-                        import httpx
-                        token = _ag._gh_token()
-                        repo = _ag._gh_repo()
-                        if token and repo:
-                            async with httpx.AsyncClient(timeout=15) as client:
-                                resp = await client.get(
-                                    f"https://api.github.com/repos/{repo}/issues",
-                                    params={"state": "open", "labels": "quick-note", "per_page": "1"},
-                                    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-                                )
-                                if resp.status_code == 200:
-                                    issues = resp.json()
-                                    if issues:
-                                        issue = issues[0]
-                                        task = Task(
-                                            owner_id="system",
-                                            title=f"quick-note #{issue['number']}: {issue['title'][:50]}",
-                                            description=f"Implement GitHub issue #{issue['number']}",
-                                            prompt=issue.get("body", "")[:2000],
-                                            task_type="quick_note",
-                                            tags=["quick-note", "needs-implementation"],
-                                            source="ceo_direct",
-                                            pending_agent_run=True,
-                                        )
-                                        await wf.create_task(task, actor="system:ceo_direct")
-                                        dispatch_status["direct_task_created"] = task.task_id
-                                        # Wait for the store to sync
-                                        import asyncio as _aio_sync
-                                        await _aio_sync.sleep(0.5)
-                                        pending = await store.list_pending(limit=1)
-                except Exception as exc:
-                    dispatch_status["direct_task_error"] = str(exc)[:100]
-            if pending:
-                task_id = pending[0].task_id
-                dispatch_status["task_id"] = task_id
-                dispatch_status["task_title"] = pending[0].title[:60]
-                dispatch_status["pending_agent_run"] = pending[0].pending_agent_run
-                # Check if brain is configured (the coordinator gates on this)
-                try:
-                    from tasks.service import _brain_is_configured
-                    dispatch_status["brain_configured"] = await _brain_is_configured()
-                except Exception as exc:
-                    dispatch_status["brain_configured"] = f"error: {exc}"[:100]
-                # Execute the task directly via the runtime, bypassing the
-                # coordinator's _claim_task (which uses an in-memory lock
-                # that gets stuck on Render free tier when the instance
-                # spins down mid-execution).
-                try:
-                    from runtimes.base import TaskSpec
-                    from runtimes.adapters.internal_agent import InternalAgentAdapter
-                    import services.workflow_orchestrator as _wo
-                    task = pending[0]
-                    # Mark as in-progress
-                    task.status = "in_progress"
-                    task.pending_agent_run = False
-                    await store.update(task)
-                    # Build spec
-                    spec = TaskSpec(
-                        task_id=task_id,
-                        instruction=task.prompt or task.title,
-                        task_type=task.task_type or "general",
-                        workspace_path=str(ROOT_DIR),
-                        context={"owner_id": task.owner_id, "title": task.title},
-                    )
-                    # Set the orchestrator bypass (sanctioned execution)
-                    _bypass_token = _wo._BYPASS.set(True)
-                    try:
-                        adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
-                        import asyncio as _aio2
-                        result, decision = await _aio2.wait_for(
-                            adapter.execute(spec), timeout=120.0
-                        )
-                    finally:
-                        _wo._BYPASS.reset(_bypass_token)
-                    # Update task with result
-                    task.result = result.output
-                    task.status = "done" if result.success else "failed"
-                    task.error_message = None if result.success else "Execution failed"
-                    await store.update(task)
-                    dispatch_status["ran"] = True
-                    dispatch_status["result_status"] = task.status
-                    dispatch_status["result_error"] = (task.error_message or "")[:100]
-                except Exception as exc:
-                    dispatch_status["ran"] = False
-                    dispatch_status["error"] = str(exc)[:200]
-                    # Mark task as failed
-                    try:
-                        task = await store.get(task_id)
-                        if task:
-                            task.status = "failed"
-                            task.error_message = str(exc)[:500]
-                            await store.update(task)
-                    except Exception:
-                        pass
-            else:
-                dispatch_status["pending_count"] = 0
-        except Exception as exc:
-            dispatch_status["error"] = str(exc)[:200]
-
-    # ── Company count: mirrors the /api/doctor/public storage check so the
+    # ── Company count:# ── Company count: mirrors the /api/doctor/public storage check so the
     #    autonomy probe is self-contained. Uses the safe list helper so a
     #    stale row with an invalid onboarding_status doesn't crash the probe. ──
     company_count = 0
@@ -6130,11 +6148,35 @@ async def autonomy_status() -> dict[str, object]:
     except Exception:  # pragma: no cover - defensive
         pass
 
+    # ── Loop fleet readiness: a legible, scored view of the whole autonomous
+    #    loop fleet (Loop Engineering's loop-audit). Defensive — a missing or
+    #    malformed registry must never break this contract, so failures degrade
+    #    to None rather than raising. ──
+    loop_readiness_summary: dict[str, object] | None = None
+    try:
+        from agent.loop_registry import load_registry_sync, loop_readiness, audit_drift
+        _registry = load_registry_sync()
+        _report = loop_readiness(_registry)
+        _drift = audit_drift(_registry)
+        loop_readiness_summary = {
+            "score": _report.score,
+            "grade": _report.grade,
+            "total_loops": _report.total_loops,
+            "by_level": _report.by_level,
+            "self_heal_coverage": _report.self_heal_coverage,
+            "dimensions": _report.dimensions,
+            "drift_ok": _drift.ok,
+            "est_monthly_tokens": _registry.estimate_monthly_tokens(),
+        }
+    except Exception:  # pragma: no cover - defensive
+        log.exception("autonomy_status: loop readiness computation failed")
+
     return {
         "status": status,
         "brain": brain,
         "loops": loops,
         "loops_running": running_count > 0,
+        "loop_readiness": loop_readiness_summary,
         "missing_secrets": missing_secrets,
         "self_bootstrap": self_bootstrap_status,
         "ceo": ceo_status,
@@ -6142,6 +6184,196 @@ async def autonomy_status() -> dict[str, object]:
         "company_count": company_count,
         "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
+
+
+@app.get("/api/autonomy/tick")
+async def autonomy_tick() -> dict[str, object]:
+    """Execute ONE pending task synchronously. Called by the cron workflow every 2 min.
+
+    This is the agency's execution heartbeat. It:
+    1. Fires the CEO cycle (background — fast)
+    2. Picks up the oldest pending task
+    3. Executes it via InternalAgentAdapter (NVIDIA NIM) with a 20s timeout
+    4. Returns the result
+
+    Unlike /api/autonomy/status, this endpoint BLOCKS until the task
+    completes (or times out at 20s). The cron workflow is designed to
+    wait for this.
+    """
+    import datetime
+    result: dict[str, object] = {
+        "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "ceo": {},
+        "dispatch": {},
+    }
+
+    # 1. Fire CEO cycle in background (non-blocking)
+    try:
+        from agent.agency import Agency, get_agency, set_agency, _gh_token, _gh_repo
+        # Wire scheduler on_fire if not done
+        try:
+            from agent.scheduler import get_scheduler
+            from tasks.automation import TaskAutomationService
+            from tasks.store import get_task_store
+            sched = get_scheduler()
+            if sched._on_fire is None:
+                task_automation = TaskAutomationService(store=get_task_store())
+                sched.set_on_fire(task_automation.handle_scheduled_job)
+                try:
+                    import asyncio as _aio_loop
+                    sched.attach_main_loop(_aio_loop.get_running_loop())
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        agency = get_agency()
+        if agency is None or not agency._running:
+            agency = Agency()
+            try:
+                import asyncio as _aio
+                agency.attach_main_loop(_aio.get_running_loop())
+            except Exception:
+                pass
+            set_agency(agency)
+            agency.start()
+
+        if agency is not None and agency._running:
+            try:
+                import asyncio as _asyncio
+                ceo_result = await _asyncio.wait_for(agency.run_cycle(), timeout=float(os.environ.get("AGENCY_CEO_TIMEOUT_SEC", "10")))
+                result["ceo"] = {
+                    "triggered": True,
+                    "directives_issued": ceo_result.directives_issued,
+                    "gh_api_count": None,
+                }
+                try:
+                    import agent.agency as _ag
+                    result["ceo"]["gh_api_count"] = _ag._last_gh_fetch_count
+                    result["ceo"]["gh_api_status"] = _ag._last_gh_fetch_status
+                except Exception:
+                    pass
+            except asyncio.TimeoutError:
+                result["ceo"] = {"triggered": True, "error": "CEO cycle timed out (15s)"}
+            except Exception as exc:
+                result["ceo"] = {"triggered": False, "error": str(exc)[:200]}
+    except Exception as exc:
+        result["ceo"] = {"error": str(exc)[:200]}
+
+    # 2. Pick up the oldest pending task and execute it synchronously
+    if os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").strip().lower() not in ("true", "1", "yes"):
+        result["dispatch"] = {"skipped": "SELF_BOOTSTRAP_ENABLED=false"}
+        return result
+
+    try:
+        from tasks.store import get_task_store
+        store = get_task_store()
+        pending = await store.list_pending(limit=1)
+
+        # If no pending tasks, create one from the oldest GitHub issue
+        if not pending:
+            try:
+                from tasks.models import Task
+                from tasks.service import TaskWorkflowService
+                import agent.agency as _ag
+                import httpx
+                token = _ag._gh_token()
+                repo = _ag._gh_repo()
+                if token and repo:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        resp = await client.get(
+                            f"https://api.github.com/repos/{repo}/issues",
+                            params={"state": "open", "per_page": "5", "sort": "created", "direction": "asc"},
+                            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+                        )
+                        if resp.status_code == 200:
+                            all_issues = [i for i in resp.json() if "pull_request" not in i]
+                            actionable = [i for i in all_issues if "quick-note:exhausted" not in [lb.get("name","") for lb in i.get("labels", [])]]
+                            if actionable:
+                                issue = actionable[0]
+                                is_qn = "quick-note" in [lb.get("name","") for lb in issue.get("labels", [])]
+                                prefix = "quick-note" if is_qn else "issue"
+                                task = Task(
+                                    owner_id="system",
+                                    title=f"{prefix} #{issue['number']}: {issue['title'][:50]}",
+                                    description=f"Implement GitHub issue #{issue['number']}: {issue['title']}",
+                                    prompt=(issue.get("body") or "")[:2000],
+                                    task_type="quick_note" if is_qn else "issue",
+                                    tags=[lb["name"] for lb in issue.get("labels", [])] + ["needs-implementation"],
+                                    source="ceo_direct",
+                                    pending_agent_run=True,
+                                )
+                                wf = TaskWorkflowService(store=store)
+                                await wf.create_task(task, actor="system:ceo_direct")
+                                result["dispatch"]["direct_issue_number"] = issue["number"]
+                                result["dispatch"]["direct_task_created"] = task.task_id
+                                await asyncio.sleep(0.3)
+                                pending = await store.list_pending(limit=1)
+            except Exception as exc:
+                result["dispatch"]["direct_task_error"] = str(exc)[:100]
+
+        # Execute the pending task synchronously with a 20s timeout
+        if pending:
+            task_id = pending[0].task_id
+            result["dispatch"]["task_id"] = task_id
+            result["dispatch"]["task_title"] = pending[0].title[:60]
+
+            try:
+                from runtimes.base import TaskSpec
+                from runtimes.adapters.internal_agent import InternalAgentAdapter
+                import services.workflow_orchestrator as _wo
+                task = pending[0]
+                task.status = "in_progress"
+                task.pending_agent_run = False
+                await store.update(task)
+
+                spec = TaskSpec(
+                    task_id=task_id,
+                    instruction=task.prompt or task.title,
+                    task_type=task.task_type or "general",
+                    workspace_path=str(ROOT_DIR),
+                    context={"owner_id": task.owner_id, "title": task.title},
+                )
+                _bypass_token = _wo._BYPASS.set(True)
+                try:
+                    adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
+                    exec_result, decision = await asyncio.wait_for(
+                        adapter.execute(spec), timeout=float(os.environ.get("AGENCY_TASK_TIMEOUT_SEC", "40"))
+                    )
+                    task.result = exec_result.output
+                    task.status = "done" if exec_result.success else "failed"
+                    task.error_message = None if exec_result.success else "Execution failed"
+                    await store.update(task)
+                    result["dispatch"]["ran"] = True
+                    result["dispatch"]["result_status"] = task.status
+                    result["dispatch"]["result_error"] = (task.error_message or "")[:100]
+                except asyncio.TimeoutError:
+                    result["dispatch"]["ran"] = False
+                    result["dispatch"]["result_status"] = "timeout"
+                    result["dispatch"]["error"] = "Task timed out (20s) — will retry next cycle"
+                    task.status = "todo"
+                    task.pending_agent_run = True
+                    await store.update(task)
+                finally:
+                    _wo._BYPASS.reset(_bypass_token)
+            except Exception as exc:
+                result["dispatch"]["ran"] = False
+                result["dispatch"]["error"] = str(exc)[:200]
+                try:
+                    task = await store.get(task_id)
+                    if task:
+                        task.status = "failed"
+                        task.error_message = str(exc)[:500]
+                        await store.update(task)
+                except Exception:
+                    pass
+        else:
+            result["dispatch"]["pending_count"] = 0
+            result["dispatch"]["ran"] = False
+    except Exception as exc:
+        result["dispatch"]["error"] = str(exc)[:200]
+
+    return result
 
 
 @app.post("/api/webhooks/github")
@@ -7787,3 +8019,5 @@ if _FRONTEND_BUILD.exists():
             return HTMLResponse(index.read_text())
         return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
+# Force rebuild Thu Jun 25 14:08:14 UTC 2026
+# Force rebuild Thu Jun 25 14:22:25 UTC 2026
