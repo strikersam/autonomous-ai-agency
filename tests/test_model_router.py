@@ -151,6 +151,9 @@ def test_unknown_model_falls_to_heuristic():
         "qwen3-coder:30b",
         "deepseek-r1:32b",
         "us.anthropic.claude-opus-4-7",
+        "us.anthropic.claude-opus-4-8",
+        "us.anthropic.claude-opus-4-6-v1",
+        "claude-opus-4-8",
         "deepseek-r1:671b",
         "qwen3-coder:235b",
         "deepseek-v3:685b",
@@ -609,7 +612,13 @@ def test_qwen3_coder_235b_in_registry():
 # ---------------------------------------------------------------------------
 
 class TestClaude5Registry:
-    def test_fable_5_registered_by_default(self):
+    def test_fable_5_excluded_by_default_due_to_suspension(self):
+        from router.registry import get_registry
+        reg = get_registry()
+        assert "claude-fable-5" not in reg
+
+    def test_fable_5_registered_when_opted_in(self, monkeypatch):
+        monkeypatch.setenv("ROUTER_ALLOW_FABLE5", "1")
         from router.registry import get_registry
         reg = get_registry()
         assert "claude-fable-5" in reg
@@ -617,6 +626,7 @@ class TestClaude5Registry:
         assert cap.type == "reasoning"
         assert "claude5" in cap.tags
         assert "reasoning" in cap.strengths
+        assert "suspended" in cap.tags
 
     def test_mythos_5_excluded_by_default(self, monkeypatch):
         monkeypatch.delenv("ROUTER_ALLOW_MYTHOS", raising=False)
@@ -705,3 +715,69 @@ def test_qwen36_27b_passthrough():
     decision = _router().route(requested_model="qwen3.6:27b")
     assert decision.resolved_model == "qwen3.6:27b"
     assert decision.selection_source == "passthrough"
+
+
+# ── Claude Opus 4.8 + Fable 5 routing (June 2026) ──────────────────────────
+
+def test_claude_opus_48_maps_to_flagship():
+    decision = _router().route(requested_model="claude-opus-4-8")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"
+
+
+def test_opus_48_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-opus-4-8" in reg
+    cap = reg["claude-opus-4-8"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert "flagship" in cap.tags
+    assert "claude4" in cap.tags
+    assert "math" in cap.strengths
+
+
+def test_sonnet_46_direct_api_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-sonnet-4-6" in reg
+    cap = reg["claude-sonnet-4-6"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 2
+    assert "anthropic" in cap.tags
+
+
+def test_bedrock_opus_48_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "us.anthropic.claude-opus-4-8" in reg
+    cap = reg["us.anthropic.claude-opus-4-8"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert "bedrock" in cap.tags
+
+
+def test_fable_5_excluded_by_default_export_control(monkeypatch):
+    monkeypatch.delenv("ROUTER_ALLOW_FABLE5", raising=False)
+    from router.registry import get_registry
+    assert "claude-fable-5" not in get_registry()
+
+
+def test_fable_5_opt_in_via_env(monkeypatch):
+    monkeypatch.setenv("ROUTER_ALLOW_FABLE5", "1")
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-fable-5" in reg
+    assert "suspended" in reg["claude-fable-5"].tags
+
+
+def test_fable_5_alias_routes(monkeypatch):
+    decision = _router().route(requested_model="claude-fable-5")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"
+
+
+def test_mythos_5_alias_routes():
+    decision = _router().route(requested_model="claude-mythos-5")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"
