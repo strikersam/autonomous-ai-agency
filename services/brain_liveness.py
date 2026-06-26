@@ -31,6 +31,7 @@ Design notes
 from __future__ import annotations
 
 import logging
+import time
 from typing import Literal
 
 import httpx
@@ -78,8 +79,6 @@ async def probe_model_liveness(
     error, or timeout returns ``live=False`` with a human-readable reason
     suitable for surfacing in the UI.
     """
-    import time
-
     if not model or not model.strip():
         return ProbeResult(
             provider=provider, model=model or "", live=False,
@@ -165,8 +164,6 @@ async def _probe_ollama(
     model: str, base_url: str, timeout: float, start: float
 ) -> ProbeResult:
     """Probe local Ollama via GET /api/tags (cheap) then a 5-token completion."""
-    import time
-
     base = base_url.rstrip("/")
     tags_url = f"{base}/api/tags"
 
@@ -221,7 +218,7 @@ def _describe_http_status(status_code: int, body: str, provider: str) -> str:
     """Turn an HTTP status into a short, human-readable reason.
 
     The plan specifically calls out 410 Gone (the symptom of the retired
-    ``nvidia/nemotron-3-super-120b-a12b``) and 404 — those get explicit
+    ``nvidia/llama-3.3-nemotron-super-49b-v1``) and 404 — those get explicit
     "dead model" wording so the UI shows the operator what happened.
     """
     body_excerpt = (body or "")[:200].replace("\n", " ").strip()

@@ -14,7 +14,10 @@ const BACKEND_ORIGIN = "https://local-llm-server.onrender.com";
 // Backend path prefixes to reverse-proxy to Render. Everything else is the SPA.
 // Keep this in sync with assets.run_worker_first in wrangler.jsonc.
 // Keep in sync with assets.run_worker_first in wrangler.jsonc.
-const PROXY_PREFIXES = ["/api", "/v1", "/runtimes"];
+// "/admin/api" is proxied (not "/admin") so admin-gated JSON endpoints like
+// /admin/api/policy/brain reach the Render backend (the Brain card needs this),
+// while the "/admin" HTML portal path is left to normal asset/SPA handling.
+const PROXY_PREFIXES = ["/api", "/v1", "/runtimes", "/admin/api"];
 
 function needsProxy(pathname) {
   return PROXY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));

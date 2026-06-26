@@ -126,8 +126,11 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
     body = r.json()
 
     assert "config" in body
-    assert body["config"]["primary_provider"] == "nvidia"
-    assert body["config"]["planner_model"] == "nvidia/llama-3.3-nemotron-super-49b-v1"
+    # No saved doc + a Cerebras key present → the recommended free-cloud chain
+    # auto-selects Cerebras (Cerebras → Groq → NVIDIA priority). The safe NIM
+    # default remains the floor, surfaced separately in `safe_default` below.
+    assert body["config"]["primary_provider"] == "cerebras"
+    assert body["config"]["planner_model"] == "qwen-3-coder-480b"
 
     assert "providers" in body
     provider_ids = {p["provider_id"] for p in body["providers"]}
@@ -180,7 +183,7 @@ def test_patch_rejects_dead_model_with_422(app_client, monkeypatch):
     with patch("backend.server.probe_model_liveness", fake_probe):
         r = app_client.patch(
             "/admin/api/policy/brain",
-            json={"executor_model": "nvidia/nemotron-3-super-120b-a12b"},
+            json={"executor_model": "nvidia/llama-3.3-nemotron-super-49b-v1"},
         )
 
     assert r.status_code == 422

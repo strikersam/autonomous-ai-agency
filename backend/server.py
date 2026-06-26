@@ -6459,6 +6459,35 @@ async def autonomy_tick() -> dict[str, object]:
     except Exception as exc:
         result["ceo"] = {"error": str(exc)[:200]}
 
+    # 1.5. Requeue blocked tasks (from previous model failures)
+    # Old tasks that were blocked because of the dead 120b model or asyncio
+    # bug need to be requeued so they can execute with the new models.
+    requeued = 0
+    try:
+        from tasks.store import get_task_store
+        from tasks.models import TaskStatus
+        store = get_task_store()
+        blocked = await store.list_blocked(limit=5)
+        for task in blocked:
+            task.status = TaskStatus.TODO
+            task.pending_agent_run = True
+            task.auto_retry_count = 0
+            task.error_message = None
+            task.review_reason = None
+            task.add_log(
+                "Requeued from BLOCKED — model/asyncio fix deployed",
+                event_type="auto_retry_reset",
+                actor="system:tick_requeue",
+                task_status=TaskStatus.TODO,
+            )
+            await store.update(task)
+            requeued += 1
+        if requeued:
+            log.info("Tick: requeued %d blocked tasks", requeued)
+    except Exception as exc:
+        result["requeue_error"] = str(exc)[:100]
+    result["requeued"] = requeued
+
     # 2. Pick up the oldest pending task and execute it synchronously
     if os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").strip().lower() not in ("true", "1", "yes"):
         result["dispatch"] = {"skipped": "SELF_BOOTSTRAP_ENABLED=false"}

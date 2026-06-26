@@ -77,10 +77,10 @@ To add a new tool:
 ## Model Env Vars
 
 ```
-AGENT_PLANNER_MODEL   Default: nvidia/nemotron-3-super-120b-a12b (reasoning MoE on free NIM)
+AGENT_PLANNER_MODEL   Default: nvidia/llama-3.3-nemotron-super-49b-v1 (reasoning MoE on free NIM)
 AGENT_EXECUTOR_MODEL  Default: nvidia/llama-3.3-nemotron-super-49b-v1 (dense 49B for tool calls)
-AGENT_VERIFIER_MODEL  Default: nvidia/nemotron-3-super-120b-a12b (reasoning MoE on free NIM)
-AGENT_JUDGE_MODEL     Default: nvidia/nemotron-3-super-120b-a12b
+AGENT_VERIFIER_MODEL  Default: nvidia/llama-3.3-nemotron-super-49b-v1 (reasoning MoE on free NIM)
+AGENT_JUDGE_MODEL     Default: nvidia/llama-3.3-nemotron-super-49b-v1
 ```
 
 Override these in `.env` for testing without large models.

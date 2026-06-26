@@ -157,6 +157,43 @@ def default_brain_config() -> BrainConfig:
     return BrainConfig()
 
 
+# Priority order for auto-selecting the default brain when no config has been
+# saved yet: the recommended free-cloud chain (Cerebras → Groq → NVIDIA NIM).
+# The first provider whose API key is present in env wins. Cerebras leads because
+# it serves even the 480B Qwen3-Coder at wafer-scale speed (no 480B latency tax)
+# on a generous, non-expiring free tier; Groq is the fast second; NIM is the
+# always-on safe floor. Ollama is intentionally excluded — it's local and not
+# reachable from the cloud backend, so it must be chosen explicitly in the UI.
+RECOMMENDED_PROVIDER_PRIORITY: tuple[str, ...] = ("cerebras", "groq", "nvidia")
+
+
+def recommended_brain_config() -> BrainConfig:
+    """Return the recommended default brain based on which provider keys are present.
+
+    Walks :data:`RECOMMENDED_PROVIDER_PRIORITY` and selects the first provider
+    whose API key is configured in env, seeding the per-role models from
+    :data:`PROVIDER_PRESETS`. Falls back to the safe NIM default when no cloud
+    key is present. Never raises.
+
+    This makes the agency self-configuring: drop a ``CEREBRAS_API_KEY`` into the
+    Render env and the next agent run uses the recommended Cerebras chain with no
+    UI click and no redeploy — while a saved UI config always takes precedence
+    (this function is only consulted when no config has been persisted yet).
+    """
+    for provider in RECOMMENDED_PROVIDER_PRIORITY:
+        if provider_api_key(provider):
+            preset = PROVIDER_PRESETS.get(provider)
+            if preset:
+                return BrainConfig(
+                    primary_provider=provider,  # type: ignore[arg-type]
+                    planner_model=preset["planner"],
+                    executor_model=preset["executor"],
+                    verifier_model=preset["verifier"],
+                    judge_model=preset["judge"],
+                )
+    return default_brain_config()
+
+
 # ── Patch model ─────────────────────────────────────────────────────────────
 
 
@@ -304,8 +341,10 @@ class BrainConfigStore:
         except Exception as exc:
             log.debug("brain_config_store: sqlite mirror read failed (%s) — using safe default", exc)
 
-        # 3. Safe default.
-        return default_brain_config()
+        # 3. No persisted config yet → recommended free-cloud chain based on
+        # which provider keys are present (Cerebras → Groq → NIM), falling back
+        # to the safe NIM default. A saved UI config (steps 1-2) always wins.
+        return recommended_brain_config()
 
     async def _persist_unlocked(self, cfg: BrainConfig) -> None:
         """Persist *cfg* to Mongo (primary) and sqlite (mirror).

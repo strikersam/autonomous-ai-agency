@@ -23,7 +23,7 @@ The default free models are:
 
 | Model | Role |
 |-------|------|
-| `nvidia/nemotron-3-super-120b-a12b` | heavy reasoning / execution |
+| `nvidia/llama-3.3-nemotron-super-49b-v1` | heavy reasoning / execution |
 | `qwen/qwen2.5-coder-32b-instruct` | coding |
 | `meta/llama-3.3-70b-instruct` | general |
 | `meta/llama-3.1-8b-instruct` | fast / cheap |

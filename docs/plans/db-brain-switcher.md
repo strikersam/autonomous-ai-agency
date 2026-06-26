@@ -11,7 +11,7 @@
 
 ## 0. Why this exists (root cause this fixes)
 
-The live deploy had `AGENT_EXECUTOR_MODEL=nvidia/nemotron-3-super-120b-a12b` set
+The live deploy had `AGENT_EXECUTOR_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1` set
 in Render — a **retired model that returns HTTP 410 Gone**. Every agent call
 (plan/execute/verify/judge) hit a dead endpoint, which is why "NIM only produces
 hallucinated/failed work." Changing it required a redeploy. The model choice
