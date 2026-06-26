@@ -350,4 +350,4 @@ def get_nim_pool() -> NIMConnectionPool:
     global _nim_pool
     if _nim_pool is None:
         _nim_pool = NIMConnectionPool()
-    return _nim_
+    return _nim_pool
