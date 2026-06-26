@@ -15,7 +15,7 @@ name: Keep-alive (prevent free-tier spin-down)
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 permissions:

@@ -491,15 +491,56 @@ class SelfHealingAgent:
         )
         try:
             from telegram_service import NotificationDispatcher
-            msg = (
-                f"🔴 *Self-heal escalation* — needs a human\n"
-                f"Heal `{event.event_id}` failed after {event.attempts} attempts "
-                f"(signature `{event.signature[:8]}`).\n"
-                f"Issue: {event.title[:200]}"
-            )
-            NotificationDispatcher().send_manual_notification(msg)
+            NotificationDispatcher().send_manual_notification(self._format_escalation(event))
         except Exception as exc:  # noqa: BLE001 - escalation notify is best-effort
             log.warning("SelfHealingAgent: escalation notify failed (non-fatal): %s", exc)
+
+    @staticmethod
+    def _format_escalation(event: HealingEvent) -> str:
+        """Build a *self-contained, actionable* escalation message.
+
+        The previous message was just an opaque id + title, forcing the operator
+        to relay it back to an agent to understand. This version carries the
+        context inline (what failed + the suggested fix, lifted from the heal's
+        description) and clickable links to act on it — derived from the
+        ``GITHUB_REPOSITORY`` and ``PUBLIC_URL`` env vars when set, so it works
+        without coupling to any specific deploy.
+        """
+        from urllib.parse import quote
+
+        # Inline context: the heal description already holds the error block and
+        # the category-based suggested fix. Strip code fences (Telegram Markdown-v1
+        # mangles nested back-ticks) and truncate so the page stays readable.
+        ctx = (event.description or "").replace("```", "").strip()
+        if len(ctx) > 700:
+            ctx = ctx[:700].rstrip() + " …"
+
+        lines = [
+            "🔴 *Self-heal escalation* — needs a human",
+            "",
+            f"*{event.title[:160]}*",
+            f"severity: {event.severity} · source: {event.source} · "
+            f"attempts: {event.attempts}/{HEAL_MAX_ATTEMPTS}",
+        ]
+        if ctx:
+            lines += ["", ctx]
+
+        # Actionable links (only those we can actually build from the env).
+        repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+        public = os.environ.get("PUBLIC_URL", "").strip().rstrip("/")
+        link_lines: list[str] = []
+        if repo:
+            q = quote(event.title[:80])
+            link_lines.append(f"🔗 Issues/PRs: https://github.com/{repo}/issues?q={q}")
+            if event.source == "ci":
+                link_lines.append(f"🔗 CI runs: https://github.com/{repo}/actions")
+        if public:
+            link_lines.append(f"🔗 Dashboard: {public}/admin")
+        if link_lines:
+            lines += [""] + link_lines
+
+        lines += ["", f"`heal {event.event_id} · sig {event.signature[:8]}`"]
+        return "\n".join(lines)
 
     def _mark_improvement_resolved(self, event: HealingEvent) -> None:
         """Best-effort: reflect a verified heal back into the ImprovementLoop

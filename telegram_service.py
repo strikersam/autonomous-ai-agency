@@ -226,6 +226,38 @@ class TelegramBotManager:
 
 # ─── Notification Dispatcher ──────────────────────────────────────────────────
 
+
+def _telegram_sends_suppressed() -> bool:
+    """True when outbound Telegram sends must be suppressed.
+
+    Tests must never page a human: a test that exercises an escalation /
+    approval / digest path would otherwise fire a real Telegram message every
+    time the suite runs in an environment that has ``TELEGRAM_BOT_TOKEN`` set
+    (CI, nightly-regression, continuous-improvement, a live deploy running
+    tests). ``PYTEST_CURRENT_TEST`` is set by pytest for the duration of every
+    test, so we hard-suppress under it unless an operator explicitly opts in
+    via ``ALLOW_TEST_TELEGRAM=1``. This is the guard behind the recurring
+    "self-heal escalation — recurring boom" pages.
+
+    We check **both** ``PYTEST_CURRENT_TEST`` *and* ``"pytest" in sys.modules``.
+    The former is cleared between tests, so a send fired from a background
+    daemon thread (e.g. the self-heal re-dispatch task that escalates *after*
+    the test function returns) could otherwise slip through. ``"pytest" in
+    sys.modules`` stays true for the entire pytest-launched process — including
+    background threads and post-test callbacks — and is never true in a normal
+    production deploy, which doesn't import pytest. That closes the gap.
+
+    Scope: applied to ``_notify_telegram`` (the ad-hoc / escalation / manual
+    notification path that the boom escalation uses and which is *not* mocked
+    by the offending test). The approval-gate (``_send_telegram_keyboard``) and
+    daily-digest paths intentionally remain un-suppressed because their tests
+    mock ``httpx`` and assert the send shape — they never egress for real.
+    """
+    if os.environ.get("ALLOW_TEST_TELEGRAM", "").strip() == "1":
+        return False
+    return bool(os.environ.get("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules)
+
+
 class NotificationDispatcher:
     """Routes background task results to configured notification channels.
 
@@ -300,6 +332,9 @@ class NotificationDispatcher:
     def _notify_telegram(self, message: str) -> None:
         """Send notification to configured Telegram chat IDs."""
         if not self.telegram_token or not self.telegram_chat_ids:
+            return
+        if _telegram_sends_suppressed():
+            log.debug("Telegram send suppressed under pytest (set ALLOW_TEST_TELEGRAM=1 to override)")
             return
         import httpx
 

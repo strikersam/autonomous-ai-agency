@@ -154,6 +154,7 @@ def test_unknown_model_falls_to_heuristic():
         "deepseek-r1:671b",
         "qwen3-coder:235b",
         "deepseek-v3:685b",
+        "deepseek-v4-0324",
     )
     assert decision.selection_source in ("heuristic", "default")
 
@@ -628,3 +629,79 @@ class TestClaude5Registry:
         reg = get_registry()
         assert "claude-mythos-5" in reg
         assert "restricted" in reg["claude-mythos-5"].tags
+
+
+# ── DeepSeek V4 model aliases (deprecation deadline July 24 2026) ────────────
+
+def test_deepseek_v4_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "deepseek-v4-0324" in reg
+    cap = reg["deepseek-v4-0324"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 3
+    assert "v4" in cap.tags
+    assert "code_generation" in cap.strengths
+    assert "reasoning" in cap.strengths
+
+
+def test_deepseek_v4_alias():
+    decision = _router().route(requested_model="deepseek-v4")
+    assert decision.resolved_model == "deepseek-v4-0324"
+    assert decision.selection_source == "model_map"
+
+
+def test_deepseek_v4_pro_alias():
+    decision = _router().route(requested_model="deepseek-v4-pro")
+    assert decision.resolved_model == "deepseek-v4-0324"
+    assert decision.selection_source == "model_map"
+
+
+def test_deepseek_chat_legacy_alias():
+    decision = _router().route(requested_model="deepseek-chat")
+    assert decision.resolved_model == "deepseek-v4-0324"
+    assert decision.selection_source == "model_map"
+
+
+def test_deepseek_reasoner_legacy_alias():
+    decision = _router().route(requested_model="deepseek-reasoner")
+    assert decision.resolved_model == "deepseek-r1:32b"
+    assert decision.selection_source == "model_map"
+
+
+# ── Qwen 3.6 27B model + aliases ────────────────────────────────────────────
+
+def test_qwen36_27b_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "qwen3.6:27b" in reg
+    cap = reg["qwen3.6:27b"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 2
+    assert "swe-bench-top" in cap.tags
+    assert "code_generation" in cap.strengths
+    assert "data_analysis" in cap.strengths
+
+
+def test_qwen36_short_alias():
+    decision = _router().route(requested_model="qwen3.6")
+    assert decision.resolved_model == "qwen3.6:27b"
+    assert decision.selection_source == "model_map"
+
+
+def test_qwen36_27b_alias():
+    decision = _router().route(requested_model="qwen3.6-27b")
+    assert decision.resolved_model == "qwen3.6:27b"
+    assert decision.selection_source == "model_map"
+
+
+def test_qwen36_35b_alias():
+    decision = _router().route(requested_model="qwen3.6-35b")
+    assert decision.resolved_model == "qwen3.6:35b"
+    assert decision.selection_source == "model_map"
+
+
+def test_qwen36_27b_passthrough():
+    decision = _router().route(requested_model="qwen3.6:27b")
+    assert decision.resolved_model == "qwen3.6:27b"
+    assert decision.selection_source == "passthrough"

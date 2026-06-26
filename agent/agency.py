@@ -80,11 +80,17 @@ def _gh_repo() -> str:
 
 
 async def _fetch_github_quick_notes() -> list[dict]:
-    """Return open GitHub issues labelled 'quick-note' for this repo."""
+    """Return ALL open GitHub issues for this repo (not just 'quick-note' labelled).
+
+    The CEO processes every open issue — quick-notes, bugs, trend digests,
+    feature requests — so the agency drives the full backlog, not just
+    phone-captured quick notes. Issues with the 'quick-note:exhausted' label
+    are still excluded (they've been retried too many times).
+    """
     token, repo = _gh_token(), _gh_repo()
     if not token or not repo:
         log.warning(
-            "Agency: quick-note fetch skipped — token=%s repo=%s",
+            "Agency: issue fetch skipped — token=%s repo=%s",
             "set" if token else "MISSING",
             repo or "MISSING",
         )
@@ -92,7 +98,7 @@ async def _fetch_github_quick_notes() -> list[dict]:
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(
             f"https://api.github.com/repos/{repo}/issues",
-            params={"state": "open", "labels": "quick-note", "per_page": "30"},
+            params={"state": "open", "per_page": "50", "sort": "created", "direction": "asc"},
             headers={
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/vnd.github+json",
@@ -422,15 +428,18 @@ class Agency:
         # Dispatch at most one Dev directive per cycle to avoid flooding the queue
         if actionable:
             issue = actionable[0]
+            # Use a generic title for all issue types (not just quick-notes)
+            is_quick_note = "quick-note" in issue.get("labels", [])
+            prefix = "quick-note" if is_quick_note else "issue"
             directives.append(self._make_directive(
                 role=AgentRole.DEV,
                 priority=3,
-                title=f"quick-note #{issue['number']}: {issue['title'][:50]}",
+                title=f"{prefix} #{issue['number']}: {issue['title'][:50]}",
                 instruction=_build_quick_note_instruction(issue),
             ))
             log.info(
-                "Agency: dispatched Dev for quick-note #%d (%d actionable)",
-                issue["number"], len(actionable),
+                "Agency: dispatched Dev for %s #%d (%d actionable issues total)",
+                prefix, issue["number"], len(actionable),
             )
 
         self._last_quick_notes = {"actionable": actionable, "exhausted_closed": closed}
