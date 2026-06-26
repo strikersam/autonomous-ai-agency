@@ -113,6 +113,7 @@ from agent.token_budget import BudgetExceededError, TokenBudget
 from agent.user_memory import UserMemoryStore
 
 from agent.voice import VoiceCommandInterface
+from agent.sam import SamAgent, get_sam
 
 from agent.watchdog import ResourceWatchdog
 
@@ -2959,11 +2960,81 @@ async def voice_transcribe(body: VoiceTranscribeRequest, auth: AuthContext = Dep
         raise HTTPException(status_code=400, detail="Invalid base64 audio data")
 
     result = VOICE_INTERFACE.transcribe(audio_bytes)
-
     return result.as_dict()
 
 
+# ── SAM Voice Agent endpoints ───────────────────────────────────────────────
 
+SAM_AGENT: "SamAgent | None" = None
+
+
+def _init_sam() -> "SamAgent":
+    global SAM_AGENT
+    if SAM_AGENT is None:
+        SAM_AGENT = get_sam()
+        log.info("SAM voice agent initialised")
+    return SAM_AGENT
+
+
+class SamChatRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000, description="Transcribed voice command")
+    session_id: str = Field(default="default", max_length=64)
+
+
+class SamSpeakRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000, description="Text to synthesise as SAM's voice")
+
+
+
+@app.get("/agent/sam/status")
+async def sam_status(auth: AuthContext = Depends(verify_api_key)):
+    """Get SAM's current status."""
+    sam = _init_sam()
+    return {
+        "available": True,
+        "name": "SAM",
+        "description": "System Autonomy Manager — voice-controlled agency interface",
+        **sam.get_status(),
+    }
+
+
+@app.post("/agent/sam/chat")
+async def sam_chat(body: SamChatRequest, auth: AuthContext = Depends(verify_api_key)):
+    """Send a voice command to SAM and get a spoken response.
+
+    The frontend records audio, transcribes it, and sends the text here.
+    SAM processes it through the agency CEO (NVIDIA NIM, free tier) and
+    returns a concise, voice-friendly response.
+    """
+    sam = _init_sam()
+    response_text = await sam.process_command(body.text, session_id=body.session_id)
+    return {
+        "text": response_text,
+        "session_id": body.session_id,
+    }
+
+
+@app.post("/agent/sam/speak")
+async def sam_speak(body: SamSpeakRequest, auth: AuthContext = Depends(verify_api_key)):
+    """Synthesise SAM's response as audio (OGG Opus, Telegram-compatible).
+
+    Uses gTTS (Google Text-to-Speech, free) via the voice/tts.py pipeline.
+    Returns base64-encoded OGG audio for browser playback.
+    """
+    import base64
+    try:
+        from voice.tts import synthesize
+        audio_bytes = await synthesize(body.text)
+        if audio_bytes:
+            return {
+                "audio_b64": base64.b64encode(audio_bytes).decode(),
+                "format": "ogg",
+                "duration_s": round(len(audio_bytes) / 4000, 1),  # rough estimate
+            }
+        return {"audio_b64": "", "error": "TTS synthesis returned empty"}
+    except Exception as exc:
+        log.warning("SAM TTS failed: %s", exc)
+        return {"audio_b64": "", "error": str(exc)}
 
 
 # --- Streaming proxy helper -----------------------------------------------------
