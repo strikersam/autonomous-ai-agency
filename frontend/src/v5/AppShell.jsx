@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { id:'intelligence',label:'Intelligence',icon:'TrendingUp',   desc:'Competitor & trend intel', section:'AGENCY' },
   { id:'knowledge',  label:'Knowledge',  icon:'BookOpen',       desc:'Docs, sources, activity', section:'AGENCY' },
   { id:'providers',  label:'Providers',  icon:'Layers',         desc:'Models, Ollama, MCP',     section:'INFRASTRUCTURE' },
+  { id:'loops',      label:'Loops',      icon:'RefreshCw',      desc:'Autonomous loop fleet',   section:'INFRASTRUCTURE' },
   { id:'logs',       label:'Logs',       icon:'Activity',       desc:'Traces & observability',  section:'INFRASTRUCTURE' },
   { id:'github',     label:'GitHub',     icon:'GitBranch',      desc:'Token, repos & PRs',      section:'INFRASTRUCTURE' },
   { id:'company',    label:'Company',    icon:'Building2',      desc:'Operating context',       section:'CONTEXT' },
@@ -25,7 +26,7 @@ const NAV_ITEMS = [
 ];
 
 const MOBILE_PRIMARY = ['dashboard', 'agents', 'tasks', 'doctor'];
-const MOBILE_MORE    = ['company', 'schedules', 'skills', 'portfolio', 'intelligence', 'knowledge', 'providers', 'github', 'logs', 'onboarding', 'admin'];
+const MOBILE_MORE    = ['company', 'schedules', 'skills', 'portfolio', 'intelligence', 'knowledge', 'providers', 'loops', 'github', 'logs', 'onboarding', 'admin'];
 
 function Icon({ name, size=18, style={} }) {
   const s = size;
@@ -40,6 +41,7 @@ function Icon({ name, size=18, style={} }) {
     TrendingUp:      <><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></>,
     Target:          <><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></>,
     Layers:          <><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
+    RefreshCw:       <><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></>,
     Activity:        <><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></>,
     Building2:       <><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></>,
     Sparkles:        <><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M19 17v4"/><path d="M17 19h4"/></>,

@@ -69,6 +69,14 @@ export default function BrainCard() {
     setLoading(true); setError(null);
     try {
       const { data } = await api.getBrainConfig();
+      // Defensive: a mid-propagation deploy (or an auth redirect) can return the
+      // SPA's index.html with a 200, leaving `data.config` undefined. Surface a
+      // friendly "loading" state instead of throwing
+      // `undefined is not an object (evaluating 'data.config.primary_provider')`.
+      if (!data || !data.config) {
+        setError('Brain config is still warming up (the backend returned no config yet). Retry in a moment.');
+        return;
+      }
       setConfig(data.config);
       setProviders(data.providers || []);
       setDraft({
@@ -210,6 +218,14 @@ export default function BrainCard() {
           {keyMissing && (
             <div style={{ marginTop: 6, fontSize: 11, color: '#ffbd66', fontFamily: 'var(--font-mono)' }}>
               ⚠ {selectedProvider.toUpperCase()}_API_KEY is not set on the server. Apply will be rejected until the key is configured.
+            </div>
+          )}
+          {selectedProvider === 'ollama' && (
+            <div style={{ marginTop: 6, fontSize: 11, color: '#8fb6ff', fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>
+              ℹ On a cloud deploy, the backend reaches Ollama via <b>OLLAMA_BASE</b> — set it to your
+              tunnel URL (e.g. a named Cloudflare Tunnel), not localhost. Test probes that URL and checks
+              the model is pulled. If your machine sleeps, the probe fails and Apply is blocked — keep a
+              cloud brain as the default fallback.
             </div>
           )}
           <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>

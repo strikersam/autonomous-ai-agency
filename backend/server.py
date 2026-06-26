@@ -6385,6 +6385,70 @@ async def autonomy_status() -> dict[str, object]:
     }
 
 
+@app.get("/api/loops")
+async def loops_overview() -> dict[str, object]:
+    """Full Loop Engineering fleet view for the UI: the catalogued loops plus
+    the loop-audit readiness score, loop-cost estimate, and drift status.
+
+    Powers the Loops screen. Read-only and defensive — a missing/malformed
+    ``loops/registry.yaml`` degrades to an empty fleet with an error note
+    rather than raising, so the screen never hard-crashes.
+    """
+    try:
+        from agent.loop_registry import load_registry_sync, loop_readiness, audit_drift
+        registry = await asyncio.to_thread(load_registry_sync)
+        report = loop_readiness(registry)
+        drift = audit_drift(registry)
+        loops = [
+            {
+                "id": l.id,
+                "name": l.name,
+                "pattern": l.pattern,
+                "level": l.level,
+                "trigger": l.trigger,
+                "cadence": l.cadence,
+                "runs_per_day": l.runs_per_day,
+                "cost": l.cost,
+                "source": l.source,
+                "self_heal": l.self_heal,
+                "gate": l.gate,
+                "purpose": l.purpose,
+                "est_monthly_tokens": l.estimate_monthly_tokens(),
+            }
+            for l in registry.loops
+        ]
+        return {
+            "ok": True,
+            "readiness": {
+                "score": report.score,
+                "grade": report.grade,
+                "total_loops": report.total_loops,
+                "by_level": report.by_level,
+                "self_heal_coverage": report.self_heal_coverage,
+                "gated_risky_coverage": report.gated_risky_coverage,
+                "dimensions": report.dimensions,
+                "notes": report.notes,
+            },
+            "drift": {
+                "ok": drift.ok,
+                "missing_from_registry": drift.missing_from_registry,
+                "stale_sources": drift.stale_sources,
+            },
+            "est_monthly_tokens": registry.estimate_monthly_tokens(),
+            "loops": loops,
+        }
+    except Exception as exc:  # pragma: no cover - defensive
+        log.exception("loops_overview: failed to build loop fleet view")
+        return {
+            "ok": False,
+            "error": str(exc),
+            "readiness": None,
+            "drift": None,
+            "est_monthly_tokens": 0,
+            "loops": [],
+        }
+
+
 @app.get("/api/autonomy/tick")
 async def autonomy_tick() -> dict[str, object]:
     """Execute ONE pending task synchronously. Called by the cron workflow every 2 min.
