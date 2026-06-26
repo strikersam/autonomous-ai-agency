@@ -8115,6 +8115,12 @@ try:
 except Exception as _agile_err:
     log.warning("Agile API not mounted: %s", _agile_err, exc_info=True)
 
+# v4 Dashboard API - powers the Continuous Improvement Dashboard at
+# autonomous-ai-agency.strikersam.workers.dev
+from backend.v4_api import v4_router
+app.include_router(v4_router)
+log.info("v4 Dashboard API mounted at /v4")
+
 # Company Graph API
 from services.company_graph_store import get_company_graph_store
 import backend.company_api as company_api_module

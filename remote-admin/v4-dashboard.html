@@ -96,6 +96,7 @@
     <div class="stat"><div class="val" id="kpi-scans">—</div><div class="lbl">Scan Cycles</div></div>
     <div class="stat"><div class="val" id="kpi-test">—</div><div class="lbl">Last Test Run</div></div>
     <div class="stat"><div class="val" id="kpi-notes">—</div><div class="lbl">Pending Notes</div></div>
+    <div class="stat"><div class="val" id="kpi-tasks">—</div><div class="lbl">Agent Tasks</div></div>
   </div>
 
   <!-- Main grid -->
@@ -168,6 +169,15 @@
       </table>
     </div>
 
+    <!-- Agent Tasks -->
+    <div class="panel" style="grid-column: span 2;">
+      <h2>Agent Tasks</h2>
+      <table id="tasks-table">
+        <thead><tr><th>ID</th><th>Status</th><th>Priority</th><th>Title</th><th>Agent</th><th>Updated</th></tr></thead>
+        <tbody id="tasks-body"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
   </div>
 </div>
 
@@ -218,6 +228,7 @@
         loadImprovements(),
         loadNotes(),
         loadJobs(),
+        loadTasks(),
       ]);
     } catch (e) {
       document.getElementById('conn-badge').textContent = 'error';
@@ -231,6 +242,9 @@
     const badge_el = document.getElementById('conn-badge');
     badge_el.textContent = 'connected';
     badge_el.className = 'badge badge-pass';
+
+    // Auto-refresh tasks every 30s for live task visibility
+    setInterval(() => loadTasks(), 30000);
 
     const loop = data.improvement_loop || {};
     document.getElementById('kpi-active').textContent = (loop.active_issues || []).length;
@@ -391,4 +405,26 @@
     }
   }
 
-  // ── Auto-load ───────────────────────────────────────────────────────────────�
+  async function loadTasks() {
+    let data;
+    try { data = await api('/v4/tasks'); } catch { return; }
+    const tasks = data.tasks || [];
+    document.getElementById('kpi-tasks').textContent = tasks.length;
+    const tbody = document.getElementById('tasks-body');
+    if (!tasks.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No tasks yet — create one from Quick Notes or the API</td></tr>';
+    } else {
+      tbody.innerHTML = tasks.slice(-20).reverse().map(t => `
+        <tr>
+          <td><code style="font-size:.65rem">${t.task_id}</code></td>
+          <td>${badge(t.status === 'done' ? 'done' : t.status === 'failed' ? 'fail' : 'pending', t.status)}</td>
+          <td>${badge(t.priority === 'urgent' ? 'high' : t.priority, t.priority)}</td>
+          <td class="truncate" title="${t.title}">${t.title}</td>
+          <td>${t.agent_id || '—'}</td>
+          <td>${relTime(t.updated_at)}</td>
+        </tr>
+      `).join('');
+    }
+  }
+
+  // ── Auto-load ───────────────────────────────────────────────────────────────�
