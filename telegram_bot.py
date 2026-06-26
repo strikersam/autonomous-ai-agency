@@ -77,6 +77,16 @@ TELEGRAM_BOT_TOKEN = "".join(TELEGRAM_BOT_TOKEN.split())
 PROXY_BASE_URL: str = os.environ.get("PROXY_BASE_URL", "http://localhost:8000").rstrip("/")
 PROXY_ADMIN_SECRET: str = os.environ.get("ADMIN_SECRET", "").strip()
 PROXY_API_KEY: str = os.environ.get("TELEGRAM_PROXY_API_KEY", "").strip()
+# Base URL of the FastAPI backend (login/dashboard/agency app — port 8001 in dev),
+# where the un-gated read endpoints /api/autonomy/status and /api/loops live. The
+# proxy (PROXY_BASE_URL, port 8000) does NOT carry these. Defaults to PUBLIC_URL
+# (the dashboard URL, which routes /api/* to the backend via the Cloudflare worker)
+# then falls back to PROXY_BASE_URL so a single-service dev setup still works.
+BACKEND_BASE_URL: str = (
+    os.environ.get("BACKEND_BASE_URL")
+    or os.environ.get("PUBLIC_URL")
+    or PROXY_BASE_URL
+).rstrip("/")
 
 _raw_allowed = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()
 _raw_admins = os.environ.get("TELEGRAM_ADMIN_USER_IDS", "").strip()
@@ -284,6 +294,83 @@ async def cmd_cost(user_id: int) -> str:
         return f"*Local infra cost estimate:*\n```\n{proj.summary()}\n```"
     except Exception as exc:
         return f"Cost model error: {exc}"
+
+
+async def _backend_get(path: str) -> dict:
+    """GET an un-gated backend read endpoint (/api/autonomy/status, /api/loops).
+
+    These live on the FastAPI backend, not the proxy, and require no auth — so
+    no Authorization header is sent. Never raises a bare httpx error to callers;
+    the command handlers wrap this in try/except and surface a friendly message.
+    """
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(f"{BACKEND_BASE_URL}{path}")
+        r.raise_for_status()
+        return r.json()
+
+
+def _grade_icon(grade: str) -> str:
+    return {"A": "🟢", "B": "🟢", "C": "🟡", "D": "🟠", "F": "🔴"}.get(grade, "⚪")
+
+
+async def cmd_autonomy(user_id: int) -> str:
+    """Snapshot of the agency's autonomy: active brain, loop readiness, dispatch."""
+    try:
+        data = await _backend_get("/api/autonomy/status")
+    except Exception as exc:
+        return f"Autonomy status unavailable: {exc}\n(Is BACKEND_BASE_URL set to the dashboard URL?)"
+    brain = data.get("brain") or {}
+    brain_provider = brain.get("provider") or brain.get("primary_provider") or "unknown"
+    brain_model = brain.get("model") or brain.get("planner_model") or "—"
+    lr = data.get("loop_readiness") or {}
+    lines = ["*🧠 Agency autonomy*"]
+    lines.append(f"Brain: `{brain_provider}` · `{brain_model}`")
+    if lr:
+        lines.append(
+            f"Loops: {_grade_icon(lr.get('grade',''))} {lr.get('score','?')}/100 "
+            f"(grade {lr.get('grade','?')}), {lr.get('total_loops','?')} loops, "
+            f"drift {'ok' if lr.get('drift_ok') else '⚠'}"
+        )
+    dispatch = data.get("dispatch") or {}
+    if dispatch:
+        lines.append(f"Dispatch: `{dispatch.get('status', dispatch.get('last_status','—'))}`")
+    missing = data.get("missing_secrets") or []
+    if missing:
+        lines.append(f"⚠ Missing secrets: {', '.join(missing[:6])}")
+    return "\n".join(lines)
+
+
+async def cmd_loops(user_id: int) -> str:
+    """Loop Engineering fleet readiness + the costliest loops, from /api/loops."""
+    try:
+        data = await _backend_get("/api/loops")
+    except Exception as exc:
+        return f"Loop fleet unavailable: {exc}\n(Is BACKEND_BASE_URL set to the dashboard URL?)"
+    if not data.get("ok"):
+        return f"Loop registry error: {data.get('error', 'unknown')}"
+    r = data.get("readiness") or {}
+    drift = data.get("drift") or {}
+    loops = data.get("loops") or []
+    lines = [
+        f"*🔁 Loop Engineering* {_grade_icon(r.get('grade',''))} "
+        f"{r.get('score','?')}/100 (grade {r.get('grade','?')})",
+        f"{r.get('total_loops', len(loops))} loops · "
+        f"self-heal {round((r.get('self_heal_coverage',0) or 0)*100)}% · "
+        f"drift {'✓ ok' if drift.get('ok') else '⚠ drift'}",
+    ]
+    by_level = r.get("by_level") or {}
+    if by_level:
+        lines.append("Levels: " + ", ".join(f"{k}={v}" for k, v in by_level.items()))
+    # Top 5 loops by monthly token cost — where the spend concentrates.
+    ranked = sorted(loops, key=lambda l: l.get("est_monthly_tokens", 0), reverse=True)[:5]
+    if ranked:
+        lines.append("\n*Costliest loops:*")
+        for l in ranked:
+            heal = "🩹" if l.get("self_heal") else "  "
+            lines.append(f"  {heal} `{l.get('name','?')}` · {l.get('cadence','?')} · {l.get('cost','?')}")
+    for note in (r.get("notes") or [])[:3]:
+        lines.append(f"⚠ {note}")
+    return "\n".join(lines)
 
 
 async def cmd_control(user_id: int, action: str, target: str) -> str:
@@ -861,6 +948,8 @@ async def _process_update(bot_token: str, update: dict) -> None:
         response = (
             "*Available commands:*\n"
             "/status — service health\n"
+            "/autonomy — active brain + loop readiness + dispatch\n"
+            "/loops — Loop Engineering fleet readiness\n"
             "/models — loaded models\n"
             "/cost — local infra cost estimate\n"
             "/diag — bot config + allowlist diagnostics (admin)\n"
@@ -919,6 +1008,12 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
     elif cmd == "/status":
         response = await cmd_status(user_id)
+
+    elif cmd == "/autonomy":
+        response = await cmd_autonomy(user_id)
+
+    elif cmd == "/loops":
+        response = await cmd_loops(user_id)
 
     elif cmd == "/models":
         response = await cmd_models(user_id)
