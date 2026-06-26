@@ -56,6 +56,10 @@ def _isolated_store(monkeypatch, tmp_path):
 
 def test_get_returns_safe_default_when_no_doc(monkeypatch):
     """A fresh store with no Mongo doc and no mirror returns the safe default."""
+    # No cloud provider keys present → the recommended-chain fallback resolves
+    # to the safe NIM default (this test pins that floor deterministically).
+    for env_var in ("CEREBRAS_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY"):
+        monkeypatch.delenv(env_var, raising=False)
     db = MagicMock()
     db.app_settings = MagicMock()
     db.app_settings.find_one = AsyncMock(return_value=None)
@@ -75,6 +79,40 @@ def test_default_brain_config_is_safe():
     cfg = default_brain_config()
     assert cfg.primary_provider == "nvidia"
     assert cfg.planner_model == "nvidia/llama-3.3-nemotron-super-49b-v1"
+
+
+def test_recommended_config_prefers_cerebras_when_key_present(monkeypatch):
+    """With a Cerebras key set (and no saved doc), the recommended chain wins."""
+    from services.brain_config_store import PROVIDER_PRESETS, recommended_brain_config
+
+    monkeypatch.setenv("CEREBRAS_API_KEY", "csk-test")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    cfg = recommended_brain_config()
+    assert cfg.primary_provider == "cerebras"
+    assert cfg.planner_model == PROVIDER_PRESETS["cerebras"]["planner"]
+    assert cfg.executor_model == PROVIDER_PRESETS["cerebras"]["executor"]
+
+
+def test_recommended_config_priority_groq_over_nvidia(monkeypatch):
+    """Groq is chosen ahead of NVIDIA when both keys are present but no Cerebras."""
+    from services.brain_config_store import recommended_brain_config
+
+    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test")
+    cfg = recommended_brain_config()
+    assert cfg.primary_provider == "groq"
+
+
+def test_recommended_config_falls_back_to_nvidia_default_with_no_cloud_keys(monkeypatch):
+    """No cloud keys → the safe NIM default (never an unreachable local Ollama)."""
+    from services.brain_config_store import recommended_brain_config
+
+    for env_var in ("CEREBRAS_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY"):
+        monkeypatch.delenv(env_var, raising=False)
+    cfg = recommended_brain_config()
+    assert cfg.primary_provider == "nvidia"
+    assert cfg.planner_model == SAFE_DEFAULT_MODEL
 
 
 # ── Round-trip ──────────────────────────────────────────────────────────────
