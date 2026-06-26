@@ -17,7 +17,7 @@ const BACKEND_ORIGIN = "https://local-llm-server.onrender.com";
 // "/admin/api" is proxied (not "/admin") so admin-gated JSON endpoints like
 // /admin/api/policy/brain reach the Render backend (the Brain card needs this),
 // while the "/admin" HTML portal path is left to normal asset/SPA handling.
-const PROXY_PREFIXES = ["/api", "/v1", "/runtimes", "/admin/api"];
+const PROXY_PREFIXES = ["/api", "/v1", "/v4", "/runtimes", "/admin/api"];
 
 function needsProxy(pathname) {
   return PROXY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
