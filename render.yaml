@@ -115,9 +115,12 @@ services:
       - key: PROVIDER_COOLDOWN_SECONDS
         value: "60"
 
-      # Frontend
+      # Frontend — MUST be the live Cloudflare Worker app origin. After a
+      # successful OAuth callback the backend redirects here with the session
+      # tokens; pointing it anywhere else (e.g. the old github.io demo) sends
+      # users to the wrong origin and silently breaks GitHub/Google login.
       - key: FRONTEND_URL
-        value: https://strikersam.github.io
+        value: https://autonomous-ai-agency.strikersam.workers.dev
 
       # ================================================================
       # AGENT RUNTIME CONFIGURATIONS

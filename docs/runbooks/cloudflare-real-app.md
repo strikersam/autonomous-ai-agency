@@ -1,12 +1,13 @@
 # Cloudflare = the real working app
 
-The Cloudflare Workers deployment (`local-llm-server.strikersam.workers.dev`) serves the
+The Cloudflare Workers deployment (`autonomous-ai-agency.strikersam.workers.dev`) serves the
 **real React app** connected to the live backend — not the static marketing demo.
+(The pre-rebrand `local-llm-server.strikersam.workers.dev` URL now 404s.)
 
 ## How it works
 
 ```text
-Browser ──► local-llm-server.strikersam.workers.dev
+Browser ──► autonomous-ai-agency.strikersam.workers.dev
               ├── /                  → React SPA (frontend/build, served as static assets)
               └── /api/*, /runtimes/* → reverse-proxied to https://local-llm-server.onrender.com
 ```
@@ -36,19 +37,26 @@ Browser ──► local-llm-server.strikersam.workers.dev
 
 Data APIs work through the proxy with no backend change. **OAuth/social login is the
 exception:** after a successful GitHub/Google callback the backend redirects to
-`FRONTEND_URL`, which is currently `https://strikersam.github.io` (the Pages demo). For
-social login and repo OAuth to complete in the Cloudflare app, set the Render env
-**`FRONTEND_URL=https://local-llm-server.strikersam.workers.dev`** (and add that URL to the
-OAuth apps' allowed callback origins). Email/password login is unaffected.
+`FRONTEND_URL`. It MUST be the live app origin
+**`FRONTEND_URL=https://autonomous-ai-agency.strikersam.workers.dev`** (set in `render.yaml`
+and the Render dashboard). If it points anywhere else — e.g. the old `https://strikersam.github.io`
+Pages demo — the post-callback redirect lands the session tokens on the wrong origin and both
+GitHub and Google login silently fail (you bounce back to `/login` unauthenticated), even though
+the OAuth handshake itself succeeds. Email/password login is unaffected. The OAuth start uses
+`OAUTH_REDIRECT_BASE` (currently `https://local-llm-server.onrender.com`); its
+`/api/auth/{github,google}/callback` paths must stay registered in the GitHub and Google OAuth apps.
 
 If the backend URL changes, update `BACKEND_ORIGIN` in `worker/index.js`.
 
 ## Verify after deploy
 
-1. Open `https://local-llm-server.strikersam.workers.dev` → the real app loads (not the demo).
-2. `https://local-llm-server.strikersam.workers.dev/api/health` → returns the backend health JSON
+1. Open `https://autonomous-ai-agency.strikersam.workers.dev` → the real app loads (not the demo).
+2. `https://autonomous-ai-agency.strikersam.workers.dev/api/health` → returns the backend health JSON
    (confirms the proxy works).
-3. Log in and run company onboarding against a real URL → real scanner results with categories.
+3. Sign in with GitHub **and** Google → each returns to
+   `https://autonomous-ai-agency.strikersam.workers.dev/auth/callback?...` and lands authenticated
+   on the dashboard (not back on `/login`).
+4. Log in and run company onboarding against a real URL → real scanner results with categories.
 
 ## Notes
 
