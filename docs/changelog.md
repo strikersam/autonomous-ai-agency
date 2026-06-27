@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Social login (GitHub + Google) broken: `FRONTEND_URL` pointed at the stale github.io demo** (2026-06-27). On the production Cloudflare Worker app (`autonomous-ai-agency.strikersam.workers.dev`), both GitHub and Google login completed the OAuth handshake but never logged the user in — they bounced back to `/login`. Root cause: `render.yaml` set `FRONTEND_URL=https://strikersam.github.io` (the old GitHub Pages demo). Both OAuth callbacks (`backend/server.py` `github_callback`/`google_callback`) finish with `RedirectResponse(f"{frontend_url}/auth/callback?access_token=...")`, so after a successful callback the backend redirected the browser — carrying the session tokens — to `strikersam.github.io` instead of the live Worker origin. The tokens landed in the wrong origin's `localStorage`; the real app never received them. The OAuth start, client IDs, and registered redirect URIs were all valid, and `JWT_SECRET` (`generateValue: true`, stable) was never the issue. Fix: set `FRONTEND_URL=https://autonomous-ai-agency.strikersam.workers.dev` in `render.yaml` and the Render dashboard (env already updated + redeployed). Updated `docs/runbooks/cloudflare-real-app.md` (also corrected the pre-rebrand `local-llm-server.strikersam.workers.dev` URL that now 404s). Files: `render.yaml`, `docs/runbooks/cloudflare-real-app.md`.
+
 - **NVIDIA 410 Gone + BrainConfigStore.save() crash + provider failover hardening** (2026-06-27). Production error cascade: (1) `services/brain_watchdog.py` `_persist_failover` called `store.save(preset)` on `BrainConfigStore`, which has no `save` method — error log "Brain watchdog: failed to persist failover: 'BrainConfigStore' object has no attribute 'save'" on every failover attempt. Fixed by calling proper async `store.set_brain_config(patch, actor="brain_watchdog")` via `asyncio.create_task`, using the process-wide `get_brain_config_store()` singleton so the in-memory cache is updated immediately. (2) `provider_router.py` `_try_one_provider` had no 410 Gone handling — 410 responses were treated as generic failures, burning retries on a permanently-dead endpoint. Added 410 handling alongside 429: sets `rate_limited = True` to exit both the attempt loop and model loop, applies 300s cooldown. Updated `_should_retry_status` docstring. (3) `agent/loop.py` `_chat_text` retry loop only handled 429/419 with exponential backoff — a 410 would retry 3 times wasting time on a dead endpoint. Added 410 check that breaks immediately before the retry logic.
 
 ### Removed
@@ -899,6 +901,7 @@ All notable changes to this project will be documented in this file.
 
 
 
+- **Loop readiness 93/A + schedule force-cleanup endpoint** (2026-06-27). All 7 remaining L2 loops upgraded to L3 with self-heal (weekly-readiness-digest, crispy-burn-in-check, trend-watcher, daily-industry-update, weekly-trend-digest, user-research-scan, perplexity-maintenance). Score: 93/100 (Maturity:87, Self-heal:91, Governance:100, Safety:100). Added POST /api/scheduler/force-cleanup admin endpoint + AgentScheduler.force_cleanup() method to dedup and prune stale schedules from both the durable store and in-memory state without waiting for a restart.
 ## [v4.1.0] — 2026-05-09
 
 

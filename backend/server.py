@@ -7012,6 +7012,24 @@ async def scheduler_tick_last() -> SchedulerTickLastResponse:
         ),
     )
 
+@app.post("/api/scheduler/force-cleanup")
+async def scheduler_force_cleanup(user: dict = Depends(get_current_user)):
+    """Force-dedup and clean stale schedules from the durable store.
+
+    Admin-only endpoint. Calls AgentScheduler.force_cleanup() which reads
+    all persisted schedules, deduplicates by name, and removes stale run-once
+    jobs that have already fired. Returns counts of what was cleaned.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    try:
+        sched = get_scheduler()
+        summary = await sched.force_cleanup()
+        return {"ok": True, **summary}
+    except Exception as exc:
+        log.warning("Force-cleanup failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
     active = await get_active_provider()
     active_type = str((active or {}).get("type", "ollama")).lower()

@@ -471,6 +471,70 @@ class AgentScheduler:
         except Exception as exc:
             log.warning("Scheduler persist failed for %s: %s", job.job_id, exc)
 
+    async def force_cleanup(self) -> dict[str, int]:
+        """Force-dedup and clean stale schedules from both the durable store
+        and in-memory state.
+
+        Can be called at any time (e.g. via an admin API endpoint) to clean up
+        schedule multiplication without waiting for a restart. Reads all
+        documents from the store, deduplicates by name, removes stale
+        run-once jobs that have already fired, and prunes corresponding
+        in-memory jobs from ``self._jobs`` so ``list()`` immediately reflects
+        the cleanup.
+
+        Does NOT remove in-memory jobs that have no corresponding store
+        document (e.g. freshly-created jobs that haven't been persisted yet).
+
+        Returns a summary dict with ``deleted``, ``deduped``, and ``total`` counts.
+        """
+        await self._ensure_store()
+        summary = {"deleted": 0, "deduped": 0, "total": 0}
+        if self._store is None:
+            return summary
+        try:
+            result = self._store.load_all()
+            docs = (await result) if inspect.isawaitable(result) else result
+            summary["total"] = len(docs)
+            seen_names: set[str] = set()
+            for doc in docs:
+                job_id = doc.get("job_id") or doc.get("id")
+                if not job_id:
+                    continue
+                name = doc.get("name", "restored-job")
+                tags = doc.get("tags") or []
+                run_count = doc.get("run_count", 0)
+                # Remove stale run-once jobs that already fired — from
+                # both the durable store and in-memory state.
+                if "run-once" in tags and run_count > 0:
+                    try:
+                        remove_result = self._store.remove(job_id)
+                        if inspect.isawaitable(remove_result):
+                            await remove_result
+                    except Exception:
+                        pass
+                    self._jobs.pop(job_id, None)
+                    summary["deleted"] += 1
+                    continue
+                # Name dedup — delete duplicates from store and memory.
+                # The first-seen job stays; subsequent duplicates are removed.
+                if name in seen_names:
+                    try:
+                        remove_result = self._store.remove(job_id)
+                        if inspect.isawaitable(remove_result):
+                            await remove_result
+                    except Exception:
+                        pass
+                    self._jobs.pop(job_id, None)
+                    summary["deduped"] += 1
+                    log.info("Force-cleanup: deduplicated schedule name=%r (job_id=%s)", name, job_id)
+                    continue
+                seen_names.add(name)
+            log.info("Force-cleanup: total=%d deleted=%d deduped=%d",
+                     summary["total"], summary["deleted"], summary["deduped"])
+        except Exception as exc:
+            log.warning("Force-cleanup failed: %s", exc)
+        return summary
+
     async def _remove_persisted(self, job_id: str) -> None:
         """#505: Remove a job from durable storage."""
         if self._store is None:
