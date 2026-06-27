@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  adminBootstrap,
   adminCreateProvider,
   adminCreateWorkspace,
   adminDeleteProvider,
   adminDeleteWorkspace,
-  adminGetBrainPolicy,
-  adminGetProviderRoleTags,
-  adminListProviders,
-  adminListWorkspaces,
   adminLogin,
   adminReorderProviders,
   adminRunCommand,
@@ -81,21 +78,21 @@ export default function AdminApp() {
     return false;
   }
 
+  const providersSorted = useMemo(
+    () => [...providers].sort((a: any, b: any) => (Number(b?.priority ?? 0)) - (Number(a?.priority ?? 0))),
+    [providers]
+  );
+
   async function refresh() {
     if (!authed) return;
     setErr(null);
     try {
-      const [p, w, tags, pol] = await Promise.all([
-        adminListProviders(token),
-        adminListWorkspaces(token),
-        adminGetProviderRoleTags(token).catch(() => ({ role_tags: {} })),
-        adminGetBrainPolicy(token).catch(() => null),
-      ]);
-      setProviders(p.providers ?? []);
-      setWorkspaces(w.workspaces ?? []);
-      setRoleTags((tags as any).role_tags ?? {});
-      setBrainPolicy(pol as BrainPolicy | null);
-      if (w.workspaces?.[0]?.workspace_id) setCmdWorkspace(w.workspaces[0].workspace_id);
+      const data = await adminBootstrap(token);
+      setProviders(data.providers ?? []);
+      setWorkspaces(data.workspaces ?? []);
+      setRoleTags((data as any).role_tags ?? {});
+      setBrainPolicy(data.brain_policy as BrainPolicy | null);
+      if (data.workspaces?.[0]?.workspace_id) setCmdWorkspace(data.workspaces[0].workspace_id);
     } catch (e: any) {
       if (handleAuthFailure(e)) return;
       setErr(e?.message ?? String(e));
@@ -104,6 +101,8 @@ export default function AdminApp() {
 
   useEffect(() => {
     refresh();
+    const interval = setInterval(refresh, 30000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
 
@@ -443,8 +442,7 @@ export default function AdminApp() {
                 role="list"
                 aria-label="Providers ordered by priority (top first)"
               >
-                {[...providers]
-                  .sort((a: any, b: any) => (Number(b?.priority ?? 0)) - (Number(a?.priority ?? 0)))
+                {providersSorted
                   .map((p: any, idx: number, arr: any[]) => {
                   const badge = roleBadge(roleForWebui[p.provider_id]);
                   return (

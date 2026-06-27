@@ -5120,7 +5120,7 @@ async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/activity")
-async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
+async def _get_activity_impl(limit: int) -> dict[str, Any]:
     logs = []
     try:
         async for entry in get_db().activity_log.find({}).sort("created_at", -1).limit(limit):
@@ -5156,6 +5156,7 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
         deduped.append(entry)
     logs = deduped[:limit]
     
+    
     # Derive live platform alerts on read (no storage — restart/wipe-proof):
     # failed orchestrator runs, runs awaiting approval, and an empty scheduler.
     try:
@@ -5181,9 +5182,10 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
     except Exception as exc:  # never break the feed
         log.debug("Activity: orchestrator alert derivation unavailable: %s", exc)
     
+    
     try:
         from agent.scheduler import get_scheduler
-        jobs = await get_scheduler().list() or []
+        jobs = get_scheduler().list()
         if not jobs:
             logs.insert(0, {
                 "id": "alert-schedules-empty", "type": "infra", "severity": "error",
@@ -5194,10 +5196,14 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
     except Exception as exc:
         log.debug("Activity: scheduler alert derivation unavailable: %s", exc)
     
+    
     logs = logs[:limit]
     # Return all key names AlertsBell reads: logs, events, activity, items, activities
     return {"logs": logs, "events": logs, "activity": logs, "items": logs, "activities": logs}
 
+
+async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
+    return await _cached(f"activity:{limit}", ttl_s=3, producer=lambda: _get_activity_impl(limit))
 
 @app.get("/api/stats")
 async def get_stats(user: dict = Depends(get_current_user)):

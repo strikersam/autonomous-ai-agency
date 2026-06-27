@@ -300,6 +300,24 @@ export async function adminReorderProviders(
   return r.json();
 }
 
+/** Single-call bootstrap: providers, workspaces, role tags, brain policy.
+ *  Replaces 4 parallel GET requests on admin page load/mutation refresh. */
+export async function adminBootstrap(
+  adminToken: string,
+): Promise<{
+  providers: Provider[];
+  workspaces: any[];
+  role_tags: Record<string, ProviderRoleTag>;
+  brain_policy: BrainPolicy | null;
+  admin: { username: string; auth_source: string };
+}> {
+  const r = await fetch(`${API_BASE}/admin/api/bootstrap`, {
+    headers: adminHeaders(adminToken),
+  });
+  if (!r.ok) return apiError(r);
+  return r.json();
+}
+
 /** Read the canonical brain-role badges (brain / fallback / sub-agent / unconfigured) from the brain resolver. */
 export async function adminGetProviderRoleTags(
   adminToken: string,
