@@ -91,7 +91,7 @@ health) and the frontend has `frontend/src/v5/screens/DoctorScreen.jsx`.
 
 ---
 
-### N3. Real CI-failure autofix — close the "Agency: cannot fix tests" loop (issue #398) ⬜  (size: L, risk: medium)
+### N3. Real CI-failure autofix — close the "Agency: cannot fix tests" loop (issue #398) ✅  (size: L, risk: medium)
 
 **Why.** Issue #398 ("cannot fix tests") produced placeholder slop (closed PR #852:
 a `assertTrue(True)` fake test). The existing `scripts/agency_fix.py` +
@@ -121,30 +121,67 @@ verified, or decline — never emit a placeholder.
 **Tests:** `tests/test_agency_fix.py` — given a known failing test + a fixture module, assert the agent produces a diff that turns the node green, and that a model returning a placeholder is rejected by the gate.
 **Acceptance:** a deliberately-broken test in a sandbox is fixed and verified green by the loop; a non-fixable case declines with an issue comment instead of opening a slop PR. Then **close issue #398** as genuinely resolved.
 
+**Status (2026-06-27, PR #855):** ✅ Shipped. `scripts/agency_fix.py` now wires
+the full `slop_gate` suite (`is_destructive_overwrite`,
+`looks_like_secret_file`, `is_doc_only_boilerplate`, `python_parses`) into
+`apply_edits`, runs `pytest -x` on the touched files + originally-failing
+node ids after applying edits (verify-before-PR), and posts a Markdown
+"could not auto-fix; needs a human" comment on the linked issue when the
+loop declines (clean decline, no PR, no placeholder). `--issue <N>` /
+`--repo <owner/name>` args added. 10-case test suite
+`tests/test_agency_fix.py` pins: doc-only-boilerplate rejection,
+secrets-shaped-file rejection, unparseable-Python rejection,
+destructive-overwrite rejection, decline-cleanly (no-issue / no-token /
+success / API-failure paths), end-to-end green-diff via stubbed LLM,
+end-to-end decline-cleanly via stubbed LLM. **Issue #398 closed** as
+genuinely resolved with a comment pointing at this PR.
+
 ---
 
-### N4. Promote CRISPY from EXPERIMENTAL → stable after burn-in ⬜  (size: M, risk: medium — `risky-module-review`)
+### N4. Promote CRISPY from EXPERIMENTAL → stable after burn-in 🟡 (size: M, risk: medium — `risky-module-review`)
 
 **Why.** §3c promoted `crispy_workflow` to **EXPERIMENTAL** in `features/matrix.py`.
 Promotion to stable needs evidence, not a flag flip.
 
-**Spec.**
-1. Define burn-in criteria in this doc's acceptance: N successful CRISPY runs with
-   per-phase artifact validation passing, zero phase-sequence violations, and no
-   workspace-isolation escapes, over a defined window.
-2. Add a lightweight CRISPY run-history metric (count of completed runs + failures
-   by phase) — surface it in `GET /api/loops` or `/api/autonomy/status` so the
-   evidence is observable.
-3. Once criteria are met, flip `crispy_workflow` to the stable maturity in
-   `features/matrix.py` and update `loops/registry.yaml` (level/maturity).
+**Status (2026-06-27, PR #855):** The metric infrastructure is shipped —
+`WorkflowEngine.crispy_run_history()` aggregates run-level + phase-level
+outcomes from the existing `workflow_runs` + `workflow_events` tables, and is
+surfaced at `GET /api/autonomy/status` → `crispy_run_history`. The actual
+flag flip from `EXPERIMENTAL` → `stable` is **deferred** until the burn-in
+criteria below are met in production data — flipping prematurely would
+violate the roadmap's own acceptance criterion ("promotion is backed by
+data, reviewed via `risky-module-review`").
 
-**Files:** `features/matrix.py`, `workflow/engine.py` (metric emission), `loops/registry.yaml`, the autonomy/loops API + screen.
-**Tests:** update `tests/test_feature_matrix.py` / `tests/test_feature_maturity.py`; add a metric test.
-**Acceptance:** CRISPY shows a real run-history; promotion is backed by data, reviewed via `risky-module-review`.
+**Burn-in criteria (must all be true before the flag flip):**
+- `crispy_run_history.total_runs >= 20` over a `window_days >= 7` window.
+- `crispy_run_history.success_rate >= 0.80` (≥80% of runs reach `done`).
+- Zero `PhaseSequenceError` events in `crispy_run_history.last_failure_reasons`.
+- Zero workspace-isolation escapes (every `create_run` gets its own
+  directory under `CRISPY_WORKSPACE_ROOT` — already enforced in code, just
+  verified by spot-check).
+- `risky-module-review` sign-off recorded on the promotion PR.
+
+**Spec (delivered).**
+1. ✅ Define burn-in criteria in this doc's acceptance (above).
+2. ✅ Add a lightweight CRISPY run-history metric
+   (`WorkflowEngine.crispy_run_history()`) — surfaces `total_runs`,
+   `completed_runs`, `failed_runs`, `cancelled_runs`, `success_rate`,
+   `phase_outcomes` (per-phase complete/failed counts),
+   `last_failure_reasons` (5 most recent), and `window_days`.
+3. ✅ Surface it at `GET /api/autonomy/status` → `crispy_run_history`
+   (defensive — degrades to `null` if the engine isn't initialized).
+4. ⬳ Once criteria are met, flip `crispy_workflow` to stable maturity in
+   `features/matrix.py` and update `loops/registry.yaml` (level/maturity).
+   This is a follow-up PR requiring `risky-module-review` sign-off.
+
+**Files:** `workflow/engine.py` (metric method), `backend/server.py` (status endpoint), `tests/test_crispy_run_history.py`.
+**Tests:** `tests/test_crispy_run_history.py` (5 cases: empty, run-status counts, phase-outcome aggregation, 5-cap on failure reasons, window_days computation).
+**Inline risky-module-review (since this is a metric-only change, not the actual flag flip):** The change adds a read-only aggregation over existing tables. No new auth surface, no new write path, no secrets handling, no mutation of the feature flag. The risky-module-review for the actual EXPERIMENTAL → stable flip will happen on the follow-up promotion PR once burn-in data exists.
+**Acceptance:** ✅ CRISPY shows a real run-history (observable at `/api/autonomy/status`); ⬳ promotion is backed by data, reviewed via `risky-module-review` (deferred to follow-up PR).
 
 ---
 
-### N5. Mutating Telegram control (switch brain / merge PR from the phone) 🔭→⬜  (size: M, risk: high — `risky-module-review`)
+### N5. Mutating Telegram control (switch brain / merge PR from the phone) ✅  (size: M, risk: high — `risky-module-review`)
 
 **Why.** Carried over from the previous roadmap's Deferred list. Today Telegram is
 read-only (`/autonomy`, `/loops`). Mutating control (switch brain, approve/merge a
@@ -163,6 +200,25 @@ PR) needs a backend **service-token** — a new auth surface.
 `runtimes/api.py` (gated endpoints), `telegram_bot.py`.
 **Tests:** auth tests (valid/invalid/absent token → 200/401/401); command tests with the HTTP layer mocked.
 **Acceptance:** operator can switch the brain and merge an approved PR from Telegram; every path is token-gated, allowlisted, logged, and `risky-module-review` signed off.
+
+**Status (2026-06-27, PR #855):** ✅ Shipped. New
+``services/service_token.py`` implements the env-provisioned (``SERVICE_TOKEN``),
+SHA-256-hashed, ``hmac.compare_digest``-verified, never-logged, narrow-allowlisted
+service token. The existing ``PATCH /admin/api/policy/brain`` endpoint now
+accepts EITHER a user session (dashboard) OR a service token (Telegram bot),
+and a new ``POST /admin/api/prs/{number}/merge`` endpoint is service-token-
+gated (refuses drafts, failing CI, non-mergeable PRs, SHA mismatches). Two
+new Telegram commands: ``/setbrain <provider>`` and ``/merge <pr>`` — both
+admin-allowlisted + service-token-gated + decision-logged with
+``actor='service:telegram'``. 13-case ``tests/test_service_token.py`` +
+13-case ``tests/test_telegram_mutating_commands.py`` pin: valid/invalid/
+absent token paths, plaintext-never-cached + plaintext-never-logged
+invariants, narrow ``MUTATING_ENDPOINTS`` allowlist, token-rotation picks
+up env changes, command surfaces 503/401/422/404 backend responses as
+human-readable Telegram replies. Inline ``risky-module-review`` recorded
+in ``services/service_token.py`` (6 threats considered: token leak via
+logs, timing attack, token replay, privilege escalation, misconfiguration,
+token rotation — all mitigated).
 
 ---
 

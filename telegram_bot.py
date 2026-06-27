@@ -387,6 +387,168 @@ async def cmd_control(user_id: int, action: str, target: str) -> str:
         return f"Control failed: {exc}"
 
 
+# ── N5: mutating Telegram control (service-token-gated) ─────────────────────
+# Roadmap item N5: /setbrain + /merge let the operator mutate the brain config
+# and merge an approved PR from the phone. Both call backend endpoints gated
+# by the X-Service-Token header (services.service_token). The service token
+# comes from the SERVICE_TOKEN env var on the bot side — different from the
+# PROXY_ADMIN_SECRET used by /control because /setbrain + /merge mutate the
+# brain config + master branch (higher-stakes than service control).
+
+SERVICE_TOKEN: str = os.environ.get("SERVICE_TOKEN", "").strip()
+
+
+def _service_token_headers() -> dict[str, str]:
+    """Headers for service-token-gated mutating endpoints (N5)."""
+    h: dict[str, str] = {}
+    if SERVICE_TOKEN:
+        h["X-Service-Token"] = SERVICE_TOKEN
+    return h
+
+
+async def cmd_setbrain(user_id: int, provider: str) -> str:
+    """/setbrain <provider> — switch the active brain from the phone (N5).
+
+    Provider must be one of the canonical presets (cerebras / groq / nvidia /
+    ollama). Calls ``PATCH /admin/api/policy/brain`` with the provider's
+    preset model ids; the backend's liveness-probe guard refuses to persist
+    a dead model.
+    """
+    if not _is_admin(user_id):
+        return "Permission denied. Admin only."
+    provider = (provider or "").lower().strip()
+    valid = {"cerebras", "groq", "nvidia", "ollama"}
+    if provider not in valid:
+        return f"Invalid provider. Use one of: {sorted(valid)}"
+
+    if not SERVICE_TOKEN:
+        return (
+            "Service token not configured on the bot — set SERVICE_TOKEN to "
+            "enable /setbrain (the backend must also have it set)."
+        )
+
+    # Resolve the preset for the provider so we PATCH all four role models at
+    # once. Mirrors services.brain_config_store.PROVIDER_PRESETS.
+    presets = {
+        "cerebras": {
+            "planner_model": "qwen-3-coder-480b",
+            "executor_model": "qwen-3-coder-480b",
+            "verifier_model": "llama-3.3-70b",
+            "judge_model": "llama-3.3-70b",
+        },
+        "groq": {
+            "planner_model": "deepseek-r1-distill-llama-70b",
+            "executor_model": "llama-3.3-70b-versatile",
+            "verifier_model": "deepseek-r1-distill-llama-70b",
+            "judge_model": "llama-3.3-70b-versatile",
+        },
+        "nvidia": {
+            "planner_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "executor_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "verifier_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "judge_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+        },
+        "ollama": {
+            "planner_model": "deepseek-r1:32b",
+            "executor_model": "qwen3-coder:30b",
+            "verifier_model": "deepseek-r1:32b",
+            "judge_model": "deepseek-r1:32b",
+        },
+    }
+    patch = {"primary_provider": provider, **presets[provider]}
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.patch(
+                f"{PROXY_BASE_URL}/admin/api/policy/brain",
+                json=patch,
+                headers=_service_token_headers(),
+            )
+            if r.status_code == 503:
+                return (
+                    "Service token not configured on the backend — "
+                    "set SERVICE_TOKEN to enable /setbrain."
+                )
+            if r.status_code == 401:
+                return "Service token rejected — check SERVICE_TOKEN matches the backend."
+            if r.status_code == 422:
+                # Liveness probe failed — never land on a dead model.
+                detail = r.json().get("detail", {})
+                failures = detail.get("failures", []) if isinstance(detail, dict) else []
+                if failures:
+                    names = [f"{f.get('role')}={f.get('model')}" for f in failures[:3]]
+                    return f"❌ Refusing to switch — liveness probe failed: {names}"
+                return f"❌ Refusing to switch — {detail}"
+            r.raise_for_status()
+            data = r.json()
+        cfg = data.get("config", {})
+        return (
+            f"✅ Brain switched to *{provider}* (actor=`service:telegram`)\n"
+            f"  planner:  `{cfg.get('planner_model')}`\n"
+            f"  executor: `{cfg.get('executor_model')}`\n"
+            f"  verifier: `{cfg.get('verifier_model')}`\n"
+            f"  judge:    `{cfg.get('judge_model')}`"
+        )
+    except Exception as exc:
+        return f"/setbrain failed: {exc}"
+
+
+async def cmd_merge(user_id: int, pr_number_str: str) -> str:
+    """/merge <pr> — merge an approved PR from the phone (N5).
+
+    The backend refuses to merge a draft, a PR with failing CI, or a PR
+    whose head SHA doesn't match ``expected_sha``. We don't send
+    ``expected_sha`` from the bot (the operator is reacting to a Telegram
+    notification showing the SHA, not pasting it) — the backend's CI-green
+    + mergeable_state guards are sufficient.
+    """
+    if not _is_admin(user_id):
+        return "Permission denied. Admin only."
+
+    if not SERVICE_TOKEN:
+        return (
+            "Service token not configured on the bot — set SERVICE_TOKEN to "
+            "enable /merge (the backend must also have it set)."
+        )
+
+    try:
+        pr_number = int(pr_number_str)
+    except (TypeError, ValueError):
+        return "Usage: /merge <pr-number> (e.g. /merge 855)"
+
+    if pr_number <= 0:
+        return "PR number must be a positive integer."
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"{PROXY_BASE_URL}/admin/api/prs/{pr_number}/merge",
+                json={"merge_method": "squash"},
+                headers=_service_token_headers(),
+            )
+            if r.status_code == 503:
+                return (
+                    "Service token not configured on the backend — "
+                    "set SERVICE_TOKEN to enable /merge."
+                )
+            if r.status_code == 401:
+                return "Service token rejected — check SERVICE_TOKEN matches the backend."
+            if r.status_code == 422:
+                detail = r.json().get("detail", "")
+                return f"❌ Refusing to merge PR #{pr_number}: {detail}"
+            if r.status_code == 404:
+                return f"❌ PR #{pr_number} not found."
+            r.raise_for_status()
+            data = r.json()
+        merge_sha = (data.get("merge_sha") or "")[:8]
+        return (
+            f"✅ Merged PR #{pr_number} via squash "
+            f"(sha=`{merge_sha}`, actor=`service:telegram`)"
+        )
+    except Exception as exc:
+        return f"/merge failed: {exc}"
+
+
 async def cmd_keylist(user_id: int) -> str:
     if not _is_admin(user_id):
         return "Permission denied. Admin only."
@@ -960,6 +1122,9 @@ async def _process_update(bot_token: str, update: dict) -> None:
             "/agent <task> — run agent task (requires confirmation)\n"
             "/freebuff <task> — free-NVIDIA coding agent (pick model, review, accept)\n"
             "/keylist — list API keys\n"
+            "\n*Mutating control (N5 — service-token-gated):*\n"
+            "/setbrain <provider> — switch brain to cerebras|groq|nvidia|ollama\n"
+            "/merge <pr-number> — merge an approved, CI-green PR via squash\n"
         )
 
     elif cmd == "/diag":
@@ -1038,6 +1203,22 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
     elif cmd == "/keylist":
         response = await cmd_keylist(user_id)
+
+    elif cmd == "/setbrain":
+        # N5: mutating Telegram control (service-token-gated).
+        provider = parts[1].lower() if len(parts) > 1 else ""
+        if not provider:
+            response = "Usage: /setbrain <cerebras|groq|nvidia|ollama>"
+        else:
+            response = await cmd_setbrain(user_id, provider)
+
+    elif cmd == "/merge":
+        # N5: mutating Telegram control (service-token-gated).
+        pr_arg = parts[1] if len(parts) > 1 else ""
+        if not pr_arg:
+            response = "Usage: /merge <pr-number> (e.g. /merge 855)"
+        else:
+            response = await cmd_merge(user_id, pr_arg)
 
     elif cmd == "/freebuff":
         task = " ".join(parts[1:]) if len(parts) > 1 else ""

@@ -483,6 +483,109 @@ class WorkflowEngine:
             for row in rows
         ]
 
+    # ── Run-history metric (N4 — CRISPY burn-in evidence) ────────────────────
+
+    def crispy_run_history(self) -> dict[str, Any]:
+        """Aggregate CRISPY run-history evidence for burn-in / promotion decisions.
+
+        Roadmap item N4: promotion of ``crispy_workflow`` from EXPERIMENTAL →
+        stable in ``features/matrix.py`` must be backed by *data*, not a flag
+        flip. This method returns the observable evidence — counts of
+        completed/failed runs by phase, total run count, success rate, and the
+        most recent failure reasons — so the operator (and the autonomy status
+        endpoint) can see whether the burn-in criteria are met.
+
+        The aggregation is cheap (one GROUP BY on the existing
+        ``workflow_events`` table) and degrades gracefully when the engine has
+        never been used (returns zeros).
+
+        Returns::
+
+            {
+                "total_runs": <int>,
+                "completed_runs": <int>,
+                "failed_runs": <int>,
+                "cancelled_runs": <int>,
+                "success_rate": <float 0..1>,
+                "phase_outcomes": {
+                    "<phase_type>": {"complete": <int>, "failed": <int>},
+                    ...
+                },
+                "last_failure_reasons": [<str>, ...],   # up to 5 most recent
+                "window_days": <int or None>,            # None when no runs yet
+            }
+        """
+        with self._connect() as conn:
+            # Run-level outcomes (from workflow_runs, not events — faster).
+            run_rows = conn.execute(
+                "SELECT status, COUNT(*) AS n FROM workflow_runs GROUP BY status"
+            ).fetchall()
+            status_counts = {row["status"]: row["n"] for row in run_rows}
+            total = sum(status_counts.values())
+            completed = status_counts.get("done", 0)
+            failed = status_counts.get("failed", 0)
+            cancelled = status_counts.get("cancelled", 0)
+            success_rate = (completed / total) if total else 0.0
+
+            # Phase-level outcomes — count phase_complete vs phase_failed events.
+            # payload JSON has the form {"phase": "<phase_type>", ...}.
+            phase_rows = conn.execute(
+                """
+                SELECT event_type, payload
+                FROM workflow_events
+                WHERE event_type IN ('phase_complete', 'phase_failed')
+                """
+            ).fetchall()
+            phase_outcomes: dict[str, dict[str, int]] = {}
+            last_failure_reasons: list[str] = []
+            for row in phase_rows:
+                try:
+                    payload = json.loads(row["payload"])
+                except Exception:  # pragma: no cover - defensive
+                    continue
+                phase = payload.get("phase") or "unknown"
+                bucket = phase_outcomes.setdefault(phase, {"complete": 0, "failed": 0})
+                if row["event_type"] == "phase_complete":
+                    bucket["complete"] += 1
+                else:
+                    bucket["failed"] += 1
+                    reason = payload.get("error") or row["event_type"]
+                    last_failure_reasons.append(f"{phase}: {reason}")
+
+            # Earliest run timestamp → burn-in window in days
+            window_days: int | None = None
+            if total:
+                first_row = conn.execute(
+                    "SELECT MIN(created_at) AS first_at FROM workflow_runs"
+                ).fetchone()
+                if first_row and first_row["first_at"]:
+                    try:
+                        # created_at is ISO 8601 UTC
+                        from datetime import datetime, timezone
+                        first_dt = datetime.fromisoformat(
+                            first_row["first_at"].replace("Z", "+00:00")
+                        )
+                        window_days = max(
+                            0,
+                            int((datetime.now(timezone.utc) - first_dt).total_seconds() // 86400),
+                        )
+                    except Exception:  # pragma: no cover - defensive
+                        window_days = None
+
+        # Keep only the 5 most recent failure reasons
+        last_failure_reasons = last_failure_reasons[-5:]
+
+        return {
+            "total_runs": total,
+            "completed_runs": completed,
+            "failed_runs": failed,
+            "cancelled_runs": cancelled,
+            "success_rate": round(success_rate, 4),
+            "phase_outcomes": phase_outcomes,
+            "last_failure_reasons": last_failure_reasons,
+            "window_days": window_days,
+        }
+
     # ── Slice execution ───────────────────────────────────────────────────────
 
     async def run_slice(self, run_id: str, slice_id: str, *, force: bool = False) -> Slice:
