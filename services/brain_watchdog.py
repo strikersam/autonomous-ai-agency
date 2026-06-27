@@ -17,6 +17,7 @@ Or as a standalone probe::
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -89,15 +90,40 @@ class BrainWatchdog:
         return new_provider
 
     def _persist_failover(self, new_provider: str) -> None:
-        """Persist the new provider in the brain config store."""
+        """Persist the new provider in the brain config store (fire-and-forget).
+
+        Uses the proper async BrainConfigStore.set_brain_config() API via the
+        process-wide singleton so the in-memory cache is immediately updated.
+        Runs in a background task so this method stays synchronous (it's called
+        from sync record_failure → _trigger_failover). Errors are logged — the
+        failover is best-effort and must never break the request path.
+        """
+        async def _apply() -> None:
+            try:
+                from services.brain_config_store import (
+                    BrainConfigPatch,
+                    get_brain_config_store,
+                )
+                store = await get_brain_config_store()
+                preset = _bcs.PROVIDER_PRESETS.get(new_provider)
+                if preset:
+                    patch = BrainConfigPatch(
+                        primary_provider=new_provider,  # type: ignore[arg-type]
+                        planner_model=preset.get("planner"),
+                        executor_model=preset.get("executor"),
+                        verifier_model=preset.get("verifier"),
+                        judge_model=preset.get("judge"),
+                    )
+                    await store.set_brain_config(patch, actor="brain_watchdog")
+                    log.info("Brain watchdog: persisted failover to %s", new_provider)
+            except Exception as exc:
+                log.error("Brain watchdog: failed to persist failover: %s", exc)
+
         try:
-            store = _bcs.BrainConfigStore()
-            preset = _bcs.PROVIDER_PRESETS.get(new_provider)
-            if preset:
-                store.save(preset)
-                log.info("Brain watchdog: persisted failover to %s", new_provider)
-        except Exception as exc:
-            log.error("Brain watchdog: failed to persist failover: %s", exc)
+            asyncio.create_task(_apply())
+        except RuntimeError:
+            # No event loop running (e.g. in a sync script context) — skip persistence
+            log.debug("Brain watchdog: no event loop — skipping persistence of failover to %s", new_provider)
 
     def _notify_failover(self, old: str, new: str) -> None:
         """Send a Telegram notification about the failover."""

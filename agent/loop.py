@@ -1557,12 +1557,19 @@ class AgentRunner:
         from provider_router import _openai_url
         chat_url = _openai_url(_call_base, "/chat/completions")
 
-        # NVIDIA NIM rate-limit handling: 429 = Too Many Requests, 419 = NIM-specific.
-        # Retry with exponential backoff (1s, 2s, 4s) before giving up.
+        # NVIDIA NIM error handling:
+        #   429 = Too Many Requests — retry with backoff
+        #   419 = NIM per-model concurrency limit — retry with backoff
+        #   410 = Gone — endpoint/model permanently removed, DO NOT retry
         _max_retries = 3
         for _attempt in range(_max_retries + 1):
             async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
                 resp = await client.post(chat_url, json=payload, headers=headers)
+            if resp.status_code == 410:
+                # Permanent removal — no retry, fail immediately so the caller
+                # can fail over to the next provider via provider_router.
+                log.error("NVIDIA NIM returned 410 Gone — endpoint/model permanently removed")
+                break
             if resp.status_code in (429, 419) and _attempt < _max_retries:
                 _wait = 2 ** _attempt  # 1s, 2s, 4s
                 log.warning("NVIDIA NIM rate-limited (HTTP %d) — retrying in %ds (attempt %d/%d)",
