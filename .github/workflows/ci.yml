@@ -97,7 +97,7 @@ jobs:
           MONGO_URL: "mongodb://localhost:27017"
           DB_NAME: "llm_wiki_dashboard_ci"
         run: |
-          pytest -x -v --tb=short --timeout=120 --ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py --ignore=backend_test.py
+          pytest -x -v --tb=short --timeout=120 --ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py
 
       - name: Upload test results
         if: failure()
