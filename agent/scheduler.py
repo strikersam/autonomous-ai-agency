@@ -381,6 +381,12 @@ class AgentScheduler:
         Skips stale run-once jobs (already fired) and deletes them from the
         durable store so they don't accumulate across restarts (#844).
 
+        Deduplicates by name: if multiple persisted jobs share the same name
+        (caused by a previous bug where hydrate() loaded everything blindly),
+        only the first is rehydrated; subsequent duplicates are deleted from
+        the durable store. This self-heals the 1115-schedule multiplication bug
+        on next restart.
+
         Returns the number of jobs restored from durable storage.
         """
         await self._ensure_store()
@@ -391,10 +397,12 @@ class AgentScheduler:
             docs = (await result) if inspect.isawaitable(result) else result
             count = 0
             cleaned = 0
+            seen_names: set[str] = set()  # name dedup — prevents schedule multiplication
             for doc in docs:
                 job_id = doc.get("job_id") or doc.get("id")
                 if not job_id or job_id in self._jobs:
                     continue
+                name = doc.get("name", "restored-job")
                 tags = doc.get("tags") or []
                 run_count = doc.get("run_count", 0)
                 # Skip stale run-once jobs that already fired — they lived
@@ -409,9 +417,22 @@ class AgentScheduler:
                     except Exception:
                         pass
                     continue
+                # Name dedup: if we already hydrated a job with this name,
+                # delete this duplicate from the durable store and skip it.
+                if name in seen_names:
+                    try:
+                        remove_result = self._store.remove(job_id)
+                        if inspect.isawaitable(remove_result):
+                            await remove_result
+                        cleaned += 1
+                    except Exception:
+                        pass
+                    log.info("Hydrate: deduplicated schedule name=%r (job_id=%s)", name, job_id)
+                    continue
+                seen_names.add(name)
                 job = ScheduledJob(
                     job_id=job_id,
-                    name=doc.get("name", "restored-job"),
+                    name=name,
                     description=doc.get("description") or None,
                     cron=doc.get("cron", "0 0 * * *"),
                     instruction=doc.get("instruction", ""),
@@ -432,7 +453,7 @@ class AgentScheduler:
             if count:
                 log.info("Hydrated %d scheduled job(s) from durable store", count)
             if cleaned:
-                log.info("Cleaned %d stale run-once job(s) from durable store", cleaned)
+                log.info("Cleaned %d stale/duplicate job(s) from durable store", cleaned)
             return count
         except Exception as exc:
             log.warning("Scheduler hydration failed: %s", exc)

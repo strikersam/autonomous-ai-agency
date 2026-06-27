@@ -18,6 +18,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Schedule dedup + loop readiness 79/B → 86/B** (2026-06-27). (1) agent/scheduler.py hydrate() now deduplicates by name during hydration — tracks seen_names, deletes duplicate-named jobs from the durable store. Self-heals the 1115-schedule multiplication bug on next restart. (2) loops/registry.yaml: upgraded 9 loops from self_heal:false to self_heal:true where they genuinely detect and create actionable issues/PRs. Self-heal dimension 50→76, overall score 79/B→86/B.
+
 - **Dashboard performance: activity cache + admin bootstrap endpoint + frontend polling** (2026-06-27). (1) Wrapped get_activity with _cached() single-flight TTL cache (3s) to eliminate MongoDB query storms from concurrent dashboard polls. (2) Added GET /admin/api/bootstrap endpoint returning providers, workspaces, role_tags, brain_policy in one call — replaces 4 parallel admin API requests. (3) AdminApp.tsx: uses bootstrap endpoint, providersSorted useMemo avoids per-render sort, 30s setInterval polling for live data. (4) Removed dead imports from AdminApp.tsx.
 
 - **OAuth callbacks use canonical social_auth.py helpers** (2026-06-27). github_callback, google_callback, and github_repo_callback now import github_exchange_code, github_fetch_user, google_exchange_code, and google_fetch_user from social_auth.py instead of inline httpx calls. social_auth.py enhanced: github_fetch_user now returns login field; google_exchange_code accepts optional redirect_uri. Eliminates ~80 lines of duplicated token-exchange and user-fetch code.
