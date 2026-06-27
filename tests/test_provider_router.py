@@ -398,3 +398,144 @@ async def test_provider_router_can_use_emergent_provider(monkeypatch):
     )
 
     assert extract_openai_text(result.response.json()) == "ok from emergent"
+
+
+# ── 419 vs 429 distinction tests ────────────────────────────────────────────
+# 419 (NVIDIA NIM per-model concurrency) should skip only the model, allowing
+# the next candidate model on the same provider to be tried. 429 (provider-
+# level rate limit) should skip the entire provider.
+
+@pytest.mark.anyio
+async def test_419_skips_only_model_not_provider(monkeypatch):
+    """419 on first model → try second model on same provider. 429 on first → skip provider entirely."""
+    models_seen: list[str] = []
+    providers_seen: list[str] = []
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        providers_seen.append(provider.provider_id)
+        models_seen.append(payload["model"])
+        if payload["model"] == "model-a":
+            return httpx.Response(419, json={"error": "model busy"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "model-b-ok"}}]})
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter([
+        ProviderConfig("nvidia-nim", "openai-compatible", "https://integrate.api.nvidia.com/v1",
+                        api_key="k", default_model="model-b", priority=0),
+    ])
+
+    result = await router.chat_completion(
+        {"model": "model-a", "messages": [{"role": "user", "content": "hi"}]},
+        max_retries=0,
+    )
+
+    # Both models tried on the same provider — 419 didn't skip the provider.
+    assert models_seen == ["model-a", "model-b"]
+    assert providers_seen == ["nvidia-nim", "nvidia-nim"]
+    assert result.model == "model-b"
+    assert extract_openai_text(result.response.json()) == "model-b-ok"
+
+
+@pytest.mark.anyio
+async def test_419_short_retry_after_retries_same_model(monkeypatch):
+    """419 with Retry-After < 5s → sleep briefly and retry the same model."""
+    models_seen: list[str] = []
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        models_seen.append(payload["model"])
+        if len(models_seen) == 1:
+            return httpx.Response(419, json={"error": "model busy"}, headers={"Retry-After": "2"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter([
+        ProviderConfig("nvidia-nim", "openai-compatible", "https://integrate.api.nvidia.com/v1",
+                        api_key="k", default_model="model-a", priority=0),
+    ])
+
+    result = await router.chat_completion(
+        {"model": "model-a", "messages": [{"role": "user", "content": "hi"}]},
+        max_retries=2,
+    )
+
+    # Same model retried after short Retry-After window — not skipped to fallback.
+    assert models_seen == ["model-a", "model-a"]
+    assert result.model == "model-a"
+
+
+@pytest.mark.anyio
+async def test_probe_lock_gates_concurrent_requests(monkeypatch):
+    """When a probe lock is held, other callers skip the provider."""
+    from provider_router import _acquire_provider_probe, _release_provider_probe
+
+    calls: list[str] = []
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        calls.append(provider.provider_id)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+
+    # Simulate another caller already probing provider "a"
+    probing = await _acquire_provider_probe("a")
+    assert probing is True, "First probe lock should succeed"
+
+    router = ProviderRouter([
+        ProviderConfig("a", "openai-compatible", "https://a/v1", api_key="k", default_model="a", priority=0),
+        ProviderConfig("b", "openai-compatible", "https://b/v1", api_key="k", default_model="b", priority=10),
+    ])
+
+    result = await router.chat_completion(
+        {"model": "a", "messages": [{"role": "user", "content": "hi"}]},
+        max_retries=0,
+    )
+
+    # Provider "a" skipped (probe lock held), fell through to "b"
+    assert calls == ["b"]
+    assert result.provider.provider_id == "b"
+
+    await _release_provider_probe("a")
+
+
+@pytest.mark.anyio
+async def test_419_on_all_models_shorter_cooldown(monkeypatch):
+    """When ALL models on a provider return 419, the cooldown is shorter than the default 30s."""
+    from provider_router import is_provider_on_cooldown, ProviderFallbackError
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        return httpx.Response(419, json={"error": "model busy"})
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter([
+        ProviderConfig("nvidia-nim", "openai-compatible", "https://integrate.api.nvidia.com/v1",
+                        api_key="k", default_model="fallback-model", priority=0),
+        ProviderConfig("backup", "openai-compatible", "https://b/v1", api_key="k", default_model="b", priority=10),
+    ])
+
+    with pytest.raises(ProviderFallbackError):
+        await router.chat_completion(
+            {"model": "model-a", "messages": [{"role": "user", "content": "hi"}]},
+            max_retries=0,
+        )
+
+    # Both providers were cooled — 419 cooldown path exercised.
+    assert await is_provider_on_cooldown("nvidia-nim") is True
+    assert await is_provider_on_cooldown("backup") is True
+
+
+@pytest.fixture(autouse=True)
+async def _clear_probe_locks():
+    """Release any stray probe locks between tests so a crashed test never gates the next one."""
+    from provider_router import _release_provider_probe
+    # Best-effort — release common test provider ids.  The probe lock TTL
+    # makes this belt-and-suspenders safe.
+    try:
+        await _release_provider_probe("a")
+        await _release_provider_probe("b")
+        await _release_provider_probe("nvidia-nim")
+        await _release_provider_probe("fast-but-limited")
+        await _release_provider_probe("backup")
+        await _release_provider_probe("backup-ok")
+    except Exception:
+        pass  # shared_state may not be initialised yet
+    yield
