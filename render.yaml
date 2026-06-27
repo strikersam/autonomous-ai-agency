@@ -130,7 +130,7 @@ services:
 
       # Runtime base URLs (optional sidecar runtimes)
       - key: HERMES_BASE_URL
-        sync: false
+        value: "https://agency-hermes.onrender.com"
       - key: OPENCODE_BASE_URL
         sync: false
       - key: GOOSE_BASE_URL
@@ -449,4 +449,53 @@ services:
       # Commit identity for agent commits
       - key: GIT_AUTHOR_NAME
         value: "FreeBuff Bot"
-      - key: GIT_AUTHO
+      - key: GIT_AUTHOR_EMAIL
+        value: "freebuff@llmrelay.local"
+  # ── Hermes Runtime Sidecar ───────────────────────────────────────────────
+  # The agency's OWN Hermes server (services/hermes_server.py). Runs on port
+  # 8100 and speaks the HTTP API that runtimes/adapters/hermes.py calls.
+  # Executes every task through InternalAgentAdapter — using the same brain
+  # (NVIDIA NIM, free tier) as the main backend. Lightweight: no Playwright,
+  # no Chromium — delegates all LLM work to the brain.
+  #
+  # Set HERMES_BASE_URL=https://agency-hermes.onrender.com on the web service
+  # once this service is live so code_generation tasks route to it.
+  - type: web
+    name: agency-hermes
+    env: docker
+    dockerfilePath: ./Dockerfile.hermes
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Brain — same free NVIDIA NIM as the web service
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: NVIDIA_BASE_URL
+        value: "https://integrate.api.nvidia.com"
+      - key: NVIDIA_DEFAULT_MODEL
+        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+      - key: LLM_PROVIDER
+        value: "nvidia-nim"
+      # Agent brain roles on free NVIDIA NIM
+      - key: AGENT_PLANNER_MODEL
+        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+      - key: AGENT_EXECUTOR_MODEL
+        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+      - key: AGENT_VERIFIER_MODEL
+        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+      - key: AGENT_JUDGE_MODEL
+        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+      # Optional bearer gate — set in dashboard if needed
+      - key: HERMES_API_KEY
+        sync: false
+      # Task timeout
+      - key: HERMES_TIMEOUT_SEC
+        value: "300"
+      # GitHub token for workspace/agent operations
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GH_PAT
+        sync: false
+      # Storage
+      - key: STORAGE_BACKEND
+        value: "sqlite"

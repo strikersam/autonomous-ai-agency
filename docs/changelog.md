@@ -902,6 +902,10 @@ All notable changes to this project will be documented in this file.
 
 
 - **Loop readiness 93/A + schedule force-cleanup endpoint** (2026-06-27). All 7 remaining L2 loops upgraded to L3 with self-heal (weekly-readiness-digest, crispy-burn-in-check, trend-watcher, daily-industry-update, weekly-trend-digest, user-research-scan, perplexity-maintenance). Score: 93/100 (Maturity:87, Self-heal:91, Governance:100, Safety:100). Added POST /api/scheduler/force-cleanup admin endpoint + AgentScheduler.force_cleanup() method to dedup and prune stale schedules from both the durable store and in-memory state without waiting for a restart.
+- **Loop readiness 100/100 (A grade)** (2026-06-27). All 11 remaining L2 loops upgraded to L3 with self-heal enabled (enrich-quick-note-context, issue-context-generator, agile-ceremonies, portfolio-refresh, daily-digest, quick-note-claim-sweeper, delete-merged-branch, dependabot-auto-merge, auto-merge, nightly-regression, security-scan). Final score: 100/100 (Maturity:100, Self-heal:100, Governance:100, Safety:100). All 34 loops now L3 with self-heal.
+- **Social login FRONTEND_URL fix** (2026-06-27). OAuth callbacks for GitHub and Google login were redirecting to strikersam.github.io (stale demo) instead of autonomous-ai-agency.strikersam.workers.dev (production Worker), silently breaking social logins. Fixed FRONTEND_URL in render.yaml and updated runbook.
+- **Hermes runtime sidecar added** (2026-06-27). Added agency-hermes web service to render.yaml (Dockerfile.hermes, port 8100) running services/hermes_server.py with the same NVIDIA NIM brain. Set HERMES_BASE_URL=https://agency-hermes.onrender.com. Code generation tasks will route to Hermes once the sidecar is deployed.
+- **Flaky test_auth_me_regression fix** (2026-06-27). backend_jwt fixture now retries login up to 3 times to handle test-ordering state leakage from prior tests.
 ## [v4.1.0] — 2026-05-09
 
 
