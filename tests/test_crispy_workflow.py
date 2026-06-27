@@ -165,7 +165,7 @@ class TestWorkspaceIsolation:
                 r2 = await engine.create_run(WorkflowBuildRequest(request="implement task B with full details", title="B"))
             return r1, r2
 
-        r1, r2 = asyncio.get_event_loop().run_until_complete(_create_two())
+        r1, r2 = asyncio.run(_create_two())
 
         assert r1.workspace_root != r2.workspace_root
         assert r1.run_id in r1.workspace_root
@@ -186,7 +186,7 @@ class TestWorkspaceIsolation:
                     )
                 )
 
-        run = asyncio.get_event_loop().run_until_complete(_create())
+        run = asyncio.run(_create())
         assert run.workspace_root == "/custom/path"
 
 
@@ -238,7 +238,7 @@ class TestAbortOnFailure:
                 engine._save(run)
                 await engine._run_pre_gate_phases("wf_abort")
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
         assert "context" in call_log
         assert "research" in call_log
