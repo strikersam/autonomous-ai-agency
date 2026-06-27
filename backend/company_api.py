@@ -131,6 +131,44 @@ def _is_admin(user: dict) -> bool:
     return role == "admin"
 
 
+# Providers whose users are ephemeral. Every non-admin account on this platform
+# is a social (GitHub/Google) login — there is no email/password registration —
+# so the only persistent local account is the admin. Gating on provider keeps the
+# rule explicit: admins (local) persist forever; social non-admins are temporary.
+_EPHEMERAL_PROVIDERS = {"github", "google"}
+
+
+def _is_ephemeral_user(user: dict) -> bool:
+    """True when this user's companies should be temporary (reaped after TTL).
+
+    Ephemeral = a non-admin signed in via a social provider (GitHub/Google).
+    Admins and any non-social account persist forever.
+    """
+    return (not _is_admin(user)) and _resolve_provider(user) in _EPHEMERAL_PROVIDERS
+
+
+def _resolve_provider(user: dict) -> str:
+    """Best-effort auth provider for a user dict.
+
+    social_auth users carry an explicit ``provider`` ("github"/"google"); we
+    also infer from the user_id prefix (``gh_`` / ``goog_``) written by
+    social_auth._upsert_user. Falls back to "local" for email/password users.
+    """
+    prov = str(user.get("provider", "") or "").strip().lower()
+    if prov:
+        return prov
+    uid = ""
+    for key in ("user_id", "_id", "id"):
+        if user.get(key):
+            uid = str(user[key])
+            break
+    if uid.startswith("gh_"):
+        return "github"
+    if uid.startswith("goog_"):
+        return "google"
+    return "local"
+
+
 async def get_company_access(
     company_id: str, 
     user: dict = Depends(_get_current_user_thunk)
@@ -403,9 +441,35 @@ async def create_company(
     Creates a company and initializes its graph structure.
     """
     user_id = _resolve_user_id(user)
-    
+
     service = get_company_graph_service()
-    
+
+    # ── Company lifecycle (free-Render hosting policy) ───────────────────────
+    # Admin-created companies persist forever. Companies created by non-admin
+    # (GitHub/Google) users are ephemeral and reaped after the configured TTL,
+    # because the platform runs on the free Render backend and cannot keep every
+    # visitor's agency running indefinitely.
+    from datetime import timedelta, timezone
+    is_admin_user = _is_admin(user)
+    provider = _resolve_provider(user)
+    lifecycle: dict[str, Any] = {
+        "created_by_role": "admin" if is_admin_user else str(user.get("role", "user")).lower(),
+        "created_by_provider": provider,
+    }
+    if not _is_ephemeral_user(user):
+        # Admins (and any non-social account) persist forever.
+        lifecycle["persistent"] = True
+        lifecycle["expires_at"] = None
+    else:
+        try:
+            from app_settings import ephemeral_ttl_hours
+            ttl_hours = await ephemeral_ttl_hours()
+        except Exception:  # noqa: BLE001 — fall back to the documented default
+            log.exception("Failed to load ephemeral TTL on company create; defaulting to 24h")
+            ttl_hours = 24
+        lifecycle["persistent"] = False
+        lifecycle["expires_at"] = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+
     # Create the company with the user as owner
     company = await service.create_company(
         name=request.name,
@@ -413,17 +477,108 @@ async def create_company(
         business_category=request.business_category or "other",
         description=request.description or "",
         owner_id=user_id,
-        tagline=request.tagline
+        tagline=request.tagline,
+        **lifecycle,
     )
-    
+
     # Create initial company graph
     graph = await service.get_or_create_company_graph(company.id)
-    
-    log.info(f"Created company {company.id} with graph {graph.id}")
+
+    log.info(
+        "Created company %s with graph %s (persistent=%s, provider=%s)",
+        company.id, graph.id, lifecycle["persistent"], provider,
+    )
     
     return CompanyResponse(
         company=company,
         message="Company created successfully"
+    )
+
+
+class AccountLifecycleResponse(BaseModel):
+    """Lifecycle/ephemerality status for the current user's agencies.
+
+    Drives the floating banner that warns non-admin users their agency is
+    temporary on the free Render backend.
+    """
+    ephemeral: bool = _Field(
+        description="True when this user's agencies are temporary and will be reaped.",
+    )
+    persistent: bool = _Field(
+        description="True when this user's agencies persist forever (admins).",
+    )
+    ttl_hours: int = _Field(
+        ge=1,
+        description="Configured ephemeral-company lifetime in hours.",
+    )
+    expires_at: Optional[str] = _Field(
+        default=None,
+        description="ISO-8601 earliest expiry across the user's ephemeral companies, if any.",
+    )
+    provider: str = _Field(
+        default="local",
+        description="Auth provider of the current user ('github' | 'google' | 'local').",
+    )
+    note: str = _Field(
+        default="",
+        description="Human-readable banner message (empty for persistent users).",
+    )
+
+
+_EPHEMERAL_NOTE = (
+    "Heads up: running an agency beyond {hours} hours needs real compute, and "
+    "this platform is currently hosted on a free Render backend — so we can't "
+    "keep your agency running forever. Companies created by signed-in "
+    "GitHub/Google users are automatically removed after {hours} hours. Ask an "
+    "admin if you need a permanent agency."
+)
+
+
+@router.get("/account/lifecycle", response_model=AccountLifecycleResponse)
+async def account_lifecycle(
+    user: dict = Depends(_get_current_user_thunk),
+) -> AccountLifecycleResponse:
+    """Return whether the current user's agencies are ephemeral + when they expire.
+
+    Admins (and any non-social account) are persistent and get no banner. Non-admin
+    social (GitHub/Google) users get the 24-hour free-Render notice and the earliest
+    expiry across their companies.
+    """
+    provider = _resolve_provider(user)
+    try:
+        from app_settings import ephemeral_ttl_hours
+        ttl_hours = await ephemeral_ttl_hours()
+    except Exception:  # noqa: BLE001
+        log.exception("Failed to load ephemeral TTL for lifecycle response; defaulting to 24h")
+        ttl_hours = 24
+
+    if not _is_ephemeral_user(user):
+        return AccountLifecycleResponse(
+            ephemeral=False, persistent=True, ttl_hours=ttl_hours,
+            provider=provider, note="",
+        )
+
+    # Earliest expiry across the user's existing ephemeral companies (if any).
+    earliest: Optional[datetime] = None
+    try:
+        user_id = _resolve_user_id(user)
+        service = get_company_graph_service()
+        companies, _ = await service.list_companies(owner_id=user_id, limit=100)
+        for c in companies:
+            if not getattr(c, "persistent", True) and getattr(c, "expires_at", None):
+                exp = c.expires_at
+                if earliest is None or exp < earliest:
+                    earliest = exp
+    except Exception as exc:  # noqa: BLE001 — banner must never 500
+        log.warning("account_lifecycle expiry scan failed: %s", exc)
+
+    return AccountLifecycleResponse(
+        ephemeral=True,
+        persistent=False,
+        ttl_hours=ttl_hours,
+        expires_at=earliest.isoformat() if earliest else None,
+        provider=provider,
+        note=_EPHEMERAL_NOTE.format(hours=ttl_hours),
     )
 
 

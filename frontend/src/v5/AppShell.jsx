@@ -1,6 +1,7 @@
 import React from 'react';
 import { APP_NAME, APP_LABEL } from '../version';
 import { useAuth } from '../AuthContext';
+import EphemeralBanner from './screens/EphemeralBanner';
 
 
 // nav.jsx — Autonomous AI Agency navigation (clean, all screens)
@@ -266,6 +267,7 @@ function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin })
           <MobileBottomNav activeScreen={activeScreen} onNavigate={onNavigate} isAdmin={isAdmin}/>
         </div>
       </div>
+      <EphemeralBanner isAdmin={isAdmin}/>
       <style>{`
         .desktop-sidebar  { display:none; flex-direction:column; }
         .mobile-topbar    { display:block; }

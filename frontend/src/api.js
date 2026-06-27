@@ -321,6 +321,14 @@ export const changeUserRole = (userId, role) =>
 export const setUserOnboarding = (userId, allowed) =>
   API.put(`/api/activation/users/${userId}/onboarding`, { allowed });
 
+// Global onboarding-gate + ephemeral-company settings (admin)
+export const getOnboardingSettings = () => API.get('/api/activation/settings');
+export const updateOnboardingSettings = (data) =>
+  API.put('/api/activation/settings', data);
+
+// Lifecycle / ephemerality status for the current user's agencies (banner)
+export const getAccountLifecycle = () => API.get('/api/company/account/lifecycle');
+
 // ── API keys (admin) ──────────────────────────────────────────────────────────
 export const listApiKeys = () => API.get('/api/keys');
 export const createApiKey = (data) => API.post('/api/keys', data);

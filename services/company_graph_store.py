@@ -945,6 +945,10 @@ class SQLiteStore:
                 onboarding_status TEXT NOT NULL DEFAULT 'not_started',
                 onboarding_progress REAL NOT NULL DEFAULT 0.0,
                 owner_id TEXT,
+                persistent INTEGER NOT NULL DEFAULT 1,
+                expires_at TEXT,
+                created_by_role TEXT,
+                created_by_provider TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -1078,6 +1082,20 @@ class SQLiteStore:
         if "bound_skills" not in columns:
             await conn.execute("ALTER TABLE specialists ADD COLUMN bound_skills TEXT NOT NULL DEFAULT '[]'")
 
+        # Migration: add company lifecycle columns to pre-existing companies tables
+        # (ephemeral-company support). Existing rows default to persistent=1 with
+        # no expiry, so prior companies keep behaving as "persist forever".
+        cursor = await conn.execute("PRAGMA table_info(companies)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "persistent" not in columns:
+            await conn.execute("ALTER TABLE companies ADD COLUMN persistent INTEGER NOT NULL DEFAULT 1")
+        if "expires_at" not in columns:
+            await conn.execute("ALTER TABLE companies ADD COLUMN expires_at TEXT")
+        if "created_by_role" not in columns:
+            await conn.execute("ALTER TABLE companies ADD COLUMN created_by_role TEXT")
+        if "created_by_provider" not in columns:
+            await conn.execute("ALTER TABLE companies ADD COLUMN created_by_provider TEXT")
+
         await conn.commit()
         log.info(f"SQLite schema initialized at {self._db_path}")
 
@@ -1114,16 +1132,21 @@ class SQLiteStore:
         conn = await self._get_connection()
         doc = self._prepare_doc(company)
         await conn.execute("""
-            INSERT INTO companies (id, name, domain, business_category, description, tagline, 
-                                   owner_id, is_active, onboarding_status, onboarding_progress, 
+            INSERT INTO companies (id, name, domain, business_category, description, tagline,
+                                   owner_id, is_active, onboarding_status, onboarding_progress,
+                                   persistent, expires_at, created_by_role, created_by_provider,
                                    created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             doc["id"], doc["name"], doc["domain"], doc["business_category"],
             doc["description"], doc["tagline"], doc.get("owner_id"),
             1 if doc.get("is_active", True) else 0,
             doc.get("onboarding_status", "not_started"),
             doc.get("onboarding_progress", 0.0),
+            1 if doc.get("persistent", True) else 0,
+            doc.get("expires_at"),
+            doc.get("created_by_role"),
+            doc.get("created_by_provider"),
             doc["created_at"], doc["updated_at"]
         ))
         await conn.commit()
@@ -1144,9 +1167,10 @@ class SQLiteStore:
         conn = await self._get_connection()
         doc = self._prepare_doc(company)
         await conn.execute("""
-            UPDATE companies 
+            UPDATE companies
             SET name = ?, domain = ?, business_category = ?, description = ?, tagline = ?,
                 owner_id = ?, is_active = ?, onboarding_status = ?, onboarding_progress = ?,
+                persistent = ?, expires_at = ?, created_by_role = ?, created_by_provider = ?,
                 updated_at = ?
             WHERE id = ?
         """, (
@@ -1155,6 +1179,10 @@ class SQLiteStore:
             1 if doc.get("is_active", True) else 0,
             doc.get("onboarding_status", "not_started"),
             doc.get("onboarding_progress", 0.0),
+            1 if doc.get("persistent", True) else 0,
+            doc.get("expires_at"),
+            doc.get("created_by_role"),
+            doc.get("created_by_provider"),
             doc["updated_at"], doc["id"]
         ))
         await conn.commit()

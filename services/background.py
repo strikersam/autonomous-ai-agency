@@ -33,6 +33,8 @@ _DEFAULT_POLL_INTERVAL = 10.0
 # Module-level handle to the single trend-watch poller task, so repeated
 # _start_autonomy_loops() calls never schedule a duplicate (idempotency).
 _trend_watch_task: "asyncio.Task | None" = None
+# Module-level handle to the single ephemeral-company reaper task (idempotency).
+_ephemeral_reaper_task: "asyncio.Task | None" = None
 
 
 def run_background_in_web() -> bool:
@@ -71,8 +73,9 @@ class BackgroundServices:
             for result in results:
                 if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
                     log.warning("Autonomy task shutdown error: %s", result)
-        global _trend_watch_task
+        global _trend_watch_task, _ephemeral_reaper_task
         _trend_watch_task = None
+        _ephemeral_reaper_task = None
         # Stop the threaded autonomy engines (best-effort, but never silent).
         for getter in ("get_self_healing_agent", "get_improvement_loop"):
             try:
@@ -250,6 +253,27 @@ def _start_autonomy_loops(scheduler: "AgentScheduler") -> list:
                 log.info("TrendWatcher poller not started (no running event loop)")
         except Exception as exc:  # noqa: BLE001
             log.warning("TrendWatcher could not start: %s", exc)
+
+    # 5. Ephemeral company reaper — destroy expired non-admin agencies (free
+    #    Render hosting policy). Persistent (admin) companies are never touched.
+    try:
+        from services.ephemeral_reaper import reaper_enabled, ephemeral_reaper_loop
+        if reaper_enabled():
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            global _ephemeral_reaper_task
+            if running is not None and (_ephemeral_reaper_task is None or _ephemeral_reaper_task.done()):
+                _ephemeral_reaper_task = running.create_task(ephemeral_reaper_loop())
+                tasks.append(_ephemeral_reaper_task)
+                log.info("Ephemeral company reaper started — expired non-admin agencies are auto-destroyed")
+            elif running is None:
+                log.info("Ephemeral reaper not started (no running event loop)")
+        else:
+            log.info("Ephemeral company reaper disabled (EPHEMERAL_COMPANY_REAPER_ENABLED=false)")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Ephemeral reaper could not start: %s", exc)
 
     return tasks
 
