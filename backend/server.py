@@ -1483,6 +1483,14 @@ async def lifespan(app_: "FastAPI"):
     # #522 + #505: Reliability startup hooks
     await _startup_reliability_hooks()
 
+    # Warm the app-settings cache so the (sync) onboarding-gate default read is
+    # correct from the first request. Best-effort — never blocks startup.
+    try:
+        from app_settings import refresh_cache
+        await refresh_cache()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("app_settings cache warm failed: %s", exc)
+
     yield
 
     for _t in extra_tasks:

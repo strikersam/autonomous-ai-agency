@@ -72,9 +72,27 @@ def _append_audit(event: dict[str, Any]) -> None:
 # ── Per-user onboarding flag helpers ─────────────────────────────────────────
 
 def is_user_onboarding_allowed(user_id: str) -> bool:
-    """Return True if the admin has enabled onboarding for this user."""
+    """Return True if this user may run the onboarding wizard.
+
+    Resolution order:
+      1. If the admin set an explicit per-user record, honour it.
+      2. Otherwise fall back to the global default: when the onboarding gate has
+         been turned OFF by an admin (``onboarding_gate_enabled = False``), every
+         user is allowed by default; when the gate is ON (the shipping default),
+         users with no record are blocked until added to the allow-list.
+
+    The global default is read from the in-process settings cache so this stays
+    a cheap sync call (the DB remains the source of truth — see app_settings).
+    """
     state = _load_onboarding_state()
-    return state.get(user_id, {}).get("onboarding_allowed", False)
+    rec = state.get(user_id)
+    if rec is not None and "onboarding_allowed" in rec:
+        return bool(rec["onboarding_allowed"])
+    try:
+        from app_settings import onboarding_gate_enabled_cached
+        return not onboarding_gate_enabled_cached()
+    except Exception:  # noqa: BLE001 — never block the gate read on settings
+        return False
 
 
 def set_user_onboarding_allowed(user_id: str, allowed: bool, admin_id: str = "admin") -> None:
@@ -261,6 +279,77 @@ async def activation_audit_log(request: Request, limit: int = 100) -> list[dict]
         except json.JSONDecodeError:
             pass
     return records
+
+
+# ── Global onboarding-gate settings (admin) ──────────────────────────────────
+
+class OnboardingSettingsResponse(BaseModel):
+    """Effective global onboarding/lifecycle settings."""
+    onboarding_gate_enabled: bool
+    ephemeral_company_ttl_hours: int
+
+
+class OnboardingSettingsUpdate(BaseModel):
+    """Partial update for global onboarding/lifecycle settings."""
+    onboarding_gate_enabled: bool | None = None
+    ephemeral_company_ttl_hours: int | None = None
+
+
+@activation_router.get("/settings", response_model=OnboardingSettingsResponse)
+async def get_onboarding_settings(request: Request) -> OnboardingSettingsResponse:
+    """Admin: read the global onboarding gate + ephemeral-company settings."""
+    require_admin(request)
+    from app_settings import all_settings, ONBOARDING_GATE_ENABLED_KEY, EPHEMERAL_TTL_HOURS_KEY
+    s = await all_settings()
+    return OnboardingSettingsResponse(
+        onboarding_gate_enabled=bool(s[ONBOARDING_GATE_ENABLED_KEY]),
+        ephemeral_company_ttl_hours=int(s[EPHEMERAL_TTL_HOURS_KEY]),
+    )
+
+
+@activation_router.put("/settings", response_model=OnboardingSettingsResponse)
+async def update_onboarding_settings(
+    body: OnboardingSettingsUpdate,
+    request: Request,
+) -> OnboardingSettingsResponse:
+    """Admin: update the global onboarding gate default and/or ephemeral TTL.
+
+    Turning ``onboarding_gate_enabled`` off lets every logged-in user run the
+    setup wizard by default (no per-user allow-list entry required).
+    """
+    require_admin(request)
+    from app_settings import (
+        set_setting, all_settings,
+        ONBOARDING_GATE_ENABLED_KEY, EPHEMERAL_TTL_HOURS_KEY,
+    )
+    admin_id = getattr(request.state, "user_id", "admin")
+
+    if body.ephemeral_company_ttl_hours is not None and body.ephemeral_company_ttl_hours < 1:
+        raise HTTPException(status_code=422, detail="ephemeral_company_ttl_hours must be >= 1")
+
+    if body.onboarding_gate_enabled is not None:
+        await set_setting(ONBOARDING_GATE_ENABLED_KEY, body.onboarding_gate_enabled, admin_id)
+    if body.ephemeral_company_ttl_hours is not None:
+        await set_setting(EPHEMERAL_TTL_HOURS_KEY, int(body.ephemeral_company_ttl_hours), admin_id)
+
+    _append_audit({
+        "event": "onboarding_settings_update",
+        "onboarding_gate_enabled": body.onboarding_gate_enabled,
+        "ephemeral_company_ttl_hours": body.ephemeral_company_ttl_hours,
+        "by": admin_id,
+    })
+    audit(
+        "update_onboarding_settings",
+        getattr(request.state, "user", {"email": admin_id}),
+        detail=f"gate_enabled={body.onboarding_gate_enabled} ttl_hours={body.ephemeral_company_ttl_hours}",
+        request=request,
+    )
+
+    s = await all_settings()
+    return OnboardingSettingsResponse(
+        onboarding_gate_enabled=bool(s[ONBOARDING_GATE_ENABLED_KEY]),
+        ephemeral_company_ttl_hours=int(s[EPHEMERAL_TTL_HOURS_KEY]),
+    )
 
 
 class _RoleUpdateBody(BaseModel):

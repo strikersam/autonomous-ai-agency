@@ -198,6 +198,19 @@ loops:
     gate: none
     purpose: Watch industry trends and scope them against the repo.
 
+  - id: ephemeral-company-reaper
+    name: Ephemeral Company Reaper
+    pattern: infra-heartbeat
+    level: L3
+    trigger: daemon
+    cadence: every 15 min
+    runs_per_day: 96
+    cost: low
+    source: services/ephemeral_reaper.py
+    self_heal: false
+    gate: none
+    purpose: Destroy expired non-admin (GitHub/Google) agencies on free hosting.
+
   - id: daily-industry-update
     name: Daily Industry Update
     pattern: learn-scan

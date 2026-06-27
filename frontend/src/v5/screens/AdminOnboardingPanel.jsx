@@ -232,6 +232,85 @@ function UserOnboardingTable() {
   );
 }
 
+// ── 2b. Global onboarding-gate default ───────────────────────────────────────
+function OnboardingGateSettings() {
+  const [settings, setSettings] = React.useState(null);
+  const [saving,   setSaving]   = React.useState(false);
+  const [msg,      setMsg]      = React.useState('');
+  const [err,      setErr]      = React.useState('');
+  const [loadErr,  setLoadErr]  = React.useState('');
+
+  const load = () => {
+    setLoadErr('');
+    api.get('/api/activation/settings')
+      .then(r => setSettings(r.data))
+      .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load settings.'));
+  };
+  React.useEffect(load, []);
+
+  const save = async (patch) => {
+    setSaving(true); setMsg(''); setErr('');
+    try {
+      const r = await api.put('/api/activation/settings', patch);
+      setSettings(r.data);
+      setMsg('Saved');
+      setTimeout(() => setMsg(''), 2500);
+    } catch (e) { setErr(e.response?.data?.detail || 'Error'); }
+    finally { setSaving(false); }
+  };
+
+  if (loadErr) return (
+    <div style={{ fontSize:13, color:'#ff8a97', padding:'8px 0' }}>
+      ⚠ {loadErr}{' '}
+      <button onClick={load} style={{ marginLeft:8, padding:'2px 10px', borderRadius:7, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'#6CB0FF', fontSize:12, cursor:'pointer' }}>Retry</button>
+    </div>
+  );
+  if (!settings) return <div style={{ fontSize:13, color:'rgba(255,255,255,0.30)', padding:'8px 0' }}>Loading…</div>;
+
+  const gateOff = settings.onboarding_gate_enabled === false;
+
+  return (
+    <div>
+      <p style={{ fontSize:13, color:'rgba(255,255,255,0.45)', lineHeight:1.6, marginBottom:14 }}>
+        Turn the gate <Badge color="red">off</Badge> to let <strong>every</strong> logged-in user run the
+        setup wizard by default — no per-user allow-list entry needed. Keep it
+        <Badge color="green">on</Badge> to require explicit approval per user (the table above).
+      </p>
+
+      {/* Gate toggle */}
+      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', borderRadius:12, background:'rgba(0,0,0,0.20)', border:'1px solid rgba(255,255,255,0.08)', marginBottom:12 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>Onboarding gate</div>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.40)', fontFamily:'var(--font-mono, monospace)', marginTop:2 }}>
+            {gateOff ? 'OFF — all users may onboard by default' : 'ON — per-user approval required'}
+          </div>
+        </div>
+        <button onClick={() => save({ onboarding_gate_enabled: gateOff })} disabled={saving}
+          style={{ padding:'7px 16px', borderRadius:9, background: gateOff ? 'rgba(70,217,164,0.10)' : 'rgba(255,107,125,0.10)', border:`1px solid ${gateOff ? 'rgba(70,217,164,0.28)' : 'rgba(255,107,125,0.28)'}`, color: gateOff ? '#46d9a4' : '#ff8a97', fontSize:13, fontWeight:700, cursor:'pointer', opacity: saving ? 0.5 : 1 }}>
+          {saving ? '…' : gateOff ? 'Enable gate' : 'Disable gate'}
+        </button>
+      </div>
+
+      {/* Ephemeral TTL */}
+      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', borderRadius:12, background:'rgba(0,0,0,0.20)', border:'1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>Ephemeral agency lifetime</div>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.40)', fontFamily:'var(--font-mono, monospace)', marginTop:2 }}>
+            Non-admin (GitHub/Google) agencies are destroyed after this many hours. Admin companies persist forever.
+          </div>
+        </div>
+        <input type="number" min="1" defaultValue={settings.ephemeral_company_ttl_hours}
+          onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 1 && v !== settings.ephemeral_company_ttl_hours) save({ ephemeral_company_ttl_hours: v }); }}
+          style={{ width:72, padding:'7px 10px', borderRadius:9, background:'rgba(0,0,0,0.30)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:13, fontFamily:'var(--font-mono, monospace)', textAlign:'right', outline:'none' }}/>
+        <span style={{ fontSize:12, color:'rgba(255,255,255,0.45)' }}>hours</span>
+      </div>
+
+      {msg && <div style={{ fontSize:12, color:'#46d9a4', marginTop:8, fontFamily:'var(--font-mono, monospace)' }}>✓ {msg}</div>}
+      {err && <div style={{ fontSize:12, color:'#ff8a97', marginTop:8, fontFamily:'var(--font-mono, monospace)' }}>⚠ {err}</div>}
+    </div>
+  );
+}
+
 // ── 3. Audit log ─────────────────────────────────────────────────────────────
 function AuditLog() {
   const [log, setLog] = React.useState([]);
@@ -294,6 +373,9 @@ export default function AdminOnboardingPanel() {
       </div>
       <SectionCard title="Instance Activation" icon="🔑">
         <ActivationStatus />
+      </SectionCard>
+      <SectionCard title="Default Onboarding Gate" icon="🚪">
+        <OnboardingGateSettings />
       </SectionCard>
       <SectionCard title="User Onboarding Access" icon="👥">
         <UserOnboardingTable />

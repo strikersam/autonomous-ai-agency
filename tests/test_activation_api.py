@@ -91,3 +91,73 @@ def test_change_role_returns_404_for_missing_user() -> None:
             json={"role": "user"},
         )
     assert r.status_code == 404
+
+
+# ── Global onboarding-gate settings ──────────────────────────────────────────
+
+def test_get_settings_requires_admin() -> None:
+    client = _client(admin=False)
+    r = client.get("/api/activation/settings")
+    assert r.status_code == 401
+
+
+def test_get_settings_returns_defaults() -> None:
+    import app_settings
+
+    client = _client(admin=True)
+    with patch.object(app_settings, "all_settings") as m:
+        async def _all():
+            return {
+                app_settings.ONBOARDING_GATE_ENABLED_KEY: True,
+                app_settings.EPHEMERAL_TTL_HOURS_KEY: 24,
+            }
+        m.side_effect = _all
+        r = client.get("/api/activation/settings")
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {"onboarding_gate_enabled": True, "ephemeral_company_ttl_hours": 24}
+
+
+def test_update_settings_disables_gate() -> None:
+    import app_settings
+
+    captured: dict = {}
+
+    async def _set(key, value, updated_by="admin"):
+        captured[key] = value
+
+    async def _all():
+        return {
+            app_settings.ONBOARDING_GATE_ENABLED_KEY: captured.get(
+                app_settings.ONBOARDING_GATE_ENABLED_KEY, True
+            ),
+            app_settings.EPHEMERAL_TTL_HOURS_KEY: captured.get(
+                app_settings.EPHEMERAL_TTL_HOURS_KEY, 24
+            ),
+        }
+
+    client = _client(admin=True)
+    with patch.object(app_settings, "set_setting", side_effect=_set), \
+            patch.object(app_settings, "all_settings", side_effect=_all):
+        r = client.put(
+            "/api/activation/settings",
+            json={"onboarding_gate_enabled": False},
+        )
+    assert r.status_code == 200
+    assert r.json()["onboarding_gate_enabled"] is False
+    assert captured[app_settings.ONBOARDING_GATE_ENABLED_KEY] is False
+
+
+def test_update_settings_rejects_bad_ttl() -> None:
+    client = _client(admin=True)
+    r = client.put(
+        "/api/activation/settings",
+        json={"ephemeral_company_ttl_hours": 0},
+    )
+    assert r.status_code == 422
+
+
+def test_update_settings_requires_admin() -> None:
+    client = _client(admin=False)
+    r = client.put("/api/activation/settings", json={"onboarding_gate_enabled": False})
+    assert r.status_code == 401
