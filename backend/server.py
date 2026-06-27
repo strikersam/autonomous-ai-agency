@@ -1573,85 +1573,9 @@ async def github_callback(request: Request, code: str = None, state: str = None)
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
 
-    # Repo-connect flow: state was stored in MongoDB by /api/github/oauth/start
-    state_doc = await get_db().oauth_states.find_one({"state": state})
-    if state_doc and state_doc.get("flow_type") == "repo":
-        # Don't delete state until token exchange succeeds — allows clean retry on failure
-        user_id: str = state_doc["user_id"]
-        try:
-            async with httpx.AsyncClient(timeout=15) as c:
-                r = await c.post(
-                    "https://github.com/login/oauth/access_token",
-                    headers={"Accept": "application/json"},
-                    json={
-                        "client_id": GITHUB_CLIENT_ID,
-                        "client_secret": GITHUB_CLIENT_SECRET,
-                        "code": code,
-                    },
-                )
-            r.raise_for_status()
-            token_data = r.json()
-        except Exception as exc:
-            log.error("GitHub repo token exchange failed: %s", exc)
-            return _oauth_popup_html(
-                False, error_msg="Token exchange with GitHub failed."
-            )
-        access_token = token_data.get("access_token")
-        if not access_token:
-            err = (
-                token_data.get("error_description")
-                or token_data.get("error")
-                or "No token returned"
-            )
-            return _oauth_popup_html(False, error_msg=err)
-        try:
-            async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.get(f"{GITHUB_API}/user", headers=_gh_headers(access_token))
-            r.raise_for_status()
-            gh_user = r.json()
-        except Exception as exc:
-            log.error("GitHub /user fetch failed after repo token exchange: %s", exc)
-            return _oauth_popup_html(
-                False, error_msg="Could not fetch GitHub user info."
-            )
-        login: str = gh_user.get("login", "")
-        if not login:
-            return _oauth_popup_html(
-                False, error_msg="GitHub did not return a username. Please try again."
-            )
-        # State consumed — delete now that everything succeeded
-        await get_db().oauth_states.delete_one({"state": state})
-        now_iso = datetime.now(timezone.utc).isoformat()
-        await get_db().github_settings.update_one(
-            {"user_id": user_id},
-            {
-                "$set": {
-                    "user_id": user_id,
-                    "token": access_token,
-                    "github_login": login,
-                    "updated_at": now_iso,
-                }
-            },
-            upsert=True,
-        )
-        # Also sync to the user document so the agent runner can read it directly
-        await get_db().users.update_one(
-            {"_id": ObjectId(user_id)},
-            {
-                "$set": {
-                    "github_repo_token": access_token,
-                    "github_login": login,
-                    "github_updated_at": now_iso,
-                }
-            },
-        )
-        await log_activity(
-            "github", f"GitHub OAuth connected — @{login}", user_id=user_id
-        )
-        return _oauth_popup_html(True, login=login)
-
     # Login flow: state was stored server-side in oauth_states by
-    # /api/auth/github/login (state_doc was already fetched above).
+    # /api/auth/github/login.
+    state_doc = await get_db().oauth_states.find_one({"state": state})
     if not _valid_login_state(state_doc, provider="github"):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
     # State validated — consume it so it cannot be replayed.
@@ -1997,6 +1921,25 @@ async def harness_session_close(
         errors=body.errors,
     )
     return {"ok": True}
+
+@app.get("/api/auth/me")
+async def auth_me(user: dict = Depends(get_current_user)):
+    """Return the current user's profile from the Bearer JWT.
+
+    Called by the frontend AuthContext.checkAuth() after login (both
+    email/password and social OAuth flows) to validate the stored token
+    and hydrate the user object. Previously this endpoint only existed in
+    the dead social_auth.py module, breaking social login callbacks.
+    """
+    return {
+        "_id": user.get("_id", ""),
+        "id": user.get("_id", ""),
+        "email": user.get("email", ""),
+        "name": user.get("name", ""),
+        "role": user.get("role", "user"),
+        "avatar_url": user.get("avatar_url", ""),
+    }
+
 
 @app.get("/api/github/status")
 async def github_status(user: dict = Depends(get_current_user)):
