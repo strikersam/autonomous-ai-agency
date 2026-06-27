@@ -109,3 +109,6 @@ triage-sweep-*.bundle
 triage-sweep-*.patch
 _claude_run_secret*.txt
 .tmp_local_secrets/
+.claude/state/sessions/
+.claude/state/trend-cache.json
+.claude/state/improvement-state.json
