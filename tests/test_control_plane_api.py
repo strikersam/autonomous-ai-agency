@@ -200,3 +200,124 @@ def test_schedule_runs_history(schedules_client):
     assert data["schedule_id"] == job_id
     assert data["run_count"] >= 1
 
+
+# ── hydrate() stale run-once job filtering (#844) ──────────────────────────
+
+class _FakeStore:
+    """In-memory store stub for hydrate() tests — isolates from real DB."""
+
+    def __init__(self):
+        self._docs: dict[str, dict] = {}
+
+    def load_all(self) -> list[dict]:
+        return list(self._docs.values())
+
+    def upsert(self, doc: dict) -> None:
+        jid = doc.get("job_id")
+        if jid:
+            self._docs[jid] = doc
+
+    def remove(self, job_id: str) -> None:
+        self._docs.pop(job_id, None)
+
+
+def test_hydrate_skips_stale_run_once_jobs():
+    """Stale run-once jobs (run_count > 0) must be skipped during hydration."""
+    sched = AgentScheduler()
+    store = _FakeStore()
+    sched._store = store
+    stale_doc = {
+        "job_id": "job_stale_abc",
+        "name": "agency: stale one-off",
+        "cron": "* * * * *",
+        "instruction": "already fired",
+        "description": "[dev] Fix test",
+        "tags": ["agency", "run-once", "priority-3"],
+        "run_count": 1,
+        "last_run": "2026-01-01T00:00:00Z",
+        "enabled": True,
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+    store.upsert(stale_doc)
+
+    import asyncio
+    count = asyncio.run(sched.hydrate())
+
+    assert count == 0, "stale run-once job must not be rehydrated"
+    assert "job_stale_abc" not in sched._jobs
+    # Also verify the stale job was cleaned from the store
+    remaining = store.load_all()
+    assert not any(d["job_id"] == "job_stale_abc" for d in remaining), \
+        "stale run-once job must be removed from the store"
+
+
+def test_hydrate_rehydrates_unfired_run_once_jobs():
+    """Unfired run-once jobs (run_count == 0) must be rehydrated."""
+    sched = AgentScheduler()
+    store = _FakeStore()
+    sched._store = store
+    fresh_doc = {
+        "job_id": "job_fresh_def",
+        "name": "agency: fresh one-off",
+        "cron": "* * * * *",
+        "instruction": "not yet fired",
+        "description": "[scout] Check trends",
+        "tags": ["agency", "run-once", "priority-5"],
+        "run_count": 0,
+        "last_run": None,
+        "enabled": True,
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+    store.upsert(fresh_doc)
+
+    import asyncio
+    count = asyncio.run(sched.hydrate())
+
+    assert count == 1, "unfired run-once job must be rehydrated"
+    assert "job_fresh_def" in sched._jobs
+    job = sched._jobs["job_fresh_def"]
+    assert job.name == "agency: fresh one-off"
+    assert "run-once" in job.tags
+
+
+def test_hydrate_skips_duplicate_by_job_id():
+    """Jobs already in memory must not be rehydrated (dedup by job_id)."""
+    sched = AgentScheduler()
+    store = _FakeStore()
+    sched._store = store
+
+    existing = sched.create(
+        name="already-present",
+        cron="0 * * * *",
+        instruction="existing",
+    )
+    store.upsert({
+        "job_id": existing.job_id,
+        "name": "already-present-duplicate",
+        "cron": "0 * * * *",
+        "instruction": "duplicate",
+        "tags": [],
+        "run_count": 0,
+        "enabled": True,
+        "created_at": "2026-01-01T00:00:00Z",
+    })
+
+    import asyncio
+    count = asyncio.run(sched.hydrate())
+
+    assert count == 0, "duplicate by job_id must not be re-added"
+    assert sched._jobs[existing.job_id].name == "already-present"
+
+
+def test_hydrate_with_no_store_returns_zero():
+    """hydrate() with no store must return 0."""
+    sched = AgentScheduler()
+    sched._store = None
+    # Stub _ensure_store so it doesn't lazily import a real store
+    async def noop_store():
+        pass
+    sched._ensure_store = noop_store
+    import asyncio
+    count = asyncio.run(sched.hydrate())
+    assert count == 0, "no store must return 0"
+

@@ -57,7 +57,7 @@ external dependencies.
 > `risky-module-review` skill. Suppress any new `subprocess.run([...])` Bandit
 > finding with a **bare** `# nosec` on that line (a specific-id nosec mis-parses).
 
-### 3a. Apply the slop-gate to the sibling auto-PR scripts ⬜  (size: S)
+### 3a. Apply the slop-gate to the sibling auto-PR scripts ✅  (size: S)
 
 **Goal.** `#837` gates `.github/scripts/autonomous_agent.py`. Three siblings
 write model output to disk the same blind way. Make them import the shared gate.
@@ -102,7 +102,7 @@ write model output to disk the same blind way. Make them import the shared gate.
 
 ---
 
-### 3b. Hermes — **our own** Hermes server (in-repo), UI-wired ⬜  (size: M)
+### 3b. Hermes — **our own** Hermes server (in-repo), UI-wired ✅  (size: M)
 
 **Decision (corrected per operator): we run our OWN Hermes server inside this
 repo's stack — NOT an external NousResearch deployment.** It is a thin FastAPI
@@ -185,7 +185,7 @@ running, with zero external dependency.
 
 ---
 
-### 3c. CRISPY — harden, then re-enable ⬜  (size: L, risky-module-review)
+### 3c. CRISPY — harden, then re-enable ✅  (size: L, risky-module-review)
 
 **Why demoted (#467):** `workflow/engine.py` "does not enforce its own phase
 sequence" + lacks isolation. We must *fix*, not flip.
@@ -211,7 +211,7 @@ sequence" + lacks isolation. We must *fix*, not flip.
 
 ---
 
-### 3d. Phase 3 — auto-PR *quality* beyond the slop-gate ⬜  (size: M)
+### 3d. Phase 3 — auto-PR *quality* beyond the slop-gate ✅  (size: M)
 
 1. **Codebase grounding**: before the model call, attach the relevant files
    (`graphify query` output or `read_file` on paths named in the issue) to the
@@ -226,14 +226,16 @@ sequence" + lacks isolation. We must *fix*, not flip.
 
 ---
 
-### 3e. Phase 4 — reliability spine ⬜  (size: M)
+### 3e. Phase 4 — reliability spine ✅  (size: M)
 
 1. **Brain health-watchdog** (`services/brain_watchdog.py` + a `loops/registry.yaml`
    entry): on N consecutive provider failures, auto-fail-over to the next provider
    in `RECOMMENDED_PROVIDER_PRIORITY` (persist via the brain store) + Telegram page.
 2. **Weekly readiness digest** to Telegram via `NotificationDispatcher`: loop
    readiness score, drift, monthly cost, open auto-PR count.
-3. Document the stable Cloudflare-tunnel setup for the Ollama fallback.
+3. Document the stable Cloudflare-tunnel setup for the Ollama fallback — **deferred**
+   (requires access to the operator's Cloudflare account; documented as an operating
+   note in §5 instead).
 
 **Acceptance:** killing the active provider in a test triggers a logged fail-over to the next; the weekly digest renders.
 

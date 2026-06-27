@@ -34,11 +34,15 @@ def app_client(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 
-    from backend.server import app, get_current_user
+    from backend.server import app, get_current_user, get_optional_user
     # Always authed as admin by default; individual tests override.
-    app.dependency_overrides[get_current_user] = lambda: {
+    admin_dict = {
         "_id": "admin-1", "email": "admin@example.com", "role": "admin",
     }
+    app.dependency_overrides[get_current_user] = lambda: admin_dict
+    # N5: also override get_optional_user so the brain PATCH endpoint's
+    # _user_or_service_token dependency sees the admin identity.
+    app.dependency_overrides[get_optional_user] = lambda: admin_dict
     # Clean Mongo collection so each test starts fresh.
     db = MagicMock()
     db.app_settings = MagicMock()
@@ -57,10 +61,14 @@ def non_admin_client(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 
-    from backend.server import app, get_current_user
-    app.dependency_overrides[get_current_user] = lambda: {
-        "_id": "user-1", "email": "user@example.com", "role": "user",
-    }
+    from backend.server import app, get_current_user, get_optional_user
+    user_dict = {"_id": "user-1", "email": "user@example.com", "role": "user"}
+    app.dependency_overrides[get_current_user] = lambda: user_dict
+    # N5: the brain PATCH endpoint now uses _user_or_service_token which
+    # depends on get_optional_user (so the service-token path can bypass
+    # user auth). Override both so this fixture's "non-admin user" identity
+    # is visible to either dependency path.
+    app.dependency_overrides[get_optional_user] = lambda: user_dict
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()
 
@@ -73,11 +81,15 @@ def unauth_client(monkeypatch, tmp_path):
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 
     from fastapi import HTTPException
-    from backend.server import app, get_current_user
+    from backend.server import app, get_current_user, get_optional_user
 
     async def _raise():
         raise HTTPException(status_code=401, detail="Not authenticated")
     app.dependency_overrides[get_current_user] = _raise
+    # N5: also override get_optional_user so the brain PATCH endpoint's
+    # _user_or_service_token dependency sees no user (rather than calling
+    # the real get_optional_user, which would try to parse a JWT).
+    app.dependency_overrides[get_optional_user] = lambda: None
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()
 

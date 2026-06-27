@@ -615,6 +615,7 @@ class Agency:
                 name=f"agency: {_label}" if _label else f"agency:{directive.directive_id}",
                 cron="* * * * *",
                 instruction=directive.instruction,
+                description=f"[{directive.role.value}] {directive.title}",
                 run_once=True,   # execute once and self-delete — prevents schedule spam
                 tags=["agency", directive.role.value,
                       f"priority-{directive.priority}",

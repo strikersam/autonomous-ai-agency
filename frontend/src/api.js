@@ -321,6 +321,14 @@ export const changeUserRole = (userId, role) =>
 export const setUserOnboarding = (userId, allowed) =>
   API.put(`/api/activation/users/${userId}/onboarding`, { allowed });
 
+// Global onboarding-gate + ephemeral-company settings (admin)
+export const getOnboardingSettings = () => API.get('/api/activation/settings');
+export const updateOnboardingSettings = (data) =>
+  API.put('/api/activation/settings', data);
+
+// Lifecycle / ephemerality status for the current user's agencies (banner)
+export const getAccountLifecycle = () => API.get('/api/company/account/lifecycle');
+
 // ── API keys (admin) ──────────────────────────────────────────────────────────
 export const listApiKeys = () => API.get('/api/keys');
 export const createApiKey = (data) => API.post('/api/keys', data);
@@ -486,3 +494,8 @@ export const testBrainModel       = (provider, model, baseUrl) => API.post('/adm
 // Loop Engineering fleet view — catalogued autonomous loops + loop-audit
 // readiness score, loop-cost estimate, and drift status. Powers the Loops screen.
 export const getLoops             = ()                  => API.get('/api/loops');
+
+// ── SAM Voice Agent (issue #666) ──────────────────────────────────────────
+export const samStatus = () => API.get('/agent/sam/status');
+export const samChat   = (text, sessionId) => API.post('/agent/sam/chat', { text, session_id: sessionId || 'default' });
+export const samSpeak  = (text) => API.post('/agent/sam/speak', { text });

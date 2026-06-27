@@ -1,0 +1,103 @@
+name: weekly-readiness-digest
+
+# Weekly readiness digest (Roadmap N1b — activate the reliability spine).
+# Runs services/weekly_digest.py every Monday 07:00 UTC (matching the
+# `weekly-readiness-digest` registry entry in loops/registry.yaml) and posts
+# the readiness roll-up (score, drift, monthly token estimate, open auto-PR
+# count) to Telegram via NotificationDispatcher.
+#
+# Degrades gracefully when Telegram isn't configured: the digest module
+# already supports `--dry` (prints to stdout without sending), so the workflow
+# runs that mode by default when TELEGRAM_BOT_TOKEN is absent — the job only
+# fails on an unexpected exception, never on "telegram not configured".
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'   # every Monday 07:00 UTC (registry cadence)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "When true, build the digest but do not dispatch to Telegram."
+        required: false
+        default: "false"
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  digest:
+    name: Build & send weekly readiness digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # weekly_digest._count_open_auto_prs uses `git branch -r`
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure Git for auto-PR branch probe
+        # weekly_digest._count_open_auto_prs() runs `git branch -r --list origin/agent/*`
+        # — needs a git identity and GH_PAT-authenticated origin so the probe
+        # returns real branches instead of just origin/HEAD.
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global user.email "weekly-digest@agency.local"
+          git config --global user.name "Weekly Digest Bot"
+          git config --global commit.gpgsign false
+          if [ -n "${GH_PAT:-}" ]; then
+            git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git"
+          fi
+          git fetch --quiet origin || true
+
+      - name: Build & send digest
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_ALLOWED_USER_IDS: ${{ secrets.TELEGRAM_ALLOWED_USER_IDS }}
+          TELEGRAM_NOTIFY_CHAT_IDS: ${{ secrets.TELEGRAM_NOTIFY_CHAT_IDS }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          set -u
+          # Decide whether to actually dispatch to Telegram. The digest module
+          # already degrades gracefully when Telegram isn't configured, but we
+          # also force --dry when the token is absent so the workflow logs the
+          # digest body for observability instead of silently no-op'ing.
+          ARGS=""
+          if [ "${DRY_RUN}" = "true" ] || [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+            echo "ℹ Running in DRY mode (dry_run=${DRY_RUN}, token_present=$([ -n "${TELEGRAM_BOT_TOKEN:-}" ] && echo yes || echo no))"
+            ARGS="--dry"
+          fi
+
+          # Always print the digest body to the job log so the run has a
+          # human-readable artifact even when Telegram dispatch succeeds.
+          python -m services.weekly_digest ${ARGS}
+
+      - name: Step summary
+        if: always()
+        run: |
+          # Re-build the digest in dry mode for the step summary — gives a
+          # permanent artifact in the Actions UI even when the real dispatch
+          # went out to Telegram.
+          {
+            echo '## Weekly Readiness Digest'
+            echo ''
+            echo '```'
+            python -m services.weekly_digest --dry 2>/dev/null || echo "(digest build failed — see step logs)"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"

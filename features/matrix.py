@@ -335,13 +335,13 @@ _CANONICAL_FEATURES: list[dict[str, Any]] = [
     {
         "feature_id": "crispy_workflow",
         "display_name": "CRISPY Workflow Engine",
-        "maturity": FeatureMaturity.DISABLED,
-        "enabled": False,
-        "default_availability": FeatureMaturity.DISABLED,
+        "maturity": FeatureMaturity.EXPERIMENTAL,
+        "enabled": True,
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
         "key_dependencies": [],
-        "config_flags": ["CRISPY_ARTIFACTS_ROOT"],
+        "config_flags": ["CRISPY_ARTIFACTS_ROOT", "CRISPY_WORKSPACE_ROOT"],
         "admin_visible": True,
-        "notes": "DEMOTED per issue #467 Section I. This engine does not enforce its own phase sequence. (Per-task git worktree isolation DOES exist in the default internal_agent runtime — see runtimes/adapters/internal_agent.py; it is not gated on this feature.) Re-enable with FEATURE_CRISPY_WORKFLOW=enabled.",
+        "notes": "RE-ENABLED: phase-sequence enforcement (PhaseSequenceError), per-task workspace isolation, abort-on-failure. Set FEATURE_CRISPY_WORKFLOW=disabled to revert.",
     },
     {
         "feature_id": "task_harness_runtime",

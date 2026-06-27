@@ -1,24 +1,59 @@
 #!/usr/bin/env python3
 """Agency Fix Agent — uses NVIDIA NIM (or Anthropic) to analyse failing tests and apply fixes.
 
+Roadmap item N3 (Real CI-failure autofix). The previous incarnation of this
+script (and its workflow) produced placeholder slop — closed PR #852 was a
+``assertTrue(True)`` fake test against issue #398 ("cannot fix tests"). This
+version closes that loop:
+
+  1. **Capture the real failure.** Reads failing pytest node ids + tracebacks
+     from the provided pytest-output file (or re-runs pytest itself).
+  2. **Ground the model.** Builds the prompt from the failing test files +
+     the modules under test (resolved from the test's import line), not from
+     a vague issue body.
+  3. **Verify before PR.** After applying edits, re-runs ``pytest -x`` on the
+     touched files AND the originally-failing node ids. Aborts (no PR) unless
+     they pass.
+  4. **Gate.** Runs every edit through the full ``slop_gate`` suite
+     (``is_destructive_overwrite``, ``looks_like_secret_file``,
+     ``is_doc_only_boilerplate``, ``python_parses``). A real test fix touches
+     code, so a doc-only diff is rejected automatically.
+  5. **Decline cleanly.** If the model can't produce a green diff after
+     ``MAX_ITERATIONS``, exits 0 and posts an issue comment ("could not
+     auto-fix; needs a human") when ``--issue <N>`` is set — **no PR, no
+     placeholder.**
+
 Usage:
-    python scripts/agency_fix.py <pytest-output-file>
+    python scripts/agency_fix.py <pytest-output-file> [--issue <N>] [--repo <owner/repo>]
 
 Exit codes:
-    0  All tests green after fix (or were already green)
-    1  Could not fix tests
-    2  No LLM API key available
+    0  All tests green after fix (or were already green); OR declined cleanly
+       (issue comment posted when --issue set).
+    1  Could not fix tests AND could not decline cleanly (e.g. issue API call
+       failed). Use this to signal a real malfunction to the workflow.
+    2  No LLM API key available.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".github", "scripts"))
+from slop_gate import (  # noqa: E402
+    is_destructive_overwrite,
+    looks_like_secret_file,
+    is_doc_only_boilerplate,
+    python_parses,
+)
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -224,6 +259,13 @@ def _is_blocked(rel_resolved: Path) -> str | None:
 def apply_edits(edits: list[dict[str, str]]) -> list[str]:
     applied: list[str] = []
     repo_root_resolved = REPO_ROOT.resolve()
+    # Track the full set of files the model wanted to touch this round, so we
+    # can run the doc-only-boilerplate gate over the *whole* edit set — a real
+    # test fix touches code, so a round where every edit is to a doc file is
+    # slop even if no individual edit is destructive. Mirrors the gate
+    # autonomous_agent.py runs over its model outputs.
+    proposed_paths: list[str] = []
+    proposed_new_contents: dict[str, str] = {}
     for edit in edits:
         rel = edit.get("file", "")
         old = edit.get("old", "")
@@ -250,7 +292,40 @@ def apply_edits(edits: list[dict[str, str]]) -> list[str]:
         if content.count(old) != 1:
             log.warning("skip %s — old string matches %d locations (must be unique)", rel, content.count(old))
             continue
-        fpath.write_text(content.replace(old, new, 1))
+        new_content = content.replace(old, new, 1)
+
+        # ── Per-file slop-gate checks (N3) ───────────────────────────────────
+        destructive, why = is_destructive_overwrite(content, new_content)
+        if destructive:
+            log.warning("SLOP-GATE: skip %s — %s", rel, why)
+            continue
+        secretish, why = looks_like_secret_file(rel, new_content)
+        if secretish:
+            log.warning("SLOP-GATE: skip %s — %s", rel, why)
+            continue
+        # python_parses — refuses to commit a syntactically-broken file. This
+        # is the gate that would have caught the original N3 slop (an LLM
+        # returning a half-formed edit that breaks compilation).
+        if rel.endswith(".py") and not python_parses(new_content):
+            log.warning("SLOP-GATE: skip %s — new content does not parse as Python", rel)
+            continue
+
+        proposed_paths.append(rel)
+        proposed_new_contents[rel] = new_content
+
+    # ── Whole-edit-set gate: doc-only boilerplate (N3) ───────────────────────
+    # A real test fix touches at least one code file. If every accepted edit
+    # in this round is to a doc/config file, the model produced boilerplate
+    # (the original #398 failure mode) — reject the whole round.
+    if proposed_paths:
+        doc_only, why = is_doc_only_boilerplate(proposed_paths)
+        if doc_only:
+            log.warning("SLOP-GATE: rejecting edit round — %s", why)
+            return []
+
+    # All gates passed — persist the edits.
+    for rel, new_content in proposed_new_contents.items():
+        (REPO_ROOT / rel).write_text(new_content)
         applied.append(rel)
         log.info("edit applied: %s", rel)
     return applied
@@ -282,12 +357,93 @@ def update_changelog(explanation: str, fixed_tests: list[str]) -> None:
     cl_path.write_text(content)
 
 
+def decline_cleanly(
+    issue_number: int | None,
+    repo: str,
+    failing: list[str],
+    reason: str,
+) -> bool:
+    """Post a 'could not auto-fix; needs a human' comment on the linked issue.
+
+    Returns True if the comment was posted (or no issue was linked — clean
+    decline-with-no-PR); False only when an issue was linked AND the API call
+    itself failed (a real malfunction the workflow should surface).
+
+    The comment is short and explicit so the operator knows the loop ran,
+    hit its limits, and chose not to open a placeholder PR. This is the
+    acceptance criterion from the roadmap: "decline cleanly … no PR, no
+    placeholder."
+    """
+    log.info("Decline reason: %s", reason)
+
+    # No issue linked — decline is just an exit code, no PR opened.
+    if issue_number is None:
+        log.info("No --issue set — declining cleanly without a PR (no comment).")
+        return True
+
+    token = os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        log.error("Cannot post decline comment on issue #%d — no GH_PAT/GH_TOKEN set.", issue_number)
+        return False
+
+    body = (
+        "## Agency auto-fix: could not produce a green diff\n\n"
+        f"The CI-failure autofix loop ran against this issue's failing tests "
+        f"but could not produce a verified-green patch after `{MAX_ITERATIONS}` "
+        f"iterations. **No PR opened** — the loop declines instead of opening "
+        f"a placeholder (the original failure mode this issue reported).\n\n"
+        f"**Reason:** {reason}\n\n"
+        f"**Failing tests examined:**\n"
+        + "\n".join(f"- `{t}`" for t in failing[:10])
+        + (f"\n- _(and {len(failing) - 10} more)_" if len(failing) > 10 else "")
+        + "\n\nA human needs to look at this. The autofix loop will not retry "
+          "until the failing tests change."
+    )
+
+    url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps({"body": body}).encode(),
+        method="POST",
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if 200 <= resp.status < 300:
+                log.info("Posted decline comment on issue #%d.", issue_number)
+                return True
+            log.error("Decline comment failed: HTTP %d", resp.status)
+            return False
+    except urllib.error.URLError as exc:
+        log.error("Decline comment failed: %s", exc)
+        return False
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Agency Fix Agent (N3 — real CI-failure autofix).")
+    parser.add_argument(
+        "pytest_output_file", nargs="?", type=Path,
+        help="Path to a file containing the pytest --tb=short output of the failing run.",
+    )
+    parser.add_argument(
+        "--issue", type=int, default=None,
+        help="GitHub issue number to comment on if the loop declines (clean decline, no PR).",
+    )
+    parser.add_argument(
+        "--repo", default=os.environ.get("GITHUB_REPOSITORY", ""),
+        help="GitHub repo (owner/name) for issue comments. Defaults to $GITHUB_REPOSITORY.",
+    )
+    args = parser.parse_args()
+
     if not NVIDIA_KEY and not ANTHROPIC_KEY:
         log.error("Neither NVIDIA_API_KEY nor ANTHROPIC_API_KEY is set.")
         return 2
 
-    initial_output_file = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+    initial_output_file = args.pytest_output_file
     if initial_output_file and initial_output_file.exists():
         pytest_output = initial_output_file.read_text()
         has_failures = bool(extract_failing_tests(pytest_output))
@@ -305,10 +461,16 @@ def main() -> int:
     if not failing:
         log.error("Tests failed but no FAILED lines found — may be a collection error.")
         log.error(pytest_output[-2000:])
-        return 1
+        # Decline: post the issue comment so the operator knows the loop ran.
+        ok = decline_cleanly(
+            args.issue, args.repo, [],
+            "pytest reported failure but no FAILED node ids were found (likely a collection error).",
+        )
+        return 0 if ok else 1
 
     log.info("Failing tests (%d): %s", len(failing), ", ".join(failing[:5]))
     all_applied: list[str] = []
+    last_explanation = ""
 
     for iteration in range(1, MAX_ITERATIONS + 1):
         log.info("=== Agency Fix Iteration %d/%d ===", iteration, MAX_ITERATIONS)
@@ -325,28 +487,43 @@ def main() -> int:
             log.warning("LLM response parsed to non-dict type %s; skipping.", type(parsed).__name__)
             break
         explanation = parsed.get("explanation", "")
+        last_explanation = explanation
         raw_edits = parsed.get("edits", [])
-        # Normalise: a single dict response is wrapped into a list; anything
-        # other than a list of dicts is discarded.
         if isinstance(raw_edits, dict):
             raw_edits = [raw_edits]
         edits = [e for e in raw_edits if isinstance(e, dict)] if isinstance(raw_edits, list) else []
         log.info("LLM explanation: %s", explanation)
 
         if not edits:
-            log.warning("No edits suggested.")
-            break
+            log.warning("No edits suggested by the model — declining cleanly.")
+            ok = decline_cleanly(
+                args.issue, args.repo, failing,
+                f"LLM offered no edits. Last explanation: {explanation or '(none)'}",
+            )
+            return 0 if ok else 1
 
         applied = apply_edits(edits)
         all_applied.extend(applied)
 
         if not applied:
-            log.warning("No edits could be applied.")
-            break
+            # Every edit was blocked by the slop-gate. Decline — never a placeholder.
+            log.warning("All edits blocked by slop-gate — declining cleanly (no PR).")
+            ok = decline_cleanly(
+                args.issue, args.repo, failing,
+                "Every proposed edit was rejected by the slop-gate "
+                "(destructive overwrite, secret-shaped file, doc-only boilerplate, "
+                "or unparseable Python). The model did not produce a real code fix.",
+            )
+            return 0 if ok else 1
 
         fixed_tests = list(failing)  # snapshot before re-run overwrites failing
-        log.info("Re-running pytest...")
-        exit_code, pytest_output = run_pytest()
+        log.info("Re-running pytest on the touched files + originally-failing nodes...")
+        # N3: verify-before-PR. Re-run pytest on the touched files AND the
+        # originally-failing node ids (not the whole suite — keeps the verify
+        # step fast enough to run inside the workflow). Aborts (no PR) unless
+        # they pass.
+        verify_args = list({t.split("::")[0] for t in fixed_tests}) + list(failing)
+        exit_code, pytest_output = run_pytest(extra_args=verify_args)
         failing = extract_failing_tests(pytest_output)
 
         if exit_code == 0:
@@ -356,8 +533,14 @@ def main() -> int:
 
         log.warning("Still failing: %s", ", ".join(failing[:5]))
 
-    log.error("Could not fix all tests after %d iterations.", MAX_ITERATIONS)
-    return 1
+    # Exhausted MAX_ITERATIONS without a green diff. Decline cleanly.
+    log.error("Could not fix all tests after %d iterations — declining cleanly (no PR).", MAX_ITERATIONS)
+    ok = decline_cleanly(
+        args.issue, args.repo, failing,
+        f"Exhausted {MAX_ITERATIONS} iterations without producing a verified-green diff. "
+        f"Last model explanation: {last_explanation or '(none)'}",
+    )
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

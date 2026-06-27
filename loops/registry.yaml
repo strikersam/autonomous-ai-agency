@@ -131,6 +131,33 @@ loops:
     gate: telegram
     purpose: Diagnose runtime failures and apply bounded recovery actions.
 
+  # ── Reliability spine ────────────────────────────────────────────────────
+  - id: brain-watchdog
+    name: Brain Health Watchdog
+    pattern: self-heal
+    level: L2
+    trigger: daemon
+    cadence: continuous (on every provider call)
+    runs_per_day: 24
+    cost: low
+    source: services/brain_watchdog.py
+    self_heal: true
+    gate: telegram
+    purpose: Auto-fail-over to next brain provider after N consecutive failures.
+
+  - id: weekly-readiness-digest
+    name: Weekly Readiness Digest
+    pattern: daily-triage
+    level: L1
+    trigger: schedule
+    cadence: weekly (Mon 07:00 UTC)
+    runs_per_day: 0.14
+    cost: low
+    source: .github/workflows/weekly-readiness-digest.yml
+    self_heal: false
+    gate: none
+    purpose: Send loop readiness, drift, cost, and auto-PR summary to Telegram.
+
   # ── Learn / improve loops ───────────────────────────────────────────────
   - id: continuous-improvement
     name: Continuous Improvement
@@ -170,6 +197,19 @@ loops:
     self_heal: false
     gate: none
     purpose: Watch industry trends and scope them against the repo.
+
+  - id: ephemeral-company-reaper
+    name: Ephemeral Company Reaper
+    pattern: infra-heartbeat
+    level: L3
+    trigger: daemon
+    cadence: every 15 min
+    runs_per_day: 96
+    cost: low
+    source: services/ephemeral_reaper.py
+    self_heal: false
+    gate: none
+    purpose: Destroy expired non-admin (GitHub/Google) agencies on free hosting.
 
   - id: daily-industry-update
     name: Daily Industry Update

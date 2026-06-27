@@ -1244,6 +1244,28 @@ class Company(BaseModel):
         default_factory=list,
         description="User IDs with member access"
     )
+    # Lifecycle / persistence
+    persistent: bool = Field(
+        default=True,
+        description="Whether this company persists forever. Admin-created "
+        "companies are persistent; companies created by non-admin (GitHub/"
+        "Google) users are ephemeral and reaped after expires_at.",
+    )
+    expires_at: datetime | None = Field(
+        default=None,
+        description="When an ephemeral company is destroyed by the reaper. "
+        "None for persistent companies.",
+    )
+    created_by_role: str | None = Field(
+        default=None,
+        description="Role of the user who created the company (e.g. 'admin', "
+        "'user') — captured at creation time for lifecycle decisions.",
+    )
+    created_by_provider: str | None = Field(
+        default=None,
+        description="Auth provider of the creating user ('github' | 'google' | "
+        "'local' | None).",
+    )
     # Timestamps
     created_at: datetime = Field(
         default_factory=datetime.utcnow,

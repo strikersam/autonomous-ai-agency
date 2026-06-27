@@ -1,6 +1,7 @@
 import React from 'react';
 import { APP_NAME, APP_LABEL } from '../version';
 import { useAuth } from '../AuthContext';
+import EphemeralBanner from './screens/EphemeralBanner';
 
 
 // nav.jsx — Autonomous AI Agency navigation (clean, all screens)
@@ -23,10 +24,11 @@ const NAV_ITEMS = [
   { id:'onboarding', label:'Onboarding', icon:'Sparkles',       desc:'Company setup wizard',    section:'CONTEXT' },
   { id:'doctor',     label:'Doctor',     icon:'Stethoscope',    desc:'Diagnostics',             section:'SYSTEM' },
   { id:'admin',      label:'Admin',      icon:'Shield',         desc:'Users & access',          section:'SYSTEM', adminOnly:true },
+  { id:'sam',        label:'SAM',        icon:'Mic',            desc:'Voice command & control',  section:'SYSTEM' },
 ];
 
-const MOBILE_PRIMARY = ['dashboard', 'agents', 'tasks', 'doctor'];
-const MOBILE_MORE    = ['company', 'schedules', 'skills', 'portfolio', 'intelligence', 'knowledge', 'providers', 'loops', 'github', 'logs', 'onboarding', 'admin'];
+const MOBILE_PRIMARY = ['dashboard', 'chat', 'sam', 'doctor'];
+const MOBILE_MORE    = ['agents', 'tasks', 'schedules', 'skills', 'portfolio', 'intelligence', 'knowledge', 'providers', 'loops', 'github', 'logs', 'company', 'onboarding', 'admin'];
 
 function Icon({ name, size=18, style={} }) {
   const s = size;
@@ -50,6 +52,7 @@ function Icon({ name, size=18, style={} }) {
     GitBranch:       <><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></>,
     Cpu:             <><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M9 2v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/></>,
     LogOut:          <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></>,
+    Mic:             <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></>,
     Menu:            <><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></>,
     X:               <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
     MoreHorizontal:  <><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></>,
@@ -264,6 +267,7 @@ function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin })
           <MobileBottomNav activeScreen={activeScreen} onNavigate={onNavigate} isAdmin={isAdmin}/>
         </div>
       </div>
+      <EphemeralBanner isAdmin={isAdmin}/>
       <style>{`
         .desktop-sidebar  { display:none; flex-direction:column; }
         .mobile-topbar    { display:block; }

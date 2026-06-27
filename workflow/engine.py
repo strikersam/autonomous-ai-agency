@@ -56,6 +56,7 @@ from workflow.models import (
     CheckRun,
     ModelRoutingConfig,
     Phase,
+    PhaseSequenceError,
     PhaseType,
     Slice,
     WorkflowBuildRequest,
@@ -66,6 +67,8 @@ from workflow.models import (
 from workflow.phases import PhaseRunner
 
 log = logging.getLogger("crispy-engine")
+
+_WORKSPACE_BASE = os.environ.get("CRISPY_WORKSPACE_ROOT", ".data/workflow/workspaces")
 
 _DEFAULT_DB = os.environ.get("CRISPY_WORKFLOW_DB", ".data/workflow/workflow.db")
 
@@ -287,6 +290,12 @@ class WorkflowEngine:
             )
         )
 
+        ws_root = req.workspace_root
+        if not ws_root:
+            ws_dir = Path(_WORKSPACE_BASE) / run_id
+            ws_dir.mkdir(parents=True, exist_ok=True)
+            ws_root = str(ws_dir)
+
         run = WorkflowRun(
             run_id=run_id,
             title=req.title or req.request[:80],
@@ -297,7 +306,7 @@ class WorkflowEngine:
             artifacts=[],
             approval_gate=None,
             model_routing=req.model_routing,
-            workspace_root=req.workspace_root or str(self._workspace),
+            workspace_root=ws_root,
             created_at=now,
             updated_at=now,
         )
@@ -474,6 +483,109 @@ class WorkflowEngine:
             for row in rows
         ]
 
+    # ── Run-history metric (N4 — CRISPY burn-in evidence) ────────────────────
+
+    def crispy_run_history(self) -> dict[str, Any]:
+        """Aggregate CRISPY run-history evidence for burn-in / promotion decisions.
+
+        Roadmap item N4: promotion of ``crispy_workflow`` from EXPERIMENTAL →
+        stable in ``features/matrix.py`` must be backed by *data*, not a flag
+        flip. This method returns the observable evidence — counts of
+        completed/failed runs by phase, total run count, success rate, and the
+        most recent failure reasons — so the operator (and the autonomy status
+        endpoint) can see whether the burn-in criteria are met.
+
+        The aggregation is cheap (one GROUP BY on the existing
+        ``workflow_events`` table) and degrades gracefully when the engine has
+        never been used (returns zeros).
+
+        Returns::
+
+            {
+                "total_runs": <int>,
+                "completed_runs": <int>,
+                "failed_runs": <int>,
+                "cancelled_runs": <int>,
+                "success_rate": <float 0..1>,
+                "phase_outcomes": {
+                    "<phase_type>": {"complete": <int>, "failed": <int>},
+                    ...
+                },
+                "last_failure_reasons": [<str>, ...],   # up to 5 most recent
+                "window_days": <int or None>,            # None when no runs yet
+            }
+        """
+        with self._connect() as conn:
+            # Run-level outcomes (from workflow_runs, not events — faster).
+            run_rows = conn.execute(
+                "SELECT status, COUNT(*) AS n FROM workflow_runs GROUP BY status"
+            ).fetchall()
+            status_counts = {row["status"]: row["n"] for row in run_rows}
+            total = sum(status_counts.values())
+            completed = status_counts.get("done", 0)
+            failed = status_counts.get("failed", 0)
+            cancelled = status_counts.get("cancelled", 0)
+            success_rate = (completed / total) if total else 0.0
+
+            # Phase-level outcomes — count phase_complete vs phase_failed events.
+            # payload JSON has the form {"phase": "<phase_type>", ...}.
+            phase_rows = conn.execute(
+                """
+                SELECT event_type, payload
+                FROM workflow_events
+                WHERE event_type IN ('phase_complete', 'phase_failed')
+                """
+            ).fetchall()
+            phase_outcomes: dict[str, dict[str, int]] = {}
+            last_failure_reasons: list[str] = []
+            for row in phase_rows:
+                try:
+                    payload = json.loads(row["payload"])
+                except Exception:  # pragma: no cover - defensive
+                    continue
+                phase = payload.get("phase") or "unknown"
+                bucket = phase_outcomes.setdefault(phase, {"complete": 0, "failed": 0})
+                if row["event_type"] == "phase_complete":
+                    bucket["complete"] += 1
+                else:
+                    bucket["failed"] += 1
+                    reason = payload.get("error") or row["event_type"]
+                    last_failure_reasons.append(f"{phase}: {reason}")
+
+            # Earliest run timestamp → burn-in window in days
+            window_days: int | None = None
+            if total:
+                first_row = conn.execute(
+                    "SELECT MIN(created_at) AS first_at FROM workflow_runs"
+                ).fetchone()
+                if first_row and first_row["first_at"]:
+                    try:
+                        # created_at is ISO 8601 UTC
+                        from datetime import datetime, timezone
+                        first_dt = datetime.fromisoformat(
+                            first_row["first_at"].replace("Z", "+00:00")
+                        )
+                        window_days = max(
+                            0,
+                            int((datetime.now(timezone.utc) - first_dt).total_seconds() // 86400),
+                        )
+                    except Exception:  # pragma: no cover - defensive
+                        window_days = None
+
+        # Keep only the 5 most recent failure reasons
+        last_failure_reasons = last_failure_reasons[-5:]
+
+        return {
+            "total_runs": total,
+            "completed_runs": completed,
+            "failed_runs": failed,
+            "cancelled_runs": cancelled,
+            "success_rate": round(success_rate, 4),
+            "phase_outcomes": phase_outcomes,
+            "last_failure_reasons": last_failure_reasons,
+            "window_days": window_days,
+        }
+
     # ── Slice execution ───────────────────────────────────────────────────────
 
     async def run_slice(self, run_id: str, slice_id: str, *, force: bool = False) -> Slice:
@@ -521,6 +633,10 @@ class WorkflowEngine:
         for phase_type in _PRE_GATE_PHASES:
             run = self.get(run_id)
             if run is None or run.status in ("cancelled", "failed"):
+                return
+            phase = run.phase_by_type(phase_type)
+            if phase and phase.status == "failed":
+                log.warning("Aborting pre-gate: phase %s failed in run %s", phase_type, run_id)
                 return
             await self._run_single_phase(run_id, phase_type)
 
@@ -576,12 +692,28 @@ class WorkflowEngine:
             self._log_event(run_id, "workflow_done", {})
             log.info("WorkflowRun %s completed successfully", run_id)
 
+    def _check_phase_sequence(self, run: WorkflowRun, phase_type: PhaseType) -> None:
+        """Raise PhaseSequenceError if a predecessor phase hasn't completed."""
+        all_phases = _PRE_GATE_PHASES + _POST_GATE_PHASES
+        if phase_type not in all_phases:
+            return
+        idx = all_phases.index(phase_type)
+        if idx == 0:
+            return
+        pred_type = all_phases[idx - 1]
+        pred = run.phase_by_type(pred_type)
+        if pred is None:
+            return
+        if pred.status != "done":
+            raise PhaseSequenceError(phase_type, pred_type, pred.status)
+
     async def _run_single_phase(self, run_id: str, phase_type: PhaseType) -> None:
         """Run one phase, update its status, and persist the artifact."""
         with self._lock:
             run = self._runs.get(run_id)
             if run is None:
                 return
+            self._check_phase_sequence(run, phase_type)
             phase = run.phase_by_type(phase_type)
             if phase is None:
                 return
