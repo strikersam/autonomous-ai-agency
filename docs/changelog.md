@@ -6,6 +6,8 @@
 
 ### Security
 
+- **Auto-PR quality: codebase grounding + pre-commit verification** (2026-06-27). The autonomous agent now (1) extracts file paths from the issue text and attaches their contents to the prompt so the model edits real code instead of guessing, and (2) runs `pytest -x` on all touched Python files before committing — aborting the PR if tests fail. Passing PRs get a "verified" note in the body. An auto-PR that breaks tests can never be opened. Roadmap item 3d complete.
+
 - **CRISPY workflow engine hardened and re-enabled** (2026-06-27). Added `PhaseSequenceError` — the engine now refuses to advance past a phase whose predecessor hasn't completed (the core issue that got it demoted in #467). Per-task workspace isolation: each `create_run` gets its own directory under `CRISPY_WORKSPACE_ROOT`, preventing concurrent tasks from stepping on each other. Pre-gate execution aborts cleanly on a failed phase instead of silently continuing. Feature flag promoted from `disabled` to `experimental`. Tests: `tests/test_crispy_workflow.py` (9 cases). Roadmap item 3c complete.
 
 - **Slop-gate wired into all sibling auto-PR scripts** (2026-06-27). Extended `is_destructive_overwrite` and `looks_like_secret_file` guards to `apply_review.py` (agentic review applier) and `scripts/agency_fix.py` (test-fix agent). All four model-driven write paths (`autonomous_agent.py`, `implement_agent.py`, `apply_review.py`, `agency_fix.py`) now share the same slop-gate — no auto-PR script can blindly overwrite or commit credentials. Roadmap item 3a complete.

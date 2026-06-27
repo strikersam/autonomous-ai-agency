@@ -211,7 +211,7 @@ sequence" + lacks isolation. We must *fix*, not flip.
 
 ---
 
-### 3d. Phase 3 — auto-PR *quality* beyond the slop-gate ⬜  (size: M)
+### 3d. Phase 3 — auto-PR *quality* beyond the slop-gate ✅  (size: M)
 
 1. **Codebase grounding**: before the model call, attach the relevant files
    (`graphify query` output or `read_file` on paths named in the issue) to the
