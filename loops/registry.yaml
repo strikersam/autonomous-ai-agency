@@ -153,7 +153,7 @@ loops:
     cadence: weekly (Mon 07:00 UTC)
     runs_per_day: 0.14
     cost: low
-    source: services/weekly_digest.py
+    source: .github/workflows/weekly-readiness-digest.yml
     self_heal: false
     gate: none
     purpose: Send loop readiness, drift, cost, and auto-PR summary to Telegram.

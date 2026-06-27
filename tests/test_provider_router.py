@@ -141,6 +141,97 @@ async def test_rate_limited_provider_fails_over_immediately_without_burning_retr
     assert await is_provider_on_cooldown("fast-but-limited") is True
 
 
+# ── N1a: brain watchdog integration tests ────────────────────────────────────
+# The provider router must fire-and-forget notify the brain watchdog on both
+# success and failure-exhaustion paths so the watchdog's consecutive-failure
+# counter is accurate. See services/brain_watchdog.py + docs/plans/next-pass-roadmap.md N1a.
+
+@pytest.mark.anyio
+async def test_provider_router_records_failure_on_failed_provider(monkeypatch):
+    """When a provider call fails (and failover succeeds), the brain watchdog's
+    record_failure MUST be called for the failed provider_id, and record_success
+    for the one that succeeded."""
+    import services.brain_watchdog as _bw  # top-level path used by tests
+
+    # Reset the singleton so we get a clean watchdog state.
+    _bw.reset_watchdog()
+    real_wd = _bw.get_watchdog()
+    failures: list[str] = []
+    successes: list[str] = []
+
+    def _stub_record_failure(provider):
+        failures.append(provider)
+        return None  # never trigger failover in this test
+    def _stub_record_success(provider):
+        successes.append(provider)
+
+    monkeypatch.setattr(real_wd, "record_failure", _stub_record_failure)
+    monkeypatch.setattr(real_wd, "record_success", _stub_record_success)
+    # Ensure the lazy import in provider_router resolves to this same module
+    # so monkeypatching is visible (it patches the instance, so identity is fine).
+    monkeypatch.setattr(_bw, "get_watchdog", lambda: real_wd)
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        if provider.provider_id == "primary-down":
+            return httpx.Response(503, json={"error": "down"})
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok"}}]},
+            headers={"content-type": "application/json"},
+        )
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter([
+        ProviderConfig("primary-down", "openai-compatible", "https://a/v1", api_key="k", default_model="a", priority=0),
+        ProviderConfig("backup-ok", "openai-compatible", "https://b/v1", api_key="k", default_model="b", priority=10),
+    ])
+
+    result = await router.chat_completion(
+        {"model": "a", "messages": [{"role": "user", "content": "hi"}]},
+        max_retries=0,
+    )
+
+    assert result.provider.provider_id == "backup-ok"
+    # The failed provider had its failure recorded; the successful one had success recorded.
+    assert failures == ["primary-down"]
+    assert successes == ["backup-ok"]
+
+
+@pytest.mark.anyio
+async def test_provider_router_watchdog_notification_never_breaks_request(monkeypatch):
+    """Even if the brain watchdog import itself fails, the request MUST still
+    succeed — the watchdog hook is fire-and-forget."""
+    # Force the lazy import inside _notify_watchdog to raise by sabotaging both
+    # import paths. The request must still complete normally.
+    import builtins
+    real_import = builtins.__import__
+
+    def _boom_import(name, *args, **kwargs):
+        if name == "services.brain_watchdog" or name == "brain_watchdog":
+            raise ImportError("simulated watchdog outage (test)")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _boom_import)
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok"}}]},
+            headers={"content-type": "application/json"},
+        )
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter([
+        ProviderConfig("only", "openai-compatible", "https://a/v1", api_key="k", default_model="a", priority=0),
+    ])
+
+    result = await router.chat_completion(
+        {"model": "a", "messages": [{"role": "user", "content": "hi"}]},
+        max_retries=0,
+    )
+    assert result.provider.provider_id == "only"
+
+
 def test_parse_retry_after_seconds_and_missing() -> None:
     assert ProviderRouter._parse_retry_after(httpx.Response(429, headers={"Retry-After": "20"})) == 20.0
     assert ProviderRouter._parse_retry_after(httpx.Response(429)) is None
