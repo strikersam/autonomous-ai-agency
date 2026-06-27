@@ -6,6 +6,8 @@
 
 ### Security
 
+- **Slop-gate rejects doc-only boilerplate PRs; auto-merge skips agency branches** (2026-06-27). Root-caused the slop source from PRs #842/#843: vague issues produce additive markdown-only output the slop-gate couldn't catch. New `slop_gate.is_doc_only_boilerplate()` rejects PRs where all generated files are documentation-only (no code). `auto-merge.yml` now skips `agent/*` branches — agency PRs require human review. Slop-gate also wired into `implement_agent.py`'s `tool_write_file` (destructive overwrite + secrets checks). Tests: 7 new cases in `tests/test_slop_gate.py`.
+
 - **Slop-gate now refuses to auto-commit a secrets-shaped file; removed the placeholder `.github/secrets.json` footgun** (2026-06-27). PR #842 auto-merged a `.github/secrets.json` holding `{'ANTHROPIC_API_KEY': '${ANTHROPIC_API_KEY}', 'GH_PAT': '${GH_PAT}'}` — placeholder values (no real key leaked) but a footgun: a tracked file literally named `secrets` invites someone to paste real keys into it, violating CLAUDE.md rule #2 ("No secrets in source"). New `slop_gate.looks_like_secret_file()` rejects committing any secrets-shaped file (credential-named keys, or a `secret*`/`credential*`/`.env` filename) while still allowing `*.example` / `*.sample` / `*.template` docs, wired into `.github/scripts/autonomous_agent.py` so the autonomous agency can't reintroduce it. Removed the merged `.github/secrets.json`. Tests: `tests/test_slop_gate.py` (6 new cases incl. the exact #842 content).
 
 ### Removed

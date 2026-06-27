@@ -7,12 +7,13 @@ code — e.g. PR #833 replaced an 892-line ``direct_chat.py`` with ``{}`` and
 opened a PR. This module refuses destructive / low-quality changes *before* a
 PR is created.
 
-Four checks, all pure functions so they unit-test without git or network:
+Five checks, all pure functions so they unit-test without git or network:
 
   * ``is_destructive_overwrite`` — emptying or truncating an existing file.
   * ``python_parses``            — generated Python must at least parse.
   * ``diff_is_sloppy``           — a net mass-deletion isn't an "implementation".
   * ``looks_like_secret_file``   — never commit a secrets-shaped file to source.
+  * ``is_doc_only_boilerplate``  — pure-doc PRs from vague issues are slop.
 """
 from __future__ import annotations
 
@@ -118,6 +119,46 @@ def looks_like_secret_file(path: str, content: str) -> tuple[bool, str]:
             "Document variable names in a *.example template instead."
         )
     return False, ""
+
+
+def is_doc_only_boilerplate(file_paths: list[str]) -> tuple[bool, str]:
+    """Return (rejected, reason) when every generated file is documentation-only.
+
+    PRs #842 and #843 were auto-merged from vague issues and contained only new
+    markdown files (``AUTONOMOUS_AGENCY_SETUP.md``, ``investigation.md``) plus
+    changelog entries — zero code.  The slop-gate couldn't catch them because
+    the changes were additive, not destructive.
+
+    An autonomous agent implementing a real issue should produce at least one
+    code file (.py, .js, .jsx, .ts, .tsx, .go, .rs, .java, .sh, .sql, etc.).
+    A PR that only touches docs/markdown/changelog/text is either boilerplate
+    hallucination from a vague issue or a planning doc that needs human review.
+    """
+    if not file_paths:
+        return False, ""
+
+    _DOC_EXTS = {
+        ".md", ".txt", ".rst", ".adoc", ".csv", ".log",
+        ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
+    }
+    _CHANGELOG_STEMS = {"changelog", "changes", "history", "news"}
+
+    for path in file_paths:
+        base = path.rsplit("/", 1)[-1].lower()
+        stem = base.rsplit(".", 1)[0] if "." in base else base
+        ext = ("." + base.rsplit(".", 1)[1]) if "." in base else ""
+
+        is_changelog = stem in _CHANGELOG_STEMS
+        is_doc = ext in _DOC_EXTS
+
+        if not is_changelog and not is_doc:
+            return False, ""
+
+    return True, (
+        "all generated files are documentation-only (markdown, changelog, config) "
+        "with no code changes — this is boilerplate from a vague issue, not a real "
+        "implementation. The autonomous agent should produce at least one code file."
+    )
 
 
 def diff_is_sloppy(total_add: int, total_del: int) -> tuple[bool, str]:

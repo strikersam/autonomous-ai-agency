@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from slop_gate import (  # noqa: E402
     diff_is_sloppy,
+    is_doc_only_boilerplate,
     is_destructive_overwrite,
     looks_like_secret_file,
     python_parses,
@@ -121,4 +122,54 @@ def test_ordinary_config_not_flagged():
     rejected, _ = looks_like_secret_file(
         "router/registry.py", "REGISTRY = {'model': 'x'}\n"
     )
+    assert not rejected
+
+
+# ── doc-only boilerplate guard (the #842/#843 additive slop) ───────────────────
+
+def test_doc_only_pr_rejected():
+    """The exact #842/#843 pattern: only markdown + changelog, no code."""
+    rejected, reason = is_doc_only_boilerplate([
+        "AUTONOMOUS_AGENCY_SETUP.md",
+        "investigation.md",
+        "CHANGELOG.md",
+        "docs/changelog.md",
+    ])
+    assert rejected
+    assert "documentation-only" in reason
+
+
+def test_doc_only_single_markdown_rejected():
+    rejected, _ = is_doc_only_boilerplate(["docs/new-feature.md"])
+    assert rejected
+
+
+def test_pr_with_code_file_allowed():
+    """A PR that includes at least one code file is not boilerplate."""
+    rejected, _ = is_doc_only_boilerplate([
+        "agent/new_feature.py",
+        "CHANGELOG.md",
+        "docs/changelog.md",
+    ])
+    assert not rejected
+
+
+def test_pr_with_js_code_allowed():
+    rejected, _ = is_doc_only_boilerplate([
+        "frontend/src/components/NewPanel.jsx",
+        "CHANGELOG.md",
+    ])
+    assert not rejected
+
+
+def test_pr_with_shell_script_allowed():
+    rejected, _ = is_doc_only_boilerplate([
+        "scripts/deploy.sh",
+        "docs/deploy.md",
+    ])
+    assert not rejected
+
+
+def test_empty_file_list_allowed():
+    rejected, _ = is_doc_only_boilerplate([])
     assert not rejected

@@ -23,6 +23,9 @@ import textwrap
 import time
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from slop_gate import is_destructive_overwrite, looks_like_secret_file  # noqa: E402
+
 from openai import OpenAI
 
 # CLI script: log to stdout so messages stay visible and ordered in CI logs.
@@ -123,9 +126,9 @@ def tool_write_file(path: str, content: str) -> str:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         # Safety guard: refuse to shrink an existing file by more than 10 lines.
-        # This prevents the agent from accidentally overwriting files with truncated reads.
         if p.exists():
-            existing_lines = p.read_text(errors="replace").count("\n")
+            old_text = p.read_text(errors="replace")
+            existing_lines = old_text.count("\n")
             new_lines = content.count("\n")
             if existing_lines > 20 and new_lines < existing_lines - 10:
                 return (
@@ -135,6 +138,12 @@ def tool_write_file(path: str, content: str) -> str:
                     f"For docs/changelog.md use add_changelog_entry instead. "
                     f"For source files, use bash(cmd='cat >> file') to append or make targeted edits."
                 )
+            destructive, why = is_destructive_overwrite(old_text, content)
+            if destructive:
+                return f"[BLOCKED] slop-gate: {path} — {why}"
+        secretish, why = looks_like_secret_file(path, content)
+        if secretish:
+            return f"[BLOCKED] slop-gate: {path} — {why}"
         p.write_text(content)
         return f"Written {len(content)} chars to {path}"
     except Exception as exc:
