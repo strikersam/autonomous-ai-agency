@@ -499,3 +499,4 @@ services:
       # Storage
       - key: STORAGE_BACKEND
         value: "sqlite"
+# Trigger Render Blueprint sync to deploy agency-hermes service
