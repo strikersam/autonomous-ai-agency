@@ -45,7 +45,7 @@ class TestBrainWatchdog:
     @patch.object(BrainWatchdog, "_notify_failover")
     def test_failover_triggers_at_threshold(self, mock_notify, mock_persist):
         wd = BrainWatchdog(max_failures=3)
-        with patch.object(_bcs, "provider_key_present",
+        with patch.object(_bw._bcs, "provider_key_present",
                           side_effect=lambda p: p in ("groq", "nvidia")):
             wd.record_failure("cerebras")
             wd.record_failure("cerebras")
@@ -60,7 +60,7 @@ class TestBrainWatchdog:
     @patch.object(BrainWatchdog, "_notify_failover")
     def test_failover_skips_provider_without_key(self, mock_notify, mock_persist):
         wd = BrainWatchdog(max_failures=2)
-        with patch.object(_bcs, "provider_key_present",
+        with patch.object(_bw._bcs, "provider_key_present",
                           side_effect=lambda p: p == "nvidia"):
             wd.record_failure("cerebras")
             result = wd.record_failure("cerebras")
@@ -71,7 +71,7 @@ class TestBrainWatchdog:
     @patch.object(BrainWatchdog, "_notify_failover")
     def test_no_failover_candidates(self, mock_notify, mock_persist):
         wd = BrainWatchdog(max_failures=1)
-        with patch.object(_bcs, "provider_key_present",
+        with patch.object(_bw._bcs, "provider_key_present",
                           return_value=False):
             result = wd.record_failure("cerebras")
 
@@ -82,7 +82,7 @@ class TestBrainWatchdog:
     @patch.object(BrainWatchdog, "_notify_failover")
     def test_failover_log_recorded(self, mock_notify, mock_persist):
         wd = BrainWatchdog(max_failures=1)
-        with patch.object(_bcs, "provider_key_present",
+        with patch.object(_bw._bcs, "provider_key_present",
                           side_effect=lambda p: p == "groq"):
             wd.record_failure("cerebras")
 

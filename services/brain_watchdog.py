@@ -26,6 +26,11 @@ log = logging.getLogger("brain-watchdog")
 
 _DEFAULT_MAX_FAILURES = int(os.environ.get("BRAIN_WATCHDOG_MAX_FAILURES", "3"))
 
+try:
+    from services import brain_config_store as _bcs
+except (ImportError, ModuleNotFoundError):
+    import brain_config_store as _bcs  # type: ignore[no-redef]
+
 
 class BrainWatchdog:
     """Monitors provider health and triggers failover on consecutive failures."""
@@ -56,19 +61,9 @@ class BrainWatchdog:
 
     def _trigger_failover(self, failed_provider: str) -> str | None:
         """Fail over to the next available provider."""
-        try:
-            from services.brain_config_store import (
-                RECOMMENDED_PROVIDER_PRIORITY,
-                provider_key_present,
-            )
-        except ImportError:
-            import brain_config_store as _bcs
-            RECOMMENDED_PROVIDER_PRIORITY = _bcs.RECOMMENDED_PROVIDER_PRIORITY
-            provider_key_present = _bcs.provider_key_present
-
         candidates = [
-            p for p in RECOMMENDED_PROVIDER_PRIORITY
-            if p != failed_provider and provider_key_present(p)
+            p for p in _bcs.RECOMMENDED_PROVIDER_PRIORITY
+            if p != failed_provider and _bcs.provider_key_present(p)
         ]
         if not candidates:
             log.error("Brain watchdog: no failover candidates available "
@@ -96,12 +91,8 @@ class BrainWatchdog:
     def _persist_failover(self, new_provider: str) -> None:
         """Persist the new provider in the brain config store."""
         try:
-            from services.brain_config_store import (
-                BrainConfigStore,
-                PROVIDER_PRESETS,
-            )
-            store = BrainConfigStore()
-            preset = PROVIDER_PRESETS.get(new_provider)
+            store = _bcs.BrainConfigStore()
+            preset = _bcs.PROVIDER_PRESETS.get(new_provider)
             if preset:
                 store.save(preset)
                 log.info("Brain watchdog: persisted failover to %s", new_provider)
