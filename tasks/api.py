@@ -117,11 +117,28 @@ def _evict_stale(cache: dict, ttl: float) -> None:
         cache.pop(k, None)
 
 
-def _invalidate_task_caches() -> None:
-    """Clear all task caches on mutation so the board shows fresh data."""
+def _invalidate_task_caches(*, user_id: str | None = None) -> None:
+    """Clear task caches on mutation so the board shows fresh data.
+
+    When *user_id* is set, only that user's entries are evicted from the
+    per-user caches; other users' boards stay warm. The global admin cache
+    (_LIST_ALL_CACHE) is always cleared.
+    """
     _LIST_ALL_CACHE.clear()
-    _LIST_USER_CACHE.clear()
-    _COUNTS_CACHE.clear()
+    if user_id:
+        # Only evict entries belonging to the mutating user.
+        # Cache keys: list_user:{owner_id}:... or counts:{owner_id}
+        uid = user_id
+        for cache in (_LIST_USER_CACHE, _COUNTS_CACHE):
+            stale = [
+                k for k in list(cache.keys())
+                if k.startswith(f"list_user:{uid}:") or k == f"counts:{uid}"
+            ]
+            for k in stale:
+                cache.pop(k, None)
+    else:
+        _LIST_USER_CACHE.clear()
+        _COUNTS_CACHE.clear()
 
 
 task_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -219,7 +236,7 @@ async def create_task(body: TaskCreateRequest, request: Request, user: Any = Dep
         await workflow.create_task(task, actor=_user_id(user))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
 
 
@@ -365,7 +382,7 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     await store.update(task)
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
 
 
@@ -410,7 +427,7 @@ async def delete_task(task_id: str, request: Request, user: Any = Depends(_curre
     deleted = await _get_store(request).delete(task_id, owner_id=owner_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Task not found")
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
 
 
 @task_router.post("/{task_id}/comments", status_code=201)
@@ -422,7 +439,7 @@ async def add_comment(task_id: str, body: CommentAddRequest, request: Request, u
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     return {"comment": comment.model_dump(), "task": task.as_dict()}
 
 
@@ -441,7 +458,7 @@ async def approve_checkpoint(task_id: str, body: ApprovalRequest, request: Reque
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
 
 
@@ -465,7 +482,7 @@ async def approve_execution(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     if body.approve:
         _queue_task_execution(background_tasks, request, task_id)
     return {"task": task.as_dict()}
@@ -480,7 +497,7 @@ async def retry_task(task_id: str, request: Request, user: Any = Depends(_curren
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
 
 
@@ -510,7 +527,7 @@ async def follow_up_task(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     _queue_task_execution(background_tasks, request, task.task_id)
     return {"task": task.as_dict(), "queued": True}
 
@@ -521,7 +538,7 @@ async def escalate_task(task_id: str, request: Request, user: Any = Depends(_cur
     workflow = _get_workflow(request)
     workflow.escalate(task, actor=actor)
     await store.update(task)
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
 
 
@@ -538,7 +555,7 @@ async def clarify_task(task_id: str, body: ClarifyRequest, request: Request, use
     )
     task.touch()
     await store.update(task)
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
 
 
@@ -566,6 +583,6 @@ async def run_task(
             task_status=task.status,
         )
     await store.update(task)
-    _invalidate_task_caches()
+    _invalidate_task_caches(user_id=_user_id(user))
     _queue_task_execution(background_tasks, request, task.task_id)
     return {"task": task.as_dict(), "queued": True}
