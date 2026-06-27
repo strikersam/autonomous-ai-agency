@@ -166,13 +166,16 @@ async def github_fetch_user(access_token: str) -> dict | None:
             "email": email.lower(),
             "name": ud.get("name") or ud.get("login") or email,
             "avatar_url": ud.get("avatar_url", ""),
+            "login": ud.get("login", ""),
             "provider": "github",
         }
 
 
 # ── Google OAuth helpers (canonical) ─────────────────────────────────────────
 
-async def google_exchange_code(code: str) -> str | None:
+async def google_exchange_code(code: str, redirect_uri: str | None = None) -> str | None:
+    if redirect_uri is None:
+        redirect_uri = f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback"
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             "https://oauth2.googleapis.com/token",
@@ -181,7 +184,7 @@ async def google_exchange_code(code: str) -> str | None:
                 "client_secret": GOOGLE_CLIENT_SECRET,
                 "code":          code,
                 "grant_type":    "authorization_code",
-                "redirect_uri":  f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback",
+                "redirect_uri":  redirect_uri,
             },
         )
         if resp.status_code != 200:
