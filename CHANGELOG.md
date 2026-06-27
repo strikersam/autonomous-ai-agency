@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- **Swept the repo of accumulated slop — stale narrative snapshots, duplicate one-off scripts, and auto-generated draft context** (2026-06-27). Removed point-in-time status/handoff docs that had frozen and rotted (superseded by the living `AGENTS.md` / `CLAUDE.md` / `.claude/state/active-tasks.md`): `AGENCY_CORE_V5_PROGRESS.md`, `HANDOFF_TO_CLAUDE.md`, `PENDING_WORK.md`, `REVIEW_AND_FIXES.md` (the last still referenced the old `local-llm-server` repo name and PR #271). Removed redundant root scripts: `backend_test.py` and its byte-identical duplicate `backend_test_iteration3.py` (trivial `pytest` wrappers; CI already `--ignore`d the former — that flag is now dropped), `fix_ci.py` (a spent single-use changelog-patch migration), and `check_auto.py` (an auto-generated one-off verification helper reading from a non-existent `scratch/` dir). Removed `docs/context/issue-397.md` / `issue-398.md` (auto-generated stale draft-PR context for the two slop issues). None were imported by runtime code.
+
 ### Added
 
 - **Brain health watchdog with auto-failover** (2026-06-27). New `services/brain_watchdog.py` monitors the active brain provider for consecutive failures and auto-fails-over to the next provider in `RECOMMENDED_PROVIDER_PRIORITY` (Cerebras → Groq → NVIDIA NIM). Threshold configurable via `BRAIN_WATCHDOG_MAX_FAILURES` env (default 3). Persists the new provider via `BrainConfigStore` and pages Telegram on failover. Singleton `get_watchdog()` integrates into any caller. Tests: `tests/test_brain_watchdog.py` (7 cases). Loop registry entry: `brain-watchdog` (L2, self-heal, telegram-gated).
