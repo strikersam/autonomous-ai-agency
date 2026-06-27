@@ -915,12 +915,17 @@ async def _cached(key: str, *, ttl_s: float, producer) -> object:
         evt.set()
 
 
+_storage_uses_objectids: bool = os.environ.get("STORAGE_BACKEND", "mongo") != "sqlite"
+
+
 async def _fast_count(collection) -> int:
     """Count without materialising rows — prefers estimated_document_count."""
-    try:
-        return await collection.estimated_document_count()
-    except AttributeError:
-        return await collection.count_documents({})
+    if _storage_uses_objectids:
+        try:
+            return await collection.estimated_document_count()
+        except AttributeError:
+            pass
+    return await collection.count_documents({})
 
 # ─── Model Catalog ────────────────────────────────────────────────────────────────
 # Best-in-class models per provider, tagged by role and tier.
@@ -7793,11 +7798,16 @@ async def legacy_scheduler_create(
         requires_approval=body.requires_approval,
         tags=body.tags,
     )
+    _DASHBOARD_CACHE.pop("scheduler:jobs", None)
     return job.as_dict()
 
 
 @app.get("/agent/scheduler/jobs")
 async def legacy_scheduler_list(user: dict = Depends(get_current_user)):
+    return await _cached("scheduler:jobs", ttl_s=10, producer=_produce_scheduler_jobs)
+
+
+async def _produce_scheduler_jobs() -> dict[str, object]:
     return {"jobs": [job.as_dict() for job in get_scheduler().list()]}
 
 
@@ -7812,14 +7822,19 @@ async def legacy_scheduler_get(job_id: str, user: dict = Depends(get_current_use
 @app.post("/agent/scheduler/jobs/{job_id}/trigger")
 async def legacy_scheduler_trigger(job_id: str, user: dict = Depends(get_current_user)):
     try:
-        return get_scheduler().trigger(job_id).as_dict()
+        job = get_scheduler().trigger(job_id)
+        _DASHBOARD_CACHE.pop("scheduler:jobs", None)
+        return job.as_dict()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
 
 
 @app.delete("/agent/scheduler/jobs/{job_id}")
 async def legacy_scheduler_delete(job_id: str, user: dict = Depends(get_current_user)):
-    return {"deleted": get_scheduler().delete(job_id)}
+    result = get_scheduler().delete(job_id)
+    if result:
+        _DASHBOARD_CACHE.pop("scheduler:jobs", None)
+    return {"deleted": result}
 
 
 @app.patch("/agent/scheduler/jobs/{job_id}")
@@ -7827,7 +7842,9 @@ async def legacy_scheduler_toggle(
     job_id: str, body: LegacyScheduleToggleRequest, user: dict = Depends(get_current_user)
 ):
     try:
-        return get_scheduler().toggle(job_id, enabled=(body.status == "active")).as_dict()
+        job = get_scheduler().toggle(job_id, enabled=(body.status == "active"))
+        _DASHBOARD_CACHE.pop("scheduler:jobs", None)
+        return job.as_dict()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
 

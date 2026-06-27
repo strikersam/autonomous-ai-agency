@@ -18,6 +18,18 @@ from backend.server import _cached, _fast_count, _DASHBOARD_CACHE  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def _ensure_mongo_fast_count():
+    """Ensure _fast_count tries estimated_document_count() for tests.
+
+    conftest.py imports backend.server before this test file runs, so
+    _storage_uses_objectids was already evaluated. Patch it directly.
+    """
+    import backend.server as _bs
+    _bs._storage_uses_objectids = True
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_cache():
     _DASHBOARD_CACHE.clear()
     yield
