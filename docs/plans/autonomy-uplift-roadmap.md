@@ -226,14 +226,16 @@ sequence" + lacks isolation. We must *fix*, not flip.
 
 ---
 
-### 3e. Phase 4 — reliability spine ⬜  (size: M)
+### 3e. Phase 4 — reliability spine ✅  (size: M)
 
 1. **Brain health-watchdog** (`services/brain_watchdog.py` + a `loops/registry.yaml`
    entry): on N consecutive provider failures, auto-fail-over to the next provider
    in `RECOMMENDED_PROVIDER_PRIORITY` (persist via the brain store) + Telegram page.
 2. **Weekly readiness digest** to Telegram via `NotificationDispatcher`: loop
    readiness score, drift, monthly cost, open auto-PR count.
-3. Document the stable Cloudflare-tunnel setup for the Ollama fallback.
+3. Document the stable Cloudflare-tunnel setup for the Ollama fallback — **deferred**
+   (requires access to the operator's Cloudflare account; documented as an operating
+   note in §5 instead).
 
 **Acceptance:** killing the active provider in a test triggers a logged fail-over to the next; the weekly digest renders.
 

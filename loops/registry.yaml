@@ -131,6 +131,33 @@ loops:
     gate: telegram
     purpose: Diagnose runtime failures and apply bounded recovery actions.
 
+  # ── Reliability spine ────────────────────────────────────────────────────
+  - id: brain-watchdog
+    name: Brain Health Watchdog
+    pattern: self-heal
+    level: L2
+    trigger: daemon
+    cadence: continuous (on every provider call)
+    runs_per_day: 24
+    cost: low
+    source: services/brain_watchdog.py
+    self_heal: true
+    gate: telegram
+    purpose: Auto-fail-over to next brain provider after N consecutive failures.
+
+  - id: weekly-readiness-digest
+    name: Weekly Readiness Digest
+    pattern: daily-triage
+    level: L1
+    trigger: schedule
+    cadence: weekly (Mon 07:00 UTC)
+    runs_per_day: 0.14
+    cost: low
+    source: services/weekly_digest.py
+    self_heal: false
+    gate: none
+    purpose: Send loop readiness, drift, cost, and auto-PR summary to Telegram.
+
   # ── Learn / improve loops ───────────────────────────────────────────────
   - id: continuous-improvement
     name: Continuous Improvement

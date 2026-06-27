@@ -12,6 +12,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Brain health watchdog with auto-failover** (2026-06-27). New `services/brain_watchdog.py` monitors the active brain provider for consecutive failures and auto-fails-over to the next provider in `RECOMMENDED_PROVIDER_PRIORITY` (Cerebras → Groq → NVIDIA NIM). Threshold configurable via `BRAIN_WATCHDOG_MAX_FAILURES` env (default 3). Persists the new provider via `BrainConfigStore` and pages Telegram on failover. Singleton `get_watchdog()` integrates into any caller. Tests: `tests/test_brain_watchdog.py` (7 cases). Loop registry entry: `brain-watchdog` (L2, self-heal, telegram-gated).
+
+- **Weekly readiness digest to Telegram** (2026-06-27). New `services/weekly_digest.py` compiles loop readiness score/grade, dimension breakdown, drift status, estimated monthly token cost, and open auto-PR branch count into a Markdown digest dispatched via `NotificationDispatcher`. Run standalone (`python -m services.weekly_digest`) or `--dry` to preview. Tests: `tests/test_weekly_digest.py` (4 cases). Loop registry entry: `weekly-readiness-digest` (L1, weekly Mon 07:00 UTC). Roadmap item 3e complete.
+
 ### Security
 
 - **Auto-PR quality: codebase grounding + pre-commit verification** (2026-06-27). The autonomous agent now (1) extracts file paths from the issue text and attaches their contents to the prompt so the model edits real code instead of guessing, and (2) runs `pytest -x` on all touched Python files before committing — aborting the PR if tests fail. Passing PRs get a "verified" note in the body. An auto-PR that breaks tests can never be opened. Roadmap item 3d complete.
