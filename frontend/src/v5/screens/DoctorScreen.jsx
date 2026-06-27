@@ -181,7 +181,11 @@ export default function DoctorScreen({ onNavigate }) {
   // no-auth `/api/doctor/public` endpoint intentionally omits those, so using it
   // here would make the setup path unreachable. This screen is already gated
   // behind auth, so there is no 401 surprise.
-  const [data, states, reload] = useSafeData(API, { report: '/api/doctor/diagnostics' }, { refreshMs: 60_000 });
+  const [data, states, reload] = useSafeData(
+    API,
+    { report: '/api/doctor/diagnostics', runtimes: '/runtimes/health' },
+    { refreshMs: 60_000 },
+  );
   const [expanded, setExpanded] = React.useState(null);
   const [filter, setFilter]     = React.useState('all');  // 'all' | 'pass' | 'warn' | 'fail'
 
@@ -195,6 +199,13 @@ export default function DoctorScreen({ onNavigate }) {
   const failCount = checks.filter(c => c.status === 'fail').length;
 
   const runAt = report?.run_at ? new Date(report.run_at).toLocaleTimeString() : null;
+
+  // Runtime health (N2 — surface Hermes + all runtimes). Comes from a separate
+  // /runtimes/health fetch via useSafeData; a failure here must NEVER blank the
+  // screen, hence the optional chaining + empty-list fallback.
+  const runtimeHealth = data.runtimes?.health || [];
+  const runtimeLoading = states.runtimes?.loading;
+  const runtimeError = states.runtimes?.error;
 
   // Navigation wrapper: handles both screen IDs and API paths from backend action.href.
   // Valid screen IDs in the app (must match V5App.jsx)
@@ -353,6 +364,15 @@ export default function DoctorScreen({ onNavigate }) {
         )}
       </div>
 
+      {/* Runtime Health (N2) — surface Hermes + every registered runtime with an
+          online/offline badge and version. Independent of /api/doctor/diagnostics
+          so a runtime-health fetch failure never blanks the screen. */}
+      <RuntimeHealthPanel
+        runtimes={runtimeHealth}
+        loading={runtimeLoading}
+        error={runtimeError}
+      />
+
       {/* Summary */}
       {report && (
         <div style={{
@@ -362,6 +382,116 @@ export default function DoctorScreen({ onNavigate }) {
           fontSize: 13, color: report.ready ? '#46d9a4' : '#ff6b7d',
         }}>
           {report.ready ? '✓ ' : '✕ '}{report.summary}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Runtime Health panel (N2 — Hermes + all runtimes surfaced in Doctor) ───────
+// Renders one row per registered runtime from GET /runtimes/health. Each row
+// shows an online/offline badge + version (when available). The panel never
+// throws: an empty list shows a hint, a fetch failure shows a small inline
+// warning, and a missing version is omitted silently.
+function RuntimeHealthPanel({ runtimes, loading, error }) {
+  // Friendly display names for well-known runtime IDs. Falls back to the
+  // raw runtime_id (kebab-case) for any unlisted runtime — so adding a new
+  // adapter doesn't require a frontend change.
+  const LABELS = {
+    hermes: 'Hermes Agent',
+    internal_agent: 'Internal Agent',
+    docker_agent: 'Docker Agent',
+    goose: 'Goose',
+    aider: 'Aider',
+    claude_code: 'Claude Code',
+    opencode: 'OpenCode',
+    jcode: 'JCode',
+    openhands: 'OpenHands',
+    task_harness: 'Task Harness',
+  };
+
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 8, marginTop: 4,
+      }}>
+        <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+          Runtime Health
+        </div>
+        {loading && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>loading…</span>}
+      </div>
+
+      {error && !loading && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 12,
+          background: 'rgba(255,189,102,0.08)', border: '1px solid rgba(255,189,102,0.20)',
+          fontSize: 12, color: '#ffbd66', marginBottom: 8,
+        }}>
+          Couldn't load runtime health: {error}
+        </div>
+      )}
+
+      {!loading && !error && runtimes.length === 0 && (
+        <div style={{
+          padding: '12px 14px', borderRadius: 12,
+          background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+          fontSize: 12, color: 'var(--text-muted)',
+        }}>
+          No runtimes registered. Set <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>RUNTIME_HERMES_ENABLED=true</code> to enable the Hermes sidecar.
+        </div>
+      )}
+
+      {!loading && !error && runtimes.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {runtimes.map(rt => {
+            const online = !!rt.available;
+            const label = LABELS[rt.runtime_id] || rt.runtime_id;
+            const version = rt.version ? `v${rt.version}` : null;
+            const hint = rt.error ? rt.error : null;
+            return (
+              <div key={rt.runtime_id} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 14px', borderRadius: 12,
+                background: online ? 'rgba(70,217,164,0.05)' : 'rgba(255,107,125,0.05)',
+                border: `1px solid ${online ? 'rgba(70,217,164,0.18)' : 'rgba(255,107,125,0.18)'}`,
+              }}>
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: online ? '#46d9a4' : '#ff6b7d',
+                  flexShrink: 0,
+                }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{label}</span>
+                <span style={{
+                  fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.10em', textTransform: 'uppercase',
+                  padding: '2px 7px', borderRadius: 999,
+                  color: online ? '#46d9a4' : '#ff6b7d',
+                  background: online ? 'rgba(70,217,164,0.12)' : 'rgba(255,107,125,0.12)',
+                  border: `1px solid ${online ? 'rgba(70,217,164,0.30)' : 'rgba(255,107,125,0.30)'}`,
+                  flexShrink: 0,
+                }}>{online ? 'online' : 'offline'}</span>
+                {version && (
+                  <span style={{
+                    fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
+                    flexShrink: 0,
+                  }}>{version}</span>
+                )}
+                {hint && (
+                  <span style={{
+                    fontSize: 11, color: 'var(--text-tertiary)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    flex: 1, minWidth: 0,
+                  }} title={hint}>{hint}</span>
+                )}
+                {rt.latency_ms != null && (
+                  <span style={{
+                    fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
+                    marginLeft: 'auto', flexShrink: 0,
+                  }}>{Math.round(rt.latency_ms)}ms</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

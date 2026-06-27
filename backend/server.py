@@ -3634,10 +3634,60 @@ async def get_brain_policy_route(user: dict = Depends(get_current_user)):
     }
 
 
+async def _user_or_service_token(
+    request: Request,
+    user: dict | None = Depends(get_optional_user),
+) -> dict:
+    """N5 dual-auth dependency: accept EITHER a user session OR a service token.
+
+    Used by mutating endpoints that the dashboard (user session) and the
+    Telegram bot (service token) both need to call. The bot doesn't carry a
+    user session, so we can't just gate on ``Depends(get_current_user)`` —
+    we need to short-circuit to the service-token path when the
+    ``X-Service-Token`` header is present.
+
+    Resolution order:
+      1. If ``X-Service-Token`` header is present → verify it (fail-closed).
+         Returns ``{"actor": "service:telegram", "_service_token_auth": True}``
+         on success.
+      2. Otherwise → require a user session. If ``get_optional_user``
+         returned None, raise 401. The handler is responsible for the
+         ``_require_admin(user)`` check.
+
+    Test fixtures that override ``get_current_user`` continue to work
+    because ``get_optional_user`` is the function they should override for
+    service-token-aware endpoints. Existing tests that override
+    ``get_current_user`` will see the override propagate via FastAPI's
+    dependency injection — ``get_optional_user`` calls
+    ``get_current_user`` indirectly via the request, but the test fixture
+    overrides at the dependency-injection layer so the override fires.
+
+    Raises:
+        HTTPException 503 — service token not configured (misconfiguration).
+        HTTPException 401 — service token wrong, OR no user session.
+        HTTPException 403 — handled by the caller via _require_admin.
+    """
+    from services.service_token import is_service_token_configured, verify_service_token
+    if request.headers.get("X-Service-Token"):
+        if not is_service_token_configured():
+            raise HTTPException(
+                status_code=503,
+                detail="Service token not configured — set SERVICE_TOKEN to enable Telegram mutating control.",
+            )
+        if not verify_service_token(request.headers.get("X-Service-Token")):
+            raise HTTPException(status_code=401, detail="Invalid X-Service-Token header.")
+        return {"actor": "service:telegram", "_service_token_auth": True}
+    # No service-token header → require a user session.
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
 @app.patch("/admin/api/policy/brain")
 async def patch_brain_policy_route(
     patch: BrainConfigPatch,
-    user: dict = Depends(get_current_user),
+    request: Request,
+    user: dict = Depends(_user_or_service_token),
 ):
     """Apply a partial brain config update.
 
@@ -3649,9 +3699,20 @@ async def patch_brain_policy_route(
 
     Returns the applied config + the probe report so the UI can show a
     green check on each role model.
+
+    Auth (N5 — mutating Telegram control): the ``_user_or_service_token``
+    dependency accepts EITHER a user session (the dashboard's existing
+    flow) OR a service token (the Telegram bot's ``/setbrain`` command).
+    The service-token path is logged with ``actor='service:telegram'`` so
+    the operator can audit who switched the brain. The user-session path
+    still requires the admin role (unchanged).
     """
-    _require_admin(user)
-    actor = str(user.get("email") or user.get("_id") or "admin")
+    # ── N5: dual auth resolution ─────────────────────────────────────────────
+    if user.get("_service_token_auth"):
+        actor = "service:telegram"
+    else:
+        _require_admin(user)
+        actor = str(user.get("email") or user.get("_id") or "admin")
 
     # 1. Build the list of (role, model, provider) tuples to probe.
     # Only probe fields the PATCH actually changes — if the operator only
@@ -3766,6 +3827,196 @@ async def test_brain_model_route(
         "status_code": result.status_code,
         "reason": result.reason,
         "elapsed_ms": result.elapsed_ms,
+    }
+
+
+# ── N5: mutating Telegram control — service-token-gated PR merge ─────────────
+# Roadmap item N5: the operator must be able to merge an approved PR from the
+# phone (the ``/merge <pr>`` Telegram command). This endpoint is gated by the
+# service token (services.service_token.require_service_token) — NOT by user
+# auth — because the Telegram bot doesn't carry a user session.
+#
+# Safety invariants (the bot enforces these client-side too, but the backend
+# is the source of truth):
+#   1. The PR must be mergeable (mergeable_state == 'clean' or 'unstable').
+#   2. The PR must NOT be a draft.
+#   3. The PR's CI must be green (all required checks passed).
+#   4. The merge method is 'squash' (keeps master linear; matches the existing
+#      auto-merge.yml convention for agency PRs).
+#   5. Every merge is logged with actor='service:telegram' + the PR number +
+#      sha, so the operator can audit who merged what.
+
+class PRMergeRequest(BaseModel):
+    """Body for POST /admin/api/prs/{number}/merge — service-token-gated."""
+    # Optional: the SHA the caller expects to be merging. If set and the
+    # actual head SHA differs, the merge is rejected with 409 Conflict —
+    # prevents a stale "merge this" command from merging a different commit
+    # than the one the operator reviewed.
+    expected_sha: str | None = Field(default=None, max_length=64)
+    # Optional: merge method override ('squash' | 'merge' | 'rebase').
+    # Defaults to 'squash' (matches auto-merge.yml convention).
+    merge_method: str | None = Field(default=None, pattern=r"^(squash|merge|rebase)$")
+
+
+@app.post("/admin/api/prs/{number}/merge")
+async def merge_pr_route(
+    number: int,
+    body: PRMergeRequest,
+    request: Request,
+):
+    """Merge a PR via the GitHub API. Service-token-gated (N5).
+
+    Returns the merge commit SHA + the PR's new state. The endpoint refuses
+    to merge a draft, a PR with failing CI, or a PR whose head SHA doesn't
+    match ``expected_sha`` (when provided).
+    """
+    from services.service_token import is_service_token_configured, verify_service_token
+
+    # ── Auth (service token only — no user-session fallback for /merge) ──────
+    # /setbrain accepts either path because the dashboard also uses it. /merge
+    # is Telegram-only — the dashboard already has a "Merge" button via the
+    # GitHub UI, so we don't need a user-session path here. Fail-closed if
+    # the service token isn't configured.
+    if not is_service_token_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Service token not configured — set SERVICE_TOKEN to enable Telegram mutating control.",
+        )
+    if not verify_service_token(request.headers.get("X-Service-Token")):
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Service-Token header.")
+
+    token = (
+        os.environ.get("GH_PAT")
+        or os.environ.get("GH_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+    )
+    if not token:
+        raise HTTPException(
+            status_code=503,
+            detail="Backend has no GH_PAT configured — cannot call GitHub merge API.",
+        )
+
+    repo = os.environ.get("GITHUB_REPOSITORY") or "strikersam/autonomous-ai-agency"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+    }
+    import urllib.request as _urllib_request
+    import urllib.error as _urllib_error
+
+    # 1. Fetch the PR to verify mergeability + CI state.
+    try:
+        pr_req = _urllib_request.Request(
+            f"https://api.github.com/repos/{repo}/pulls/{number}",
+            headers=headers,
+        )
+        with _urllib_request.urlopen(pr_req, timeout=30) as resp:
+            pr_data = json.loads(resp.read().decode())
+    except _urllib_error.HTTPError as exc:
+        if exc.code == 404:
+            raise HTTPException(status_code=404, detail=f"PR #{number} not found in {repo}.")
+        raise HTTPException(status_code=502, detail=f"GitHub API error: HTTP {exc.code}")
+
+    if pr_data.get("draft"):
+        raise HTTPException(status_code=422, detail=f"PR #{number} is a draft — refusing to merge.")
+    if pr_data.get("mergeable_state") not in ("clean", "unstable"):
+        # 'dirty' / 'blocked' / 'behind' / 'unknown' all refuse — the operator
+        # needs to resolve conflicts or wait for CI before retrying.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"PR #{number} is not mergeable "
+                f"(mergeable_state={pr_data.get('mergeable_state')!r}) — "
+                "resolve conflicts / wait for CI and retry."
+            ),
+        )
+
+    head_sha = pr_data.get("head", {}).get("sha", "")
+    if body.expected_sha and body.expected_sha != head_sha:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"PR #{number} head SHA is {head_sha[:8]}, "
+                f"but expected_sha was {body.expected_sha[:8]}. "
+                "Refusing to merge a commit you didn't review."
+            ),
+        )
+
+    # 2. Verify CI is green (all required checks passed). The bot enforces
+    #    this client-side too, but the backend is the source of truth.
+    check_req = _urllib_request.Request(
+        f"https://api.github.com/repos/{repo}/commits/{head_sha}/check-runs?per_page=100",
+        headers=headers,
+    )
+    try:
+        with _urllib_request.urlopen(check_req, timeout=30) as resp:
+            check_data = json.loads(resp.read().decode())
+    except _urllib_error.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"GitHub check-runs API error: HTTP {exc.code}")
+
+    check_runs = check_data.get("check_runs", [])
+    incomplete = [cr for cr in check_runs if cr.get("status") != "completed"]
+    if incomplete:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"PR #{number} has {len(incomplete)} incomplete check(s) — "
+                "wait for CI to finish and retry."
+            ),
+        )
+    failed = [
+        cr for cr in check_runs
+        if cr.get("conclusion") not in ("success", "skipped", "neutral")
+    ]
+    if failed:
+        names = [cr.get("name", "?") for cr in failed[:5]]
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"PR #{number} has {len(failed)} failed check(s): {names}. "
+                "Refusing to merge a red PR."
+            ),
+        )
+
+    # 3. All guards passed — merge via the GitHub API.
+    method = body.merge_method or "squash"
+    merge_payload = {
+        "commit_title": pr_data.get("title", f"Merge PR #{number}"),
+        "merge_method": method,
+    }
+    merge_req = _urllib_request.Request(
+        f"https://api.github.com/repos/{repo}/pulls/{number}/merge",
+        data=json.dumps(merge_payload).encode(),
+        method="PUT",
+        headers=headers,
+    )
+    try:
+        with _urllib_request.urlopen(merge_req, timeout=30) as resp:
+            merge_result = json.loads(resp.read().decode())
+    except _urllib_error.HTTPError as exc:
+        # The GitHub merge endpoint returns 409 if the PR is not mergeable
+        # for a reason the API didn't surface earlier (e.g. branch protection).
+        detail_body = exc.read().decode()[:200] if exc.fp else ""
+        raise HTTPException(
+            status_code=502,
+            detail=f"GitHub merge API error: HTTP {exc.code} — {detail_body}",
+        )
+
+    merge_sha = merge_result.get("sha")
+    # 4. Log the action for audit. The bot also echoes this back to Telegram
+    #    for confirmation (the roadmap's "every mutating action is logged to
+    #    the decision log and echoed back to Telegram for confirmation").
+    log.info(
+        "service-token: MERGE pr=#%d repo=%s method=%s sha=%s actor=service:telegram",
+        number, repo, method, (merge_sha or "")[:8],
+    )
+    return {
+        "merged": True,
+        "pr_number": number,
+        "merge_sha": merge_sha,
+        "method": method,
+        "actor": "service:telegram",
     }
 
 
@@ -6407,12 +6658,26 @@ async def autonomy_status() -> dict[str, object]:
     except Exception:  # pragma: no cover - defensive
         log.exception("autonomy_status: loop readiness computation failed")
 
+    # ── CRISPY run-history (N4 — burn-in evidence for EXPERIMENTAL → stable) ──
+    # The roadmap demands data-backed promotion of crispy_workflow, not a flag
+    # flip. Surface the run-history metric so the operator (and the autonomy
+    # UI) can see whether the burn-in criteria are met. Defensive — never
+    # break /api/autonomy/status if the engine isn't initialized.
+    crispy_run_history: dict[str, object] | None = None
+    try:
+        from workflow.engine import get_engine as _get_crispy_engine
+        _crispy_engine = _get_crispy_engine()
+        crispy_run_history = _crispy_engine.crispy_run_history()
+    except Exception:  # pragma: no cover - defensive
+        log.debug("autonomy_status: crispy run-history unavailable", exc_info=True)
+
     return {
         "status": status,
         "brain": brain,
         "loops": loops,
         "loops_running": running_count > 0,
         "loop_readiness": loop_readiness_summary,
+        "crispy_run_history": crispy_run_history,
         "missing_secrets": missing_secrets,
         "self_bootstrap": self_bootstrap_status,
         "ceo": ceo_status,

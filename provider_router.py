@@ -40,6 +40,50 @@ async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = 
     log.warning("Provider %s placed on cooldown for %ds", provider_id, secs)
 
 
+# ── Brain watchdog notification (reliability spine — N1a) ─────────────────────
+# Fire-and-forget hook into services.brain_watchdog. Imported lazily so the
+# request path never blocks on watchdog state, and so module import doesn't
+# trigger the heavy services/__init__.py cascade (which pulls bson/pymongo).
+# The watchdog itself persists failovers via BrainConfigStore + pages Telegram;
+# we just feed it the call outcomes (one record_failure / record_success per
+# provider attempt). Errors are swallowed — the watchdog is best-effort and
+# must NEVER block or break the request path.
+
+def _notify_watchdog(provider_id: str, *, success: bool) -> None:
+    """Notify the brain watchdog of a provider call outcome (fire-and-forget).
+
+    Called from ProviderRouter._try_one_provider on both success and failure-
+    exhaustion paths. Imported lazily inside the function so module-level
+    import never triggers the services package __init__ cascade. We mirror the
+    dual-module-identity fallback used by services/brain_watchdog.py itself:
+    first try `services.brain_watchdog` (prod path, bson installed), then fall
+    back to the top-level `brain_watchdog` (services/ on sys.path — used in
+    tests and lightweight envs without bson/pymongo).
+
+    All exceptions are swallowed at debug log level — the watchdog must never
+    break the request path.
+    """
+    try:
+        try:
+            from services.brain_watchdog import get_watchdog
+        except (ImportError, ModuleNotFoundError):
+            # Top-level fallback — services/ on sys.path (test path, lightweight envs).
+            # brain_watchdog.py itself uses the same fallback pattern for
+            # brain_config_store, so the module identity is consistent.
+            import brain_watchdog as _bw_mod  # type: ignore[import-not-found]
+            get_watchdog = _bw_mod.get_watchdog
+        wd = get_watchdog()
+        if success:
+            wd.record_success(provider_id)
+        else:
+            wd.record_failure(provider_id)
+    except Exception as exc:  # pragma: no cover - defensive, never fail the request
+        log.debug(
+            "provider_router: brain watchdog notification failed for %s (success=%s): %s",
+            provider_id, success, exc,
+        )
+
+
 async def is_provider_on_cooldown(provider_id: str) -> bool:
     """Return True if provider_id is currently on cooldown."""
     from services.shared_state import cooldown_get
@@ -821,6 +865,9 @@ class ProviderRouter:
                         provider.provider_id, model, response.status_code, latency_ms=latency_ms,
                     ))
                     if self._is_success(response):
+                        # N1a — reliability spine: notify the brain watchdog of the
+                        # success so it resets the provider's failure counter.
+                        _notify_watchdog(provider.provider_id, success=True)
                         return ProviderResult(
                             response=response, provider=provider, model=model, attempts=list(attempts)
                         )
@@ -858,6 +905,10 @@ class ProviderRouter:
             await mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
         else:
             await mark_provider_failed(provider.provider_id)
+        # N1a — reliability spine: notify the brain watchdog of the failure so
+        # its consecutive-failure counter advances (and triggers failover when
+        # the threshold is hit). Fire-and-forget — never blocks the request.
+        _notify_watchdog(provider.provider_id, success=False)
         return None
 
     async def chat_completion(
