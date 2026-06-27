@@ -331,6 +331,56 @@ def register_webui(
             raise HTTPException(status_code=404, detail="Unknown provider")
         return {"ok": True, "provider_id": provider_id, "admin": _admin_out(admin)}
 
+    @admin_router.get("/bootstrap")
+    async def admin_bootstrap(request: Request, admin: Any = Depends(get_admin_identity)):
+        """Single-call bootstrap: providers, workspaces, role tags, brain policy.
+
+        Replaces 4 parallel GET requests on admin page load/mutation refresh.
+        Cuts 3 network round-trips and avoids redundant admin-auth overhead.
+        """
+        mgr: ProviderManager = request.app.state.webui_providers
+        wsmgr: WorkspaceManager = request.app.state.webui_workspaces
+        providers_list = [p.model_dump() for p in mgr.list_admin()]
+        workspaces_list = [w.model_dump() for w in wsmgr.list()]
+
+        role_tags: dict = {}
+        brain_policy: dict | None = None
+        try:
+            from brain_policy import get_provider_role_tags as _role_tags, resolve_active_brain, allow_paid_brain, get_brain_preference
+            role_tags = await _role_tags()
+            brain = await resolve_active_brain()
+            brain_policy = {
+                "resolution": (
+                    {
+                        "provider_id": brain.provider_id,
+                        "base_url": brain.base_url,
+                        "model": brain.model,
+                        "role": brain.role,
+                        "free_tier": brain.free_tier,
+                        "source": brain.source,
+                        "priority": brain.priority,
+                    }
+                    if brain is not None
+                    else None
+                ),
+                "allow_paid_brain": allow_paid_brain(),
+                "brain_preference": get_brain_preference(),
+                "env_var": "ALLOW_PAID_BRAIN",
+                "hint": (
+                    "Set ALLOW_PAID_BRAIN=true in the server environment to enable "
+                    "paid (Anthropic/Bedrock) providers as the CEO brain."
+                ),
+            }
+        except Exception as exc:
+            log.warning("admin_bootstrap: brain_policy unavailable: %s", exc)
+        return {
+            "providers": providers_list,
+            "workspaces": workspaces_list,
+            "role_tags": role_tags,
+            "brain_policy": brain_policy,
+            "admin": _admin_out(admin),
+        }
+
     @admin_router.get("/providers/role-tags")
     async def admin_provider_role_tags(request: Request, admin: Any = Depends(get_admin_identity)):
         """Map provider_id -> {is_brain, role, reason, base_url, name} from the canonical brain resolver.

@@ -18,6 +18,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Dashboard performance: activity cache + admin bootstrap endpoint + frontend polling** (2026-06-27). (1) Wrapped get_activity with _cached() single-flight TTL cache (3s) to eliminate MongoDB query storms from concurrent dashboard polls. (2) Added GET /admin/api/bootstrap endpoint returning providers, workspaces, role_tags, brain_policy in one call — replaces 4 parallel admin API requests. (3) AdminApp.tsx: uses bootstrap endpoint, providersSorted useMemo avoids per-render sort, 30s setInterval polling for live data. (4) Removed dead imports from AdminApp.tsx.
+
 - **OAuth callbacks use canonical social_auth.py helpers** (2026-06-27). github_callback, google_callback, and github_repo_callback now import github_exchange_code, github_fetch_user, google_exchange_code, and google_fetch_user from social_auth.py instead of inline httpx calls. social_auth.py enhanced: github_fetch_user now returns login field; google_exchange_code accepts optional redirect_uri. Eliminates ~80 lines of duplicated token-exchange and user-fetch code.
 
 - **NVIDIA 429 fallback: jittered backoff + 419/429 distinction + distributed probe lock** (2026-06-27). Three improvements to provider_router.py: (1) Jitter added to 0.25 * 2^n backoff. (2) HTTP 419 (NVIDIA per-model) distinguished from 429 (provider-level) - 419 skips only the model. (3) Distributed probe lock prevents thundering herd after cooldown expiry. Tests: 4 new cases.
