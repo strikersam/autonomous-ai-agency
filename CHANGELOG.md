@@ -12,6 +12,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **Slop-gate now refuses to auto-commit a secrets-shaped file; removed the placeholder `.github/secrets.json` footgun** (2026-06-27). PR #842 auto-merged a `.github/secrets.json` holding `{'ANTHROPIC_API_KEY': '${ANTHROPIC_API_KEY}', 'GH_PAT': '${GH_PAT}'}` — placeholder values (no real key leaked) but a footgun: a tracked file literally named `secrets` invites someone to paste real keys into it, violating CLAUDE.md rule #2 ("No secrets in source"). New `slop_gate.looks_like_secret_file()` rejects committing any secrets-shaped file (credential-named keys, or a `secret*`/`credential*`/`.env` filename) while still allowing `*.example` / `*.sample` / `*.template` docs, wired into `.github/scripts/autonomous_agent.py` so the autonomous agency can't reintroduce it. Removed the merged `.github/secrets.json`. Tests: `tests/test_slop_gate.py` (6 new cases incl. the exact #842 content).
+
+### Removed
+
+- **Removed boilerplate slop merged from vague-issue auto-PRs** (2026-06-27). Deleted `AUTONOMOUS_AGENCY_SETUP.md` (generic setup boilerplate duplicating `AGENTS.md` / `CLAUDE.md`) and `investigation.md` (a fabricated pytest-output dump with no real analysis), both auto-merged from #842 / #843 against vague issues #397 / #398.
+
 ### Fixed
 
 - **v4 Dashboard: TTL cache for /tasks and /quick-notes endpoints** (2026-06-27). Dashboard polls hit MongoDB for every open browser tab. Added single-flight TTL cache (default 8s, override via V4_TASKS_CACHE_TTL_SEC) via shared `_get_cached_tasks()` helper. Both /v4/tasks and /v4/quick-notes share one DB query per TTL window. Cache invalidated on quick-note POST. Files: `backend/v4_api.py`. PR #845.
