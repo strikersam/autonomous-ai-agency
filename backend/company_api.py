@@ -448,6 +448,7 @@ async def create_company(
             from app_settings import ephemeral_ttl_hours
             ttl_hours = await ephemeral_ttl_hours()
         except Exception:  # noqa: BLE001 — fall back to the documented default
+            log.exception("Failed to load ephemeral TTL on company create; defaulting to 24h")
             ttl_hours = 24
         lifecycle["persistent"] = False
         lifecycle["expires_at"] = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
@@ -483,12 +484,28 @@ class AccountLifecycleResponse(BaseModel):
     Drives the floating banner that warns non-admin users their agency is
     temporary on the free Render backend.
     """
-    ephemeral: bool
-    persistent: bool
-    ttl_hours: int
-    expires_at: Optional[str] = None
-    provider: str = "local"
-    note: str = ""
+    ephemeral: bool = _Field(
+        description="True when this user's agencies are temporary and will be reaped.",
+    )
+    persistent: bool = _Field(
+        description="True when this user's agencies persist forever (admins).",
+    )
+    ttl_hours: int = _Field(
+        ge=1,
+        description="Configured ephemeral-company lifetime in hours.",
+    )
+    expires_at: Optional[str] = _Field(
+        default=None,
+        description="ISO-8601 earliest expiry across the user's ephemeral companies, if any.",
+    )
+    provider: str = _Field(
+        default="local",
+        description="Auth provider of the current user ('github' | 'google' | 'local').",
+    )
+    note: str = _Field(
+        default="",
+        description="Human-readable banner message (empty for persistent users).",
+    )
 
 
 _EPHEMERAL_NOTE = (
@@ -515,6 +532,7 @@ async def account_lifecycle(
         from app_settings import ephemeral_ttl_hours
         ttl_hours = await ephemeral_ttl_hours()
     except Exception:  # noqa: BLE001
+        log.exception("Failed to load ephemeral TTL for lifecycle response; defaulting to 24h")
         ttl_hours = 24
 
     if is_admin_user:

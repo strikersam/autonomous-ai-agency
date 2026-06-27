@@ -838,9 +838,19 @@ class SQLiteStore:
                         f"WHERE {col} IS NULL"
                     )
             for col in indexed:
-                await self._conn.execute(
-                    f"CREATE INDEX IF NOT EXISTS idx_{table}_{col} ON {table}({col})"
-                )
+                # app_settings stores exactly one row per setting key (set_setting
+                # upserts on {"key": ...}); a UNIQUE index prevents concurrent
+                # upserts from creating duplicate rows that would make find_one
+                # nondeterministic.
+                if table == "app_settings" and col == "key":
+                    await self._conn.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS idx_app_settings_key "
+                        "ON app_settings(key)"
+                    )
+                else:
+                    await self._conn.execute(
+                        f"CREATE INDEX IF NOT EXISTS idx_{table}_{col} ON {table}({col})"
+                    )
         await self._conn.commit()
         log.info("SQLiteStore schema ready at %s", self._db_path)
 

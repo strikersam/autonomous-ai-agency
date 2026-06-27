@@ -235,6 +235,7 @@ function UserOnboardingTable() {
 // ── 2b. Global onboarding-gate default ───────────────────────────────────────
 function OnboardingGateSettings() {
   const [settings, setSettings] = React.useState(null);
+  const [ttlInput, setTtlInput] = React.useState('');
   const [saving,   setSaving]   = React.useState(false);
   const [msg,      setMsg]      = React.useState('');
   const [err,      setErr]      = React.useState('');
@@ -243,7 +244,7 @@ function OnboardingGateSettings() {
   const load = () => {
     setLoadErr('');
     api.get('/api/activation/settings')
-      .then(r => setSettings(r.data))
+      .then(r => { setSettings(r.data); setTtlInput(String(r.data.ephemeral_company_ttl_hours)); })
       .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load settings.'));
   };
   React.useEffect(load, []);
@@ -253,9 +254,16 @@ function OnboardingGateSettings() {
     try {
       const r = await api.put('/api/activation/settings', patch);
       setSettings(r.data);
+      // Resync the controlled TTL field to the persisted value so a rejected or
+      // failed edit can't leave the box showing a value that isn't saved.
+      setTtlInput(String(r.data.ephemeral_company_ttl_hours));
       setMsg('Saved');
       setTimeout(() => setMsg(''), 2500);
-    } catch (e) { setErr(e.response?.data?.detail || 'Error'); }
+    } catch (e) {
+      setErr(e.response?.data?.detail || 'Error');
+      // On failure, snap the field back to the last known persisted value.
+      if (settings) setTtlInput(String(settings.ephemeral_company_ttl_hours));
+    }
     finally { setSaving(false); }
   };
 
@@ -299,8 +307,9 @@ function OnboardingGateSettings() {
             Non-admin (GitHub/Google) agencies are destroyed after this many hours. Admin companies persist forever.
           </div>
         </div>
-        <input type="number" min="1" defaultValue={settings.ephemeral_company_ttl_hours}
-          onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 1 && v !== settings.ephemeral_company_ttl_hours) save({ ephemeral_company_ttl_hours: v }); }}
+        <input type="number" min="1" value={ttlInput}
+          onChange={e => setTtlInput(e.target.value)}
+          onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 1 && v !== settings.ephemeral_company_ttl_hours) save({ ephemeral_company_ttl_hours: v }); else setTtlInput(String(settings.ephemeral_company_ttl_hours)); }}
           style={{ width:72, padding:'7px 10px', borderRadius:9, background:'rgba(0,0,0,0.30)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:13, fontFamily:'var(--font-mono, monospace)', textAlign:'right', outline:'none' }}/>
         <span style={{ fontSize:12, color:'rgba(255,255,255,0.45)' }}>hours</span>
       </div>

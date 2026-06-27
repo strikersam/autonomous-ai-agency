@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 from datetime import datetime, timezone
 
@@ -75,8 +76,8 @@ async def reap_expired_companies(now: datetime | None = None) -> int:
             if await store.delete_company(cid):
                 deleted += 1
                 log.info("Ephemeral reaper destroyed expired company %s", cid)
-        except Exception as exc:  # noqa: BLE001 — one bad row must not abort the sweep
-            log.warning("Ephemeral reaper failed to delete company %s: %s", cid, exc)
+        except Exception:  # noqa: BLE001 — one bad row must not abort the sweep
+            log.exception("Ephemeral reaper failed to delete company %s", cid)
 
     if deleted:
         log.info("Ephemeral reaper sweep complete — %d company(ies) destroyed", deleted)
@@ -84,14 +85,23 @@ async def reap_expired_companies(now: datetime | None = None) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
+    """Parse a positive, finite float env var (seconds), else the default.
+
+    Rejects ``0``, negatives, ``inf`` and ``nan`` — any of which would turn the
+    reaper's ``asyncio.sleep`` into an immediate/tight loop hammering the store.
+    """
     raw = os.environ.get(name)
     if raw is None:
         return default
     try:
-        return float(raw)
+        val = float(raw)
     except (TypeError, ValueError):
         log.warning("Invalid %s=%r; using default %s", name, raw, default)
         return default
+    if not math.isfinite(val) or val <= 0:
+        log.warning("Non-positive/invalid %s=%r; using default %s", name, raw, default)
+        return default
+    return val
 
 
 async def ephemeral_reaper_loop() -> None:
@@ -102,6 +112,6 @@ async def ephemeral_reaper_loop() -> None:
             await reap_expired_companies()
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Ephemeral reaper cycle error: %s", exc)
+        except Exception:  # noqa: BLE001
+            log.exception("Ephemeral reaper cycle error")
         await asyncio.sleep(_env_float("EPHEMERAL_REAPER_SWEEP_SEC", _DEFAULT_SWEEP_SEC))

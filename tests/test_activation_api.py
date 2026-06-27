@@ -148,6 +148,34 @@ def test_update_settings_disables_gate() -> None:
     assert captured[app_settings.ONBOARDING_GATE_ENABLED_KEY] is False
 
 
+def test_update_settings_updates_ttl() -> None:
+    import app_settings
+
+    captured: dict = {}
+
+    async def _set(key, value, updated_by="admin"):
+        captured[key] = value
+
+    async def _all():
+        return {
+            app_settings.ONBOARDING_GATE_ENABLED_KEY: True,
+            app_settings.EPHEMERAL_TTL_HOURS_KEY: captured.get(
+                app_settings.EPHEMERAL_TTL_HOURS_KEY, 24
+            ),
+        }
+
+    client = _client(admin=True)
+    with patch.object(app_settings, "set_setting", side_effect=_set), \
+            patch.object(app_settings, "all_settings", side_effect=_all):
+        r = client.put(
+            "/api/activation/settings",
+            json={"ephemeral_company_ttl_hours": 48},
+        )
+    assert r.status_code == 200
+    assert r.json()["ephemeral_company_ttl_hours"] == 48
+    assert captured[app_settings.EPHEMERAL_TTL_HOURS_KEY] == 48
+
+
 def test_update_settings_rejects_bad_ttl() -> None:
     client = _client(admin=True)
     r = client.put(

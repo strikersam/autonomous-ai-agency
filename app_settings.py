@@ -66,8 +66,8 @@ async def get_setting(key: str, default: Any = None) -> Any:
         default = _DEFAULTS[key]
     try:
         doc = await _store().app_settings.find_one({"key": key})
-    except Exception as exc:  # noqa: BLE001 — never let settings break a request
-        log.warning("app_settings.get_setting(%s) failed: %s", key, exc)
+    except Exception:  # noqa: BLE001 — never let settings break a request
+        log.exception("app_settings.get_setting(%s) failed", key)
         return _cache.get(key, default)
     if not doc or "value" not in doc:
         return default
@@ -77,6 +77,7 @@ async def get_setting(key: str, default: Any = None) -> Any:
 
 async def set_setting(key: str, value: Any, updated_by: str = "admin") -> None:
     """Persist a setting and refresh the in-process cache."""
+    global _cache_loaded
     await _store().app_settings.update_one(
         {"key": key},
         {"$set": {"key": key, "value": value,
@@ -84,6 +85,9 @@ async def set_setting(key: str, value: Any, updated_by: str = "admin") -> None:
         upsert=True,
     )
     _cache[key] = value
+    # A successful write proves the store is reachable, so the cache for this key
+    # is now authoritative — clear the "never warmed" flag.
+    _cache_loaded = True
 
 
 async def all_settings() -> dict[str, Any]:
@@ -101,9 +105,27 @@ async def refresh_cache() -> dict[str, Any]:
         for key in _DEFAULTS:
             _cache[key] = await get_setting(key)
         _cache_loaded = True
-    except Exception as exc:  # noqa: BLE001 — startup must not crash on this
-        log.warning("app_settings.refresh_cache failed: %s", exc)
+    except Exception:  # noqa: BLE001 — startup must not crash on this
+        log.exception("app_settings.refresh_cache failed")
     return dict(_cache)
+
+
+def _maybe_schedule_refresh() -> None:
+    """If the cache was never warmed (a startup refresh failed), kick off a
+    best-effort background refresh so the next sync read self-heals instead of
+    being pinned to defaults until the next write.
+
+    No-op when no event loop is running (pure-sync callers) or when the cache is
+    already loaded.
+    """
+    if _cache_loaded:
+        return
+    try:
+        import asyncio
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # no running loop — nothing to schedule onto
+    loop.create_task(refresh_cache())
 
 
 # ── Typed helpers ─────────────────────────────────────────────────────────────
@@ -126,7 +148,13 @@ def _as_int(value: Any, default: int) -> int:
 
 
 def onboarding_gate_enabled_cached() -> bool:
-    """Sync read of the gate default from cache (DB is source of truth)."""
+    """Sync read of the gate default from cache (DB is source of truth).
+
+    If the cache was never warmed (a startup refresh failed), schedule a
+    best-effort background refresh so the next read self-heals rather than
+    staying pinned to the default.
+    """
+    _maybe_schedule_refresh()
     return _as_bool(
         _cache.get(ONBOARDING_GATE_ENABLED_KEY, ONBOARDING_GATE_ENABLED_DEFAULT),
         ONBOARDING_GATE_ENABLED_DEFAULT,
@@ -134,7 +162,12 @@ def onboarding_gate_enabled_cached() -> bool:
 
 
 def ephemeral_ttl_hours_cached() -> int:
-    """Sync read of the ephemeral TTL (hours) from cache."""
+    """Sync read of the ephemeral TTL (hours) from cache.
+
+    Self-heals a never-warmed cache via a background refresh (see
+    :func:`onboarding_gate_enabled_cached`).
+    """
+    _maybe_schedule_refresh()
     return _as_int(
         _cache.get(EPHEMERAL_TTL_HOURS_KEY, EPHEMERAL_TTL_HOURS_DEFAULT),
         EPHEMERAL_TTL_HOURS_DEFAULT,

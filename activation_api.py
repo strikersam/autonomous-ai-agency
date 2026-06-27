@@ -10,6 +10,7 @@ Routes:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from activation import (
     get_activation,
@@ -92,6 +93,9 @@ def is_user_onboarding_allowed(user_id: str) -> bool:
         from app_settings import onboarding_gate_enabled_cached
         return not onboarding_gate_enabled_cached()
     except Exception:  # noqa: BLE001 — never block the gate read on settings
+        # Fail closed (block onboarding) but surface the root cause: a silent
+        # lockout for every unlisted user is otherwise undiagnosable.
+        log.exception("onboarding gate-default read failed; blocking onboarding")
         return False
 
 
@@ -285,14 +289,28 @@ async def activation_audit_log(request: Request, limit: int = 100) -> list[dict]
 
 class OnboardingSettingsResponse(BaseModel):
     """Effective global onboarding/lifecycle settings."""
-    onboarding_gate_enabled: bool
-    ephemeral_company_ttl_hours: int
+    onboarding_gate_enabled: bool = Field(
+        description="When True, onboarding requires explicit per-user approval; "
+        "when False, every logged-in user may onboard by default.",
+    )
+    ephemeral_company_ttl_hours: int = Field(
+        ge=1,
+        description="Hours an ephemeral (non-admin) company survives before the "
+        "reaper destroys it.",
+    )
 
 
 class OnboardingSettingsUpdate(BaseModel):
     """Partial update for global onboarding/lifecycle settings."""
-    onboarding_gate_enabled: bool | None = None
-    ephemeral_company_ttl_hours: int | None = None
+    onboarding_gate_enabled: bool | None = Field(
+        default=None,
+        description="New value for the global onboarding gate, or None to leave it.",
+    )
+    ephemeral_company_ttl_hours: int | None = Field(
+        default=None,
+        ge=1,
+        description="New ephemeral-company TTL in hours (>= 1), or None to leave it.",
+    )
 
 
 @activation_router.get("/settings", response_model=OnboardingSettingsResponse)
@@ -324,15 +342,17 @@ async def update_onboarding_settings(
     )
     admin_id = getattr(request.state, "user_id", "admin")
 
-    if body.ephemeral_company_ttl_hours is not None and body.ephemeral_company_ttl_hours < 1:
-        raise HTTPException(status_code=422, detail="ephemeral_company_ttl_hours must be >= 1")
+    # ``ephemeral_company_ttl_hours`` is constrained ``>= 1`` on the Pydantic
+    # model, so an invalid value is rejected with 422 before reaching here.
 
     if body.onboarding_gate_enabled is not None:
         await set_setting(ONBOARDING_GATE_ENABLED_KEY, body.onboarding_gate_enabled, admin_id)
     if body.ephemeral_company_ttl_hours is not None:
         await set_setting(EPHEMERAL_TTL_HOURS_KEY, int(body.ephemeral_company_ttl_hours), admin_id)
 
-    _append_audit({
+    # The audit append does synchronous file I/O (write + trim); keep it off the
+    # event loop so admin traffic never blocks on disk.
+    await asyncio.to_thread(_append_audit, {
         "event": "onboarding_settings_update",
         "onboarding_gate_enabled": body.onboarding_gate_enabled,
         "ephemeral_company_ttl_hours": body.ephemeral_company_ttl_hours,

@@ -27,12 +27,23 @@ export default function EphemeralBanner({ isAdmin }) {
   const [, force] = React.useReducer((x) => x + 1, 0);
 
   React.useEffect(() => {
-    if (isAdmin) return;
+    if (isAdmin) return undefined;
     let alive = true;
-    getAccountLifecycle()
-      .then((r) => { if (alive) setInfo(r.data); })
-      .catch(() => {});
-    return () => { alive = false; };
+    let attempt = 0;
+    let timer = null;
+    // Retry transient failures with backoff so one flaky request doesn't
+    // permanently hide the 24h warning for the rest of the session.
+    const load = () => {
+      getAccountLifecycle()
+        .then((r) => { if (alive) setInfo(r.data); })
+        .catch(() => {
+          if (!alive || attempt >= 5) return;
+          attempt += 1;
+          timer = setTimeout(load, Math.min(30000, 2000 * attempt));
+        });
+    };
+    load();
+    return () => { alive = false; if (timer) clearTimeout(timer); };
   }, [isAdmin]);
 
   // Re-render once a minute so the countdown stays fresh.
