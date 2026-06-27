@@ -29,6 +29,34 @@ _CONN_FAILURE_COOLDOWN_SECONDS: int = 15  # network hiccup — retry sooner
 _RATELIMIT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_RATELIMIT_COOLDOWN_SECONDS", "20"))
 _RATELIMIT_COOLDOWN_MAX_SECONDS: int = int(os.environ.get("PROVIDER_RATELIMIT_COOLDOWN_MAX_SECONDS", "120"))
 
+# ── Exponential backoff for repeated 429s ─────────────────────────────────────
+# Track consecutive 429 failures per provider so the cooldown grows exponentially
+# (base * 2^failures, capped at _RATELIMIT_COOLDOWN_MAX_SECONDS). Reset on success
+# or when the cooldown expires naturally. Dict writes are approximate (no lock) —
+# a concurrency race loses at most one increment, which is acceptable for backoff.
+_consecutive_429_count: dict[str, int] = {}
+
+
+def _record_429_failure(provider_id: str) -> int:
+    count = _consecutive_429_count.get(provider_id, 0) + 1
+    _consecutive_429_count[provider_id] = count
+    return count
+
+
+def _reset_429_counter(provider_id: str) -> None:
+    _consecutive_429_count.pop(provider_id, None)
+
+
+def _exponential_backoff_cooldown(provider_id: str, base_secs: float) -> float:
+    """Compute exponential backoff cooldown for repeated 429 failures.
+
+    Each consecutive 429 doubles the cooldown: base * 2^(count-1), capped at
+    _RATELIMIT_COOLDOWN_MAX_SECONDS. A single 429 gets ``base_secs`` (typically
+    20s); 4 consecutive 429s get 160s (capped at max).
+    """
+    count = _consecutive_429_count.get(provider_id, 1)
+    return min(base_secs * (2 ** (count - 1)), _RATELIMIT_COOLDOWN_MAX_SECONDS)
+
 
 async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
     """Put provider_id on cooldown for *cooldown_seconds* (default: PROVIDER_COOLDOWN_SECONDS)."""
@@ -896,6 +924,8 @@ class ProviderRouter:
                         # N1a — reliability spine: notify the brain watchdog of the
                         # success so it resets the provider's failure counter.
                         _notify_watchdog(provider.provider_id, success=True)
+                        # Reset exponential backoff counter on success.
+                        _reset_429_counter(provider.provider_id)
                         return ProviderResult(
                             response=response, provider=provider, model=model, attempts=list(attempts)
                         )
@@ -949,7 +979,9 @@ class ProviderRouter:
             # Permanent removal — long cooldown so we don't keep trying a dead endpoint.
             await mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
         elif rate_limited:
-            secs = _RATELIMIT_COOLDOWN_SECONDS
+            # Exponential backoff: each consecutive 429 doubles the cooldown.
+            _record_429_failure(provider.provider_id)
+            secs = _exponential_backoff_cooldown(provider.provider_id, _RATELIMIT_COOLDOWN_SECONDS)
             if retry_after_sec is not None:
                 secs = max(1, min(int(retry_after_sec), _RATELIMIT_COOLDOWN_MAX_SECONDS))
             await mark_provider_failed(provider.provider_id, secs)
