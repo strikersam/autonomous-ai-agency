@@ -3501,6 +3501,14 @@ def _brain_provider_status() -> list[dict]:
         })
     return out
 
+@app.post("/api/admin/seed")
+async def admin_seed() -> dict[str, object]:
+    """Idempotent admin re-seed endpoint. Only available when TESTING=true."""
+    if not os.environ.get("TESTING"):
+        raise HTTPException(status_code=404, detail="Not found")
+    await seed_admin()
+    return {"ok": True}
+
 
 @app.get("/admin/api/policy/brain")
 async def get_brain_policy_route(user: dict = Depends(get_current_user)):

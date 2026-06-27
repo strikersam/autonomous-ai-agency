@@ -35,6 +35,9 @@ import secrets
 if not os.environ.get("ADMIN_PASSWORD"):
     os.environ["ADMIN_PASSWORD"] = "test-" + secrets.token_hex(20)
 
+# Enable test-only endpoints (e.g. /api/admin/seed) gated behind TESTING=true
+os.environ.setdefault("TESTING", "true")
+
 # ── Keep the test process free of live background loops ───────────────────────
 # The 24×7 CEO Agency loop (agent/agency.py) runs in a daemon thread that calls
 # time.sleep(tick); when a test patches time.sleep (a shared module attribute),
