@@ -76,12 +76,52 @@ _LIST_ALL_CACHE: dict = {}
 _LIST_ALL_CACHE_TTL: float = _safe_ttl("TASKS_LIST_ALL_CACHE_TTL_SEC", 8.0)
 _LIST_ALL_CACHE_LOCK: asyncio.Lock | None = None
 
+# User-scoped task list cache (board column views). Same 8s default;
+# override via TASKS_LIST_USER_CACHE_TTL_SEC.
+_LIST_USER_CACHE: dict = {}
+_LIST_USER_CACHE_TTL: float = _safe_ttl("TASKS_LIST_USER_CACHE_TTL_SEC", 8.0)
+_LIST_USER_CACHE_LOCK: asyncio.Lock | None = None
+
+# Task counts cache — cheap aggregation but called on every board render.
+_COUNTS_CACHE: dict = {}
+_COUNTS_CACHE_TTL: float = _safe_ttl("TASKS_COUNTS_CACHE_TTL_SEC", 8.0)
+_COUNTS_CACHE_LOCK: asyncio.Lock | None = None
+
 
 def _get_list_all_lock() -> asyncio.Lock:
     global _LIST_ALL_CACHE_LOCK
     if _LIST_ALL_CACHE_LOCK is None:
         _LIST_ALL_CACHE_LOCK = asyncio.Lock()
     return _LIST_ALL_CACHE_LOCK
+
+
+def _get_list_user_lock() -> asyncio.Lock:
+    global _LIST_USER_CACHE_LOCK
+    if _LIST_USER_CACHE_LOCK is None:
+        _LIST_USER_CACHE_LOCK = asyncio.Lock()
+    return _LIST_USER_CACHE_LOCK
+
+
+def _get_counts_lock() -> asyncio.Lock:
+    global _COUNTS_CACHE_LOCK
+    if _COUNTS_CACHE_LOCK is None:
+        _COUNTS_CACHE_LOCK = asyncio.Lock()
+    return _COUNTS_CACHE_LOCK
+
+
+def _evict_stale(cache: dict, ttl: float) -> None:
+    """Remove expired cache entries to prevent unbounded dict growth."""
+    now = time.monotonic()
+    stale = [k for k, v in list(cache.items()) if now - v["ts"] >= ttl]
+    for k in stale:
+        cache.pop(k, None)
+
+
+def _invalidate_task_caches() -> None:
+    """Clear all task caches on mutation so the board shows fresh data."""
+    _LIST_ALL_CACHE.clear()
+    _LIST_USER_CACHE.clear()
+    _COUNTS_CACHE.clear()
 
 
 task_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -179,6 +219,7 @@ async def create_task(body: TaskCreateRequest, request: Request, user: Any = Dep
         await workflow.create_task(task, actor=_user_id(user))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_task_caches()
     return {"task": task.as_dict()}
 
 
@@ -209,21 +250,29 @@ async def list_tasks(
                 else:
                     tasks = await store.list_all(status=status, limit=limit, offset=offset)
                     _LIST_ALL_CACHE[cache_key] = {"tasks": tasks, "ts": time.monotonic()}
-                    # Evict expired entries to prevent unbounded growth.
-                    now = time.monotonic()
-                    stale = [k for k, v in _LIST_ALL_CACHE.items() if now - v["ts"] >= _LIST_ALL_CACHE_TTL]
-                    for k in stale:
-                        _LIST_ALL_CACHE.pop(k, None)
+                    _evict_stale(_LIST_ALL_CACHE, _LIST_ALL_CACHE_TTL)
     else:
-        tasks = await store.list_for_user(
-            owner_id,
-            status=status,
-            priority=priority,
-            agent_id=agent_id,
-            tag=tag,
-            limit=limit,
-            offset=offset,
-        )
+        cache_key = f"list_user:{owner_id}:{status}:{priority}:{agent_id}:{tag}:{limit}:{offset}"
+        cached = _LIST_USER_CACHE.get(cache_key)
+        if cached and time.monotonic() - cached["ts"] < _LIST_USER_CACHE_TTL:
+            tasks = cached["tasks"]
+        else:
+            async with _get_list_user_lock():
+                cached = _LIST_USER_CACHE.get(cache_key)
+                if cached and time.monotonic() - cached["ts"] < _LIST_USER_CACHE_TTL:
+                    tasks = cached["tasks"]
+                else:
+                    tasks = await store.list_for_user(
+                        owner_id,
+                        status=status,
+                        priority=priority,
+                        agent_id=agent_id,
+                        tag=tag,
+                        limit=limit,
+                        offset=offset,
+                    )
+                    _LIST_USER_CACHE[cache_key] = {"tasks": tasks, "ts": time.monotonic()}
+                    _evict_stale(_LIST_USER_CACHE, _LIST_USER_CACHE_TTL)
     # Exclude execution_log from list view — it can be 10k+ entries per task
     # (7 MB+ response, 27s load time). Full log is available on GET /{task_id}.
     return {"tasks": [
@@ -234,8 +283,19 @@ async def list_tasks(
 
 @task_router.get("/counts")
 async def task_counts(request: Request, user: Any = Depends(_current_user)) -> dict[str, Any]:
-    counts = await _get_store(request).count_for_user(_user_id(user))
-    return {"counts": counts}
+    owner_id = _user_id(user)
+    cache_key = f"counts:{owner_id}"
+    cached = _COUNTS_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached["ts"] < _COUNTS_CACHE_TTL:
+        return {"counts": cached["counts"]}
+    async with _get_counts_lock():
+        cached = _COUNTS_CACHE.get(cache_key)
+        if cached and time.monotonic() - cached["ts"] < _COUNTS_CACHE_TTL:
+            return {"counts": cached["counts"]}
+        counts = await _get_store(request).count_for_user(owner_id)
+        _COUNTS_CACHE[cache_key] = {"counts": counts, "ts": time.monotonic()}
+        _evict_stale(_COUNTS_CACHE, _COUNTS_CACHE_TTL)
+        return {"counts": counts}
 
 
 @task_router.get("/due-soon")
@@ -305,6 +365,7 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     await store.update(task)
+    _invalidate_task_caches()
     return {"task": task.as_dict()}
 
 
@@ -337,6 +398,8 @@ async def purge_old_tasks(
         ):
             await store.delete(task.task_id, owner_id=None)  # admin purge — no owner check
             deleted += 1
+    if deleted:
+        _invalidate_task_caches()
 
     log.info("Purged %d terminal tasks older than %d days", deleted, days)
     return {"deleted": deleted, "days": days, "statuses": list(target_statuses)}
@@ -347,6 +410,7 @@ async def delete_task(task_id: str, request: Request, user: Any = Depends(_curre
     deleted = await _get_store(request).delete(task_id, owner_id=owner_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Task not found")
+    _invalidate_task_caches()
 
 
 @task_router.post("/{task_id}/comments", status_code=201)
@@ -358,6 +422,7 @@ async def add_comment(task_id: str, body: CommentAddRequest, request: Request, u
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
+    _invalidate_task_caches()
     return {"comment": comment.model_dump(), "task": task.as_dict()}
 
 
@@ -376,6 +441,7 @@ async def approve_checkpoint(task_id: str, body: ApprovalRequest, request: Reque
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
+    _invalidate_task_caches()
     return {"task": task.as_dict()}
 
 
@@ -399,6 +465,7 @@ async def approve_execution(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
+    _invalidate_task_caches()
     if body.approve:
         _queue_task_execution(background_tasks, request, task_id)
     return {"task": task.as_dict()}
@@ -413,6 +480,7 @@ async def retry_task(task_id: str, request: Request, user: Any = Depends(_curren
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
+    _invalidate_task_caches()
     return {"task": task.as_dict()}
 
 
@@ -442,6 +510,7 @@ async def follow_up_task(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await store.update(task)
+    _invalidate_task_caches()
     _queue_task_execution(background_tasks, request, task.task_id)
     return {"task": task.as_dict(), "queued": True}
 
@@ -452,6 +521,7 @@ async def escalate_task(task_id: str, request: Request, user: Any = Depends(_cur
     workflow = _get_workflow(request)
     workflow.escalate(task, actor=actor)
     await store.update(task)
+    _invalidate_task_caches()
     return {"task": task.as_dict()}
 
 
@@ -468,6 +538,7 @@ async def clarify_task(task_id: str, body: ClarifyRequest, request: Request, use
     )
     task.touch()
     await store.update(task)
+    _invalidate_task_caches()
     return {"task": task.as_dict()}
 
 
@@ -495,5 +566,6 @@ async def run_task(
             task_status=task.status,
         )
     await store.update(task)
+    _invalidate_task_caches()
     _queue_task_execution(background_tasks, request, task.task_id)
     return {"task": task.as_dict(), "queued": True}
