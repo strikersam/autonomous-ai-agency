@@ -1,14 +1,11 @@
-"""social_auth.py — GitHub and Google OAuth social login (REFERENCE MODULE).
+"""social_auth.py — GitHub and Google OAuth social login (CANONICAL MODULE).
 
-*DORMANT* — The live OAuth endpoints live inline in backend/server.py:
-  - /api/auth/github/login   → github_login()
-  - /api/auth/github/callback → github_callback()
-  - /api/auth/google/login   → google_login()
-  - /api/auth/google/callback → google_callback()
-  - /api/auth/me             → auth_me()
+Provides reusable OAuth exchange and user-fetch helpers used by backend/server.py
+and any other module that needs to authenticate via GitHub/Google OAuth.
 
-This module is kept as a reference library for the OAuth exchange/fetch logic.
-Do NOT import an auth_router from here — it no longer exists.
+The live OAuth endpoints live in backend/server.py and import the helper
+functions from here — there is one canonical implementation for token exchange
+and profile fetch.
 
 Flow:
   1. Frontend redirects user to  GET /api/auth/{provider}/login
@@ -120,9 +117,9 @@ def _google_login_url() -> str:
     )
 
 
-# ── GitHub OAuth helpers (dormant reference) ──────────────────────────────────
+# ── GitHub OAuth helpers (canonical) ─────────────────────────────────────────
 
-async def _github_exchange_code(code: str) -> str | None:
+async def github_exchange_code(code: str) -> str | None:
     """Exchange GitHub OAuth code for access token."""
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
@@ -139,12 +136,12 @@ async def _github_exchange_code(code: str) -> str | None:
         return resp.json().get("access_token")
 
 
-async def _github_fetch_user(access_token: str) -> dict | None:
+async def github_fetch_user(access_token: str) -> dict | None:
     """Fetch GitHub user profile using an access token."""
     async with httpx.AsyncClient(timeout=10) as client:
         headers = {
             "Authorization": f"Bearer {access_token}",
-            "Accept": "application/vnd.github.v3+json",
+            "Accept": "application/vnd.github+json",
         }
         user_resp  = await client.get("https://api.github.com/user", headers=headers)
         email_resp = await client.get("https://api.github.com/user/emails", headers=headers)
@@ -173,9 +170,9 @@ async def _github_fetch_user(access_token: str) -> dict | None:
         }
 
 
-# ── Google OAuth helpers (dormant reference) ──────────────────────────────────
+# ── Google OAuth helpers (canonical) ─────────────────────────────────────────
 
-async def _google_exchange_code(code: str) -> str | None:
+async def google_exchange_code(code: str) -> str | None:
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             "https://oauth2.googleapis.com/token",
@@ -192,7 +189,7 @@ async def _google_exchange_code(code: str) -> str | None:
         return resp.json().get("access_token")
 
 
-async def _google_fetch_user(access_token: str) -> dict | None:
+async def google_fetch_user(access_token: str) -> dict | None:
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
             "https://www.googleapis.com/oauth2/v2/userinfo",

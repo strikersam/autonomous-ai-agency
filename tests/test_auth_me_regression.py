@@ -20,23 +20,20 @@ from fastapi.testclient import TestClient
 
 
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
+# Must use os.environ[] (not .get with fallback) — conftest.py sets a session-stable
+# random password before any backend module import. See tests/conftest.py for the contract.
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]  # nosec B105 — test credential only
 
 
 # ── Backend /api/auth/me (JWT auth) ──────────────────────────────────────────
+# Use the shared conftest.py `client` fixture — it sets ADMIN_PASSWORD and seeds
+# the admin user via the lifespan before any test runs.
 
 
-@pytest.fixture(scope="module")
-def backend_client() -> TestClient:
-    from backend.server import app
-    with TestClient(app) as c:
-        yield c
-
-
-@pytest.fixture(scope="module")
-def backend_jwt(backend_client: TestClient) -> str:
+@pytest.fixture
+def backend_jwt(client: TestClient) -> str:
     """Login and return a valid JWT access token."""
-    r = backend_client.post("/api/auth/login", json={
+    r = client.post("/api/auth/login", json={
         "email": ADMIN_EMAIL,
         "password": ADMIN_PASSWORD,
     })
@@ -47,9 +44,9 @@ def backend_jwt(backend_client: TestClient) -> str:
 class TestBackendAuthMe:
     """JWT-based /api/auth/me on backend/server.py (port 8001)."""
 
-    def test_valid_token_returns_user_profile(self, backend_client: TestClient, backend_jwt: str):
+    def test_valid_token_returns_user_profile(self, client: TestClient, backend_jwt: str):
         """GET /api/auth/me with valid JWT → 200 and correct email."""
-        r = backend_client.get("/api/auth/me", headers={
+        r = client.get("/api/auth/me", headers={
             "Authorization": f"Bearer {backend_jwt}",
         })
         assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text[:200]}"
@@ -58,35 +55,35 @@ class TestBackendAuthMe:
         assert "_id" in data or "id" in data, f"No identity field in: {list(data.keys())}"
         assert data.get("role") == "admin", f"Wrong role: {data.get('role')}"
 
-    def test_invalid_token_returns_401(self, backend_client: TestClient):
+    def test_invalid_token_returns_401(self, client: TestClient):
         """GET /api/auth/me with garbage token → 401."""
-        r = backend_client.get("/api/auth/me", headers={
+        r = client.get("/api/auth/me", headers={
             "Authorization": "Bearer invalid-garbage-token-abc123",
         })
         assert r.status_code == 401, f"Expected 401, got {r.status_code}: {r.text[:200]}"
 
-    def test_missing_token_returns_401(self, backend_client: TestClient):
+    def test_missing_token_returns_401(self, client: TestClient):
         """GET /api/auth/me with no Authorization header → 401."""
-        r = backend_client.get("/api/auth/me")
+        r = client.get("/api/auth/me")
         assert r.status_code == 401, f"Expected 401, got {r.status_code}: {r.text[:200]}"
 
-    def test_expired_token_returns_401(self, backend_client: TestClient):
+    def test_expired_token_returns_401(self, client: TestClient):
         """GET /api/auth/me with an expired JWT (exp=1, Unix epoch) → 401."""
         expired_token = jwt.encode(
             {"sub": "test-user", "exp": 1},
             key="test-secret",
             algorithm="HS256",
         )
-        r = backend_client.get("/api/auth/me", headers={
+        r = client.get("/api/auth/me", headers={
             "Authorization": f"Bearer {expired_token}",
         })
         assert r.status_code == 401, (
             f"Expected 401 for expired token, got {r.status_code}: {r.text[:200]}"
         )
 
-    def test_wrong_scheme_returns_401(self, backend_client: TestClient):
+    def test_wrong_scheme_returns_401(self, client: TestClient):
         """GET /api/auth/me with Basic auth instead of Bearer → 401."""
-        r = backend_client.get("/api/auth/me", headers={
+        r = client.get("/api/auth/me", headers={
             "Authorization": "Basic dXNlcjpwYXNz",
         })
         assert r.status_code == 401, f"Expected 401, got {r.status_code}: {r.text[:200]}"

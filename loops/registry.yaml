@@ -42,13 +42,13 @@ loops:
   - id: autonomous-agent
     name: Autonomous Agent
     pattern: issue-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: every 30 min
     runs_per_day: 48
     cost: high
     source: .github/workflows/autonomous-agent.yml
-    self_heal: false
+    self_heal: true
     gate: telegram
     purpose: Execute queued issue/task work in GitHub Actions.
 
@@ -56,7 +56,7 @@ loops:
   - id: autonomous-fix
     name: Autonomous Fix
     pattern: ci-sweeper
-    level: L2
+    level: L3
     trigger: schedule
     cadence: every 30 min
     runs_per_day: 48
@@ -69,7 +69,7 @@ loops:
   - id: ci-failure-autofix
     name: CI Failure Auto-Fix
     pattern: ci-sweeper
-    level: L2
+    level: L3
     trigger: event
     cadence: on CI failure (workflow_run)
     runs_per_day: 0
@@ -82,7 +82,7 @@ loops:
   - id: openclaw-auto-fix
     name: OpenClaw Auto-Fix
     pattern: ci-sweeper
-    level: L2
+    level: L3
     trigger: schedule
     cadence: weekly (Sun 03:00 UTC)
     runs_per_day: 0.14
@@ -95,7 +95,7 @@ loops:
   - id: log-monitor
     name: Log Monitor (in-agent)
     pattern: self-heal
-    level: L2
+    level: L3
     trigger: daemon
     cadence: continuous (~30s scan)
     runs_per_day: 24
@@ -108,7 +108,7 @@ loops:
   - id: log-watcher
     name: Log Watcher (proxy daemon)
     pattern: self-heal
-    level: L2
+    level: L3
     trigger: daemon
     cadence: continuous (LOG_WATCHER_INTERVAL)
     runs_per_day: 24
@@ -121,7 +121,7 @@ loops:
   - id: self-healing
     name: Self-Healing Agent
     pattern: self-heal
-    level: L2
+    level: L3
     trigger: daemon
     cadence: continuous
     runs_per_day: 24
@@ -135,7 +135,7 @@ loops:
   - id: brain-watchdog
     name: Brain Health Watchdog
     pattern: self-heal
-    level: L2
+    level: L3
     trigger: daemon
     cadence: continuous (on every provider call)
     runs_per_day: 24
@@ -148,7 +148,7 @@ loops:
   - id: weekly-readiness-digest
     name: Weekly Readiness Digest
     pattern: daily-triage
-    level: L1
+    level: L2
     trigger: schedule
     cadence: weekly (Mon 07:00 UTC)
     runs_per_day: 0.14
@@ -161,7 +161,7 @@ loops:
   - id: crispy-burn-in-check
     name: CRISPY Burn-In Check
     pattern: daily-triage
-    level: L1
+    level: L2
     trigger: schedule
     cadence: weekly (Mon 06:00 UTC)
     runs_per_day: 0.14
@@ -175,7 +175,7 @@ loops:
   - id: continuous-improvement
     name: Continuous Improvement
     pattern: daily-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: daily (09:00 UTC)
     runs_per_day: 1
@@ -188,20 +188,20 @@ loops:
   - id: improvement-loop
     name: Improvement Loop (in-agent)
     pattern: daily-triage
-    level: L2
+    level: L3
     trigger: daemon
     cadence: continuous
     runs_per_day: 4
     cost: medium
     source: agent/improvement_loop.py
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: In-process loop that proposes incremental codebase improvements.
 
   - id: trend-watcher
     name: Trend Watcher (in-agent)
     pattern: learn-scan
-    level: L1
+    level: L2
     trigger: daemon
     cadence: continuous
     runs_per_day: 2
@@ -220,14 +220,14 @@ loops:
     runs_per_day: 96
     cost: low
     source: services/ephemeral_reaper.py
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: Destroy expired non-admin (GitHub/Google) agencies on free hosting.
 
   - id: daily-industry-update
     name: Daily Industry Update
     pattern: learn-scan
-    level: L1
+    level: L2
     trigger: schedule
     cadence: daily (08:00 UTC)
     runs_per_day: 1
@@ -240,7 +240,7 @@ loops:
   - id: weekly-trend-digest
     name: Weekly AI Trend Digest
     pattern: learn-scan
-    level: L1
+    level: L2
     trigger: schedule
     cadence: weekly (Mon 08:00 UTC)
     runs_per_day: 0.14
@@ -253,7 +253,7 @@ loops:
   - id: user-research-scan
     name: Weekly User-Research Scan
     pattern: learn-scan
-    level: L1
+    level: L2
     trigger: schedule
     cadence: weekly (Mon 03:00 UTC)
     runs_per_day: 0.14
@@ -280,33 +280,33 @@ loops:
   - id: agency-cycle
     name: Agency Cycle
     pattern: daily-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: every 6 h
     runs_per_day: 4
     cost: medium
     source: .github/workflows/agency-cycle.yml
-    self_heal: false
+    self_heal: true
     gate: telegram
     purpose: Periodic agency orchestration — plan and dispatch work.
 
   - id: process-quick-note
     name: Process Quick Note
     pattern: issue-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: every 4 h
     runs_per_day: 6
     cost: medium
     source: .github/workflows/process-quick-note.yml
-    self_heal: false
+    self_heal: true
     gate: telegram
     purpose: Turn quick-note issues into context + implementation PRs.
 
   - id: enrich-quick-note-context
     name: Enrich Quick-Note Context
     pattern: issue-triage
-    level: L1
+    level: L2
     trigger: schedule
     cadence: every 4 h
     runs_per_day: 6
@@ -319,7 +319,7 @@ loops:
   - id: issue-context-generator
     name: Issue Context Generator
     pattern: issue-triage
-    level: L1
+    level: L2
     trigger: event
     cadence: on issue opened
     runs_per_day: 0
@@ -332,7 +332,7 @@ loops:
   - id: agile-ceremonies
     name: Agile Ceremonies
     pattern: daily-triage
-    level: L1
+    level: L2
     trigger: schedule
     cadence: weekdays (08:00 UTC)
     runs_per_day: 0.71
@@ -345,7 +345,7 @@ loops:
   - id: portfolio-refresh
     name: Portfolio Refresh
     pattern: daily-triage
-    level: L1
+    level: L2
     trigger: schedule
     cadence: every 6 h
     runs_per_day: 4
@@ -358,7 +358,7 @@ loops:
   - id: daily-digest
     name: Daily Digest
     pattern: daily-triage
-    level: L1
+    level: L2
     trigger: schedule
     cadence: daily (09:00 UTC)
     runs_per_day: 1
@@ -372,7 +372,7 @@ loops:
   - id: quick-note-claim-sweeper
     name: Quick-Note Claim TTL Sweeper
     pattern: post-merge-cleanup
-    level: L1
+    level: L2
     trigger: schedule
     cadence: hourly
     runs_per_day: 24
@@ -425,7 +425,7 @@ loops:
   - id: nightly-regression
     name: Nightly Regression
     pattern: ci-sweeper
-    level: L1
+    level: L2
     trigger: schedule
     cadence: nightly (00:00 UTC)
     runs_per_day: 1
@@ -438,7 +438,7 @@ loops:
   - id: security-scan
     name: Security Scan
     pattern: security-scan
-    level: L1
+    level: L2
     trigger: schedule
     cadence: weekly (Mon 02:30 UTC)
     runs_per_day: 0.14
@@ -451,7 +451,7 @@ loops:
   - id: loop-audit
     name: Loop Audit (meta)
     pattern: self-heal
-    level: L1
+    level: L3
     trigger: schedule
     cadence: weekly (Mon 06:00 UTC)
     runs_per_day: 0.14
@@ -464,7 +464,7 @@ loops:
   - id: keepalive
     name: Keep-alive Heartbeat
     pattern: infra-heartbeat
-    level: L1
+    level: L3
     trigger: schedule
     cadence: every 5 min
     runs_per_day: 288
