@@ -2958,7 +2958,6 @@ async def voice_transcribe(body: VoiceTranscribeRequest, auth: AuthContext = Dep
     except Exception:
 
         raise HTTPException(status_code=400, detail="Invalid base64 audio data")
-
     result = VOICE_INTERFACE.transcribe(audio_bytes)
     return result.as_dict()
 
@@ -3035,6 +3034,28 @@ async def sam_speak(body: SamSpeakRequest, auth: AuthContext = Depends(verify_ap
     except Exception as exc:
         log.warning("SAM TTS failed: %s", exc)
         return {"audio_b64": "", "error": str(exc)}
+
+@app.get("/api/auth/me")
+async def auth_me_proxy(auth: AuthContext = Depends(verify_api_key)):
+    """Return the current user's profile from the API key context.
+
+    Mirrors backend/server.py's /api/auth/me so that API key users on the
+    proxy port (8000) can also verify their tokens. The frontend AuthContext
+    calls this after login to hydrate the user object.
+
+    For API key auth, the 'user' identity is derived from the key metadata:
+    email, department, and key_id. No password or DB lookup required.
+    """
+    return {
+        "_id": auth.email,
+        "id": auth.email,
+        "email": auth.email,
+        "name": auth.email.split("@")[0] if "@" in auth.email else auth.email,
+        "role": "user",
+        "department": auth.department,
+        "key_id": auth.key_id,
+        "source": auth.source,
+    }
 
 
 # --- Streaming proxy helper -----------------------------------------------------
