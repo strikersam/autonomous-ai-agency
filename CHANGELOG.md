@@ -397,6 +397,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Added test fixes for agency escalation issue #398 (issue #398)
+
 - **Zhipu GLM provider: update default model to glm-5.2 + fix provider resolution** (2026-06-26). The default Zhipu model was `glm-4-flash`/`glm-4.5-air` — updated to `glm-5.2`. Also: `resolve_provider_for()` now checks the DB BrainConfig FIRST (user's UI override), then falls back to brain_policy (NVIDIA), then DB provider records. Previously brain_policy always won, preventing Zhipu from being used even when configured via the UI.
 - **Dependabot PRs: fix changelog-check exemption for `chore(deps):` prefix** (2026-06-26). The changelog-check.yml case pattern `chore:*` didn't match `chore(deps):` because the `(` breaks the glob. Added `chore*:*` pattern to also match Dependabot's `chore(deps):` prefix.
 
