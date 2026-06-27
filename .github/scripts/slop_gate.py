@@ -87,9 +87,10 @@ def looks_like_secret_file(path: str, content: str) -> tuple[bool, str]:
     if base.endswith(_EXAMPLE_SUFFIXES):
         return False, ""
 
+    dotenv_like = base == ".env" or base.startswith(".env.")
     name_is_secrets = (
         ("secret" in base or "credential" in base) and base.endswith(_SECRET_FILE_EXTS)
-    ) or base in {".env", ".netrc", ".npmrc"}
+    ) or dotenv_like or base in {".netrc", ".npmrc"}
 
     content_is_secrets = False
     text = (content or "").strip()
@@ -104,13 +105,14 @@ def looks_like_secret_file(path: str, content: str) -> tuple[bool, str]:
             except Exception:  # noqa: BLE001
                 data = None
         if isinstance(data, dict) and data:
-            secretish = any(
-                isinstance(k, str) and _SECRET_KEY_RE.search(k) for k in data
+            secret_values = [
+                v for k, v in data.items()
+                if isinstance(k, str) and _SECRET_KEY_RE.search(k)
+            ]
+            content_is_secrets = bool(secret_values) and all(
+                v is None or isinstance(v, (str, int, float, bool))
+                for v in secret_values
             )
-            scalar_values = all(
-                v is None or isinstance(v, (str, int, float, bool)) for v in data.values()
-            )
-            content_is_secrets = secretish and scalar_values
 
     if name_is_secrets or content_is_secrets:
         return True, (

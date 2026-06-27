@@ -101,6 +101,25 @@ def test_bare_dotenv_rejected():
     assert rejected
 
 
+def test_dotenv_local_rejected():
+    rejected, _ = looks_like_secret_file(".env.local", "DB_PASSWORD=hunter2\n")
+    assert rejected
+
+
+def test_dotenv_production_rejected():
+    rejected, _ = looks_like_secret_file(".env.production", "SECRET_KEY=abc123\n")
+    assert rejected
+
+
+def test_mixed_json_with_nested_objects_rejected():
+    """Credential-named keys trigger even when other top-level values are non-scalar."""
+    rejected, _ = looks_like_secret_file(
+        "config/app.json",
+        '{"DATABASE_PASSWORD": "hunter2", "meta": {"version": 1}}'
+    )
+    assert rejected
+
+
 def test_example_template_allowed():
     # Documenting variable NAMES in a template is the correct pattern — allowed.
     rejected, _ = looks_like_secret_file(
