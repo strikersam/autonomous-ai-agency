@@ -9,7 +9,7 @@ can never overwrite working code (the PR #833 failure mode).
 import json, sys, os, subprocess, httpx, re, ast, pathlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from slop_gate import is_destructive_overwrite, python_parses, diff_is_sloppy
+from slop_gate import is_destructive_overwrite, python_parses, diff_is_sloppy, looks_like_secret_file, is_doc_only_boilerplate
 
 gh_token = os.environ['GH_TOKEN']
 repo = os.environ['REPO']
@@ -198,6 +198,10 @@ for file_info in result.get('files', []):
         destructive, why = is_destructive_overwrite(old, file_content)
         if destructive:
             _abort(f'{path} — {why}')
+    # Gate 1b: never commit a secrets-shaped file (the #842 .github/secrets.json footgun).
+    secretish, why = looks_like_secret_file(path, file_content)
+    if secretish:
+        _abort(f'{path} — {why}')
     # Gate 2: generated Python must at least parse.
     if path.endswith('.py') and not python_parses(file_content):
         _abort(f'{path} — generated Python does not parse (syntax error)')
@@ -221,6 +225,13 @@ for cpath in ['CHANGELOG.md', 'docs/changelog.md']:
 
 # 7. Stage, then SLOP-GATE the aggregate diff before committing.
 subprocess.run(['git', 'add', '-A'], check=True)
+
+# Gate 3: reject pure-doc/boilerplate PRs (the #842/#843 failure mode).
+_generated_paths = [f.get('path', '') for f in result.get('files', []) if f.get('path')]
+boilerplate, why = is_doc_only_boilerplate(_generated_paths)
+if boilerplate:
+    _abort(f'doc-only boilerplate — {why}')
+
 _numstat = subprocess.run(['git', 'diff', '--cached', '--numstat'], capture_output=True, text=True).stdout  # nosec
 _add = _del = 0
 for _line in _numstat.splitlines():

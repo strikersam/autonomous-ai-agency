@@ -47,6 +47,15 @@ jobs:
             echo "Draft PRs are planning docs only and must be implemented by the agent before merge."
             exit 0
           fi
+          # SAFETY: never auto-merge autonomous agency PRs (agent/* branches).
+          # PRs #842/#843 were low-value boilerplate from vague issues that the
+          # slop-gate couldn't catch because they were additive. Agency PRs need
+          # human review before merge.
+          HEAD_BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName -q '.headRefName' 2>/dev/null || echo "")
+          if echo "$HEAD_BRANCH" | grep -qE '^agent/'; then
+            echo "Skipping PR #$PR_NUMBER — agency branch ($HEAD_BRANCH) requires human review before merge."
+            exit 0
+          fi
           echo "Auto-merging PR #$PR_NUMBER after successful CI..."
           gh pr merge "$PR_NUMBER" --squash --admin --delete-branch || {
             echo "::warning::Auto-merge failed (branch protection or conflicts). Manual merge may be needed."
