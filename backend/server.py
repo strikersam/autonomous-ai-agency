@@ -74,6 +74,12 @@ from activation_api import activation_router
 from setup.api import get_wizard_state
 from secrets_store import secrets_router, get_secrets_store
 from version import __version__, APP_NAME, APP_LABEL, APP_TAGLINE
+from social_auth import (
+    github_exchange_code,
+    github_fetch_user,
+    google_exchange_code,
+    google_fetch_user,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -1605,50 +1611,16 @@ async def github_callback(request: Request, code: str = None, state: str = None)
     await get_db().oauth_states.delete_one({"state": state})
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            # 1. Exchange code for token
-            resp = await client.post(
-                "https://github.com/login/oauth/access_token",
-                data={
-                    "client_id": GITHUB_CLIENT_ID,
-                    "client_secret": GITHUB_CLIENT_SECRET,
-                    "code": code,
-                },
-                headers={"Accept": "application/json"},
-            )
-            resp.raise_for_status()
-            token_data = resp.json()
-            access_token = token_data.get("access_token")
-            if not access_token:
-                err = token_data.get("error_description") or token_data.get("error") or "No token returned"
-                raise HTTPException(status_code=400, detail=f"GitHub token exchange failed: {err}")
+        # 1. Exchange code for token (canonical helper)
+        access_token = await github_exchange_code(code)
+        if not access_token:
+            raise HTTPException(status_code=400, detail="GitHub token exchange failed")
 
-            # 2. Get user info
-            user_resp = await client.get(
-                "https://api.github.com/user",
-                headers={"Authorization": f"token {access_token}"},
-            )
-            user_resp.raise_for_status()
-            gh_user = user_resp.json()
-
-            # 3. Get email (GitHub might not return it in the main user object)
-            email = gh_user.get("email")
-            if not email:
-                email_resp = await client.get(
-                    "https://api.github.com/user/emails",
-                    headers={"Authorization": f"token {access_token}"},
-                )
-                email_resp.raise_for_status()
-                emails = email_resp.json()
-                # Find primary verified email
-                primary = next(
-                    (e for e in emails if e.get("primary") and e.get("verified")), None
-                )
-                email = (
-                    primary.get("email")
-                    if primary
-                    else (emails[0].get("email") if emails else None)
-                )
+        # 2. Fetch user profile (canonical helper — returns email, name, avatar, login)
+        gh_user = await github_fetch_user(access_token)
+        if not gh_user:
+            raise HTTPException(status_code=502, detail="GitHub OAuth request failed")
+        email = gh_user["email"]
     except HTTPException:
         raise
     except Exception as exc:
@@ -1660,17 +1632,18 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             status_code=400, detail="Could not retrieve email from GitHub"
         )
 
-    # 4. Find or create user
+    # 3. Find or create user
     user = await get_db().users.find_one({"email": email.lower()})
-    uid_str = str(gh_user["id"])
+    # Extract raw numeric GitHub ID from the canonical user_id (format: "gh_<id>")
+    uid_str = gh_user["user_id"][3:] if gh_user["user_id"].startswith("gh_") else gh_user["user_id"]
     now = datetime.now(timezone.utc).isoformat()
 
     if not user:
         # Automatic registration
         new_user = {
             "email": email.lower(),
-            "name": gh_user.get("name") or gh_user.get("login"),
-            "avatar_url": gh_user.get("avatar_url"),
+            "name": gh_user["name"],
+            "avatar_url": gh_user["avatar_url"],
             "provider": "github",
             "provider_user_id": uid_str,
             "role": "user",
@@ -1693,7 +1666,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
                     "provider": user.get("provider", "github"),
                     "provider_user_id": user.get("provider_user_id", uid_str),
                     "avatar_url": user.get("avatar_url")
-                    or gh_user.get("avatar_url"),
+                    or gh_user["avatar_url"],
                 }
             },
         )
@@ -1731,55 +1704,29 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
     if state != request.session.pop("repo_oauth_state", None):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
-    async with httpx.AsyncClient() as client:
-        # 1. Exchange code for token
-        resp = await client.post(
-            "https://github.com/login/oauth/access_token",
-            data={
-                "client_id": GITHUB_CLIENT_ID,
-                "client_secret": GITHUB_CLIENT_SECRET,
-                "code": code,
-            },
-            headers={"Accept": "application/json"},
-        )
-        resp.raise_for_status()
-        token_data = resp.json()
-        access_token = token_data.get("access_token")
+    try:
+        # 1. Exchange code for token (canonical helper)
+        access_token = await github_exchange_code(code)
         if not access_token:
             raise HTTPException(status_code=400, detail="GitHub token exchange failed")
 
-        # 2. Get user info to identify which user is connecting
-        user_resp = await client.get(
-            "https://api.github.com/user",
-            headers={"Authorization": f"token {access_token}"},
+        # 2. Fetch user profile (canonical helper — returns email, name, login)
+        gh_user = await github_fetch_user(access_token)
+        if not gh_user:
+            raise HTTPException(status_code=502, detail="GitHub OAuth request failed")
+        email = gh_user["email"]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("GitHub OAuth repo-callback error: %s", exc)
+        raise HTTPException(status_code=502, detail="GitHub OAuth request failed")
+
+    if not email:
+        raise HTTPException(
+            status_code=400, detail="Could not retrieve email from GitHub"
         )
-        user_resp.raise_for_status()
-        gh_user = user_resp.json()
 
-        # 3. Get email
-        email = gh_user.get("email")
-        if not email:
-            email_resp = await client.get(
-                "https://api.github.com/user/emails",
-                headers={"Authorization": f"token {access_token}"},
-            )
-            email_resp.raise_for_status()
-            emails = email_resp.json()
-            primary = next(
-                (e for e in emails if e.get("primary") and e.get("verified")), None
-            )
-            email = (
-                primary.get("email")
-                if primary
-                else (emails[0].get("email") if emails else None)
-            )
-
-        if not email:
-            raise HTTPException(
-                status_code=400, detail="Could not retrieve email from GitHub"
-            )
-
-        # 4. Update the user with the new token
+    # 3. Update the user with the new token
         # Note: We associate the token with the authenticated user.
         # Ideally, we should check if the GitHub email matches the logged-in user email.
         # For simplicity in this local tool, we just update the user.
@@ -1788,7 +1735,7 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
             {
                 "$set": {
                     "github_repo_token": access_token,
-                    "github_login": gh_user.get("login"),
+                    "github_login": gh_user["login"],
                     "github_updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             },
@@ -1796,7 +1743,7 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
         await log_activity(
             "auth",
             f"User {email} granted GitHub repo access",
-            meta={"github_login": gh_user.get("login")},
+            meta={"github_login": gh_user["login"]},
         )
 
         return RedirectResponse(f"{frontend_url}/settings?github_authorized=true")
@@ -2025,38 +1972,22 @@ async def google_callback(request: Request, code: str = None, state: str = None)
     )
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            # 1. Exchange code for token
-            resp = await client.post(
-                "https://oauth2.googleapis.com/token",
-                data={
-                    "client_id": GOOGLE_CLIENT_ID,
-                    "client_secret": GOOGLE_CLIENT_SECRET,
-                    "code": code,
-                    "grant_type": "authorization_code",
-                    "redirect_uri": redirect_uri,
-                },
-            )
-            resp.raise_for_status()
-            token_data = resp.json()
-            access_token = token_data.get("access_token")
-            if not access_token:
-                raise HTTPException(status_code=400, detail="Google token exchange failed")
+        # 1. Exchange code for token (canonical helper)
+        access_token = await google_exchange_code(code, redirect_uri=redirect_uri)
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Google token exchange failed")
 
-            # 2. Get user info
-            user_resp = await client.get(
-                "https://www.googleapis.com/oauth2/v3/userinfo",
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            user_resp.raise_for_status()
-            g_user = user_resp.json()
+        # 2. Fetch user profile (canonical helper — returns email, name, avatar)
+        g_user = await google_fetch_user(access_token)
+        if not g_user:
+            raise HTTPException(status_code=502, detail="Google OAuth request failed")
+        email = g_user["email"]
     except HTTPException:
         raise
     except Exception as exc:
         log.error("Google OAuth login error: %s", exc)
         raise HTTPException(status_code=502, detail="Google OAuth request failed")
 
-    email = g_user.get("email")
     if not email:
         raise HTTPException(
             status_code=400, detail="Could not retrieve email from Google"
@@ -2064,14 +1995,15 @@ async def google_callback(request: Request, code: str = None, state: str = None)
 
     # 3. Find or create user
     user = await get_db().users.find_one({"email": email.lower()})
-    uid_str = str(g_user.get("sub"))
+    # Extract raw Google sub ID from the canonical user_id (format: "goog_<id>")
+    uid_str = g_user["user_id"][5:] if g_user["user_id"].startswith("goog_") else g_user["user_id"]
     now = datetime.now(timezone.utc).isoformat()
 
     if not user:
         new_user = {
             "email": email.lower(),
-            "name": g_user.get("name"),
-            "avatar_url": g_user.get("picture"),
+            "name": g_user["name"],
+            "avatar_url": g_user["avatar_url"],
             "provider": "google",
             "provider_user_id": uid_str,
             "role": "user",
@@ -2092,7 +2024,7 @@ async def google_callback(request: Request, code: str = None, state: str = None)
                     "last_login": now,
                     "provider": user.get("provider", "google"),
                     "provider_user_id": user.get("provider_user_id", uid_str),
-                    "avatar_url": user.get("avatar_url") or g_user.get("picture"),
+                    "avatar_url": user.get("avatar_url") or g_user["avatar_url"],
                 }
             },
         )

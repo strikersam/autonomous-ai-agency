@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -89,6 +90,32 @@ async def is_provider_on_cooldown(provider_id: str) -> bool:
     from services.shared_state import cooldown_get
 
     return await cooldown_get(f"provider:{provider_id}")
+
+
+async def _acquire_provider_probe(provider_id: str, timeout_sec: float = 30.0) -> bool:
+    """Try to acquire a distributed probe lock for *provider_id*.
+
+    Returns True if this caller won the probe right (lock acquired); False if
+    another caller is already probing this provider.  The probe lock prevents
+    the thundering-herd problem: when a cooldown expires, every concurrent
+    request would otherwise slam the rate-limited provider simultaneously.
+
+    The lock TTL is set to ``timeout_sec + 10`` so it outlives the actual
+    provider call even in worst-case latency; a crashed probe never deadlocks
+    the provider permanently.  Minimum floor is ``_PROBE_LOCK_TTL_MIN_SEC``.
+    """
+    from services.shared_state import claim
+    ttl = max(_PROBE_LOCK_TTL_MIN_SEC, int(timeout_sec + 10))
+    return await claim(f"provider-probe:{provider_id}", ttl)
+
+
+async def _release_provider_probe(provider_id: str) -> None:
+    """Release the probe lock for *provider_id*."""
+    from services.shared_state import release
+    await release(f"provider-probe:{provider_id}")
+
+
+_PROBE_LOCK_TTL_MIN_SEC: int = int(os.environ.get("PROVIDER_PROBE_LOCK_MIN_SEC", "30"))
 
 
 def get_cooldown_state() -> dict[str, float]:
@@ -850,6 +877,7 @@ class ProviderRouter:
         """
         last_status: int | None = None
         last_was_conn_error = False
+        last_was_419 = False
         rate_limited = False
         retry_after_sec: float | None = None
         for model in self._candidate_models(provider, original_model, model_fallbacks, is_primary):
@@ -872,13 +900,26 @@ class ProviderRouter:
                             response=response, provider=provider, model=model, attempts=list(attempts)
                         )
                     last_status = response.status_code
-                    if response.status_code in (429, 419):
-                        # Rate-limited (429 = standard, 419 = NVIDIA NIM):
-                        # do NOT burn retries on this provider — cool it
-                        # and fail over to the next working provider immediately.
+                    if response.status_code == 429:
+                        # Standard rate-limit (provider/account level):
+                        # cool the provider and fail over immediately.
                         rate_limited = True
                         retry_after_sec = self._parse_retry_after(response)
                         break
+                    if response.status_code == 419:
+                        # NVIDIA NIM per-model concurrency limit:
+                        # this specific model is exhausted, but another model
+                        # on the same provider may still work. Skip only this
+                        # model and try the next candidate (don't set rate_limited).
+                        last_was_419 = True
+                        retry_after_sec = self._parse_retry_after(response)
+                        # If a Retry-After hints at a very short window (<5s),
+                        # wait briefly and retry the same model; otherwise
+                        # advance to the next candidate.
+                        if retry_after_sec is not None and retry_after_sec < 5.0:
+                            await asyncio.sleep(retry_after_sec + random.uniform(0, 0.5))
+                            continue  # retry same model after short wait
+                        break  # skip this model, try next candidate
                     if not self._should_retry_status(response.status_code):
                         break
                 except Exception as exc:
@@ -888,14 +929,24 @@ class ProviderRouter:
                     ))
                     last_was_conn_error = True
                 if attempt_number < max_retries:
-                    await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
+                    base_delay = min(0.25 * (2 ** attempt_number), 2.0)
+                    await asyncio.sleep(base_delay + random.uniform(0, 0.15))
             if rate_limited:
-                # No other model on this provider will dodge a provider-level rate
-                # limit — stop and let the outer loop move to the next provider.
+                # Provider-level rate limit (429) — stop and let the outer loop
+                # move to the next provider. Per-model limits (419) already
+                # advanced to the next candidate above.
                 break
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
         if rate_limited:
             secs = _RATELIMIT_COOLDOWN_SECONDS
+            if retry_after_sec is not None:
+                secs = max(1, min(int(retry_after_sec), _RATELIMIT_COOLDOWN_MAX_SECONDS))
+            await mark_provider_failed(provider.provider_id, secs)
+        elif last_was_419:
+            # All models on this provider returned per-model concurrency limits.
+            # The provider itself may still be healthy — cool it briefly (shorter
+            # than the default) and honour any Retry-After from the last response.
+            secs = _CONN_FAILURE_COOLDOWN_SECONDS
             if retry_after_sec is not None:
                 secs = max(1, min(int(retry_after_sec), _RATELIMIT_COOLDOWN_MAX_SECONDS))
             await mark_provider_failed(provider.provider_id, secs)
@@ -948,13 +999,35 @@ class ProviderRouter:
             if not first_eligible and is_commercial_provider(provider) and not allow_commercial_fallback:
                 deferred_commercial.append(provider.provider_id)
                 continue
-            result = await self._try_one_provider(
-                provider, payload, original_model, model_fallbacks or [],
-                first_eligible, max_retries, attempts, provider_timeout_sec,
-            )
+            # ── Distributed HALF_OPEN probe lock ────────────────────────────────
+            # When a provider's cooldown expires, every concurrent request would
+            # otherwise slam it simultaneously (thundering herd).  Acquire a
+            # short-lived probe lock — only the winner actually calls the provider;
+            # everyone else skips it as if still on cooldown.
+            probing = await _acquire_provider_probe(provider.provider_id, provider_timeout_sec)
+            if not probing:
+                log.info(
+                    "Skipping provider %s (another request probing)",
+                    provider.provider_id,
+                )
+                skipped_on_cooldown.append((provider, first_eligible))
+                continue
+            try:
+                result = await self._try_one_provider(
+                    provider, payload, original_model, model_fallbacks or [],
+                    first_eligible, max_retries, attempts, provider_timeout_sec,
+                )
+                if result is not None:
+                    await _release_provider_probe(provider.provider_id)
+                    return result
+                # Provider failed — probe lock was released by _try_one_provider's
+                # cooldown path.  A new cooldown blocks further probes anyway.
+            finally:
+                # Best-effort cleanup: always release the probe lock so a crashed
+                # probe doesn't permanently lock the provider.  The TTL (10s)
+                # makes this belt-and-suspenders safe.
+                await _release_provider_probe(provider.provider_id)
             first_eligible = False
-            if result is not None:
-                return result
 
         # ── Last-resort bypass ────────────────────────────────────────────────
         # If all providers were on cooldown (attempts is empty), bypass cooldowns
