@@ -520,6 +520,12 @@ Scan a website and stand up its specialist agency in minutes.
 
 <p align="center"><img src="docs/screenshots/v5/onboarding.png" width="92%" alt="✨ Onboarding — setup wizard"/></p>
 
+### 🔁 Loops — autonomous fleet
+
+Every autonomous loop catalogued: readiness score, maturity, self-heal coverage, drift status, and cost estimate.
+
+<p align="center"><img src="docs/screenshots/v5/loops.png" width="92%" alt="🔁 Loops — autonomous fleet"/></p>
+
 ### 🩺 Doctor — diagnostics
 
 System self-checks and autonomy readiness probes.

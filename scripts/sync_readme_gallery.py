@@ -98,6 +98,11 @@ GALLERY: tuple[GallerySection, ...] = (
         screenshots=(Screenshot("docs/screenshots/v5/onboarding.png", '✨ Onboarding — setup wizard'),),
     ),
     GallerySection(
+        heading="### 🔁 Loops — autonomous fleet",
+        summary='Every autonomous loop catalogued: readiness score, maturity, self-heal coverage, drift status, and cost estimate.',
+        screenshots=(Screenshot("docs/screenshots/v5/loops.png", '🔁 Loops — autonomous fleet'),),
+    ),
+    GallerySection(
         heading="### 🩺 Doctor — diagnostics",
         summary='System self-checks and autonomy readiness probes.',
         screenshots=(Screenshot("docs/screenshots/v5/doctor.png", '🩺 Doctor — diagnostics'),),

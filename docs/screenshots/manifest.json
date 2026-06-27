@@ -154,6 +154,17 @@
     ]
   },
   {
+    "heading": "### \ud83d\udd01 Loops \u2014 autonomous fleet",
+    "summary": "Every autonomous loop catalogued: readiness score, maturity, self-heal coverage, drift status, and cost estimate.",
+    "screenshots": [
+      {
+        "path": "docs/screenshots/v5/loops.png",
+        "alt": "\ud83d\udd01 Loops \u2014 autonomous fleet",
+        "width": "92%"
+      }
+    ]
+  },
+  {
     "heading": "### \ud83e\ude7a Doctor \u2014 diagnostics",
     "summary": "System self-checks and autonomy readiness probes.",
     "screenshots": [
