@@ -1303,16 +1303,22 @@ async def get_optional_user(request: Request) -> Optional[dict]:
         try:
             user = await get_db().users.find_one({"_id": ObjectId(payload["sub"])})
         except Exception:
-            # DB fallback for CI/limited mode
-            if payload.get("email") == ADMIN_EMAIL:
-                user = {
-                    "_id": payload["sub"],
-                    "email": ADMIN_EMAIL,
-                    "name": "Admin",
-                    "role": "admin",
-                }
-            else:
+            user = None
+        # When using SQLite (STORAGE_BACKEND=sqlite), user _id is a plain
+        # string (UUID), not a Mongo ObjectId. Retry with the raw string.
+        if user is None:
+            try:
+                user = await get_db().users.find_one({"_id": payload["sub"]})
+            except Exception:
                 user = None
+        # Last-resort DB fallback for CI/limited mode — only for admin.
+        if user is None and payload.get("email") == ADMIN_EMAIL:
+            user = {
+                "_id": payload["sub"],
+                "email": ADMIN_EMAIL,
+                "name": "Admin",
+                "role": "admin",
+            }
         if not user:
             return None
         user["_id"] = str(user["_id"])
@@ -2088,7 +2094,13 @@ class JWTUserStateMiddleware(BaseHTTPMiddleware):
                     try:
                         user = await get_db().users.find_one({"_id": ObjectId(payload["sub"])})
                     except Exception:
-                        pass
+                        user = None
+                    # SQLite backend stores _id as string, not ObjectId.
+                    if user is None:
+                        try:
+                            user = await get_db().users.find_one({"_id": payload["sub"]})
+                        except Exception:
+                            user = None
                     if not user and payload.get("email") == ADMIN_EMAIL:
                         user = {
                             "_id": payload["sub"],
