@@ -131,6 +131,22 @@ def _is_admin(user: dict) -> bool:
     return role == "admin"
 
 
+# Providers whose users are ephemeral. Every non-admin account on this platform
+# is a social (GitHub/Google) login — there is no email/password registration —
+# so the only persistent local account is the admin. Gating on provider keeps the
+# rule explicit: admins (local) persist forever; social non-admins are temporary.
+_EPHEMERAL_PROVIDERS = {"github", "google"}
+
+
+def _is_ephemeral_user(user: dict) -> bool:
+    """True when this user's companies should be temporary (reaped after TTL).
+
+    Ephemeral = a non-admin signed in via a social provider (GitHub/Google).
+    Admins and any non-social account persist forever.
+    """
+    return (not _is_admin(user)) and _resolve_provider(user) in _EPHEMERAL_PROVIDERS
+
+
 def _resolve_provider(user: dict) -> str:
     """Best-effort auth provider for a user dict.
 
@@ -440,7 +456,8 @@ async def create_company(
         "created_by_role": "admin" if is_admin_user else str(user.get("role", "user")).lower(),
         "created_by_provider": provider,
     }
-    if is_admin_user:
+    if not _is_ephemeral_user(user):
+        # Admins (and any non-social account) persist forever.
         lifecycle["persistent"] = True
         lifecycle["expires_at"] = None
     else:
@@ -523,10 +540,10 @@ async def account_lifecycle(
 ) -> AccountLifecycleResponse:
     """Return whether the current user's agencies are ephemeral + when they expire.
 
-    Admins are persistent (no banner). Non-admin (GitHub/Google) users get the
-    24-hour free-Render notice and the earliest expiry across their companies.
+    Admins (and any non-social account) are persistent and get no banner. Non-admin
+    social (GitHub/Google) users get the 24-hour free-Render notice and the earliest
+    expiry across their companies.
     """
-    is_admin_user = _is_admin(user)
     provider = _resolve_provider(user)
     try:
         from app_settings import ephemeral_ttl_hours
@@ -535,7 +552,7 @@ async def account_lifecycle(
         log.exception("Failed to load ephemeral TTL for lifecycle response; defaulting to 24h")
         ttl_hours = 24
 
-    if is_admin_user:
+    if not _is_ephemeral_user(user):
         return AccountLifecycleResponse(
             ephemeral=False, persistent=True, ttl_hours=ttl_hours,
             provider=provider, note="",
