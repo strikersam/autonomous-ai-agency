@@ -5120,7 +5120,7 @@ async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/activity")
-async def _get_activity_impl(limit: int) -> dict[str, Any]:
+async def _get_activity_impl(limit: int = 50) -> dict[str, Any]:
     logs = []
     try:
         async for entry in get_db().activity_log.find({}).sort("created_at", -1).limit(limit):

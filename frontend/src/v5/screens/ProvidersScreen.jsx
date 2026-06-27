@@ -444,12 +444,13 @@ function MCPTab() {
     // Optimistic update
     setServers(p => (p||[]).map(s => s.id === srv.id ? { ...s, status: newStatus } : s));
     try {
-      if (srv.id && !srv._seeded) {
-        await api.updateMcpServer(srv.id, { status: newStatus });
-      }
+      await api.updateMcpServer(srv.id, { status: newStatus });
     } catch {
-      // Revert
-      setServers(p => (p||[]).map(s => s.id === srv.id ? { ...s, status: srv.status } : s));
+      // If the server is a seeded default (no backend record), still keep the optimistic state
+      // for the session — the toggle just resets on reload, which is expected for seeded defaults.
+      if (!srv._seeded) {
+        setServers(p => (p||[]).map(s => s.id === srv.id ? { ...s, status: srv.status } : s));
+      }
     }
   };
 
