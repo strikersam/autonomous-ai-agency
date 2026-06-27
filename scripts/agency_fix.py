@@ -20,6 +20,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".github", "scripts"))
+from slop_gate import is_destructive_overwrite, looks_like_secret_file  # noqa: E402
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -250,7 +253,16 @@ def apply_edits(edits: list[dict[str, str]]) -> list[str]:
         if content.count(old) != 1:
             log.warning("skip %s — old string matches %d locations (must be unique)", rel, content.count(old))
             continue
-        fpath.write_text(content.replace(old, new, 1))
+        new_content = content.replace(old, new, 1)
+        destructive, why = is_destructive_overwrite(content, new_content)
+        if destructive:
+            log.warning("SLOP-GATE: skip %s — %s", rel, why)
+            continue
+        secretish, why = looks_like_secret_file(rel, new_content)
+        if secretish:
+            log.warning("SLOP-GATE: skip %s — %s", rel, why)
+            continue
+        fpath.write_text(new_content)
         applied.append(rel)
         log.info("edit applied: %s", rel)
     return applied

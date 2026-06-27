@@ -4,7 +4,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Brain health watchdog with auto-failover** (2026-06-27). New `services/brain_watchdog.py` monitors the active brain provider for consecutive failures and auto-fails-over to the next provider in `RECOMMENDED_PROVIDER_PRIORITY` (Cerebras → Groq → NVIDIA NIM). Threshold configurable via `BRAIN_WATCHDOG_MAX_FAILURES` env (default 3). Persists the new provider via `BrainConfigStore` and pages Telegram on failover. Singleton `get_watchdog()` integrates into any caller. Tests: `tests/test_brain_watchdog.py` (7 cases). Loop registry entry: `brain-watchdog` (L2, self-heal, telegram-gated).
+
+- **Weekly readiness digest to Telegram** (2026-06-27). New `services/weekly_digest.py` compiles loop readiness score/grade, dimension breakdown, drift status, estimated monthly token cost, and open auto-PR branch count into a Markdown digest dispatched via `NotificationDispatcher`. Run standalone (`python -m services.weekly_digest`) or `--dry` to preview. Tests: `tests/test_weekly_digest.py` (4 cases). Loop registry entry: `weekly-readiness-digest` (L1, weekly Mon 07:00 UTC). Roadmap item 3e complete.
+
 ### Security
+
+- **Auto-PR quality: codebase grounding + pre-commit verification** (2026-06-27). The autonomous agent now (1) extracts file paths from the issue text and attaches their contents to the prompt so the model edits real code instead of guessing, and (2) runs `pytest -x` on all touched Python files before committing — aborting the PR if tests fail. Passing PRs get a "verified" note in the body. An auto-PR that breaks tests can never be opened. Roadmap item 3d complete.
+
+- **CRISPY workflow engine hardened and re-enabled** (2026-06-27). Added `PhaseSequenceError` — the engine now refuses to advance past a phase whose predecessor hasn't completed (the core issue that got it demoted in #467). Per-task workspace isolation: each `create_run` gets its own directory under `CRISPY_WORKSPACE_ROOT`, preventing concurrent tasks from stepping on each other. Pre-gate execution aborts cleanly on a failed phase instead of silently continuing. Feature flag promoted from `disabled` to `experimental`. Tests: `tests/test_crispy_workflow.py` (9 cases). Roadmap item 3c complete.
+
+- **Slop-gate wired into all sibling auto-PR scripts** (2026-06-27). Extended `is_destructive_overwrite` and `looks_like_secret_file` guards to `apply_review.py` (agentic review applier) and `scripts/agency_fix.py` (test-fix agent). All four model-driven write paths (`autonomous_agent.py`, `implement_agent.py`, `apply_review.py`, `agency_fix.py`) now share the same slop-gate — no auto-PR script can blindly overwrite or commit credentials. Roadmap item 3a complete.
 
 - **Slop-gate rejects doc-only boilerplate PRs; auto-merge skips agency branches** (2026-06-27). Root-caused the slop source from PRs #842/#843: vague issues produce additive markdown-only output the slop-gate couldn't catch. New `slop_gate.is_doc_only_boilerplate()` rejects PRs where all generated files are documentation-only (no code). `auto-merge.yml` now skips `agent/*` branches — agency PRs require human review. Slop-gate also wired into `implement_agent.py`'s `tool_write_file` (destructive overwrite + secrets checks). Tests: 7 new cases in `tests/test_slop_gate.py`.
 

@@ -56,13 +56,14 @@ class TestRegistryLoads:
         beta = [e for e in matrix._entries.values() if e.maturity == FeatureMaturity.BETA]
         assert len(beta) > 0
 
-    def test_experimental_features_demoted_to_disabled(self) -> None:
-        # All experimental features were demoted to DISABLED per issue #467 Section I.
-        # Verify the demotion: no features remain EXPERIMENTAL, but DISABLED features exist.
+    def test_experimental_features_are_hardened(self) -> None:
+        # crispy_workflow re-promoted to EXPERIMENTAL after hardening (roadmap 3c).
+        # Other experimental features remain demoted per issue #467 Section I.
         matrix = FeatureMatrix()
         exp = [e for e in matrix._entries.values() if e.maturity == FeatureMaturity.EXPERIMENTAL]
         disabled = [e for e in matrix._entries.values() if e.maturity == FeatureMaturity.DISABLED]
-        assert len(exp) == 0, "Experimental features remain — demotion incomplete"
+        exp_ids = {e.feature_id for e in exp}
+        assert exp_ids == {"crispy_workflow"}, f"Unexpected experimental features: {exp_ids}"
         assert len(disabled) > 0, "No DISABLED features found — matrix structure unexpected"
 
     def test_known_stable_features_are_stable(self) -> None:

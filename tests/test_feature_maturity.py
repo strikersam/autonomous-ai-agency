@@ -54,13 +54,14 @@ class TestMatrixLoad:
         # Verify matrix is well-formed (beta list accessible, not broken)
         assert beta is not None
 
-    def test_experimental_features_demoted_to_disabled(self) -> None:
-        # Per issue #467 Section I, all experimental features were demoted to DISABLED.
-        # Verify the demotion: no features remain EXPERIMENTAL, but DISABLED features exist.
+    def test_experimental_features_are_hardened(self) -> None:
+        # crispy_workflow re-promoted to EXPERIMENTAL after hardening (roadmap 3c).
+        # Other experimental features remain demoted per issue #467 Section I.
         matrix = FeatureMatrix()
         exp = matrix.list_by_maturity(FeatureMaturity.EXPERIMENTAL)
         disabled = matrix.list_by_maturity(FeatureMaturity.DISABLED)
-        assert len(exp) == 0, "Experimental features remain — demotion incomplete"
+        exp_ids = {e.feature_id for e in exp}
+        assert exp_ids == {"crispy_workflow"}, f"Unexpected experimental features: {exp_ids}"
         assert len(disabled) > 0, "No DISABLED features found — matrix structure unexpected"
 
     def test_matrix_loads_from_single_source(self) -> None:
