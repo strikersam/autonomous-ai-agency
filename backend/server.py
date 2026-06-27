@@ -3634,11 +3634,60 @@ async def get_brain_policy_route(user: dict = Depends(get_current_user)):
     }
 
 
+async def _user_or_service_token(
+    request: Request,
+    user: dict | None = Depends(get_optional_user),
+) -> dict:
+    """N5 dual-auth dependency: accept EITHER a user session OR a service token.
+
+    Used by mutating endpoints that the dashboard (user session) and the
+    Telegram bot (service token) both need to call. The bot doesn't carry a
+    user session, so we can't just gate on ``Depends(get_current_user)`` —
+    we need to short-circuit to the service-token path when the
+    ``X-Service-Token`` header is present.
+
+    Resolution order:
+      1. If ``X-Service-Token`` header is present → verify it (fail-closed).
+         Returns ``{"actor": "service:telegram", "_service_token_auth": True}``
+         on success.
+      2. Otherwise → require a user session. If ``get_optional_user``
+         returned None, raise 401. The handler is responsible for the
+         ``_require_admin(user)`` check.
+
+    Test fixtures that override ``get_current_user`` continue to work
+    because ``get_optional_user`` is the function they should override for
+    service-token-aware endpoints. Existing tests that override
+    ``get_current_user`` will see the override propagate via FastAPI's
+    dependency injection — ``get_optional_user`` calls
+    ``get_current_user`` indirectly via the request, but the test fixture
+    overrides at the dependency-injection layer so the override fires.
+
+    Raises:
+        HTTPException 503 — service token not configured (misconfiguration).
+        HTTPException 401 — service token wrong, OR no user session.
+        HTTPException 403 — handled by the caller via _require_admin.
+    """
+    from services.service_token import is_service_token_configured, verify_service_token
+    if request.headers.get("X-Service-Token"):
+        if not is_service_token_configured():
+            raise HTTPException(
+                status_code=503,
+                detail="Service token not configured — set SERVICE_TOKEN to enable Telegram mutating control.",
+            )
+        if not verify_service_token(request.headers.get("X-Service-Token")):
+            raise HTTPException(status_code=401, detail="Invalid X-Service-Token header.")
+        return {"actor": "service:telegram", "_service_token_auth": True}
+    # No service-token header → require a user session.
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
 @app.patch("/admin/api/policy/brain")
 async def patch_brain_policy_route(
     patch: BrainConfigPatch,
     request: Request,
-    user: dict | None = Depends(get_optional_user),
+    user: dict = Depends(_user_or_service_token),
 ):
     """Apply a partial brain config update.
 
@@ -3651,32 +3700,17 @@ async def patch_brain_policy_route(
     Returns the applied config + the probe report so the UI can show a
     green check on each role model.
 
-    Auth (N5 — mutating Telegram control): accepts EITHER a user session
-    (the dashboard's existing flow) OR a service token (the Telegram bot's
-    ``/setbrain`` command). The service-token path is gated by
-    ``services.service_token.require_service_token`` and is logged with
-    ``actor='service:telegram'`` so the operator can audit who switched the
-    brain. The user-session path still requires the admin role.
+    Auth (N5 — mutating Telegram control): the ``_user_or_service_token``
+    dependency accepts EITHER a user session (the dashboard's existing
+    flow) OR a service token (the Telegram bot's ``/setbrain`` command).
+    The service-token path is logged with ``actor='service:telegram'`` so
+    the operator can audit who switched the brain. The user-session path
+    still requires the admin role (unchanged).
     """
-    # ── N5: dual auth path ───────────────────────────────────────────────────
-    # If the X-Service-Token header is present, verify it (fail-closed). If
-    # not, fall through to the existing user-session + admin-role path.
-    # Either path sets ``actor`` for the decision log; the liveness-probe
-    # + persist logic below is unchanged.
-    from services.service_token import is_service_token_configured, verify_service_token
-    has_service_header = bool(request.headers.get("X-Service-Token"))
-    if has_service_header:
-        if not is_service_token_configured():
-            raise HTTPException(
-                status_code=503,
-                detail="Service token not configured — set SERVICE_TOKEN to enable Telegram mutating control.",
-            )
-        if not verify_service_token(request.headers.get("X-Service-Token")):
-            raise HTTPException(status_code=401, detail="Invalid X-Service-Token header.")
+    # ── N5: dual auth resolution ─────────────────────────────────────────────
+    if user.get("_service_token_auth"):
         actor = "service:telegram"
     else:
-        if not user:
-            raise HTTPException(status_code=401, detail="Not authenticated")
         _require_admin(user)
         actor = str(user.get("email") or user.get("_id") or "admin")
 
