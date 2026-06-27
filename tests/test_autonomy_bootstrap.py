@@ -42,12 +42,14 @@ def _reset_singletons_and_threads(monkeypatch):
     il.set_improvement_loop(None)  # type: ignore[arg-type]
     tw.set_trend_watcher(None)  # type: ignore[arg-type]
     bg._trend_watch_task = None
+    bg._ephemeral_reaper_task = None
     yield
     sh.set_self_healing_agent(None)  # type: ignore[arg-type]
     lm.set_log_monitor(None)  # type: ignore[arg-type]
     il.set_improvement_loop(None)  # type: ignore[arg-type]
     tw.set_trend_watcher(None)  # type: ignore[arg-type]
     bg._trend_watch_task = None
+    bg._ephemeral_reaper_task = None
 
 
 def test_bootstrap_starts_all_loops_by_default(monkeypatch):
@@ -101,16 +103,20 @@ def test_bootstrap_is_idempotent(monkeypatch):
 
 async def test_bootstrap_is_idempotent_with_running_loop(monkeypatch):
     """Under a running event loop, repeated bootstrap must not spawn duplicate
-    trend-poller tasks (a duplicate would double trend fetch + fan-out)."""
+    poller tasks (a duplicate would double trend fetch + fan-out, or double the
+    ephemeral-company reaper sweeps)."""
     for var in (
         "AGENCY_IMPROVEMENT_ENABLED", "AGENCY_SELF_HEAL_ENABLED",
         "AGENCY_LOG_MONITOR_ENABLED", "AGENCY_TREND_WATCH_ENABLED",
+        "EPHEMERAL_COMPANY_REAPER_ENABLED",
     ):
         monkeypatch.delenv(var, raising=False)
     sched = _FakeScheduler()
     first = _start_autonomy_loops(sched)
     second = _start_autonomy_loops(sched)
-    assert len(first) == 1          # exactly one trend poller scheduled
+    # Two daemon pollers are scheduled on first boot: the trend poller and the
+    # ephemeral-company reaper.
+    assert len(first) == 2
     assert second == []             # second call schedules none (idempotent)
     for t in first:
         t.cancel()
