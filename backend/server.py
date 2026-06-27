@@ -1483,6 +1483,21 @@ async def lifespan(app_: "FastAPI"):
     # #522 + #505: Reliability startup hooks
     await _startup_reliability_hooks()
 
+    # N5: Surface SERVICE_TOKEN misconfiguration at startup so the operator
+    # sees the gap in the backend logs (not just when /setbrain fails at
+    # runtime). Best-effort — never blocks startup.
+    try:
+        from services.service_token import is_service_token_configured
+        if not is_service_token_configured():
+            log.warning(
+                "SERVICE_TOKEN not set — Telegram mutating control "
+                "(/setbrain + /merge) will refuse with 503. "
+                "Generate with: python -c \"import secrets; print('st_' + secrets.token_urlsafe(32))\" "
+                "and set on BOTH the backend AND the Telegram bot."
+            )
+    except Exception:  # pragma: no cover - defensive
+        pass
+
     # Warm the app-settings cache so the (sync) onboarding-gate default read is
     # correct from the first request. Best-effort — never blocks startup.
     try:
@@ -8295,6 +8310,45 @@ async def get_doctor_diagnostics(
             label="Workflow Orchestrator",
             status="warn",
             detail=f"Not available: {exc}",
+        ))
+
+    # 6. Service token (N5 — mutating Telegram control readiness).
+    # The /setbrain + /merge Telegram commands require SERVICE_TOKEN to be set
+    # identically on the backend AND the bot. A 'warn' here (not 'fail')
+    # because the rest of the agency works fine without it — only the
+    # mutating Telegram commands are gated. Surfaces as a Doctor screen row
+    # so the operator can see the gap before trying /setbrain from the phone.
+    try:
+        from services.service_token import is_service_token_configured
+        if is_service_token_configured():
+            checks.append(_DoctorCheck(
+                id="service_token",
+                category="Setup",
+                label="Service Token (Telegram mutating control)",
+                status="pass",
+                detail="SERVICE_TOKEN configured — /setbrain + /merge are available.",
+            ))
+        else:
+            checks.append(_DoctorCheck(
+                id="service_token",
+                category="Setup",
+                label="Service Token (Telegram mutating control)",
+                status="warn",
+                detail="SERVICE_TOKEN not set — /setbrain + /merge will refuse with 503.",
+                explanation=(
+                    "Set SERVICE_TOKEN in the backend env (and identically on the "
+                    "Telegram bot) to enable mutating Telegram control. "
+                    "Generate with: python -c \"import secrets; print('st_' + secrets.token_urlsafe(32))\". "
+                    "See services/service_token.py for the security model."
+                ),
+            ))
+    except Exception as exc:  # pragma: no cover - defensive
+        checks.append(_DoctorCheck(
+            id="service_token",
+            category="Setup",
+            label="Service Token (Telegram mutating control)",
+            status="warn",
+            detail=f"Could not check: {exc}",
         ))
 
     fail_count = sum(1 for c in checks if c.status == "fail")

@@ -1,0 +1,178 @@
+name: crispy-burn-in-check
+
+# Weekly CRISPY burn-in check (Roadmap N4 follow-up).
+#
+# Promotion of crispy_workflow from EXPERIMENTAL → stable in features/matrix.py
+# must be backed by *data*, not a flag flip. This workflow runs weekly, fetches
+# the run-history metric from /api/autonomy/status, evaluates the burn-in
+# criteria (scripts/crispy_burn_in.py), and:
+#   - opens a "CRISPY ready for promotion" issue when all auto-checkable
+#     criteria are met (the operator then opens a promotion PR with
+#     risky-module-review sign-off), OR
+#   - comments on the existing tracking issue with the current gap so the
+#     operator can see how close the metric is to the threshold.
+#
+# This mirrors the loop-audit.yml self-healing pattern: the agency tracks its
+# own readiness and surfaces the decision to a human at the right time.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # every Monday 06:00 UTC (an hour before weekly-readiness-digest)
+  workflow_dispatch:
+    inputs:
+      status_url:
+        description: "Override the /api/autonomy/status URL (defaults to PRODUCTION_BASE_URL secret)."
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  evaluate:
+    name: Evaluate CRISPY burn-in criteria
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Resolve status URL
+        id: url
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+          INPUT_URL: ${{ github.event.inputs.status_url }}
+        run: |
+          # Manual dispatch can override; otherwise use the prod URL secret.
+          URL="${INPUT_URL:-${PRODUCTION_BASE_URL}/api/autonomy/status}"
+          if [ -z "${PRODUCTION_BASE_URL:-}" ] && [ -z "${INPUT_URL:-}" ]; then
+            echo "::error::PRODUCTION_BASE_URL secret (or --status-url input) is required."
+            exit 1
+          fi
+          if [[ "${URL}" != https://* && "${URL}" != http://* ]]; then
+            echo "::error::Status URL must start with http(s):// (got: ${URL})"
+            exit 1
+          fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "Evaluating: ${URL}"
+
+      - name: Run burn-in evaluator
+        id: eval
+        env:
+          STATUS_URL: ${{ steps.url.outputs.url }}
+        run: |
+          set +e  # the script exits 1 when criteria aren't met — that's expected
+          python scripts/crispy_burn_in.py --status-url "${STATUS_URL}" > /tmp/eval.json 2>/tmp/eval.err
+          EXIT=$?
+          echo "exit=${EXIT}" >> "$GITHUB_OUTPUT"
+          echo "=== Evaluation ==="
+          cat /tmp/eval.json
+          echo "=== Stderr ==="
+          cat /tmp/eval.err || true
+          # Capture the 'ready' flag + gap for the issue step
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/eval.json'))
+          print('ready=' + str(d['ready']).lower() >> /dev/stderr)
+          " 2>>/tmp/eval.err || true
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/eval.json'))
+          print('READY=' + str(d['ready']).lower())
+          print('GAP=' + d['gap'].replace('\n', ' '))
+          " > /tmp/eval_props.txt
+          cat /tmp/eval_props.txt >> "$GITHUB_OUTPUT" || true
+          # Don't fail the workflow when criteria aren't met — that's the
+          # expected steady state until the metric accumulates.
+          exit 0
+
+      - name: File or update tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          STATUS_URL: ${{ steps.url.outputs.url }}
+        run: |
+          set -u
+          # Parse the evaluation output
+          READY=$(grep '^READY=' /tmp/eval_props.txt | cut -d= -f2 || echo "false")
+          GAP=$(grep '^GAP=' /tmp/eval_props.txt | cut -d= -f2- || echo "(could not parse gap)")
+
+          TITLE="crispy-burn-in: CRISPY promotion readiness"
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number' || echo "")
+
+          # Build the issue body from the evaluation
+          EVAL_JSON=$(cat /tmp/eval.json)
+          DATE=$(date -u +%Y-%m-%d)
+
+          if [ "$READY" = "true" ]; then
+            BODY=$(cat <<EOF
+          ## CRISPY is ready for promotion to stable 🎉
+
+          The weekly burn-in check reports all auto-checkable criteria are met.
+
+          ### Evidence (\`$DATE\`)
+          \`\`\`json
+          $EVAL_JSON
+          \`\`\`
+
+          ### Final gate
+          $GAP
+
+          ### Next step
+          Open a focused PR that:
+          1. Flips \`crispy_workflow\` from \`EXPERIMENTAL\` → \`stable\` in \`features/matrix.py\`.
+          2. Updates \`loops/registry.yaml\` (level/maturity) for any CRISPY-related loops.
+          3. Carries \`risky-module-review\` sign-off as a PR comment.
+          4. Closes this issue on merge.
+
+          _Auto-generated by .github/workflows/crispy-burn-in-check.yml_
+          EOF
+          )
+            LABEL="crispy-burn-in,ready-for-promotion"
+          else
+            BODY=$(cat <<EOF
+          ## CRISPY burn-in status ($DATE)
+
+          Not yet ready for EXPERIMENTAL → stable promotion.
+
+          ### Gap
+          $GAP
+
+          ### Full evaluation
+          \`\`\`json
+          $EVAL_JSON
+          \`\`\`
+
+          ### Source
+          Fetched from \`${STATUS_URL}\` → \`crispy_run_history\`.
+
+          The next weekly check will update this issue. No action needed until
+          the gap reports "All auto-checkable burn-in criteria met."
+
+          _Auto-generated by .github/workflows/crispy-burn-in-check.yml_
+          EOF
+          )
+            LABEL="crispy-burn-in"
+          fi
+
+          if [ -n "$EXISTING" ]; then
+            echo "Updating existing issue #$EXISTING"
+            gh issue comment "$EXISTING" --body "$BODY"
+            # Update labels (add ready-for-promotion when ready, keep crispy-burn-in)
+            gh issue edit "$EXISTING" --add-label "$LABEL" 2>/dev/null || true
+          else
+            echo "Creating new tracking issue"
+            gh issue create --title "$TITLE" --body "$BODY" --label "$LABEL" || \
+              gh issue create --title "$TITLE" --body "$BODY"
+          fi

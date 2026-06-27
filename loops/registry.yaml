@@ -158,6 +158,19 @@ loops:
     gate: none
     purpose: Send loop readiness, drift, cost, and auto-PR summary to Telegram.
 
+  - id: crispy-burn-in-check
+    name: CRISPY Burn-In Check
+    pattern: daily-triage
+    level: L1
+    trigger: schedule
+    cadence: weekly (Mon 06:00 UTC)
+    runs_per_day: 0.14
+    cost: low
+    source: .github/workflows/crispy-burn-in-check.yml
+    self_heal: false
+    gate: none
+    purpose: Evaluate CRISPY run-history against burn-in criteria; file a promotion-tracking issue when ready.
+
   # ── Learn / improve loops ───────────────────────────────────────────────
   - id: continuous-improvement
     name: Continuous Improvement
