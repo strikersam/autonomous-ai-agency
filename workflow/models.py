@@ -53,6 +53,19 @@ PhaseType = Literal[
 
 PhaseStatus = Literal["pending", "running", "done", "failed", "skipped"]
 
+
+class PhaseSequenceError(Exception):
+    """Raised when a phase is attempted out of order."""
+
+    def __init__(self, phase: str, predecessor: str, predecessor_status: str) -> None:
+        self.phase = phase
+        self.predecessor = predecessor
+        self.predecessor_status = predecessor_status
+        super().__init__(
+            f"Cannot run phase {phase!r}: predecessor {predecessor!r} "
+            f"has status {predecessor_status!r} (must be 'done')"
+        )
+
 SliceStatus = Literal["pending", "running", "applied", "failed", "skipped"]
 
 AgentRole = Literal["architect", "scout", "coder", "reviewer", "verifier"]

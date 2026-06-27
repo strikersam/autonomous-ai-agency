@@ -102,7 +102,7 @@ write model output to disk the same blind way. Make them import the shared gate.
 
 ---
 
-### 3b. Hermes — **our own** Hermes server (in-repo), UI-wired ⬜  (size: M)
+### 3b. Hermes — **our own** Hermes server (in-repo), UI-wired ✅  (size: M)
 
 **Decision (corrected per operator): we run our OWN Hermes server inside this
 repo's stack — NOT an external NousResearch deployment.** It is a thin FastAPI
@@ -185,7 +185,7 @@ running, with zero external dependency.
 
 ---
 
-### 3c. CRISPY — harden, then re-enable ⬜  (size: L, risky-module-review)
+### 3c. CRISPY — harden, then re-enable ✅  (size: L, risky-module-review)
 
 **Why demoted (#467):** `workflow/engine.py` "does not enforce its own phase
 sequence" + lacks isolation. We must *fix*, not flip.

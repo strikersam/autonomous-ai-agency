@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- **CRISPY workflow engine hardened and re-enabled** (2026-06-27). Added `PhaseSequenceError` — the engine now refuses to advance past a phase whose predecessor hasn't completed (the core issue that got it demoted in #467). Per-task workspace isolation: each `create_run` gets its own directory under `CRISPY_WORKSPACE_ROOT`, preventing concurrent tasks from stepping on each other. Pre-gate execution aborts cleanly on a failed phase instead of silently continuing. Feature flag promoted from `disabled` to `experimental`. Tests: `tests/test_crispy_workflow.py` (9 cases). Roadmap item 3c complete.
+
 - **Slop-gate wired into all sibling auto-PR scripts** (2026-06-27). Extended `is_destructive_overwrite` and `looks_like_secret_file` guards to `apply_review.py` (agentic review applier) and `scripts/agency_fix.py` (test-fix agent). All four model-driven write paths (`autonomous_agent.py`, `implement_agent.py`, `apply_review.py`, `agency_fix.py`) now share the same slop-gate — no auto-PR script can blindly overwrite or commit credentials. Roadmap item 3a complete.
 
 - **Slop-gate rejects doc-only boilerplate PRs; auto-merge skips agency branches** (2026-06-27). Root-caused the slop source from PRs #842/#843: vague issues produce additive markdown-only output the slop-gate couldn't catch. New `slop_gate.is_doc_only_boilerplate()` rejects PRs where all generated files are documentation-only (no code). `auto-merge.yml` now skips `agent/*` branches — agency PRs require human review. Slop-gate also wired into `implement_agent.py`'s `tool_write_file` (destructive overwrite + secrets checks). Tests: 7 new cases in `tests/test_slop_gate.py`.

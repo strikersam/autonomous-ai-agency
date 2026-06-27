@@ -56,6 +56,7 @@ from workflow.models import (
     CheckRun,
     ModelRoutingConfig,
     Phase,
+    PhaseSequenceError,
     PhaseType,
     Slice,
     WorkflowBuildRequest,
@@ -66,6 +67,8 @@ from workflow.models import (
 from workflow.phases import PhaseRunner
 
 log = logging.getLogger("crispy-engine")
+
+_WORKSPACE_BASE = os.environ.get("CRISPY_WORKSPACE_ROOT", ".data/workflow/workspaces")
 
 _DEFAULT_DB = os.environ.get("CRISPY_WORKFLOW_DB", ".data/workflow/workflow.db")
 
@@ -287,6 +290,12 @@ class WorkflowEngine:
             )
         )
 
+        ws_root = req.workspace_root
+        if not ws_root:
+            ws_dir = Path(_WORKSPACE_BASE) / run_id
+            ws_dir.mkdir(parents=True, exist_ok=True)
+            ws_root = str(ws_dir)
+
         run = WorkflowRun(
             run_id=run_id,
             title=req.title or req.request[:80],
@@ -297,7 +306,7 @@ class WorkflowEngine:
             artifacts=[],
             approval_gate=None,
             model_routing=req.model_routing,
-            workspace_root=req.workspace_root or str(self._workspace),
+            workspace_root=ws_root,
             created_at=now,
             updated_at=now,
         )
@@ -522,6 +531,10 @@ class WorkflowEngine:
             run = self.get(run_id)
             if run is None or run.status in ("cancelled", "failed"):
                 return
+            phase = run.phase_by_type(phase_type)
+            if phase and phase.status == "failed":
+                log.warning("Aborting pre-gate: phase %s failed in run %s", phase_type, run_id)
+                return
             await self._run_single_phase(run_id, phase_type)
 
         # After plan phase, erect the approval gate
@@ -576,12 +589,28 @@ class WorkflowEngine:
             self._log_event(run_id, "workflow_done", {})
             log.info("WorkflowRun %s completed successfully", run_id)
 
+    def _check_phase_sequence(self, run: WorkflowRun, phase_type: PhaseType) -> None:
+        """Raise PhaseSequenceError if a predecessor phase hasn't completed."""
+        all_phases = _PRE_GATE_PHASES + _POST_GATE_PHASES
+        if phase_type not in all_phases:
+            return
+        idx = all_phases.index(phase_type)
+        if idx == 0:
+            return
+        pred_type = all_phases[idx - 1]
+        pred = run.phase_by_type(pred_type)
+        if pred is None:
+            return
+        if pred.status != "done":
+            raise PhaseSequenceError(phase_type, pred_type, pred.status)
+
     async def _run_single_phase(self, run_id: str, phase_type: PhaseType) -> None:
         """Run one phase, update its status, and persist the artifact."""
         with self._lock:
             run = self._runs.get(run_id)
             if run is None:
                 return
+            self._check_phase_sequence(run, phase_type)
             phase = run.phase_by_type(phase_type)
             if phase is None:
                 return
