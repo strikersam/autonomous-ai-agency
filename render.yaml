@@ -499,4 +499,3 @@ services:
       # Storage
       - key: STORAGE_BACKEND
         value: "sqlite"
-# Hermes deploy trigger 2026-06-27T22:35:04Z
