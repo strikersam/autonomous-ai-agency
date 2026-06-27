@@ -148,20 +148,20 @@ loops:
   - id: weekly-readiness-digest
     name: Weekly Readiness Digest
     pattern: daily-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: weekly (Mon 07:00 UTC)
     runs_per_day: 0.14
     cost: low
     source: .github/workflows/weekly-readiness-digest.yml
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: Send loop readiness, drift, cost, and auto-PR summary to Telegram.
 
   - id: crispy-burn-in-check
     name: CRISPY Burn-In Check
     pattern: daily-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: weekly (Mon 06:00 UTC)
     runs_per_day: 0.14
@@ -201,13 +201,13 @@ loops:
   - id: trend-watcher
     name: Trend Watcher (in-agent)
     pattern: learn-scan
-    level: L2
+    level: L3
     trigger: daemon
     cadence: continuous
     runs_per_day: 2
     cost: low
     source: agent/trend_watcher.py
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: Watch industry trends and scope them against the repo.
 
@@ -227,46 +227,46 @@ loops:
   - id: daily-industry-update
     name: Daily Industry Update
     pattern: learn-scan
-    level: L2
+    level: L3
     trigger: schedule
     cadence: daily (08:00 UTC)
     runs_per_day: 1
     cost: low
     source: .github/workflows/daily-industry-update.yml
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: Morning roll-up of industry/AI news for the agency.
 
   - id: weekly-trend-digest
     name: Weekly AI Trend Digest
     pattern: learn-scan
-    level: L2
+    level: L3
     trigger: schedule
     cadence: weekly (Mon 08:00 UTC)
     runs_per_day: 0.14
     cost: low
     source: .github/workflows/weekly-trend-digest.yml
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: Distil the week's AI trends into actionable notes.
 
   - id: user-research-scan
     name: Weekly User-Research Scan
     pattern: learn-scan
-    level: L2
+    level: L3
     trigger: schedule
     cadence: weekly (Mon 03:00 UTC)
     runs_per_day: 0.14
     cost: low
     source: .github/workflows/user-research-scan.yml
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: Mine user-research signals from the repo and issues.
 
   - id: perplexity-maintenance
     name: Perplexity Maintenance
     pattern: dependency-sweeper
-    level: L2
+    level: L3
     trigger: schedule
     cadence: weekly (Mon 02:00 UTC)
     runs_per_day: 0.14
