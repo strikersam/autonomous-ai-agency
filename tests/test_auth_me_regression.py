@@ -34,25 +34,21 @@ ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]  # nosec B105 — test credential 
 def backend_jwt(client: TestClient) -> str:
     """Login and return a valid JWT access token.
 
-    Retries the login up to 3 times with a short delay to handle transient
-    test-ordering failures (e.g. a prior test leaving the DB admin user in
-    a stale state before the lifespan's seed_admin re-syncs it).
+    Calls POST /api/admin/seed (test-only endpoint) before login to re-sync
+    the admin password from env vars and ensure the admin user exists. This
+    fixes test-ordering failures where a prior test corrupted the admin user
+    — the FastAPI lifespan only calls seed_admin() once per shared backend_app
+    instance, so subsequent TestClient sessions don't re-seed.
     """
-    import time
-    last_status = None
-    last_text = ""
-    for attempt in range(3):
-        r = client.post("/api/auth/login", json={
-            "email": ADMIN_EMAIL,
-            "password": ADMIN_PASSWORD,
-        })
-        if r.status_code == 200:
-            return r.json()["access_token"]
-        last_status = r.status_code
-        last_text = r.text[:300]
-        if attempt < 2:
-            time.sleep(0.3)
-    pytest.fail(f"Login failed after 3 attempts: {last_status} {last_text}")
+    # Re-seed admin to recover from prior-test corruption.
+    r = client.post("/api/admin/seed")
+    assert r.status_code == 200, f"Admin seed failed: {r.status_code}"
+    r = client.post("/api/auth/login", json={
+        "email": ADMIN_EMAIL,
+        "password": ADMIN_PASSWORD,
+    })
+    assert r.status_code == 200, f"Login failed: {r.status_code} {r.text[:300]}"
+    return r.json()["access_token"]
 
 
 class TestBackendAuthMe:
