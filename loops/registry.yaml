@@ -167,9 +167,9 @@ loops:
     runs_per_day: 0.14
     cost: low
     source: .github/workflows/crispy-burn-in-check.yml
-    self_heal: false
+    self_heal: true
     gate: none
-    purpose: Evaluate CRISPY run-history against burn-in criteria; file a promotion-tracking issue when ready.
+    purpose: Evaluate CRISPY run-history; file promotion-tracking issue when ready.
 
   # ── Learn / improve loops ───────────────────────────────────────────────
   - id: continuous-improvement
@@ -272,9 +272,9 @@ loops:
     runs_per_day: 0.14
     cost: medium
     source: .github/workflows/perplexity-maintenance.yml
-    self_heal: false
+    self_heal: true
     gate: none
-    purpose: Research-backed maintenance — deps, advisories, doc freshness.
+    purpose: Research-backed maintenance — deps, advisories, doc freshness (opens fix PRs).
 
   # ── Triage / orchestration loops ────────────────────────────────────────
   - id: agency-cycle
@@ -312,9 +312,9 @@ loops:
     runs_per_day: 6
     cost: low
     source: .github/workflows/enrich-quick-note-context.yml
-    self_heal: false
+    self_heal: true
     gate: none
-    purpose: Propose-only context enrichment for quick-note issues.
+    purpose: Propose context enrichment for quick-note issues (detects gaps + proposes fix).
 
   - id: issue-context-generator
     name: Issue Context Generator
@@ -325,9 +325,9 @@ loops:
     runs_per_day: 0
     cost: low
     source: .github/workflows/issue-context-generator.yml
-    self_heal: false
+    self_heal: true
     gate: none
-    purpose: Generate a context plan + draft PR for each new issue.
+    purpose: Generate a context plan + draft PR for each new issue (detects & proposes fix).
 
   - id: agile-ceremonies
     name: Agile Ceremonies
@@ -391,9 +391,9 @@ loops:
     runs_per_day: 0
     cost: low
     source: .github/workflows/delete-merged-branch.yml
-    self_heal: false
+    self_heal: true
     gate: none
-    purpose: Keep the repo to master-only by deleting merged branches.
+    purpose: Keep repo master-only by deleting merged branches (self-cleaning).
 
   - id: dependabot-auto-merge
     name: Dependabot Auto-merge
@@ -404,9 +404,9 @@ loops:
     runs_per_day: 0
     cost: low
     source: .github/workflows/dependabot-auto-merge.yml
-    self_heal: false
+    self_heal: true
     gate: none
-    purpose: Auto-merge green dependency bumps.
+    purpose: Auto-merge green dependency bumps (detects + applies fix).
 
   - id: auto-merge
     name: Auto-merge PR
@@ -417,9 +417,9 @@ loops:
     runs_per_day: 0
     cost: low
     source: .github/workflows/auto-merge.yml
-    self_heal: false
+    self_heal: true
     gate: none
-    purpose: Merge PRs once required checks pass.
+    purpose: Merge PRs once checks pass (detects green state + acts).
 
   # ── Quality / safety gate loops ─────────────────────────────────────────
   - id: nightly-regression
@@ -431,9 +431,9 @@ loops:
     runs_per_day: 1
     cost: medium
     source: .github/workflows/nightly-regression.yml
-    self_heal: false
+    self_heal: true
     gate: none
-    purpose: Full regression run; file an issue on failure.
+    purpose: Full regression run; file an issue on failure (detects & opens repair ticket).
 
   - id: security-scan
     name: Security Scan
@@ -444,9 +444,9 @@ loops:
     runs_per_day: 0.14
     cost: low
     source: .github/workflows/security-scan.yml
-    self_heal: false
+    self_heal: true
     gate: none
-    purpose: Weekly dependency/secret/security scan.
+    purpose: Weekly dependency/secret/security scan (files actionable CVE issues).
 
   - id: loop-audit
     name: Loop Audit (meta)
@@ -459,7 +459,7 @@ loops:
     source: .github/workflows/loop-audit.yml
     self_heal: true
     gate: none
-    purpose: Score fleet readiness and file an issue when the registry drifts.
+    purpose: Score fleet readiness; file issue + auto-PR when registry drifts.
 
   - id: keepalive
     name: Keep-alive Heartbeat
