@@ -499,3 +499,4 @@ services:
       # Storage
       - key: STORAGE_BACKEND
         value: "sqlite"
+# deploy trigger: social login test 2026-06-27T22:39:30Z
