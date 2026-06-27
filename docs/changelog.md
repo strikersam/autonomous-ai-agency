@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- Added initial investigation of failing tests (issue #398)
+
 - **v4 Dashboard: TTL cache for /tasks and /quick-notes endpoints** (2026-06-27). Dashboard polls hit MongoDB for every open browser tab. Added single-flight TTL cache (default 8s, override via V4_TASKS_CACHE_TTL_SEC) via shared `_get_cached_tasks()` helper. Both /v4/tasks and /v4/quick-notes share one DB query per TTL window. Cache invalidated on quick-note POST. Files: `backend/v4_api.py`. PR #845.
 
 - **v4 Dashboard API: created backend/v4_api.py, wired Worker proxy, added tasks panel** (2026-06-26). The v4-dashboard.html (Continuous Improvement Dashboard) called `/v4/*` endpoints that didn't exist, causing silent 404 errors and empty panels. Created `backend/v4_api.py` with 9 endpoints bridging ImprovementLoop, SelfHealingAgent, TaskStore, and AgentScheduler to the dashboard. Added `/v4` to Cloudflare Worker proxy list (`worker/index.js`) and `wrangler.jsonc` `run_worker_first`. Added Agent Tasks panel with auto-refresh. Files: `backend/v4_api.py`, `backend/server.py`, `worker/index.js`, `wrangler.jsonc`, `remote-admin/v4-dashboard.html`, `tests/test_v4_api.py`.
