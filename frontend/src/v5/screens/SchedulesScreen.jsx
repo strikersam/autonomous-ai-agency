@@ -36,6 +36,8 @@ function normalizeJob(s) {
     lastRun: relTime(s.last_run),
     approvalGate: s.approval_gate ?? s.requires_approval ?? false,
     builtIn: tags.includes('built-in') || tags.includes('builtin'),
+    description: s.description || '',
+    tags,
   };
 }
 
@@ -95,11 +97,17 @@ function ScheduleRow({ job, onToggle, onRunNow, busy, justRan }) {
     onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
       <div style={{ width:28, height:28, borderRadius:9, flexShrink:0, background:cat.bg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>{cat.icon}</div>
       <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:1, flexWrap:'wrap' }}>
           <span style={{ fontSize:12, fontWeight:600, color:isActive?'var(--text-primary)':'var(--text-muted)' }}>{job.name}</span>
           {job.builtIn && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)' }}>built-in</span>}
           {job.approvalGate && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'#ffbd66', background:'rgba(255,189,102,0.08)', border:'1px solid rgba(255,189,102,0.20)' }}>approval</span>}
+          {job.tags.includes('run-once') && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'#c4b5fd', background:'rgba(196,181,253,0.08)', border:'1px solid rgba(196,181,253,0.20)' }}>run-once</span>}
+          {job.tags.includes('agency') && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'#5da2ff', background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.20)' }}>agency</span>}
+          {job.tags.includes('company-agency') && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'#46d9a4', background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.20)' }}>company</span>}
         </div>
+        {job.description && (
+          <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'100%' }}>{job.description}</div>
+        )}
         <div style={{ display:'flex', gap:7, fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexWrap:'wrap' }}>
           <span>{job.cron}</span><span>·</span>
           <span>Last: <span style={{ color:'var(--text-muted)' }}>{job.lastRun}</span></span><span>·</span>
