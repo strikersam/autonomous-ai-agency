@@ -57,7 +57,7 @@ external dependencies.
 > `risky-module-review` skill. Suppress any new `subprocess.run([...])` Bandit
 > finding with a **bare** `# nosec` on that line (a specific-id nosec mis-parses).
 
-### 3a. Apply the slop-gate to the sibling auto-PR scripts ⬜  (size: S)
+### 3a. Apply the slop-gate to the sibling auto-PR scripts ✅  (size: S)
 
 **Goal.** `#837` gates `.github/scripts/autonomous_agent.py`. Three siblings
 write model output to disk the same blind way. Make them import the shared gate.

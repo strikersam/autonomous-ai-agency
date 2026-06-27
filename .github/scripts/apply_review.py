@@ -25,6 +25,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from slop_gate import is_destructive_overwrite, looks_like_secret_file  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format="[apply_review] %(message)s")
 log = logging.getLogger("apply_review")
 
@@ -166,8 +169,16 @@ class ApplyReviewAgent:
 
     def _write_file(self, path: str, content: str) -> str:
         try:
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-            Path(path).write_text(content)
+            p = Path(path)
+            if p.exists():
+                destructive, why = is_destructive_overwrite(p.read_text(errors="replace"), content)
+                if destructive:
+                    return f"[BLOCKED] slop-gate: {path} — {why}"
+            secretish, why = looks_like_secret_file(path, content)
+            if secretish:
+                return f"[BLOCKED] slop-gate: {path} — {why}"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content)
             return f"Written {len(content)} chars to {path}"
         except Exception as e:
             return f"Error: {e}"
