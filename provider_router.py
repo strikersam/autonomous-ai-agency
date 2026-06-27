@@ -906,6 +906,14 @@ class ProviderRouter:
                         rate_limited = True
                         retry_after_sec = self._parse_retry_after(response)
                         break
+                    if response.status_code == 410:
+                        # Endpoint/model permanently removed (410 Gone):
+                        # fail over to next provider immediately — no retry.
+                        # Exit both the attempt loop AND the model loop (set
+                        # rate_limited so the bottom-of-loop check also breaks).
+                        last_status = 410
+                        rate_limited = True
+                        break
                     if response.status_code == 419:
                         # NVIDIA NIM per-model concurrency limit:
                         # this specific model is exhausted, but another model
@@ -937,7 +945,10 @@ class ProviderRouter:
                 # advanced to the next candidate above.
                 break
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
-        if rate_limited:
+        if last_status == 410:
+            # Permanent removal — long cooldown so we don't keep trying a dead endpoint.
+            await mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
+        elif rate_limited:
             secs = _RATELIMIT_COOLDOWN_SECONDS
             if retry_after_sec is not None:
                 secs = max(1, min(int(retry_after_sec), _RATELIMIT_COOLDOWN_MAX_SECONDS))
@@ -1210,8 +1221,9 @@ class ProviderRouter:
 
     @staticmethod
     def _should_retry_status(status_code: int) -> bool:
-        # NOTE: 429 is handled specially in _try_one_provider (immediate failover +
-        # Retry-After-aware cooldown), so it never reaches the same-provider retry path.
+        # NOTE: 429 and 410 are handled specially in _try_one_provider (immediate
+        # failover + Retry-After-aware cooldown), so they never reach the same-provider
+        # retry path. 410 Gone means the endpoint/model is permanently removed.
         return status_code in (404, 408, 409, 425) or status_code >= 500
 
     @staticmethod
