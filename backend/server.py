@@ -5227,13 +5227,17 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
 
 @app.get("/api/stats")
 async def get_stats(user: dict = Depends(get_current_user)):
-    wiki_count = await get_db().wiki_pages.count_documents({})
-    source_count = await get_db().sources.count_documents({})
-    session_count = await get_db().chat_sessions.count_documents({})
-    log_count = await get_db().activity_log.count_documents({})
-    provider_count = await get_db().providers.count_documents({})
-    key_count = await get_db().api_keys.count_documents({})
-    recent_pages = []
+    return await _cached("dashboard:stats", ttl_s=10, producer=_produce_stats)
+
+
+async def _produce_stats() -> dict[str, object]:
+    wiki_count = await _fast_count(get_db().wiki_pages)
+    source_count = await _fast_count(get_db().sources)
+    session_count = await _fast_count(get_db().chat_sessions)
+    log_count = await _fast_count(get_db().activity_log)
+    provider_count = await _fast_count(get_db().providers)
+    key_count = await _fast_count(get_db().api_keys)
+    recent_pages: list[dict[str, object]] = []
     async for p in (
         get_db().wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "updated_at": 1})
         .sort("updated_at", -1)
