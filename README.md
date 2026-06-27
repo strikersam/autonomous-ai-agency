@@ -12,7 +12,7 @@ Self-hosted · Privacy-first · One URL to start
 [![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**[Live Demo](https://strikersam.github.io/autonomous-ai-agency/) · [API Docs](https://autonomous-ai-agency.onrender.com/docs) · [Changelog](docs/changelog.md)**
+**[Live Demo](https://autonomous-ai-agency.strikersam.workers.dev/) · [API Docs](https://autonomous-ai-agency.onrender.com/docs) · [Changelog](docs/changelog.md)**
 
 </div>
 
@@ -715,7 +715,8 @@ Required secrets:
 ```
 
 Live demo:
-- **Frontend**: `https://strikersam.github.io/autonomous-ai-agency/`
+- **Frontend**: `https://autonomous-ai-agency.strikersam.workers.dev/` (Cloudflare Worker — canonical; reverse-proxies `/api/*` to the Render backend so OAuth stays same-origin)
+- **Frontend mirror**: `https://strikersam.github.io/autonomous-ai-agency/` (GitHub Pages — secondary; the build's `REACT_APP_BACKEND_URL` points at the worker for `/api/*` calls)
 - **API**: `https://autonomous-ai-agency.onrender.com/docs` (pending Render service rename; currently still served at `https://local-llm-server.onrender.com/docs` until the Render dashboard service is renamed)
 
 > Render free tier sleeps after 15 min of inactivity (~30 s cold start). Upgrade to Starter ($7/mo) for always-on in production.

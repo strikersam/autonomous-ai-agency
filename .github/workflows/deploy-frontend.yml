@@ -34,11 +34,37 @@ jobs:
         working-directory: frontend
         run: npm install --legacy-peer-deps
 
+      - name: Verify RENDER_BACKEND_URL secret is set
+        env:
+          RENDER_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
+        run: |
+          # Fail fast if the backend URL secret is missing — without it the
+          # build silently falls back to window.location.origin (github.io),
+          # and every /api/auth/* call from the social login buttons 404s.
+          # This is the root cause of the "social login buttons don't work"
+          # bug: a deploy went out with an empty secret and nobody noticed
+          # because the build succeeded.
+          if [ -z "${RENDER_BACKEND_URL:-}" ]; then
+            echo "::error::RENDER_BACKEND_URL secret is empty or unset. The frontend build would fall back to window.location.origin (github.io), which 404s on every /api/auth/* call — social login buttons would silently break. Set the secret in Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [[ "${RENDER_BACKEND_URL}" != https://* ]]; then
+            echo "::error::RENDER_BACKEND_URL must start with https:// (got: ${RENDER_BACKEND_URL})"
+            exit 1
+          fi
+          echo "✓ RENDER_BACKEND_URL configured (${#RENDER_BACKEND_URL} chars)"
+
       - name: Build
         working-directory: frontend
         env:
           REACT_APP_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
-          PUBLIC_URL: /local-llm-server
+          # GitHub Pages serves this repo at /autonomous-ai-agency/ (the repo
+          # name). PUBLIC_URL MUST match the actual Pages path or every
+          # asset reference in index.html 404s and the SPA never renders.
+          # The previous value (/local-llm-server) was the stale repo name —
+          # the bundle path /local-llm-server/static/js/main.*.js returned
+          # 404, so the login page rendered as blank HTML with no buttons.
+          PUBLIC_URL: /autonomous-ai-agency
         run: npm run build
 
       - name: Add 404 → SPA redirect

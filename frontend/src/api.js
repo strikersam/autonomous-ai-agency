@@ -1,10 +1,29 @@
 import axios from 'axios';
 
+// The canonical production frontend is the Cloudflare Worker at
+// autonomous-ai-agency.strikersam.workers.dev — it reverse-proxies every
+// /api/* call to the Render backend (same-origin, no CORS). The GitHub Pages
+// site at strikersam.github.io/autonomous-ai-agency/ is a secondary mirror
+// and MUST point its API calls at the worker (not window.location.origin,
+// which 404s on github.io). When REACT_APP_BACKEND_URL is unset at build
+// time, we fall back to the worker URL so a stale-tenant GitHub Pages deploy
+// still has working social-login buttons instead of 404ing on /api/auth/*.
+const PRODUCTION_WORKER_URL = 'https://autonomous-ai-agency.strikersam.workers.dev';
+
 function getDefaultBackendUrl() {
   if (process.env.REACT_APP_BACKEND_URL) {
     return process.env.REACT_APP_BACKEND_URL;
   }
   if (typeof window !== 'undefined' && window.location?.origin) {
+    // Same-origin deploy (Cloudflare Worker, local dev, Render onboarding
+    // running its own frontend) — /api/* is served by the same origin.
+    // Detect github.io specifically because Pages does NOT proxy /api/* —
+    // social login buttons would navigate to a 404.
+    const host = window.location.host || '';
+    const isGitHubPages = host.endsWith('.github.io');
+    if (isGitHubPages) {
+      return PRODUCTION_WORKER_URL;
+    }
     return window.location.origin;
   }
   return '';
