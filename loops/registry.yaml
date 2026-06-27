@@ -306,7 +306,7 @@ loops:
   - id: enrich-quick-note-context
     name: Enrich Quick-Note Context
     pattern: issue-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: every 4 h
     runs_per_day: 6
@@ -319,7 +319,7 @@ loops:
   - id: issue-context-generator
     name: Issue Context Generator
     pattern: issue-triage
-    level: L2
+    level: L3
     trigger: event
     cadence: on issue opened
     runs_per_day: 0
@@ -332,39 +332,39 @@ loops:
   - id: agile-ceremonies
     name: Agile Ceremonies
     pattern: daily-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: weekdays (08:00 UTC)
     runs_per_day: 0.71
     cost: low
     source: .github/workflows/agile-ceremonies.yml
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: Standup/retro ceremony automation and agile health checks.
 
   - id: portfolio-refresh
     name: Portfolio Refresh
     pattern: daily-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: every 6 h
     runs_per_day: 4
     cost: low
     source: .github/workflows/portfolio-refresh.yml
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: Recompute WSJF portfolio prioritisation.
 
   - id: daily-digest
     name: Daily Digest
     pattern: daily-triage
-    level: L2
+    level: L3
     trigger: schedule
     cadence: daily (09:00 UTC)
     runs_per_day: 1
     cost: low
     source: .github/workflows/daily-digest.yml
-    self_heal: false
+    self_heal: true
     gate: none
     purpose: Low-cost daily activity/status report.
 
@@ -372,7 +372,7 @@ loops:
   - id: quick-note-claim-sweeper
     name: Quick-Note Claim TTL Sweeper
     pattern: post-merge-cleanup
-    level: L2
+    level: L3
     trigger: schedule
     cadence: hourly
     runs_per_day: 24
@@ -385,7 +385,7 @@ loops:
   - id: delete-merged-branch
     name: Delete Merged Branch
     pattern: post-merge-cleanup
-    level: L2
+    level: L3
     trigger: event
     cadence: on PR merge
     runs_per_day: 0
@@ -398,7 +398,7 @@ loops:
   - id: dependabot-auto-merge
     name: Dependabot Auto-merge
     pattern: dependency-sweeper
-    level: L2
+    level: L3
     trigger: event
     cadence: on dependabot PR
     runs_per_day: 0
@@ -411,7 +411,7 @@ loops:
   - id: auto-merge
     name: Auto-merge PR
     pattern: pr-babysitter
-    level: L2
+    level: L3
     trigger: event
     cadence: on checks complete (workflow_run)
     runs_per_day: 0
@@ -425,7 +425,7 @@ loops:
   - id: nightly-regression
     name: Nightly Regression
     pattern: ci-sweeper
-    level: L2
+    level: L3
     trigger: schedule
     cadence: nightly (00:00 UTC)
     runs_per_day: 1
@@ -438,7 +438,7 @@ loops:
   - id: security-scan
     name: Security Scan
     pattern: security-scan
-    level: L2
+    level: L3
     trigger: schedule
     cadence: weekly (Mon 02:30 UTC)
     runs_per_day: 0.14
