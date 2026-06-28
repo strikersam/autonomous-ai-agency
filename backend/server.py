@@ -1590,6 +1590,7 @@ def _valid_login_state(doc: Optional[dict], provider: str) -> bool:
 
 
 @app.get("/api/auth/github/login")
+@app.get("/api/auth/github/start")
 async def github_login(request: Request):
     if not GITHUB_CLIENT_ID:
         raise HTTPException(status_code=503, detail="GitHub login not configured")
@@ -1944,6 +1945,7 @@ async def github_status(user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/auth/google/login")
+@app.get("/api/auth/google/start")
 async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google login not configured")
