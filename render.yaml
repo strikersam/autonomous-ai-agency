@@ -359,6 +359,15 @@ services:
       # resolution produces the same result (ollama = local, nvidia = cloud).
       - key: BRAIN_PREFERENCE
         value: "ollama"
+      # Ollama tunnel URL — must match the web service. The worker runs the
+      # same resolve_ollama_base_url() path and could cold-start independently
+      # of the web service, so both services declare these placeholders and
+      # both dashboards must hold the same ngrok URL after every rotation.
+      # See the web service envVars block above for the operator-facing steps.
+      - key: OLLAMA_BASE_URL
+        sync: false
+      - key: OLLAMA_BASE
+        sync: false
 
       - key: NVIDIA_API_KEY
         sync: false
