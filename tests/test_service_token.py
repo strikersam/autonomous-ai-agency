@@ -26,6 +26,11 @@ import pytest
 # in the test env (it tries to import bson/pymongo, which may be absent).
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SERVICES_DIR = REPO_ROOT / "services"
+# V2.0 Phase 3: service_token.py moved to packages/auth/service_token.py.
+# The services/service_token.py shim re-exports symbols but tests that
+# inspect the module SOURCE (e.g. for `hmac.compare_digest`) need to load
+# the real file.
+REAL_SERVICE_TOKEN_PATH = REPO_ROOT / "packages" / "auth" / "service_token.py"
 
 
 @pytest.fixture
@@ -38,7 +43,7 @@ def service_token_module(monkeypatch):
     # by loading it directly. brain_watchdog.py uses the same trick in its tests.
     import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "_test_service_token", SERVICES_DIR / "service_token.py"
+        "_test_service_token", REAL_SERVICE_TOKEN_PATH
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
