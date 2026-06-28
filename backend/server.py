@@ -6428,49 +6428,84 @@ async def autonomy_status() -> dict[str, object]:
     import datetime
     import importlib
 
-    # ── Brain resolution (read env fresh; never the cached resolver, so this
-    #    probe reflects the live environment rather than a startup snapshot). ──
+    # ── Brain resolution (reads DB-persisted brain config first so the probe
+    #    reflects the operator's explicit UI/CLI choice, then falls back
+    #    to env vars). ──
     brain: dict[str, object]
     missing_secrets: list[str] = []
-    try:
-        from brain_policy import resolve_free_nvidia_brain
-        nvidia = resolve_free_nvidia_brain()
-    except Exception:  # pragma: no cover - defensive
-        log.exception("autonomy_status: NVIDIA brain resolution failed")
-        nvidia = None
 
-    if nvidia is not None:
-        nv_base, _nv_headers, nv_model = nvidia
-        brain = {
-            "configured": True,
-            "provider": "nvidia-nim",
-            "model": nv_model,
-            "base_url": nv_base,
-        }
-    else:
-        # No NVIDIA brain — check whether a local Ollama brain is configured
-        # instead (laptop/desktop usage via BRAIN_PREFERENCE=ollama or a plain
-        # OLLAMA_BASE). Only fall through to "no_brain" when neither is set.
-        ollama_base = (
-            os.environ.get("OLLAMA_BASE", "").strip()
-            or os.environ.get("OLLAMA_BASE_URL", "").strip()
-        )
-        if ollama_base:
+    # 1. DB-persisted brain config (operator's explicit choice).
+    db_brain_configured = False
+    try:
+        from services.brain_config_store import get_brain_config
+        cfg = await get_brain_config()
+        if cfg.updated_at and cfg.primary_provider:
+            db_brain_configured = True
+            if cfg.primary_provider == "ollama":
+                ollama_url = (
+                    cfg.ollama_base_url
+                    or os.environ.get("OLLAMA_BASE", "").strip()
+                    or os.environ.get("OLLAMA_BASE_URL", "").strip()
+                    or "http://localhost:11434"
+                )
+                brain = {
+                    "configured": True,
+                    "provider": "ollama",
+                    "model": cfg.executor_model or cfg.planner_model or OLLAMA_MODEL,
+                    "base_url": ollama_url,
+                }
+            else:
+                from services.brain_config_store import provider_base_url
+                base = provider_base_url(cfg.primary_provider)
+                brain = {
+                    "configured": True,
+                    "provider": cfg.primary_provider,
+                    "model": cfg.executor_model or cfg.planner_model or "unknown",
+                    "base_url": base or "",
+                }
+    except Exception:  # pragma: no cover - defensive
+        log.debug("autonomy_status: brain config store lookup failed — fallback to env")
+
+    if not db_brain_configured:
+        # 2. Env-var fallback (original resolution).
+        try:
+            from brain_policy import resolve_free_nvidia_brain
+            nvidia = resolve_free_nvidia_brain()
+        except Exception:  # pragma: no cover - defensive
+            log.exception("autonomy_status: NVIDIA brain resolution failed")
+            nvidia = None
+
+        if nvidia is not None:
+            nv_base, _nv_headers, nv_model = nvidia
             brain = {
                 "configured": True,
-                "provider": "ollama",
-                "model": OLLAMA_MODEL,
-                "base_url": ollama_base,
+                "provider": "nvidia-nim",
+                "model": nv_model,
+                "base_url": nv_base,
             }
         else:
-            brain = {
-                "configured": False,
-                "provider": None,
-                "model": None,
-                "base_url": None,
-            }
-            missing_secrets.append("NVIDIA_API_KEY")
-
+            # No NVIDIA brain — check whether a local Ollama brain is configured
+            # instead (laptop/desktop usage via BRAIN_PREFERENCE=ollama or a plain
+            # OLLAMA_BASE). Only fall through to "no_brain" when neither is set.
+            ollama_base = (
+                os.environ.get("OLLAMA_BASE", "").strip()
+                or os.environ.get("OLLAMA_BASE_URL", "").strip()
+            )
+            if ollama_base:
+                brain = {
+                    "configured": True,
+                    "provider": "ollama",
+                    "model": OLLAMA_MODEL,
+                    "base_url": ollama_base,
+                }
+            else:
+                brain = {
+                    "configured": False,
+                    "provider": None,
+                    "model": None,
+                    "base_url": None,
+                }
+                missing_secrets.append("NVIDIA_API_KEY")
     # ── Autonomy loops: report each engine's live running state. Under a bare
     #    TestClient (no lifespan startup) none are bootstrapped, so they read
     #    as not-running rather than erroring. ──
