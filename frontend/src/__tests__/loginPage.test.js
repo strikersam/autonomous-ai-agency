@@ -35,8 +35,11 @@ test('keeps GitHub and Google social login buttons wired to the configured backe
   const githubLink = screen.getByText('GitHub').closest('a');
   const googleLink = screen.getByText('Google').closest('a');
 
-  expect(githubLink).toHaveAttribute('href', 'https://relay.example.com/api/auth/github/login');
-  expect(googleLink).toHaveAttribute('href', 'https://relay.example.com/api/auth/google/login');
+  // The href includes a cache-busting ?cb=<timestamp> param to bypass
+  // Cloudflare's CDN cache (which can serve stale SPA HTML at /api/auth/*
+  // URLs). The backend ignores the query param.
+  expect(githubLink.getAttribute('href')).toMatch(/^https:\/\/relay\.example\.com\/api\/auth\/github\/login\?cb=\d+$/);
+  expect(googleLink.getAttribute('href')).toMatch(/^https:\/\/relay\.example\.com\/api\/auth\/google\/login\?cb=\d+$/);
   expect(githubLink).toHaveAttribute('aria-disabled', 'false');
   expect(googleLink).toHaveAttribute('aria-disabled', 'false');
 });
