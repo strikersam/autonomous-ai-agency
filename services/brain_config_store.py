@@ -204,13 +204,20 @@ def default_brain_config() -> BrainConfig:
 
 
 # Priority order for auto-selecting the default brain when no config has been
-# saved yet: the recommended free-cloud chain (Cerebras → Groq → NVIDIA NIM).
-# The first provider whose API key is present in env wins. Cerebras leads because
-# it serves even the 480B Qwen3-Coder at wafer-scale speed (no 480B latency tax)
-# on a generous, non-expiring free tier; Groq is the fast second; NIM is the
-# always-on safe floor. Ollama is intentionally excluded — it's local and not
-# reachable from the cloud backend, so it must be chosen explicitly in the UI.
-RECOMMENDED_PROVIDER_PRIORITY: tuple[str, ...] = ("cerebras", "groq", "nvidia")
+# saved yet, and for the brain watchdog's failover chain. The first provider
+# whose API key is present in env wins for auto-config (Ollama is skipped in
+# that path because it has no API key — it must be explicitly chosen via the UI
+# or BRAIN_PREFERENCE=ollama env).
+#
+# For failover: the watchdog walks this list when the current provider fails
+# consecutively. Ollama leads so the operator's explicit local-brain choice is
+# preserved across failovers (falls to Cerebras -> Groq -> NIM when local is
+# down).
+#
+# Cerebras leads the cloud chain because it serves even the 480B Qwen3-Coder
+# at wafer-scale speed on a generous, non-expiring free tier; Groq is the fast
+# second; NIM is the always-on safe floor.
+RECOMMENDED_PROVIDER_PRIORITY: tuple[str, ...] = ("ollama", "cerebras", "groq", "nvidia")
 
 
 def recommended_brain_config() -> BrainConfig:
@@ -390,9 +397,41 @@ class BrainConfigStore:
         except Exception as exc:
             log.debug("brain_config_store: sqlite mirror read failed (%s) — using safe default", exc)
 
-        # 3. No persisted config yet → recommended free-cloud chain based on
-        # which provider keys are present (Cerebras → Groq → NIM), falling back
-        # to the safe NIM default. A saved UI config (steps 1-2) always wins.
+        # 3. No persisted config yet.
+        #
+        # Render free-tier cold-start gap: when Render restarts after
+        # inactivity, Mongo is slow to connect AND the sqlite mirror is
+        # wiped (ephemeral storage). Without the check below, the brain
+        # silently reverts to the cloud recommended chain (Cerebras →
+        # Groq → NIM) even when the operator explicitly chose Ollama,
+        # because provider_api_key("ollama") is None (no API key) and
+        # recommended_brain_config() skips it.
+        #
+        # Resolve: honour BRAIN_PREFERENCE=ollama so a Render cold start
+        # preserves the operator's explicit Ollama choice. The Ollama base
+        # URL is read from the sqlite mirror (if still present) or the
+        # OLLAMA_BASE / OLLAMA_BASE_URL env var (which survives restarts;
+        # set it to the ngrok tunnel URL when running local-only).
+        if os.environ.get("BRAIN_PREFERENCE", "").strip().lower() == "ollama":
+            ollama_url = resolve_ollama_base_url()
+            preset = PROVIDER_PRESETS.get("ollama", {})
+            # Stamp updated_at so resolve_active_brain() step 2 honours this
+            # config (transient — cache TTL is 5s; once Mongo recovers the
+            # real persisted config displaces this cold-start fallback).
+            return BrainConfig(
+                primary_provider="ollama",
+                planner_model=preset.get("planner", "deepseek-r1:32b"),
+                executor_model=preset.get("executor", "qwen3-coder:30b"),
+                verifier_model=preset.get("verifier", "deepseek-r1:32b"),
+                judge_model=preset.get("judge", "deepseek-r1:32b"),
+                ollama_base_url=ollama_url if ollama_url != "http://localhost:11434" else "",
+                updated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                updated_by="cold_start:brain_preference",
+            )
+
+        # 4. Recommended free-cloud chain (Cerebras → Groq → NIM) based on
+        # which provider keys are present, falling back to the safe NIM
+        # default. A saved UI config (steps 1-2) always wins.
         return recommended_brain_config()
 
     async def _persist_unlocked(self, cfg: BrainConfig) -> None:
