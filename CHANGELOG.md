@@ -467,6 +467,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **NVIDIA 410 Gone: update all hardcoded model IDs from v1 to v1.5** (2026-06-28). The NVIDIA NIM model `nvidia/llama-3.3-nemotron-super-49b-v1` is permanently removed (410 Gone). Updated ALL hardcoded references across 9 files to `nvidia/llama-3.3-nemotron-super-49b-v1.5` (the current version). Files: `backend/server.py`, `runtimes/adapters/internal_agent.py`, `services/brain_config_store.py`, `direct_chat.py`, `telegram_bot.py`, `router/harness_routing.py`, `handlers/v3_models.py`, `services/workflow_orchestrator.py`, `setup/api.py`.
+
+- **Schedule multiplication (1600+ schedules): force_cleanup on every scheduler tick** (2026-06-28). The `/api/scheduler/tick` endpoint (called by Cloudflare Cron every minute) now calls `scheduler.force_cleanup()` before firing jobs. This deduplicates schedules by name + removes stale run-once jobs that already fired, preventing the accumulation that happened when run-once agency tasks failed (NVIDIA 410) and their schedule rows persisted in the DB.
+
+- **Onboarding gate blocks social users even when admin setting is OFF: fail-open on DB errors** (2026-06-28). `activation_api.is_user_onboarding_allowed()` was failing closed (returning `False` = blocked) when the `app_settings` cache read failed — which happened on Render when motor's event-loop binding broke. The admin had set the gate to OFF, but the cache never warmed, so every social-login user was blocked. Fix: fail OPEN (return `True` = allowed) on DB read errors. The admin's explicit setting takes precedence once the cache self-heals; the fail-open only applies during the brief window before the cache recovers.
+
 - **Zhipu GLM provider: update default model to glm-5.2 + fix provider resolution** (2026-06-26). The default Zhipu model was `glm-4-flash`/`glm-4.5-air` — updated to `glm-5.2`. Also: `resolve_provider_for()` now checks the DB BrainConfig FIRST (user's UI override), then falls back to brain_policy (NVIDIA), then DB provider records. Previously brain_policy always won, preventing Zhipu from being used even when configured via the UI.
 - **Dependabot PRs: fix changelog-check exemption for `chore(deps):` prefix** (2026-06-26). The changelog-check.yml case pattern `chore:*` didn't match `chore(deps):` because the `(` breaks the glob. Added `chore*:*` pattern to also match Dependabot's `chore(deps):` prefix.
 

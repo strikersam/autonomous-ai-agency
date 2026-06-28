@@ -435,7 +435,7 @@ async def _handle_regular_chat(
     )
     payload = {
         "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": req.content}],
-        "model": req.model or "meta/llama-3.3-70b-instruct",
+        "model": req.model or "nvidia/llama-3.3-nemotron-super-49b-v1.5",
         "stream": False,
     }
     if req.temperature is not None:
