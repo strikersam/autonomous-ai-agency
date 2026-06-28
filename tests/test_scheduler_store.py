@@ -89,7 +89,7 @@ class TestSchedulerStore:
         )
         await sim_store.save(sim_job)
 
-        import services.scheduler_store as ss_mod
+        import packages.scheduler.store as ss_mod
         ss_mod._store = sim_store
 
         sched = AgentScheduler()
