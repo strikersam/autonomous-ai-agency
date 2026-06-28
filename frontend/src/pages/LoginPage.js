@@ -45,6 +45,36 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Social login click handler that bypasses Cloudflare's CDN cache.
+  // The CDN cached the SPA's index.html at /api/auth/*/login for navigation
+  // requests (sec-fetch-dest: document). Sending Cache-Control: no-cache as
+  // a REQUEST header forces the CDN to fetch from the worker, which returns
+  // the correct 307 redirect. We can't set headers on an <a href> navigation,
+  // so we fetch the URL with redirect: "manual" + then navigate to the
+  // Location header (GitHub/Google's OAuth authorize URL).
+  const handleSocialLogin = async (e, provider) => {
+    e.preventDefault();
+    if (!hasBackendConfig) return;
+    try {
+      const resp = await fetch(`${backendUrl}/api/auth/${provider}/start`, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      const location = resp.headers.get('location');
+      if (location) {
+        window.location.href = location;
+      } else {
+        // Fallback: navigate directly to the login URL (may hit CDN cache,
+        // but better than doing nothing).
+        window.location.href = `${backendUrl}/api/auth/${provider}/start`;
+      }
+    } catch {
+      // Fallback: navigate directly.
+      window.location.href = `${backendUrl}/api/auth/${provider}/start`;
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -212,9 +242,7 @@ export default function LoginPage() {
                 <a
                   href={hasBackendConfig ? `${backendUrl}/api/auth/github/start` : undefined}
                   aria-disabled={!hasBackendConfig}
-                  onClick={(event) => {
-                    if (!hasBackendConfig) event.preventDefault();
-                  }}
+                  onClick={(e) => hasBackendConfig ? handleSocialLogin(e, 'github') : e.preventDefault()}
                   className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
                   style={{
                     opacity: hasBackendConfig ? 1 : 0.6,
@@ -226,9 +254,7 @@ export default function LoginPage() {
                 <a
                   href={hasBackendConfig ? `${backendUrl}/api/auth/google/start` : undefined}
                   aria-disabled={!hasBackendConfig}
-                  onClick={(event) => {
-                    if (!hasBackendConfig) event.preventDefault();
-                  }}
+                  onClick={(e) => hasBackendConfig ? handleSocialLogin(e, 'google') : e.preventDefault()}
                   className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
                   style={{
                     opacity: hasBackendConfig ? 1 : 0.6,
