@@ -89,7 +89,23 @@ services:
         value: "nvidia-nim"
       - key: INCLUDE_LOCAL_FALLBACK
         value: "false"
-      # Ollama - secondary fallback (leave blank when not running local Ollama)
+      # ── Ollama tunnel URL (LOCAL-LLM routing) ─────────────────────────────
+      # When BRAIN_PREFERENCE=ollama, the agent brain skips cloud providers and
+      # routes here. Set BOTH OLLAMA_BASE_URL + OLLAMA_BASE to the ngrok public
+      # URL (or `http://host.docker.internal:11434` if Render runs alongside a
+      # local Ollama). Required steps before first agent run with local LLMs:
+      #
+      #   1. Dashboard → local-llm-server → Environment → Add:
+      #        OLLAMA_BASE_URL = https://<random>.ngrok-free.dev
+      #        OLLAMA_BASE     = https://<random>.ngrok-free.dev
+      #      (replace with the current ngrok URL from `python get_tunnel_url`)
+      #   2. Run `python scripts/sync_ngrok.py` after every ngrok restart to
+      #      update both the Render env var AND the DB-persisted brain config
+      #      (one command, optional RENDER_API_KEY in .env for full automation).
+      #   3. Re-deploy on Render after the env var change to pick it up.
+      #
+      # Without these, a Render cold start falls back to localhost:11434 which
+      # cannot reach the local machine.
       - key: OLLAMA_BASE_URL
         sync: false
       - key: OLLAMA_BASE
