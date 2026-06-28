@@ -1312,21 +1312,32 @@ async def api_health():
 
     """Public health endpoint — used by the setup wizard and frontend."""
 
-    return await _health_response()
-
-
-
-
-
-@app.get("/api/ping")
-
+    return await _health_response()@app.get("/api/ping")
 async def ping():
-
     """Lightweight liveness probe — no auth required, no Ollama dependency."""
-
     from datetime import datetime, timezone as _tz
-
     return {"status": "ok", "timestamp": datetime.now(_tz.utc).isoformat()}
+
+
+@app.get("/api/tags")
+async def api_tags_public():
+    """Public Ollama model listing — no auth required.
+
+    The brain liveness probe (services/brain_liveness.py) calls this endpoint
+    to verify the Ollama backend is reachable and the requested models are
+    available.  This route is intentionally unauthenticated so the probe can
+    run without an API key.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{OLLAMA_BASE}/api/tags")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        log.warning("Public /api/tags — Ollama unreachable: %s", exc)
+        return JSONResponse(
+            content={"models": []},
+            status_code=200,
+        )
 
 
 
