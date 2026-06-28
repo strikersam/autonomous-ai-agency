@@ -44,6 +44,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState(null); // null | 'github' | 'google'
 
   // Social login URLs use a per-click nonce path segment to bypass
   // Cloudflare's CDN cache. The CDN cached the SPA's index.html at
@@ -55,12 +56,23 @@ export default function LoginPage() {
   // is ignored by the backend (it accepts /start/{nonce} as a path param).
   // This is a plain <a href> navigation — no fetch() needed, no CORS
   // opaqueredirect issues, works with JS disabled.
-  const githubHref = hasBackendConfig
-    ? `${backendUrl}/api/auth/github/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-    : undefined;
-  const googleHref = hasBackendConfig
-    ? `${backendUrl}/api/auth/google/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-    : undefined;
+  const makeNonceHref = (provider) =>
+    hasBackendConfig
+      ? `${backendUrl}/api/auth/${provider}/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+      : undefined;
+  const githubHref = makeNonceHref('github');
+  const googleHref = makeNonceHref('google');
+
+  // Click handler for social login buttons: shows immediate loading feedback
+  // (spinner + disabled state) before the browser navigates away to the OAuth
+  // provider. The navigation still happens via the <a href> — we just set
+  // state first so the user sees feedback instantly. No e.preventDefault()
+  // needed because the default <a> navigation is what we want.
+  const handleSocialClick = (provider) => {
+    if (!hasBackendConfig || socialLoading) return;
+    setSocialLoading(provider);
+    // The browser will navigate away shortly — no need to clear the state.
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -228,31 +240,61 @@ export default function LoginPage() {
               <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <a
                   href={githubHref}
-                  aria-disabled={!hasBackendConfig}
-                  onClick={(event) => {
-                    if (!hasBackendConfig) event.preventDefault();
-                  }}
-                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
+                  aria-disabled={!hasBackendConfig || !!socialLoading}
+                  onClick={() => handleSocialClick('github')}
+                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem] relative overflow-hidden"
                   style={{
-                    opacity: hasBackendConfig ? 1 : 0.6,
+                    opacity: hasBackendConfig ? (socialLoading && socialLoading !== 'github' ? 0.5 : 1) : 0.6,
+                    pointerEvents: socialLoading ? 'none' : 'auto',
+                    transition: 'opacity 0.2s ease',
                   }}
                 >
-                  <Github size={16} />
-                  <span>GitHub</span>
+                  {socialLoading === 'github' ? (
+                    <>
+                      <span style={{
+                        width: 14, height: 14, borderRadius: '50%',
+                        border: '2px solid rgba(93,162,255,0.2)',
+                        borderTopColor: 'var(--accent)',
+                        animation: 'spin 0.7s linear infinite',
+                        display: 'inline-block',
+                      }} />
+                      <span>Redirecting…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Github size={16} />
+                      <span>GitHub</span>
+                    </>
+                  )}
                 </a>
                 <a
                   href={googleHref}
-                  aria-disabled={!hasBackendConfig}
-                  onClick={(event) => {
-                    if (!hasBackendConfig) event.preventDefault();
-                  }}
-                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
+                  aria-disabled={!hasBackendConfig || !!socialLoading}
+                  onClick={() => handleSocialClick('google')}
+                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem] relative overflow-hidden"
                   style={{
-                    opacity: hasBackendConfig ? 1 : 0.6,
+                    opacity: hasBackendConfig ? (socialLoading && socialLoading !== 'google' ? 0.5 : 1) : 0.6,
+                    pointerEvents: socialLoading ? 'none' : 'auto',
+                    transition: 'opacity 0.2s ease',
                   }}
                 >
-                  <GoogleIcon />
-                  <span>Google</span>
+                  {socialLoading === 'google' ? (
+                    <>
+                      <span style={{
+                        width: 14, height: 14, borderRadius: '50%',
+                        border: '2px solid rgba(93,162,255,0.2)',
+                        borderTopColor: 'var(--accent)',
+                        animation: 'spin 0.7s linear infinite',
+                        display: 'inline-block',
+                      }} />
+                      <span>Redirecting…</span>
+                    </>
+                  ) : (
+                    <>
+                      <GoogleIcon />
+                      <span>Google</span>
+                    </>
+                  )}
                 </a>
               </div>
             </div>
