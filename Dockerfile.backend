@@ -33,6 +33,7 @@ RUN python -m playwright install --with-deps chromium
 
 COPY backend/ backend/
 RUN echo "Cache bust: $CACHE_BUST"
+COPY packages/ packages/
 COPY db/ db/
 COPY agent/ agent/
 COPY router/ router/

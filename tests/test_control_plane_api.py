@@ -50,7 +50,10 @@ def mock_runtime_manager():
 # ── Scheduler singleton ───────────────────────────────────────────────────────
 
 def test_get_scheduler_raises_before_set():
-    import agent.scheduler as sched_mod
+    # V2.0 Phase 4: scheduler moved to packages.scheduler.scheduler.
+    # The agent.scheduler shim re-exports symbols but module-level writes
+    # don't propagate to the real singleton.
+    import packages.scheduler.scheduler as sched_mod
     orig = sched_mod._scheduler_instance
     sched_mod._scheduler_instance = None
     with pytest.raises(RuntimeError, match="Scheduler not initialised"):
