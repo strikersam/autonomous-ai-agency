@@ -174,11 +174,11 @@ def test_db_change_takes_effect_at_call_time(monkeypatch):
 
 def test_invalidate_then_refresh_picks_up_db_change(monkeypatch, tmp_path):
     """invalidate() forces the next call to re-read the DB."""
-    # Isolate the sqlite mirror so this test does not pollute the production
-    # mirror at `.data/agency.db_brain.db` (which would leak a config with
-    # ``updated_at`` set into later tests).
+    # Isolate the sqlite mirror AND reset the module-level singleton so this
+    # test does not pollute the production mirror or leak a cached config
+    # with ``updated_at`` set into later tests.
     import services.brain_config_store as _bcs
-    monkeypatch.setattr(_bcs, "_store", None, raising=False)
+    monkeypatch.setattr(_bcs, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 
     # Set up a fake Mongo doc that "appears" after the first read.

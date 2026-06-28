@@ -300,6 +300,25 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
     )
     monkeypatch.delenv("AGENT_LLM_BASE_URL", raising=False)
     monkeypatch.delenv("ALLOW_PAID_BRAIN", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+
+    # Reset the brain_config store cache + clear any persisted Mongo doc
+    # written by earlier tests (e.g. test_brain_config_api's PATCH tests).
+    # Without this, a cached BrainConfig with non-empty ``updated_at`` causes
+    # resolve_active_brain() step 2 to short-circuit to role="brain_config"
+    # with a base_url that doesn't match the nvidia-nim record → nvidia-nim
+    # gets tagged "sub-agent" instead of "brain".
+    import services.brain_config_store as _bcs
+    monkeypatch.setattr(_bcs, "_store", None)
+    async def _fresh_default(self):
+        return _bcs.recommended_brain_config()
+    monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
+    try:
+        import brain_policy as _bp
+        _bp.invalidate_brain_cache()
+    except Exception:
+        pass
 
     from admin_auth import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
