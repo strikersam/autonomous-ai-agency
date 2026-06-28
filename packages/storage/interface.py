@@ -1,53 +1,41 @@
-"""packages/storage/interface.py — storage interface.
+"""packages/storage/interface.py — storage duck-typing contract.
 
-Both MongoDB and SQLite backends implement this interface.
-Components depend on the interface, not the implementation.
+Both MongoDB and SQLite backends expose collections via attribute access:
+    store.users.find_one({"email": "x@y.com"})
+    store.tasks.insert_one({...})
+
+This module documents the contract. Backends are duck-typed (not formally
+subclassed) because the Motor AsyncIOMotorDatabase API is large and
+dynamically dispatched — wrapping every method through an ABC would hurt
+performance and add maintenance burden without real safety gain.
+
+New storage backends should:
+  1. Expose collection objects as attributes (store.users, store.tasks, etc.)
+  2. Each collection must support: find_one, find, insert_one, update_one,
+     delete_one, delete_many, count_documents, create_index
+  3. Be registered in packages/storage/factory.py
 """
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator
+from typing import Any, Protocol, runtime_checkable
 
 
-class StorageInterface(ABC):
-    """Abstract storage interface — both backends implement this."""
+@runtime_checkable
+class CollectionLike(Protocol):
+    """Minimum API every collection object must support."""
 
-    @abstractmethod
-    async def find_one(self, collection: str, query: dict) -> dict | None:
-        """Find a single document."""
-        ...
+    async def find_one(self, query: dict | None = None, *args: Any, **kwargs: Any) -> dict | None: ...
+    async def find(self, query: dict | None = None, *args: Any, **kwargs: Any) -> Any: ...
+    async def insert_one(self, document: dict, *args: Any, **kwargs: Any) -> Any: ...
+    async def update_one(self, query: dict, update: dict, *args: Any, **kwargs: Any) -> Any: ...
+    async def delete_one(self, query: dict, *args: Any, **kwargs: Any) -> Any: ...
+    async def delete_many(self, query: dict, *args: Any, **kwargs: Any) -> Any: ...
+    async def count_documents(self, query: dict, *args: Any, **kwargs: Any) -> int: ...
 
-    @abstractmethod
-    async def find_many(self, collection: str, query: dict, *, limit: int = 100) -> list[dict]:
-        """Find multiple documents."""
-        ...
 
-    @abstractmethod
-    async def insert_one(self, collection: str, document: dict) -> str:
-        """Insert a document. Returns the ID."""
-        ...
+@runtime_checkable
+class StorageLike(Protocol):
+    """Minimum API every storage backend must support."""
 
-    @abstractmethod
-    async def update_one(self, collection: str, query: dict, update: dict) -> bool:
-        """Update a single document."""
-        ...
-
-    @abstractmethod
-    async def delete_one(self, collection: str, query: dict) -> bool:
-        """Delete a single document."""
-        ...
-
-    @abstractmethod
-    async def delete_many(self, collection: str, query: dict) -> int:
-        """Delete multiple documents. Returns count."""
-        ...
-
-    @abstractmethod
-    async def count(self, collection: str, query: dict | None = None) -> int:
-        """Count documents in a collection."""
-        ...
-
-    @abstractmethod
-    async def create_index(self, collection: str, field: str, *, unique: bool = False) -> None:
-        """Create an index on a field."""
-        ...
+    def __getattr__(self, name: str) -> CollectionLike: ...
+    def __getitem__(self, name: str) -> CollectionLike: ...
