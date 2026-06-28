@@ -442,7 +442,7 @@ def test_chat_send_queues_agent_mode_job_and_persists_result(
             {"allow_commercial_fallback": True},
             {
                 "provider_id": "nvidia-nim",
-                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+                "default_model": "meta/llama-3.3-70b-instruct",
                 "base_url": "https://integrate.api.nvidia.com/v1",
                 "api_key": "test-key",
             },
@@ -596,7 +596,7 @@ def test_chat_send_uses_saved_agent_role_models_for_agent_mode(
             {"allow_commercial_fallback": True},
             {
                 "provider_id": "nvidia-nim",
-                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+                "default_model": "meta/llama-3.3-70b-instruct",
                 "base_url": "https://integrate.api.nvidia.com/v1",
                 "api_key": "test-key",
             },

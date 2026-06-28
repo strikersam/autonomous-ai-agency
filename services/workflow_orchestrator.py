@@ -229,7 +229,7 @@ async def resolve_provider_for(
     try:
         from services.brain_config_store import resolve_role_model_sync
         db_model = resolve_role_model_sync(surface, None)
-        if db_model and db_model != "nvidia/llama-3.3-nemotron-super-49b-v1.5":
+        if db_model and db_model != "meta/llama-3.3-70b-instruct":
             # DB config returned a non-default model — find the matching provider
             records = list(await _list_configured_provider_records())
             for rec in records:

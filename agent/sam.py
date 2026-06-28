@@ -262,7 +262,7 @@ class SamAgent:
 
             text = await call_llm(
                 messages=messages,
-                model="nvidia/llama-3.3-nemotron-super-49b-v1.5",  # FREE NVIDIA NIM — never paid
+                model="meta/llama-3.3-70b-instruct",  # FREE NVIDIA NIM — never paid
                 temperature=0.5,
             )
             return str(text).strip()[:300]

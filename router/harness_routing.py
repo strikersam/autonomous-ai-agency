@@ -69,7 +69,7 @@ class HarnessProfile:
         if _cached_profiles and _cached_profiles_key == cache_key:
             return _cached_profiles
 
-        _coder = "nvidia/llama-3.3-nemotron-super-49b-v1.5" if nvidia else "qwen3-coder:30b"
+        _coder = "meta/llama-3.3-70b-instruct" if nvidia else "qwen3-coder:30b"
         _fast = "meta/llama-3.1-8b-instruct" if nvidia else "qwen3-coder:7b"
         _reason = "deepseek-ai/deepseek-v4-pro" if nvidia else "deepseek-r1:32b"
         _light = "meta/llama-3.1-8b-instruct" if nvidia else "gemma4:2b"

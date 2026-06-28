@@ -317,7 +317,7 @@ class TestIsBedrockModelId:
         assert _is_bedrock_model_id("anthropic.claude-opus-4-7") is True
 
     def test_nim_model_not_bedrock(self) -> None:
-        assert _is_bedrock_model_id("nvidia/llama-3.3-nemotron-super-49b-v1.5") is False
+        assert _is_bedrock_model_id("meta/llama-3.3-70b-instruct") is False
 
     def test_deepseek_not_bedrock(self) -> None:
         assert _is_bedrock_model_id("deepseek-ai/deepseek-v4-pro") is False
@@ -342,7 +342,7 @@ class TestBedrockRoutingAffinity:
             type="nvidia-nim",
             base_url="https://integrate.api.nvidia.com/v1",
             api_key="nvapi-test",
-            default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            default_model="meta/llama-3.3-70b-instruct",
             priority=5,
         )
 
@@ -443,7 +443,7 @@ class TestBedrockRoutingAffinity:
         with patch.object(ProviderRouter, "_post_chat", mock_post_chat):
             router = ProviderRouter([nim, bedrock])
             payload = {
-                "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+                "model": "meta/llama-3.3-70b-instruct",
                 "messages": [{"role": "user", "content": "hi"}],
             }
             result = await router.chat_completion(payload)

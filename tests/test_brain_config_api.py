@@ -118,7 +118,7 @@ def test_patch_requires_admin_role(non_admin_client):
 def test_test_requires_admin_role(non_admin_client):
     r = non_admin_client.post(
         "/admin/api/policy/brain/test",
-        json={"provider": "nvidia", "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5"},
+        json={"provider": "nvidia", "model": "meta/llama-3.3-70b-instruct"},
     )
     assert r.status_code == 403
 
@@ -162,7 +162,7 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
     ol = next(p for p in body["providers"] if p["provider_id"] == "ollama")
     assert ol["key_present"] is True
 
-    assert body["safe_default"]["model"] == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+    assert body["safe_default"]["model"] == "meta/llama-3.3-70b-instruct"
 
 
 def test_get_response_never_leaks_api_keys(app_client):
@@ -195,7 +195,7 @@ def test_patch_rejects_dead_model_with_422(app_client, monkeypatch):
     with patch("backend.server.probe_model_liveness", fake_probe):
         r = app_client.patch(
             "/admin/api/policy/brain",
-            json={"executor_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5"},
+            json={"executor_model": "meta/llama-3.3-70b-instruct"},
         )
 
     assert r.status_code == 422
@@ -223,17 +223,17 @@ def test_patch_accepts_live_model_and_persists(app_client, monkeypatch):
             "/admin/api/policy/brain",
             json={
                 "primary_provider": "nvidia",
-                "planner_model":  "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-                "executor_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-                "verifier_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-                "judge_model":    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+                "planner_model":  "meta/llama-3.3-70b-instruct",
+                "executor_model": "meta/llama-3.3-70b-instruct",
+                "verifier_model": "meta/llama-3.3-70b-instruct",
+                "judge_model":    "meta/llama-3.3-70b-instruct",
             },
         )
 
     assert r.status_code == 200
     body = r.json()
     assert body["config"]["primary_provider"] == "nvidia"
-    assert body["config"]["planner_model"] == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+    assert body["config"]["planner_model"] == "meta/llama-3.3-70b-instruct"
     assert body["config"]["updated_by"] == "admin@example.com"
     assert body["config"]["updated_at"]  # ISO timestamp set
     assert len(body["probe_report"]) == 4
@@ -304,7 +304,7 @@ def test_test_endpoint_probes_without_persisting(app_client, monkeypatch):
     with patch("backend.server.probe_model_liveness", fake_probe):
         r = app_client.post(
             "/admin/api/policy/brain/test",
-            json={"provider": "nvidia", "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5"},
+            json={"provider": "nvidia", "model": "meta/llama-3.3-70b-instruct"},
         )
 
     assert r.status_code == 200

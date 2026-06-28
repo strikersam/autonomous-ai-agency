@@ -64,7 +64,7 @@ except ImportError:
 client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key, timeout=30)
 
 CANDIDATE_MODELS = [
-    ("nvidia/llama-3.3-nemotron-super-49b-v1.5", "Nemotron Super 49B (primary)"),
+    ("meta/llama-3.3-70b-instruct", "Nemotron Super 49B (primary)"),
     ("meta/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick (fallback)"),
     ("meta/llama-3.3-70b-instruct", "Llama 3.3 70B (last resort)"),
 ]

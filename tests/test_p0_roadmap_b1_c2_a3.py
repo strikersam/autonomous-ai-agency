@@ -189,7 +189,7 @@ class TestNormalizeToolChoice:
     def test_cloud_model_passes_through(self) -> None:
         """Cloud models (with / in name) should keep tool_choice as-is."""
         payload = {
-            "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "model": "meta/llama-3.3-70b-instruct",
             "messages": [{"role": "user", "content": "hi"}],
             "tool_choice": "auto",
         }

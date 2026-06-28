@@ -259,7 +259,7 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
                 "type": "openai-compatible",
                 "base_url": "https://integrate.api.nvidia.com",
                 "api_key": "nv-x",
-                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+                "default_model": "meta/llama-3.3-70b-instruct",
                 "priority": 5,
             },
             {

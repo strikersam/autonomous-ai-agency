@@ -66,7 +66,7 @@ class TestNormalizeResponseFormat:
     def test_cloud_model_with_slash_passes_response_format_unchanged(self):
         schema = {"type": "object", "properties": {"n": {"type": "integer"}}}
         payload = {
-            "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "model": "meta/llama-3.3-70b-instruct",
             "messages": [],
             "response_format": {
                 "type": "json_schema",

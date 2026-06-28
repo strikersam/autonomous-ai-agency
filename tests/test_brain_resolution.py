@@ -6,7 +6,7 @@ Pins the contract from docs/plans/db-brain-switcher.md §3b:
     1. explicit ``requested_model``
     2. BrainConfig (DB) — when the admin UI has applied a config
     3. env var (``AGENT_<ROLE>_MODEL`` / ``NVIDIA_DEFAULT_MODEL``)
-    4. safe default (``nvidia/llama-3.3-nemotron-super-49b-v1.5``)
+    4. safe default (``meta/llama-3.3-70b-instruct``)
 
   The DB change takes effect without a re-import (call-time resolution),
   so an admin Apply is picked up by the next agent run.

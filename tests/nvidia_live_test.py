@@ -39,7 +39,7 @@ def main() -> None:
         # Current candidates in NVIDIA_CANDIDATE_MODELS (verify these live)
         ("meta/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick (current primary)"),
         ("meta/llama-3.3-70b-instruct", "Llama 3.3 70B (tool-calling confirmed)"),
-        ("nvidia/llama-3.3-nemotron-super-49b-v1.5", "Nemotron Super 49B"),
+        ("meta/llama-3.3-70b-instruct", "Nemotron Super 49B"),
         ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "Nemotron Ultra 253B"),
         ("qwen/qwen2.5-coder-32b-instruct", "Qwen2.5 Coder 32B"),
         # Previously listed / recommended models that were 404 or timeout
