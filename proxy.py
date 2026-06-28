@@ -1312,7 +1312,10 @@ async def api_health():
 
     """Public health endpoint — used by the setup wizard and frontend."""
 
-    return await _health_response()@app.get("/api/ping")
+    return await _health_response()
+
+
+@app.get("/api/ping")
 async def ping():
     """Lightweight liveness probe — no auth required, no Ollama dependency."""
     from datetime import datetime, timezone as _tz
