@@ -98,7 +98,7 @@ class SchedulerStore:
 
         try:
             cursor = col.find({})
-            docs = await cursor.to_list(length=500)
+            docs = await cursor.to_list(length=10000)
             result = [dict(d) for d in docs]
             log.info("SchedulerStore: loaded %d persisted job(s)", len(result))
             return result

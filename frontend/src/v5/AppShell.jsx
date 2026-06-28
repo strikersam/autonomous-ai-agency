@@ -16,7 +16,7 @@ const NAV_ITEMS = [
   { id:'portfolio',   label:'Portfolio',   icon:'Target',       desc:'WSJF roadmap & sprints',   section:'AGENCY' },
   { id:'intelligence',label:'Intelligence',icon:'TrendingUp',   desc:'Competitor & trend intel', section:'AGENCY' },
   { id:'knowledge',  label:'Knowledge',  icon:'BookOpen',       desc:'Docs, sources, activity', section:'AGENCY' },
-  { id:'providers',  label:'Providers',  icon:'Layers',         desc:'Models, Ollama, MCP',     section:'INFRASTRUCTURE' },
+  { id:'providers',  label:'Providers',  icon:'Layers',         desc:'Models, Ollama, MCP',     section:'INFRASTRUCTURE', adminOnly:true },
   { id:'loops',      label:'Loops',      icon:'RefreshCw',      desc:'Autonomous loop fleet',   section:'INFRASTRUCTURE' },
   { id:'logs',       label:'Logs',       icon:'Activity',       desc:'Traces & observability',  section:'INFRASTRUCTURE' },
   { id:'github',     label:'GitHub',     icon:'GitBranch',      desc:'Token, repos & PRs',      section:'INFRASTRUCTURE' },

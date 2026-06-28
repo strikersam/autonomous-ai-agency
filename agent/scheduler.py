@@ -515,6 +515,21 @@ class AgentScheduler:
                     self._jobs.pop(job_id, None)
                     summary["deleted"] += 1
                     continue
+                # Also remove agency tasks that have retried 10+ times — these
+                # are stuck tasks (e.g. NVIDIA 410 Gone) that keep re-queuing
+                # and multiplying the schedule count. After 10 retries, the
+                # task is permanently stuck and should be removed.
+                if run_count > 10 and "agency" in tags:
+                    try:
+                        remove_result = self._store.remove(job_id)
+                        if inspect.isawaitable(remove_result):
+                            await remove_result
+                    except Exception:
+                        pass
+                    self._jobs.pop(job_id, None)
+                    summary["deleted"] += 1
+                    log.info("Force-cleanup: removed stuck agency task name=%r (run_count=%d)", name, run_count)
+                    continue
                 # Name dedup — delete duplicates from store and memory.
                 # The first-seen job stays; subsequent duplicates are removed.
                 if name in seen_names:
