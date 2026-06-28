@@ -6437,7 +6437,7 @@ async def autonomy_status() -> dict[str, object]:
     # 1. DB-persisted brain config (operator's explicit choice).
     db_brain_configured = False
     try:
-        from services.brain_config_store import get_brain_config
+        from services.brain_config_store import get_brain_config, provider_base_url
         cfg = await get_brain_config()
         if cfg.updated_at and cfg.primary_provider:
             db_brain_configured = True
@@ -6455,7 +6455,6 @@ async def autonomy_status() -> dict[str, object]:
                     "base_url": ollama_url,
                 }
             else:
-                from services.brain_config_store import provider_base_url
                 base = provider_base_url(cfg.primary_provider)
                 brain = {
                     "configured": True,
