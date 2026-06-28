@@ -111,15 +111,15 @@ class Step2Request(BaseModel):
     use the dense 49B (JSON-clean tool-calling); scout uses 70B (fast
     read-only summarisation).
     """
-    default_model:      str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
-    coder_model:        str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
-    planner_model:      str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
-    executor_model:     str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
-    reviewer_model:     str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
-    verifier_model:     str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
-    judge_model:        str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
+    default_model:      str  = "meta/llama-3.3-70b-instruct"
+    coder_model:        str  = "meta/llama-3.3-70b-instruct"
+    planner_model:      str  = "meta/llama-3.3-70b-instruct"
+    executor_model:     str  = "meta/llama-3.3-70b-instruct"
+    reviewer_model:     str  = "meta/llama-3.3-70b-instruct"
+    verifier_model:     str  = "meta/llama-3.3-70b-instruct"
+    judge_model:        str  = "meta/llama-3.3-70b-instruct"
     scout_model:        str  = "meta/llama-3.3-70b-instruct"
-    architect_model:    str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
+    architect_model:    str  = "meta/llama-3.3-70b-instruct"
     fallback_model:     str  = "meta/llama-3.1-70b-instruct"
     embedding_model:    str  = "nomic-embed-text"
     accepted_degraded:  bool = False   # user acknowledges degraded compatibility
@@ -141,7 +141,7 @@ class Step3Request(BaseModel):
 class Step4Request(BaseModel):
     """Default agent configuration."""
     agent_name:        str  = "My Agent"
-    agent_model:       str  = "nvidia/llama-3.3-nemotron-super-49b-v1"
+    agent_model:       str  = "meta/llama-3.3-70b-instruct"
     runtime_id:        str | None = None
     cost_policy:       str  = "free_only"
     system_prompt:     str  = ""
@@ -420,15 +420,15 @@ async def detect_configured_providers():
         "nvidia_nim": {
             "configured": bool(nvidia_key),
             "base_url": os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com",
-            "default_model": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1",
+            "default_model": os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct",
             # Curated roster of free-tier NVIDIA NIM models verified live in the
             # live probe on 2026-06-20. qwen3-coder-480b / qwen2.5-coder-32b /
             # deepseek-r1 / granite-34b / phi-3-medium / mistral-large-2 /
             # codestral-22b / llama-3.1-405b / codellama-70b / qwen3-235b-a22b
             # all returned 404/410 and are intentionally excluded.
             "live_free_models": [
-                "nvidia/llama-3.3-nemotron-super-49b-v1",
-                "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "meta/llama-3.3-70b-instruct",
+                "meta/llama-3.3-70b-instruct",
                 "meta/llama-3.3-70b-instruct",
                 "meta/llama-3.1-70b-instruct",
             ],

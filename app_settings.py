@@ -99,11 +99,22 @@ async def all_settings() -> dict[str, Any]:
 
 
 async def refresh_cache() -> dict[str, Any]:
-    """Warm the in-process cache from the DB. Best-effort; never raises."""
+    """Warm the in-process cache from the DB. Best-effort; never raises.
+
+    Reads directly from the DB instead of through :func:`get_setting` so
+    that a transient DB outage is detected and `_cache_loaded` stays `False`.
+    When `get_setting` fails internally it silently returns the in-process
+    default, which would cause `refresh_cache` to mark the cache as warmed
+    with stale defaults — permanently locking social-login users out of the
+    onboarding wizard even after the admin turned the gate OFF.
+    """
     global _cache_loaded
+    store = _store()
     try:
         for key in _DEFAULTS:
-            _cache[key] = await get_setting(key)
+            doc = await store.app_settings.find_one({"key": key})
+            if doc and "value" in doc:
+                _cache[key] = doc["value"]
         _cache_loaded = True
     except Exception:  # noqa: BLE001 — startup must not crash on this
         log.exception("app_settings.refresh_cache failed")

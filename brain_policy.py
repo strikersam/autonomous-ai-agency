@@ -31,7 +31,7 @@ log = logging.getLogger("brain_policy")
 # 404, so the free-brain default is the empirically-live Nemotron Super 49B.
 # Without this, a deploy that leaves NVIDIA_DEFAULT_MODEL unset would resolve a
 # dead model and every dispatched task would fail at EXECUTE with a 400/404.
-DEFAULT_FREE_NVIDIA_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+DEFAULT_FREE_NVIDIA_MODEL = "meta/llama-3.3-70b-instruct"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 

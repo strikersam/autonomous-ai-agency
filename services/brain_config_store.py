@@ -41,7 +41,7 @@ log = logging.getLogger("brain_config_store")
 # (see ``brain_policy.DEFAULT_FREE_NVIDIA_MODEL``). A bad DB write or a corrupt
 # config doc must never displace it.
 SAFE_DEFAULT_PROVIDER: str = "nvidia"
-SAFE_DEFAULT_MODEL: str = "nvidia/llama-3.3-nemotron-super-49b-v1"
+SAFE_DEFAULT_MODEL: str = "meta/llama-3.3-70b-instruct"
 
 # Provider ids the Brain card recognises. The Literal keeps the Pydantic model
 # strict so a typo in the UI ("cerebrass") fails validation instead of
@@ -64,10 +64,10 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "llama-3.3-70b-versatile",
     },
     "nvidia": {
-        "planner":   "nvidia/llama-3.3-nemotron-super-49b-v1",
-        "executor":  "nvidia/llama-3.3-nemotron-super-49b-v1",
-        "verifier":  "nvidia/llama-3.3-nemotron-super-49b-v1",
-        "judge":     "nvidia/llama-3.3-nemotron-super-49b-v1",
+        "planner":   "meta/llama-3.3-70b-instruct",
+        "executor":  "meta/llama-3.3-70b-instruct",
+        "verifier":  "meta/llama-3.3-70b-instruct",
+        "judge":     "meta/llama-3.3-70b-instruct",
     },
     "ollama": {
         "planner":   "deepseek-r1:32b",
@@ -593,7 +593,7 @@ def resolve_role_model_sync(role: str, requested: str | None = None) -> str:
       1. ``requested`` — the per-call override (e.g. a sub-agent config)
       2. BrainConfig DB field for this role (if cache is fresh)
       3. Env var (``AGENT_<ROLE>_MODEL``)
-      4. Safe default (``nvidia/llama-3.3-nemotron-super-49b-v1``)
+      4. Safe default (``meta/llama-3.3-70b-instruct``)
 
     Never raises — returns the safe default on any error so the agent loop
     can keep running even if the cache is in a weird state.

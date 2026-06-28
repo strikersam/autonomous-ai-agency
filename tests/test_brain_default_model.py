@@ -3,8 +3,8 @@
 Regression for the historical latent bug where callers hit NIM with the
 bare ``llama-3.3-nemotron-super-49b-v1`` id (without the ``nvidia/`` prefix) and
 got 404. As of the 2026-06-20 live-NIM probe, BOTH namespaced IDs
-(``nvidia/llama-3.3-nemotron-super-49b-v1`` and
-``nvidia/llama-3.3-nemotron-super-49b-v1``) return HTTP 200. The default
+(``meta/llama-3.3-70b-instruct`` and
+``meta/llama-3.3-70b-instruct``) return HTTP 200. The default
 brain now points at the 120B-a12b model (12B active/call, reasoning-tuned
 MoE — empirically faster and stronger than the dense 49B on chain-of-thought
 agent tasks), with the 49B kept as a fallback that the resolver still
@@ -26,8 +26,7 @@ import brain_policy
 # HTTP 200 with a coherent ~600-token reply). Keeping both names in tests so a
 # future flip doesn't silently regress.
 LIVE_MODELS = {
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "meta/llama-3.3-70b-instruct",
 }
 
 # Bare-name form that the previous-session 404 hit (NIM accepts only
@@ -46,7 +45,7 @@ def test_default_model_is_a_live_namespaced_id():
 
 def test_default_model_is_the_nemotron_super_49b():
     """Default is the Nemotron Super 49B (v1.5 as of the NVIDIA-default-brain change)."""
-    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == "meta/llama-3.3-70b-instruct"
 
 
 def test_resolve_uses_default_when_env_unset(monkeypatch):
@@ -55,7 +54,7 @@ def test_resolve_uses_default_when_env_unset(monkeypatch):
     resolved = brain_policy.resolve_free_nvidia_brain()
     assert resolved is not None, "a key is set, so a brain must resolve"
     _base, _headers, model = resolved
-    assert model == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+    assert model == "meta/llama-3.3-70b-instruct"
 
 
 def test_resolve_respects_env_override(monkeypatch):
@@ -69,10 +68,10 @@ def test_resolve_respects_env_override(monkeypatch):
 def test_resolve_serves_49b_when_explicitly_requested(monkeypatch):
     """49B is still honored as a fallback when the operator opts in via env."""
     monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
-    monkeypatch.setenv("NVIDIA_DEFAULT_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1")
+    monkeypatch.setenv("NVIDIA_DEFAULT_MODEL", "meta/llama-3.3-70b-instruct")
     resolved = brain_policy.resolve_free_nvidia_brain()
     assert resolved is not None
-    assert resolved[2] == "nvidia/llama-3.3-nemotron-super-49b-v1"
+    assert resolved[2] == "meta/llama-3.3-70b-instruct"
 
 
 @pytest.mark.livenim
