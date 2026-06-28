@@ -326,8 +326,13 @@ class OnboardingSettingsUpdate(BaseModel):
 
 @activation_router.get("/settings", response_model=OnboardingSettingsResponse)
 async def get_onboarding_settings(request: Request) -> OnboardingSettingsResponse:
-    """Admin: read the global onboarding gate + ephemeral-company settings."""
-    require_admin(request)
+    """Read the global onboarding gate + ephemeral-company settings.
+
+    The gate status (onboarding_gate_enabled) is PUBLIC — non-admin users need
+    to read it to know if they can onboard. The ephemeral TTL is admin-only
+    but doesn't leak sensitive info (it's just a number). No API keys, no
+    user lists, no secrets — safe to expose to any authenticated user.
+    """
     from app_settings import all_settings, ONBOARDING_GATE_ENABLED_KEY, EPHEMERAL_TTL_HOURS_KEY
     s = await all_settings()
     return OnboardingSettingsResponse(
