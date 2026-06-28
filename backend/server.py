@@ -1382,15 +1382,46 @@ async def _keepalive_self_ping() -> None:
 
 
 def _start_in_web_bot_tasks() -> list:
-    """Start the Telegram bot (and keep-alive) inside the web process when enabled.
+    """Start the Telegram bot, Hermes server, and keep-alive inside the web process.
 
     Enabled when TELEGRAM_BOT_TOKEN is set and RUN_TELEGRAM_BOT is truthy
     (default true). Returns the created asyncio tasks so the caller can cancel
     them on shutdown.
+
+    Hermes server: on Render free tier, running a separate service for Hermes
+    is wasteful. Instead, start services/hermes_server.py as a background
+    uvicorn task on port 8100 INSIDE the main backend process. This makes
+    Hermes available at http://localhost:8100 — the HermesAdapter already
+    resolves HERMES_BASE_URL to this address by default.
     """
     import asyncio as _asyncio
 
     tasks: list = []
+
+    # ── Start Hermes server in-process ──────────────────────────────────────
+    # Runs services/hermes_server.py on port 8100 as a background uvicorn task.
+    # This eliminates the need for a separate Render service (agency-hermes).
+    # The HermesAdapter resolves HERMES_BASE_URL to http://localhost:8100 by
+    # default, so no config change is needed.
+    if os.environ.get("RUN_HERMES_IN_PROCESS", "true").strip().lower() in {"1", "true", "yes"}:
+        try:
+            import uvicorn as _uvicorn
+            from services.hermes_server import app as _hermes_app
+
+            config = _uvicorn.Config(
+                _hermes_app,
+                host="0.0.0.0",
+                port=8100,
+                log_level="warning",
+                access_log=False,
+            )
+            server = _uvicorn.Server(config)
+            tasks.append(_asyncio.create_task(server.serve()))
+            log.info("Hermes server starting in-process on port 8100 (no separate Render service needed).")
+        except Exception as exc:
+            log.warning("Could not start in-process Hermes server: %s", exc)
+
+    # ── Start Telegram bot ──────────────────────────────────────────────────
     if not os.environ.get("TELEGRAM_BOT_TOKEN"):
         return tasks
     if os.environ.get("RUN_TELEGRAM_BOT", "true").strip().lower() not in {"1", "true", "yes"}:
@@ -1511,6 +1542,23 @@ async def lifespan(app_: "FastAPI"):
                      cleanup["deleted"], cleanup["deduped"], cleanup["total"])
     except Exception as exc:
         log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
+
+    # Nuclear option: if there are still too many schedules after force_cleanup,
+    # directly delete ALL run-once + agency-tagged jobs from the DB collection.
+    # This is the only reliable way to clear the 1700+ schedule backlog on
+    # Render free tier where force_cleanup's per-doc remove might be too slow.
+    try:
+        col = getattr(get_db(), _SCHEDULER_COLLECTION if '_SCHEDULER_COLLECTION' in dir() else 'schedules', None)
+        if col is not None:
+            # Delete all run-once jobs (they should self-delete after firing)
+            r1 = await col.delete_many({"tags": {"$in": ["run-once"]}})
+            # Delete all agency-tagged jobs with run_count > 0 (stuck retries)
+            r2 = await col.delete_many({"tags": {"$in": ["agency"]}, "run_count": {"$gt": 0}})
+            if r1.deleted_count > 0 or r2.deleted_count > 0:
+                log.info("Startup nuclear cleanup: deleted %d run-once + %d stuck agency jobs from DB",
+                         r1.deleted_count, r2.deleted_count)
+    except Exception as exc:
+        log.debug("Startup nuclear cleanup failed (non-fatal, may not be using Mongo): %s", exc)
 
     # N5: Surface SERVICE_TOKEN misconfiguration at startup so the operator
     # sees the gap in the backend logs (not just when /setbrain fails at

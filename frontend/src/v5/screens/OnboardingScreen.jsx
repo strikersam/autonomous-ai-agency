@@ -734,28 +734,38 @@ function OnboardingScreen({ onComplete, isAdmin }) {
   const [companyId, setCompanyId] = React.useState(null);
   const [companyName, setCompanyName] = React.useState('');
   const [checkingProgress, setCheckingProgress] = React.useState(true);
+  const [gateOpen, setGateOpen] = React.useState(null); // null = loading, true = allowed, false = blocked
 
-  // On mount, check if there is already an in-progress onboarding to resume
+  // On mount: check if onboarding gate is OFF (admin disabled it → all users can onboard).
+  // Also check if there is an in-progress onboarding to resume.
   React.useEffect(() => {
-    const storedId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
-    if (!storedId) { setCheckingProgress(false); return; }
-
     (async () => {
+      // Check the onboarding gate setting
+      try {
+        const { data } = await api.API.get('/api/activation/settings');
+        // If onboarding_gate_enabled is false, the gate is OPEN for all users
+        setGateOpen(data.onboarding_gate_enabled === false);
+      } catch {
+        // If we can't read the setting, default to OPEN (fail-open — same as the backend)
+        setGateOpen(true);
+      }
+
+      // Check for in-progress onboarding
+      const storedId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
+      if (!storedId) { setCheckingProgress(false); return; }
+
       try {
         const { data } = await api.getOnboardingProgress(storedId);
         const status = data.status;
         if (status === 'completed') {
-          // Already done — show the done step but allow restart via breadcrumb or restart button
           setCompanyId(storedId);
           setStep('done');
         } else if (status === 'in_progress' || status === 'paused') {
-          // Resume from current progress — skip URL step since company exists
           setCompanyId(storedId);
           try {
             const name = localStorage.getItem('v5_company_name');
             if (name) setCompanyName(name);
           } catch {}
-          // Jump to later step based on completed progress
           const completed = data.completed_steps || 0;
           if (completed >= 4) setStep('questions');
           else if (completed >= 3) setStep('details');
@@ -769,14 +779,19 @@ function OnboardingScreen({ onComplete, isAdmin }) {
     })();
   }, []);
 
-  if (!isAdmin) return (
+  // Gate logic: if the onboarding gate is ON (admin hasn't disabled it) AND the
+  // user is NOT an admin, show the NonAdminGate. If the gate is OFF, all users
+  // can onboard regardless of role.
+  const showGate = gateOpen === false && !isAdmin;
+
+  if (showGate) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:580, margin:'0 auto' }}>
       <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
       <NonAdminGate/>
     </div>
   );
 
-  if (checkingProgress) return (
+  if (checkingProgress || gateOpen === null) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto', textAlign:'center' }}>
       <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
       <div style={{ padding:'40px 0', color:'var(--text-muted)', fontSize:14 }}>Checking onboarding status...</div>
