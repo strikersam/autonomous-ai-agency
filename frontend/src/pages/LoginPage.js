@@ -52,27 +52,36 @@ export default function LoginPage() {
   // the correct 307 redirect. We can't set headers on an <a href> navigation,
   // so we fetch the URL with redirect: "manual" + then navigate to the
   // Location header (GitHub/Google's OAuth authorize URL).
-  const handleSocialLogin = async (e, provider) => {
+  //
+  // CRITICAL: e.preventDefault() + e.stopPropagation() must be called
+  // SYNCHRONOUSLY (before any await) to prevent the default <a> navigation.
+  // React's synthetic event pool releases events after the handler returns,
+  // so calling preventDefault inside an async function after an await is
+  // too late — the browser has already started navigating to the href.
+  const handleSocialLogin = (e, provider) => {
     e.preventDefault();
+    e.stopPropagation();
     if (!hasBackendConfig) return;
-    try {
-      const resp = await fetch(`${backendUrl}/api/auth/${provider}/start`, {
-        method: 'GET',
-        redirect: 'manual',
-        headers: { 'Cache-Control': 'no-cache' },
-      });
-      const location = resp.headers.get('location');
-      if (location) {
-        window.location.href = location;
-      } else {
-        // Fallback: navigate directly to the login URL (may hit CDN cache,
-        // but better than doing nothing).
-        window.location.href = `${backendUrl}/api/auth/${provider}/start`;
+    // Fire-and-forget the fetch — don't await before returning.
+    (async () => {
+      try {
+        const resp = await fetch(`${backendUrl}/api/auth/${provider}/start`, {
+          method: 'GET',
+          redirect: 'manual',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        const location = resp.headers.get('location');
+        if (location) {
+          window.location.href = location;
+          return;
+        }
+      } catch {
+        // Fall through to fallback.
       }
-    } catch {
-      // Fallback: navigate directly.
+      // Fallback: navigate directly to the login URL (may hit CDN cache,
+      // but better than doing nothing).
       window.location.href = `${backendUrl}/api/auth/${provider}/start`;
-    }
+    })();
   };
 
   const handleSubmit = async (e) => {
