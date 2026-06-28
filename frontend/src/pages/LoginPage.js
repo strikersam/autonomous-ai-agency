@@ -45,6 +45,16 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Cache-busting query param for social login URLs.
+  // Cloudflare's CDN cached the SPA's index.html at /api/auth/github/login
+  // (cf-cache-status: HIT) because the worker's not_found_handling served
+  // HTML there before the worker was fixed. Even after the worker sets
+  // Cache-Control: no-store, the EXISTING cached entry persists for its TTL.
+  // Adding ?cb=<timestamp> makes each click fetch a unique URL that bypasses
+  // the CDN cache, so the worker always handles the request and returns the
+  // correct 307 redirect. The backend ignores the query param.
+  const cacheBust = `?cb=${Date.now()}`;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -210,7 +220,7 @@ export default function LoginPage() {
 
               <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <a
-                  href={hasBackendConfig ? `${backendUrl}/api/auth/github/login` : undefined}
+                  href={hasBackendConfig ? `${backendUrl}/api/auth/github/login${cacheBust}` : undefined}
                   aria-disabled={!hasBackendConfig}
                   onClick={(event) => {
                     if (!hasBackendConfig) event.preventDefault();
@@ -224,7 +234,7 @@ export default function LoginPage() {
                   <span>GitHub</span>
                 </a>
                 <a
-                  href={hasBackendConfig ? `${backendUrl}/api/auth/google/login` : undefined}
+                  href={hasBackendConfig ? `${backendUrl}/api/auth/google/login${cacheBust}` : undefined}
                   aria-disabled={!hasBackendConfig}
                   onClick={(event) => {
                     if (!hasBackendConfig) event.preventDefault();
