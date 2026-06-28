@@ -51,8 +51,10 @@ describe('Worker no-cache headers (social login CDN bug)', () => {
   test('the no-cache headers are applied INSIDE the needsProxy branch', () => {
     // The headers must only be set on proxied (API) responses, not on
     // static asset responses (which SHOULD be cached for performance).
+    // Match from the needsProxy if-block to the closing brace (the next
+    // "return new Response" which is the proxy response).
     const needsProxyBlock = workerSource.match(
-      /if \(needsProxy\(url\.pathname\)\) \{[\s\S]*?return env\.ASSETS\.fetch/
+      /if \(needsProxy\(url\.pathname\)\) \{[\s\S]*?return new Response\(response\.body/
     );
     expect(needsProxyBlock).toBeTruthy();
     expect(needsProxyBlock[0]).toMatch(/Cache-Control.*no-store/);
