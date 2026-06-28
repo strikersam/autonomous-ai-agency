@@ -14,7 +14,9 @@ Every existing behaviour is production behaviour. Before touching code, capture 
 
 ---
 
-## 1. Executive Mission
+## 1. What This Repo Does
+
+(Also: Executive Mission)
 
 ### What the platform is
 Autonomous AI Agency is a **self-hosted, OpenAI-compatible AI proxy and multi-agent platform** that:
@@ -92,6 +94,8 @@ Autonomous AI Agency is a **self-hosted, OpenAI-compatible AI proxy and multi-ag
 ---
 
 ## 4. Current Architecture (As-Is)
+
+### Codebase Map
 
 ### Bill of Materials
 
@@ -273,7 +277,19 @@ get_optional_user(request) → get_current_user(request) → _require_admin(user
 
 ---
 
-## 9. Testing Constitution
+## 9. Coding Rules
+
+See `ENGINEERING_STANDARDS.md` for full coding standards. Key rules:
+- Max 50 lines per function
+- Type hints on all Python functions
+- No `import *` — explicit imports only
+- No commented-out code
+- No `print()` — use `logging`
+- No `os.environ.get()` outside config modules
+
+## 10. Testing Constitution
+
+### Testing Expectations
 
 ### Test structure
 | Level | Location | Runner | Count |
@@ -337,7 +353,13 @@ Phase 6: Cleanup (remove dead code, archive obsolete modules)
 
 ---
 
-## 12. Autonomous Development Policy
+## 12. Changelog Rule
+
+Every PR must update `CHANGELOG.md` AND `docs/changelog.md` (parity enforced by CI).
+The changelog-check workflow skips PRs with `chore:`, `docs:`, `ci:`, `test:`, `style:`, `revert:`, `build:` prefixes.
+All other PRs must add an entry under `## [Unreleased]` in both files.
+
+## 13. Autonomous Development Policy
 
 Every PR must:
 1. ✅ Update `CHANGELOG.md` + `docs/changelog.md` (parity)
