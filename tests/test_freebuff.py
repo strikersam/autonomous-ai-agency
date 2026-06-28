@@ -24,7 +24,7 @@ def test_available_models_default_are_nvidia_nim():
     assert models, "expected a non-empty free-model list"
     # Every default model is a free NVIDIA NIM-style provider/model id.
     assert all("/" in m for m in models)
-    assert "nvidia/llama-3.3-nemotron-super-49b-v1.5" in models
+    assert "meta/llama-3.3-70b-instruct" in models
 
 
 def test_available_models_env_override(monkeypatch):
@@ -36,7 +36,7 @@ def test_available_models_env_override(monkeypatch):
 
 
 def test_is_free_model():
-    assert FreeBuffAgent.is_free_model("nvidia/llama-3.3-nemotron-super-49b-v1.5") is True
+    assert FreeBuffAgent.is_free_model("meta/llama-3.3-70b-instruct") is True
     assert FreeBuffAgent.is_free_model("claude-opus-4-8") is False
     assert FreeBuffAgent.is_free_model(None) is False
 
