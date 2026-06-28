@@ -1403,7 +1403,8 @@ def _start_in_web_bot_tasks() -> list:
     # This eliminates the need for a separate Render service (agency-hermes).
     # The HermesAdapter resolves HERMES_BASE_URL to http://localhost:8100 by
     # default, so no config change is needed.
-    if os.environ.get("RUN_HERMES_IN_PROCESS", "true").strip().lower() in {"1", "true", "yes"}:
+    if os.environ.get("RUN_HERMES_IN_PROCESS", "true").strip().lower() in {"1", "true", "yes"} and \
+       os.environ.get("TESTING", "").lower() != "true":
         try:
             import uvicorn as _uvicorn
             from services.hermes_server import app as _hermes_app
