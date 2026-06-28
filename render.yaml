@@ -48,22 +48,22 @@ services:
       # reasoning model — best fit for the latency-sensitive agent loop on a free,
       # no-rate-limit endpoint. (It 404'd briefly around issue #656, which is why
       # the ultra was pinned then; confirmed live again at
-      # https://build.nvidia.com/nvidia/llama-3.3-nemotron-super-49b-v1.5 )
+      # https://build.nvidia.com/meta/llama-3.3-70b-instruct )
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
 
       # Agent brain roles run on the FREE NVIDIA model — NOT paid Anthropic
       # Bedrock Opus. Pinning these to us.anthropic.* is what made every agent
       # task call api.anthropic.com and fail with 400 (issue #656). Set
       # ALLOW_PAID_BRAIN=true only to deliberately opt back into paid Anthropic.
       - key: AGENT_PLANNER_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AGENT_VERIFIER_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AGENT_JUDGE_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
 
       # LLM Provider
       - key: LLM_PROVIDER
@@ -327,20 +327,20 @@ services:
       # FREE NVIDIA NIM brain — must match the web service. The 120B-a12b super
       # MoE activates only ~12B params/token (vs ~55B for the 550B "ultra"), so
       # background agent/CEO task runs stay on the fast path too. Confirmed live:
-      # https://build.nvidia.com/nvidia/llama-3.3-nemotron-super-49b-v1.5
+      # https://build.nvidia.com/meta/llama-3.3-70b-instruct
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       # Agent brain roles run on the FREE NVIDIA model — NOT paid Anthropic
       # Bedrock Opus (issue #656: agents were stuck calling api.anthropic.com /
       # Bedrock and 400ing). Set ALLOW_PAID_BRAIN=true only to opt back into paid.
       - key: AGENT_PLANNER_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AGENT_VERIFIER_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AGENT_JUDGE_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
       # Telegram approval-gate pushes when this worker runs the orchestrator
@@ -473,18 +473,18 @@ services:
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
       # Agent brain roles on free NVIDIA NIM
       - key: AGENT_PLANNER_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AGENT_VERIFIER_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AGENT_JUDGE_MODEL
-        value: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+        value: "meta/llama-3.3-70b-instruct"
       # Optional bearer gate — set in dashboard if needed
       - key: HERMES_API_KEY
         sync: false

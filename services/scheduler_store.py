@@ -15,6 +15,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -121,6 +122,71 @@ class SchedulerStore:
             self._mem.pop(job_id, None)
             return False
 
+    async def count(self) -> int:
+        """Return the total number of persisted jobs."""
+        col = await self._collection()
+        if col is None:
+            return len(self._mem)
+
+        try:
+            if hasattr(col, "count_documents"):
+                return await col.count_documents({})
+            cursor = col.find({})
+            docs = await cursor.to_list(length=100_000)
+            return len(docs)
+        except Exception as exc:
+            log.warning("SchedulerStore: count failed: %s", exc)
+            return len(self._mem)
+
+    async def delete_stale(self, retention_days: int | None = None) -> int:
+        """Delete jobs older than *retention_days* (default from env
+        ``SCHEDULER_JOB_RETENTION_DAYS``, or 30).
+
+        Returns the number of deleted documents.
+        """
+        if retention_days is None:
+            retention_days = int(os.environ.get("SCHEDULER_JOB_RETENTION_DAYS", "30"))
+        cutoff = time.time() - (retention_days * 86_400)
+
+        col = await self._collection()
+        if col is None:
+            stale_ids = [
+                k for k, v in self._mem.items()
+                if v.get("updated_at", 0) < cutoff
+            ]
+            for k in stale_ids:
+                del self._mem[k]
+            if stale_ids:
+                log.info(
+                    "SchedulerStore: deleted %d stale job(s) from memory "
+                    "(retention=%dd)", len(stale_ids), retention_days,
+                )
+            return len(stale_ids)
+
+        try:
+            if hasattr(col, "delete_many"):
+                result = await col.delete_many({"updated_at": {"$lt": cutoff}})
+                deleted = result.deleted_count
+            else:
+                cursor = col.find({})
+                docs = await cursor.to_list(length=100_000)
+                deleted = 0
+                for doc in docs:
+                    if doc.get("updated_at", 0) < cutoff:
+                        jid = doc.get("job_id") or doc.get("_id")
+                        if jid:
+                            await col.delete_one({"job_id": jid})
+                            deleted += 1
+            if deleted:
+                log.info(
+                    "SchedulerStore: deleted %d stale job(s) (retention=%dd)",
+                    deleted, retention_days,
+                )
+            return deleted
+        except Exception as exc:
+            log.warning("SchedulerStore: delete_stale failed: %s", exc)
+            return 0
+
 
 class _MemDB:
     def __init__(self) -> None:
@@ -156,6 +222,19 @@ class _MemCollection:
         self._docs.pop(key, None)
         return _MemDeleteResult(existed)
 
+    async def count_documents(self, query: dict) -> int:
+        return len(self._docs)
+
+    async def delete_many(self, query: dict) -> "_MemDeleteResult":
+        cutoff = query.get("updated_at", {}).get("$lt", float("inf"))
+        stale = [
+            k for k, v in self._docs.items()
+            if v.get("updated_at", 0) < cutoff
+        ]
+        for k in stale:
+            del self._docs[k]
+        return _MemDeleteResult(len(stale) > 0, count=len(stale))
+
 
 class _MemCursor:
     def __init__(self, docs: list[dict]) -> None:
@@ -166,8 +245,8 @@ class _MemCursor:
 
 
 class _MemDeleteResult:
-    def __init__(self, deleted: bool) -> None:
-        self.deleted_count = 1 if deleted else 0
+    def __init__(self, deleted: bool, count: int | None = None) -> None:
+        self.deleted_count = count if count is not None else (1 if deleted else 0)
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
