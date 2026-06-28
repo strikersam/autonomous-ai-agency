@@ -14,6 +14,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Social login loading feedback: spinner + disabled state on click** (2026-06-28). The GitHub and Google login buttons now show a spinner + "Redirecting…" text + disable both buttons immediately on click, so the user sees instant feedback before the browser navigates to the OAuth provider. The other button dims to 50% opacity + becomes non-interactive. Added `@keyframes spin` to `frontend/src/index.css`.
+
+
 ### Fixed
 
 - **Social login buttons do nothing (root cause fix): disable SPA not_found_handling** (2026-06-28). The root cause of ALL the CDN cache issues was Cloudflare Workers Assets `not_found_handling: "single-page-application"` — it served `index.html` for EVERY unmatched path (including `/api/*`), and the CDN cached that HTML for navigation requests (`sec-fetch-dest: document`). The cache was keyed by path prefix, so even unique nonce URLs got the cached HTML. Fix: changed `not_found_handling` to `"none"` + the worker now handles SPA routing explicitly: (1) `/api/*` → proxy to backend with `no-store` headers, (2) static assets (200 from ASSETS) → serve as-is, (3) everything else (SPA routes like `/login`, `/dashboard`) → serve `index.html` with `no-store` headers. The assets binding NEVER serves `index.html` for `/api/*` paths, so the CDN can't cache it there. This eliminates the CDN cache issue entirely.
