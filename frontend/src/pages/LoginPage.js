@@ -249,10 +249,11 @@ export default function LoginPage() {
 
               <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <a
-                  href={hasBackendConfig ? `${backendUrl}/api/auth/github/start` : undefined}
+                  href={hasBackendConfig ? '#' : undefined}
                   aria-disabled={!hasBackendConfig}
+                  role="button"
                   onClick={(e) => hasBackendConfig ? handleSocialLogin(e, 'github') : e.preventDefault()}
-                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
+                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem] cursor-pointer"
                   style={{
                     opacity: hasBackendConfig ? 1 : 0.6,
                   }}
@@ -261,10 +262,11 @@ export default function LoginPage() {
                   <span>GitHub</span>
                 </a>
                 <a
-                  href={hasBackendConfig ? `${backendUrl}/api/auth/google/start` : undefined}
+                  href={hasBackendConfig ? '#' : undefined}
                   aria-disabled={!hasBackendConfig}
+                  role="button"
                   onClick={(e) => hasBackendConfig ? handleSocialLogin(e, 'google') : e.preventDefault()}
-                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
+                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem] cursor-pointer"
                   style={{
                     opacity: hasBackendConfig ? 1 : 0.6,
                   }}
