@@ -8,6 +8,17 @@
  *
  * Non-/api paths fall through to static assets; SPA client-side routes are handled by
  * the `not_found_handling: "single-page-application"` setting in wrangler.jsonc.
+ *
+ * CRITICAL: API responses MUST NOT be cached by Cloudflare's CDN. The SPA's
+ * `not_found_handling: "single-page-application"` setting serves index.html for
+ * any unmatched path — including /api/* paths if the worker somehow doesn't run
+ * first. If Cloudflare caches that HTML response at an /api/* URL, every subsequent
+ * browser request to that API endpoint gets the cached HTML instead of the real
+ * API response (307 redirect, 401 JSON, etc.). This was the root cause of the
+ * "social login button click does nothing" bug: /api/auth/github/login was cached
+ * as SPA HTML, so clicking the button navigated to the cached HTML page instead
+ * of following the 307 redirect to GitHub. Fix: set `Cache-Control: no-store` on
+ * every proxied API response so the CDN never caches it.
  */
 const BACKEND_ORIGIN = "https://local-llm-server.onrender.com";
 
@@ -31,7 +42,21 @@ export default {
       const target = BACKEND_ORIGIN + url.pathname + url.search;
       const proxied = new Request(target, request);
       proxied.headers.set("X-Forwarded-Host", url.host);
-      return fetch(proxied, { redirect: "manual" });
+      const response = await fetch(proxied, { redirect: "manual" });
+      // CRITICAL: Prevent Cloudflare's CDN from caching API responses.
+      // Without this, the SPA's not_found_handling can serve index.html at
+      // /api/* URLs, Cloudflare caches it, and every subsequent browser
+      // request gets the cached HTML instead of the real API response.
+      // This breaks OAuth redirects (307 → GitHub) and JSON endpoints (401).
+      const headers = new Headers(response.headers);
+      headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      headers.set("Pragma", "no-cache");
+      headers.set("Expires", "0");
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
     }
 
     return env.ASSETS.fetch(request);

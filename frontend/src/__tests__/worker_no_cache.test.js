@@ -1,0 +1,60 @@
+/**
+ * tests/worker/worker_no_cache.test.js — regression test for the Cloudflare CDN
+ * caching bug that broke social login.
+ *
+ * Root cause: the worker's `not_found_handling: "single-page-application"`
+ * setting served index.html at /api/auth/github/login, Cloudflare cached that
+ * HTML response, and every subsequent browser request got the cached HTML
+ * instead of the 307 redirect to GitHub. The social login button appeared to
+ * do nothing because the browser navigated to the cached HTML page (which the
+ * SPA then redirected to /login).
+ *
+ * Fix: worker/index.js now sets `Cache-Control: no-store` on every proxied
+ * API response so Cloudflare never caches it.
+ *
+ * This test verifies the worker's fetch handler sets the no-cache headers on
+ * proxied responses. It doesn't test the actual Cloudflare CDN (that requires
+ * a deployment) — it tests the worker code that prevents the cache from
+ * forming.
+ */
+const { describe, test, expect } = require('@jest/globals');
+
+// Read the worker source + verify the no-cache headers are set
+const fs = require('fs');
+const path = require('path');
+
+const workerSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', '..', 'worker', 'index.js'),
+  'utf-8'
+);
+
+describe('Worker no-cache headers (social login CDN bug)', () => {
+  test('proxied API responses include Cache-Control: no-store', () => {
+    // The worker must set Cache-Control: no-store on proxied responses
+    // so Cloudflare's CDN never caches them. Without this, the SPA's
+    // not_found_handling can serve index.html at /api/* URLs, the CDN
+    // caches it, and every subsequent browser request gets the cached
+    // HTML instead of the real API response.
+    expect(workerSource).toMatch(/Cache-Control.*no-store/);
+  });
+
+  test('proxied API responses include Pragma: no-cache', () => {
+    // Belt-and-suspenders for HTTP/1.0 caches
+    expect(workerSource).toMatch(/Pragma.*no-cache/);
+  });
+
+  test('proxied API responses include Expires: 0', () => {
+    // Belt-and-suspenders for HTTP/1.0 caches
+    expect(workerSource).toMatch(/Expires.*["']0["']/);
+  });
+
+  test('the no-cache headers are applied INSIDE the needsProxy branch', () => {
+    // The headers must only be set on proxied (API) responses, not on
+    // static asset responses (which SHOULD be cached for performance).
+    const needsProxyBlock = workerSource.match(
+      /if \(needsProxy\(url\.pathname\)\) \{[\s\S]*?return env\.ASSETS\.fetch/
+    );
+    expect(needsProxyBlock).toBeTruthy();
+    expect(needsProxyBlock[0]).toMatch(/Cache-Control.*no-store/);
+  });
+});
