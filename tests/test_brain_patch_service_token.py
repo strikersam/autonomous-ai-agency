@@ -21,7 +21,7 @@ import pytest
 @pytest.fixture
 def clean_store(monkeypatch, tmp_path):
     """Reset the brain config store + point SQLITE_DB_PATH at a tmp path."""
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     monkeypatch.setattr(mod, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
     # Always reset SERVICE_TOKEN so each test starts from a known state.

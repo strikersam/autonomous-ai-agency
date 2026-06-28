@@ -30,7 +30,7 @@ from services.brain_liveness import ProbeResult
 @pytest.fixture
 def app_client(monkeypatch, tmp_path):
     """A TestClient with the auth dependency overridden + a clean store."""
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     monkeypatch.setattr(mod, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 
@@ -57,7 +57,7 @@ def app_client(monkeypatch, tmp_path):
 @pytest.fixture
 def non_admin_client(monkeypatch, tmp_path):
     """A TestClient authenticated as a non-admin user."""
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     monkeypatch.setattr(mod, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 
@@ -76,7 +76,7 @@ def non_admin_client(monkeypatch, tmp_path):
 @pytest.fixture
 def unauth_client(monkeypatch, tmp_path):
     """A TestClient where get_current_user raises 401 (no auth)."""
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     monkeypatch.setattr(mod, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 

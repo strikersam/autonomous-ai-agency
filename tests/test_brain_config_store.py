@@ -42,7 +42,7 @@ def _run(coro):
 @pytest.fixture(autouse=True)
 def _isolated_store(monkeypatch, tmp_path):
     """Force a fresh BrainConfigStore singleton per test + a temp sqlite mirror."""
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     monkeypatch.setattr(mod, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
     # Clear env vars that would change role resolution.
@@ -257,7 +257,7 @@ def test_sqlite_mirror_round_trips_through_set(monkeypatch, tmp_path):
     # Isolate the sqlite mirror AND reset the module-level singleton so this
     # test does NOT pollute the production mirror (`.data/agency.db_brain.db`)
     # or leak a cached config with ``updated_at`` set into later tests.
-    import services.brain_config_store as _bcs
+    import packages.ai.brain_config as _bcs
     monkeypatch.setattr(_bcs, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 
@@ -335,7 +335,7 @@ def test_resolve_role_model_db_overrides_env(monkeypatch):
     """A DB-stored config (cache fresh) wins over the env var."""
     monkeypatch.setenv("AGENT_PLANNER_MODEL", "env-planner")
     # Prime the cache with a DB config.
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     cfg = BrainConfig(
         primary_provider="cerebras",
         planner_model="db-planner",
