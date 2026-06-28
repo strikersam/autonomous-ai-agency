@@ -44,6 +44,16 @@ services:
         value: "false"
 
       # ================================================================
+      # BRAIN PREFERENCE — "nvidia" (cloud, default) or "ollama" (local).
+      # When "ollama", the agent brain skips cloud providers and routes
+      # directly to the local Ollama instance (OLLAMA_BASE / OLLAMA_BASE_URL).
+      # Survives cold starts: brain_config_store.py honours this env var
+      # when rebuilding the brain config from a cold Render instance.
+      # ================================================================
+      - key: BRAIN_PREFERENCE
+        value: "ollama"
+
+      # ================================================================
       # NVIDIA NIM - Free models, first priority (no local infra needed)
       # Set NVIDIA_API_KEY in the Render dashboard to your nvapi-... key
       # ================================================================
@@ -329,6 +339,11 @@ services:
           type: web
           name: local-llm-server
           envVarKey: JWT_SECRET
+      # Brain preference — must match the web service so the worker's brain
+      # resolution produces the same result (ollama = local, nvidia = cloud).
+      - key: BRAIN_PREFERENCE
+        value: "ollama"
+
       - key: NVIDIA_API_KEY
         sync: false
       - key: NVIDIA_BASE_URL
