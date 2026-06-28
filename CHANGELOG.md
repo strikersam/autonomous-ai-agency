@@ -467,6 +467,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **SAM Voice 405: worker not proxying /agent/* paths** (2026-06-28). The SAM Voice Manager (`POST /agent/voice/transcribe`) returned 405 because the Cloudflare Worker's `PROXY_PREFIXES` did not include `/agent`. The worker served the SPA's `index.html` for `/agent/*` requests instead of proxying to the Render backend. Fix: added `/agent` to `PROXY_PREFIXES` in `worker/index.js` + `/agent/*` to `run_worker_first` in `wrangler.jsonc`. This also fixes all 55+ other `/agent/*` endpoints (agent sessions, scheduler jobs, SAM chat/speak, memory, context, budget) that were silently broken on the worker deployment.
+
+- **proxy.py /api/auth/me already exists** (2026-06-28). Verified that `proxy.py` line 3049 already exposes `GET /api/auth/me` with API key auth — no change needed. The endpoint mirrors `backend/server.py`'s JWT-based `/api/auth/me` so both proxy (port 8000) and backend (port 8001) support the endpoint.
+
+- **OAuth logic already deduplicated** (2026-06-28). Verified that `backend/server.py` imports + uses the canonical helpers from `social_auth.py` (`github_exchange_code`, `github_fetch_user`, `google_exchange_code`, `google_fetch_user`). No duplicate implementations exist — the dedup was completed in a prior PR (#6a95024).
+
 - **NVIDIA 410 Gone: update all hardcoded model IDs from v1 to v1.5** (2026-06-28). The NVIDIA NIM model `nvidia/llama-3.3-nemotron-super-49b-v1` is permanently removed (410 Gone). Updated ALL hardcoded references across 9 files to `nvidia/llama-3.3-nemotron-super-49b-v1.5` (the current version). Files: `backend/server.py`, `runtimes/adapters/internal_agent.py`, `services/brain_config_store.py`, `direct_chat.py`, `telegram_bot.py`, `router/harness_routing.py`, `handlers/v3_models.py`, `services/workflow_orchestrator.py`, `setup/api.py`.
 
 - **Schedule multiplication (1600+ schedules): force_cleanup on every scheduler tick** (2026-06-28). The `/api/scheduler/tick` endpoint (called by Cloudflare Cron every minute) now calls `scheduler.force_cleanup()` before firing jobs. This deduplicates schedules by name + removes stale run-once jobs that already fired, preventing the accumulation that happened when run-once agency tasks failed (NVIDIA 410) and their schedule rows persisted in the DB.
