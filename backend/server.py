@@ -1500,6 +1500,18 @@ async def lifespan(app_: "FastAPI"):
     # #522 + #505: Reliability startup hooks
     await _startup_reliability_hooks()
 
+    # Startup schedule cleanup — deduplicate + remove stale run-once + stuck
+    # agency tasks. This runs once on every cold start so the schedule count
+    # drops immediately after a deploy (the cron tick may not reach a sleeping
+    # Render free-tier instance for several minutes).
+    try:
+        cleanup = await SCHEDULER.force_cleanup()
+        if cleanup.get("deleted", 0) > 0 or cleanup.get("deduped", 0) > 0:
+            log.info("Startup schedule cleanup: deleted=%d deduped=%d total=%d",
+                     cleanup["deleted"], cleanup["deduped"], cleanup["total"])
+    except Exception as exc:
+        log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
+
     # N5: Surface SERVICE_TOKEN misconfiguration at startup so the operator
     # sees the gap in the backend logs (not just when /setbrain fails at
     # runtime). Best-effort — never blocks startup.
@@ -5305,7 +5317,8 @@ async def update_provider_policy_route(
     update: ProviderPolicyUpdate,
     user: dict = Depends(get_current_user),
 ):
-    """Update the provider policy (paid-provider kill switch)."""
+    """Update the provider policy (paid-provider kill switch). Admin only."""
+    _require_admin(user)
     result = await _set_provider_policy(update)
     log.info(
         "Provider policy updated by %s: allow_paid=%s",
@@ -5317,6 +5330,11 @@ async def update_provider_policy_route(
 
 @app.get("/api/providers")
 async def list_providers(user: dict = Depends(get_current_user)):
+    # Provider list includes masked API keys + configuration — admin only.
+    # Non-admin users get an empty list (they don't need to see provider config).
+    from backend.company_api import _is_admin
+    if not _is_admin(user):
+        return []
     providers = []
     try:
         async for p in get_db().providers.find({}).sort("created_at", 1):
@@ -5343,6 +5361,7 @@ async def list_providers(user: dict = Depends(get_current_user)):
 
 @app.post("/api/providers")
 async def create_provider(body: ProviderCreate, user: dict = Depends(get_current_user)):
+    _require_admin(user)
     if await get_db().providers.find_one({"provider_id": body.provider_id}):
         raise HTTPException(status_code=409, detail="Provider ID already exists")
     if body.is_default:

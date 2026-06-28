@@ -33,6 +33,15 @@ services:
         value: "1"
       - key: GITHUB_REPOSITORY
         value: "strikersam/autonomous-ai-agency"
+      # Disable instance activation gate — this is a self-hosted deployment,
+      # not a SaaS. Without this, social-login users see "instance has not been
+      # activated" during onboarding even though the admin turned off the
+      # onboarding gate in the admin panel. The two gates are independent:
+      #   1. ACTIVATION_REQUIRED (env var) — instance-level, defaults to true
+      #   2. onboarding_gate_enabled (DB setting) — per-user, admin can toggle
+      # The admin turned off #2 but #1 was still on, blocking all social users.
+      - key: ACTIVATION_REQUIRED
+        value: "false"
 
       # ================================================================
       # NVIDIA NIM - Free models, first priority (no local infra needed)
