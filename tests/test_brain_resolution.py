@@ -172,8 +172,15 @@ def test_db_change_takes_effect_at_call_time(monkeypatch):
     assert resolve_role_model_sync("judge") == "new-judge"
 
 
-def test_invalidate_then_refresh_picks_up_db_change(monkeypatch):
+def test_invalidate_then_refresh_picks_up_db_change(monkeypatch, tmp_path):
     """invalidate() forces the next call to re-read the DB."""
+    # Isolate the sqlite mirror so this test does not pollute the production
+    # mirror at `.data/agency.db_brain.db` (which would leak a config with
+    # ``updated_at`` set into later tests).
+    import services.brain_config_store as _bcs
+    monkeypatch.setattr(_bcs, "_store", None, raising=False)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
+
     # Set up a fake Mongo doc that "appears" after the first read.
     docs = {"current": None}
 

@@ -252,8 +252,19 @@ def test_sqlite_mirror_serves_when_mongo_unavailable(monkeypatch):
     assert got.updated_by == "mirror-test"
 
 
-def test_sqlite_mirror_round_trips_through_set(monkeypatch):
+def test_sqlite_mirror_round_trips_through_set(monkeypatch, tmp_path):
     """set_brain_config writes to both Mongo AND the sqlite mirror."""
+    # Point SQLITE_DB_PATH at an isolated tmp dir so the test does NOT pollute
+    # the production mirror (`.data/agency.db_brain.db`) — which would then
+    # leak a config with ``updated_at`` set into later tests like
+    # ``test_admin_policy_brain_returns_resolution_and_paid_state``.
+    monkeypatch.setattr(
+        "services.brain_config_store.BrainConfigStore._store",
+        None,
+        raising=False,
+    )
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
+
     class _FakeCollection:
         async def find_one(self, q):
             return None

@@ -228,6 +228,27 @@ def test_admin_policy_brain_returns_resolution_and_paid_state(tmp_path: Path, mo
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("NVidiaApiKey", raising=False)
 
+    # Reset the brain_config store cache + clear any persisted Mongo doc
+    # written by earlier tests (e.g. test_brain_patch_service_token). Without
+    # this, the cached BrainConfig carries a non-empty ``updated_at`` and
+    # brain_policy.resolve_active_brain() step 2 short-circuits to
+    # role="brain_config" instead of falling through to ollama_local.
+    import services.brain_config_store as _bcs
+    monkeypatch.setattr(_bcs, "_store", None)
+    # Force _load_unlocked to skip Mongo and sqlite mirror and go straight
+    # to recommended_brain_config() (which returns updated_at="" when no
+    # provider keys are present — the contract this test pins).
+    async def _fresh_default(self):
+        return _bcs.recommended_brain_config()
+    monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
+    # Drop the brain_policy resolver cache (set by any prior call) so the
+    # next resolve_active_brain() runs the full chain fresh.
+    try:
+        import brain_policy as _bp
+        _bp.invalidate_brain_cache()
+    except Exception:
+        pass
+
     from admin_auth import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
     client = TestClient(proxy.app)
