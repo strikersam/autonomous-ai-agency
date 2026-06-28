@@ -167,15 +167,15 @@ export default function SamVoiceScreen() {
 
       recorder.onstop = () => handleRecordingStop();
 
-      recorder.start();
+      recorder.start(1000); // timeslice=1000ms → flush data every second (prevents buffer cutoff)
       setState('listening');
 
-      // Auto-stop after 8 seconds
+      // Auto-stop after 30 seconds (was 8 — too short for natural speech)
       setTimeout(() => {
         if (mediaRecorderRef.current?.state === 'recording') {
           mediaRecorderRef.current.stop();
         }
-      }, 8000);
+      }, 30000);
 
     } catch (err) {
       setError('Microphone access denied. Please allow microphone permissions.');

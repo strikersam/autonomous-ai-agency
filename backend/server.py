@@ -7874,6 +7874,123 @@ async def legacy_scheduler_toggle(
         raise HTTPException(status_code=404, detail="Job not found") from exc
 
 
+# ─── SAM Voice + Voice Transcription endpoints ────────────────────────────────
+# These endpoints exist in proxy.py but NOT in backend/server.py. The Cloudflare
+# Worker proxies /agent/* to the Render backend (backend/server.py), so without
+# these routes here, SAM Voice returns 404/405/500 on the production deployment.
+# The implementations mirror proxy.py's versions but use get_current_user (JWT)
+# instead of verify_api_key (API key) since the worker deployment uses JWT auth.
+
+class VoiceTranscribeRequest(BaseModel):
+    audio_b64: str = Field(..., description="Base64-encoded raw PCM audio bytes")
+    duration_hint_s: float = Field(default=5.0, ge=0.1, le=60.0)
+
+
+class SamChatRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000, description="Transcribed voice command")
+    session_id: str = Field(default="default", max_length=64)
+
+
+class SamSpeakRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000, description="Text to synthesise as SAM's voice")
+
+
+@app.get("/agent/voice/status")
+async def voice_status_backend(user: dict = Depends(get_current_user)):
+    """Check if voice transcription is available."""
+    try:
+        from agent.voice import VoiceCommandInterface
+        vi = VoiceCommandInterface()
+        return {
+            "mic_available": vi.mic_available,
+            "whisper_url": bool(vi._whisper_url),
+        }
+    except Exception as exc:
+        log.warning("voice_status: %s", exc)
+        return {"mic_available": False, "whisper_url": False, "error": str(exc)}
+
+
+@app.post("/agent/voice/transcribe")
+async def voice_transcribe_backend(body: VoiceTranscribeRequest, user: dict = Depends(get_current_user)):
+    """Transcribe base64-encoded audio to text using Whisper STT."""
+    import base64
+    try:
+        audio_bytes = base64.b64decode(body.audio_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 audio data")
+    try:
+        from agent.voice import VoiceCommandInterface
+        vi = VoiceCommandInterface()
+        result = vi.transcribe(audio_bytes)
+        return result.as_dict()
+    except Exception as exc:
+        log.error("voice_transcribe: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}")
+
+
+# ── SAM Agent ──────────────────────────────────────────────────────────────────
+
+_BACKEND_SAM_AGENT = None
+
+
+def _get_backend_sam():
+    """Lazy-init the SAM agent for the backend deployment."""
+    global _BACKEND_SAM_AGENT
+    if _BACKEND_SAM_AGENT is None:
+        from agent.sam import get_sam
+        _BACKEND_SAM_AGENT = get_sam()
+        log.info("SAM voice agent initialised (backend)")
+    return _BACKEND_SAM_AGENT
+
+
+@app.get("/agent/sam/status")
+async def sam_status_backend(user: dict = Depends(get_current_user)):
+    """Get SAM's current status."""
+    try:
+        sam = _get_backend_sam()
+        return {
+            "available": True,
+            "name": "SAM",
+            "description": "System Autonomy Manager — voice-controlled agency interface",
+            **sam.get_status(),
+        }
+    except Exception as exc:
+        log.warning("sam_status: %s", exc)
+        return {"available": False, "error": str(exc)}
+
+
+@app.post("/agent/sam/chat")
+async def sam_chat_backend(body: SamChatRequest, user: dict = Depends(get_current_user)):
+    """Send a voice command to SAM and get a spoken response."""
+    try:
+        sam = _get_backend_sam()
+        response_text = await sam.process_command(body.text, session_id=body.session_id)
+        return {
+            "text": response_text,
+            "session_id": body.session_id,
+        }
+    except Exception as exc:
+        log.error("sam_chat: %s", exc)
+        raise HTTPException(status_code=500, detail=f"SAM chat failed: {exc}")
+
+
+@app.post("/agent/sam/speak")
+async def sam_speak_backend(body: SamSpeakRequest, user: dict = Depends(get_current_user)):
+    """Synthesise SAM's response as audio (OGG Opus)."""
+    import base64
+    try:
+        from voice.tts import synthesize
+        audio_bytes = await synthesize(body.text)
+        if audio_bytes:
+            return {
+                "audio_b64": base64.b64encode(audio_bytes).decode(),
+                "format": "ogg",
+                "duration_s": round(len(audio_bytes) / 4000, 1),
+            }
+        return {"audio_b64": "", "error": "TTS synthesis returned empty"}
+    except Exception as exc:
+        log.warning("sam_speak: %s", exc)
+        return {"audio_b64": "", "error": str(exc)}
 
 
 # ─── Doctor / System Health endpoint ────────────────────────────────────────────
