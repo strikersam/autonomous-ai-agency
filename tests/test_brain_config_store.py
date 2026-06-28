@@ -78,7 +78,7 @@ def test_get_returns_safe_default_when_no_doc(monkeypatch):
 def test_default_brain_config_is_safe():
     cfg = default_brain_config()
     assert cfg.primary_provider == "nvidia"
-    assert cfg.planner_model == "nvidia/llama-3.3-nemotron-super-49b-v1"
+    assert cfg.planner_model == "meta/llama-3.3-70b-instruct"
 
 
 def test_recommended_config_prefers_cerebras_when_key_present(monkeypatch):

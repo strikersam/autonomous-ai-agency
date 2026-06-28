@@ -322,7 +322,7 @@ def test_provider_router_from_env_prioritizes_nvidia_nemotron_default(monkeypatc
     router = ProviderRouter.from_env()
 
     assert router.providers[0].provider_id == "nvidia-nim"
-    assert router.providers[0].default_model == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+    assert router.providers[0].default_model == "meta/llama-3.3-70b-instruct"
 
 
 @pytest.mark.anyio

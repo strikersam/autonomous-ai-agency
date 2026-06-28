@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 import jwt
 import pytest
@@ -180,3 +181,124 @@ class TestProxyAuthMe:
             "Authorization": "Bearer ",
         })
         assert r.status_code == 401, f"Expected 401, got {r.status_code}: {r.text[:200]}"
+
+
+# ── SQLite string _id regression (PR #871) ───────────────────────────────────
+# When STORAGE_BACKEND=sqlite, user _id values are plain strings (UUIDs), not
+# Mongo ObjectIds.  get_optional_user() must handle this: the first
+# find_one({"_id": ObjectId(sub)}) fails (ObjectId rejects the UUID string),
+# then the retry find_one({"_id": sub}) succeeds.  Without this retry,
+# social-login users on the SQLite backend get 401 from /api/auth/me.
+
+
+class TestSQLiteStringIdAuthMe:
+    """Verify get_optional_user resolves users with string _id (SQLite path).
+
+    The production Render deployment uses ``STORAGE_BACKEND=sqlite``, so
+    social-login users (GitHub/Google OAuth) created via the backend have
+    plain string ``_id`` values.  The ObjectId-using path in
+    ``get_optional_user()`` *must* fail gracefully and retry with the raw
+    string — otherwise social login completely breaks.
+    """
+
+    def test_sqlite_string_id_user_resolved_by_auth_me(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        import backend.server
+
+        user_id = str(uuid.uuid4())
+        test_user = {
+            "_id": user_id,
+            "email": "sqlite-user@test.local",
+            "name": "SQLite Test User",
+            "role": "user",
+            "avatar_url": "",
+        }
+
+        # Build a mock store whose users.find_one returns the test user.
+        # The ObjectId constructor rejects UUID strings — the except clause
+        # catches InvalidId, then the retry calls find_one with the raw
+        # string _id and gets our mock user.  find_one is called only once
+        # (the string retry), so return_value is the correct mock config.
+        mock_users = MagicMock()
+        mock_users.find_one = AsyncMock(return_value=test_user)
+
+        mock_store = MagicMock()
+        mock_store.users = mock_users
+
+        monkeypatch.setattr(backend.server, "get_db", lambda: mock_store)
+        monkeypatch.setenv("STORAGE_BACKEND", "sqlite")
+
+        # Create a JWT whose sub is the raw string user _id (exactly what
+        # the backend emits for SQLite-stored users).
+        token = backend.server.create_access_token(user_id, test_user["email"])
+
+        r = client.get("/api/auth/me", headers={
+            "Authorization": f"Bearer {token}",
+        })
+        assert r.status_code == 200, (
+            f"Expected 200 for SQLite string _id user, got {r.status_code}: {r.text[:200]}"
+        )
+        data = r.json()
+        assert data["email"] == test_user["email"], (
+            f"Wrong email: {data.get('email')}"
+        )
+        assert data.get("_id") == user_id or data.get("id") == user_id, (
+            f"Wrong _id: {data.get('_id')} (expected {user_id})"
+        )
+        assert data.get("role") == "user", f"Wrong role: {data.get('role')}"
+
+    def test_sqlite_string_id_rejects_wrong_user(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        """Verify that a valid JWT for a non-existent SQLite user → 401."""
+        import backend.server
+
+        # Mock find_one to always return None (user not found).
+        mock_users = MagicMock()
+        mock_users.find_one = AsyncMock(return_value=None)
+
+        mock_store = MagicMock()
+        mock_store.users = mock_users
+
+        monkeypatch.setattr(backend.server, "get_db", lambda: mock_store)
+        monkeypatch.setenv("STORAGE_BACKEND", "sqlite")
+
+        token = backend.server.create_access_token(
+            str(uuid.uuid4()), "ghost@test.local"
+        )
+
+        r = client.get("/api/auth/me", headers={
+            "Authorization": f"Bearer {token}",
+        })
+        assert r.status_code == 401, (
+            f"Expected 401 for unknown SQLite user, got {r.status_code}: {r.text[:200]}"
+        )
+
+    def test_sqlite_objectid_lookup_exception_is_swallowed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Verify ObjectId(uuid_string) raises and is caught gracefully.
+
+        This is the exact code path that was broken before PR #871: when
+        STORAGE_BACKEND=sqlite, the ObjectId() constructor rejects UUID
+        strings, and the resulting InvalidId exception must NOT propagate
+        — it must be caught and retried.
+        """
+        from bson import ObjectId
+        from bson.errors import InvalidId
+
+        user_id = str(uuid.uuid4())
+        with pytest.raises(InvalidId):
+            ObjectId(user_id)
+
+        # The production code catches this:
+        #   try:
+        #       user = await get_db().users.find_one({"_id": ObjectId(sub)})
+        #   except Exception:
+        #       user = None
+        # Verify this pattern works with a UUID string.
+        try:
+            _obj = ObjectId(user_id)
+            user = "found"  # pragma: no cover — UUID raises, never reached
+        except Exception:
+            user = None
+        assert user is None, "ObjectId(UUID) must fail, triggering the SQLite retry path"

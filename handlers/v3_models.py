@@ -256,7 +256,7 @@ async def get_activity(
             {
                 "timestamp": "2026-04-24T14:40:00Z",
                 "action": "model_loaded",
-                "model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "model": "meta/llama-3.3-70b-instruct",
                 "user": "admin",
             },
         ],

@@ -39,21 +39,21 @@ HARNESS_CATALOG: dict[str, HarnessSpec] = {
         display_name="Cursor",
         context_key="editor",
         supports=["streaming", "streaming_chunks", "inline_edit"],
-        default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        default_model="meta/llama-3.3-70b-instruct",
     ),
     "codex": HarnessSpec(
         harness_id="codex",
         display_name="OpenAI Codex CLI",
         context_key="project",
         supports=["completion", "streaming"],
-        default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        default_model="meta/llama-3.3-70b-instruct",
     ),
     "opencode": HarnessSpec(
         harness_id="opencode",
         display_name="OpenCode",
         context_key="workspace",
         supports=["streaming", "tool_use", "multi_step"],
-        default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        default_model="meta/llama-3.3-70b-instruct",
     ),
     "gemini_cli": HarnessSpec(
         harness_id="gemini_cli",
@@ -67,35 +67,35 @@ HARNESS_CATALOG: dict[str, HarnessSpec] = {
         display_name="Zed AI",
         context_key="editor",
         supports=["completion", "inline_edit"],
-        default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        default_model="meta/llama-3.3-70b-instruct",
     ),
     "github_copilot": HarnessSpec(
         harness_id="github_copilot",
         display_name="GitHub Copilot",
         context_key="editor",
         supports=["completion", "inline_edit"],
-        default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        default_model="meta/llama-3.3-70b-instruct",
     ),
     "aider": HarnessSpec(
         harness_id="aider",
         display_name="Aider",
         context_key="workspace",
         supports=["streaming", "tool_use", "multi_step"],
-        default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        default_model="meta/llama-3.3-70b-instruct",
     ),
     "continue": HarnessSpec(
         harness_id="continue",
         display_name="Continue.dev",
         context_key="editor",
         supports=["streaming", "completion"],
-        default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        default_model="meta/llama-3.3-70b-instruct",
     ),
     "telegram": HarnessSpec(
         harness_id="telegram",
         display_name="Telegram Bot",
         context_key="chat",
         supports=["streaming", "freebuff"],
-        default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        default_model="meta/llama-3.3-70b-instruct",
     ),
 }
 
@@ -187,9 +187,9 @@ class HarnessAdapter:
         if harness_id == "claude_code":
             normalized.setdefault("model", spec.default_model or "claude-sonnet-4-6")
         elif harness_id == "cursor":
-            normalized.setdefault("model", spec.default_model or "nvidia/llama-3.3-nemotron-super-49b-v1.5")
+            normalized.setdefault("model", spec.default_model or "meta/llama-3.3-70b-instruct")
         elif harness_id == "telegram":
-            normalized.setdefault("model", spec.default_model or "nvidia/llama-3.3-nemotron-super-49b-v1.5")
+            normalized.setdefault("model", spec.default_model or "meta/llama-3.3-70b-instruct")
 
         return normalized
 
