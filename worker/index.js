@@ -44,10 +44,6 @@ export default {
       proxied.headers.set("X-Forwarded-Host", url.host);
       const response = await fetch(proxied, { redirect: "manual" });
       // CRITICAL: Prevent Cloudflare's CDN from caching API responses.
-      // Without this, the SPA's not_found_handling can serve index.html at
-      // /api/* URLs, Cloudflare caches it, and every subsequent browser
-      // request gets the cached HTML instead of the real API response.
-      // This breaks OAuth redirects (307 → GitHub) and JSON endpoints (401).
       const headers = new Headers(response.headers);
       headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
       headers.set("Pragma", "no-cache");
@@ -59,7 +55,29 @@ export default {
       });
     }
 
-    return env.ASSETS.fetch(request);
+    // For non-API paths, try to serve a static asset first.
+    const assetResponse = await env.ASSETS.fetch(request);
+    // If the asset exists (200), serve it. If not (404), serve index.html
+    // for SPA client-side routing — BUT only for non-API paths (API paths
+    // are handled by needsProxy above and should NEVER reach here).
+    if (assetResponse.status === 200) {
+      return assetResponse;
+    }
+    // SPA fallback: serve index.html for client-side routes like /login,
+    // /dashboard, etc. This replaces the "single-page-application"
+    // not_found_handling setting (which was causing the CDN to cache
+    // index.html at /api/* URLs for navigation requests).
+    const indexRequest = new Request(new URL("/", url.origin), request);
+    const indexResponse = await env.ASSETS.fetch(indexRequest);
+    // Clone + set no-cache so the SPA shell itself isn't cached at
+    // random paths (only at "/" where it belongs).
+    const spaHeaders = new Headers(indexResponse.headers);
+    spaHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    return new Response(indexResponse.body, {
+      status: 200,
+      statusText: "OK",
+      headers: spaHeaders,
+    });
   },
 
   async scheduled(event, env, ctx) {

@@ -15,7 +15,7 @@
   "assets": {
     "directory": "frontend/build",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
+    "not_found_handling": "none",
     "run_worker_first": ["/api/*", "/v1/*", "/v4/*", "/runtimes/*", "/admin/api/*"]
   },
   // ─────────────────────────────────────────────────────────────────────────
