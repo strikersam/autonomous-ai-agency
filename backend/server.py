@@ -303,10 +303,10 @@ def _default_agent_role_models() -> dict[str, str]:
     )
     if nim_enabled:
         return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct",
+            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5",
             "planner": os.environ.get("AGENT_PLANNER_MODEL") or "qwen/qwen3-coder-480b-a35b-instruct",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "meta/llama-3.3-70b-instruct",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "meta/llama-3.3-70b-instruct",
+            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5",
             "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
         }
     return {
@@ -3355,7 +3355,7 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
     model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
     )
     return {
         "provider_id": "nvidia-nim",
@@ -3467,7 +3467,7 @@ async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
 # Hard constraints (from the plan):
 #   1. Never land on a dead model — PATCH probes each changed model before
 #      saving and refuses (422) any that 404/410.
-#   2. Always keep the known-good ``meta/llama-3.3-70b-instruct``
+#   2. Always keep the known-good ``nvidia/llama-3.3-nemotron-super-49b-v1.5``
 #      as the safe default.
 #   3. Admin-gated — reuse the existing ``get_current_user`` dependency +
 #      ``_is_admin`` check from ``backend.company_api``.
@@ -3548,7 +3548,7 @@ async def get_brain_policy_route(user: dict = Depends(get_current_user)):
         "providers": _brain_provider_status(),
         "safe_default": {
             "primary_provider": "nvidia",
-            "model": "meta/llama-3.3-70b-instruct",
+            "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
         },
     }
 
@@ -6991,6 +6991,19 @@ async def scheduler_tick(request: Request):
     scheduler = get_scheduler()
     fired = []
     try:
+        # Periodic cleanup: deduplicate schedules by name + remove stale
+        # run-once jobs that already fired. This prevents the 1600+ schedule
+        # multiplication that happens when run-once agency tasks fail (e.g.
+        # NVIDIA 410 Gone) and their schedule rows persist in the DB.
+        # force_cleanup is async + idempotent — safe to call every tick.
+        try:
+            cleanup = await scheduler.force_cleanup()
+            if cleanup.get("deleted", 0) > 0 or cleanup.get("deduped", 0) > 0:
+                log.info("scheduler_tick: cleanup deleted=%d deduped=%d total=%d",
+                         cleanup["deleted"], cleanup["deduped"], cleanup["total"])
+        except Exception as exc:
+            log.debug("scheduler_tick: force_cleanup failed (non-fatal): %s", exc)
+
         jobs = scheduler.list()
         now = datetime.now(timezone.utc)
         for job in jobs:

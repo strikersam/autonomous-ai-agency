@@ -91,7 +91,7 @@ def test_brain_skips_paid_when_free_configured(monkeypatch):
                 "type": "openai-compatible",
                 "base_url": "https://integrate.api.nvidia.com/v1",
                 "api_key": "nvapi-PLACEHOLDER",
-                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
                 "priority": 50,  # lower, but FREE
             },
         ]
@@ -127,7 +127,7 @@ def test_brain_falls_through_to_ollama_when_all_free_excluded(monkeypatch):
                 "type": "openai-compatible",
                 "base_url": "https://integrate.api.nvidia.com/v1",
                 "api_key": "nvapi-PLACEHOLDER",
-                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
                 "priority": 100,
             },
             {
@@ -441,7 +441,7 @@ def test_put_handler_writes_priority_to_mongo_set(monkeypatch):
     # Build a minimal Request with an authenticated user, then call the handler directly.
     from backend.server import update_provider, ProviderUpdate
 
-    body = ProviderUpdate(priority=99, default_model="nvidia/llama-3.3-nemotron-super-49b-v1")
+    body = ProviderUpdate(priority=99, default_model="nvidia/llama-3.3-nemotron-super-49b-v1.5")
     user = {"_id": "u_test", "email": "admin@llmrelay.local"}
 
     result = _asyncio.run(update_provider(provider_id="nvidia-nim", body=body, user=user))
@@ -455,6 +455,6 @@ def test_put_handler_writes_priority_to_mongo_set(monkeypatch):
         f"update_provider must write priority to MongoDB $set. Got $set: {set_payload!r}"
     )
     # Other fields that were set on the body should also be present.
-    assert set_payload.get("default_model") == "nvidia/llama-3.3-nemotron-super-49b-v1"
+    assert set_payload.get("default_model") == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
     # And the filter must target the right provider.
     assert captured["filter"] == {"provider_id": "nvidia-nim"}

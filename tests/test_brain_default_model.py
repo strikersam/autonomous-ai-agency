@@ -5,6 +5,8 @@ bare ``llama-3.3-nemotron-super-49b-v1`` id (without the ``nvidia/`` prefix) and
 got 404. As of the 2026-06-20 live-NIM probe, BOTH namespaced IDs
 (``meta/llama-3.3-70b-instruct`` and
 ``meta/llama-3.3-70b-instruct``) return HTTP 200. The default
+(``nvidia/llama-3.3-nemotron-super-49b-v1.5`` and
+``nvidia/llama-3.3-nemotron-super-49b-v1.5``) return HTTP 200. The default
 brain now points at the 120B-a12b model (12B active/call, reasoning-tuned
 MoE — empirically faster and stronger than the dense 49B on chain-of-thought
 agent tasks), with the 49B kept as a fallback that the resolver still
@@ -27,6 +29,8 @@ import brain_policy
 # future flip doesn't silently regress.
 LIVE_MODELS = {
     "meta/llama-3.3-70b-instruct",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
 }
 
 # Bare-name form that the previous-session 404 hit (NIM accepts only
@@ -72,6 +76,10 @@ def test_resolve_serves_49b_when_explicitly_requested(monkeypatch):
     resolved = brain_policy.resolve_free_nvidia_brain()
     assert resolved is not None
     assert resolved[2] == "meta/llama-3.3-70b-instruct"
+    monkeypatch.setenv("NVIDIA_DEFAULT_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1.5")
+    resolved = brain_policy.resolve_free_nvidia_brain()
+    assert resolved is not None
+    assert resolved[2] == "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 
 
 @pytest.mark.livenim

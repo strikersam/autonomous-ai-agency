@@ -74,7 +74,7 @@ def test_openai_compat_probe_reports_dead_model_410(monkeypatch):
     _patch_client(monkeypatch, _FakeResponse(410, "model retired"))
 
     result = asyncio.run(
-        probe_model_liveness("nvidia", "nvidia/llama-3.3-nemotron-super-49b-v1")
+        probe_model_liveness("nvidia", "nvidia/llama-3.3-nemotron-super-49b-v1.5")
     )
 
     assert result.live is False

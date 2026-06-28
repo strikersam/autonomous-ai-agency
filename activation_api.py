@@ -84,6 +84,13 @@ def is_user_onboarding_allowed(user_id: str) -> bool:
 
     The global default is read from the in-process settings cache so this stays
     a cheap sync call (the DB remains the source of truth — see app_settings).
+
+    **Fail-open on DB errors:** if the settings cache can't be read (e.g. motor
+    event-loop binding failure on Render), we default to ALLOWING onboarding
+    rather than blocking. This prevents a silent lockout for every social-login
+    user when the DB is temporarily unreachable. The admin's explicit setting
+    (gate OFF) takes precedence once the cache is warmed; the fail-open only
+    applies during the brief window before the cache self-heals.
     """
     state = _load_onboarding_state()
     rec = state.get(user_id)
@@ -92,11 +99,15 @@ def is_user_onboarding_allowed(user_id: str) -> bool:
     try:
         from app_settings import onboarding_gate_enabled_cached
         return not onboarding_gate_enabled_cached()
-    except Exception:  # noqa: BLE001 — never block the gate read on settings
-        # Fail closed (block onboarding) but surface the root cause: a silent
-        # lockout for every unlisted user is otherwise undiagnosable.
-        log.exception("onboarding gate-default read failed; blocking onboarding")
-        return False
+    except Exception:  # noqa: BLE001 — never block onboarding on a settings read failure
+        # Fail OPEN (allow onboarding) instead of fail closed (block).
+        # The admin explicitly set the gate to OFF, but the cache read failed
+        # (e.g. motor event-loop binding on Render). Blocking every social-login
+        # user during a DB outage is worse than temporarily allowing onboarding.
+        # The cache self-heals via _maybe_schedule_refresh(), so the next read
+        # will honour the admin's actual setting.
+        log.warning("onboarding gate-default read failed; failing OPEN (allowing onboarding)")
+        return True
 
 
 def set_user_onboarding_allowed(user_id: str, allowed: bool, admin_id: str = "admin") -> None:
