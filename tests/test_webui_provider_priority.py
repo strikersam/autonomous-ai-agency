@@ -15,12 +15,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import proxy
 from webui.config_store import JsonConfigStore, JsonStorePaths
 from webui.providers import ProviderCreate, ProviderManager, ProviderUpdate
 from webui.workspaces import WorkspaceManager
+
+
+@pytest.fixture(autouse=True)
+def _reset_brain_singletons(monkeypatch):
+    """Reset the brain_config + brain_policy singletons before each test.
+
+    V2.0 Phase 2 moved brain_config_store → packages.ai.brain_config and
+    brain_policy → packages.ai.brain. Tests that mutate _store or
+    _cached_brain must target the REAL modules (not the shims).
+    """
+    import packages.ai.brain_config as _bcs
+    import packages.ai.brain as _bp
+    monkeypatch.setattr(_bcs, "_store", None)
+    monkeypatch.setattr(_bp, "_cached_brain", None)
 
 
 def _bootstrap(tmp_path: Path) -> tuple[ProviderManager, WorkspaceManager]:
@@ -228,26 +243,14 @@ def test_admin_policy_brain_returns_resolution_and_paid_state(tmp_path: Path, mo
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("NVidiaApiKey", raising=False)
 
-    # Reset the brain_config store cache + clear any persisted Mongo doc
-    # written by earlier tests (e.g. test_brain_patch_service_token). Without
-    # this, the cached BrainConfig carries a non-empty ``updated_at`` and
-    # brain_policy.resolve_active_brain() step 2 short-circuits to
-    # role="brain_config" instead of falling through to ollama_local.
-    import services.brain_config_store as _bcs
-    monkeypatch.setattr(_bcs, "_store", None)
-    # Force _load_unlocked to skip Mongo and sqlite mirror and go straight
-    # to recommended_brain_config() (which returns updated_at="" when no
+    # The autouse _reset_brain_singletons fixture handles the singleton reset.
+    # Also force _load_unlocked to skip Mongo + the sqlite mirror and return
+    # recommended_brain_config() directly (which has updated_at="" when no
     # provider keys are present — the contract this test pins).
+    import packages.ai.brain_config as _bcs
     async def _fresh_default(self):
         return _bcs.recommended_brain_config()
     monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
-    # Drop the brain_policy resolver cache (set by any prior call) so the
-    # next resolve_active_brain() runs the full chain fresh.
-    try:
-        import brain_policy as _bp
-        _bp.invalidate_brain_cache()
-    except Exception:
-        pass
 
     from admin_auth import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
@@ -303,22 +306,15 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("NVidiaApiKey", raising=False)
 
-    # Reset the brain_config store cache + clear any persisted Mongo doc
-    # written by earlier tests (e.g. test_brain_config_api's PATCH tests).
-    # Without this, a cached BrainConfig with non-empty ``updated_at`` causes
-    # resolve_active_brain() step 2 to short-circuit to role="brain_config"
-    # with a base_url that doesn't match the nvidia-nim record → nvidia-nim
-    # gets tagged "sub-agent" instead of "brain".
-    import services.brain_config_store as _bcs
-    monkeypatch.setattr(_bcs, "_store", None)
+    # The autouse _reset_brain_singletons fixture handles the singleton reset.
+    # Also force _load_unlocked to skip Mongo + the sqlite mirror so the
+    # cached BrainConfig (with non-empty updated_at from earlier tests) can't
+    # short-circuit resolve_active_brain() to role="brain_config" with a
+    # base_url that doesn't match the nvidia-nim record.
+    import packages.ai.brain_config as _bcs
     async def _fresh_default(self):
         return _bcs.recommended_brain_config()
     monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
-    try:
-        import brain_policy as _bp
-        _bp.invalidate_brain_cache()
-    except Exception:
-        pass
 
     from admin_auth import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
