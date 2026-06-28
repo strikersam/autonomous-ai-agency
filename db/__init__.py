@@ -36,6 +36,21 @@ def get_store():
 
 
 def reset_store():
-    """Reset the store singleton (used in tests)."""
+    """Reset the store singleton (used in tests).
+
+    Also resets the motor client singleton in ``db.mongo_store`` so the next
+    ``get_store()`` call creates a fresh ``AsyncIOMotorClient`` bound to the
+    CURRENT event loop. Without this, a motor client created during a prior
+    test session's event loop stays cached and raises
+    ``RuntimeError: Event loop is closed`` when the next test tries to use it
+    — the root cause of the flaky ``test_auth_me_regression`` CI failure.
+    """
     global _store
     _store = None
+    # Reset the motor client + db singletons so they rebind to the current loop.
+    try:
+        from db import mongo_store as _ms
+        _ms._client = None
+        _ms._db = None
+    except ImportError:
+        pass

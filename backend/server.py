@@ -6540,10 +6540,18 @@ async def autonomy_status() -> dict[str, object]:
     dispatch_status = dict(_autonomy_dispatch_cache)
 
     # Fire background CEO + dispatch cycle if not already running and
-    # at least 30 seconds since last run
+    # at least 30 seconds since last run.
+    #
+    # Skip in tests (TESTING=true) — the background CEO cycle calls
+    # agency.run_cycle() → chat_completion, which would hit any monkeypatched
+    # _post_chat from a test and pollute the test's call log (the root cause
+    # of test_provider_router.py::test_419_short_retry_after_retries_same_model
+    # failing with models_seen == ['model-a', 'Qwen/...', 'model-a'] when run
+    # after a test that exercises /api/autonomy/status).
     import time as _time_mod
     global _autonomy_bg_task
-    if (_autonomy_bg_task is None or _autonomy_bg_task.done()) and        (_time_mod.time() - _autonomy_bg_last_run > 30):
+    _testing = os.environ.get("TESTING", "").lower() == "true"
+    if (not _testing) and (_autonomy_bg_task is None or _autonomy_bg_task.done()) and        (_time_mod.time() - _autonomy_bg_last_run > 30):
         try:
             _autonomy_bg_task = asyncio.create_task(_autonomy_bg_cycle())
         except Exception:

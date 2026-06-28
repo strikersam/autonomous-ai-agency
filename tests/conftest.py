@@ -118,7 +118,7 @@ def _set_legacy_workflow_mode(monkeypatch):
 
 @pytest.fixture
 def client() -> TestClient:
-    """TestClient for backend.server — used by backend-specific tests.
+    """Function-scoped TestClient for backend.server — used by backend-specific tests.
 
     Uses the context-manager form so the ASGI lifespan (startup/shutdown) and
     the underlying anyio event loop stay alive for the entire test.  This is
@@ -127,10 +127,35 @@ def client() -> TestClient:
     the portal is torn down after each request and background tasks are
     cancelled immediately.
 
-    The admin user and indexes are seeded by ensure_bootstrap before the first
-    request.  Tests that need to simulate a DB outage must mock ``get_db()``
-    *within* the test body, not in this fixture.
+    **Motor event-loop binding (root cause of the flaky ``test_auth_me_regression``
+    CI failure).** The MongoStore singleton (created on the first ``get_db()``
+    call during lifespan startup) holds a motor ``AsyncIOMotorClient`` that
+    binds to whatever event loop was current when it was instantiated. With a
+    function-scoped fixture, each test gets a new TestClient → new portal →
+    new event loop, but the motor client is still bound to the FIRST test's
+    (now-closed) loop. The next ``get_db().users.find_one(...)`` then raises
+    ``RuntimeError: Event loop is closed``.
+
+    Fix: ``reset_store()`` is called before each TestClient enters its lifespan,
+    so motor's client is recreated + bound to THIS test's event loop. The
+    ``reset_store()`` helper in ``db/__init__.py`` now also clears the motor
+    client + db singletons in ``db.mongo_store`` (not just the ``_store``
+    wrapper), so the next ``get_db()`` call creates a fresh
+    ``AsyncIOMotorClient`` on the current loop.
+
+    The admin user and indexes are seeded by ``ensure_bootstrap`` before the
+    first request.  Tests that need to simulate a DB outage must mock
+    ``get_db()`` *within* the test body, not in this fixture.
     """
+    # Reset the store singleton so motor binds to THIS test's event loop.
+    # Without this, a motor client created during a prior test's lifespan
+    # stays cached and raises RuntimeError: Event loop is closed.
+    try:
+        from db import reset_store
+        reset_store()
+    except Exception:
+        pass  # SQLite backend or import order — no singleton to reset
+
     with TestClient(backend_app) as c:
         yield c
 
@@ -142,5 +167,10 @@ def wiki_client() -> TestClient:
     Tests using this fixture should guard against unconfigured auth
     environments by checking login status and calling ``pytest.skip()``
     if the backend is not set up.
+
+    Note: this is a SEPARATE TestClient instance from the session-scoped
+    ``client`` fixture — it does NOT share the session event loop. Tests
+    that need motor/DB access should use ``client`` instead; ``wiki_client``
+    is for integration tests that don't need a live DB connection.
     """
     return TestClient(backend_app, raise_server_exceptions=False)

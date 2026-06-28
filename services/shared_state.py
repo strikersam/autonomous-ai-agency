@@ -90,6 +90,20 @@ class _InMemoryBackend:
             for k in to_remove:
                 del self._data[k]
 
+    async def clear_all_locks(self) -> None:
+        """Clear all probe-lock entries (for test teardown).
+
+        ``cooldown_clear`` only clears cooldowns, not the ``lock:*`` keys used
+        by ``claim()``. Tests that acquire probe locks (via
+        ``_acquire_provider_probe``) need this to release stray locks left by
+        crashed or mocked tests — otherwise the next test sees the provider as
+        "another request probing" and skips it, breaking test isolation.
+        """
+        async with self._guard:
+            to_remove = [k for k in self._data if k.startswith("lock:")]
+            for k in to_remove:
+                del self._data[k]
+
     async def incr_window(self, key: str, window_s: int, _limit: int = 0) -> int:
         async with self._guard:
             full_key = f"window:{key}"
@@ -161,6 +175,22 @@ class _RedisBackend:
             if cursor == 0:
                 break
 
+    async def clear_all_locks(self) -> None:
+        """Clear all probe-lock entries (for test teardown).
+
+        Mirrors ``_InMemoryBackend.clear_all_locks`` — releases every
+        ``lock:*`` key so the next test starts with a clean probe-lock state.
+        """
+        client = await self._client()
+        pattern = f"{self._prefix}lock:*"
+        cursor: int = 0
+        while True:
+            cursor, keys = await client.scan(cursor, match=pattern, count=100)
+            if keys:
+                await client.delete(*keys)
+            if cursor == 0:
+                break
+
     async def incr_window(self, key: str, window_s: int, _limit: int = 0) -> int:
         client = await self._client()
         full_key = f"{self._prefix}window:{key}"
@@ -223,6 +253,19 @@ async def cooldown_get(key: str) -> bool:
 async def cooldown_clear() -> None:
     """Clear all cooldown entries (for test teardown)."""
     await _get_backend().cooldown_clear()
+
+
+async def clear_all_locks() -> None:
+    """Clear all probe-lock entries (for test teardown).
+
+    Companion to ``cooldown_clear`` — releases every ``lock:*`` key so the
+    next test starts with a clean probe-lock state. Without this, a test
+    that acquires a probe lock (via ``_acquire_provider_probe``) and exits
+    without releasing it (e.g. because the test mocked the success path)
+    leaves the lock claimed for the TTL window (30+s), gating the next
+    test that uses the same provider_id.
+    """
+    await _get_backend().clear_all_locks()
 
 
 async def incr_window(key: str, window_s: int, limit: int = 0) -> int:

@@ -66,10 +66,26 @@ def test_openai_url_strips_trailing_slash():
 
 @pytest.fixture(autouse=True)
 async def reset_provider_cooldowns():
-    """Clear module-level cooldown state before every test so tests don't bleed into each other."""
+    """Clear module-level cooldown + probe-lock state before every test so tests don't bleed into each other.
+
+    Both cooldowns AND probe locks must be cleared — a prior test that acquires
+    a probe lock (via _acquire_provider_probe) and exits without releasing it
+    (e.g. because the test mocked the success path) leaves the lock claimed
+    for 30+s, gating the next test that uses the same provider_id.
+    """
     await clear_cooldowns()
+    try:
+        from services.shared_state import clear_all_locks
+        await clear_all_locks()
+    except Exception:
+        pass  # shared_state may not be initialised yet
     yield
     await clear_cooldowns()
+    try:
+        from services.shared_state import clear_all_locks
+        await clear_all_locks()
+    except Exception:
+        pass
 
 
 @pytest.mark.anyio
@@ -525,7 +541,14 @@ async def test_419_on_all_models_shorter_cooldown(monkeypatch):
 
 @pytest.fixture(autouse=True)
 async def _clear_probe_locks():
-    """Release any stray probe locks between tests so a crashed test never gates the next one."""
+    """Release any stray probe locks between tests so a crashed test never gates the next one.
+
+    NOTE: ``reset_provider_cooldowns`` (above) now calls ``clear_all_locks()``
+    which clears EVERY lock key, not just the hardcoded list below. This
+    fixture is kept as a belt-and-suspenders fallback for any test that
+    somehow bypasses the autouse fixture (e.g. via direct monkeypatching of
+    shared_state).
+    """
     from provider_router import _release_provider_probe
     # Best-effort — release common test provider ids.  The probe lock TTL
     # makes this belt-and-suspenders safe.
@@ -536,6 +559,11 @@ async def _clear_probe_locks():
         await _release_provider_probe("fast-but-limited")
         await _release_provider_probe("backup")
         await _release_provider_probe("backup-ok")
+        await _release_provider_probe("ollama-local")  # used by failover tests
+        await _release_provider_probe("openrouter")    # used by failover tests
+        await _release_provider_probe("primary-down")  # used by watchdog tests
+        await _release_provider_probe("backup-ok")     # used by watchdog tests
+        await _release_provider_probe("only")          # used by watchdog-import-failure test
     except Exception:
         pass  # shared_state may not be initialised yet
     yield

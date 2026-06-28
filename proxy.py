@@ -891,9 +891,20 @@ try:
 
     set_agency(_AGENCY)
 
-    _AGENCY.start()
-
-    log.info("CEO Agency started — tick=%dm", _AGENCY._tick // 60)
+    # Gate the CEO agency loop with AGENCY_CEO_ENABLED (default true in prod,
+    # false in tests via tests/conftest.py). Without this gate, importing
+    # proxy.py (e.g. via test_auth_me_regression.py::proxy_client fixture)
+    # starts a daemon thread that calls run_cycle() → chat_completion in the
+    # background. That background call hits any monkeypatched _post_chat from
+    # a test, polluting the test's call log — the root cause of
+    # test_provider_router.py::test_419_short_retry_after_retries_same_model
+    # failing with models_seen == ['model-a', 'Qwen/...', 'model-a'].
+    _ceo_enabled = os.environ.get("AGENCY_CEO_ENABLED", "true").strip().lower() != "false"
+    if _ceo_enabled:
+        _AGENCY.start()
+        log.info("CEO Agency started — tick=%dm", _AGENCY._tick // 60)
+    else:
+        log.info("CEO Agency loop NOT started (AGENCY_CEO_ENABLED=false)")
 
 except Exception as exc:
 
