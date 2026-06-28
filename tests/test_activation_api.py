@@ -95,10 +95,17 @@ def test_change_role_returns_404_for_missing_user() -> None:
 
 # ── Global onboarding-gate settings ──────────────────────────────────────────
 
-def test_get_settings_requires_admin() -> None:
+def test_get_settings_is_public() -> None:
+    """GET /api/activation/settings is PUBLIC — non-admin users need to read
+    the onboarding gate status to know if they can onboard. Only returns
+    onboarding_gate_enabled (bool) + ephemeral_company_ttl_hours (int) —
+    no secrets, no user lists."""
     client = _client(admin=False)
     r = client.get("/api/activation/settings")
-    assert r.status_code == 401
+    assert r.status_code == 200
+    data = r.json()
+    assert "onboarding_gate_enabled" in data
+    assert "ephemeral_company_ttl_hours" in data
 
 
 def test_get_settings_returns_defaults() -> None:
