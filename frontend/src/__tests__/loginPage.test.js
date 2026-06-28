@@ -37,8 +37,8 @@ test('keeps GitHub and Google social login buttons wired to the configured backe
 
   // Uses /api/auth/<provider>/start (not /login) to bypass the Cloudflare
   // CDN cache that served stale SPA HTML at the /login path.
-  expect(githubLink).toHaveAttribute('href', '#');
-  expect(googleLink).toHaveAttribute('href', '#');
+  expect(githubLink.getAttribute('href')).toMatch(/\/api\/auth\/github\/start\/[a-z0-9]+$/);
+  expect(googleLink.getAttribute('href')).toMatch(/\/api\/auth\/google\/start\/[a-z0-9]+$/);
   expect(githubLink).toHaveAttribute('aria-disabled', 'false');
   expect(googleLink).toHaveAttribute('aria-disabled', 'false');
 });

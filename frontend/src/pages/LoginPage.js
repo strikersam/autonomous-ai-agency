@@ -45,44 +45,22 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Social login click handler that bypasses Cloudflare's CDN cache.
-  // The CDN cached the SPA's index.html at /api/auth/*/login for navigation
-  // requests (sec-fetch-dest: document). Sending Cache-Control: no-cache as
-  // a REQUEST header forces the CDN to fetch from the worker, which returns
-  // the correct 307 redirect. We can't set headers on an <a href> navigation,
-  // so we fetch the URL with redirect: "manual" + then navigate to the
-  // Location header (GitHub/Google's OAuth authorize URL).
-  //
-  // CRITICAL: e.preventDefault() + e.stopPropagation() must be called
-  // SYNCHRONOUSLY (before any await) to prevent the default <a> navigation.
-  // React's synthetic event pool releases events after the handler returns,
-  // so calling preventDefault inside an async function after an await is
-  // too late — the browser has already started navigating to the href.
-  const handleSocialLogin = (e, provider) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!hasBackendConfig) return;
-    // Fire-and-forget the fetch — don't await before returning.
-    (async () => {
-      try {
-        const resp = await fetch(`${backendUrl}/api/auth/${provider}/start`, {
-          method: 'GET',
-          redirect: 'manual',
-          headers: { 'Cache-Control': 'no-cache' },
-        });
-        const location = resp.headers.get('location');
-        if (location) {
-          window.location.href = location;
-          return;
-        }
-      } catch {
-        // Fall through to fallback.
-      }
-      // Fallback: navigate directly to the login URL (may hit CDN cache,
-      // but better than doing nothing).
-      window.location.href = `${backendUrl}/api/auth/${provider}/start`;
-    })();
-  };
+  // Social login URLs use a per-click nonce path segment to bypass
+  // Cloudflare's CDN cache. The CDN cached the SPA's index.html at
+  // /api/auth/*/login and /api/auth/*/start for navigation requests
+  // (sec-fetch-dest: document). By appending a unique nonce to the path
+  // (/api/auth/<provider>/start/<random>), each click generates a URL the
+  // CDN has never seen → the worker always proxies to the backend → the
+  // backend returns the correct 307 redirect to GitHub/Google. The nonce
+  // is ignored by the backend (it accepts /start/{nonce} as a path param).
+  // This is a plain <a href> navigation — no fetch() needed, no CORS
+  // opaqueredirect issues, works with JS disabled.
+  const githubHref = hasBackendConfig
+    ? `${backendUrl}/api/auth/github/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+    : undefined;
+  const googleHref = hasBackendConfig
+    ? `${backendUrl}/api/auth/google/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+    : undefined;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -249,11 +227,12 @@ export default function LoginPage() {
 
               <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <a
-                  href={hasBackendConfig ? '#' : undefined}
+                  href={githubHref}
                   aria-disabled={!hasBackendConfig}
-                  role="button"
-                  onClick={(e) => hasBackendConfig ? handleSocialLogin(e, 'github') : e.preventDefault()}
-                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem] cursor-pointer"
+                  onClick={(event) => {
+                    if (!hasBackendConfig) event.preventDefault();
+                  }}
+                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
                   style={{
                     opacity: hasBackendConfig ? 1 : 0.6,
                   }}
@@ -262,11 +241,12 @@ export default function LoginPage() {
                   <span>GitHub</span>
                 </a>
                 <a
-                  href={hasBackendConfig ? '#' : undefined}
+                  href={googleHref}
                   aria-disabled={!hasBackendConfig}
-                  role="button"
-                  onClick={(e) => hasBackendConfig ? handleSocialLogin(e, 'google') : e.preventDefault()}
-                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem] cursor-pointer"
+                  onClick={(event) => {
+                    if (!hasBackendConfig) event.preventDefault();
+                  }}
+                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
                   style={{
                     opacity: hasBackendConfig ? 1 : 0.6,
                   }}
