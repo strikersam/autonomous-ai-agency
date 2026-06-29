@@ -52,18 +52,11 @@ def reset_store():
     during a prior test session's event loop stays cached and raises
     ``RuntimeError: Event loop is closed`` when the next test tries to use it.
 
-    Also closes the SQLiteStore's open connections (writer + read-pool) so
-    SQLite files don't stay locked across resets.
+    Note: SQLiteStore.close() is async, so we can't await it here (reset_store
+    is sync). The SQLite connections are cleaned up when the process exits
+    or when the next SQLiteStore is created (it recreates the connection pool).
     """
     global _store
-    # Close any open SQLite connections before dropping the reference.
-    if _store is not None:
-        close = getattr(_store, "close", None)
-        if close is not None:
-            try:
-                close()
-            except Exception:  # noqa: BLE001 — best-effort cleanup
-                pass
     _store = None
     # Reset the motor client + db singletons so they rebind to the current loop.
     try:
