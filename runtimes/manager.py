@@ -239,14 +239,14 @@ def _build_default_manager() -> RuntimeManager:
         log.info("RuntimeManager: DockerAgentAdapter registered")
 
     # ── Tier 1-3 specialist runtimes (Hermes, Goose, Aider) ───────────────────
-    # These are registered ON BY DEFAULT so the agency can use them whenever their
-    # CLI/sidecar is present. Each adapter self-reports availability=False (via
-    # shutil.which / connection probe) when its tool is absent, so an unavailable
-    # runtime is simply skipped by the router and falls back to internal_agent —
-    # never a crash. Set RUNTIME_EXTERNAL_DISABLED=true to register none of them
-    # (e.g. on a constrained host where the health-poll overhead is unwanted), or
-    # set RUNTIME_<NAME>_ENABLED=false to disable an individual one.
-    _external_default_on = not _env_flag("RUNTIME_EXTERNAL_DISABLED")
+    # These are OFF BY DEFAULT — they only work when the corresponding CLI
+    # tool is installed on the host (aider, goose, hermes-agent). On Render
+    # free tier (and most cloud deploys) those CLIs aren't installed, so
+    # registering them just produces endless health-check failures in the
+    # logs. Operators who DO have the CLIs installed can opt in via
+    # RUNTIME_<NAME>_ENABLED=true (or RUNTIME_EXTERNAL_DISABLED=false to
+    # enable all of them at once).
+    _external_default_on = _env_flag("RUNTIME_EXTERNAL_ENABLED")  # default: OFF
 
     if _env_flag("RUNTIME_HERMES_ENABLED", default=_external_default_on):
         from runtimes.adapters.hermes import HermesAdapter

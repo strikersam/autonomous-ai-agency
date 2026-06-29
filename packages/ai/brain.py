@@ -240,6 +240,13 @@ async def resolve_active_brain(
     # save so we never persist a dead model. When set, it wins over both
     # env vars (other than the kill-switch above) and the provider records
     # — that's the whole point of "one-click change from the UI".
+    #
+    # IMPORTANT: when BRAIN_PREFERENCE=ollama, the operator has explicitly
+    # chosen local-only. If the persisted BrainConfig points at a cloud
+    # provider (e.g. a stale "nvidia" config from before the operator
+    # switched to ollama), we MUST NOT honour it — that would route every
+    # task to a cloud provider the operator explicitly opted out of, and
+    # if that provider's model is dead (410 Gone) every task blocks.
     try:
         from packages.ai.brain_config import (
             get_brain_config,
@@ -253,29 +260,38 @@ async def resolve_active_brain(
         # This keeps the existing test contract intact: when no PATCH has
         # been issued, the resolver falls through to provider records / env.
         if cfg.updated_at:
-            provider = cfg.primary_provider
-            base = provider_base_url(provider)
-            if base:
-                key = provider_api_key(provider)
-                if provider == "ollama" or key:
-                    if not base.endswith("/v1") and provider != "ollama":
-                        base = f"{base}/v1"
-                    headers = {"Authorization": f"Bearer {key}"} if key else None
-                    # Pick the role model — executor is the hot-path call.
-                    model = cfg.executor_model or cfg.planner_model or SAFE_DEFAULT_MODEL
-                    if _norm(base) not in exclude:
-                        resolution = BrainResolution(
-                            provider_id=f"brain_config:{provider}",
-                            base_url=base,
-                            auth_headers=headers,
-                            model=model,
-                            role="brain_config",
-                            free_tier=True,
-                            source="brain_config_store",
-                            priority=9_000,
-                        )
-                        _cached_brain = resolution
-                        return resolution
+            preference = get_brain_preference()
+            # If operator wants ollama-only, ignore a stale cloud config.
+            if preference == "ollama" and cfg.primary_provider != "ollama":
+                log.warning(
+                    "brain_policy: ignoring persisted BrainConfig (provider=%s) "
+                    "because BRAIN_PREFERENCE=ollama — falling through to ollama",
+                    cfg.primary_provider,
+                )
+            else:
+                provider = cfg.primary_provider
+                base = provider_base_url(provider)
+                if base:
+                    key = provider_api_key(provider)
+                    if provider == "ollama" or key:
+                        if not base.endswith("/v1") and provider != "ollama":
+                            base = f"{base}/v1"
+                        headers = {"Authorization": f"Bearer {key}"} if key else None
+                        # Pick the role model — executor is the hot-path call.
+                        model = cfg.executor_model or cfg.planner_model or SAFE_DEFAULT_MODEL
+                        if _norm(base) not in exclude:
+                            resolution = BrainResolution(
+                                provider_id=f"brain_config:{provider}",
+                                base_url=base,
+                                auth_headers=headers,
+                                model=model,
+                                role="brain_config",
+                                free_tier=True,
+                                source="brain_config_store",
+                                priority=9_000,
+                            )
+                            _cached_brain = resolution
+                            return resolution
     except Exception as exc:  # noqa: BLE001 — never block resolution
         log.debug("brain_policy: BrainConfig lookup failed (%s) — continuing", exc)
 

@@ -174,8 +174,14 @@ class RuntimeHealthService:
             else:
                 circuit.record_failure()
         except Exception as exc:
-            log.error("Health check failed for %s: %s (circuit failures: %d)",
-                      runtime_id, exc, circuit.consecutive_failures + 1)
+            # After the circuit opens (3 failures), these fire every 30s during
+            # recovery probes — demote to DEBUG to avoid log spam. The circuit-
+            # open state itself is already logged at WARNING in record_failure().
+            if circuit.is_open:
+                log.debug("Health check still failing for %s (circuit OPEN): %s", runtime_id, exc)
+            else:
+                log.warning("Health check failed for %s: %s (circuit failures: %d)",
+                          runtime_id, exc, circuit.consecutive_failures + 1)
             circuit.record_failure()
             self._cache[runtime_id] = RuntimeHealth(
                 runtime_id=runtime_id,

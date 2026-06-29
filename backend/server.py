@@ -1512,6 +1512,19 @@ async def lifespan(app_: "FastAPI"):
     except Exception as exc:
         log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
 
+    # Nuclear cleanup: bulk-delete duplicates directly in MongoDB. This is
+    # the fix for the 2100+ schedule multiplication bug — force_cleanup only
+    # deduplicates in-memory jobs, but if 2100 duplicates are persisted in
+    # MongoDB (from a previous bug), force_cleanup alone won't catch them all.
+    try:
+        from packages.scheduler.cleanup import nuclear_cleanup
+        nuclear = await nuclear_cleanup(get_db())
+        if nuclear.get("deduped", 0) > 0 or nuclear.get("deleted_run_once", 0) > 0 or nuclear.get("deleted_stuck", 0) > 0:
+            log.info("Startup nuclear cleanup: run_once=%d stuck=%d deduped=%d total_remaining=%d",
+                     nuclear["deleted_run_once"], nuclear["deleted_stuck"], nuclear["deduped"], nuclear["total"])
+    except Exception as exc:
+        log.warning("Startup nuclear cleanup failed (non-fatal): %s", exc)
+
     # N5: Surface SERVICE_TOKEN misconfiguration at startup so the operator
     # sees the gap in the backend logs (not just when /setbrain fails at
     # runtime). Best-effort — never blocks startup.
@@ -2174,6 +2187,22 @@ async def ensure_bootstrap() -> None:
             await get_db().tasks.create_index("task_id", unique=True)
             await get_db().tasks.create_index("owner_id")
             await get_db().tasks.create_index("status")
+            # Sort index for list_all/list_for_user (which sort by created_at desc).
+            # Without this, MongoDB does a collection scan on every page load → 15s+ timeout.
+            await get_db().tasks.create_index("created_at")
+            await get_db().tasks.create_index("updated_at")
+            await get_db().tasks.create_index("pending_agent_run")
+            # Schedules: unique index on name prevents the 2100+ schedule
+            # multiplication bug — even if the in-memory dedup check misses
+            # (e.g. hydrate hasn't run yet, or multiple processes create the
+            # same schedule concurrently), MongoDB rejects the duplicate.
+            await get_db().schedules.create_index("name", unique=True)
+            await get_db().schedules.create_index("job_id", unique=True)
+            await get_db().schedules.create_index("tags")
+            # Activity log + chat sessions already indexed above.
+            # Add agent_sessions index for the agent roster query.
+            await get_db().agent_sessions.create_index("user_id")
+            await get_db().agent_sessions.create_index("updated_at")
             # Wire feature stores to the shared MongoDB connection
             set_agent_store(AgentStore(db=get_db()))
             set_task_store(TaskStore(db=get_db()))
