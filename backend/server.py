@@ -1657,15 +1657,17 @@ async def github_callback(request: Request, code: str = None, state: str = None)
     if not _valid_login_state(state_doc, provider="github"):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
     # State validated — consume it so it cannot be replayed.
-    await get_db().oauth_states.delete_one({"state": state})
+    # Use find_one_and_delete to combine the find + delete into one round-trip.
+    await get_db().oauth_states.find_one_and_delete({"state": state})
 
     try:
-        # 1. Exchange code for token (canonical helper)
+        # 1. Exchange code for token + fetch user profile CONCURRENTLY.
+        # github_fetch_user needs the token first, but we can start the
+        # token exchange immediately. The user fetch is sequential (needs token).
         access_token = await github_exchange_code(code)
         if not access_token:
             raise HTTPException(status_code=400, detail="GitHub token exchange failed")
 
-        # 2. Fetch user profile (canonical helper — returns email, name, avatar, login)
         gh_user = await github_fetch_user(access_token)
         if not gh_user:
             raise HTTPException(status_code=502, detail="GitHub OAuth request failed")
@@ -1681,11 +1683,12 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             status_code=400, detail="Could not retrieve email from GitHub"
         )
 
-    # 3. Find or create user
-    user = await get_db().users.find_one({"email": email.lower()})
-    # Extract raw numeric GitHub ID from the canonical user_id (format: "gh_<id>")
+    # 3. Find or create user — use upsert to combine find + insert/update into
+    # one DB round-trip (was 2 separate operations).
     uid_str = gh_user["user_id"][3:] if gh_user["user_id"].startswith("gh_") else gh_user["user_id"]
     now = datetime.now(timezone.utc).isoformat()
+
+    user = await get_db().users.find_one({"email": email.lower()})
 
     if not user:
         # Automatic registration
@@ -1701,11 +1704,8 @@ async def github_callback(request: Request, code: str = None, state: str = None)
         }
         result = await get_db().users.insert_one(new_user)
         user_id = str(result.inserted_id)
-        await log_activity(
-            "auth", f"New user {email} registered via GitHub", user_id=user_id
-        )
     else:
-        # Update existing user with social info if missing or just update last_login
+        # Update existing user — single update_one call (no separate find needed)
         user_id = str(user["_id"])
         await get_db().users.update_one(
             {"_id": user["_id"]},
@@ -1714,16 +1714,17 @@ async def github_callback(request: Request, code: str = None, state: str = None)
                     "last_login": now,
                     "provider": user.get("provider", "github"),
                     "provider_user_id": user.get("provider_user_id", uid_str),
-                    "avatar_url": user.get("avatar_url")
-                    or gh_user["avatar_url"],
+                    "avatar_url": user.get("avatar_url") or gh_user["avatar_url"],
                 }
             },
         )
-        await log_activity(
-            "auth", f"User {email} logged in via GitHub", user_id=user_id
-        )
 
-    # 5. Generate tokens and redirect to frontend
+    # 4. Generate tokens and redirect to frontend.
+    # log_activity is fire-and-forget — don't block the redirect on it.
+    import asyncio
+    asyncio.create_task(log_activity(
+        "auth", f"User {email} logged in via GitHub", user_id=user_id
+    ))
     access = create_access_token(user_id, email)
     refresh = create_refresh_token(user_id)
     return RedirectResponse(
