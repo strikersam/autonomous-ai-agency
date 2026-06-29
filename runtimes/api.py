@@ -31,7 +31,7 @@ from runtimes.base import (
     RuntimePreflightError,
     RuntimeUnavailableError,
 )
-from rbac import require_authenticated
+from packages.auth.rbac import require_authenticated
 from runtimes.manager import get_runtime_manager
 from runtimes.control import (
     start_runtime,

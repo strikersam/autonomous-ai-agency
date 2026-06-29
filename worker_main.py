@@ -45,7 +45,7 @@ log = logging.getLogger("worker")
 
 async def _main() -> None:
     """Bootstrap services and run until SIGTERM / SIGINT."""
-    from agent.scheduler import AgentScheduler, set_scheduler
+    from packages.scheduler.scheduler import AgentScheduler, set_scheduler
     from tasks.store import get_task_store, set_task_store
     from db import get_store
     from services.background import start_background_services

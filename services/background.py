@@ -22,7 +22,7 @@ from tasks.automation import TaskAutomationService
 from tasks.dispatcher import TaskDispatcher
 
 if TYPE_CHECKING:
-    from agent.scheduler import AgentScheduler
+    from packages.scheduler.scheduler import AgentScheduler
     from tasks.store import TaskStore
     from runtimes.manager import RuntimeManager
 

@@ -15,12 +15,32 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import proxy
 from webui.config_store import JsonConfigStore, JsonStorePaths
 from webui.providers import ProviderCreate, ProviderManager, ProviderUpdate
 from webui.workspaces import WorkspaceManager
+
+
+@pytest.fixture(autouse=True)
+def _reset_brain_singletons(monkeypatch, tmp_path):
+    """Reset the brain_config + brain_policy singletons before each test.
+
+    V2.0 Phase 2 moved brain_config_store → packages.ai.brain_config and
+    brain_policy → packages.ai.brain. Tests that mutate _store or
+    _cached_brain must target the REAL modules (not the shims).
+
+    Also isolates the sqlite mirror to a tmp_path so a persisted config
+    from another test can't reintroduce role="brain_config" state via
+    BrainConfigStore._load_unlocked() reading the default mirror path.
+    """
+    import packages.ai.brain_config as _bcs
+    import packages.ai.brain as _bp
+    monkeypatch.setattr(_bcs, "_store", None)
+    monkeypatch.setattr(_bp, "_cached_brain", None)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 
 
 def _bootstrap(tmp_path: Path) -> tuple[ProviderManager, WorkspaceManager]:
@@ -156,7 +176,7 @@ def test_admin_reorder_endpoint_writes_priorities(tmp_path: Path):
     providers, workspaces = _bootstrap(tmp_path)
     proxy.app.state.webui_providers = providers
     proxy.app.state.webui_workspaces = workspaces
-    from admin_auth import AdminIdentity
+    from packages.auth.admin import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
     client = TestClient(proxy.app)
 
@@ -194,7 +214,7 @@ def test_admin_reorder_endpoint_validates_body(tmp_path: Path):
     providers, workspaces = _bootstrap(tmp_path)
     proxy.app.state.webui_providers = providers
     proxy.app.state.webui_workspaces = workspaces
-    from admin_auth import AdminIdentity
+    from packages.auth.admin import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
     client = TestClient(proxy.app)
     resp = client.post(
@@ -228,7 +248,16 @@ def test_admin_policy_brain_returns_resolution_and_paid_state(tmp_path: Path, mo
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("NVidiaApiKey", raising=False)
 
-    from admin_auth import AdminIdentity
+    # The autouse _reset_brain_singletons fixture handles the singleton reset.
+    # Also force _load_unlocked to skip Mongo + the sqlite mirror and return
+    # recommended_brain_config() directly (which has updated_at="" when no
+    # provider keys are present — the contract this test pins).
+    import packages.ai.brain_config as _bcs
+    async def _fresh_default(self):
+        return _bcs.recommended_brain_config()
+    monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
+
+    from packages.auth.admin import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
     client = TestClient(proxy.app)
     resp = client.get(
@@ -279,8 +308,20 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
     )
     monkeypatch.delenv("AGENT_LLM_BASE_URL", raising=False)
     monkeypatch.delenv("ALLOW_PAID_BRAIN", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
 
-    from admin_auth import AdminIdentity
+    # The autouse _reset_brain_singletons fixture handles the singleton reset.
+    # Also force _load_unlocked to skip Mongo + the sqlite mirror so the
+    # cached BrainConfig (with non-empty updated_at from earlier tests) can't
+    # short-circuit resolve_active_brain() to role="brain_config" with a
+    # base_url that doesn't match the nvidia-nim record.
+    import packages.ai.brain_config as _bcs
+    async def _fresh_default(self):
+        return _bcs.recommended_brain_config()
+    monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
+
+    from packages.auth.admin import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
     client = TestClient(proxy.app)
     resp = client.get(

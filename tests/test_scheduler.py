@@ -4,7 +4,7 @@ import warnings
 
 import pytest
 
-from agent.scheduler import AgentScheduler, ScheduledJob
+from packages.scheduler.scheduler import AgentScheduler, ScheduledJob
 
 
 class _FakePersistence:

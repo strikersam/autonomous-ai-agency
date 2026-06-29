@@ -16,7 +16,7 @@ import pytest
 @pytest.fixture
 def clean_store(monkeypatch, tmp_path):
     """Reset brain config store + SQLITE_DB_PATH + SERVICE_TOKEN."""
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     monkeypatch.setattr(mod, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.delenv("SERVICE_TOKEN", raising=False)

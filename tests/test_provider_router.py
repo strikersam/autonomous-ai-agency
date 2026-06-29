@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from provider_router import (
+from packages.ai.router import (
     CommercialFallbackRequiredError,
     ProviderConfig,
     ProviderRouter,
@@ -122,7 +122,7 @@ async def test_provider_router_falls_back_to_second_provider(monkeypatch):
 async def test_rate_limited_provider_fails_over_immediately_without_burning_retries(monkeypatch) -> None:
     """A 429 (e.g. 40 rpm hit) must NOT retry the same provider — it fails over to the
     next working provider at once and cools the rate-limited one."""
-    from provider_router import is_provider_on_cooldown
+    from packages.ai.router import is_provider_on_cooldown
 
     calls: list[str] = []
 
@@ -167,7 +167,7 @@ async def test_provider_router_records_failure_on_failed_provider(monkeypatch):
     """When a provider call fails (and failover succeeds), the brain watchdog's
     record_failure MUST be called for the failed provider_id, and record_success
     for the one that succeeded."""
-    import services.brain_watchdog as _bw  # top-level path used by tests
+    import packages.ai.watchdog as _bw  # top-level path used by tests
 
     # Reset the singleton so we get a clean watchdog state.
     _bw.reset_watchdog()
@@ -223,7 +223,7 @@ async def test_provider_router_watchdog_notification_never_breaks_request(monkey
     real_import = builtins.__import__
 
     def _boom_import(name, *args, **kwargs):
-        if name == "services.brain_watchdog" or name == "brain_watchdog":
+        if name in ("packages.ai.watchdog", "services.brain_watchdog", "brain_watchdog"):
             raise ImportError("simulated watchdog outage (test)")
         return real_import(name, *args, **kwargs)
 
@@ -482,7 +482,7 @@ async def test_419_short_retry_after_retries_same_model(monkeypatch):
 @pytest.mark.anyio
 async def test_probe_lock_gates_concurrent_requests(monkeypatch):
     """When a probe lock is held, other callers skip the provider."""
-    from provider_router import _acquire_provider_probe, _release_provider_probe
+    from packages.ai.router import _acquire_provider_probe, _release_provider_probe
 
     calls: list[str] = []
 
@@ -516,7 +516,7 @@ async def test_probe_lock_gates_concurrent_requests(monkeypatch):
 @pytest.mark.anyio
 async def test_419_on_all_models_shorter_cooldown(monkeypatch):
     """When ALL models on a provider return 419, the cooldown is shorter than the default 30s."""
-    from provider_router import is_provider_on_cooldown, ProviderFallbackError
+    from packages.ai.router import is_provider_on_cooldown, ProviderFallbackError
 
     async def fake_post_chat(self, provider, payload, timeout_sec):
         return httpx.Response(419, json={"error": "model busy"})
@@ -549,7 +549,7 @@ async def _clear_probe_locks():
     somehow bypasses the autouse fixture (e.g. via direct monkeypatching of
     shared_state).
     """
-    from provider_router import _release_provider_probe
+    from packages.ai.router import _release_provider_probe
     # Best-effort — release common test provider ids.  The probe lock TTL
     # makes this belt-and-suspenders safe.
     try:

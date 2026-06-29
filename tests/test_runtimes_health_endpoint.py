@@ -65,7 +65,7 @@ def test_runtimes_health_endpoint_returns_hermes_via_testclient(monkeypatch, her
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from runtimes.api import runtime_router
-    from rbac import require_authenticated
+    from packages.auth.rbac import require_authenticated
     from runtimes.base import RuntimeHealth
 
     # Inject a cached health snapshot for hermes so health_summary() returns it

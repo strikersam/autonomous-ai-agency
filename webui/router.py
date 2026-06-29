@@ -346,7 +346,7 @@ def register_webui(
         role_tags: dict = {}
         brain_policy: dict | None = None
         try:
-            from brain_policy import get_provider_role_tags as _role_tags, resolve_active_brain, allow_paid_brain, get_brain_preference
+            from packages.ai.brain import get_provider_role_tags as _role_tags, resolve_active_brain, allow_paid_brain, get_brain_preference
             role_tags = await _role_tags()
             brain = await resolve_active_brain()
             brain_policy = {
@@ -393,7 +393,7 @@ def register_webui(
         webui provider records (which use a different provider_id namespace).
         """
         try:
-            from brain_policy import get_provider_role_tags as _role_tags
+            from packages.ai.brain import get_provider_role_tags as _role_tags
             tags = await _role_tags()
         except Exception as exc:
             log.exception("admin_provider_role_tags: brain_policy call failed: %s", exc)
@@ -440,7 +440,7 @@ def register_webui(
         Toggle via ``PATCH /admin/api/policy/brain`` — no restart required.
         """
         try:
-            from brain_policy import allow_paid_brain, get_brain_preference, resolve_active_brain
+            from packages.ai.brain import allow_paid_brain, get_brain_preference, resolve_active_brain
             brain = await resolve_active_brain()
         except Exception as exc:
             log.exception("admin_get_brain_policy: brain resolution failed: %s", exc)
@@ -484,7 +484,7 @@ def register_webui(
         """
         os.environ["BRAIN_PREFERENCE"] = body.brain_preference
         try:
-            from brain_policy import invalidate_brain_cache, resolve_active_brain
+            from packages.ai.brain import invalidate_brain_cache, resolve_active_brain
             invalidate_brain_cache()
             brain = await resolve_active_brain()
         except Exception as exc:

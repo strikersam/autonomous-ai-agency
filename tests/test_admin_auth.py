@@ -2,8 +2,7 @@ import ctypes
 import unittest
 from unittest.mock import MagicMock, patch
 import os
-import admin_auth
-
+import packages.auth.admin as admin_auth
 class TestWindowsAuth(unittest.TestCase):
     def setUp(self):
         # Mock ctypes.windll safely even if it doesn"t exist

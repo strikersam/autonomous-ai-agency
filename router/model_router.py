@@ -104,7 +104,7 @@ def _opus_model() -> str | None:
     endpoint. With this guard the UI is the single source of truth.
     """
     try:
-        from brain_policy import allow_paid_brain, get_active_brain_sync, is_anthropic_model
+        from packages.ai.brain import allow_paid_brain, get_active_brain_sync, is_anthropic_model
     except Exception:
         allow_paid_brain = lambda: os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in {"1", "true", "yes", "on"}  # noqa: E731
         is_anthropic_model = lambda _m: (_m or "").lower().startswith("claude")  # noqa: E731

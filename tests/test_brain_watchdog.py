@@ -8,16 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Import brain_watchdog and brain_config_store directly to avoid the heavy
-# services/__init__.py cascade (which pulls bson/pymongo).
-_services_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "services")
-sys.path.insert(0, _services_dir)
-import brain_watchdog as _bw
-import brain_config_store as _bcs
-sys.path.pop(0)
-
-BrainWatchdog = _bw.BrainWatchdog
-reset_watchdog = _bw.reset_watchdog
+# V2.0 Modernization: brain_watchdog moved to packages/ai/watchdog.py and
+# brain_config_store moved to packages/ai/brain_config.py. Import directly
+# from packages/ to avoid the heavy services/__init__.py cascade.
+from packages.ai.watchdog import BrainWatchdog, reset_watchdog
+from packages.ai import watchdog as _bw
+from packages.ai import brain_config as _bcs
 
 
 @pytest.fixture(autouse=True)

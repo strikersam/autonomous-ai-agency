@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from provider_router import (
+from packages.ai.router import (
     ProviderConfig,
     ProviderRouter,
     clear_cooldowns,

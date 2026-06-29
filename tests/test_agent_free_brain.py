@@ -12,7 +12,7 @@ from typing import ClassVar
 
 import pytest
 
-import brain_policy
+import packages.ai.brain as brain_policy
 from agent.loop import AgentRunner
 
 

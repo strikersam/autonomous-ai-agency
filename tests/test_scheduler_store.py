@@ -9,7 +9,7 @@ class TestSchedulerStore:
 
     @pytest.fixture
     def store(self):
-        from services.scheduler_store import (
+        from packages.scheduler.store import (
             SchedulerStore,
             _MemDB,
             _store as _ss_singleton,
@@ -20,13 +20,13 @@ class TestSchedulerStore:
         # skips the `from backend.server import get_db` import chain which
         # can trigger event-loop-closed errors in CI.
         s._db = _MemDB()
-        import services.scheduler_store as mod
+        import packages.scheduler.store as mod
         mod._store = s
         yield s
         mod._store = _backup
 
     async def test_save_and_load(self, store):
-        from agent.scheduler import ScheduledJob
+        from packages.scheduler.scheduler import ScheduledJob
         job = ScheduledJob(
             job_id="job-1",
             name="test job",
@@ -42,7 +42,7 @@ class TestSchedulerStore:
         assert found.get("name") == "test job"
 
     async def test_delete(self, store):
-        from agent.scheduler import ScheduledJob
+        from packages.scheduler.scheduler import ScheduledJob
         job = ScheduledJob(
             job_id="job-del",
             name="delete me",
@@ -68,8 +68,8 @@ class TestSchedulerStore:
 
     async def test_agent_scheduler_hydrate(self):
         """AgentScheduler.hydrate() loads jobs from the store."""
-        from agent.scheduler import AgentScheduler, ScheduledJob
-        from services.scheduler_store import (
+        from packages.scheduler.scheduler import AgentScheduler, ScheduledJob
+        from packages.scheduler.store import (
             SchedulerStore,
             _store as _ss_singleton,
         )
@@ -78,7 +78,7 @@ class TestSchedulerStore:
         # Set up a store with a persisted job
         sim_store = SchedulerStore()
         # Force memory backend to skip get_db() import chain in CI.
-        from services.scheduler_store import _MemDB
+        from packages.scheduler.store import _MemDB
         sim_store._db = _MemDB()
         sim_job = ScheduledJob(
             job_id="hydrate-job",
@@ -89,7 +89,7 @@ class TestSchedulerStore:
         )
         await sim_store.save(sim_job)
 
-        import services.scheduler_store as ss_mod
+        import packages.scheduler.store as ss_mod
         ss_mod._store = sim_store
 
         sched = AgentScheduler()
@@ -110,7 +110,7 @@ class TestSchedulerStore:
 
     async def test_count_after_saves(self, store):
         """count() reflects the number of saved jobs."""
-        from agent.scheduler import ScheduledJob
+        from packages.scheduler.scheduler import ScheduledJob
         for i in range(3):
             job = ScheduledJob(
                 job_id=f"count-{i}",
@@ -125,7 +125,7 @@ class TestSchedulerStore:
 
     async def test_count_after_delete(self, store):
         """count() decreases after delete."""
-        from agent.scheduler import ScheduledJob
+        from packages.scheduler.scheduler import ScheduledJob
         job = ScheduledJob(
             job_id="count-del",
             name="to delete",
@@ -140,7 +140,7 @@ class TestSchedulerStore:
 
     async def test_delete_stale_keeps_recent(self, store):
         """delete_stale() keeps jobs updated recently."""
-        from agent.scheduler import ScheduledJob
+        from packages.scheduler.scheduler import ScheduledJob
         job = ScheduledJob(
             job_id="recent-job",
             name="recent",
@@ -156,7 +156,7 @@ class TestSchedulerStore:
     async def test_delete_stale_removes_old_jobs(self, store):
         """delete_stale() removes jobs with old updated_at."""
         import time
-        from agent.scheduler import ScheduledJob
+        from packages.scheduler.scheduler import ScheduledJob
 
         # Save a job and then backdate its updated_at
         job = ScheduledJob(
@@ -201,7 +201,7 @@ class TestSchedulerStore:
     async def test_delete_stale_default_retention_from_env(self, store, monkeypatch):
         """delete_stale() reads SCHEDULER_JOB_RETENTION_DAYS from env."""
         import time
-        from agent.scheduler import ScheduledJob
+        from packages.scheduler.scheduler import ScheduledJob
 
         monkeypatch.setenv("SCHEDULER_JOB_RETENTION_DAYS", "7")
 
@@ -228,7 +228,7 @@ class TestSchedulerStore:
 
     async def test_delete_stale_nothing_stale(self, store):
         """delete_stale() returns 0 when all jobs are recent."""
-        from agent.scheduler import ScheduledJob
+        from packages.scheduler.scheduler import ScheduledJob
         job = ScheduledJob(
             job_id="fresh",
             name="fresh",
@@ -245,7 +245,7 @@ class TestSchedulerStore:
     async def test_delete_stale_explicit_retention_overrides_env(self, store, monkeypatch):
         """Explicit retention_days arg takes precedence over env var."""
         import time
-        from agent.scheduler import ScheduledJob
+        from packages.scheduler.scheduler import ScheduledJob
 
         monkeypatch.setenv("SCHEDULER_JOB_RETENTION_DAYS", "365")
 
@@ -275,7 +275,7 @@ class TestSchedulerStore:
 
     async def test_mem_collection_count_documents(self):
         """_MemCollection.count_documents returns doc count."""
-        from services.scheduler_store import _MemCollection
+        from packages.scheduler.store import _MemCollection
         col = _MemCollection()
         assert await col.count_documents({}) == 0
         col._docs["a"] = {"job_id": "a", "name": "test"}
@@ -285,7 +285,7 @@ class TestSchedulerStore:
     async def test_mem_collection_delete_many(self):
         """_MemCollection.delete_many removes docs matching updated_at < cutoff."""
         import time
-        from services.scheduler_store import _MemCollection
+        from packages.scheduler.store import _MemCollection
         col = _MemCollection()
         now = time.time()
         col._docs["old"] = {"job_id": "old", "updated_at": now - 100_000}
@@ -297,7 +297,7 @@ class TestSchedulerStore:
 
     async def test_mem_delete_result_count(self):
         """_MemDeleteResult supports explicit count for batch deletes."""
-        from services.scheduler_store import _MemDeleteResult
+        from packages.scheduler.store import _MemDeleteResult
         r = _MemDeleteResult(True, count=7)
         assert r.deleted_count == 7
         r2 = _MemDeleteResult(False)

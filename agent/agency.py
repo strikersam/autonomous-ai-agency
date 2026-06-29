@@ -606,7 +606,7 @@ class Agency:
     # ── Dispatch ──────────────────────────────────────────────────────────────
 
     def _dispatch_directive(self, directive: AgentDirective) -> None:
-        from agent.scheduler import get_scheduler
+        from packages.scheduler.scheduler import get_scheduler
         try:
             scheduler = get_scheduler()
             # Derive a short human-readable label from the instruction (first 60 chars).

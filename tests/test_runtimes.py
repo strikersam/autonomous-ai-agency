@@ -225,7 +225,7 @@ class TestRuntimePreflight:
         from fastapi.testclient import TestClient
         from runtimes.api import runtime_router
         from runtimes.manager import RuntimeManager
-        from rbac import require_authenticated
+        from packages.auth.rbac import require_authenticated
 
         manager = RuntimeManager()
         manager.register(TaskHarnessStub())

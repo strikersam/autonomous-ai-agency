@@ -266,7 +266,7 @@ class CompanyAgencyService:
     @property
     def scheduler(self):
         if self._scheduler is None:
-            from agent.scheduler import get_scheduler
+            from packages.scheduler.scheduler import get_scheduler
             self._scheduler = get_scheduler()
         return self._scheduler
 

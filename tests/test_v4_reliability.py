@@ -281,13 +281,13 @@ class TestJobLifecycle:
 
 class TestProviderCooldown:
     def test_cooldown_state_returns_dict(self):
-        from provider_router import get_cooldown_state
+        from packages.ai.router import get_cooldown_state
         state = get_cooldown_state()
         assert isinstance(state, dict)
 
     def test_broken_provider_gets_cooldown_on_error(self, monkeypatch):
-        import provider_router as pr
-        from provider_router import mark_provider_failed, is_provider_on_cooldown
+        import packages.ai.router as pr
+        from packages.ai.router import mark_provider_failed, is_provider_on_cooldown
 
         asyncio.run(pr.clear_cooldowns())
         asyncio.run(mark_provider_failed("bad_prov_test", cooldown_seconds=60))
@@ -295,8 +295,8 @@ class TestProviderCooldown:
         asyncio.run(pr.clear_cooldowns())
 
     def test_provider_comes_off_cooldown_after_expiry(self, monkeypatch):
-        import provider_router as pr
-        from provider_router import clear_cooldowns, is_provider_on_cooldown, mark_provider_failed
+        import packages.ai.router as pr
+        from packages.ai.router import clear_cooldowns, is_provider_on_cooldown, mark_provider_failed
 
         asyncio.run(clear_cooldowns())
 

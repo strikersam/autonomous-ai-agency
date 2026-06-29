@@ -18,7 +18,7 @@ import time
 import pytest
 
 from agent.job_manager import AgentJobManager
-from provider_router import (
+from packages.ai.router import (
     ProviderConfig,
     mark_provider_failed,
     is_provider_on_cooldown,

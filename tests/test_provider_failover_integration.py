@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from provider_router import (
+from packages.ai.router import (
     ProviderConfig,
     ProviderFallbackError,
     ProviderRouter,
@@ -176,7 +176,7 @@ async def test_failover_raises_503_when_all_fail(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_provider_on_cooldown_is_skipped(monkeypatch) -> None:
     """A provider on cooldown is not attempted."""
-    from provider_router import mark_provider_failed
+    from packages.ai.router import mark_provider_failed
 
     attempts: list[str] = []
 

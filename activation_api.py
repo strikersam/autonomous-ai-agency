@@ -28,7 +28,7 @@ from activation import (
     invalidate_activation_cache,
     save_activation,
 )
-from rbac import require_admin, audit
+from packages.auth.rbac import require_admin, audit
 from db import get_store
 
 log = logging.getLogger("qwen-proxy")

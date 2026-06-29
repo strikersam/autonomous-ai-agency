@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture(scope="module")
 def client():
-    from rbac import require_authenticated
+    from packages.auth.rbac import require_authenticated
     from backend.server import app
 
     app.dependency_overrides[require_authenticated] = lambda: {

@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 from unittest.mock import MagicMock
 
-from rbac import (
+from packages.auth.rbac import (
     UserRole,
     Permission,
     ROLE_PERMISSIONS,
@@ -187,14 +187,14 @@ class TestRequireAdmin:
 class TestAuditLog:
 
     def test_audit_appends_entry(self):
-        import rbac
+        import packages.auth.rbac as rbac
         before = len(rbac._audit_log)
         user = {"role": "admin", "email": "admin@test.com"}
         audit("test_action", user, resource="api_keys", outcome="success")
         assert len(rbac._audit_log) > before
 
     def test_audit_entry_fields(self):
-        import rbac
+        import packages.auth.rbac as rbac
         user = {"role": "user", "email": "u@test.com"}
         audit("view_task", user, resource="task", resource_id="task_123")
         entry = rbac._audit_log[-1]
@@ -210,7 +210,7 @@ class TestAuditLog:
         assert len(log) > 0
 
     def test_audit_extended_fields(self):
-        import rbac
+        import packages.auth.rbac as rbac
         user = {"role": "admin", "email": "admin@test.com"}
         audit(
             "test_extended",
@@ -228,7 +228,7 @@ class TestAuditLog:
         assert entry["agent_id"] == "agent_def456"
 
     def test_audit_filter_by_user_id(self):
-        import rbac
+        import packages.auth.rbac as rbac
         user = {"role": "user", "email": "filter_test@test.com"}
         audit("test_filter", user)
         log = get_audit_log(limit=100, user_id="filter_test@test.com")

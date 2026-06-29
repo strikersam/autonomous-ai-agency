@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch as mock_patch
 
 import pytest
 
-from services.brain_config_store import (
+from packages.ai.brain_config import (
     BrainConfig,
     BrainConfigStore,
     SAFE_DEFAULT_MODEL,
@@ -38,7 +38,7 @@ from services.brain_config_store import (
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch, tmp_path):
     """Strip env vars that would change role resolution + reset the singleton."""
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     monkeypatch.setattr(mod, "_store", None)
     # Isolate the sqlite mirror to a per-test tmp dir so a previous test's
     # persisted config doesn't leak into the next.
@@ -70,7 +70,7 @@ def test_requested_wins_over_everything(monkeypatch):
         updated_by="test",
     )
     store._cache_at = time.monotonic()
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     mod._store = store
 
     assert resolve_role_model_sync("planner", "explicit-request") == "explicit-request"
@@ -90,7 +90,7 @@ def test_db_overrides_env(monkeypatch):
         updated_by="test",
     )
     store._cache_at = time.monotonic()
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     mod._store = store
 
     assert resolve_role_model_sync("planner") == "db-planner"
@@ -145,7 +145,7 @@ def test_db_change_takes_effect_at_call_time(monkeypatch):
     issues a PATCH that updates the DB-stored config. The next
     ``resolve_role_model_sync`` call returns the new value — no re-import.
     """
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
 
     # Step 1: no DB cache → env / safe default.
     assert resolve_role_model_sync("executor") == SAFE_DEFAULT_MODEL
@@ -172,8 +172,15 @@ def test_db_change_takes_effect_at_call_time(monkeypatch):
     assert resolve_role_model_sync("judge") == "new-judge"
 
 
-def test_invalidate_then_refresh_picks_up_db_change(monkeypatch):
+def test_invalidate_then_refresh_picks_up_db_change(monkeypatch, tmp_path):
     """invalidate() forces the next call to re-read the DB."""
+    # Isolate the sqlite mirror AND reset the module-level singleton so this
+    # test does not pollute the production mirror or leak a cached config
+    # with ``updated_at`` set into later tests.
+    import packages.ai.brain_config as _bcs
+    monkeypatch.setattr(_bcs, "_store", None)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
+
     # Set up a fake Mongo doc that "appears" after the first read.
     docs = {"current": None}
 
@@ -190,9 +197,9 @@ def test_invalidate_then_refresh_picks_up_db_change(monkeypatch):
 
     # Apply a config via the store — refreshes cache.
     with mock_patch("backend.server.get_db", return_value=db):
-        from services.brain_config_store import set_brain_config, get_brain_config
+        from packages.ai.brain_config import set_brain_config, get_brain_config, BrainConfigPatch
         asyncio.run(set_brain_config(
-            __import__("services.brain_config_store", fromlist=["BrainConfigPatch"]).BrainConfigPatch(
+            BrainConfigPatch(
                 executor_model="first-value"
             ),
             actor="test",
@@ -247,7 +254,7 @@ def test_resolve_active_brain_honours_db_brain_config(monkeypatch):
     monkeypatch.setenv("CEREBRAS_API_KEY", "fake-cb")
 
     # Prime the BrainConfigStore cache with a DB-stored config.
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     store = BrainConfigStore()
     store._cache = BrainConfig(
         primary_provider="cerebras",
@@ -261,7 +268,7 @@ def test_resolve_active_brain_honours_db_brain_config(monkeypatch):
     store._cache_at = time.monotonic()
     mod._store = store
 
-    from brain_policy import resolve_active_brain, invalidate_brain_cache
+    from packages.ai.brain import resolve_active_brain, invalidate_brain_cache
     invalidate_brain_cache()
     brain = asyncio.run(resolve_active_brain())
 
@@ -278,7 +285,7 @@ def test_resolve_active_brain_falls_through_when_db_unset(monkeypatch):
     monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test")
 
     # BrainConfigStore returns the safe default (updated_at="").
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     monkeypatch.setattr(mod, "_store", None)
 
     # No provider records.
@@ -289,7 +296,7 @@ def test_resolve_active_brain_falls_through_when_db_unset(monkeypatch):
         lambda: _empty_records(),
     )
 
-    from brain_policy import resolve_active_brain, invalidate_brain_cache
+    from packages.ai.brain import resolve_active_brain, invalidate_brain_cache
     invalidate_brain_cache()
     brain = asyncio.run(resolve_active_brain())
 
@@ -306,7 +313,7 @@ def test_env_override_still_wins_over_db_brain_config(monkeypatch):
 
     # Prime the BrainConfigStore cache — even with a DB config set, the env
     # override must win.
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     store = BrainConfigStore()
     store._cache = BrainConfig(
         primary_provider="cerebras",
@@ -320,7 +327,7 @@ def test_env_override_still_wins_over_db_brain_config(monkeypatch):
     store._cache_at = time.monotonic()
     mod._store = store
 
-    from brain_policy import resolve_active_brain, invalidate_brain_cache
+    from packages.ai.brain import resolve_active_brain, invalidate_brain_cache
     invalidate_brain_cache()
     brain = asyncio.run(resolve_active_brain())
 

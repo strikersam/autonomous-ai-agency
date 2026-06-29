@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 import os
 
-from provider_router import ProviderConfig
+from packages.ai.router import ProviderConfig
 
 log = logging.getLogger("qwen-proxy")
 

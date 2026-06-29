@@ -20,9 +20,7 @@ import urllib.request
 
 import pytest
 
-import brain_policy
-
-
+import packages.ai.brain as brain_policy
 # Names that resolve on NVIDIA NIM today (live-verified 2026-06-20 via curl
 # against https://integrate.api.nvidia.com/v1/chat/completions — both returned
 # HTTP 200 with a coherent ~600-token reply). Keeping both names in tests so a

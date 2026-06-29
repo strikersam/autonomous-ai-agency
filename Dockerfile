@@ -19,6 +19,11 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 RUN playwright install --with-deps chromium
 
 COPY . /app
+# Ensure packages/ is present even if a future .dockerignore excludes it.
+# V2.0 Modernization moved provider_router, brain_policy, admin_auth,
+# social_auth, rbac, scheduler, storage, etc. into packages/ — the shims
+# at the old paths import from packages/, so the image is broken without it.
+COPY packages/ /app/packages/
 COPY --from=webui /src/webui/frontend/dist /app/webui/frontend/dist
 
 ENV PROXY_PORT=8000

@@ -11,7 +11,7 @@ from fastapi import HTTPException
 import httpx
 
 import backend.server as server
-from provider_router import ProviderAttempt, ProviderConfig, ProviderResult
+from packages.ai.router import ProviderAttempt, ProviderConfig, ProviderResult
 
 
 

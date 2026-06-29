@@ -35,7 +35,7 @@ from agent.intent import detect_intent, classify_direct_chat_intent, INTENT_EXEC
 from agent.doctor import DirectChatDoctor, translate_error_to_conversational
 from agent.schemas import DirectChatState
 from tokens import verify_token
-from provider_router import ProviderRouter
+from packages.ai.router import ProviderRouter
 from runtimes.adapters.internal_agent import InternalAgentAdapter
 from runtimes.base import TaskSpec
 from agent.models import ResumeRequest
@@ -310,7 +310,7 @@ async def _get_github_token_for_user(user_email: str) -> str | None:
     """Fetch GitHub token for user from secrets store or environment."""
     try:
         from secrets_store import get_secrets_store
-        from rbac import get_user_role
+        from packages.auth.rbac import get_user_role
         store = get_secrets_store()
         uid = user_email
         role = get_user_role({"email": user_email})  # Simplified

@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch as mock_patch
 
 import pytest
 
-from services.brain_config_store import (
+from packages.ai.brain_config import (
     BrainConfig,
     BrainConfigPatch,
     BrainConfigStore,
@@ -42,7 +42,7 @@ def _run(coro):
 @pytest.fixture(autouse=True)
 def _isolated_store(monkeypatch, tmp_path):
     """Force a fresh BrainConfigStore singleton per test + a temp sqlite mirror."""
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     monkeypatch.setattr(mod, "_store", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
     # Clear env vars that would change role resolution.
@@ -83,7 +83,7 @@ def test_default_brain_config_is_safe():
 
 def test_recommended_config_prefers_cerebras_when_key_present(monkeypatch):
     """With a Cerebras key set (and no saved doc), the recommended chain wins."""
-    from services.brain_config_store import PROVIDER_PRESETS, recommended_brain_config
+    from packages.ai.brain_config import PROVIDER_PRESETS, recommended_brain_config
 
     monkeypatch.setenv("CEREBRAS_API_KEY", "csk-test")
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
@@ -95,7 +95,7 @@ def test_recommended_config_prefers_cerebras_when_key_present(monkeypatch):
 
 def test_recommended_config_priority_groq_over_nvidia(monkeypatch):
     """Groq is chosen ahead of NVIDIA when both keys are present but no Cerebras."""
-    from services.brain_config_store import recommended_brain_config
+    from packages.ai.brain_config import recommended_brain_config
 
     monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
     monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
@@ -106,7 +106,7 @@ def test_recommended_config_priority_groq_over_nvidia(monkeypatch):
 
 def test_recommended_config_falls_back_to_nvidia_default_with_no_cloud_keys(monkeypatch):
     """No cloud keys → the safe NIM default (never an unreachable local Ollama)."""
-    from services.brain_config_store import recommended_brain_config
+    from packages.ai.brain_config import recommended_brain_config
 
     for env_var in ("CEREBRAS_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY"):
         monkeypatch.delenv(env_var, raising=False)
@@ -252,8 +252,15 @@ def test_sqlite_mirror_serves_when_mongo_unavailable(monkeypatch):
     assert got.updated_by == "mirror-test"
 
 
-def test_sqlite_mirror_round_trips_through_set(monkeypatch):
+def test_sqlite_mirror_round_trips_through_set(monkeypatch, tmp_path):
     """set_brain_config writes to both Mongo AND the sqlite mirror."""
+    # Isolate the sqlite mirror AND reset the module-level singleton so this
+    # test does NOT pollute the production mirror (`.data/agency.db_brain.db`)
+    # or leak a cached config with ``updated_at`` set into later tests.
+    import packages.ai.brain_config as _bcs
+    monkeypatch.setattr(_bcs, "_store", None)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
+
     class _FakeCollection:
         async def find_one(self, q):
             return None
@@ -292,7 +299,7 @@ def test_get_never_raises_on_total_failure(monkeypatch):
 
     # Point sqlite path at a non-existent directory we can't write to.
     monkeypatch.setattr(
-        "services.brain_config_store.BrainConfigStore._mirror_db_path",
+        "packages.ai.brain_config.BrainConfigStore._mirror_db_path",
         lambda self: "/nonexistent-dir/test.db",
     )
 
@@ -328,7 +335,7 @@ def test_resolve_role_model_db_overrides_env(monkeypatch):
     """A DB-stored config (cache fresh) wins over the env var."""
     monkeypatch.setenv("AGENT_PLANNER_MODEL", "env-planner")
     # Prime the cache with a DB config.
-    import services.brain_config_store as mod
+    import packages.ai.brain_config as mod
     cfg = BrainConfig(
         primary_provider="cerebras",
         planner_model="db-planner",

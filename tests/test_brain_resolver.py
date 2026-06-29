@@ -22,6 +22,31 @@ import os
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_brain_singletons(monkeypatch, tmp_path):
+    """Reset the brain_config + brain_policy singletons before each test.
+
+    V2.0 Phase 2 moved brain_config_store → packages.ai.brain_config and
+    brain_policy → packages.ai.brain. Tests that mutate _store or
+    _cached_brain must target the REAL modules (not the shims).
+
+    Also isolates the sqlite mirror to a tmp_path so a brain_watchdog write
+    (or another test's set_brain_config) can't leak a config with non-empty
+    updated_at into this test's resolution path.
+    """
+    import packages.ai.brain_config as _bcs
+    import packages.ai.brain as _bp
+    monkeypatch.setattr(_bcs, "_store", None)
+    monkeypatch.setattr(_bp, "_cached_brain", None)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
+    # Force _load_unlocked to skip Mongo + sqlite mirror and return the
+    # recommended default (which has updated_at="" when no provider keys
+    # are present). Tests that need a DB-stored config override this.
+    async def _fresh_default(self):
+        return _bcs.recommended_brain_config()
+    monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
@@ -67,7 +92,7 @@ def test_env_override_wins_over_paid_records(monkeypatch):
     monkeypatch.setenv("AGENT_LLM_API_KEY", "sk-free")
     monkeypatch.setenv("AGENT_LLM_MODEL", "my-free-model")
 
-    from brain_policy import resolve_active_brain
+    from packages.ai.brain import resolve_active_brain
     brain = _run(resolve_active_brain())
     assert brain.provider_id == "env_override"
     assert "my-free.example" in brain.base_url
@@ -77,7 +102,7 @@ def test_env_override_wins_over_paid_records(monkeypatch):
 
 def test_env_override_no_key_returns_no_headers(monkeypatch):
     monkeypatch.setenv("AGENT_LLM_BASE_URL", "http://env-no-key.local/v1")
-    from brain_policy import resolve_active_brain
+    from packages.ai.brain import resolve_active_brain
     brain = _run(resolve_active_brain())
     assert brain.provider_id == "env_override"
     assert brain.auth_headers is None
@@ -103,7 +128,7 @@ def test_brain_skips_paid_when_free_configured(monkeypatch):
         ),
     )
 
-    from brain_policy import resolve_active_brain
+    from packages.ai.brain import resolve_active_brain
     brain = _run(resolve_active_brain())
     assert "nvidia" in brain.base_url or "nemotron" in (brain.model or "").lower()
     assert brain.provider_id == "nvidia-nim"
@@ -125,7 +150,7 @@ def test_brain_escalates_to_paid_only_when_explicitly_opted_in(monkeypatch):
         ),
     )
 
-    from brain_policy import resolve_active_brain
+    from packages.ai.brain import resolve_active_brain
     brain = _run(resolve_active_brain())
     assert "anthropic" in brain.base_url
     assert brain.free_tier is False
@@ -150,7 +175,7 @@ def test_excluded_url_is_skipped(monkeypatch):
         ),
     )
 
-    from brain_policy import resolve_active_brain
+    from packages.ai.brain import resolve_active_brain
     brain = _run(resolve_active_brain(exclude_base_urls={"https://primary.example/v1"}))
     assert brain.provider_id == "ollama-local-fallback"
     assert brain.role == "ollama_local"
@@ -172,7 +197,7 @@ def test_no_records_falls_back_to_nvidia_then_ollama(monkeypatch):
         lambda: _records(),
     )
 
-    from brain_policy import resolve_active_brain, DEFAULT_FREE_NVIDIA_MODEL
+    from packages.ai.brain import resolve_active_brain, DEFAULT_FREE_NVIDIA_MODEL
     brain = _run(resolve_active_brain())
     assert brain.provider_id == "nvidia-nim-free-default"
     assert brain.model == DEFAULT_FREE_NVIDIA_MODEL
@@ -192,7 +217,7 @@ def test_no_records_no_nvidia_key_falls_back_to_ollama(monkeypatch):
         lambda: _records(),
     )
 
-    from brain_policy import resolve_active_brain
+    from packages.ai.brain import resolve_active_brain
     brain = _run(resolve_active_brain())
     assert brain.provider_id == "ollama-local-fallback"
     assert brain.role == "ollama_local"
@@ -214,7 +239,7 @@ def test_cache_invalidates_on_next_resolution(monkeypatch):
         ),
     )
 
-    from brain_policy import resolve_active_brain, get_active_brain_sync, invalidate_brain_cache
+    from packages.ai.brain import resolve_active_brain, get_active_brain_sync, invalidate_brain_cache
     invalidate_brain_cache()
     assert get_active_brain_sync() is None
 
@@ -295,7 +320,7 @@ def test_role_tags_classify_correctly(monkeypatch):
         ),
     )
 
-    from brain_policy import get_provider_role_tags
+    from packages.ai.brain import get_provider_role_tags
     tags = _run(get_provider_role_tags())
     assert tags["nvidia-nim"]["role"] == "brain"
     assert tags["nvidia-nim"]["is_brain"] is True

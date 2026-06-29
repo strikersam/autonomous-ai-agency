@@ -11,7 +11,7 @@ from webui.config_store import JsonConfigStore
 from webui.url_guard import validate_outbound_url
 
 try:
-    from brain_policy import invalidate_brain_cache
+    from packages.ai.brain import invalidate_brain_cache
 except Exception:  # noqa: BLE001 - brain_policy import is best-effort
     def invalidate_brain_cache() -> None:  # type: ignore[no-redef]
         pass

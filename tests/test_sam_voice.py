@@ -34,7 +34,7 @@ def sam_with_mocks(sam):
         MagicMock(enabled=True, job_id="job2"),
         MagicMock(enabled=False, job_id="job3"),
     ]
-    with patch("agent.scheduler.get_scheduler", return_value=mock_sched):
+    with patch("packages.scheduler.scheduler.get_scheduler", return_value=mock_sched):
         yield sam
 
 

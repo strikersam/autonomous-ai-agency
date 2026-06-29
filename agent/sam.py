@@ -149,7 +149,7 @@ class SamAgent:
 
         # Scheduler state
         try:
-            from agent.scheduler import get_scheduler
+            from packages.scheduler.scheduler import get_scheduler
             sched = get_scheduler()
             jobs = sched.list()
             ctx["schedules"] = {

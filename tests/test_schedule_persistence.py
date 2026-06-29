@@ -11,7 +11,7 @@ import asyncio
 import gc
 import warnings
 
-from agent.scheduler import AgentScheduler, ScheduledJob
+from packages.scheduler.scheduler import AgentScheduler, ScheduledJob
 from agent.schedule_store import ScheduleStore
 
 
