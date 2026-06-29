@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from packages.auth.admin import AdminAuthManager
     from packages.auth.key_store import KeyStore
-    from service_manager import WindowsServiceManager
+    from packages.orchestration.service_manager import WindowsServiceManager
 
 log = logging.getLogger("qwen-proxy")
 

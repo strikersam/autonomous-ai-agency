@@ -1,4 +1,4 @@
-"""activation_api.py — FastAPI routes for instance activation & per-user onboarding control.
+"""packages.config.activation_api.py — FastAPI routes for instance activation & per-user onboarding control.
 
 Routes:
   GET  /api/activation/status          → public (pre-auth): instance activation state + instanceId
@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from activation import (
+from packages.config.activation import (
     get_activation,
     instance_id,
     is_activated,

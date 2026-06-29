@@ -289,7 +289,7 @@ async def cmd_models(user_id: int) -> str:
 
 async def cmd_cost(user_id: int) -> str:
     try:
-        from infra_cost import project_session_cost
+        from packages.shared.infra_cost import project_session_cost
         proj = project_session_cost()
         return f"*Local infra cost estimate:*\n```\n{proj.summary()}\n```"
     except Exception as exc:

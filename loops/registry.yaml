@@ -113,7 +113,7 @@ loops:
     cadence: continuous (LOG_WATCHER_INTERVAL)
     runs_per_day: 24
     cost: medium
-    source: log_watcher.py
+    source: packages/telemetry/log_watcher.py
     self_heal: true
     gate: telegram
     purpose: Daemon beside the proxy that turns error logs into issues/PRs.

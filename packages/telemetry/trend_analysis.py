@@ -1,4 +1,4 @@
-"""trend_analysis.py — last30days-style trend analysis (issue #493).
+"""packages.telemetry.trend_analysis.py — last30days-style trend analysis (issue #493).
 
 Adapts the mvanhorn/last30days-skill workflow (30-day window, zero-config
 GitHub + HN sources first, BYOK sources optional) on top of the existing

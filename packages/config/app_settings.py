@@ -1,4 +1,4 @@
-"""app_settings.py — DB-persisted application settings.
+"""packages.config.app_settings.py — DB-persisted application settings.
 
 A tiny async key/value settings layer backed by ``db.get_store()`` (collection
 ``app_settings``). Each setting is one document::
@@ -67,7 +67,7 @@ async def get_setting(key: str, default: Any = None) -> Any:
     try:
         doc = await _store().app_settings.find_one({"key": key})
     except Exception:  # noqa: BLE001 — never let settings break a request
-        log.exception("app_settings.get_setting(%s) failed", key)
+        log.exception("packages.config.app_settings.get_setting(%s) failed", key)
         return _cache.get(key, default)
     if not doc or "value" not in doc:
         return default
@@ -117,7 +117,7 @@ async def refresh_cache() -> dict[str, Any]:
                 _cache[key] = doc["value"]
         _cache_loaded = True
     except Exception:  # noqa: BLE001 — startup must not crash on this
-        log.exception("app_settings.refresh_cache failed")
+        log.exception("packages.config.app_settings.refresh_cache failed")
     return dict(_cache)
 
 

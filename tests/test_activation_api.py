@@ -15,7 +15,7 @@ from unittest.mock import patch
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from activation_api import activation_router
+from packages.config.activation_api import activation_router
 
 
 def _client(*, admin: bool) -> TestClient:

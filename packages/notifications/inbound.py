@@ -1,4 +1,4 @@
-"""telegram_inbound_handlers.py
+"""packages.notifications.inbound.py
 
 Step 1 inbound-routing handlers for the FreeBuff Telegram bot.
 

@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from telegram_service import NotificationDispatcher, TelegramBotManager
+from packages.notifications.service import NotificationDispatcher, TelegramBotManager
 
 
 class _FakeResponse:

@@ -128,7 +128,7 @@ class TestTelegramNotifications:
 
     def test_notification_dispatcher_on_task_complete(self):
         """Verify NotificationDispatcher.on_task_complete dispatches notifications."""
-        from telegram_service import NotificationDispatcher
+        from packages.notifications.service import NotificationDispatcher
 
         disp = NotificationDispatcher()
         task = FakeTask(task_id="progress-test", instruction="long task", status="done")
