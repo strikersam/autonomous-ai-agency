@@ -2173,6 +2173,10 @@ async def ensure_bootstrap() -> None:
 
     FastAPI startup hooks can be skipped in some dev/prod entrypoints; this keeps
     the service usable even if the ASGI server doesn't run startup events.
+
+    Each index creation is wrapped in its own try/except so a single failure
+    (e.g. unique index on schedules.name when duplicates already exist) doesn't
+    block seed_admin() — the admin user MUST be seeded for login to work.
     """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
@@ -2181,51 +2185,76 @@ async def ensure_bootstrap() -> None:
         async with _BOOTSTRAP_LOCK:
             if _BOOTSTRAP_DONE:
                 return
-            await get_db().users.create_index("email", unique=True)
-            await get_db().wiki_pages.create_index("slug", unique=True)
-            await get_db().wiki_pages.create_index([("title", "text"), ("content", "text")])
-            await get_db().sources.create_index("created_at")
-            await get_db().activity_log.create_index("created_at")
-            await get_db().chat_sessions.create_index("user_id")
-            await get_db().providers.create_index("provider_id", unique=True)
-            await get_db().api_keys.create_index("key_id", unique=True)
-            await get_db().github_settings.create_index("user_id", unique=True)
-            # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
-            await get_db().oauth_states.create_index("created_at", expireAfterSeconds=600)
-            # Indexes for feature routers
-            await get_db().agent_definitions.create_index("agent_id", unique=True)
-            await get_db().agent_definitions.create_index("owner_id")
-            await get_db().tasks.create_index("task_id", unique=True)
-            await get_db().tasks.create_index("owner_id")
-            await get_db().tasks.create_index("status")
-            # Sort index for list_all/list_for_user (which sort by created_at desc).
-            # Without this, MongoDB does a collection scan on every page load → 15s+ timeout.
-            await get_db().tasks.create_index("created_at")
-            await get_db().tasks.create_index("updated_at")
-            await get_db().tasks.create_index("pending_agent_run")
-            # Schedules: unique index on name prevents the 2100+ schedule
-            # multiplication bug — even if the in-memory dedup check misses
-            # (e.g. hydrate hasn't run yet, or multiple processes create the
-            # same schedule concurrently), MongoDB rejects the duplicate.
-            await get_db().schedules.create_index("name", unique=True)
-            await get_db().schedules.create_index("job_id", unique=True)
-            await get_db().schedules.create_index("tags")
-            # Activity log + chat sessions already indexed above.
-            # Add agent_sessions index for the agent roster query.
-            await get_db().agent_sessions.create_index("user_id")
-            await get_db().agent_sessions.create_index("updated_at")
+
+            # Helper: create an index, swallowing errors (e.g. duplicate key
+            # on unique index when stale data exists). Never blocks seed_admin.
+            async def _safe_index(collection_name: str, *args, **kwargs):
+                try:
+                    col = getattr(get_db(), collection_name, None)
+                    if col is not None:
+                        await col.create_index(*args, **kwargs)
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("Index creation on %s failed (non-fatal): %s", collection_name, exc)
+
+            await _safe_index("users", "email", unique=True)
+            await _safe_index("wiki_pages", "slug", unique=True)
+            await _safe_index("wiki_pages", [("title", "text"), ("content", "text")])
+            await _safe_index("sources", "created_at")
+            await _safe_index("activity_log", "created_at")
+            await _safe_index("chat_sessions", "user_id")
+            await _safe_index("providers", "provider_id", unique=True)
+            await _safe_index("api_keys", "key_id", unique=True)
+            await _safe_index("github_settings", "user_id", unique=True)
+            await _safe_index("oauth_states", "created_at", expireAfterSeconds=600)
+            await _safe_index("agent_definitions", "agent_id", unique=True)
+            await _safe_index("agent_definitions", "owner_id")
+            await _safe_index("tasks", "task_id", unique=True)
+            await _safe_index("tasks", "owner_id")
+            await _safe_index("tasks", "status")
+            await _safe_index("tasks", "created_at")
+            await _safe_index("tasks", "updated_at")
+            await _safe_index("tasks", "pending_agent_run")
+            # Schedules: unique index on name prevents multiplication. May fail
+            # if duplicates already exist — that's OK, nuclear_cleanup will
+            # remove them on the next startup.
+            await _safe_index("schedules", "name", unique=True)
+            await _safe_index("schedules", "job_id", unique=True)
+            await _safe_index("schedules", "tags")
+            await _safe_index("agent_sessions", "user_id")
+            await _safe_index("agent_sessions", "updated_at")
+
             # Wire feature stores to the shared MongoDB connection
-            set_agent_store(AgentStore(db=get_db()))
-            set_task_store(TaskStore(db=get_db()))
-            await seed_admin()
-            await seed_default_agents()
-            await seed_default_providers()
-            await _sync_ollama_model()
+            try:
+                set_agent_store(AgentStore(db=get_db()))
+                set_task_store(TaskStore(db=get_db()))
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Feature store wiring failed (non-fatal): %s", exc)
+
+            # CRITICAL: seed_admin must always run — without it, no one can log in.
+            try:
+                await seed_admin()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("seed_admin failed: %s", exc)
+
+            try:
+                await seed_default_agents()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("seed_default_agents failed (non-fatal): %s", exc)
+
+            try:
+                await seed_default_providers()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("seed_default_providers failed (non-fatal): %s", exc)
+
+            try:
+                await _sync_ollama_model()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Ollama model sync failed (non-fatal): %s", exc)
+
             _BOOTSTRAP_DONE = True
     except Exception as exc:
-        log.warning("MongoDB bootstrap failed (running in limited mode): %s", exc)
+        log.warning("Bootstrap failed (running in limited mode): %s", exc)
         _BOOTSTRAP_DONE = True  # Mark as "attempted" to prevent repeated timeouts
-        raise
 
 
 # Startup is handled by the lifespan context manager defined above.

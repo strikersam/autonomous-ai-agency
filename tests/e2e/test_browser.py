@@ -166,7 +166,31 @@ def do_login(page: Page, base_url: str) -> bool:
     page.wait_for_load_state("domcontentloaded", timeout=15000)
     page.wait_for_timeout(1500)
 
-    # Verify we're logged in (not on login page anymore)
+    # Verify we're logged in (not on login page anymore).
+    # Retry up to 3 times — the admin user may still be seeding on the
+    # first server boot (cold Docker container), so the first login attempt
+    # can fail with "Invalid credentials" even though the creds are correct.
+    for login_attempt in range(3):
+        current = page.url
+        if "login" not in current.lower():
+            break  # login succeeded
+        # Still on login page — wait + retry
+        if login_attempt < 2:
+            page.wait_for_timeout(3000)
+            # Re-fill + re-click
+            try:
+                email_field.fill(ADMIN_EMAIL)
+                pw_field.fill(ADMIN_PASSWORD)
+                if btn.count() > 0:
+                    btn.click()
+                else:
+                    pw_field.press("Enter")
+                page.wait_for_load_state("domcontentloaded", timeout=15000)
+                page.wait_for_timeout(1500)
+            except Exception:
+                pass
+
+    # Final check
     current = page.url
     if "login" in current.lower():
         # Check for error message on page

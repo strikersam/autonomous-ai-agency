@@ -137,11 +137,19 @@ def test_auth(c: httpx.Client) -> str:
     check(r.status_code in (401, 403), "bad password → 401/403", r)
     ok("POST /api/auth/login (bad password) → 401/403")
 
-    # Valid credentials
-    r = req("POST", c, "/api/auth/login",
-            json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    # Valid credentials — retry up to 5 times (admin user may still be
+    # seeding on first server boot, especially on cold CI containers).
+    body = None
+    for attempt in range(5):
+        r = req("POST", c, "/api/auth/login",
+                json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        if r.status_code == 200:
+            body = r.json()
+            break
+        time.sleep(2)
     check(r.status_code == 200, "valid login → 200", r)
-    body = r.json()
+    if body is None:
+        body = r.json()
     check("access_token" in body, "login response must have access_token", r)
     token = body["access_token"]
     ok(f"POST /api/auth/login → token (role={body.get('role', '?')})")
