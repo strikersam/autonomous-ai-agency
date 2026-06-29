@@ -4,6 +4,6 @@
     "playwright-tests": "playwright test"
   },
   "dependencies": {
-    "playwright": "^1.28.0" // Version compatible with Node.js 24
+    "playwright": "^1.28.0"
   }
 }
