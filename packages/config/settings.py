@@ -27,14 +27,22 @@ class Settings:
         self.redis_url: str = os.environ.get("REDIS_URL", "")
 
         # Auth
-        # Never silently fall back to a hardcoded secret — fail fast in production.
-        # Tests set TESTING=true so they get the empty-string default.
+        # Never silently fall back to a hardcoded secret — that weakens every
+        # JWT issued. If SECRET_KEY is missing, use a random ephemeral one
+        # (matching backend/server.py's behaviour) and log a warning so the
+        # operator knows sessions will be invalidated on restart.
+        # Tests set TESTING=true to suppress the warning.
         self.jwt_secret: str = os.environ.get("SECRET_KEY", "")
-        if not self.jwt_secret and os.environ.get("TESTING", "").lower() != "true":
-            raise RuntimeError(
-                "SECRET_KEY must be set in the environment (or set TESTING=true for tests). "
-                "Never hardcode JWT secrets — a missing SECRET_KEY weakens every token issued."
-            )
+        if not self.jwt_secret:
+            import secrets as _secrets
+            self.jwt_secret = _secrets.token_hex(32)
+            if os.environ.get("TESTING", "").lower() != "true":
+                import logging as _logging
+                _logging.getLogger("agency-config").warning(
+                    "SECRET_KEY not set — using a randomly generated secret. "
+                    "Sessions will be invalidated on every server restart. "
+                    "Set SECRET_KEY in production."
+                )
         self.jwt_algorithm: str = "HS256"
         self.admin_email: str = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
         self.admin_password: str = os.environ.get("ADMIN_PASSWORD", "")
