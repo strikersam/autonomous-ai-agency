@@ -5,7 +5,7 @@ import asyncio
 import datetime as dt
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from trend_analysis import TrendItem, TrendReport, _within_window, run_trend_analysis
+from packages.telemetry.trend_analysis import TrendItem, TrendReport, _within_window, run_trend_analysis
 
 
 class TestWindow:
@@ -33,7 +33,7 @@ class TestRunTrendAnalysis:
         return a
 
     def test_report_sorted_filtered_and_persisted(self, tmp_path, monkeypatch):
-        import trend_analysis as ta
+        from packages.telemetry import trend_analysis as ta
         monkeypatch.setattr(ta, "TRENDS_DIR", tmp_path)
         old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=90)).isoformat()
         watcher = MagicMock()

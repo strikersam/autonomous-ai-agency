@@ -1,7 +1,6 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
-
 ### Added
 
 - **Single source of truth for all model + provider config** (2026-06-29). `packages/ai/registry.py` is now the ONLY place model ids are hardcoded. Every caller (direct chat, SAM voice agent, runtimes, Hermes, workflow orchestrator, setup wizard) imports from the registry. Added `model_for_role()` (resolves planner/executor/verifier/judge per provider), `fallback_chain()` (returns the chain to try when a model fails — always ends with Ollama local), `default_model_for_provider()` (never returns None). Env var overrides: `NVIDIA_DEFAULT_MODEL`, `CEREBRAS_DEFAULT_MODEL`, `GROQ_DEFAULT_MODEL`, `OLLAMA_MODEL`, `AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`, `AGENT_VERIFIER_MODEL`, `AGENT_JUDGE_MODEL`. Changing a model in the registry (or setting the env var) propagates everywhere — no more hardcoded model ids in `backend/server.py`, `setup/api.py`, `runtimes/adapters/internal_agent.py`, `runtimes/adapters/opencode.py`, `runtimes/adapters/jcode.py`, `packages/ai/brain.py`, `packages/ai/brain_config.py`.
