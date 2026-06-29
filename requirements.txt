@@ -37,6 +37,6 @@ redis>=8.0.1  # Redis client for shared-state backend (optional; in-memory defau
 fakeredis[lua]>=2.36.2  # Fake Redis for tests
 curl_cffi>=0.15.0
 dnspython>=2.8.0
-graphifyy>=0.8.47  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
+graphifyy>=0.9.2  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
 playwright>=1.55.0
 reportlab>=5.0.0,<6  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
