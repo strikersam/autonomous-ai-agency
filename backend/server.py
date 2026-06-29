@@ -176,6 +176,19 @@ OLLAMA_BASE = (
     or "http://localhost:11434"
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
+# Single source of truth for model defaults — imported from the registry.
+# Every hardcoded model reference below now reads from here so changing the
+# model in one place (packages/ai/registry.py) propagates everywhere.
+from packages.ai.registry import (
+    nvidia_default_model as _registry_nvidia_default,
+    cerebras_default_model as _registry_cerebras_default,
+    groq_default_model as _registry_groq_default,
+    ollama_default_model as _registry_ollama_default,
+    ollama_planner_model as _registry_ollama_planner,
+    model_for_role as _registry_model_for_role,
+    fallback_chain as _registry_fallback_chain,
+    default_model_for_provider as _registry_default_for_provider,
+)
 _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
 # Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
 # execute + verify). Caps a hung provider so the chat job fails cleanly
@@ -298,23 +311,21 @@ async def _persist_chat_session(
 
 
 def _default_agent_role_models() -> dict[str, str]:
+    """Resolve default models for each agent role from the registry.
+
+    SINGLE SOURCE OF TRUTH: packages/ai/registry.py. Env var overrides
+    (AGENT_PLANNER_MODEL, etc.) are handled inside model_for_role().
+    """
     nim_enabled = bool(
         (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
     )
-    if nim_enabled:
-        return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "qwen/qwen3-coder-480b-a35b-instruct",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "meta/llama-3.3-70b-instruct",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "meta/llama-3.3-70b-instruct",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
-        }
+    provider = "nvidia" if nim_enabled else "ollama"
     return {
-        "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
-        "planner": os.environ.get("AGENT_PLANNER_MODEL") or "deepseek-r1:32b",
-        "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "qwen3-coder:30b",
-        "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
-        "judge": os.environ.get("AGENT_JUDGE_MODEL") or os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
+        "default": _registry_default_for_provider(provider),
+        "planner": _registry_model_for_role("planner", provider),
+        "executor": _registry_model_for_role("executor", provider),
+        "verifier": _registry_model_for_role("verifier", provider),
+        "judge": _registry_model_for_role("judge", provider),
     }
 
 
@@ -1512,6 +1523,19 @@ async def lifespan(app_: "FastAPI"):
     except Exception as exc:
         log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
 
+    # Nuclear cleanup: bulk-delete duplicates directly in MongoDB. This is
+    # the fix for the 2100+ schedule multiplication bug — force_cleanup only
+    # deduplicates in-memory jobs, but if 2100 duplicates are persisted in
+    # MongoDB (from a previous bug), force_cleanup alone won't catch them all.
+    try:
+        from packages.scheduler.cleanup import nuclear_cleanup
+        nuclear = await nuclear_cleanup(get_db())
+        if nuclear.get("deduped", 0) > 0 or nuclear.get("deleted_run_once", 0) > 0 or nuclear.get("deleted_stuck", 0) > 0:
+            log.info("Startup nuclear cleanup: run_once=%d stuck=%d deduped=%d total_remaining=%d",
+                     nuclear["deleted_run_once"], nuclear["deleted_stuck"], nuclear["deduped"], nuclear["total"])
+    except Exception as exc:
+        log.warning("Startup nuclear cleanup failed (non-fatal): %s", exc)
+
     # N5: Surface SERVICE_TOKEN misconfiguration at startup so the operator
     # sees the gap in the backend logs (not just when /setbrain fails at
     # runtime). Best-effort — never blocks startup.
@@ -2149,6 +2173,10 @@ async def ensure_bootstrap() -> None:
 
     FastAPI startup hooks can be skipped in some dev/prod entrypoints; this keeps
     the service usable even if the ASGI server doesn't run startup events.
+
+    Each index creation is wrapped in its own try/except so a single failure
+    (e.g. unique index on schedules.name when duplicates already exist) doesn't
+    block seed_admin() — the admin user MUST be seeded for login to work.
     """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
@@ -2157,35 +2185,76 @@ async def ensure_bootstrap() -> None:
         async with _BOOTSTRAP_LOCK:
             if _BOOTSTRAP_DONE:
                 return
-            await get_db().users.create_index("email", unique=True)
-            await get_db().wiki_pages.create_index("slug", unique=True)
-            await get_db().wiki_pages.create_index([("title", "text"), ("content", "text")])
-            await get_db().sources.create_index("created_at")
-            await get_db().activity_log.create_index("created_at")
-            await get_db().chat_sessions.create_index("user_id")
-            await get_db().providers.create_index("provider_id", unique=True)
-            await get_db().api_keys.create_index("key_id", unique=True)
-            await get_db().github_settings.create_index("user_id", unique=True)
-            # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
-            await get_db().oauth_states.create_index("created_at", expireAfterSeconds=600)
-            # Indexes for feature routers
-            await get_db().agent_definitions.create_index("agent_id", unique=True)
-            await get_db().agent_definitions.create_index("owner_id")
-            await get_db().tasks.create_index("task_id", unique=True)
-            await get_db().tasks.create_index("owner_id")
-            await get_db().tasks.create_index("status")
+
+            # Helper: create an index, swallowing errors (e.g. duplicate key
+            # on unique index when stale data exists). Never blocks seed_admin.
+            async def _safe_index(collection_name: str, *args, **kwargs):
+                try:
+                    col = getattr(get_db(), collection_name, None)
+                    if col is not None:
+                        await col.create_index(*args, **kwargs)
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("Index creation on %s failed (non-fatal): %s", collection_name, exc)
+
+            await _safe_index("users", "email", unique=True)
+            await _safe_index("wiki_pages", "slug", unique=True)
+            await _safe_index("wiki_pages", [("title", "text"), ("content", "text")])
+            await _safe_index("sources", "created_at")
+            await _safe_index("activity_log", "created_at")
+            await _safe_index("chat_sessions", "user_id")
+            await _safe_index("providers", "provider_id", unique=True)
+            await _safe_index("api_keys", "key_id", unique=True)
+            await _safe_index("github_settings", "user_id", unique=True)
+            await _safe_index("oauth_states", "created_at", expireAfterSeconds=600)
+            await _safe_index("agent_definitions", "agent_id", unique=True)
+            await _safe_index("agent_definitions", "owner_id")
+            await _safe_index("tasks", "task_id", unique=True)
+            await _safe_index("tasks", "owner_id")
+            await _safe_index("tasks", "status")
+            await _safe_index("tasks", "created_at")
+            await _safe_index("tasks", "updated_at")
+            await _safe_index("tasks", "pending_agent_run")
+            # Schedules: unique index on name prevents multiplication. May fail
+            # if duplicates already exist — that's OK, nuclear_cleanup will
+            # remove them on the next startup.
+            await _safe_index("schedules", "name", unique=True)
+            await _safe_index("schedules", "job_id", unique=True)
+            await _safe_index("schedules", "tags")
+            await _safe_index("agent_sessions", "user_id")
+            await _safe_index("agent_sessions", "updated_at")
+
             # Wire feature stores to the shared MongoDB connection
-            set_agent_store(AgentStore(db=get_db()))
-            set_task_store(TaskStore(db=get_db()))
-            await seed_admin()
-            await seed_default_agents()
-            await seed_default_providers()
-            await _sync_ollama_model()
+            try:
+                set_agent_store(AgentStore(db=get_db()))
+                set_task_store(TaskStore(db=get_db()))
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Feature store wiring failed (non-fatal): %s", exc)
+
+            # CRITICAL: seed_admin must always run — without it, no one can log in.
+            try:
+                await seed_admin()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("seed_admin failed: %s", exc)
+
+            try:
+                await seed_default_agents()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("seed_default_agents failed (non-fatal): %s", exc)
+
+            try:
+                await seed_default_providers()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("seed_default_providers failed (non-fatal): %s", exc)
+
+            try:
+                await _sync_ollama_model()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Ollama model sync failed (non-fatal): %s", exc)
+
             _BOOTSTRAP_DONE = True
     except Exception as exc:
-        log.warning("MongoDB bootstrap failed (running in limited mode): %s", exc)
+        log.warning("Bootstrap failed (running in limited mode): %s", exc)
         _BOOTSTRAP_DONE = True  # Mark as "attempted" to prevent repeated timeouts
-        raise
 
 
 # Startup is handled by the lifespan context manager defined above.
