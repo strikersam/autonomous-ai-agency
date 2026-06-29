@@ -45,7 +45,7 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
 )
 
-from activation import (  # noqa: E402
+from packages.config.activation import (  # noqa: E402
     _ACTIVATION_FILE,
     _generate_token_for_owner,
     get_or_create_instance_id,

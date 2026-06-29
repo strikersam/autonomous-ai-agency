@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from log_watcher import AUTO_FILE_ENABLED, AUTO_FIX_ENABLED, LogWatcher, _redact_sensitive
+from packages.telemetry.log_watcher import AUTO_FILE_ENABLED, AUTO_FIX_ENABLED, LogWatcher, _redact_sensitive
 
 
 class TestRedactSensitive:

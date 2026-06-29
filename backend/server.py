@@ -62,7 +62,7 @@ from packages.ai.router import (
     ProviderRouter,
     extract_openai_text,
 )
-from langfuse_obs import emit_chat_observation
+from packages.telemetry.langfuse import emit_chat_observation
 from runtimes.api import runtime_router
 from router import get_router as _get_model_router
 from runtimes.manager import get_runtime_manager
@@ -70,10 +70,10 @@ from schedules import schedules_router
 from tasks.api import task_router
 from tasks.store import TaskStore, get_task_store, set_task_store
 from setup import setup_router
-from activation_api import activation_router
+from packages.config.activation_api import activation_router
 from setup.api import get_wizard_state
-from secrets_store import secrets_router, get_secrets_store
-from version import __version__, APP_NAME, APP_LABEL, APP_TAGLINE
+from packages.auth.secrets_store import secrets_router, get_secrets_store
+from packages.shared.version import __version__, APP_NAME, APP_LABEL, APP_TAGLINE
 from packages.auth.oauth import (
     github_exchange_code,
     github_fetch_user,
@@ -1554,7 +1554,7 @@ async def lifespan(app_: "FastAPI"):
     # Warm the app-settings cache so the (sync) onboarding-gate default read is
     # correct from the first request. Best-effort — never blocks startup.
     try:
-        from app_settings import refresh_cache
+        from packages.config.app_settings import refresh_cache
         await refresh_cache()
     except Exception as exc:  # noqa: BLE001
         log.warning("app_settings cache warm failed: %s", exc)

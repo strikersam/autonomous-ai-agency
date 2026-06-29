@@ -1,16 +1,13 @@
-"""Single source of truth for the application version and brand.
+"""version.py — backward-compat shim.
 
-Bump with ``python scripts/bump_version.py X.Y.Z`` — that propagates this value to
-``frontend/src/version.js``, ``frontend/package.json``, ``frontend/public/index.html``,
-and the README version badge. ``tests/test_version_consistency.py`` guards against drift.
+Real implementation: ``packages.shared.version`` (moved in reorg PR).
 """
+from packages.shared.version import *  # noqa: F401, F403
+import packages.shared.version as _real
 
-from __future__ import annotations
+_g = globals()
+for _name in dir(_real):
+    if not _name.startswith("__") or _name == "__all__":
+        _g[_name] = getattr(_real, _name)
 
-__version__ = "5.0.0"
-
-APP_NAME = "Autonomous AI Agency"
-APP_TAGLINE = "Your AI-powered workforce"
-
-# Human-facing label, e.g. "Autonomous AI Agency v5.0".
-APP_LABEL = f"{APP_NAME} v{'.'.join(__version__.split('.')[:2])}"
+__all__ = [n for n in dir(_real) if not n.startswith("__") or n == "__all__"]

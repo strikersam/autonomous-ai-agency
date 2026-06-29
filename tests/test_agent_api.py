@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import proxy
 from packages.auth.admin import AdminIdentity
-from key_store import KeyStore
+from packages.auth.key_store import KeyStore
 
 
 def test_openai_chat_completions_exact_output_short_circuits(monkeypatch):
