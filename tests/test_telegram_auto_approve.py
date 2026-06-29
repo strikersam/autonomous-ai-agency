@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-import telegram_bot as tb
-import telegram_inbound_handlers as tih
+from packages.notifications import bot as tb
+from packages.notifications import inbound as tih
 from services import inbound_router as ir
 
 

@@ -84,7 +84,7 @@ class TestNotifyWebhookRedaction:
                 if self._target is not None:
                     self._target()
 
-        monkeypatch.setattr("telegram_service.threading.Thread", _SyncThread)
+        monkeypatch.setattr("packages.notifications.service.threading.Thread", _SyncThread)
         yield
 
     """The webhook payload MUST NOT contain raw secrets / emails / IPs."""

@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api/admin/digest", tags=["admin-digest"])
 # without a working telegram_service (or missing httpx) can still exercise
 # the auth + aggregator paths via patch.object(adm, "NotificationDispatcher").
 try:
-    from telegram_service import NotificationDispatcher
+    from packages.notifications.service import NotificationDispatcher
 except Exception as _exc:  # pragma: no cover - import path requires live tw
     log.warning("admin_digest.notification_dispatcher_import_failed exc=%s", _exc)
     NotificationDispatcher = None  # type: ignore[assignment]  # noqa: N806

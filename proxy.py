@@ -135,7 +135,7 @@ from webui.router import register_webui
 
 from webui.workspaces import WorkspaceManager
 
-from direct_chat import direct_chat_router
+from packages.chat import direct_chat_router
 
 from features.api import features_router
 
