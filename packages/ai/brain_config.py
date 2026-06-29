@@ -36,12 +36,19 @@ log = logging.getLogger("brain_config_store")
 # ── Safe default ────────────────────────────────────────────────────────────
 #
 # The plan's hard constraint #1: "Never land on a dead model. Always keep a
-# known-good fallback." The 49B Nemotron Super is the live-verified (2026-06-20
-# probe) model the rest of the codebase already uses as its free-brain default
-# (see ``brain_policy.DEFAULT_FREE_NVIDIA_MODEL``). A bad DB write or a corrupt
-# config doc must never displace it.
+# known-good fallback." These defaults are imported from the registry (single
+# source of truth). A bad DB write or a corrupt config doc must never displace
+# them.
+from packages.ai.registry import (
+    nvidia_default_model as _nvidia_default,
+    cerebras_default_model as _cerebras_default,
+    groq_default_model as _groq_default,
+    ollama_default_model as _ollama_default,
+    ollama_planner_model as _ollama_planner,
+)
+
 SAFE_DEFAULT_PROVIDER: str = "nvidia"
-SAFE_DEFAULT_MODEL: str = "meta/llama-3.3-70b-instruct"
+SAFE_DEFAULT_MODEL: str = _nvidia_default()
 
 # Provider ids the Brain card recognises. The Literal keeps the Pydantic model
 # strict so a typo in the UI ("cerebrass") fails validation instead of
@@ -50,30 +57,31 @@ BrainProvider = Literal["nvidia", "cerebras", "groq", "ollama"]
 
 # Per-provider sensible presets surfaced by the UI's "presets" dropdown.
 # Operators can still type any model id — these are just convenience defaults.
+# All model ids come from the registry (single source of truth).
 PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     "cerebras": {
-        "planner":   "qwen-3-coder-480b",
-        "executor":  "qwen-3-coder-480b",
-        "verifier":  "llama-3.3-70b",
-        "judge":     "llama-3.3-70b",
+        "planner":   _cerebras_default(),
+        "executor":  _cerebras_default(),
+        "verifier":  _cerebras_default(),
+        "judge":     _cerebras_default(),
     },
     "groq": {
-        "planner":   "deepseek-r1-distill-llama-70b",
-        "executor":  "llama-3.3-70b-versatile",
-        "verifier":  "deepseek-r1-distill-llama-70b",
-        "judge":     "llama-3.3-70b-versatile",
+        "planner":   _groq_default(),
+        "executor":  _groq_default(),
+        "verifier":  _groq_default(),
+        "judge":     _groq_default(),
     },
     "nvidia": {
-        "planner":   "meta/llama-3.3-70b-instruct",
-        "executor":  "meta/llama-3.3-70b-instruct",
-        "verifier":  "meta/llama-3.3-70b-instruct",
-        "judge":     "meta/llama-3.3-70b-instruct",
+        "planner":   _nvidia_default(),
+        "executor":  _nvidia_default(),
+        "verifier":  _nvidia_default(),
+        "judge":     _nvidia_default(),
     },
     "ollama": {
-        "planner":   "deepseek-r1:32b",
-        "executor":  "qwen3-coder:30b",
-        "verifier":  "deepseek-r1:32b",
-        "judge":     "deepseek-r1:32b",
+        "planner":   _ollama_planner(),
+        "executor":  _ollama_default(),
+        "verifier":  _ollama_planner(),
+        "judge":     _ollama_planner(),
     },
 }
 

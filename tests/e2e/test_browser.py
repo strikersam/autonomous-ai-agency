@@ -172,8 +172,11 @@ def do_login(page: Page, base_url: str) -> bool:
         # Check for error message on page
         error_el = page.locator('[class*="error" i], [class*="alert" i], .text-red-500, .text-danger')
         error_text = ""
-        if error_el.count() > 0:
-            error_text = f" — page error: {error_el.first.inner_text()[:100]}"
+        try:
+            if error_el.count() > 0:
+                error_text = f" — page error: {error_el.first.inner_text()[:100]}"
+        except Exception:
+            pass  # locator might match a non-HTMLElement node
         fail("login", f"still on login page: {current}{error_text}")
         return False
 

@@ -20,18 +20,12 @@ from typing import Any
 
 log = logging.getLogger("brain_policy")
 
-# Default free NVIDIA NIM brain. The operator points this at the most capable
-# free cloud model via NVIDIA_DEFAULT_MODEL; this fallback is the documented
-# default (see .env.example / render.yaml).
-#
-# This MUST match the live, endpoint-tested model the rest of the codebase uses
-# (router/, services/, agents/, and seeded provider records all reference it). A
-# later curation pass (see the docs/changelog entry "NVIDIA NIM model list curated
-# from live endpoint testing") found the old `llama-3.3-nemotron-super-49b-v1` returns 410 Gone
-# 404, so the free-brain default is the empirically-live Nemotron Super 49B.
-# Without this, a deploy that leaves NVIDIA_DEFAULT_MODEL unset would resolve a
-# dead model and every dispatched task would fail at EXECUTE with a 400/404.
-DEFAULT_FREE_NVIDIA_MODEL = "meta/llama-3.3-70b-instruct"
+# Default free NVIDIA NIM brain — imported from the registry (single source of
+# truth). The operator points this at the most capable free cloud model via
+# NVIDIA_DEFAULT_MODEL; this fallback is the documented default.
+from packages.ai.registry import nvidia_default_model as _nvidia_default_model
+
+DEFAULT_FREE_NVIDIA_MODEL = _nvidia_default_model()
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -95,7 +89,7 @@ def resolve_free_nvidia_brain() -> tuple[str, dict, str] | None:
     base = (os.environ.get("NVIDIA_BASE_URL") or "").strip().rstrip("/") or "https://integrate.api.nvidia.com"
     if not base.endswith("/v1"):
         base = f"{base}/v1"
-    model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or DEFAULT_FREE_NVIDIA_MODEL
+    model = _nvidia_default_model()
     return base, {"Authorization": f"Bearer {key}"}, model
 
 

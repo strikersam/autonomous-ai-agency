@@ -176,6 +176,19 @@ OLLAMA_BASE = (
     or "http://localhost:11434"
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
+# Single source of truth for model defaults — imported from the registry.
+# Every hardcoded model reference below now reads from here so changing the
+# model in one place (packages/ai/registry.py) propagates everywhere.
+from packages.ai.registry import (
+    nvidia_default_model as _registry_nvidia_default,
+    cerebras_default_model as _registry_cerebras_default,
+    groq_default_model as _registry_groq_default,
+    ollama_default_model as _registry_ollama_default,
+    ollama_planner_model as _registry_ollama_planner,
+    model_for_role as _registry_model_for_role,
+    fallback_chain as _registry_fallback_chain,
+    default_model_for_provider as _registry_default_for_provider,
+)
 _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
 # Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
 # execute + verify). Caps a hung provider so the chat job fails cleanly
@@ -298,23 +311,21 @@ async def _persist_chat_session(
 
 
 def _default_agent_role_models() -> dict[str, str]:
+    """Resolve default models for each agent role from the registry.
+
+    SINGLE SOURCE OF TRUTH: packages/ai/registry.py. Env var overrides
+    (AGENT_PLANNER_MODEL, etc.) are handled inside model_for_role().
+    """
     nim_enabled = bool(
         (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
     )
-    if nim_enabled:
-        return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "qwen/qwen3-coder-480b-a35b-instruct",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "meta/llama-3.3-70b-instruct",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "meta/llama-3.3-70b-instruct",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
-        }
+    provider = "nvidia" if nim_enabled else "ollama"
     return {
-        "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
-        "planner": os.environ.get("AGENT_PLANNER_MODEL") or "deepseek-r1:32b",
-        "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "qwen3-coder:30b",
-        "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
-        "judge": os.environ.get("AGENT_JUDGE_MODEL") or os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
+        "default": _registry_default_for_provider(provider),
+        "planner": _registry_model_for_role("planner", provider),
+        "executor": _registry_model_for_role("executor", provider),
+        "verifier": _registry_model_for_role("verifier", provider),
+        "judge": _registry_model_for_role("judge", provider),
     }
 
 
