@@ -27,7 +27,7 @@ class NvidiaProvider(Provider):
 
     async def chat(self, messages, *, model=None, temperature=0.3, max_tokens=4096, **kwargs):
         # Delegate to existing provider_router (will be migrated in full later)
-        from provider_router import ProviderRouter, ProviderConfig
+        from packages.ai.router import ProviderRouter, ProviderConfig
         router = ProviderRouter([
             ProviderConfig(
                 "nvidia", "openai-compatible",
@@ -42,7 +42,7 @@ class NvidiaProvider(Provider):
              "temperature": temperature, "max_tokens": max_tokens, "stream": False},
             max_retries=2,
         )
-        from provider_router import extract_openai_text
+        from packages.ai.router import extract_openai_text
         return ChatResponse(
             text=extract_openai_text(result.response.json()),
             model=result.model,

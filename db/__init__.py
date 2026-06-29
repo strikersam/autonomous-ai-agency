@@ -67,10 +67,60 @@ def reset_store():
 # db.sqlite_store → packages.storage.sqlite. We register the REAL modules
 # under the old names so `import db.mongo_store as mod; mod._client = X`
 # writes propagate to the real singleton, and importlib.reload() works.
-from packages.storage import mongo as _mongo_mod
-from packages.storage import sqlite as _sqlite_mod
-_sys.modules["db.mongo_store"] = _mongo_mod
-_sys.modules["db.sqlite_store"] = _sqlite_mod
-# Expose as attributes of db so `import db; db.mongo_store` works too.
-mongo_store = _mongo_mod
-sqlite_store = _sqlite_mod
+#
+# IMPORTANT: keep these imports LAZY (inside __getattr__) so that a Mongo-only
+# deployment that doesn't have `aiosqlite` installed can still `from db import
+# get_store` without ImportError. The sqlite module is only imported when
+# someone actually accesses `db.sqlite_store` (or when STORAGE_BACKEND=sqlite).
+def __getattr__(name: str):
+    if name == "mongo_store":
+        from packages.storage import mongo as _m
+        _sys.modules["db.mongo_store"] = _m
+        globals()["mongo_store"] = _m
+        return _m
+    if name == "sqlite_store":
+        from packages.storage import sqlite as _s
+        _sys.modules["db.sqlite_store"] = _s
+        globals()["sqlite_store"] = _s
+        return _s
+    raise AttributeError(f"module 'db' has no attribute {name!r}")
+
+
+# Also register the aliases in sys.modules lazily — when someone does
+# `import db.mongo_store`, Python falls back to the parent package's
+# __getattr__ for sub-module lookups. But to be safe, install a fake module
+# object that proxies attribute access to the real module on first access.
+class _LazyModuleProxy:
+    """Loads the real module on first attribute access, then replaces itself."""
+    def __init__(self, name: str, loader):
+        object.__setattr__(self, "_lazy_name", name)
+        object.__setattr__(self, "_lazy_loader", loader)
+        object.__setattr__(self, "_lazy_real", None)
+
+    def _load(self):
+        if object.__getattribute__(self, "_lazy_real") is None:
+            real = object.__getattribute__(self, "_lazy_loader")()
+            object.__setattr__(self, "_lazy_real", real)
+        return object.__getattribute__(self, "_lazy_real")
+
+    def __getattr__(self, name):
+        return getattr(self._load(), name)
+
+    def __setattr__(self, name, value):
+        setattr(self._load(), name, value)
+
+    def __dir__(self):
+        return dir(self._load())
+
+    def __repr__(self):
+        return f"<lazy module 'db.{self._lazy_name}'>"
+
+
+_sys.modules["db.mongo_store"] = _LazyModuleProxy(
+    "mongo_store",
+    lambda: __import__("packages.storage.mongo", fromlist=["mongo"]),
+)
+_sys.modules["db.sqlite_store"] = _LazyModuleProxy(
+    "sqlite_store",
+    lambda: __import__("packages.storage.sqlite", fromlist=["sqlite"]),
+)

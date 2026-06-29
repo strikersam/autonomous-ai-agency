@@ -44,7 +44,12 @@ class ProviderManager:
 
     async def chat(self, messages: list[dict], *, model: str | None = None,
                    max_retries: int = 2, **kwargs: Any) -> ChatResponse:
-        """Send a chat request with automatic failover."""
+        """Send a chat request with automatic failover.
+
+        Retry policy: retry the SAME provider up to ``max_retries`` times with
+        exponential backoff (handles transient 5xx / network blips). Only after
+        all retries are exhausted does it fail over to the next provider.
+        """
         last_error: Exception | None = None
 
         for provider in self.providers:
@@ -57,11 +62,14 @@ class ProviderManager:
                     last_error = exc
                     count = self._failure_counts.get(provider.provider_id, 0) + 1
                     self._failure_counts[provider.provider_id] = count
-                    log.warning("Provider %s failed (attempt %d, count=%d): %s",
-                                provider.provider_id, attempt + 1, count, exc)
+                    log.warning("Provider %s failed (attempt %d/%d, count=%d): %s",
+                                provider.provider_id, attempt + 1, max_retries + 1, count, exc)
                     if attempt < max_retries:
+                        # Exponential backoff with jitter, then retry the SAME provider.
                         await asyncio.sleep(min(0.25 * (2 ** attempt), 2.0))
-                    break  # Move to next provider
+                        continue  # retry same provider
+                    # Retries exhausted for this provider — fall through to next one.
+                    break
 
         raise RuntimeError(f"All providers failed. Last error: {last_error}")
 
