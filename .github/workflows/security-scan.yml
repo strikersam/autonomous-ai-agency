@@ -77,7 +77,7 @@ jobs:
         id: bandit
         run: |
           bandit -r . \
-            --exclude ".git,.venv,venv,node_modules,tests,frontend,remote-admin" \
+            --exclude ".git,.venv,venv,node_modules,tests,frontend" \
             --format json \
             --output /tmp/bandit.json \
             -ll \
