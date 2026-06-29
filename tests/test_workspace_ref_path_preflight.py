@@ -2,7 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from fastapi.testclient import TestClient
 import proxy
-import direct_chat
+import packages.chat as direct_chat
 from agent.state import AgentSessionStore
 from agent.job_manager import AgentJobManager
 from agent.doctor import PreflightReport, PreflightIssue
@@ -38,7 +38,7 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
 
     # Inject a doctor that reports git_repo_ref failure (ref not found)
     monkeypatch.setattr(
-        "direct_chat.DirectChatDoctor",
+        "packages.chat.DirectChatDoctor",
         _make_fake_doctor("git_repo_ref", "Branch 'nonexistent-branch' not found.", "Check the branch name."),
     )
 
@@ -70,7 +70,7 @@ def test_repo_path_preflight_fails(monkeypatch, tmp_path: Path):
 
     # Inject a doctor that reports git_repo_path failure (path not found)
     monkeypatch.setattr(
-        "direct_chat.DirectChatDoctor",
+        "packages.chat.DirectChatDoctor",
         _make_fake_doctor("git_repo_path", "Path 'src/does/not/exist.py' not found.", "Check the file path."),
     )
 

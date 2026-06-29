@@ -3,10 +3,10 @@ import asyncio
 import httpx
 from httpx import AsyncClient
 import proxy
-import direct_chat
+import packages.chat as direct_chat
 from agent.state import AgentSessionStore
 from agent.job_manager import AgentJobManager
-from direct_chat import UserInfo
+from packages.chat import UserInfo
 from agent.models import AgentPlan, AgentStep
 
 def _fake_user():
@@ -36,7 +36,7 @@ async def test_risky_plan_approval_gate(monkeypatch, tmp_path):
         async def check_all(self, **kwargs):
             from agent.doctor import PreflightReport
             return PreflightReport(ready=True, summary="OK")
-    monkeypatch.setattr("direct_chat.DirectChatDoctor", FakeDoctor)
+    monkeypatch.setattr("packages.chat.DirectChatDoctor", FakeDoctor)
 
     # Mock runner
     class FakeRunner:

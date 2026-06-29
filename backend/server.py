@@ -1355,7 +1355,7 @@ async def _telegram_bot_supervisor() -> None:
     """Run the FreeBuff Telegram bot, restarting it on unexpected exit."""
     import asyncio as _asyncio
 
-    from telegram_bot import run_bot
+    from packages.notifications.bot import run_bot
     while True:
         try:
             await run_bot()

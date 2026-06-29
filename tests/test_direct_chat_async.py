@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 import pytest
 
-import direct_chat
+import packages.chat as direct_chat
 import proxy
 from agent.job_manager import AgentJobManager, make_isolated_workspace
 from agent.state import AgentSessionStore
@@ -39,7 +39,7 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
         async def check_all(self, **kwargs):
             from agent.doctor import PreflightReport
             return PreflightReport(ready=True, summary="OK")
-    monkeypatch.setattr("direct_chat.DirectChatDoctor", FakeDoctor)
+    monkeypatch.setattr("packages.chat.DirectChatDoctor", FakeDoctor)
 
     monkeypatch.setattr(proxy, "VALID_API_KEYS", {"fake-token"})
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user

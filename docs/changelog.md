@@ -1016,3 +1016,5 @@ All notable changes to this project will be documented in this file.
 
 
 
+
+- **Cleanup: delete dead root files + move direct_chat → packages/chat/ + telegram → packages/notifications/** (2026-06-29). Deleted 3 truly dead root files (`launcher.py`, `start_tunnel.py`, `cost_insights.py` — zero production importers, zero operational references). Moved `direct_chat.py` → `packages/chat/__init__.py` (892 LOC, 1 production importer + 10 test files updated). Moved `telegram_service.py` → `packages/notifications/service.py`, `telegram_bot.py` → `packages/notifications/bot.py`, `telegram_inbound_handlers.py` → `packages/notifications/inbound.py` (2,443 LOC total, backward-compat shims at old paths + 8 test files updated to import from real modules). Added brain policy env vars to `packages/config/settings.py` (`allow_paid_brain`, `brain_preference`, `agent_llm_base_url`, `agent_llm_api_key`, `agent_llm_model`). Verified: 483 tests pass.

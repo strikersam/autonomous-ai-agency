@@ -24,7 +24,7 @@ from typing import Iterator
 
 import pytest  # always available in this repo's dev/CI workflow
 
-import telegram_bot as tb  # consumers also import this at module-top; the
+from packages.notifications import bot as tb  # consumers also import this at module-top; the
 #                           shared dep means a defensive local import is
 #                           needless — declare it once at module scope.
 
