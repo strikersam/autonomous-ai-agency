@@ -1,4 +1,4 @@
-"""activation.py — Instance activation & phone-home licensing.
+"""packages.config.activation.py — Instance activation & phone-home licensing.
 
 Design:
   1. On first run this server generates a unique instanceId (UUID v4) stored
@@ -268,7 +268,7 @@ def _generate_token_for_owner(instance_id_val: str, email: str, private_key_b64:
     """Owner-side tool: sign an activation token.
 
     Usage (run from owner's machine, NEVER in the repo):
-        python3 -c "from activation import _generate_token_for_owner; print(_generate_token_for_owner('<iid>', 'user@example.com', '<PRIV_KEY_B64>'))"
+        python3 -c "from packages.config.activation import _generate_token_for_owner; print(_generate_token_for_owner('<iid>', 'user@example.com', '<PRIV_KEY_B64>'))"
     """
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import Encoding as Enc, PrivateFormat, NoEncryption

@@ -34,7 +34,7 @@ from agent.user_memory import UserMemoryStore
 from agent.intent import detect_intent, classify_direct_chat_intent, INTENT_EXECUTION, INTENT_CLARIFY, INTENT_ANALYSIS, INTENT_CONVERSATION
 from agent.doctor import DirectChatDoctor, translate_error_to_conversational
 from agent.schemas import DirectChatState
-from tokens import verify_token
+from packages.shared.tokens import verify_token
 from packages.ai.router import ProviderRouter
 from runtimes.adapters.internal_agent import InternalAgentAdapter
 from runtimes.base import TaskSpec
@@ -309,7 +309,7 @@ class ChatSendRequest(BaseModel):
 async def _get_github_token_for_user(user_email: str) -> str | None:
     """Fetch GitHub token for user from secrets store or environment."""
     try:
-        from secrets_store import get_secrets_store
+        from packages.auth.secrets_store import get_secrets_store
         from packages.auth.rbac import get_user_role
         store = get_secrets_store()
         uid = user_email

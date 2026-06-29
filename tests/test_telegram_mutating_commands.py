@@ -40,7 +40,7 @@ def telegram_bot(monkeypatch):
 
     # Drop any cached version so reload picks up env changes.
     for mod_name in list(sys.modules):
-        if mod_name == "telegram_bot" or mod_name.startswith("telegram_bot."):
+        if mod_name == "telegram_bot" or mod_name.startswith("packages.notifications.bot."):
             del sys.modules[mod_name]
 
     sys.path.insert(0, str(REPO_ROOT))
@@ -59,7 +59,7 @@ def test_setbrain_rejects_non_admin(telegram_bot, monkeypatch):
     returns 'Permission denied' before any HTTP call."""
     monkeypatch.setenv("TELEGRAM_ADMIN_USER_IDS", "99999")  # user 11111 is not admin
     import importlib
-    importlib.reload(telegram_bot)
+    importlib.reload(packages.notifications.bot)
     # Reload re-reads env, but ADMIN_USER_IDS is computed at import time — so we
     # need to monkeypatch the module-level attr directly too.
     packages.notifications.bot.ADMIN_USER_IDS = {99999}

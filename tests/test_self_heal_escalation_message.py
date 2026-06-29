@@ -13,7 +13,7 @@ from __future__ import annotations
 import datetime
 
 from agent.self_healing import HealingEvent, SelfHealingAgent
-from telegram_service import _telegram_sends_suppressed
+from packages.notifications.service import _telegram_sends_suppressed
 
 
 def _event(**over) -> HealingEvent:

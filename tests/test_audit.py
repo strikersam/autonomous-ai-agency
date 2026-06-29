@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from audit import AuditSession, create_session, delete_session, get_session, list_sessions
+from packages.shared.audit import AuditSession, create_session, delete_session, get_session, list_sessions
 
 
 def test_create_and_get_session():

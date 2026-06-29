@@ -441,10 +441,10 @@ class NotificationDispatcher:
         """
         text = getattr(payload, "markdown_body", None)
         if not text:
-            log.warning("telegram_service.send_daily_digest.empty_payload")
+            log.warning("packages.notifications.service.send_daily_digest.empty_payload")
             return False
         if not self.telegram_token or not self.telegram_chat_ids:
-            log.warning("telegram_service.send_daily_digest.disabled")
+            log.warning("packages.notifications.service.send_daily_digest.disabled")
             return False
         import httpx
 
@@ -470,7 +470,7 @@ class NotificationDispatcher:
                 )
                 if resp.status_code != 200:
                     log.warning(
-                        "telegram_service.send_daily_digest.failed chat_id=%s status=%s",
+                        "packages.notifications.service.send_daily_digest.failed chat_id=%s status=%s",
                         chat_id,
                         resp.status_code,
                     )
