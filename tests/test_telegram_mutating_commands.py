@@ -44,7 +44,7 @@ def telegram_bot(monkeypatch):
             del sys.modules[mod_name]
 
     sys.path.insert(0, str(REPO_ROOT))
-    import telegram_bot as tb  # noqa: F401
+    from packages.notifications import bot as tb  # noqa: F401
     importlib.reload(tb)
     yield tb
 
