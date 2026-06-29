@@ -83,7 +83,7 @@ class HermesAdapter(RuntimeAdapter):
         # the docker-compose default with no extra config.
         _resolved_hermes: str | None = None
         try:
-            from services.brain_config_store import resolve_hermes_base_url
+            from packages.ai.brain_config import resolve_hermes_base_url
             _resolved_hermes = resolve_hermes_base_url()
         except Exception:  # pragma: no cover - defensive
             _resolved_hermes = None

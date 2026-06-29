@@ -354,7 +354,7 @@ async def v4_report_bug(body: V4ReportBugBody, request: Request) -> dict[str, An
 async def v4_scheduler_jobs(request: Request) -> dict[str, Any]:
     """List scheduled improvement jobs."""
     try:
-        from agent.scheduler import get_scheduler
+        from packages.scheduler.scheduler import get_scheduler
         sched = get_scheduler()
         jobs = sched.list()
         return {
@@ -380,7 +380,7 @@ async def v4_scheduler_jobs(request: Request) -> dict[str, Any]:
 async def v4_scheduler_trigger(job_id: str, request: Request) -> dict[str, Any]:
     """Trigger a scheduled job immediately."""
     try:
-        from agent.scheduler import get_scheduler
+        from packages.scheduler.scheduler import get_scheduler
         sched = get_scheduler()
         job = sched.trigger(job_id)
         if job is None:

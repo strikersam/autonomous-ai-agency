@@ -27,10 +27,7 @@ log = logging.getLogger("brain-watchdog")
 
 _DEFAULT_MAX_FAILURES = int(os.environ.get("BRAIN_WATCHDOG_MAX_FAILURES", "3"))
 
-try:
-    from services import brain_config_store as _bcs
-except (ImportError, ModuleNotFoundError):
-    import brain_config_store as _bcs  # type: ignore[no-redef]
+from packages.ai import brain_config as _bcs  # noqa: E402
 
 
 class BrainWatchdog:

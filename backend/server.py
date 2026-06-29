@@ -50,12 +50,12 @@ from starlette.middleware.sessions import SessionMiddleware
 # Feature routers — agents, runtimes, tasks
 from agents.api import agent_router
 from agents.store import AgentStore, set_agent_store
-from agent.scheduler import AgentScheduler, get_scheduler, set_scheduler
+from packages.scheduler.scheduler import AgentScheduler, get_scheduler, set_scheduler
 from agent.skills import SkillLibrary
 from agent.job_manager import AgentJobManager, make_isolated_workspace
 from agent.contract import AgentJobRequest, AgentJobSnapshot
 from agent.state import AgentSessionStore
-from provider_router import (
+from packages.ai.router import (
     CommercialFallbackRequiredError,
     ProviderConfig,
     ProviderFallbackError,
@@ -74,7 +74,7 @@ from activation_api import activation_router
 from setup.api import get_wizard_state
 from secrets_store import secrets_router, get_secrets_store
 from version import __version__, APP_NAME, APP_LABEL, APP_TAGLINE
-from social_auth import (
+from packages.auth.oauth import (
     github_exchange_code,
     github_fetch_user,
     google_exchange_code,
@@ -1516,7 +1516,7 @@ async def lifespan(app_: "FastAPI"):
     # sees the gap in the backend logs (not just when /setbrain fails at
     # runtime). Best-effort — never blocks startup.
     try:
-        from services.service_token import is_service_token_configured
+        from packages.auth.service_token import is_service_token_configured
         if not is_service_token_configured():
             log.warning(
                 "SERVICE_TOKEN not set — Telegram mutating control "
@@ -2325,7 +2325,7 @@ async def seed_default_providers():
     # drifts from DEFAULT_FREE_NVIDIA_MODEL / the tests (a hardcoded `...49b-v1`
     # here lagged the `...49b-v1.5` default and broke the brain/provider tests
     # under MongoDB, where the seeded record persists and is read back).
-    from brain_policy import DEFAULT_FREE_NVIDIA_MODEL
+    from packages.ai.brain import DEFAULT_FREE_NVIDIA_MODEL
     _nvidia_model = (
         os.environ.get("NVIDIA_DEFAULT_MODEL") or DEFAULT_FREE_NVIDIA_MODEL
     )
@@ -3421,7 +3421,7 @@ async def _get_provider_policy() -> dict:
     Failsafe: returns allow_paid=False when the DB is unreachable or env
     ALLOW_PAID_BRAIN=true overrides it.
     """
-    from brain_policy import allow_paid_brain as _env_allow_paid
+    from packages.ai.brain import allow_paid_brain as _env_allow_paid
     # Env var takes precedence over DB (operator kill-switch).
     if _env_allow_paid():
         return {"allow_paid": True, "surfaces": {}}
@@ -3486,7 +3486,7 @@ async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
 #   4. Never log key values; the response shape includes only
 #      ``key_present`` flags, never the keys themselves.
 
-from services.brain_config_store import (  # noqa: E402 — late import to avoid cycle
+from packages.ai.brain_config import (  # noqa: E402 — late import to avoid cycle
     BrainConfigPatch,
     PROVIDER_KEY_ENV,
     PROVIDER_PRESETS,
@@ -3598,7 +3598,7 @@ async def _user_or_service_token(
         HTTPException 401 — service token wrong, OR no user session.
         HTTPException 403 — handled by the caller via _require_admin.
     """
-    from services.service_token import is_service_token_configured, verify_service_token
+    from packages.auth.service_token import is_service_token_configured, verify_service_token
     if request.headers.get("X-Service-Token"):
         if not is_service_token_configured():
             raise HTTPException(
@@ -3801,7 +3801,7 @@ async def merge_pr_route(
     to merge a draft, a PR with failing CI, or a PR whose head SHA doesn't
     match ``expected_sha`` (when provided).
     """
-    from services.service_token import is_service_token_configured, verify_service_token
+    from packages.auth.service_token import is_service_token_configured, verify_service_token
 
     # ── Auth (service token only — no user-session fallback for /merge) ──────
     # /setbrain accepts either path because the dashboard also uses it. /merge
@@ -5225,7 +5225,7 @@ async def _get_activity_impl(limit: int = 50) -> dict[str, Any]:
     
     
     try:
-        from agent.scheduler import get_scheduler
+        from packages.scheduler.scheduler import get_scheduler
         jobs = get_scheduler().list()
         if not jobs:
             logs.insert(0, {
@@ -6237,7 +6237,7 @@ async def _autonomy_bg_cycle():
         # ── CEO agency: force-start + fire cycle ──
         ceo_status: dict[str, object] = {"triggered": False}
         try:
-            from agent.scheduler import get_scheduler
+            from packages.scheduler.scheduler import get_scheduler
             from tasks.automation import TaskAutomationService
             from tasks.store import get_task_store
             sched = get_scheduler()
@@ -6437,7 +6437,7 @@ async def autonomy_status() -> dict[str, object]:
     # 1. DB-persisted brain config (operator's explicit choice).
     db_brain_configured = False
     try:
-        from services.brain_config_store import get_brain_config, provider_base_url
+        from packages.ai.brain_config import get_brain_config, provider_base_url
         cfg = await get_brain_config()
         if cfg.updated_at and cfg.primary_provider:
             db_brain_configured = True
@@ -6468,7 +6468,7 @@ async def autonomy_status() -> dict[str, object]:
     if not db_brain_configured:
         # 2. Env-var fallback (original resolution).
         try:
-            from brain_policy import resolve_free_nvidia_brain
+            from packages.ai.brain import resolve_free_nvidia_brain
             nvidia = resolve_free_nvidia_brain()
         except Exception:  # pragma: no cover - defensive
             log.exception("autonomy_status: NVIDIA brain resolution failed")
@@ -6767,7 +6767,7 @@ async def autonomy_tick() -> dict[str, object]:
         from agent.agency import Agency, get_agency, set_agency, _gh_token, _gh_repo
         # Wire scheduler on_fire if not done
         try:
-            from agent.scheduler import get_scheduler
+            from packages.scheduler.scheduler import get_scheduler
             from tasks.automation import TaskAutomationService
             from tasks.store import get_task_store
             sched = get_scheduler()
@@ -8511,7 +8511,7 @@ async def get_doctor_diagnostics(
     # mutating Telegram commands are gated. Surfaces as a Doctor screen row
     # so the operator can see the gap before trying /setbrain from the phone.
     try:
-        from services.service_token import is_service_token_configured
+        from packages.auth.service_token import is_service_token_configured
         if is_service_token_configured():
             checks.append(_DoctorCheck(
                 id="service_token",

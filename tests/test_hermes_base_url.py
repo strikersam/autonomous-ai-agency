@@ -1,7 +1,7 @@
 """tests/test_hermes_base_url.py — resolve_hermes_base_url precedence."""
 from __future__ import annotations
 
-from services.brain_config_store import resolve_hermes_base_url
+from packages.ai.brain_config import resolve_hermes_base_url
 
 
 def test_env_wins(monkeypatch):

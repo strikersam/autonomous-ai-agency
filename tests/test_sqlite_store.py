@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import pytest
-from db.sqlite_store import SQLiteStore, _Collection, _COLLECTIONS
+from packages.storage.sqlite import SQLiteStore, _Collection, _COLLECTIONS
 
 
 @pytest.fixture
@@ -225,7 +225,7 @@ def test_get_store_returns_sqlite(monkeypatch, tmp_path):
     import db
     db.reset_store()
     store = db.get_store()
-    from db.sqlite_store import SQLiteStore
+    from packages.storage.sqlite import SQLiteStore
     assert isinstance(store, SQLiteStore)
     db.reset_store()
 
@@ -383,7 +383,7 @@ async def test_read_after_write_is_consistent(store):
 # JSON-decoding every row and scanning in Python. The Python _match still runs
 # afterwards, so the result must be byte-for-byte identical to the old full scan.
 
-from db.sqlite_store import _push_down_where  # noqa: E402
+from packages.storage.sqlite import _push_down_where  # noqa: E402
 
 
 def test_push_down_builds_where_for_indexed_equality():

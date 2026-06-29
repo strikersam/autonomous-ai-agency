@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch as mock_patch
 
 import pytest
 
-from services.brain_config_store import (
+from packages.ai.brain_config import (
     BrainConfig,
     BrainConfigStore,
     SAFE_DEFAULT_MODEL,
@@ -197,9 +197,9 @@ def test_invalidate_then_refresh_picks_up_db_change(monkeypatch, tmp_path):
 
     # Apply a config via the store — refreshes cache.
     with mock_patch("backend.server.get_db", return_value=db):
-        from services.brain_config_store import set_brain_config, get_brain_config
+        from packages.ai.brain_config import set_brain_config, get_brain_config, BrainConfigPatch
         asyncio.run(set_brain_config(
-            __import__("services.brain_config_store", fromlist=["BrainConfigPatch"]).BrainConfigPatch(
+            BrainConfigPatch(
                 executor_model="first-value"
             ),
             actor="test",
@@ -268,7 +268,7 @@ def test_resolve_active_brain_honours_db_brain_config(monkeypatch):
     store._cache_at = time.monotonic()
     mod._store = store
 
-    from brain_policy import resolve_active_brain, invalidate_brain_cache
+    from packages.ai.brain import resolve_active_brain, invalidate_brain_cache
     invalidate_brain_cache()
     brain = asyncio.run(resolve_active_brain())
 
@@ -296,7 +296,7 @@ def test_resolve_active_brain_falls_through_when_db_unset(monkeypatch):
         lambda: _empty_records(),
     )
 
-    from brain_policy import resolve_active_brain, invalidate_brain_cache
+    from packages.ai.brain import resolve_active_brain, invalidate_brain_cache
     invalidate_brain_cache()
     brain = asyncio.run(resolve_active_brain())
 
@@ -327,7 +327,7 @@ def test_env_override_still_wins_over_db_brain_config(monkeypatch):
     store._cache_at = time.monotonic()
     mod._store = store
 
-    from brain_policy import resolve_active_brain, invalidate_brain_cache
+    from packages.ai.brain import resolve_active_brain, invalidate_brain_cache
     invalidate_brain_cache()
     brain = asyncio.run(resolve_active_brain())
 

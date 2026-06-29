@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.loop import AgentRunner
-from provider_router import ProviderConfig, _normalize_nvidia_base_url
+from packages.ai.router import ProviderConfig, _normalize_nvidia_base_url
 from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
@@ -147,7 +147,7 @@ class InternalAgentAdapter(RuntimeAdapter):
         # explicit config value still wins; otherwise the DB/env/default resolver.
         _resolved_ollama_base: str | None = None
         try:
-            from services.brain_config_store import resolve_ollama_base_url
+            from packages.ai.brain_config import resolve_ollama_base_url
             _resolved_ollama_base = resolve_ollama_base_url()
         except Exception:  # pragma: no cover - defensive
             _resolved_ollama_base = None

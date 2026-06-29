@@ -21,7 +21,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from rbac import (
+from packages.auth.rbac import (
     UserRole,
     Permission,
     audit,

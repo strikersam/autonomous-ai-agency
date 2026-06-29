@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch as mock_patch
 
 import pytest
 
-from services.brain_config_store import (
+from packages.ai.brain_config import (
     BrainConfig,
     BrainConfigPatch,
     BrainConfigStore,
@@ -83,7 +83,7 @@ def test_default_brain_config_is_safe():
 
 def test_recommended_config_prefers_cerebras_when_key_present(monkeypatch):
     """With a Cerebras key set (and no saved doc), the recommended chain wins."""
-    from services.brain_config_store import PROVIDER_PRESETS, recommended_brain_config
+    from packages.ai.brain_config import PROVIDER_PRESETS, recommended_brain_config
 
     monkeypatch.setenv("CEREBRAS_API_KEY", "csk-test")
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
@@ -95,7 +95,7 @@ def test_recommended_config_prefers_cerebras_when_key_present(monkeypatch):
 
 def test_recommended_config_priority_groq_over_nvidia(monkeypatch):
     """Groq is chosen ahead of NVIDIA when both keys are present but no Cerebras."""
-    from services.brain_config_store import recommended_brain_config
+    from packages.ai.brain_config import recommended_brain_config
 
     monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
     monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
@@ -106,7 +106,7 @@ def test_recommended_config_priority_groq_over_nvidia(monkeypatch):
 
 def test_recommended_config_falls_back_to_nvidia_default_with_no_cloud_keys(monkeypatch):
     """No cloud keys → the safe NIM default (never an unreachable local Ollama)."""
-    from services.brain_config_store import recommended_brain_config
+    from packages.ai.brain_config import recommended_brain_config
 
     for env_var in ("CEREBRAS_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY"):
         monkeypatch.delenv(env_var, raising=False)
@@ -299,7 +299,7 @@ def test_get_never_raises_on_total_failure(monkeypatch):
 
     # Point sqlite path at a non-existent directory we can't write to.
     monkeypatch.setattr(
-        "services.brain_config_store.BrainConfigStore._mirror_db_path",
+        "packages.ai.brain_config.BrainConfigStore._mirror_db_path",
         lambda self: "/nonexistent-dir/test.db",
     )
 

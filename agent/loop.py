@@ -164,7 +164,7 @@ def _resolve_role_model(role: str, requested: str | None = None) -> str:
     can keep running.
     """
     try:
-        from services.brain_config_store import resolve_role_model_sync
+        from packages.ai.brain_config import resolve_role_model_sync
         return resolve_role_model_sync(role, requested)
     except Exception:  # noqa: BLE001 — defensive; never block the loop
         if requested and requested.strip():
@@ -1309,7 +1309,7 @@ class AgentRunner:
         # brain_policy so the agent stays on the free NVIDIA brain and never
         # silently escalates to paid Anthropic.
         try:
-            from brain_policy import (
+            from packages.ai.brain import (
                 allow_paid_brain as _allow_paid_brain_fn,
                 is_anthropic_model as _is_anthropic_model,
                 resolve_free_nvidia_brain as _resolve_free_nvidia_brain,
@@ -1554,7 +1554,7 @@ class AgentRunner:
         start = time.perf_counter()
         # Build the chat URL defensively: use _openai_url to prevent double /v1
         # when the base already ends with /v1 (e.g. Nvidia NIM).
-        from provider_router import _openai_url
+        from packages.ai.router import _openai_url
         chat_url = _openai_url(_call_base, "/chat/completions")
 
         # NVIDIA NIM error handling:

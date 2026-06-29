@@ -473,7 +473,7 @@ async def _brain_is_configured() -> bool:
             # Operator explicitly pointed at a local/remote Ollama — trust intent.
             return True
         try:
-            import brain_policy
+            import packages.ai.brain as brain_policy
             if brain_policy.resolve_free_nvidia_brain() is not None:
                 return True
             if brain_policy.allow_paid_brain():

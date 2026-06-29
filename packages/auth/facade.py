@@ -39,28 +39,28 @@ def verify_api_key(request):
 
 def verify_service_token(provided: str | None) -> bool:
     """Verify a service token (for Telegram bot → backend)."""
-    from services.service_token import verify_service_token as _impl
+    from packages.auth.service_token import verify_service_token as _impl
     return _impl(provided)
 
 
 # OAuth helpers (re-export from social_auth.py)
 def github_exchange_code(code: str):
-    from social_auth import github_exchange_code as _impl
+    from packages.auth.oauth import github_exchange_code as _impl
     return _impl(code)
 
 
 def github_fetch_user(access_token: str):
-    from social_auth import github_fetch_user as _impl
+    from packages.auth.oauth import github_fetch_user as _impl
     return _impl(access_token)
 
 
 def google_exchange_code(code: str, redirect_uri: str | None = None):
-    from social_auth import google_exchange_code as _impl
+    from packages.auth.oauth import google_exchange_code as _impl
     return _impl(code, redirect_uri)
 
 
 def google_fetch_user(access_token: str):
-    from social_auth import google_fetch_user as _impl
+    from packages.auth.oauth import google_fetch_user as _impl
     return _impl(access_token)
 
 

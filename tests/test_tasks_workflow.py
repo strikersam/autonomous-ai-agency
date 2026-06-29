@@ -459,7 +459,7 @@ async def test_scheduler_trigger_creates_real_task(
     task_store: TaskStore,
     workflow: TaskWorkflowService,
 ):
-    from agent.scheduler import AgentScheduler
+    from packages.scheduler.scheduler import AgentScheduler
     from tasks.automation import TaskAutomationService
 
     automation = TaskAutomationService(store=task_store, workflow=workflow)

@@ -109,7 +109,7 @@ def test_bedrock_model_id_is_accessible() -> None:
 @pytest.mark.asyncio
 async def test_provider_router_bedrock_roundtrip() -> None:
     """ProviderRouter discovers Bedrock from env and completes a real chat call."""
-    from provider_router import ProviderRouter
+    from packages.ai.router import ProviderRouter
 
     router = ProviderRouter.from_env()
     bedrock_providers = [p for p in router.providers if p.provider_id == "bedrock"]
@@ -149,7 +149,7 @@ async def test_provider_router_bedrock_roundtrip() -> None:
 @_NEEDS_CREDS
 def test_bedrock_health_check_with_real_creds() -> None:
     """Health check returns True when real credentials are loaded from env."""
-    from provider_router import ProviderRouter
+    from packages.ai.router import ProviderRouter
 
     router = ProviderRouter.from_env()
     bedrock = next((p for p in router.providers if p.provider_id == "bedrock"), None)

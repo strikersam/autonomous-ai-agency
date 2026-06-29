@@ -21,7 +21,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from agent.scheduler import get_scheduler
+from packages.scheduler.scheduler import get_scheduler
 
 log = logging.getLogger("qwen-proxy")
 

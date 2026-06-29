@@ -13,7 +13,7 @@ from secrets_store import (
     _encrypt,
     _decrypt,
 )
-from rbac import UserRole
+from packages.auth.rbac import UserRole
 
 
 # ── Encryption ────────────────────────────────────────────────────────────────

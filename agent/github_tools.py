@@ -36,7 +36,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from rbac import audit
+from packages.auth.rbac import audit
 
 log = logging.getLogger("qwen-agent")
 
@@ -513,7 +513,7 @@ async def _get_token(user: dict) -> str | None:
     """Fetch the user's GitHub token from SecretsStore."""
     try:
         from secrets_store import get_secrets_store
-        from rbac import get_user_role
+        from packages.auth.rbac import get_user_role
         store  = get_secrets_store()
         uid    = _uid(user)
         role   = get_user_role(user)

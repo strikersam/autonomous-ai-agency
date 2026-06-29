@@ -74,7 +74,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 
 
-from admin_auth import AdminAuthManager, AdminIdentity
+from packages.auth.admin import AdminAuthManager, AdminIdentity
 
 from admin_gui import register_admin_gui
 
@@ -100,7 +100,7 @@ from agent.playbook import PlaybookLibrary
 
 from agent.scaffolding import ProjectScaffolder
 
-from agent.scheduler import AgentScheduler
+from packages.scheduler.scheduler import AgentScheduler
 
 from agent.skills import SkillLibrary
 

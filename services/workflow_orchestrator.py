@@ -166,7 +166,7 @@ async def _resolve_brain_provider(
                     _policy = await _get_provider_policy()
                     _paid_allowed = bool(_policy.get("allow_paid", False))
                 except Exception:
-                    from brain_policy import allow_paid_brain
+                    from packages.ai.brain import allow_paid_brain
                     _paid_allowed = allow_paid_brain()
                 if not _paid_allowed:
                     log.debug(
@@ -227,7 +227,7 @@ async def resolve_provider_for(
         _list_configured_provider_records,
     )
     try:
-        from services.brain_config_store import resolve_role_model_sync
+        from packages.ai.brain_config import resolve_role_model_sync
         db_model = resolve_role_model_sync(surface, None)
         if db_model and db_model != "meta/llama-3.3-70b-instruct":
             # DB config returned a non-default model — find the matching provider
@@ -252,7 +252,7 @@ async def resolve_provider_for(
 
     # ── Brain-policy fallback: free NVIDIA NIM when no DB config ──
     try:
-        import brain_policy
+        import packages.ai.brain as brain_policy
         nvidia = brain_policy.resolve_free_nvidia_brain()
         if nvidia is not None:
             base, headers, model = nvidia

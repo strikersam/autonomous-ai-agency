@@ -36,7 +36,7 @@ def _save_env_var(key: str, value: str) -> None:
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from admin_auth import AdminAuthManager
+    from packages.auth.admin import AdminAuthManager
     from key_store import KeyStore
     from service_manager import WindowsServiceManager
 
@@ -255,7 +255,7 @@ def register_admin_gui(
 
         # Gather provider status
         try:
-            from provider_router import get_cooldown_state
+            from packages.ai.router import get_cooldown_state
             cooldowns = get_cooldown_state()
             health_data["providers"] = {
                 "cooldowns": cooldowns,

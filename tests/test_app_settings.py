@@ -17,7 +17,7 @@ def sqlite_store(tmp_path, monkeypatch):
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "settings.db"))
 
     import db
-    import db.sqlite_store as sqlite_store_mod
+    import packages.storage.sqlite as sqlite_store_mod
 
     importlib.reload(sqlite_store_mod)  # re-read SQLITE_DB_PATH
     db.reset_store()

@@ -93,14 +93,7 @@ def _notify_watchdog(provider_id: str, *, success: bool) -> None:
     break the request path.
     """
     try:
-        try:
-            from packages.ai.watchdog import get_watchdog
-        except (ImportError, ModuleNotFoundError):
-            # Top-level fallback — services/ on sys.path (test path, lightweight envs).
-            # brain_watchdog.py itself uses the same fallback pattern for
-            # brain_config_store, so the module identity is consistent.
-            import brain_watchdog as _bw_mod  # type: ignore[import-not-found]
-            get_watchdog = _bw_mod.get_watchdog
+        from packages.ai.watchdog import get_watchdog
         wd = get_watchdog()
         if success:
             wd.record_success(provider_id)

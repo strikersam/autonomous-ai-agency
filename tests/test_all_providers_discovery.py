@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from provider_router import ProviderRouter, provider_access_tier
+from packages.ai.router import ProviderRouter, provider_access_tier
 
 
 def _url_has_host(url: str, *hosts: str) -> bool:

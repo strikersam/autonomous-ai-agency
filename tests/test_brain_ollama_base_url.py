@@ -17,8 +17,8 @@ import asyncio
 import httpx
 import pytest
 
-import services.brain_config_store as store
-from services.brain_config_store import (
+import packages.ai.brain_config as store
+from packages.ai.brain_config import (
     BrainConfig,
     BrainConfigPatch,
     BrainConfigStore,

@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from types import SimpleNamespace
 
 import proxy
-from admin_auth import AdminIdentity
+from packages.auth.admin import AdminIdentity
 from key_store import KeyStore
 
 

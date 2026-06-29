@@ -134,7 +134,7 @@ def _check_event_log_integrity() -> dict[str, Any]:
 def _check_provider_chain() -> dict[str, Any]:
     """Check LLM provider chain health."""
     try:
-        from provider_router import get_cooldown_state, PROVIDER_ROUTER
+        from packages.ai.router import get_cooldown_state, PROVIDER_ROUTER
         cooldowns = get_cooldown_state()
         providers = []
         for p in PROVIDER_ROUTER.providers:
@@ -308,7 +308,7 @@ def _fix_clear_cooldowns() -> dict[str, Any]:
     """Clear provider cooldowns to allow retry."""
     try:
         import asyncio
-        from provider_router import clear_cooldowns
+        from packages.ai.router import clear_cooldowns
         asyncio.run(clear_cooldowns())
         return {"action": "clear_cooldowns", "success": True}
     except AttributeError as exc:
@@ -429,4 +429,4 @@ def list_available_fixes() -> list[dict[str, Any]]:
             "description": "Restart the background agent worker thread",
             "requires_auth": True,
         },
-    ]
+    ]

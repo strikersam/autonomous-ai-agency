@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from provider_router import ProviderRouter, provider_access_tier
+from packages.ai.router import ProviderRouter, provider_access_tier
 from providers.kimi_bridge import (
     KIMI_BRIDGE_PROVIDER_ID,
     kimi_bridge_provider_config,

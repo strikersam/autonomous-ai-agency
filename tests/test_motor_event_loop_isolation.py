@@ -33,7 +33,7 @@ def test_reset_store_clears_motor_singletons():
     not just ``db._store``. The original ``reset_store()`` only cleared the
     ``_store`` wrapper, leaving the motor client cached → the bug persisted."""
     from db import reset_store
-    import db.mongo_store as mongo_store
+    import packages.storage.mongo as mongo_store
 
     # Simulate a cached motor client (as if a prior test created it)
     mongo_store._client = object()  # sentinel — not a real motor client
@@ -87,7 +87,7 @@ def test_motor_client_is_recreated_after_reset():
     prior test's event loop stays cached and raises ``Event loop is closed``
     on the next ``run_in_executor()`` call.
     """
-    import db.mongo_store as mongo_store
+    import packages.storage.mongo as mongo_store
 
     # Simulate a prior test's cached client
     old_client = object()

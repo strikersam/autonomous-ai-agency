@@ -37,7 +37,7 @@ from typing import Literal
 import httpx
 from pydantic import BaseModel
 
-from services.brain_config_store import (
+from packages.ai.brain_config import (
     BrainProvider,
     PROVIDER_DEFAULT_BASE_URL,
     PROVIDER_KEY_ENV,

@@ -171,7 +171,7 @@ def test_admin_reorder_endpoint_writes_priorities(tmp_path: Path):
     providers, workspaces = _bootstrap(tmp_path)
     proxy.app.state.webui_providers = providers
     proxy.app.state.webui_workspaces = workspaces
-    from admin_auth import AdminIdentity
+    from packages.auth.admin import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
     client = TestClient(proxy.app)
 
@@ -209,7 +209,7 @@ def test_admin_reorder_endpoint_validates_body(tmp_path: Path):
     providers, workspaces = _bootstrap(tmp_path)
     proxy.app.state.webui_providers = providers
     proxy.app.state.webui_workspaces = workspaces
-    from admin_auth import AdminIdentity
+    from packages.auth.admin import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
     client = TestClient(proxy.app)
     resp = client.post(
@@ -252,7 +252,7 @@ def test_admin_policy_brain_returns_resolution_and_paid_state(tmp_path: Path, mo
         return _bcs.recommended_brain_config()
     monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
 
-    from admin_auth import AdminIdentity
+    from packages.auth.admin import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
     client = TestClient(proxy.app)
     resp = client.get(
@@ -316,7 +316,7 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
         return _bcs.recommended_brain_config()
     monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
 
-    from admin_auth import AdminIdentity
+    from packages.auth.admin import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
     client = TestClient(proxy.app)
     resp = client.get(

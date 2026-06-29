@@ -46,7 +46,7 @@ def test_scheduled_job_has_no_status_attribute():
     ``.status`` raised AttributeError and aborted schedule creation.
     This test pins the dataclass shape so the regression can't return.
     """
-    from agent.scheduler import ScheduledJob
+    from packages.scheduler.scheduler import ScheduledJob
 
     job = ScheduledJob(
         job_id="job_test",
@@ -78,7 +78,7 @@ async def test_company_agency_activate_creates_all_schedules(tmp_path, monkeypat
     monkeypatch.setenv("AGENCY_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("AGENCY_SQLITE_DB_PATH", str(tmp_path / "agency.db"))
 
-    from agent.scheduler import AgentScheduler
+    from packages.scheduler.scheduler import AgentScheduler
     from services.company_agency import CompanyAgencyService
     from models.company_graph import Company
 
@@ -229,7 +229,7 @@ def test_scheduler_attach_main_loop_and_fire_from_thread(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENCY_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("AGENCY_SQLITE_DB_PATH", str(tmp_path / "agency.db"))
 
-    from agent.scheduler import AgentScheduler
+    from packages.scheduler.scheduler import AgentScheduler
 
     # Shared state mutated by the on_fire coroutine. The coroutine records
     # which loop it ran on so we can assert it was the main loop, not a

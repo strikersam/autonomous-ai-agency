@@ -15,7 +15,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from provider_router import ProviderRouter
+from packages.ai.router import ProviderRouter
 
 PROBE_PAYLOAD = {
     "model": "",          # filled in per provider

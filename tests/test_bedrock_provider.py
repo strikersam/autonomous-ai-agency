@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from provider_router import ProviderConfig, ProviderRouter, _is_bedrock_model_id
+from packages.ai.router import ProviderConfig, ProviderRouter, _is_bedrock_model_id
 
 
 @contextmanager
@@ -389,7 +389,7 @@ class TestBedrockRoutingAffinity:
     async def test_bedrock_affinity_preserved_in_cooldown_bypass(self) -> None:
         """Bedrock affinity must hold even in the last-resort cooldown-bypass path."""
         from unittest.mock import AsyncMock, patch as mock_patch
-        import provider_router as pr_mod
+        import packages.ai.router as pr_mod
 
         nim = self._nim_provider()
         bedrock = _bedrock_provider("us.anthropic.claude-opus-4-6-v1")

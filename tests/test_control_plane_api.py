@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 
-from agent.scheduler import AgentScheduler, set_scheduler, get_scheduler, ScheduledJob
+from packages.scheduler.scheduler import AgentScheduler, set_scheduler, get_scheduler, ScheduledJob
 from schedules.api import schedules_router
 
 from fastapi import FastAPI

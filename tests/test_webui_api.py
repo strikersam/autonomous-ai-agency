@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import proxy
-from admin_auth import AdminIdentity
+from packages.auth.admin import AdminIdentity
 from webui.config_store import JsonConfigStore, JsonStorePaths
 from webui.providers import ProviderManager
 from webui.workspaces import WorkspaceManager

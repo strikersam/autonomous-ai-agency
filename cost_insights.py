@@ -25,7 +25,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from rbac import UserRole, get_user_role, require_admin, has_permission, Permission
+from packages.auth.rbac import UserRole, get_user_role, require_admin, has_permission, Permission
 
 log = logging.getLogger("qwen-proxy")
 

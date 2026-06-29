@@ -50,7 +50,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from rbac import audit, require_admin, require_power_user
+from packages.auth.rbac import audit, require_admin, require_power_user
 
 log = logging.getLogger("qwen-proxy")
 
