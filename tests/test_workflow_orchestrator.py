@@ -494,7 +494,7 @@ class TestApprovalGateNotification:
                 captured.update(kwargs)
                 return True
 
-        monkeypatch.setattr("telegram_service.NotificationDispatcher", _FakeDispatcher)
+        monkeypatch.setattr("packages.notifications.service.NotificationDispatcher", _FakeDispatcher)
 
         await orchestrator._notify_approval_gate(run, req)
 
@@ -525,7 +525,7 @@ class TestApprovalGateNotification:
                 captured.update(kwargs)
                 return True
 
-        monkeypatch.setattr("telegram_service.NotificationDispatcher", _FakeDispatcher)
+        monkeypatch.setattr("packages.notifications.service.NotificationDispatcher", _FakeDispatcher)
 
         await orchestrator._notify_approval_gate(run, req)
 
@@ -552,7 +552,7 @@ class TestApprovalGateNotification:
             def send_approval_gate(self, **kwargs):
                 raise RuntimeError("telegram down")
 
-        monkeypatch.setattr("telegram_service.NotificationDispatcher", _BoomDispatcher)
+        monkeypatch.setattr("packages.notifications.service.NotificationDispatcher", _BoomDispatcher)
 
         # Must not raise.
         await orchestrator._notify_approval_gate(run, req)
