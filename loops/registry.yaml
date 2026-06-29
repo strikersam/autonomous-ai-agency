@@ -140,7 +140,7 @@ loops:
     cadence: continuous (on every provider call)
     runs_per_day: 24
     cost: low
-    source: services/brain_watchdog.py
+    source: packages/ai/watchdog.py
     self_heal: true
     gate: telegram
     purpose: Auto-fail-over to next brain provider after N consecutive failures.
