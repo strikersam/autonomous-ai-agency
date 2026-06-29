@@ -43,8 +43,9 @@ def _check_ollama(base_url: str) -> dict[str, Any]:
         r = httpx.get(f"{base_url}/api/tags", timeout=5.0)
         models = [m["name"] for m in r.json().get("models", [])]
         return {"reachable": True, "model_count": len(models), "models": models}
-    except Exception as exc:
-        return {"reachable": False, "error": f"{type(exc).__name__}: {exc}"}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Ollama health check failed for %s: %s", base_url, exc)
+        return {"reachable": False, "error": "unreachable"}
 
 
 async def check_ollama_async(base_url: str) -> dict[str, Any]:

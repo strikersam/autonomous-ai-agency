@@ -25,6 +25,7 @@ class GroqProvider(Provider):
                    "temperature": temperature, "max_tokens": max_tokens, "stream": False}
         async with httpx.AsyncClient(timeout=300) as client:
             resp = await client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
         data = resp.json()
         return ChatResponse(
             text=data["choices"][0]["message"]["content"],
@@ -40,6 +41,7 @@ class GroqProvider(Provider):
                    "temperature": temperature, "max_tokens": max_tokens, "stream": True}
         async with httpx.AsyncClient(timeout=300) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if line.startswith("data: ") and line != "data: [DONE]":
                         chunk = json.loads(line[6:])

@@ -27,7 +27,14 @@ class Settings:
         self.redis_url: str = os.environ.get("REDIS_URL", "")
 
         # Auth
-        self.jwt_secret: str = os.environ.get("SECRET_KEY", "dev-secret-change-in-prod")
+        # Never silently fall back to a hardcoded secret — fail fast in production.
+        # Tests set TESTING=true so they get the empty-string default.
+        self.jwt_secret: str = os.environ.get("SECRET_KEY", "")
+        if not self.jwt_secret and os.environ.get("TESTING", "").lower() != "true":
+            raise RuntimeError(
+                "SECRET_KEY must be set in the environment (or set TESTING=true for tests). "
+                "Never hardcode JWT secrets — a missing SECRET_KEY weakens every token issued."
+            )
         self.jwt_algorithm: str = "HS256"
         self.admin_email: str = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
         self.admin_password: str = os.environ.get("ADMIN_PASSWORD", "")

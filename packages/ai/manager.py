@@ -46,13 +46,31 @@ class ProviderManager:
                    max_retries: int = 2, **kwargs: Any) -> ChatResponse:
         """Send a chat request with automatic failover.
 
-        Retry policy: retry the SAME provider up to ``max_retries`` times with
-        exponential backoff (handles transient 5xx / network blips). Only after
-        all retries are exhausted does it fail over to the next provider.
+        Retry policy:
+        1. If ``model`` is set + the registry knows which provider owns it,
+           route directly to that provider first.
+        2. Otherwise (or after the owning provider fails), try every provider
+           in priority order.
+        3. Retry the SAME provider up to ``max_retries`` times with exponential
+           backoff before failing over to the next one.
         """
         last_error: Exception | None = None
 
-        for provider in self.providers:
+        # Build the provider list — owning provider first (if model is explicit).
+        ordered_providers = list(self.providers)
+        if model:
+            try:
+                from packages.ai.registry import get
+                info = get(model)
+                if info and info.provider_id:
+                    owning = [p for p in ordered_providers if p.provider_id == info.provider_id]
+                    if owning:
+                        # Move owning provider to front, keep others as fallback.
+                        ordered_providers = owning + [p for p in ordered_providers if p.provider_id != info.provider_id]
+            except Exception:  # noqa: BLE001 — registry lookup is best-effort
+                pass
+
+        for provider in ordered_providers:
             for attempt in range(max_retries + 1):
                 try:
                     response = await provider.chat(messages, model=model, **kwargs)
@@ -65,7 +83,7 @@ class ProviderManager:
                     log.warning("Provider %s failed (attempt %d/%d, count=%d): %s",
                                 provider.provider_id, attempt + 1, max_retries + 1, count, exc)
                     if attempt < max_retries:
-                        # Exponential backoff with jitter, then retry the SAME provider.
+                        # Exponential backoff, then retry the SAME provider.
                         await asyncio.sleep(min(0.25 * (2 ** attempt), 2.0))
                         continue  # retry same provider
                     # Retries exhausted for this provider — fall through to next one.

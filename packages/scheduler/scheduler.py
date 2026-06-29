@@ -347,17 +347,20 @@ class AgentScheduler:
         # Prefer the services.scheduler_store singleton (backward compat for
         # tests that inject via mod._store) and fall back to the agent-level
         # ScheduleStore when it isn't available.
+        # Always use the migrated singleton path. The previous try/except
+        # fallback to ScheduleStore() created a second store instance,
+        # causing hydration/persistence drift. Now we log + return on failure
+        # so the caller can detect the missing store.
         try:
             from packages.scheduler.store import get_scheduler_store
-            self._store = get_scheduler_store()
+        except ImportError:
+            log.exception("Scheduler store import failed")
             return
-        except Exception:
-            pass
+
         try:
-            from packages.scheduler.store import ScheduleStore
-            self._store = ScheduleStore()
-        except Exception:
-            pass
+            self._store = get_scheduler_store()
+        except Exception:  # noqa: BLE001
+            log.exception("Scheduler store initialisation failed")
 
     def rehydrate(self) -> int:
         """Sync entry-point for attach_persistence(); delegates to hydrate().

@@ -424,9 +424,19 @@ class LocalWorkspace:
         if rc != 0:
             raise RuntimeError(f"git {action} failed (rc={rc}): {err}")
 
-        # Remove token from remote URL for security
-        await self._run("git", "remote", "set-url", "origin",
-                        f"https://github.com/{self.owner}/{self.repo}.git")
+        # Remove token from remote URL for security — fail closed.
+        # If set-url fails, the tokenized origin URL stays in .git/config,
+        # which is a security risk. Surface the failure instead of silently
+        # returning success.
+        rc_scrub, _, err_scrub = await self._run(
+            "git", "remote", "set-url", "origin",
+            f"https://github.com/{self.owner}/{self.repo}.git"
+        )
+        if rc_scrub != 0:
+            raise RuntimeError(
+                f"Failed to scrub token from git remote URL (rc={rc_scrub}): {err_scrub}. "
+                f"Token may still be present in .git/config — manual cleanup required."
+            )
 
         return {"action": action, "path": str(self.path), "ok": True}
 
@@ -489,8 +499,17 @@ class LocalWorkspace:
             if rc != 0:
                 raise RuntimeError(f"git push failed: {err}")
         finally:
-            await self._run("git", "remote", "set-url", "origin",
-                            f"https://github.com/{self.owner}/{self.repo}.git")
+            # Fail closed: if scrubbing the token fails, surface it so the
+            # tokenized URL doesn't silently remain in .git/config.
+            rc_scrub, _, err_scrub = await self._run(
+                "git", "remote", "set-url", "origin",
+                f"https://github.com/{self.owner}/{self.repo}.git"
+            )
+            if rc_scrub != 0:
+                raise RuntimeError(
+                    f"Failed to scrub token from git remote URL after push (rc={rc_scrub}): {err_scrub}. "
+                    f"Token may still be present in .git/config — manual cleanup required."
+                )
         return {"pushed": True, "branch": branch}
 
 
@@ -524,10 +543,13 @@ async def _get_token(user: dict) -> str | None:
                 value = await store.get_value(rec.secret_id, uid, role)
                 if value:
                     return value
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         log.debug("Could not fetch GitHub token from secrets: %s", e)
-    # Fallback: env var
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
+    # No server-wide GitHub token fallback — that would let user-scoped
+    # handlers inherit host credentials. Callers that genuinely need a
+    # shared token (e.g. autonomous agent loops) must pass it explicitly
+    # via os.environ.get("GITHUB_TOKEN") at their own call site.
+    return None
 
 
 @github_router.get("/repos")
@@ -540,8 +562,11 @@ async def list_repos(request: Request):
         repos = await gh.list_repos()
         return {"repos": repos, "total": len(repos)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code,
-                            detail=f"GitHub API error: {e.response.text}")
+        log.exception("GitHub API error in list_repos")
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail="GitHub API error",
+        ) from e
 
 
 @github_router.get("/repos/{owner}/{repo}")
@@ -552,7 +577,11 @@ async def get_repo(owner: str, repo: str, request: Request):
     try:
         return await gh.get_repo(owner, repo)
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=str(e))
+        log.exception("GitHub API error in get_repo")
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail="GitHub API error",
+        ) from e
 
 
 @github_router.get("/repos/{owner}/{repo}/branches")
@@ -600,7 +629,8 @@ async def init_workspace(owner: str, repo: str, request: Request, body: Workspac
               repo_workspace=f"https://github.com/{owner}/{repo}")
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log.exception("Workspace operation failed")
+        raise HTTPException(status_code=500, detail="Workspace operation failed") from e
 
 
 @github_router.get("/repos/{owner}/{repo}/workspace/status")
@@ -655,4 +685,5 @@ async def workspace_commit(owner: str, repo: str, request: Request, body: Worksp
 
         return {"commit": commit_result, "push": push_result, "pr": pr_result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log.exception("Workspace operation failed")
+        raise HTTPException(status_code=500, detail="Workspace operation failed") from e

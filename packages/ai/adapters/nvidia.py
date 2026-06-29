@@ -58,6 +58,7 @@ class NvidiaProvider(Provider):
                    "temperature": temperature, "max_tokens": max_tokens, "stream": True}
         async with httpx.AsyncClient(timeout=300) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if line.startswith("data: ") and line != "data: [DONE]":
                         import json
@@ -73,7 +74,8 @@ class NvidiaProvider(Provider):
                     f"{settings.nvidia_base_url}/v1/models",
                     headers={"Authorization": f"Bearer {settings.nvidia_api_key}"},
                 )
-            return HealthStatus(healthy=resp.status_code < 500, details={"status_code": resp.status_code})
+            # Only 2xx is healthy — 4xx (auth failure) is NOT healthy.
+            return HealthStatus(healthy=200 <= resp.status_code < 300, details={"status_code": resp.status_code})
         except Exception as exc:
             return HealthStatus(healthy=False, error=str(exc))
 

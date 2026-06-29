@@ -25,17 +25,22 @@ from webui.workspaces import WorkspaceManager
 
 
 @pytest.fixture(autouse=True)
-def _reset_brain_singletons(monkeypatch):
+def _reset_brain_singletons(monkeypatch, tmp_path):
     """Reset the brain_config + brain_policy singletons before each test.
 
     V2.0 Phase 2 moved brain_config_store → packages.ai.brain_config and
     brain_policy → packages.ai.brain. Tests that mutate _store or
     _cached_brain must target the REAL modules (not the shims).
+
+    Also isolates the sqlite mirror to a tmp_path so a persisted config
+    from another test can't reintroduce role="brain_config" state via
+    BrainConfigStore._load_unlocked() reading the default mirror path.
     """
     import packages.ai.brain_config as _bcs
     import packages.ai.brain as _bp
     monkeypatch.setattr(_bcs, "_store", None)
     monkeypatch.setattr(_bp, "_cached_brain", None)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
 
 
 def _bootstrap(tmp_path: Path) -> tuple[ProviderManager, WorkspaceManager]:
