@@ -41,9 +41,9 @@ except ImportError:  # pragma: no cover - optional in some minimal environments
     AsyncIOMotorClient = None
 
 from packages.auth.rbac import UserRole, audit, get_user_role, require_admin
-from activation import is_activated
-from activation_api import is_user_onboarding_allowed
-from secrets_store import get_secrets_store, SecretRecord
+from packages.config.activation import is_activated
+from packages.config.activation_api import is_user_onboarding_allowed
+from packages.auth.secrets_store import get_secrets_store, SecretRecord
 
 log = logging.getLogger("qwen-proxy")
 

@@ -462,7 +462,7 @@ async def create_company(
         lifecycle["expires_at"] = None
     else:
         try:
-            from app_settings import ephemeral_ttl_hours
+            from packages.config.app_settings import ephemeral_ttl_hours
             ttl_hours = await ephemeral_ttl_hours()
         except Exception:  # noqa: BLE001 — fall back to the documented default
             log.exception("Failed to load ephemeral TTL on company create; defaulting to 24h")
@@ -546,7 +546,7 @@ async def account_lifecycle(
     """
     provider = _resolve_provider(user)
     try:
-        from app_settings import ephemeral_ttl_hours
+        from packages.config.app_settings import ephemeral_ttl_hours
         ttl_hours = await ephemeral_ttl_hours()
     except Exception:  # noqa: BLE001
         log.exception("Failed to load ephemeral TTL for lifecycle response; defaulting to 24h")

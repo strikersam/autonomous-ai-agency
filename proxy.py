@@ -38,7 +38,7 @@ from pathlib import Path
 
 
 
-from langfuse_obs import emit_chat_observation
+from packages.telemetry.langfuse import emit_chat_observation
 
 
 
@@ -76,7 +76,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from packages.auth.admin import AdminAuthManager, AdminIdentity
 
-from admin_gui import register_admin_gui
+from packages.ui.admin_gui import register_admin_gui
 
 from agent.background import BackgroundAgent, BackgroundTask
 
@@ -119,13 +119,13 @@ from agent.watchdog import ResourceWatchdog
 
 from agent.quick_note import QuickNoteQueue, set_quick_note_queue, start_processor
 
-from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
+from packages.orchestration.chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 
 from handlers.anthropic_compat import handle_anthropic_messages
 
-from key_store import issue_new_api_key, load_key_store
+from packages.auth.key_store import issue_new_api_key, load_key_store
 
-from service_manager import WindowsServiceManager
+from packages.orchestration.service_manager import WindowsServiceManager
 
 from webui.config_store import JsonConfigStore
 
@@ -3775,7 +3775,7 @@ async def get_trends(auth: AuthContext = Depends(verify_api_key)):
 
     """
 
-    from trend_analysis import run_trend_analysis
+    from packages.telemetry.trend_analysis import run_trend_analysis
 
     try:
 

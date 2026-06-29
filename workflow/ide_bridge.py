@@ -274,7 +274,7 @@ async def handle_workflow_ide_chat(
     Intercepts workflow trigger commands; passes all other requests to the
     normal chat completions handler transparently.
     """
-    from chat_handlers import handle_openai_chat_completions
+    from packages.orchestration.chat_handlers import handle_openai_chat_completions
     from workflow.models import WorkflowBuildRequest
 
     body = body_override if body_override is not None else await request.body()

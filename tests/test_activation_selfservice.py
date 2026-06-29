@@ -23,8 +23,8 @@ from cryptography.hazmat.primitives.serialization import (
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import activation
-from activation_api import activation_router
+import packages.config.activation as activation
+from packages.config.activation_api import activation_router
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 

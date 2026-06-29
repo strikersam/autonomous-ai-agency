@@ -22,7 +22,7 @@ async def test_risky_plan_approval_gate(monkeypatch, tmp_path):
     # Bypass JWT auth via FastAPI dependency override (clean approach for proxy.app)
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     # Also patch tokens.verify_token for belt-and-suspenders (used in _get_current_user)
-    monkeypatch.setattr("tokens.verify_token", lambda token, **kw: {"sub": "user123", "email": "test@example.com"})
+    monkeypatch.setattr("packages.shared.tokens.verify_token", lambda token, **kw: {"sub": "user123", "email": "test@example.com"})
 
     # Short-circuit GitHub token lookup — avoids a 30-second MongoDB connection timeout
     # in _get_github_token_for_user when no secrets store is configured.

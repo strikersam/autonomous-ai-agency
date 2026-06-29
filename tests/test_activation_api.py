@@ -68,7 +68,7 @@ def test_change_role_updates_existing_user() -> None:
 
     fake_store = SimpleNamespace(users=_FakeUsers())
     client = _client(admin=True)
-    with patch("activation_api.get_store", return_value=fake_store):
+    with patch("packages.config.activation_api.get_store", return_value=fake_store):
         r = client.post(
             "/api/activation/users/someone@example.com/role",
             json={"role": "power_user"},
@@ -85,7 +85,7 @@ def test_change_role_returns_404_for_missing_user() -> None:
 
     fake_store = SimpleNamespace(users=_FakeUsers())
     client = _client(admin=True)
-    with patch("activation_api.get_store", return_value=fake_store):
+    with patch("packages.config.activation_api.get_store", return_value=fake_store):
         r = client.post(
             "/api/activation/users/ghost@example.com/role",
             json={"role": "user"},
@@ -109,7 +109,7 @@ def test_get_settings_is_public() -> None:
 
 
 def test_get_settings_returns_defaults() -> None:
-    import app_settings
+    import packages.config.app_settings as app_settings
 
     client = _client(admin=True)
     with patch.object(app_settings, "all_settings") as m:
@@ -126,7 +126,7 @@ def test_get_settings_returns_defaults() -> None:
 
 
 def test_update_settings_disables_gate() -> None:
-    import app_settings
+    import packages.config.app_settings as app_settings
 
     captured: dict = {}
 
@@ -156,7 +156,7 @@ def test_update_settings_disables_gate() -> None:
 
 
 def test_update_settings_updates_ttl() -> None:
-    import app_settings
+    import packages.config.app_settings as app_settings
 
     captured: dict = {}
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from secrets_store import (
+from packages.auth.secrets_store import (
     SecretScope,
     SecretRecord,
     SecretsStore,
