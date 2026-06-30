@@ -107,6 +107,17 @@ API.interceptors.response.use(
       }
     }
 
+    // ── Retry on 503 (Render cold start) ───────────────────────────────────
+    // The Cloudflare Worker returns 503 when Render is cold-starting.
+    // Retry up to 3 times with a 3s delay before giving up.
+    if (error.response?.status === 503 && !orig._coldStartRetry) {
+      orig._coldStartRetry = (orig._coldStartRetry || 0) + 1;
+      if (orig._coldStartRetry <= 3) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        return API(orig);
+      }
+    }
+
     if (error.response?.status === 401 && !orig._retry && !orig.url?.includes('/auth/')) {
       orig._retry = true;
       const refresh = localStorage.getItem('refresh_token');
