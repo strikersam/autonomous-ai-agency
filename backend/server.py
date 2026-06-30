@@ -1720,8 +1720,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
 
     # 4. Generate tokens and redirect to frontend.
     # log_activity is fire-and-forget — don't block the redirect on it.
-    import asyncio
-    asyncio.create_task(log_activity(
+    _asyncio.create_task(log_activity(
         "auth", f"User {email} logged in via GitHub", user_id=user_id
     ))
     access = create_access_token(user_id, email)
