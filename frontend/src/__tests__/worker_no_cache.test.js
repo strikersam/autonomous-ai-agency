@@ -60,3 +60,49 @@ describe('Worker no-cache headers (social login CDN bug)', () => {
     expect(needsProxyBlock[0]).toMatch(/Cache-Control.*no-store/);
   });
 });
+
+describe('Worker scheduled() keep-warm redundancy (PR #920)', () => {
+  // PR #919 reverted the Worker to the PR #896 state, which left only the
+  // secret-gated POST /api/scheduler/tick in scheduled(). If CRON_SECRET
+  // drifts between Render env and the Cloudflare Worker secret, every tick
+  // silently 403s and Render sleeps after 15 min idle.
+  //
+  // PR #920 restores a parallel GET /api/ping (unauthenticated, no DB I/O)
+  // as the PRIMARY keep-warm signal. The POST /api/scheduler/tick remains
+  // as a secondary signal (fires overdue APScheduler jobs).
+
+  test('scheduled() handler exists', () => {
+    expect(workerSource).toMatch(/async scheduled\(event,\s*env,\s*ctx\)/);
+  });
+
+  test('scheduled() pings GET /api/ping (primary keep-warm, no DB I/O)', () => {
+    // The primary keep-warm must be unauthenticated so it works even
+    // when CRON_SECRET is mismatched.
+    const scheduledBlock = workerSource.match(
+      /async scheduled\(event,\s*env,\s*ctx\)\s*\{[\s\S]*?\n\}/
+    );
+    expect(scheduledBlock).toBeTruthy();
+    expect(scheduledBlock[0]).toMatch(/GET \/api\/ping|\/api\/ping.*method:\s*["']GET["']/);
+  });
+
+  test('scheduled() still POSTs /api/scheduler/tick (secondary, secret-gated)', () => {
+    const scheduledBlock = workerSource.match(
+      /async scheduled\(event,\s*env,\s*ctx\)\s*\{[\s\S]*?\n\}/
+    );
+    expect(scheduledBlock).toBeTruthy();
+    expect(scheduledBlock[0]).toMatch(/\/api\/scheduler\/tick/);
+    expect(scheduledBlock[0]).toMatch(/x-cron-secret/);
+  });
+
+  test('GET /api/ping and POST /api/scheduler/tick both use ctx.waitUntil (parallel)', () => {
+    // Both pings must be wrapped in ctx.waitUntil so they run in parallel
+    // and the scheduled handler returns immediately. A 403 on the POST
+    // must NOT block the GET.
+    const scheduledBlock = workerSource.match(
+      /async scheduled\(event,\s*env,\s*ctx\)\s*\{[\s\S]*?\n\}/
+    );
+    expect(scheduledBlock).toBeTruthy();
+    const waitUntilCount = (scheduledBlock[0].match(/ctx\.waitUntil/g) || []).length;
+    expect(waitUntilCount).toBeGreaterThanOrEqual(2);
+  });
+});
