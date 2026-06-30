@@ -19,8 +19,16 @@
  * as SPA HTML, so clicking the button navigated to the cached HTML page instead
  * of following the 307 redirect to GitHub. Fix: set `Cache-Control: no-store` on
  * every proxied API response so the CDN never caches it.
+ *
+ * RENDER FREE TIER: Render free tier cold-starts take 50+ seconds. The Worker's
+ * default fetch timeout is ~30s which causes 502 errors. We use AbortController
+ * with a 90s timeout to give Render enough time to wake up.
  */
 const BACKEND_ORIGIN = "https://local-llm-server.onrender.com";
+
+// Render free tier cold start can take 50+ seconds. Cloudflare Workers have a
+// 30s default CPU time but wall-clock time is higher. Use 90s to cover cold starts.
+const BACKEND_TIMEOUT_MS = 90000;
 
 // Backend path prefixes to reverse-proxy to Render. Everything else is the SPA.
 // Keep this in sync with assets.run_worker_first in wrangler.jsonc.
@@ -42,7 +50,42 @@ export default {
       const target = BACKEND_ORIGIN + url.pathname + url.search;
       const proxied = new Request(target, request);
       proxied.headers.set("X-Forwarded-Host", url.host);
-      const response = await fetch(proxied, { redirect: "manual" });
+
+      // Use AbortController to extend the timeout for Render free-tier cold starts.
+      // Without this, Cloudflare returns 502 after ~30s.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS);
+
+      let response;
+      try {
+        response = await fetch(proxied, {
+          redirect: "manual",
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timeoutId);
+        // If the backend is still cold-starting, return a 503 with a retry hint
+        // instead of letting Cloudflare return a generic 502.
+        const isAbort = err.name === "AbortError";
+        return new Response(
+          JSON.stringify({
+            detail: isAbort
+              ? "Backend is starting up (Render free tier cold start). Please retry in a few seconds."
+              : "Backend unreachable. Please try again.",
+            retry_after: 5,
+          }),
+          {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+              "Retry-After": "5",
+            },
+          }
+        );
+      }
+      clearTimeout(timeoutId);
+
       // CRITICAL: Prevent Cloudflare's CDN from caching API responses.
       const headers = new Headers(response.headers);
       headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");

@@ -156,6 +156,11 @@ services:
       # users to the wrong origin and silently breaks GitHub/Google login.
       - key: FRONTEND_URL
         value: https://autonomous-ai-agency.strikersam.workers.dev
+      # OAUTH_REDIRECT_BASE: OAuth callbacks go through the Cloudflare Worker
+      # (which has a 90s timeout for Render cold starts) instead of directly
+      # to Render (which times out at 30s → 502 error).
+      - key: OAUTH_REDIRECT_BASE
+        value: https://autonomous-ai-agency.strikersam.workers.dev
 
       # ================================================================
       # AGENT RUNTIME CONFIGURATIONS
