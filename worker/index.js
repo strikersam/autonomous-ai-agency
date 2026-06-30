@@ -51,51 +51,56 @@ export default {
       const proxied = new Request(target, request);
       proxied.headers.set("X-Forwarded-Host", url.host);
 
-      // Use AbortController to extend the timeout for Render free-tier cold starts.
-      // Without this, Cloudflare returns 502 after ~30s.
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS);
+      // Cloudflare Workers have a 30s wall-clock CPU limit. We can't extend
+      // that. But we CAN do multiple fetch attempts with shorter timeouts.
+      // Strategy: try 3 times with 10s timeout each. If Render is cold,
+      // the first attempt wakes it up, the second or third gets through.
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          const response = await fetch(proxied, {
+            redirect: "manual",
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
 
-      let response;
-      try {
-        response = await fetch(proxied, {
-          redirect: "manual",
-          signal: controller.signal,
-        });
-      } catch (err) {
-        clearTimeout(timeoutId);
-        // If the backend is still cold-starting, return a 503 with a retry hint
-        // instead of letting Cloudflare return a generic 502.
-        const isAbort = err.name === "AbortError";
-        return new Response(
-          JSON.stringify({
-            detail: isAbort
-              ? "Backend is starting up (Render free tier cold start). Please retry in a few seconds."
-              : "Backend unreachable. Please try again.",
-            retry_after: 5,
-          }),
-          {
-            status: 503,
-            headers: {
-              "Content-Type": "application/json",
-              "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-              "Retry-After": "5",
-            },
+          // Got a response! Pass it through.
+          const headers = new Headers(response.headers);
+          headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+          headers.set("Pragma", "no-cache");
+          headers.set("Expires", "0");
+          return new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          });
+        } catch (err) {
+          clearTimeout(timeoutId);
+          lastError = err;
+          // Wait 2s before retrying (gives Render time to wake up)
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
-        );
+        }
       }
-      clearTimeout(timeoutId);
 
-      // CRITICAL: Prevent Cloudflare's CDN from caching API responses.
-      const headers = new Headers(response.headers);
-      headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-      headers.set("Pragma", "no-cache");
-      headers.set("Expires", "0");
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
+      // All 3 attempts failed — return 503 with retry hint
+      return new Response(
+        JSON.stringify({
+          detail: "Backend is starting up. Please retry in a few seconds.",
+          retry_after: 3,
+        }),
+        {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Retry-After": "3",
+          },
+        }
+      );
     }
 
     // For non-API paths, try to serve a static asset first.
