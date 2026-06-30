@@ -1413,7 +1413,7 @@ def _start_in_web_bot_tasks() -> list:
     os.environ.setdefault("FREEBUFF_EMBEDDED", "true")
     os.environ.setdefault("AGENT_AUTO_PR_ENABLED", "true")
     os.environ.setdefault("FREEBUFF_BASE_BRANCH", "master")
-    os.environ.setdefault("FREEBUFF_REPO_URL", "https://github.com/strikersam/local-llm-server")
+    os.environ.setdefault("FREEBUFF_REPO_URL", "https://github.com/strikersam/autonomous-ai-agency")
 
     try:
         tasks.append(_asyncio.create_task(_telegram_bot_supervisor()))
@@ -6231,7 +6231,7 @@ async def platform_info(user: dict = Depends(get_current_user)):
         "langfuse_configured": bool(LANGFUSE_PK and LANGFUSE_SK),
         "langfuse_url": LANGFUSE_BASE,
         "ollama_base": OLLAMA_BASE,
-        "github_repo": "https://github.com/strikersam/local-llm-server",
+        "github_repo": "https://github.com/strikersam/autonomous-ai-agency",
     }
 
 

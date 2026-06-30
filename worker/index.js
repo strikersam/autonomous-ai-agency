@@ -124,16 +124,24 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    // Cloudflare Cron fires every minute — pings the Render backend tick endpoint
-    // to keep APScheduler alive and fire overdue scheduled jobs.
+    // Cloudflare Cron fires every minute — pings Render to keep it warm
+    // (free tier sleeps after 15 min inactivity) + fires scheduled jobs.
     const secret = env.CRON_SECRET || "";
     ctx.waitUntil(
-      fetch(BACKEND_ORIGIN + "/api/scheduler/tick", {
-        method: "POST",
-        headers: { "x-cron-secret": secret },
-      })
-        .then(r => r.ok ? console.log("tick ok") : console.warn("tick", r.status))
-        .catch(e => console.error("tick error", e))
+      Promise.all([
+        // Health ping — keeps Render warm so login doesn't 502
+        fetch(BACKEND_ORIGIN + "/api/health", { signal: AbortSignal.timeout(15000) })
+          .then(r => console.log("health", r.status))
+          .catch(e => console.warn("health err", e.message)),
+        // Scheduler tick — fires overdue jobs
+        fetch(BACKEND_ORIGIN + "/api/scheduler/tick", {
+          method: "POST",
+          headers: { "x-cron-secret": secret },
+          signal: AbortSignal.timeout(15000),
+        })
+          .then(r => r.ok ? console.log("tick ok") : console.warn("tick", r.status))
+          .catch(e => console.error("tick err", e.message)),
+      ])
     );
   },
 };

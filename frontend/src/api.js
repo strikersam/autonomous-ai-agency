@@ -63,6 +63,10 @@ export function setBackendUrl(url) {
 export const API = axios.create({
   baseURL: getBackendUrl(),
   headers: { 'Content-Type': 'application/json' },
+  // Render free tier cold starts take 50+ seconds. Without a long timeout,
+  // axios aborts at 10s (default) and the user sees "Network Error" instead
+  // of waiting for Render to wake up.
+  timeout: 120000, // 2 minutes — covers even the slowest Render cold start
 });
 
 // Attach Bearer token and resolve dynamic backend URL on every request

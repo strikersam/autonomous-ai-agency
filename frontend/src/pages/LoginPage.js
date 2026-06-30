@@ -56,10 +56,13 @@ export default function LoginPage() {
   // is ignored by the backend (it accepts /start/{nonce} as a path param).
   // This is a plain <a href> navigation — no fetch() needed, no CORS
   // opaqueredirect issues, works with JS disabled.
+  //
+  // IMPORTANT: use RELATIVE paths (not backendUrl) so the <a href> navigates
+  // to the same origin (Cloudflare Worker), which proxies to Render with the
+  // 90s timeout. If we use backendUrl (which could be a different origin),
+  // the browser navigates directly to Render which has a 30s timeout → 502.
   const makeNonceHref = (provider) =>
-    hasBackendConfig
-      ? `${backendUrl}/api/auth/${provider}/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-      : undefined;
+    `/api/auth/${provider}/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const githubHref = makeNonceHref('github');
   const googleHref = makeNonceHref('google');
 
