@@ -62,7 +62,9 @@ export default function LoginPage() {
   // 90s timeout. If we use backendUrl (which could be a different origin),
   // the browser navigates directly to Render which has a 30s timeout → 502.
   const makeNonceHref = (provider) =>
-    `/api/auth/${provider}/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    hasBackendConfig
+      ? `/api/auth/${provider}/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+      : undefined;
   const githubHref = makeNonceHref('github');
   const googleHref = makeNonceHref('google');
 
