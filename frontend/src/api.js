@@ -63,10 +63,6 @@ export function setBackendUrl(url) {
 export const API = axios.create({
   baseURL: getBackendUrl(),
   headers: { 'Content-Type': 'application/json' },
-  // Render free tier cold starts take 50+ seconds. Without a long timeout,
-  // axios aborts at 10s (default) and the user sees "Network Error" instead
-  // of waiting for Render to wake up.
-  timeout: 120000, // 2 minutes — covers even the slowest Render cold start
 });
 
 // Attach Bearer token and resolve dynamic backend URL on every request
@@ -107,32 +103,6 @@ API.interceptors.response.use(
         localStorage.removeItem('backend_url');
         API.defaults.baseURL = getDefaultBackendUrl();
         orig.baseURL = getDefaultBackendUrl();
-        return API(orig);
-      }
-    }
-
-    // ── Retry on network errors (Render cold start via Cloudflare Worker) ──
-    // When Render is cold-starting, the Cloudflare Worker's fetch times out
-    // at 30s (wall-clock limit). The Worker returns either a 503 (our code)
-    // or the connection is dropped entirely (Cloudflare kills the Worker).
-    // In both cases, axios sees NO response → error.response is undefined.
-    // Retry up to 4 times with increasing delay (3s, 6s, 9s, 12s = 30s total)
-    // to give Render enough time to wake up.
-    if (!error.response && !orig._coldStartRetry) {
-      orig._coldStartRetry = (orig._coldStartRetry || 0) + 1;
-      if (orig._coldStartRetry <= 4) {
-        const delay = orig._coldStartRetry * 3000;
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return API(orig);
-      }
-    }
-
-    // ── Retry on 503 (Worker explicitly returned cold-start error) ─────────
-    if (error.response?.status === 503 && !orig._coldStartRetry) {
-      orig._coldStartRetry = (orig._coldStartRetry || 0) + 1;
-      if (orig._coldStartRetry <= 4) {
-        const delay = orig._coldStartRetry * 3000;
-        await new Promise(resolve => setTimeout(resolve, delay));
         return API(orig);
       }
     }
