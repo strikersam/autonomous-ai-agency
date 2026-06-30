@@ -111,13 +111,28 @@ API.interceptors.response.use(
       }
     }
 
-    // ── Retry on 503 (Render cold start) ───────────────────────────────────
-    // The Cloudflare Worker returns 503 when Render is cold-starting.
-    // Retry up to 3 times with a 3s delay before giving up.
+    // ── Retry on network errors (Render cold start via Cloudflare Worker) ──
+    // When Render is cold-starting, the Cloudflare Worker's fetch times out
+    // at 30s (wall-clock limit). The Worker returns either a 503 (our code)
+    // or the connection is dropped entirely (Cloudflare kills the Worker).
+    // In both cases, axios sees NO response → error.response is undefined.
+    // Retry up to 4 times with increasing delay (3s, 6s, 9s, 12s = 30s total)
+    // to give Render enough time to wake up.
+    if (!error.response && !orig._coldStartRetry) {
+      orig._coldStartRetry = (orig._coldStartRetry || 0) + 1;
+      if (orig._coldStartRetry <= 4) {
+        const delay = orig._coldStartRetry * 3000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return API(orig);
+      }
+    }
+
+    // ── Retry on 503 (Worker explicitly returned cold-start error) ─────────
     if (error.response?.status === 503 && !orig._coldStartRetry) {
       orig._coldStartRetry = (orig._coldStartRetry || 0) + 1;
-      if (orig._coldStartRetry <= 3) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+      if (orig._coldStartRetry <= 4) {
+        const delay = orig._coldStartRetry * 3000;
+        await new Promise(resolve => setTimeout(resolve, delay));
         return API(orig);
       }
     }
