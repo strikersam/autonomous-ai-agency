@@ -1633,11 +1633,11 @@ async def github_login(request: Request, nonce: str | None = None):
         raise HTTPException(status_code=503, detail="GitHub login not configured")
     state = secrets.token_urlsafe(32)
     await _store_login_state(state, "github")
-    redirect_uri = (
-        f"{OAUTH_REDIRECT_BASE}/api/auth/github/callback"
-        if OAUTH_REDIRECT_BASE
-        else str(request.url_for("github_callback"))
-    )
+    # Always use request.url_for() — the redirect_uri MUST match what's
+    # registered in the GitHub OAuth app. OAUTH_REDIRECT_BASE caused mismatches
+    # when set to the Worker URL (not registered in GitHub). request.url_for()
+    # generates the Render direct URL which IS registered.
+    redirect_uri = str(request.url_for("github_callback"))
     url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}&state={state}&scope=user:email"
@@ -1988,13 +1988,9 @@ async def google_login(request: Request, nonce: str | None = None):
         raise HTTPException(status_code=503, detail="Google login not configured")
     state = secrets.token_urlsafe(32)
     await _store_login_state(state, "google")
-    # Use OAUTH_REDIRECT_BASE so the redirect_uri matches what is registered in Google Console.
-    # Falls back to url_for only in local dev where no proxy is involved.
-    redirect_uri = (
-        f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback"
-        if OAUTH_REDIRECT_BASE
-        else str(request.url_for("google_callback"))
-    )
+    # Always use request.url_for() — the redirect_uri MUST match what's
+    # registered in Google Console. OAUTH_REDIRECT_BASE caused mismatches.
+    redirect_uri = str(request.url_for("google_callback"))
     url = (
         f"https://accounts.google.com/o/oauth2/v2/auth"
         f"?client_id={GOOGLE_CLIENT_ID}&response_type=code&scope=openid%20email%20profile"
@@ -2015,11 +2011,7 @@ async def google_callback(request: Request, code: str = None, state: str = None)
     await get_db().oauth_states.delete_one({"state": state})
 
     # redirect_uri must be identical to the one used in /api/auth/google/login
-    redirect_uri = (
-        f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback"
-        if OAUTH_REDIRECT_BASE
-        else str(request.url_for("google_callback"))
-    )
+    redirect_uri = str(request.url_for("google_callback"))
 
     try:
         # 1. Exchange code for token (canonical helper)
