@@ -1657,8 +1657,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
     if not _valid_login_state(state_doc, provider="github"):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
     # State validated — consume it so it cannot be replayed.
-    # Use find_one_and_delete to combine the find + delete into one round-trip.
-    await get_db().oauth_states.find_one_and_delete({"state": state})
+    await get_db().oauth_states.delete_one({"state": state})
 
     try:
         # 1. Exchange code for token + fetch user profile CONCURRENTLY.
