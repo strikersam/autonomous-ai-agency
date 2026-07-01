@@ -1,0 +1,9 @@
+{
+  "name": "autonomous-ai-agency",
+  "scripts": {
+    "playwright-tests": "playwright test"
+  },
+  "dependencies": {
+    "playwright": "^1.28.0"
+  }
+}

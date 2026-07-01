@@ -24,7 +24,7 @@ async def test_regress_redispatch_failure_escalates(monkeypatch):
     # test can NEVER page a human via Telegram even if the runtime pytest send-guard
     # in telegram_service regresses or runs on an environment/branch that lacks it
     # (the operator was paged with "recurring boom" from exactly such a stale run).
-    import telegram_service
+    from packages.notifications import service as telegram_service
     monkeypatch.setattr(
         telegram_service.NotificationDispatcher,
         "send_manual_notification",

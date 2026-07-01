@@ -1131,7 +1131,7 @@ class WorkflowOrchestrator:
             if not goal:
                 goal = str(getattr(req, "request", "") or "")
 
-            import telegram_service
+            from packages.notifications import service as telegram_service
             dispatcher = telegram_service.NotificationDispatcher()
             dispatcher.send_approval_gate(
                 run_id=run.run_id,

@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import packages.notifications.bot
 import pytest
 
 
@@ -39,11 +40,11 @@ def telegram_bot(monkeypatch):
 
     # Drop any cached version so reload picks up env changes.
     for mod_name in list(sys.modules):
-        if mod_name == "telegram_bot" or mod_name.startswith("telegram_bot."):
+        if mod_name == "telegram_bot" or mod_name.startswith("packages.notifications.bot."):
             del sys.modules[mod_name]
 
     sys.path.insert(0, str(REPO_ROOT))
-    import telegram_bot as tb  # noqa: F401
+    from packages.notifications import bot as tb  # noqa: F401
     importlib.reload(tb)
     yield tb
 
@@ -58,10 +59,10 @@ def test_setbrain_rejects_non_admin(telegram_bot, monkeypatch):
     returns 'Permission denied' before any HTTP call."""
     monkeypatch.setenv("TELEGRAM_ADMIN_USER_IDS", "99999")  # user 11111 is not admin
     import importlib
-    importlib.reload(telegram_bot)
+    importlib.reload(packages.notifications.bot)
     # Reload re-reads env, but ADMIN_USER_IDS is computed at import time — so we
     # need to monkeypatch the module-level attr directly too.
-    telegram_bot.ADMIN_USER_IDS = {99999}
+    packages.notifications.bot.ADMIN_USER_IDS = {99999}
 
     result = asyncio.run(telegram_bot.cmd_setbrain(11111, "cerebras"))
     assert "Permission denied" in result
@@ -69,7 +70,7 @@ def test_setbrain_rejects_non_admin(telegram_bot, monkeypatch):
 
 def test_merge_rejects_non_admin(telegram_bot, monkeypatch):
     monkeypatch.setenv("TELEGRAM_ADMIN_USER_IDS", "99999")
-    telegram_bot.ADMIN_USER_IDS = {99999}
+    packages.notifications.bot.ADMIN_USER_IDS = {99999}
     result = asyncio.run(telegram_bot.cmd_merge(11111, "855"))
     assert "Permission denied" in result
 
@@ -80,16 +81,16 @@ def test_setbrain_rejects_when_service_token_unset_on_bot(telegram_bot, monkeypa
     """When SERVICE_TOKEN is not set on the bot, the command refuses before
     calling the backend — surfaces a clear 'configure SERVICE_TOKEN' message."""
     # 11111 is admin
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = ""  # not configured
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = ""  # not configured
     result = asyncio.run(telegram_bot.cmd_setbrain(11111, "cerebras"))
     assert "SERVICE_TOKEN" in result
     assert "not configured" in result.lower() or "set SERVICE_TOKEN" in result
 
 
 def test_merge_rejects_when_service_token_unset_on_bot(telegram_bot, monkeypatch):
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = ""
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = ""
     result = asyncio.run(telegram_bot.cmd_merge(11111, "855"))
     assert "SERVICE_TOKEN" in result
 
@@ -97,23 +98,23 @@ def test_merge_rejects_when_service_token_unset_on_bot(telegram_bot, monkeypatch
 # ── Argument validation ──────────────────────────────────────────────────────
 
 def test_setbrain_rejects_invalid_provider(telegram_bot, monkeypatch):
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = "fake-token"
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = "fake-token"
     result = asyncio.run(telegram_bot.cmd_setbrain(11111, "openai"))
     assert "Invalid provider" in result
     assert "cerebras" in result and "groq" in result and "nvidia" in result and "ollama" in result
 
 
 def test_merge_rejects_non_numeric_pr(telegram_bot, monkeypatch):
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = "fake-token"
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = "fake-token"
     result = asyncio.run(telegram_bot.cmd_merge(11111, "not-a-number"))
     assert "Usage:" in result
 
 
 def test_merge_rejects_zero_or_negative_pr(telegram_bot, monkeypatch):
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = "fake-token"
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = "fake-token"
     result = asyncio.run(telegram_bot.cmd_merge(11111, "0"))
     assert "positive integer" in result
     result = asyncio.run(telegram_bot.cmd_merge(11111, "-5"))
@@ -139,8 +140,8 @@ def test_setbrain_sends_service_token_header_and_surfaces_success(telegram_bot, 
       2. PATCH /admin/api/policy/brain with the provider preset
       3. return a Telegram reply containing the new model ids + actor attribution
     """
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = "tok_fake"
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = "tok_fake"
 
     captured = {}
 
@@ -178,8 +179,8 @@ def test_setbrain_sends_service_token_header_and_surfaces_success(telegram_bot, 
 def test_setbrain_surfaces_422_liveness_failure(telegram_bot, monkeypatch):
     """When the backend's liveness probe fails (HTTP 422), the bot reply must
     surface 'Refusing to switch' so the operator knows the brain wasn't changed."""
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = "tok_fake"
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = "tok_fake"
 
     async def _fake_patch(self, url, json=None, headers=None, **kw):
         return _make_mock_response(422, {
@@ -200,8 +201,8 @@ def test_setbrain_surfaces_422_liveness_failure(telegram_bot, monkeypatch):
 def test_setbrain_surfaces_503_backend_misconfigured(telegram_bot, monkeypatch):
     """503 = backend doesn't have SERVICE_TOKEN set. The bot reply must tell
     the operator to set it on the backend (distinct from 'wrong token')."""
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = "tok_fake"
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = "tok_fake"
 
     async def _fake_patch(self, url, json=None, headers=None, **kw):
         return _make_mock_response(503, {"detail": "Service token not configured"})
@@ -215,8 +216,8 @@ def test_setbrain_surfaces_503_backend_misconfigured(telegram_bot, monkeypatch):
 def test_merge_surfaces_success_with_sha_and_actor(telegram_bot, monkeypatch):
     """A successful /merge call returns the merge SHA + actor attribution so
     the operator can audit who merged what (the roadmap's audit requirement)."""
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = "tok_fake"
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = "tok_fake"
 
     captured = {}
 
@@ -251,8 +252,8 @@ def test_merge_surfaces_success_with_sha_and_actor(telegram_bot, monkeypatch):
 def test_merge_surfaces_422_refusal(telegram_bot, monkeypatch):
     """When the backend refuses to merge (draft, failing CI, not mergeable),
     the bot reply must surface 'Refusing to merge' + the backend's reason."""
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = "tok_fake"
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = "tok_fake"
 
     async def _fake_post(self, url, json=None, headers=None, **kw):
         return _make_mock_response(422, {
@@ -266,8 +267,8 @@ def test_merge_surfaces_422_refusal(telegram_bot, monkeypatch):
 
 
 def test_merge_surfaces_404_for_unknown_pr(telegram_bot, monkeypatch):
-    telegram_bot.ADMIN_USER_IDS = {11111}
-    telegram_bot.SERVICE_TOKEN = "tok_fake"
+    packages.notifications.bot.ADMIN_USER_IDS = {11111}
+    packages.notifications.bot.SERVICE_TOKEN = "tok_fake"
 
     async def _fake_post(self, url, json=None, headers=None, **kw):
         return _make_mock_response(404, {"detail": "PR #9999 not found."})

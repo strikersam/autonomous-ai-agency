@@ -366,7 +366,7 @@ See [docs/telegram-bot.md](telegram-bot.md) for full documentation.
 Run once on your personal laptop — no domain purchase needed:
 
 ```bash
-python setup_ngrok.py --token <YOUR_NGROK_AUTH_TOKEN>
+python scripts/setup_ngrok.py --token <YOUR_NGROK_AUTH_TOKEN>
 ```
 
 Get your token free at [dashboard.ngrok.com](https://dashboard.ngrok.com). The script:

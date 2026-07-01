@@ -490,7 +490,7 @@ class SelfHealingAgent:
             event.event_id, event.attempts, event.title,
         )
         try:
-            from telegram_service import NotificationDispatcher
+            from packages.notifications.service import NotificationDispatcher
             NotificationDispatcher().send_manual_notification(self._format_escalation(event))
         except Exception as exc:  # noqa: BLE001 - escalation notify is best-effort
             log.warning("SelfHealingAgent: escalation notify failed (non-fatal): %s", exc)

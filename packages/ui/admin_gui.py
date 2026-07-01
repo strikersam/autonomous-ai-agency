@@ -12,8 +12,8 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 
-from key_store import issue_new_api_key
-from langfuse_obs import test_langfuse_connection
+from packages.auth.key_store import issue_new_api_key
+from packages.telemetry.langfuse import test_langfuse_connection
 
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 
@@ -37,8 +37,8 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from packages.auth.admin import AdminAuthManager
-    from key_store import KeyStore
-    from service_manager import WindowsServiceManager
+    from packages.auth.key_store import KeyStore
+    from packages.orchestration.service_manager import WindowsServiceManager
 
 log = logging.getLogger("qwen-proxy")
 

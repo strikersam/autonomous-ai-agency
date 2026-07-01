@@ -125,7 +125,7 @@ class BrainWatchdog:
     def _notify_failover(self, old: str, new: str) -> None:
         """Send a Telegram notification about the failover."""
         try:
-            from telegram_service import NotificationDispatcher
+            from packages.notifications.service import NotificationDispatcher
             dispatcher = NotificationDispatcher()
             dispatcher.dispatch(
                 f"Brain watchdog: FAILOVER {old} -> {new} "

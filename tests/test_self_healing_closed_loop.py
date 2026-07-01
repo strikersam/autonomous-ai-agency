@@ -109,7 +109,7 @@ async def test_escalates_to_human_after_max_attempts(healer, monkeypatch):
         def send_manual_notification(self, message: str) -> None:
             sent.append(message)
 
-    import telegram_service
+    from packages.notifications import service as telegram_service
     monkeypatch.setattr(telegram_service, "NotificationDispatcher", _FakeDispatcher)
 
     sig = heal_signature("manual", "unfixable")

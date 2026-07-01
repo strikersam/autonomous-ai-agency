@@ -18,7 +18,7 @@ import argparse, os, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from key_store import KeyStore, issue_new_api_key
+from packages.auth.key_store import KeyStore, issue_new_api_key
 
 
 def main() -> int:

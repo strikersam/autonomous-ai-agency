@@ -1,4 +1,4 @@
-"""telegram_inbound_handlers.py
+"""packages.notifications.inbound.py
 
 Step 1 inbound-routing handlers for the FreeBuff Telegram bot.
 
@@ -31,13 +31,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from services import inbound_router as ir
-from telegram_bot import (
+from packages.notifications.bot import (
     _answer_callback,
     _edit_message,
     _is_admin,
     _is_allowed,
 )
-import telegram_bot as _tb
+from packages.notifications import bot as _tb
 
 log = logging.getLogger("qwen-telegram-inbound")
 
@@ -182,7 +182,7 @@ def _build_execution_request(
         return None
 
     try:
-        import telegram_bot as _tb
+        from packages.notifications import bot as _tb
         admin_ids = getattr(_tb, "ADMIN_USER_IDS", set()) or set()
     except Exception:
         admin_ids = set()
@@ -270,14 +270,14 @@ async def _route_plain_text(
 
         try:
             import asyncio as _aio
-            from telegram_bot import _bg_tasks
+            from packages.notifications.bot import _bg_tasks
             _task = _aio.create_task(_run_in_background())
             _bg_tasks.add(_task)
             _task.add_done_callback(_bg_tasks.discard)
         except Exception as exc:  # pragma: no cover
             log.warning("telegram_inbound: background launch failed: %s", exc)
 
-        from telegram_bot import ADMIN_USER_IDS
+        from packages.notifications.bot import ADMIN_USER_IDS
         sentinel = "✅" if intent == "execute_now" else "🔒"
         gate_note = (
             " You'll see an approval-gate button in seconds."

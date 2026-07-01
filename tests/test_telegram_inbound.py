@@ -29,8 +29,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import telegram_inbound_handlers as tih  # noqa: E402
-import telegram_bot as tb  # noqa: E402
+from packages.notifications import inbound as tih  # noqa: E402
+from packages.notifications import bot as tb  # noqa: E402
 
 
 # ── Async test runner shim ──────────────────────────────────────────────────

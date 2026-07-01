@@ -15,7 +15,7 @@ from agent.capability_registry import (
     _infer_parameters_from_func,
 )
 from services.reward_scorer import RewardScore, RewardScorer
-from chat_handlers import (
+from packages.orchestration.chat_handlers import (
     _parse_tool_calls_from_response,
     _normalize_tool_choice,
     _inject_tool_results_as_messages,

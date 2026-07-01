@@ -41,9 +41,9 @@ except ImportError:  # pragma: no cover - optional in some minimal environments
     AsyncIOMotorClient = None
 
 from packages.auth.rbac import UserRole, audit, get_user_role, require_admin
-from activation import is_activated
-from activation_api import is_user_onboarding_allowed
-from secrets_store import get_secrets_store, SecretRecord
+from packages.config.activation import is_activated
+from packages.config.activation_api import is_user_onboarding_allowed
+from packages.auth.secrets_store import get_secrets_store, SecretRecord
 
 log = logging.getLogger("qwen-proxy")
 
@@ -110,21 +110,56 @@ class Step2Request(BaseModel):
     reviewer/verifier/judge use the 120B MoE (reasoning-tuned); coder/executor
     use the dense 49B (JSON-clean tool-calling); scout uses 70B (fast
     read-only summarisation).
+
+    SINGLE SOURCE OF TRUTH: packages/ai/registry.py. All model defaults below
+    are resolved at instance creation via model_for_role() so changing the
+    registry propagates here automatically.
     """
-    default_model:      str  = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    coder_model:        str  = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    planner_model:      str  = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    executor_model:     str  = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    reviewer_model:     str  = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    verifier_model:     str  = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    judge_model:        str  = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    scout_model:        str  = "meta/llama-3.3-70b-instruct"
-    architect_model:    str  = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    fallback_model:     str  = "meta/llama-3.1-70b-instruct"
+    # These are class-level defaults; instance-level resolution uses the
+    # registry so env var overrides (NVIDIA_DEFAULT_MODEL, AGENT_PLANNER_MODEL,
+    # etc.) take effect without code changes.
+    default_model:      str  = ""  # resolved at runtime
+    coder_model:        str  = ""
+    planner_model:      str  = ""
+    executor_model:     str  = ""
+    reviewer_model:     str  = ""
+    verifier_model:     str  = ""
+    judge_model:        str  = ""
+    scout_model:        str  = ""
+    architect_model:    str  = ""
+    fallback_model:     str  = ""
     embedding_model:    str  = "nomic-embed-text"
     accepted_degraded:  bool = False   # user acknowledges degraded compatibility
     repo_path:          str | None = None  # path to local-llm-server repo
     models_path:        str | None = None  # path to models directory
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Resolve all model defaults from the registry (single source of truth)
+        from packages.ai.registry import model_for_role, default_model_for_provider, fallback_chain
+        provider = "nvidia"  # setup wizard defaults to NVIDIA
+        default = default_model_for_provider(provider)
+        if not self.default_model:
+            self.default_model = default
+        if not self.coder_model:
+            self.coder_model = model_for_role("executor", provider)
+        if not self.planner_model:
+            self.planner_model = model_for_role("planner", provider)
+        if not self.executor_model:
+            self.executor_model = model_for_role("executor", provider)
+        if not self.reviewer_model:
+            self.reviewer_model = model_for_role("verifier", provider)
+        if not self.verifier_model:
+            self.verifier_model = model_for_role("verifier", provider)
+        if not self.judge_model:
+            self.judge_model = model_for_role("judge", provider)
+        if not self.scout_model:
+            self.scout_model = default
+        if not self.architect_model:
+            self.architect_model = model_for_role("planner", provider)
+        if not self.fallback_model:
+            chain = fallback_chain(default)
+            self.fallback_model = chain[-1] if chain else default
 
 
 class Step3Request(BaseModel):
@@ -141,7 +176,7 @@ class Step3Request(BaseModel):
 class Step4Request(BaseModel):
     """Default agent configuration."""
     agent_name:        str  = "My Agent"
-    agent_model:       str  = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+    agent_model:       str  = ""  # resolved from registry at runtime
     runtime_id:        str | None = None
     cost_policy:       str  = "free_only"
     system_prompt:     str  = ""
@@ -420,15 +455,15 @@ async def detect_configured_providers():
         "nvidia_nim": {
             "configured": bool(nvidia_key),
             "base_url": os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com",
-            "default_model": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "default_model": __import__('packages.ai.registry', fromlist=['nvidia_default_model']).nvidia_default_model(),
             # Curated roster of free-tier NVIDIA NIM models verified live in the
             # live probe on 2026-06-20. qwen3-coder-480b / qwen2.5-coder-32b /
             # deepseek-r1 / granite-34b / phi-3-medium / mistral-large-2 /
             # codestral-22b / llama-3.1-405b / codellama-70b / qwen3-235b-a22b
             # all returned 404/410 and are intentionally excluded.
             "live_free_models": [
-                "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-                "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+                "meta/llama-3.3-70b-instruct",
+                "meta/llama-3.3-70b-instruct",
                 "meta/llama-3.3-70b-instruct",
                 "meta/llama-3.1-70b-instruct",
             ],

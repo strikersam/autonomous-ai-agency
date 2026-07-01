@@ -70,7 +70,7 @@ def main() -> None:
     _configure()
     import asyncio
 
-    from telegram_bot import run_bot
+    from packages.notifications.bot import run_bot
 
     log.info("Starting FreeBuff Telegram bot (embedded=%s)", os.environ.get("FREEBUFF_EMBEDDED"))
     asyncio.run(run_bot())

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-import telegram_bot as tb
+from packages.notifications import bot as tb
 
 
 @pytest.fixture(autouse=True)

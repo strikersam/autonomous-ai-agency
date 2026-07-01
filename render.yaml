@@ -440,6 +440,21 @@ services:
         sync: false
       - key: REDIS_URL
         sync: false
+      # Telegram bot — the worker service owns the long-poll (the web service
+      # has TELEGRAM_POLLER_DISABLED=true). Without these, no notifications.
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: TELEGRAM_NOTIFY_CHAT_IDS
+        sync: false
+      # FreeBuff embedded mode — bot runs agent in-process
+      - key: FREEBUFF_EMBEDDED
+        value: "true"
+      - key: FREEBUFF_BASE_BRANCH
+        value: "master"
+      - key: FREEBUFF_REPO_URL
+        value: "https://github.com/strikersam/autonomous-ai-agency"
 
   # ── FreeBuff Telegram bot (24×7 phone control of repo edits) ──────────────
   # Always-on worker that long-polls Telegram and runs the FreeBuff agent

@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 import pytest
 import proxy
-import direct_chat
+import packages.chat as direct_chat
 from agent.state import AgentSessionStore
 from agent.job_manager import AgentJobManager
 
