@@ -62,7 +62,7 @@ from packages.ai.router import (
     ProviderRouter,
     extract_openai_text,
 )
-from packages.telemetry.langfuse import emit_chat_observation
+from langfuse_obs import emit_chat_observation
 from runtimes.api import runtime_router
 from router import get_router as _get_model_router
 from runtimes.manager import get_runtime_manager
@@ -70,10 +70,10 @@ from schedules import schedules_router
 from tasks.api import task_router
 from tasks.store import TaskStore, get_task_store, set_task_store
 from setup import setup_router
-from packages.config.activation_api import activation_router
+from activation_api import activation_router
 from setup.api import get_wizard_state
-from packages.auth.secrets_store import secrets_router, get_secrets_store
-from packages.shared.version import __version__, APP_NAME, APP_LABEL, APP_TAGLINE
+from secrets_store import secrets_router, get_secrets_store
+from version import __version__, APP_NAME, APP_LABEL, APP_TAGLINE
 from packages.auth.oauth import (
     github_exchange_code,
     github_fetch_user,
@@ -176,19 +176,6 @@ OLLAMA_BASE = (
     or "http://localhost:11434"
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
-# Single source of truth for model defaults — imported from the registry.
-# Every hardcoded model reference below now reads from here so changing the
-# model in one place (packages/ai/registry.py) propagates everywhere.
-from packages.ai.registry import (
-    nvidia_default_model as _registry_nvidia_default,
-    cerebras_default_model as _registry_cerebras_default,
-    groq_default_model as _registry_groq_default,
-    ollama_default_model as _registry_ollama_default,
-    ollama_planner_model as _registry_ollama_planner,
-    model_for_role as _registry_model_for_role,
-    fallback_chain as _registry_fallback_chain,
-    default_model_for_provider as _registry_default_for_provider,
-)
 _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
 # Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
 # execute + verify). Caps a hung provider so the chat job fails cleanly
@@ -311,21 +298,23 @@ async def _persist_chat_session(
 
 
 def _default_agent_role_models() -> dict[str, str]:
-    """Resolve default models for each agent role from the registry.
-
-    SINGLE SOURCE OF TRUTH: packages/ai/registry.py. Env var overrides
-    (AGENT_PLANNER_MODEL, etc.) are handled inside model_for_role().
-    """
     nim_enabled = bool(
         (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
     )
-    provider = "nvidia" if nim_enabled else "ollama"
+    if nim_enabled:
+        return {
+            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct",
+            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "qwen/qwen3-coder-480b-a35b-instruct",
+            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "meta/llama-3.3-70b-instruct",
+            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "meta/llama-3.3-70b-instruct",
+            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
+        }
     return {
-        "default": _registry_default_for_provider(provider),
-        "planner": _registry_model_for_role("planner", provider),
-        "executor": _registry_model_for_role("executor", provider),
-        "verifier": _registry_model_for_role("verifier", provider),
-        "judge": _registry_model_for_role("judge", provider),
+        "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
+        "planner": os.environ.get("AGENT_PLANNER_MODEL") or "deepseek-r1:32b",
+        "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "qwen3-coder:30b",
+        "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
+        "judge": os.environ.get("AGENT_JUDGE_MODEL") or os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
     }
 
 
@@ -1355,7 +1344,7 @@ async def _telegram_bot_supervisor() -> None:
     """Run the FreeBuff Telegram bot, restarting it on unexpected exit."""
     import asyncio as _asyncio
 
-    from packages.notifications.bot import run_bot
+    from telegram_bot import run_bot
     while True:
         try:
             await run_bot()
@@ -1413,7 +1402,7 @@ def _start_in_web_bot_tasks() -> list:
     os.environ.setdefault("FREEBUFF_EMBEDDED", "true")
     os.environ.setdefault("AGENT_AUTO_PR_ENABLED", "true")
     os.environ.setdefault("FREEBUFF_BASE_BRANCH", "master")
-    os.environ.setdefault("FREEBUFF_REPO_URL", "https://github.com/strikersam/autonomous-ai-agency")
+    os.environ.setdefault("FREEBUFF_REPO_URL", "https://github.com/strikersam/local-llm-server")
 
     try:
         tasks.append(_asyncio.create_task(_telegram_bot_supervisor()))
@@ -1512,42 +1501,16 @@ async def lifespan(app_: "FastAPI"):
     await _startup_reliability_hooks()
 
     # Startup schedule cleanup — deduplicate + remove stale run-once + stuck
-    # agency tasks. Moved OFF the startup critical path (PR #920): these run
-    # as a background task AFTER the app starts serving requests, so the first
-    # /api/health or /api/auth/login request is not delayed by 24-index
-    # deduplication. The cleanup is idempotent + best-effort — if the process
-    # exits before it finishes, the next cold start re-runs it, and the
-    # per-minute Cloudflare Cron /api/scheduler/tick also runs force_cleanup
-    # on every tick. Don't block the first request on cleanup that can happen
-    # 60s later with no user-visible impact.
-    async def _deferred_startup_cleanup() -> None:
-        try:
-            cleanup = await SCHEDULER.force_cleanup()
-            if cleanup.get("deleted", 0) > 0 or cleanup.get("deduped", 0) > 0:
-                log.info("Startup schedule cleanup: deleted=%d deduped=%d total=%d",
-                         cleanup["deleted"], cleanup["deduped"], cleanup["total"])
-        except Exception as exc:
-            log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
-
-        # Nuclear cleanup: bulk-delete duplicates directly in MongoDB. This is
-        # the fix for the 2100+ schedule multiplication bug — force_cleanup
-        # only deduplicates in-memory jobs, but if 2100 duplicates are
-        # persisted in MongoDB (from a previous bug), force_cleanup alone
-        # won't catch them all.
-        try:
-            from packages.scheduler.cleanup import nuclear_cleanup
-            nuclear = await nuclear_cleanup(get_db())
-            if nuclear.get("deduped", 0) > 0 or nuclear.get("deleted_run_once", 0) > 0 or nuclear.get("deleted_stuck", 0) > 0:
-                log.info("Startup nuclear cleanup: run_once=%d stuck=%d deduped=%d total_remaining=%d",
-                         nuclear["deleted_run_once"], nuclear["deleted_stuck"], nuclear["deduped"], nuclear["total"])
-        except Exception as exc:
-            log.warning("Startup nuclear cleanup failed (non-fatal): %s", exc)
-
+    # agency tasks. This runs once on every cold start so the schedule count
+    # drops immediately after a deploy (the cron tick may not reach a sleeping
+    # Render free-tier instance for several minutes).
     try:
-        import asyncio
-        asyncio.create_task(_deferred_startup_cleanup())
-    except Exception as exc:  # pragma: no cover - defensive
-        log.warning("Could not schedule deferred startup cleanup: %s", exc)
+        cleanup = await SCHEDULER.force_cleanup()
+        if cleanup.get("deleted", 0) > 0 or cleanup.get("deduped", 0) > 0:
+            log.info("Startup schedule cleanup: deleted=%d deduped=%d total=%d",
+                     cleanup["deleted"], cleanup["deduped"], cleanup["total"])
+    except Exception as exc:
+        log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
 
     # N5: Surface SERVICE_TOKEN misconfiguration at startup so the operator
     # sees the gap in the backend logs (not just when /setbrain fails at
@@ -1567,7 +1530,7 @@ async def lifespan(app_: "FastAPI"):
     # Warm the app-settings cache so the (sync) onboarding-gate default read is
     # correct from the first request. Best-effort — never blocks startup.
     try:
-        from packages.config.app_settings import refresh_cache
+        from app_settings import refresh_cache
         await refresh_cache()
     except Exception as exc:  # noqa: BLE001
         log.warning("app_settings cache warm failed: %s", exc)
@@ -1646,11 +1609,11 @@ async def github_login(request: Request, nonce: str | None = None):
         raise HTTPException(status_code=503, detail="GitHub login not configured")
     state = secrets.token_urlsafe(32)
     await _store_login_state(state, "github")
-    # Always use request.url_for() — the redirect_uri MUST match what's
-    # registered in the GitHub OAuth app. OAUTH_REDIRECT_BASE caused mismatches
-    # when set to the Worker URL (not registered in GitHub). request.url_for()
-    # generates the Render direct URL which IS registered.
-    redirect_uri = str(request.url_for("github_callback"))
+    redirect_uri = (
+        f"{OAUTH_REDIRECT_BASE}/api/auth/github/callback"
+        if OAUTH_REDIRECT_BASE
+        else str(request.url_for("github_callback"))
+    )
     url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}&state={state}&scope=user:email"
@@ -1673,13 +1636,12 @@ async def github_callback(request: Request, code: str = None, state: str = None)
     await get_db().oauth_states.delete_one({"state": state})
 
     try:
-        # 1. Exchange code for token + fetch user profile CONCURRENTLY.
-        # github_fetch_user needs the token first, but we can start the
-        # token exchange immediately. The user fetch is sequential (needs token).
+        # 1. Exchange code for token (canonical helper)
         access_token = await github_exchange_code(code)
         if not access_token:
             raise HTTPException(status_code=400, detail="GitHub token exchange failed")
 
+        # 2. Fetch user profile (canonical helper — returns email, name, avatar, login)
         gh_user = await github_fetch_user(access_token)
         if not gh_user:
             raise HTTPException(status_code=502, detail="GitHub OAuth request failed")
@@ -1695,12 +1657,11 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             status_code=400, detail="Could not retrieve email from GitHub"
         )
 
-    # 3. Find or create user — use upsert to combine find + insert/update into
-    # one DB round-trip (was 2 separate operations).
+    # 3. Find or create user
+    user = await get_db().users.find_one({"email": email.lower()})
+    # Extract raw numeric GitHub ID from the canonical user_id (format: "gh_<id>")
     uid_str = gh_user["user_id"][3:] if gh_user["user_id"].startswith("gh_") else gh_user["user_id"]
     now = datetime.now(timezone.utc).isoformat()
-
-    user = await get_db().users.find_one({"email": email.lower()})
 
     if not user:
         # Automatic registration
@@ -1716,8 +1677,11 @@ async def github_callback(request: Request, code: str = None, state: str = None)
         }
         result = await get_db().users.insert_one(new_user)
         user_id = str(result.inserted_id)
+        await log_activity(
+            "auth", f"New user {email} registered via GitHub", user_id=user_id
+        )
     else:
-        # Update existing user — single update_one call (no separate find needed)
+        # Update existing user with social info if missing or just update last_login
         user_id = str(user["_id"])
         await get_db().users.update_one(
             {"_id": user["_id"]},
@@ -1726,16 +1690,16 @@ async def github_callback(request: Request, code: str = None, state: str = None)
                     "last_login": now,
                     "provider": user.get("provider", "github"),
                     "provider_user_id": user.get("provider_user_id", uid_str),
-                    "avatar_url": user.get("avatar_url") or gh_user["avatar_url"],
+                    "avatar_url": user.get("avatar_url")
+                    or gh_user["avatar_url"],
                 }
             },
         )
+        await log_activity(
+            "auth", f"User {email} logged in via GitHub", user_id=user_id
+        )
 
-    # 4. Generate tokens and redirect to frontend.
-    # log_activity is fire-and-forget — don't block the redirect on it.
-    _asyncio.create_task(log_activity(
-        "auth", f"User {email} logged in via GitHub", user_id=user_id
-    ))
+    # 5. Generate tokens and redirect to frontend
     access = create_access_token(user_id, email)
     refresh = create_refresh_token(user_id)
     return RedirectResponse(
@@ -2001,9 +1965,13 @@ async def google_login(request: Request, nonce: str | None = None):
         raise HTTPException(status_code=503, detail="Google login not configured")
     state = secrets.token_urlsafe(32)
     await _store_login_state(state, "google")
-    # Always use request.url_for() — the redirect_uri MUST match what's
-    # registered in Google Console. OAUTH_REDIRECT_BASE caused mismatches.
-    redirect_uri = str(request.url_for("google_callback"))
+    # Use OAUTH_REDIRECT_BASE so the redirect_uri matches what is registered in Google Console.
+    # Falls back to url_for only in local dev where no proxy is involved.
+    redirect_uri = (
+        f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback"
+        if OAUTH_REDIRECT_BASE
+        else str(request.url_for("google_callback"))
+    )
     url = (
         f"https://accounts.google.com/o/oauth2/v2/auth"
         f"?client_id={GOOGLE_CLIENT_ID}&response_type=code&scope=openid%20email%20profile"
@@ -2024,7 +1992,11 @@ async def google_callback(request: Request, code: str = None, state: str = None)
     await get_db().oauth_states.delete_one({"state": state})
 
     # redirect_uri must be identical to the one used in /api/auth/google/login
-    redirect_uri = str(request.url_for("google_callback"))
+    redirect_uri = (
+        f"{OAUTH_REDIRECT_BASE}/api/auth/google/callback"
+        if OAUTH_REDIRECT_BASE
+        else str(request.url_for("google_callback"))
+    )
 
     try:
         # 1. Exchange code for token (canonical helper)
@@ -2177,10 +2149,6 @@ async def ensure_bootstrap() -> None:
 
     FastAPI startup hooks can be skipped in some dev/prod entrypoints; this keeps
     the service usable even if the ASGI server doesn't run startup events.
-
-    Each index creation is wrapped in its own try/except so a single failure
-    (e.g. unique index on schedules.name when duplicates already exist) doesn't
-    block seed_admin() — the admin user MUST be seeded for login to work.
     """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
@@ -2189,76 +2157,35 @@ async def ensure_bootstrap() -> None:
         async with _BOOTSTRAP_LOCK:
             if _BOOTSTRAP_DONE:
                 return
-
-            # Helper: create an index, swallowing errors (e.g. duplicate key
-            # on unique index when stale data exists). Never blocks seed_admin.
-            async def _safe_index(collection_name: str, *args, **kwargs):
-                try:
-                    col = getattr(get_db(), collection_name, None)
-                    if col is not None:
-                        await col.create_index(*args, **kwargs)
-                except Exception as exc:  # noqa: BLE001
-                    log.debug("Index creation on %s failed (non-fatal): %s", collection_name, exc)
-
-            await _safe_index("users", "email", unique=True)
-            await _safe_index("wiki_pages", "slug", unique=True)
-            await _safe_index("wiki_pages", [("title", "text"), ("content", "text")])
-            await _safe_index("sources", "created_at")
-            await _safe_index("activity_log", "created_at")
-            await _safe_index("chat_sessions", "user_id")
-            await _safe_index("providers", "provider_id", unique=True)
-            await _safe_index("api_keys", "key_id", unique=True)
-            await _safe_index("github_settings", "user_id", unique=True)
-            await _safe_index("oauth_states", "created_at", expireAfterSeconds=600)
-            await _safe_index("agent_definitions", "agent_id", unique=True)
-            await _safe_index("agent_definitions", "owner_id")
-            await _safe_index("tasks", "task_id", unique=True)
-            await _safe_index("tasks", "owner_id")
-            await _safe_index("tasks", "status")
-            await _safe_index("tasks", "created_at")
-            await _safe_index("tasks", "updated_at")
-            await _safe_index("tasks", "pending_agent_run")
-            # Schedules: unique index on name prevents multiplication. May fail
-            # if duplicates already exist — that's OK, nuclear_cleanup will
-            # remove them on the next startup.
-            await _safe_index("schedules", "name", unique=True)
-            await _safe_index("schedules", "job_id", unique=True)
-            await _safe_index("schedules", "tags")
-            await _safe_index("agent_sessions", "user_id")
-            await _safe_index("agent_sessions", "updated_at")
-
+            await get_db().users.create_index("email", unique=True)
+            await get_db().wiki_pages.create_index("slug", unique=True)
+            await get_db().wiki_pages.create_index([("title", "text"), ("content", "text")])
+            await get_db().sources.create_index("created_at")
+            await get_db().activity_log.create_index("created_at")
+            await get_db().chat_sessions.create_index("user_id")
+            await get_db().providers.create_index("provider_id", unique=True)
+            await get_db().api_keys.create_index("key_id", unique=True)
+            await get_db().github_settings.create_index("user_id", unique=True)
+            # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
+            await get_db().oauth_states.create_index("created_at", expireAfterSeconds=600)
+            # Indexes for feature routers
+            await get_db().agent_definitions.create_index("agent_id", unique=True)
+            await get_db().agent_definitions.create_index("owner_id")
+            await get_db().tasks.create_index("task_id", unique=True)
+            await get_db().tasks.create_index("owner_id")
+            await get_db().tasks.create_index("status")
             # Wire feature stores to the shared MongoDB connection
-            try:
-                set_agent_store(AgentStore(db=get_db()))
-                set_task_store(TaskStore(db=get_db()))
-            except Exception as exc:  # noqa: BLE001
-                log.debug("Feature store wiring failed (non-fatal): %s", exc)
-
-            # CRITICAL: seed_admin must always run — without it, no one can log in.
-            try:
-                await seed_admin()
-            except Exception as exc:  # noqa: BLE001
-                log.warning("seed_admin failed: %s", exc)
-
-            try:
-                await seed_default_agents()
-            except Exception as exc:  # noqa: BLE001
-                log.debug("seed_default_agents failed (non-fatal): %s", exc)
-
-            try:
-                await seed_default_providers()
-            except Exception as exc:  # noqa: BLE001
-                log.debug("seed_default_providers failed (non-fatal): %s", exc)
-
-            try:
-                await _sync_ollama_model()
-            except Exception as exc:  # noqa: BLE001
-                log.debug("Ollama model sync failed (non-fatal): %s", exc)
-
+            set_agent_store(AgentStore(db=get_db()))
+            set_task_store(TaskStore(db=get_db()))
+            await seed_admin()
+            await seed_default_agents()
+            await seed_default_providers()
+            await _sync_ollama_model()
             _BOOTSTRAP_DONE = True
     except Exception as exc:
-        log.warning("Bootstrap failed (running in limited mode): %s", exc)
+        log.warning("MongoDB bootstrap failed (running in limited mode): %s", exc)
         _BOOTSTRAP_DONE = True  # Mark as "attempted" to prevent repeated timeouts
+        raise
 
 
 # Startup is handled by the lifespan context manager defined above.
@@ -6235,7 +6162,7 @@ async def platform_info(user: dict = Depends(get_current_user)):
         "langfuse_configured": bool(LANGFUSE_PK and LANGFUSE_SK),
         "langfuse_url": LANGFUSE_BASE,
         "ollama_base": OLLAMA_BASE,
-        "github_repo": "https://github.com/strikersam/autonomous-ai-agency",
+        "github_repo": "https://github.com/strikersam/local-llm-server",
     }
 
 

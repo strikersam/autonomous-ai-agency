@@ -1,4 +1,4 @@
-"""packages.config.activation_api.py — FastAPI routes for instance activation & per-user onboarding control.
+"""activation_api.py — FastAPI routes for instance activation & per-user onboarding control.
 
 Routes:
   GET  /api/activation/status          → public (pre-auth): instance activation state + instanceId
@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from packages.config.activation import (
+from activation import (
     get_activation,
     instance_id,
     is_activated,
@@ -97,7 +97,7 @@ def is_user_onboarding_allowed(user_id: str) -> bool:
     if rec is not None and "onboarding_allowed" in rec:
         return bool(rec["onboarding_allowed"])
     try:
-        from packages.config.app_settings import onboarding_gate_enabled_cached
+        from app_settings import onboarding_gate_enabled_cached
         return not onboarding_gate_enabled_cached()
     except Exception:  # noqa: BLE001 — never block onboarding on a settings read failure
         # Fail OPEN (allow onboarding) instead of fail closed (block).
@@ -333,7 +333,7 @@ async def get_onboarding_settings(request: Request) -> OnboardingSettingsRespons
     but doesn't leak sensitive info (it's just a number). No API keys, no
     user lists, no secrets — safe to expose to any authenticated user.
     """
-    from packages.config.app_settings import all_settings, ONBOARDING_GATE_ENABLED_KEY, EPHEMERAL_TTL_HOURS_KEY
+    from app_settings import all_settings, ONBOARDING_GATE_ENABLED_KEY, EPHEMERAL_TTL_HOURS_KEY
     s = await all_settings()
     return OnboardingSettingsResponse(
         onboarding_gate_enabled=bool(s[ONBOARDING_GATE_ENABLED_KEY]),
@@ -352,7 +352,7 @@ async def update_onboarding_settings(
     setup wizard by default (no per-user allow-list entry required).
     """
     require_admin(request)
-    from packages.config.app_settings import (
+    from app_settings import (
         set_setting, all_settings,
         ONBOARDING_GATE_ENABLED_KEY, EPHEMERAL_TTL_HOURS_KEY,
     )

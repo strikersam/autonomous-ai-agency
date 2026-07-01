@@ -32,7 +32,7 @@ async def _require_auth(request: Request) -> Any:
     token = auth[7:].strip() if auth[:7].lower() == "bearer " else request.headers.get("x-api-key", "").strip()
     if token:
         try:
-            from packages.shared.tokens import verify_token
+            from tokens import verify_token
             payload = verify_token(token, token_type="access")  # nosec B106
             if payload:
                 return payload

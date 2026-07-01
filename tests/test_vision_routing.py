@@ -216,17 +216,17 @@ class TestVisionRouting:
 class TestLangfuseSessionId:
     def test_emit_chat_observation_accepts_session_id(self):
         """emit_chat_observation must accept session_id without error."""
-        from packages.telemetry.langfuse import emit_chat_observation
+        from langfuse_obs import emit_chat_observation
         import inspect
         sig = inspect.signature(emit_chat_observation)
         assert "session_id" in sig.parameters
 
     def test_session_id_included_in_meta(self):
         """When session_id is provided, it should appear in the meta dict passed to emit functions."""
-        from packages.telemetry.langfuse import emit_chat_observation
+        from langfuse_obs import emit_chat_observation
         import unittest.mock as mock
 
-        with mock.patch("packages.telemetry.langfuse._langfuse_enabled", return_value=False):
+        with mock.patch("langfuse_obs._langfuse_enabled", return_value=False):
             # With Langfuse disabled, the function returns early — just check no error
             emit_chat_observation(
                 email="test@example.com",
@@ -242,21 +242,21 @@ class TestLangfuseSessionId:
 
     def test_emit_langfuse_http_sync_accepts_session_id(self):
         """_emit_langfuse_http_sync must have session_id parameter."""
-        from packages.telemetry.langfuse import _emit_langfuse_http_sync
+        from langfuse_obs import _emit_langfuse_http_sync
         import inspect
         sig = inspect.signature(_emit_langfuse_http_sync)
         assert "session_id" in sig.parameters
 
     def test_emit_sdk_accepts_session_id(self):
         """_emit_sdk must have session_id parameter."""
-        from packages.telemetry.langfuse import _emit_sdk
+        from langfuse_obs import _emit_sdk
         import inspect
         sig = inspect.signature(_emit_sdk)
         assert "session_id" in sig.parameters
 
     def test_http_body_includes_session_id_in_trace(self):
         """When session_id provided, trace body must include sessionId field."""
-        from packages.telemetry.langfuse import _emit_langfuse_http_sync
+        from langfuse_obs import _emit_langfuse_http_sync
         import unittest.mock as mock
 
         captured_trace_body = {}
@@ -269,7 +269,7 @@ class TestLangfuseSessionId:
             resp.status_code = 200
             return resp
 
-        with mock.patch("packages.telemetry.langfuse._env_val", side_effect=lambda k: "testkey" if "KEY" in k else "https://cloud.langfuse.com"):
+        with mock.patch("langfuse_obs._env_val", side_effect=lambda k: "testkey" if "KEY" in k else "https://cloud.langfuse.com"):
             with mock.patch("httpx.Client") as mock_client_cls:
                 mock_client = mock.MagicMock()
                 mock_client.__enter__ = lambda s: s
@@ -295,7 +295,7 @@ class TestLangfuseSessionId:
 
     def test_http_trace_includes_session_tag(self):
         """When session_id provided, trace tags must include session:<id>."""
-        from packages.telemetry.langfuse import _emit_langfuse_http_sync
+        from langfuse_obs import _emit_langfuse_http_sync
         import unittest.mock as mock
 
         captured_tags = []
@@ -308,7 +308,7 @@ class TestLangfuseSessionId:
             resp.status_code = 200
             return resp
 
-        with mock.patch("packages.telemetry.langfuse._env_val", side_effect=lambda k: "testkey" if "KEY" in k else "https://cloud.langfuse.com"):
+        with mock.patch("langfuse_obs._env_val", side_effect=lambda k: "testkey" if "KEY" in k else "https://cloud.langfuse.com"):
             with mock.patch("httpx.Client") as mock_client_cls:
                 mock_client = mock.MagicMock()
                 mock_client.__enter__ = lambda s: s

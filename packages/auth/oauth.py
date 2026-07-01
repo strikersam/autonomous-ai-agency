@@ -121,7 +121,7 @@ def _google_login_url() -> str:
 
 async def github_exchange_code(code: str) -> str | None:
     """Exchange GitHub OAuth code for access token."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             "https://github.com/login/oauth/access_token",
             data={
@@ -137,35 +137,25 @@ async def github_exchange_code(code: str) -> str | None:
 
 
 async def github_fetch_user(access_token: str) -> dict | None:
-    """Fetch GitHub user profile using an access token.
-
-    Makes the user + email requests CONCURRENTLY (was sequential — 2x slower).
-    Also only fetches /user/emails when the user profile doesn't already have
-    a public email (saves one API call in the common case).
-    """
-    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+    """Fetch GitHub user profile using an access token."""
+    async with httpx.AsyncClient(timeout=10) as client:
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/vnd.github+json",
         }
-        user_resp = await client.get("https://api.github.com/user", headers=headers)
+        user_resp  = await client.get("https://api.github.com/user", headers=headers)
+        email_resp = await client.get("https://api.github.com/user/emails", headers=headers)
 
         if user_resp.status_code != 200:
             return None
 
         ud = user_resp.json()
         email = ud.get("email") or ""
-
-        # Only fetch /user/emails if the user profile doesn't have a public email.
-        # This saves one API round-trip in the common case (most users have a
-        # public email).
-        if not email:
-            email_resp = await client.get("https://api.github.com/user/emails", headers=headers)
-            if email_resp.status_code == 200:
-                for e in email_resp.json():
-                    if e.get("primary") and e.get("verified"):
-                        email = e["email"]
-                        break
+        if not email and email_resp.status_code == 200:
+            for e in email_resp.json():
+                if e.get("primary") and e.get("verified"):
+                    email = e["email"]
+                    break
 
         if not email:
             log.warning("GitHub OAuth: no verified email for user %s", ud.get("login"))

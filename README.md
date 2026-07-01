@@ -822,7 +822,7 @@ pytest -v             # verbose
 
 git config core.hooksPath .claude/hooks   # activate changelog enforcement
 
-python scripts/generate_api_key.py                # generate a new API key
+python generate_api_key.py                # generate a new API key
 
 python scripts/ai_runner.py start         # start an AI coding session
 python scripts/ai_runner.py status        # show current session state

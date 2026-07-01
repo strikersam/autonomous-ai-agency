@@ -297,7 +297,7 @@ class OutputFilter:
 
     Usage::
 
-        from packages.ui.output_filter import OutputFilter
+        from output_filter import OutputFilter
 
         stdout = subprocess.run(...).stdout
         filtered = OutputFilter.filter("git log --oneline", stdout)

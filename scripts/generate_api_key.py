@@ -15,7 +15,7 @@ from pathlib import Path
 # Allow running from repo root: python scripts/generate_api_key.py
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from packages.auth.key_store import KeyStore, issue_new_api_key
+from key_store import KeyStore, issue_new_api_key
 
 
 def main() -> int:

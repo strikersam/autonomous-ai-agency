@@ -1,4 +1,4 @@
-"""packages.orchestration.service_manager.py — auto-generated module docstring (user-research skill scan)."""
+"""service_manager.py — auto-generated module docstring (user-research skill scan)."""
 
 from __future__ import annotations
 

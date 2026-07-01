@@ -13,8 +13,8 @@ suppressed unless ``ALLOW_TEST_TELEGRAM=1`` is explicitly set.
 """
 from __future__ import annotations
 
-from packages.notifications import service as telegram_service
-from packages.notifications.service import NotificationDispatcher, _telegram_sends_suppressed
+import telegram_service
+from telegram_service import NotificationDispatcher, _telegram_sends_suppressed
 
 
 def test_suppressed_under_pytest():

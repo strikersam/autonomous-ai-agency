@@ -157,7 +157,7 @@ async def _current_user(request: Request) -> Any:
     token = auth[7:].strip() if auth[:7].lower() == "bearer " else request.headers.get("x-api-key", "").strip()
     if token:
         try:
-            from packages.shared.tokens import verify_token
+            from tokens import verify_token
             payload = verify_token(token, token_type="access")
             if payload:
                 return {

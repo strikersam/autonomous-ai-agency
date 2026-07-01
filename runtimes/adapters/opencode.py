@@ -72,7 +72,7 @@ class OpenCodeAdapter(RuntimeAdapter):
         super().__init__(config)
         self._bin = (config or {}).get("bin") or os.environ.get("OPENCODE_BIN", "opencode")
         self._base_url = (config or {}).get("base_url") or os.environ.get("OPENCODE_BASE_URL", "")
-        self._default_model = (config or {}).get("model") or            os.environ.get("OPENCODE_MODEL", __import__("packages.ai.registry", fromlist=["model_for_role"]).model_for_role("executor"))
+        self._default_model = (config or {}).get("model") or            os.environ.get("OPENCODE_MODEL", os.environ.get("AGENT_EXECUTOR_MODEL", "meta/llama-3.3-70b-instruct"))
         self._workspace = (config or {}).get("workspace") or os.environ.get("OPENCODE_WORKSPACE", ".")
 
     def required_dependencies(self) -> list[RuntimeDependency]:

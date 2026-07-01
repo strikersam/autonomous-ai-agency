@@ -15,7 +15,7 @@ import httpx
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from packages.telemetry.langfuse import emit_chat_observation
+from langfuse_obs import emit_chat_observation
 from router import get_router
 from router.health import invalidate_cache as _invalidate_health_cache
 

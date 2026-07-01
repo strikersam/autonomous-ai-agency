@@ -50,7 +50,7 @@ def main() -> int:
     missing: list[str] = []
 
     edits = {
-        _ROOT / "packages.shared.version.py": (r'__version__ = "\d+\.\d+\.\d+"', f'__version__ = "{new}"'),
+        _ROOT / "version.py": (r'__version__ = "\d+\.\d+\.\d+"', f'__version__ = "{new}"'),
         _ROOT / "frontend/src/version.js": (r"APP_VERSION = '\d+\.\d+\.\d+'", f"APP_VERSION = '{new}'"),
     }
     for path, (pat, repl) in edits.items():

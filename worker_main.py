@@ -78,26 +78,6 @@ async def _main() -> None:
     )
     log.info("All background services started — worker is running")
 
-    # Start the Telegram bot on the worker service (the web service has
-    # TELEGRAM_POLLER_DISABLED=true so only ONE process polls getUpdates).
-    # The bot runs as a background task alongside the other services.
-    from packages.notifications.bot import run_bot
-
-    async def _bot_supervisor():
-        """Run the Telegram bot, restarting on crash."""
-        while True:
-            try:
-                await run_bot()
-                log.warning("Telegram bot exited; retrying in 30s.")
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                log.exception("Telegram bot crashed: %s — restarting in 30s", exc)
-            await asyncio.sleep(30)
-
-    bot_task = asyncio.create_task(_bot_supervisor())
-    log.info("Telegram bot supervisor started on worker")
-
     # Block forever, respond to SIGTERM / SIGINT with graceful shutdown.
     stop_event = asyncio.Event()
 

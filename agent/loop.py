@@ -1404,7 +1404,7 @@ class AgentRunner:
                     # Try to emit Langfuse observation asynchronously
                     if self.email:
                         try:
-                            from packages.telemetry.langfuse import emit_chat_observation
+                            from langfuse_obs import emit_chat_observation
                             usage = {}
                             await asyncio.to_thread(
                                 emit_chat_observation,
@@ -1465,7 +1465,7 @@ class AgentRunner:
                         out_text = "\n".join(out_parts)
                         if self.email:
                             try:
-                                from packages.telemetry.langfuse import emit_chat_observation
+                                from langfuse_obs import emit_chat_observation
                                 await asyncio.to_thread(
                                     emit_chat_observation,
                                     email=self.email,
@@ -1529,7 +1529,7 @@ class AgentRunner:
                 pt = int(usage.get("input_tokens") or 0)
                 ct = int(usage.get("output_tokens") or 0)
                 try:
-                    from packages.telemetry.langfuse import emit_chat_observation
+                    from langfuse_obs import emit_chat_observation
                     await asyncio.to_thread(
                         emit_chat_observation,
                         email=self.email,
@@ -1588,7 +1588,7 @@ class AgentRunner:
             pt = int(usage.get("prompt_tokens") or 0)
             ct = int(usage.get("completion_tokens") or 0)
             try:
-                from packages.telemetry.langfuse import emit_chat_observation
+                from langfuse_obs import emit_chat_observation
                 await asyncio.to_thread(
                     emit_chat_observation,
                     email=self.email,

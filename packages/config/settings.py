@@ -73,13 +73,6 @@ class Settings:
         self.agent_judge_model: str = os.environ.get("AGENT_JUDGE_MODEL", "")
         self.llm_provider: str = os.environ.get("LLM_PROVIDER", "nvidia-nim")
 
-        # Brain Policy
-        self.allow_paid_brain: str = os.environ.get("ALLOW_PAID_BRAIN", "").lower()
-        self.brain_preference: str = os.environ.get("BRAIN_PREFERENCE", "nvidia").lower()
-        self.agent_llm_base_url: str = os.environ.get("AGENT_LLM_BASE_URL", "")
-        self.agent_llm_api_key: str = os.environ.get("AGENT_LLM_API_KEY", "")
-        self.agent_llm_model: str = os.environ.get("AGENT_LLM_MODEL", "")
-
         # Ollama
         self.ollama_base: str = os.environ.get("OLLAMA_BASE", os.environ.get("OLLAMA_BASE_URL", ""))
         self.ollama_model: str = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")

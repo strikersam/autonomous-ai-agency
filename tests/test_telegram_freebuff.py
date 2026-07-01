@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from packages.notifications import bot as tb
+import telegram_bot as tb
 
 
 @pytest.fixture(autouse=True)

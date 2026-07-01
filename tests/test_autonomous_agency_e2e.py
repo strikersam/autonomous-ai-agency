@@ -128,7 +128,7 @@ class TestTelegramNotifications:
 
     def test_notification_dispatcher_on_task_complete(self):
         """Verify NotificationDispatcher.on_task_complete dispatches notifications."""
-        from packages.notifications.service import NotificationDispatcher
+        from telegram_service import NotificationDispatcher
 
         disp = NotificationDispatcher()
         task = FakeTask(task_id="progress-test", instruction="long task", status="done")
@@ -147,7 +147,7 @@ class TestDirectChatAgentExecution:
 
     def test_direct_chat_has_agent_mode_field(self):
         """Verify ChatSendRequest supports agent mode execution."""
-        from packages.chat import ChatSendRequest
+        from direct_chat import ChatSendRequest
 
         req = ChatSendRequest(content="test", agent_mode=True)
         assert req.agent_mode is True, "ChatSendRequest should support agent_mode"

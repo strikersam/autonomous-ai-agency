@@ -5,8 +5,8 @@ import hashlib
 
 import pytest
 
-import packages.auth.key_store as key_store
-from packages.auth.key_store import KeyStore, RateLimitError, issue_new_api_key
+import key_store
+from key_store import KeyStore, RateLimitError, issue_new_api_key
 
 
 @pytest.fixture(autouse=True)

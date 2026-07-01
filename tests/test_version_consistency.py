@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from packages.shared.version import __version__
+from version import __version__
 
 _ROOT = Path(__file__).resolve().parent.parent
 

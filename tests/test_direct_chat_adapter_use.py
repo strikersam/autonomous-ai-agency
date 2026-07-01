@@ -1,10 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
 import proxy
-import packages.chat as direct_chat
+import direct_chat
 from agent.state import AgentSessionStore
 from agent.job_manager import AgentJobManager
-from packages.chat import UserInfo
+from direct_chat import UserInfo
 from runtimes.manager import get_runtime_manager
 from runtimes.base import TaskResult
 
@@ -22,7 +22,7 @@ def test_specialized_runtime_execution(monkeypatch, tmp_path):
         async def check_all(self, **kwargs):
             from agent.doctor import PreflightReport
             return PreflightReport(ready=True, summary="OK")
-    monkeypatch.setattr("packages.chat.DirectChatDoctor", FakeDoctor)
+    monkeypatch.setattr("direct_chat.DirectChatDoctor", FakeDoctor)
 
     # Mock a specialized runtime
     class FakeAdapter:

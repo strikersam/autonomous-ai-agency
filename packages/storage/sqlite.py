@@ -533,17 +533,6 @@ class _Collection:
         await conn.commit()
         return _DeleteResult(1)
 
-    async def find_one_and_delete(self, query: dict, *args, **kwargs) -> dict | None:
-        """Atomically find + delete a document. Returns the deleted doc."""
-        docs = await self._matching(query, write_conn=True)
-        if not docs:
-            return None
-        doc = docs[0]
-        conn = await self._conn()
-        await conn.execute(f"DELETE FROM {self._name} WHERE id = ?", (str(doc["_id"]),))
-        await conn.commit()
-        return doc
-
     async def delete_many(self, query: dict) -> _DeleteResult:
         docs = await self._matching(query, write_conn=True)
         if not docs:

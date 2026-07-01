@@ -846,7 +846,7 @@ class TaskExecutionCoordinator:
         Any failure is swallowed — the gate's enforcement does not depend on it.
         """
         try:
-            from packages.notifications.service import NotificationDispatcher
+            from telegram_service import NotificationDispatcher
 
             msg = (
                 "⏸ *Task awaiting approval before execution*\n"

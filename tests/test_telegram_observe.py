@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from packages.notifications import bot as tb  # noqa: E402
+import telegram_bot as tb  # noqa: E402
 
 
 def _run(coro):

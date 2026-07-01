@@ -38,9 +38,7 @@ from runtimes.base import (
 # NOTE: do NOT include /v1 in the base URL; the downstream OpenAI-compatible
 # URL builders (_openai_url, AgentRunner._chat_text) append it themselves.
 _NVIDIA_BASE_URL = "https://integrate.api.nvidia.com"
-# SINGLE SOURCE OF TRUTH: model defaults come from packages/ai/registry.py
-from packages.ai.registry import nvidia_default_model as _registry_nvidia_default
-_NVIDIA_DEFAULT_MODEL = _registry_nvidia_default()
+_NVIDIA_DEFAULT_MODEL = "meta/llama-3.3-70b-instruct"
 
 
 def _nvidia_provider_chain() -> list[ProviderConfig]:
@@ -59,7 +57,7 @@ def _nvidia_provider_chain() -> list[ProviderConfig]:
             type="openai-compatible",
             base_url=base,
             api_key=key,
-            default_model=_registry_nvidia_default(),
+            default_model=os.environ.get("NVIDIA_DEFAULT_MODEL") or _NVIDIA_DEFAULT_MODEL,
             priority=0,
         )
     ]

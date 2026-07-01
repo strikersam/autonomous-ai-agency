@@ -23,7 +23,7 @@ def _auth_override() -> proxy.AuthContext:
 
 def test_docker_compose_yaml_is_valid_and_has_expected_healthchecks() -> None:
     yaml = pytest.importorskip("yaml")
-    compose = yaml.safe_load((ROOT / "deploy" / "docker-compose.yml").read_text(encoding="utf-8"))
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     assert isinstance(compose, dict)
     assert "services" in compose
 
@@ -48,7 +48,7 @@ def test_docker_compose_yaml_is_valid_and_has_expected_healthchecks() -> None:
 
 def test_docker_compose_has_no_circular_depends_on() -> None:
     yaml = pytest.importorskip("yaml")
-    compose = yaml.safe_load((ROOT / "deploy" / "docker-compose.yml").read_text(encoding="utf-8"))
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     services: dict = compose.get("services", {})
 
     graph: dict[str, list[str]] = {}

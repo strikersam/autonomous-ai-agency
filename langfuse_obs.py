@@ -16,7 +16,7 @@ try:
 except ImportError:
     MongoClient = None
 
-from packages.shared.commercial_equivalent import estimate_commercial_equivalent_usd
+from commercial_equivalent import estimate_commercial_equivalent_usd
 
 log = logging.getLogger("qwen-proxy")
 
@@ -258,7 +258,7 @@ def emit_chat_observation(
     infra_meta: dict[str, Any] = {}
     if latency_ms > 0:
         try:
-            from packages.shared.infra_cost import compute_request_cost
+            from infra_cost import compute_request_cost
             infra = compute_request_cost(latency_ms)
             infra_meta = infra.as_dict()
         except Exception:

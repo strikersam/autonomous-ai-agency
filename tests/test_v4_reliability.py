@@ -131,7 +131,7 @@ class TestDirectChatNonBlocking:
 
     def test_trivial_message_forces_direct_mode(self):
         """Trivial greetings must always use direct mode even if agent_mode=True."""
-        from packages.chat import _is_trivial_message
+        from direct_chat import _is_trivial_message
         assert _is_trivial_message("Hello") is True
         assert _is_trivial_message("hi there") is True
         assert _is_trivial_message("Please implement a new auth system with JWT tokens") is False
@@ -145,7 +145,7 @@ class TestDirectChatNonBlocking:
 class TestAgentModeQueuesJob:
     def test_agent_mode_returns_202_with_job_id(self, monkeypatch, tmp_path: Path):
         from fastapi.testclient import TestClient
-        import packages.chat as direct_chat
+        import direct_chat
         import proxy
         from agent.job_manager import AgentJobManager
         from agent.state import AgentSessionStore
@@ -185,7 +185,7 @@ class TestAgentModeQueuesJob:
                 from agent.doctor import PreflightReport
                 return PreflightReport(ready=True, summary="CI stub — all checks passed")
 
-        monkeypatch.setattr("packages.chat.DirectChatDoctor", _FakeDoctor)
+        monkeypatch.setattr("direct_chat.DirectChatDoctor", _FakeDoctor)
 
         client = TestClient(proxy.app)
         try:

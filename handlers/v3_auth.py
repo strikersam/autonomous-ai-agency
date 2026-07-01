@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from packages.shared.tokens import TokenPair, create_tokens, refresh_access_token, verify_token
+from tokens import TokenPair, create_tokens, refresh_access_token, verify_token
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])

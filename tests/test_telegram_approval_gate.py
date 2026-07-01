@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from packages.notifications.service import NotificationDispatcher, TelegramBotManager
+from telegram_service import NotificationDispatcher, TelegramBotManager
 
 
 class _FakeResponse:
@@ -46,7 +46,7 @@ def _inline_threads(monkeypatch):
             if self._target is not None:
                 self._target()
 
-    monkeypatch.setattr("packages.notifications.service.threading.Thread", _SyncThread)
+    monkeypatch.setattr("telegram_service.threading.Thread", _SyncThread)
 
 
 # ── NotificationDispatcher._parse_chat_ids ───────────────────────────────────

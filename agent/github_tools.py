@@ -531,7 +531,7 @@ def _uid(user: Any) -> str:
 async def _get_token(user: dict) -> str | None:
     """Fetch the user's GitHub token from SecretsStore."""
     try:
-        from packages.auth.secrets_store import get_secrets_store
+        from secrets_store import get_secrets_store
         from packages.auth.rbac import get_user_role
         store  = get_secrets_store()
         uid    = _uid(user)

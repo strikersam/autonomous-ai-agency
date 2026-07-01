@@ -4,10 +4,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 import proxy
-import packages.chat as direct_chat
+import direct_chat
 from agent.state import AgentSessionStore
 from agent.job_manager import AgentJobManager
-from packages.chat import UserInfo
+from direct_chat import UserInfo
 from agent.schemas import DirectChatState
 
 
@@ -75,7 +75,7 @@ def test_sticky_objective_memory(monkeypatch, clean_store):
             from agent.doctor import PreflightReport
             return PreflightReport(ready=True, summary="OK")
 
-    monkeypatch.setattr("packages.chat.DirectChatDoctor", FakeDoctor)
+    monkeypatch.setattr("direct_chat.DirectChatDoctor", FakeDoctor)
 
     client = TestClient(proxy.app)
     headers = {"Authorization": "Bearer fake-token"}
@@ -155,7 +155,7 @@ def test_agent_runner_no_stale_kwargs(monkeypatch, clean_store, tmp_path):
             from agent.doctor import PreflightReport
             return PreflightReport(ready=True, summary="OK")
 
-    monkeypatch.setattr("packages.chat.DirectChatDoctor", FakeDoctor)
+    monkeypatch.setattr("direct_chat.DirectChatDoctor", FakeDoctor)
 
     # Capture the kwargs AgentRunner.__init__ actually receives.
     captured_init_kwargs: dict = {}

@@ -60,31 +60,9 @@ export function setBackendUrl(url) {
   API.defaults.baseURL = cleaned;
 }
 
-// Default per-request timeout. Render free-tier cold starts can take 30-60s
-// while the container boots; 60s gives enough headroom for a cold start to
-// finish without hanging forever on a truly dead backend. Long-running
-// operations (chat, agent jobs) override this per-request.
-const DEFAULT_API_TIMEOUT_MS = 60_000;
-
-// Bounded retry on TRANSIENT connection errors only (no HTTP response — i.e.
-// ERR_NETWORK, ECONNABORTED, ECONNREFUSED, DNS failures). HTTP error responses
-// (4xx/5xx) are real errors and are NOT retried. This is the minimal, safe
-// version of the retry logic that PR #911-918 got wrong by making it 120s + 4
-// retries (too aggressive → user waited 8 min before seeing an error). 2
-// retries with 2s/5s backoff recovers from a Render cold start without
-// masking real outages.
-const RETRY_DELAYS_MS = [2_000, 5_000];
-const RETRYABLE_ERRORS = new Set([
-  'ERR_NETWORK',      // connection refused, DNS failure, CORS, offline
-  'ECONNABORTED',     // request timed out
-  'ECONNREFUSED',     // backend not listening (cold start mid-boot)
-  'ETIMEDOUT',        // upstream timeout
-]);
-
 export const API = axios.create({
   baseURL: getBackendUrl(),
   headers: { 'Content-Type': 'application/json' },
-  timeout: DEFAULT_API_TIMEOUT_MS,
 });
 
 // Attach Bearer token and resolve dynamic backend URL on every request
@@ -105,34 +83,10 @@ API.interceptors.request.use((config) => {
 // (ECONNREFUSED, CORS, ERR_NETWORK) — NOT on transient timeouts or flaky DNS.
 let isRefreshing = false;
 let refreshQueue = [];
-
-// Helper: sleep for ms (used by retry backoff).
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 API.interceptors.response.use(
   (res) => res,
   async (error) => {
     const orig = error.config || {};
-
-    // ── Bounded retry on transient connection errors (cold-start recovery) ─
-    // Only retries when there is NO HTTP response (i.e. the request never
-    // reached the backend or the backend never replied). A 4xx/5xx response
-    // is a real error and is NOT retried. Up to RETRY_DELAYS_MS.length retries
-    // with the configured backoff. Opt-out per-request via config._noRetry.
-    if (
-      !error.response &&
-      !orig._retried &&
-      !orig._noRetry &&
-      RETRYABLE_ERRORS.has(error.code)
-    ) {
-      const attempt = orig._retryAttempt || 0;
-      if (attempt < RETRY_DELAYS_MS.length) {
-        orig._retried = true;
-        orig._retryAttempt = attempt + 1;
-        await sleep(RETRY_DELAYS_MS[attempt]);
-        return API(orig);
-      }
-    }
 
     // ── Self-heal on CORS / connection-refused errors ──────────────────────
     if (!error.response && !orig._corsHeal && !orig.url?.startsWith('http')) {
@@ -210,21 +164,15 @@ export function fmtErr(detail) {
 }
 
 // Auth
-// Login gets a longer timeout (90s) than the default (60s) because it runs
-// on first visit when Render is most likely cold-starting. The retry
-// interceptor handles transient connection errors; this timeout only fires
-// if the backend accepted the connection but is taking too long to respond.
-const LOGIN_TIMEOUT_MS = 90_000;
-
 export const login = async (email, password) => {
   try {
-    return await API.post('/api/auth/login', { email, password }, { timeout: LOGIN_TIMEOUT_MS });
+    return await API.post('/api/auth/login', { email, password });
   } catch (error) {
     // Self-heal when a stale backend_url points to a dead/invalid endpoint.
     if (!error?.response && localStorage.getItem('backend_url')) {
       localStorage.removeItem('backend_url');
       API.defaults.baseURL = getDefaultBackendUrl();
-      return API.post('/api/auth/login', { email, password }, { timeout: LOGIN_TIMEOUT_MS });
+      return API.post('/api/auth/login', { email, password });
     }
     throw error;
   }

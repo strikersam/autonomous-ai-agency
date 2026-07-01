@@ -289,7 +289,7 @@ async def cmd_models(user_id: int) -> str:
 
 async def cmd_cost(user_id: int) -> str:
     try:
-        from packages.shared.infra_cost import project_session_cost
+        from infra_cost import project_session_cost
         proj = project_session_cost()
         return f"*Local infra cost estimate:*\n```\n{proj.summary()}\n```"
     except Exception as exc:
@@ -1084,7 +1084,7 @@ async def _process_update(bot_token: str, update: dict) -> None:
     # inbound-routing module is missing (test paths / minimal deploys).
     if cmd == "/redirect":
         try:
-            from packages.notifications.inbound import handle_redirect
+            from telegram_inbound_handlers import handle_redirect
             await handle_redirect(bot_token, chat_id, user_id, parts)
         except ImportError as exc:
             log.warning("telegram_bot: inbound_handlers import failed: %s", exc)
@@ -1096,7 +1096,7 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
     if cmd == "/paste":
         try:
-            from packages.notifications.inbound import handle_paste
+            from telegram_inbound_handlers import handle_paste
             await handle_paste(bot_token, chat_id, user_id, parts)
         except ImportError as exc:
             log.warning("telegram_bot: inbound_handlers import failed: %s", exc)
@@ -1245,7 +1245,7 @@ async def _process_update(bot_token: str, update: dict) -> None:
         # of text gets persisted to disk and replied with a pointer instead of
         # tripping Telegram's 4096-char hard cap.
         try:
-            from packages.notifications.inbound import (
+            from telegram_inbound_handlers import (
                 _handle_big_paste,
                 _route_plain_text,
                 _resolve_reply_to_decision,

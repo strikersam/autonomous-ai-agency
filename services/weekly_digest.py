@@ -124,7 +124,7 @@ def build_digest() -> str:
 def send_digest(text: str) -> None:
     """Send the digest text via NotificationDispatcher (Telegram)."""
     try:
-        from packages.notifications.service import NotificationDispatcher
+        from telegram_service import NotificationDispatcher
         dispatcher = NotificationDispatcher()
         dispatcher.send_manual_notification(text)
         log.info("weekly-digest: sent successfully")

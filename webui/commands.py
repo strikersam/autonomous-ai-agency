@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from packages.ui.output_filter import OutputFilter
+from output_filter import OutputFilter
 
 
 SAFE_TOP_LEVEL = frozenset({"pytest", "rg", "git", "ls", "cat"})

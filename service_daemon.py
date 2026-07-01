@@ -189,7 +189,7 @@ class ServiceDaemon:
             return False, msg
 
         try:
-            tunnel_script = self.repo_path / "scripts" / "start_tunnel_simple.py"
+            tunnel_script = self.repo_path / "start_tunnel_simple.py"
 
             self.tunnel_process = subprocess.Popen(
                 [str(self.venv_python), str(tunnel_script)],

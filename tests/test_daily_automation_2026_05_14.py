@@ -28,7 +28,7 @@ class TestNormalizeResponseFormat:
 
     @pytest.fixture(autouse=True)
     def import_fn(self):
-        from packages.orchestration.chat_handlers import _normalize_response_format
+        from chat_handlers import _normalize_response_format
         self.fn = _normalize_response_format
 
     def test_no_response_format_passes_through(self):

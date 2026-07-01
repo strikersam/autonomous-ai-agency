@@ -3,10 +3,10 @@ import asyncio
 import httpx
 from httpx import AsyncClient
 import proxy
-import packages.chat as direct_chat
+import direct_chat
 from agent.state import AgentSessionStore
 from agent.job_manager import AgentJobManager
-from packages.chat import UserInfo
+from direct_chat import UserInfo
 from agent.models import AgentPlan, AgentStep
 
 def _fake_user():
@@ -22,7 +22,7 @@ async def test_risky_plan_approval_gate(monkeypatch, tmp_path):
     # Bypass JWT auth via FastAPI dependency override (clean approach for proxy.app)
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     # Also patch tokens.verify_token for belt-and-suspenders (used in _get_current_user)
-    monkeypatch.setattr("packages.shared.tokens.verify_token", lambda token, **kw: {"sub": "user123", "email": "test@example.com"})
+    monkeypatch.setattr("tokens.verify_token", lambda token, **kw: {"sub": "user123", "email": "test@example.com"})
 
     # Short-circuit GitHub token lookup — avoids a 30-second MongoDB connection timeout
     # in _get_github_token_for_user when no secrets store is configured.
@@ -36,7 +36,7 @@ async def test_risky_plan_approval_gate(monkeypatch, tmp_path):
         async def check_all(self, **kwargs):
             from agent.doctor import PreflightReport
             return PreflightReport(ready=True, summary="OK")
-    monkeypatch.setattr("packages.chat.DirectChatDoctor", FakeDoctor)
+    monkeypatch.setattr("direct_chat.DirectChatDoctor", FakeDoctor)
 
     # Mock runner
     class FakeRunner:

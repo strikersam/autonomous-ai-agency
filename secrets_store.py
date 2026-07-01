@@ -1,4 +1,4 @@
-"""packages.auth.secrets_store.py — User-scoped, workspace-level, and admin/global secrets.
+"""secrets_store.py — User-scoped, workspace-level, and admin/global secrets.
 
 Three secret scopes:
   user      — visible only to the owning user; never to other users or admins

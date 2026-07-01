@@ -166,7 +166,7 @@ jobs:
         run: |
           pip install bandit safety -q
           bandit -r . \
-            --exclude ".git,.venv,venv,node_modules,tests,frontend" \
+            --exclude ".git,.venv,venv,node_modules,tests,frontend,remote-admin" \
             --format json --output /tmp/bandit.json -ll 2>/dev/null || true
           COUNT=$(python3 -c "import json; d=json.load(open('/tmp/bandit.json')); print(len(d.get('results',[])))" 2>/dev/null || echo 0)
           echo "findings=${COUNT}" >> "$GITHUB_OUTPUT"

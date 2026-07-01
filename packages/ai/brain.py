@@ -20,12 +20,18 @@ from typing import Any
 
 log = logging.getLogger("brain_policy")
 
-# Default free NVIDIA NIM brain — imported from the registry (single source of
-# truth). The operator points this at the most capable free cloud model via
-# NVIDIA_DEFAULT_MODEL; this fallback is the documented default.
-from packages.ai.registry import nvidia_default_model as _nvidia_default_model
-
-DEFAULT_FREE_NVIDIA_MODEL = _nvidia_default_model()
+# Default free NVIDIA NIM brain. The operator points this at the most capable
+# free cloud model via NVIDIA_DEFAULT_MODEL; this fallback is the documented
+# default (see .env.example / render.yaml).
+#
+# This MUST match the live, endpoint-tested model the rest of the codebase uses
+# (router/, services/, agents/, and seeded provider records all reference it). A
+# later curation pass (see the docs/changelog entry "NVIDIA NIM model list curated
+# from live endpoint testing") found the old `llama-3.3-nemotron-super-49b-v1` returns 410 Gone
+# 404, so the free-brain default is the empirically-live Nemotron Super 49B.
+# Without this, a deploy that leaves NVIDIA_DEFAULT_MODEL unset would resolve a
+# dead model and every dispatched task would fail at EXECUTE with a 400/404.
+DEFAULT_FREE_NVIDIA_MODEL = "meta/llama-3.3-70b-instruct"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -89,7 +95,7 @@ def resolve_free_nvidia_brain() -> tuple[str, dict, str] | None:
     base = (os.environ.get("NVIDIA_BASE_URL") or "").strip().rstrip("/") or "https://integrate.api.nvidia.com"
     if not base.endswith("/v1"):
         base = f"{base}/v1"
-    model = _nvidia_default_model()
+    model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or DEFAULT_FREE_NVIDIA_MODEL
     return base, {"Authorization": f"Bearer {key}"}, model
 
 
@@ -234,13 +240,6 @@ async def resolve_active_brain(
     # save so we never persist a dead model. When set, it wins over both
     # env vars (other than the kill-switch above) and the provider records
     # — that's the whole point of "one-click change from the UI".
-    #
-    # IMPORTANT: when BRAIN_PREFERENCE=ollama, the operator has explicitly
-    # chosen local-only. If the persisted BrainConfig points at a cloud
-    # provider (e.g. a stale "nvidia" config from before the operator
-    # switched to ollama), we MUST NOT honour it — that would route every
-    # task to a cloud provider the operator explicitly opted out of, and
-    # if that provider's model is dead (410 Gone) every task blocks.
     try:
         from packages.ai.brain_config import (
             get_brain_config,
@@ -254,38 +253,29 @@ async def resolve_active_brain(
         # This keeps the existing test contract intact: when no PATCH has
         # been issued, the resolver falls through to provider records / env.
         if cfg.updated_at:
-            preference = get_brain_preference()
-            # If operator wants ollama-only, ignore a stale cloud config.
-            if preference == "ollama" and cfg.primary_provider != "ollama":
-                log.warning(
-                    "brain_policy: ignoring persisted BrainConfig (provider=%s) "
-                    "because BRAIN_PREFERENCE=ollama — falling through to ollama",
-                    cfg.primary_provider,
-                )
-            else:
-                provider = cfg.primary_provider
-                base = provider_base_url(provider)
-                if base:
-                    key = provider_api_key(provider)
-                    if provider == "ollama" or key:
-                        if not base.endswith("/v1") and provider != "ollama":
-                            base = f"{base}/v1"
-                        headers = {"Authorization": f"Bearer {key}"} if key else None
-                        # Pick the role model — executor is the hot-path call.
-                        model = cfg.executor_model or cfg.planner_model or SAFE_DEFAULT_MODEL
-                        if _norm(base) not in exclude:
-                            resolution = BrainResolution(
-                                provider_id=f"brain_config:{provider}",
-                                base_url=base,
-                                auth_headers=headers,
-                                model=model,
-                                role="brain_config",
-                                free_tier=True,
-                                source="brain_config_store",
-                                priority=9_000,
-                            )
-                            _cached_brain = resolution
-                            return resolution
+            provider = cfg.primary_provider
+            base = provider_base_url(provider)
+            if base:
+                key = provider_api_key(provider)
+                if provider == "ollama" or key:
+                    if not base.endswith("/v1") and provider != "ollama":
+                        base = f"{base}/v1"
+                    headers = {"Authorization": f"Bearer {key}"} if key else None
+                    # Pick the role model — executor is the hot-path call.
+                    model = cfg.executor_model or cfg.planner_model or SAFE_DEFAULT_MODEL
+                    if _norm(base) not in exclude:
+                        resolution = BrainResolution(
+                            provider_id=f"brain_config:{provider}",
+                            base_url=base,
+                            auth_headers=headers,
+                            model=model,
+                            role="brain_config",
+                            free_tier=True,
+                            source="brain_config_store",
+                            priority=9_000,
+                        )
+                        _cached_brain = resolution
+                        return resolution
     except Exception as exc:  # noqa: BLE001 — never block resolution
         log.debug("brain_policy: BrainConfig lookup failed (%s) — continuing", exc)
 

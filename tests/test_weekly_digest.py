@@ -70,7 +70,7 @@ class TestBuildDigest:
 
 
 class TestSendDigest:
-    @patch("packages.notifications.service.NotificationDispatcher")
+    @patch("telegram_service.NotificationDispatcher")
     def test_send_calls_dispatcher(self, mock_cls):
         mock_instance = MagicMock()
         mock_cls.return_value = mock_instance

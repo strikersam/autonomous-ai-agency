@@ -59,7 +59,7 @@ class TestHealth:
         assert r.status_code == 200
 
     def test_version_in_health(self, client):
-        from packages.shared.version import __version__
+        from version import __version__
         r = client.get("/api/health")
         # Health returns JSON with at least a status field
         assert isinstance(r.json(), dict)

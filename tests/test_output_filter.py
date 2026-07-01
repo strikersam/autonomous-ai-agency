@@ -6,7 +6,7 @@ Verifies token reduction across all supported command types.
 from __future__ import annotations
 
 import pytest
-from packages.ui.output_filter import OutputFilter, FILTER_ENABLED, MAX_CHARS
+from output_filter import OutputFilter, FILTER_ENABLED, MAX_CHARS
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────

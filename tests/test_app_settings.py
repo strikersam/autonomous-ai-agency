@@ -22,7 +22,7 @@ def sqlite_store(tmp_path, monkeypatch):
     importlib.reload(sqlite_store_mod)  # re-read SQLITE_DB_PATH
     db.reset_store()
 
-    import packages.config.app_settings as app_settings
+    import app_settings
     importlib.reload(app_settings)
     app_settings.reset_cache_for_tests()
     yield app_settings
@@ -70,7 +70,7 @@ def test_gate_default_controls_unlisted_user(sqlite_store, monkeypatch):
     """is_user_onboarding_allowed falls back to the global default for users
     with no explicit allow-list record."""
     app_settings = sqlite_store
-    import packages.config.activation_api as activation_api
+    import activation_api
 
     # No per-user state file entries.
     monkeypatch.setattr(activation_api, "_load_onboarding_state", lambda: {})
@@ -86,7 +86,7 @@ def test_gate_default_controls_unlisted_user(sqlite_store, monkeypatch):
 
 def test_explicit_record_overrides_default(sqlite_store, monkeypatch):
     app_settings = sqlite_store
-    import packages.config.activation_api as activation_api
+    import activation_api
 
     # Gate OFF would allow by default, but an explicit block wins.
     app_settings._cache[app_settings.ONBOARDING_GATE_ENABLED_KEY] = False

@@ -6,7 +6,7 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from packages.shared.tokens import create_tokens, verify_token, refresh_access_token
+from tokens import create_tokens, verify_token, refresh_access_token
 
 
 _OBJECT_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
