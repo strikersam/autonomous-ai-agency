@@ -300,6 +300,23 @@ services:
         value: "true"
 
       # ================================================================
+      # LANGFUSE — observability/tracing for chat + agent runs.
+      # Set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY in the Render
+      # dashboard (from your Langfuse project settings at
+      # cloud.langfuse.com or your self-hosted instance). Without these,
+      # _langfuse_enabled() returns False and NO traces are emitted —
+      # the Langfuse dashboard stays empty. Verify via:
+      #   curl https://local-llm-server.onrender.com/api/observability/status
+      # (look for "langfuse_configured": true).
+      # ================================================================
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_HOST
+        value: "https://cloud.langfuse.com"
+
+      # ================================================================
       # FREEBUFF TELEGRAM BOT — run inside this web service (free tier:
       # one service hosts both the API and the phone-control bot).
       # Set the *sync:false* secrets in the dashboard. RUN_TELEGRAM_BOT
