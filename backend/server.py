@@ -1501,16 +1501,27 @@ async def lifespan(app_: "FastAPI"):
     await _startup_reliability_hooks()
 
     # Startup schedule cleanup — deduplicate + remove stale run-once + stuck
-    # agency tasks. This runs once on every cold start so the schedule count
-    # drops immediately after a deploy (the cron tick may not reach a sleeping
-    # Render free-tier instance for several minutes).
+    # agency tasks. Moved OFF the startup critical path (PR #922): runs as a
+    # background task AFTER the app starts serving requests, so the first
+    # /api/auth/login is not delayed by schedule deduplication. The cleanup
+    # is idempotent + best-effort — the per-minute Cloudflare Cron
+    # /api/scheduler/tick also runs force_cleanup on every tick, so cleanup
+    # still happens within 60s of cold start. Don't block the first request
+    # on cleanup that can happen 60s later with no user-visible impact.
+    async def _deferred_startup_cleanup() -> None:
+        try:
+            cleanup = await SCHEDULER.force_cleanup()
+            if cleanup.get("deleted", 0) > 0 or cleanup.get("deduped", 0) > 0:
+                log.info("Startup schedule cleanup: deleted=%d deduped=%d total=%d",
+                         cleanup["deleted"], cleanup["deduped"], cleanup["total"])
+        except Exception as exc:
+            log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
+
     try:
-        cleanup = await SCHEDULER.force_cleanup()
-        if cleanup.get("deleted", 0) > 0 or cleanup.get("deduped", 0) > 0:
-            log.info("Startup schedule cleanup: deleted=%d deduped=%d total=%d",
-                     cleanup["deleted"], cleanup["deduped"], cleanup["total"])
-    except Exception as exc:
-        log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
+        import asyncio
+        asyncio.create_task(_deferred_startup_cleanup())
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Could not schedule deferred startup cleanup: %s", exc)
 
     # N5: Surface SERVICE_TOKEN misconfiguration at startup so the operator
     # sees the gap in the backend logs (not just when /setbrain fails at
