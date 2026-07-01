@@ -180,7 +180,14 @@ _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
 # Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
 # execute + verify). Caps a hung provider so the chat job fails cleanly
 # instead of sitting at phase "planning" forever. Configurable via env.
-_AGENT_RUN_BUDGET_SEC = float(os.environ.get("CHAT_AGENT_RUN_BUDGET_SEC", "240"))
+# PR #923: bumped default from 240s to 600s. The old 240s budget was too tight
+# for NVIDIA NIM under load (cold model loading + queue depth) and for Ollama
+# pulling a model on first call. A 240s timeout mid-agent-run left the chat
+# response half-formed and showed "The agent run timed out before completing".
+# 600s gives enough headroom for a slow first call while still bounding the
+# request so a truly dead endpoint doesn't hang forever. Operators can still
+# override via the CHAT_AGENT_RUN_BUDGET_SEC env var.
+_AGENT_RUN_BUDGET_SEC = float(os.environ.get("CHAT_AGENT_RUN_BUDGET_SEC", "600"))
 
 _CHAT_AGENT_JOBS = AgentJobManager()
 _CHAT_AGENT_WORKSPACE_ROOT = Path(
@@ -1508,6 +1515,10 @@ async def lifespan(app_: "FastAPI"):
     # /api/scheduler/tick also runs force_cleanup on every tick, so cleanup
     # still happens within 60s of cold start. Don't block the first request
     # on cleanup that can happen 60s later with no user-visible impact.
+    #
+    # PR #923: also runs nuclear_cleanup (dedup-by-name pipeline) to clear
+    # the 2000+ schedule backlog that accumulates when run-once agency tasks
+    # fail (e.g. NVIDIA 410) and their schedule rows persist + multiply.
     async def _deferred_startup_cleanup() -> None:
         try:
             cleanup = await SCHEDULER.force_cleanup()
@@ -1516,6 +1527,20 @@ async def lifespan(app_: "FastAPI"):
                          cleanup["deleted"], cleanup["deduped"], cleanup["total"])
         except Exception as exc:
             log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
+
+        # Nuclear cleanup: bulk-delete duplicates directly in the DB. This is
+        # the fix for the 2100+ schedule multiplication bug — force_cleanup
+        # only deduplicates in-memory jobs, but if 2100 duplicates are
+        # persisted in the DB (from a previous bug), force_cleanup alone
+        # won't catch them all. nuclear_cleanup deduplicates by name.
+        try:
+            from packages.scheduler.cleanup import nuclear_cleanup
+            nuclear = await nuclear_cleanup(get_db())
+            if nuclear.get("deduped", 0) > 0 or nuclear.get("deleted_run_once", 0) > 0 or nuclear.get("deleted_stuck", 0) > 0:
+                log.info("Startup nuclear cleanup: run_once=%d stuck=%d deduped=%d total_remaining=%d",
+                         nuclear["deleted_run_once"], nuclear["deleted_stuck"], nuclear["deduped"], nuclear["total"])
+        except Exception as exc:
+            log.warning("Startup nuclear cleanup failed (non-fatal): %s", exc)
 
     try:
         import asyncio
@@ -7880,6 +7905,7 @@ async def legacy_scheduler_create(
         name=body.name,
         cron=body.cron,
         instruction=body.instruction,
+        description=getattr(body, 'description', None) or body.name,
         agent_id=body.agent_id,
         runtime_id=body.runtime_id,
         model=body.model,

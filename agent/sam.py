@@ -262,7 +262,12 @@ class SamAgent:
 
             text = await call_llm(
                 messages=messages,
-                model="meta/llama-3.3-70b-instruct",  # FREE NVIDIA NIM — never paid
+                # No model= kwarg — let call_llm resolve the active provider's
+                # default model. Hardcoding "meta/llama-3.3-70b-instruct" breaks
+                # when BRAIN_PREFERENCE=ollama (the NVIDIA model id is invalid
+                # for the Ollama provider → call_llm raises → SAM returns
+                # fallback text). Resolving via the active provider works for
+                # both NVIDIA NIM and Ollama.
                 temperature=0.5,
             )
             return str(text).strip()[:300]

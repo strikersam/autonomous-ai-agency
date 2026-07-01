@@ -87,18 +87,22 @@ async def nuclear_cleanup(db: Any) -> dict[str, int]:
     """Directly delete ALL stale jobs from the DB collection.
 
     More aggressive than cleanup_stale_jobs — uses delete_many for speed.
-    Called at startup to clear the 1700+ schedule backlog.
+    Called at startup to clear the 2100+ schedule backlog.
 
     Uses the SAME stuck-job threshold as ``cleanup_stale_jobs`` (run_count > 10)
     so it doesn't wipe legitimate recurring agency schedules at startup.
+
+    Also deduplicates by name: keeps the newest job for each name, deletes
+    all others. This is the nuclear fix for the multiplication bug — even
+    if the in-memory dedup missed duplicates, this cleans them on startup.
 
     Args:
         db: The database object (get_db() result)
 
     Returns:
-        Summary dict with 'deleted_run_once', 'deleted_stuck', 'total'
+        Summary dict with 'deleted_run_once', 'deleted_stuck', 'deduped', 'total'
     """
-    summary = {"deleted_run_once": 0, "deleted_stuck": 0, "total": 0}
+    summary: dict[str, int] = {"deleted_run_once": 0, "deleted_stuck": 0, "deduped": 0, "total": 0}
 
     try:
         col = getattr(db, "schedules", None)
@@ -115,8 +119,38 @@ async def nuclear_cleanup(db: Any) -> dict[str, int]:
         r2 = await col.delete_many({"tags": {"$in": ["agency"]}, "run_count": {"$gt": 10}})
         summary["deleted_stuck"] = r2.deleted_count if hasattr(r2, 'deleted_count') else 0
 
-        log.info("Nuclear cleanup: deleted %d run-once + %d stuck agency jobs",
-                 summary["deleted_run_once"], summary["deleted_stuck"])
+        # Deduplicate by name: for each name, keep only the newest job.
+        # This is the nuclear fix for the 2100+ schedule multiplication bug.
+        # Even if the in-memory dedup in cleanup_stale_jobs missed duplicates
+        # (e.g. schedule rows persisted from before the dedup logic existed),
+        # this cleans them on startup. SQLite-safe: falls back gracefully if
+        # $aggregate is not supported.
+        try:
+            pipeline = [
+                {"$sort": {"updated_at": -1}},
+                {"$group": {"_id": "$name", "job_ids": {"$push": "$job_id"}, "count": {"$sum": 1}}},
+                {"$match": {"count": {"$gt": 1}}},
+            ]
+            cursor = col.aggregate(pipeline)
+            duplicates = await cursor.to_list(length=10000) if hasattr(cursor, 'to_list') else list(cursor)
+            for dup in duplicates:
+                job_ids = dup.get("job_ids", [])
+                # Keep the first (newest), delete the rest
+                to_delete = job_ids[1:]
+                if to_delete:
+                    r3 = await col.delete_many({"job_id": {"$in": to_delete}})
+                    summary["deduped"] += r3.deleted_count if hasattr(r3, 'deleted_count') else len(to_delete)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Nuclear cleanup dedup failed (non-fatal — SQLite may not support $aggregate): %s", exc)
+
+        # Count total remaining
+        try:
+            summary["total"] = await col.count_documents({})
+        except Exception:  # noqa: BLE001
+            pass
+
+        log.info("Nuclear cleanup: deleted %d run-once + %d stuck + %d duplicates (%d remaining)",
+                 summary["deleted_run_once"], summary["deleted_stuck"], summary["deduped"], summary["total"])
     except Exception as exc:  # noqa: BLE001
         log.debug("Nuclear cleanup failed (non-fatal): %s", exc)
 
