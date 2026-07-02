@@ -49,6 +49,7 @@
 | 25 | Flaky `Test (Python 3.13)` root fix (background loops started under e2e TestClient) | `DONE` | #689 | `tests/conftest.py` defaults `RUN_BACKGROUND_IN_WEB=false`; ended the per-PR CI thrash. | 2026-06-19 |
 | 26 | Keep-alive workflow (free-tier 24/7 autonomy, no paid worker) | `DONE` | #690 | `.github/workflows/keepalive.yml` pings `/api/health` every 10m (loops run in web via `RUN_BACKGROUND_IN_WEB=true`). | 2026-06-19 |
 | 27 | Adversarial autonomy-paths audit + hardening | `IN_PROGRESS` | #694 | 2 `agent/`-local fixes (self-heal re-dispatch stranding; broken Hermes dispatch) + 3 tests. Deferred orchestrator-zone findings → Bug Log #9-#12. | 2026-06-19 |
+| 28 | Daily automation (2026-07-02): stream stall watchdog + Anthropic adapter + Claude 5/4 registry | `DONE` | `claude/nifty-pasteur-5hu561` | stream_watchdog.py, adapters/anthropic.py, registry.py + settings.py, 26 tests green, pushed | 2026-07-02 |
 
 ---
 
