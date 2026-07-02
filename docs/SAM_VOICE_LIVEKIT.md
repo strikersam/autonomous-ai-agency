@@ -54,9 +54,16 @@ key/secret pair from its config.)
 Once set, `GET /agent/sam/livekit/status` returns `configured: true` and the
 dashboard's SAM screen shows **Start live conversation**.
 
-### 3. Run the SAM voice worker
+### 3. The SAM voice worker (in-process by default — nothing to run)
 
-The worker needs the same env as the backend **plus** one STT and one TTS key:
+The backend starts the worker **inside the web process** on boot
+(`voice/sam_livekit_worker.py` `start_in_process()`, same pattern as the
+in-web Telegram bot; `Dockerfile.backend` installs the deps). As soon as the
+`LIVEKIT_*` env vars are set and the service redeploys, SAM's ears and voice
+are live — no separate worker service needed. Set `SAM_VOICE_IN_PROCESS=false`
+to opt out and run it as a dedicated process instead (see below).
+
+The worker needs one STT and one TTS key alongside the backend env:
 
 | Variable | Purpose |
 |----------|---------|
@@ -67,6 +74,8 @@ The worker needs the same env as the backend **plus** one STT and one TTS key:
 | `SAM_LLM_MODEL` | Default: `NVIDIA_DEFAULT_MODEL` |
 | `SAM_LLM_API_KEY` | Default: `NVIDIA_API_KEY` |
 
+Dedicated-process alternative (when `SAM_VOICE_IN_PROCESS=false`):
+
 ```bash
 pip install -r voice/requirements-livekit.txt
 python -m voice.sam_livekit_worker dev      # local development (hot reload)
@@ -74,8 +83,10 @@ python -m voice.sam_livekit_worker start    # production worker
 ```
 
 Run it from the repo root next to the backend (a Render background worker
-works well), or deploy it to LiveKit Cloud Agents. LiveKit dispatches the
-worker into every new SAM voice room automatically.
+works well), or deploy it to LiveKit Cloud Agents. Either way, LiveKit
+dispatches the worker into every new SAM voice room automatically. If the
+free-tier instance runs out of memory during calls (Silero VAD uses
+onnxruntime), the dedicated-process mode is the escape hatch.
 
 ### 4. Talk to SAM
 
@@ -88,7 +99,9 @@ captions, reports agency status, and creates tasks on request.
 - **No "Start live conversation" button** — `GET /agent/sam/livekit/status`
   lists which `LIVEKIT_*` vars are missing.
 - **Token endpoint returns 503** — same cause: backend env vars unset.
-- **Room connects but SAM never speaks** — the worker isn't running or wasn't
-  dispatched; check its logs (`SAM voice session: room=…`).
-- **Worker exits at startup** — it prints exactly which STT/TTS/LLM key is
-  missing; the free path is a single `GROQ_API_KEY`.
+- **Room connects but SAM never speaks** — check the backend logs for
+  `SAM voice worker started in-process` / `SAM voice session: room=…`; if the
+  start line says which keys are missing, add them. In dedicated-process mode,
+  make sure the worker process is actually running.
+- **Worker exits at startup (dedicated mode)** — it prints exactly which
+  STT/TTS/LLM key is missing; the free path is a single `GROQ_API_KEY`.

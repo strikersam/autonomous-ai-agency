@@ -1504,6 +1504,17 @@ async def lifespan(app_: "FastAPI"):
     # free-tier service can host both the API and the phone-control bot.
     extra_tasks = _start_in_web_bot_tasks()
 
+    # SAM realtime voice worker (LiveKit) — same single-service philosophy:
+    # run SAM's ears/voice inside the web process. Safe no-op when the
+    # LIVEKIT_* env vars or the livekit-agents deps are absent, and forced
+    # off under TESTING. Set SAM_VOICE_IN_PROCESS=false to run it as a
+    # dedicated worker process instead. docs/SAM_VOICE_LIVEKIT.md.
+    try:
+        from voice.sam_livekit_worker import start_in_process as _start_sam_voice
+        _start_sam_voice()
+    except Exception as exc:
+        log.warning("SAM voice in-process worker not started: %s", exc)
+
     # #522 + #505: Reliability startup hooks
     await _startup_reliability_hooks()
 

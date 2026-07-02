@@ -205,6 +205,56 @@ def test_livekit_token_room_override(client, auth_headers, livekit_env):
     assert resp.json()["room"] == "war-room"
 
 
+# ── In-process worker (fully hands-off mode) ─────────────────────────────────
+
+def test_in_process_flag_forced_off_under_testing(livekit_env, monkeypatch):
+    """Under TESTING the in-process worker must never be eligible to start."""
+    monkeypatch.setenv("TESTING", "true")
+    assert get_livekit_config().in_process is False
+
+
+def test_in_process_flag_default_on(livekit_env, monkeypatch):
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.delenv("SAM_VOICE_IN_PROCESS", raising=False)
+    assert get_livekit_config().in_process is True
+
+
+def test_in_process_flag_opt_out(livekit_env, monkeypatch):
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.setenv("SAM_VOICE_IN_PROCESS", "false")
+    assert get_livekit_config().in_process is False
+
+
+def test_start_in_process_noop_under_testing(livekit_env):
+    """start_in_process must be a safe no-op in the test environment
+    (conftest sets TESTING=true) — no thread, no exception."""
+    from voice.sam_livekit_worker import start_in_process
+
+    assert start_in_process() is False
+
+
+def test_start_in_process_noop_when_unconfigured(no_livekit_env, monkeypatch):
+    """Flag on but LiveKit env absent → logged no-op, never raises."""
+    monkeypatch.delenv("TESTING", raising=False)
+    from voice.sam_livekit_worker import start_in_process
+
+    assert start_in_process() is False
+
+
+# ── Production image ships the voice pipeline ────────────────────────────────
+
+def test_dockerfile_ships_voice_package():
+    """Dockerfile.backend must COPY voice/ and install the LiveKit worker deps
+    — without these, /agent/sam/* imports fail in production while working in
+    CI (which installs the root requirements from a full checkout)."""
+    from pathlib import Path
+
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile.backend"
+    content = dockerfile.read_text()
+    assert "COPY voice/ voice/" in content
+    assert "voice/requirements-livekit.txt" in content
+
+
 # ── Worker module ─────────────────────────────────────────────────────────────
 
 def test_worker_importable_without_livekit():
