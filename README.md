@@ -843,6 +843,14 @@ See [`CLAUDE.md`](CLAUDE.md) for the contributor guide, skill map, risky-module 
 
 ## What's New
 
+### 2026-07-02
+
+- **Stream stall watchdog** — Provider streams that silently stop sending chunks now raise `StreamStallError` after 300 s of idle time instead of hanging forever. Previously a stuck NVIDIA NIM or Groq connection would block an entire autonomous loop slot until server restart. Wired into the Groq and NVIDIA adapters. Configure via `STREAM_IDLE_TIMEOUT_SEC`.
+
+- **Anthropic adapter (Claude 5/4 family)** — New `packages/ai/adapters/anthropic.py` implements the full `Provider` interface: `chat()`, streaming SSE, `health()`, `cost()`, `limits()`. Priority 50 — after all free providers — so you get free inference by default and only pay when you choose to.
+
+- **Model registry: Claude Sonnet 5, Opus 4.8, Haiku 4.5, Fable 5** — All four models from the current Claude family are now in `packages/ai/registry.py` with correct capabilities (200K context, tool use, vision), pricing, and fallback chains. Set `ANTHROPIC_DEFAULT_MODEL` to override the default (`claude-sonnet-5`).
+
 ### 2026-06-26
 
 - **Opus 4.8 + Fable 5 routing** — Claude Opus 4.8 (latest flagship) and Fable 5/Mythos 5 added to the model registry and alias table. Requests for any of these models are transparently routed to the best local model. Fable 5 is gated behind `ROUTER_ALLOW_FABLE5=1` due to the US export-control suspension.

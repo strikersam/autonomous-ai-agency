@@ -167,6 +167,76 @@ def _register_defaults() -> None:
         priority=40,
     ))
 
+    # ── Anthropic Claude 5/4 family (paid — lower priority than free providers) ──
+
+    # Claude Sonnet 5 — flagship balance of intelligence and speed (July 2026)
+    register(ModelInfo(
+        model_id="claude-sonnet-5",
+        provider_id="anthropic",
+        display_name="Claude Sonnet 5",
+        supports_tools=True,
+        supports_vision=True,
+        supports_streaming=True,
+        context_window=200000,
+        max_output_tokens=64000,
+        speed_tier="fast",
+        input_cost_per_1m=3.0,
+        output_cost_per_1m=15.0,
+        priority=50,
+        fallback_model="claude-haiku-4-5-20251001",
+    ))
+
+    # Claude Opus 4.8 — most powerful reasoning model (July 2026)
+    register(ModelInfo(
+        model_id="claude-opus-4-8",
+        provider_id="anthropic",
+        display_name="Claude Opus 4.8",
+        supports_tools=True,
+        supports_vision=True,
+        supports_streaming=True,
+        context_window=200000,
+        max_output_tokens=32000,
+        speed_tier="slow",
+        input_cost_per_1m=15.0,
+        output_cost_per_1m=75.0,
+        priority=55,
+        fallback_model="claude-sonnet-5",
+    ))
+
+    # Claude Haiku 4.5 — fastest, most compact (Oct 2025)
+    register(ModelInfo(
+        model_id="claude-haiku-4-5-20251001",
+        provider_id="anthropic",
+        display_name="Claude Haiku 4.5",
+        supports_tools=True,
+        supports_vision=True,
+        supports_streaming=True,
+        context_window=200000,
+        max_output_tokens=8192,
+        speed_tier="fast",
+        input_cost_per_1m=0.8,
+        output_cost_per_1m=4.0,
+        priority=52,
+        fallback_model="claude-sonnet-5",
+    ))
+
+    # Claude Fable 5 — experimental creative/narrative model (2026)
+    register(ModelInfo(
+        model_id="claude-fable-5",
+        provider_id="anthropic",
+        display_name="Claude Fable 5",
+        supports_tools=True,
+        supports_vision=False,
+        supports_streaming=True,
+        context_window=200000,
+        max_output_tokens=16000,
+        speed_tier="medium",
+        input_cost_per_1m=3.0,
+        output_cost_per_1m=15.0,
+        priority=54,
+        fallback_model="claude-sonnet-5",
+    ))
+
 
 # Register defaults on import
 _register_defaults()

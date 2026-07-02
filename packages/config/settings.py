@@ -65,6 +65,7 @@ class Settings:
         self.cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")
         self.groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
         self.anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "")
+        self.anthropic_default_model: str = os.environ.get("ANTHROPIC_DEFAULT_MODEL", "claude-sonnet-5")
 
         # Agent Brain
         self.agent_planner_model: str = os.environ.get("AGENT_PLANNER_MODEL", "")

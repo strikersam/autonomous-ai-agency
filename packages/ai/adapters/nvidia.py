@@ -7,6 +7,7 @@ will move here directly and provider_router will be retired.
 from __future__ import annotations
 
 from packages.ai.provider import Provider, ChatResponse, HealthStatus, RateLimit
+from packages.ai.stream_watchdog import guarded_stream
 from packages.config import settings
 
 
@@ -50,21 +51,24 @@ class NvidiaProvider(Provider):
         )
 
     async def stream(self, messages, *, model=None, temperature=0.3, max_tokens=4096, **kwargs):
-        # Streaming delegates to existing httpx-based streaming
-        import httpx
+        import httpx, json
         url = f"{settings.nvidia_base_url}/v1/chat/completions"
         headers = {"Authorization": f"Bearer {settings.nvidia_api_key}", "Content-Type": "application/json"}
         payload = {"model": model or settings.nvidia_default_model, "messages": messages,
                    "temperature": temperature, "max_tokens": max_tokens, "stream": True}
-        async with httpx.AsyncClient(timeout=300) as client:
-            async with client.stream("POST", url, json=payload, headers=headers) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if line.startswith("data: ") and line != "data: [DONE]":
-                        import json
-                        chunk = json.loads(line[6:])
-                        if chunk.get("choices", [{}])[0].get("delta", {}).get("content"):
-                            yield chunk["choices"][0]["delta"]["content"]
+
+        async def _raw():
+            async with httpx.AsyncClient(timeout=300) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if line.startswith("data: ") and line != "data: [DONE]":
+                            chunk = json.loads(line[6:])
+                            if chunk.get("choices", [{}])[0].get("delta", {}).get("content"):
+                                yield chunk["choices"][0]["delta"]["content"]
+
+        async for chunk in guarded_stream(_raw()):
+            yield chunk
 
     async def health(self) -> HealthStatus:
         import httpx

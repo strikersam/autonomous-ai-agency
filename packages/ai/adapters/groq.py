@@ -1,6 +1,7 @@
 """Groq provider adapter — free, fast LLM (deepseek-r1-distill-llama-70b)."""
 from __future__ import annotations
 from packages.ai.provider import Provider, ChatResponse, HealthStatus, RateLimit
+from packages.ai.stream_watchdog import guarded_stream
 from packages.config import settings
 
 
@@ -39,15 +40,20 @@ class GroqProvider(Provider):
         headers = {"Authorization": f"Bearer {settings.groq_api_key}", "Content-Type": "application/json"}
         payload = {"model": model or "deepseek-r1-distill-llama-70b", "messages": messages,
                    "temperature": temperature, "max_tokens": max_tokens, "stream": True}
-        async with httpx.AsyncClient(timeout=300) as client:
-            async with client.stream("POST", url, json=payload, headers=headers) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if line.startswith("data: ") and line != "data: [DONE]":
-                        chunk = json.loads(line[6:])
-                        delta = chunk.get("choices", [{}])[0].get("delta", {})
-                        if delta.get("content"):
-                            yield delta["content"]
+
+        async def _raw():
+            async with httpx.AsyncClient(timeout=300) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if line.startswith("data: ") and line != "data: [DONE]":
+                            chunk = json.loads(line[6:])
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            if delta.get("content"):
+                                yield delta["content"]
+
+        async for chunk in guarded_stream(_raw()):
+            yield chunk
 
     async def health(self) -> HealthStatus:
         return HealthStatus(healthy=self.is_configured)
