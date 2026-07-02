@@ -59,7 +59,9 @@ class LessonStore:
         issue = (issue or "").strip()[:_MAX_LESSON_CHARS]
         if not issue:
             return
-        signature = hashlib.sha1(f"{phase}|{issue[:120]}".encode()).hexdigest()[:16]
+        signature = hashlib.sha1(
+            f"{phase}|{issue[:120]}".encode(), usedforsecurity=False
+        ).hexdigest()[:16]
         with self._lock, self._connect() as conn:
             conn.execute(
                 """INSERT INTO lessons (signature, phase, lesson, goal, hits, updated_at)
