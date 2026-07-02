@@ -179,7 +179,8 @@ export default function LoopsScreen() {
       )}
 
       {!loading && loops.length > 0 && (
-        <div style={{ borderRadius: 16, border: '1px solid var(--border)', overflow: 'hidden' }}>
+        <div className="scroll-x" style={{ borderRadius: 16, border: '1px solid var(--border)' }}>
+          <div style={{ minWidth: 640 }}>
           <div style={{
             display: 'grid', gridTemplateColumns: '1.6fr 0.9fr 1fr 0.8fr 0.8fr 0.9fr',
             gap: 8, padding: '10px 14px', background: 'rgba(255,255,255,0.03)',
@@ -208,6 +209,7 @@ export default function LoopsScreen() {
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
