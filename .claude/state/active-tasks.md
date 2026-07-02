@@ -49,6 +49,7 @@
 | 25 | Flaky `Test (Python 3.13)` root fix (background loops started under e2e TestClient) | `DONE` | #689 | `tests/conftest.py` defaults `RUN_BACKGROUND_IN_WEB=false`; ended the per-PR CI thrash. | 2026-06-19 |
 | 26 | Keep-alive workflow (free-tier 24/7 autonomy, no paid worker) | `DONE` | #690 | `.github/workflows/keepalive.yml` pings `/api/health` every 10m (loops run in web via `RUN_BACKGROUND_IN_WEB=true`). | 2026-06-19 |
 | 27 | Adversarial autonomy-paths audit + hardening | `IN_PROGRESS` | #694 | 2 `agent/`-local fixes (self-heal re-dispatch stranding; broken Hermes dispatch) + 3 tests. Deferred orchestrator-zone findings → Bug Log #9-#12. | 2026-06-19 |
+| 28 | OpenHands-inspired hardening: StuckDetector (tool-loop no-progress abort) + microagents (`.openhands/microagents/` keyword-triggered planner knowledge) | `IN_PROGRESS` | `claude/openhands-improvements-0wysd8` | `agent/stuck_detector.py` + `agent/microagents.py` wired into AgentRunner; 4 starter microagents; 22 new tests | 2026-07-02 |
 
 ---
 
