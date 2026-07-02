@@ -511,6 +511,22 @@ class SkillBindings:
         ))
 
         self._register(RuntimeSkill(
+            skill_id="karpathy-guidelines",
+            name="Karpathy Coding Guidelines",
+            description="Behavioral guardrails against common LLM coding failures: surface assumptions before coding, minimum code that solves the problem, surgical diffs that trace to the request, and verifiable success criteria for every task.",
+            category=SkillCategory.CODE_QUALITY,
+            safety=SkillSafety.READ_ONLY,
+            is_enabled=True,
+            inputs=[SkillInput(name="diff", type="str", description="Proposed diff or plan to check against the guidelines")],
+            outputs=SkillOutput(type="dict", description="Guideline compliance report: assumptions, scope creep, unverified claims"),
+            specialist_families=["engineering", "backend", "frontend", "architecture", "qa", "devops"],
+            capabilities_added=["assumption_surfacing", "scope_discipline", "verification_gating"],
+            trigger_keywords=["karpathy", "surgical change", "scope creep", "minimal diff", "success criteria", "verify before done"],
+            source="local",
+            source_path=".claude/skills/karpathy-guidelines/SKILL.md",
+        ))
+
+        self._register(RuntimeSkill(
             skill_id="test-first-executor",
             name="Test-First Executor",
             description="Write or update tests before (or alongside) implementation. Ensures every code change is verifiably correct before merging.",
