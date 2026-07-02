@@ -49,6 +49,7 @@
 | 25 | Flaky `Test (Python 3.13)` root fix (background loops started under e2e TestClient) | `DONE` | #689 | `tests/conftest.py` defaults `RUN_BACKGROUND_IN_WEB=false`; ended the per-PR CI thrash. | 2026-06-19 |
 | 26 | Keep-alive workflow (free-tier 24/7 autonomy, no paid worker) | `DONE` | #690 | `.github/workflows/keepalive.yml` pings `/api/health` every 10m (loops run in web via `RUN_BACKGROUND_IN_WEB=true`). | 2026-06-19 |
 | 27 | Adversarial autonomy-paths audit + hardening | `IN_PROGRESS` | #694 | 2 `agent/`-local fixes (self-heal re-dispatch stranding; broken Hermes dispatch) + 3 tests. Deferred orchestrator-zone findings → Bug Log #9-#12. | 2026-06-19 |
+| 28 | SAM realtime voice over LiveKit (taskmaster-style full-duplex: talk to SAM, SAM talks back, agency tools by voice) | `DONE` | `claude/sam-voice-livekit-xjow4g` | `voice/livekit_config.py` + `voice/livekit_token.py` (PyJWT room tokens, no new backend deps), `voice/sam_livekit_worker.py` (LiveKit Agents: Silero VAD → Deepgram/Groq STT → SAM LLM w/ get_agency_status·list_pending_tasks·create_task tools → ElevenLabs/Groq TTS; brain via `SAM_LLM_BASE_URL` → NVIDIA NIM/Hermes/proxy), backend `GET/POST /agent/sam/livekit/{status,token}`, SamVoiceScreen live mode (`livekit-client`, dynamic import, captions), `docs/SAM_VOICE_LIVEKIT.md`, 17 tests in `tests/test_sam_livekit.py`. Needs `LIVEKIT_URL/API_KEY/API_SECRET` + `GROQ_API_KEY` in Render to go live. | 2026-07-02 |
 
 ---
 

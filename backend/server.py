@@ -8083,6 +8083,60 @@ async def sam_speak_backend(body: SamSpeakRequest, user: dict = Depends(get_curr
         return {"audio_b64": "", "error": str(exc)}
 
 
+# ── SAM realtime voice (LiveKit) ───────────────────────────────────────────────
+# Taskmaster-style pipeline: the dashboard fetches a room token here, joins the
+# LiveKit room over WebRTC, and the SAM worker (voice/sam_livekit_worker.py)
+# is dispatched into the room to converse (STT → SAM LLM + tools → TTS).
+
+
+class SamLiveKitTokenRequest(BaseModel):
+    room: str = Field(default="", max_length=128, description="Optional room override")
+
+
+@app.get("/agent/sam/livekit/status")
+async def sam_livekit_status_backend(user: dict = Depends(get_current_user)):
+    """Report whether the SAM realtime voice (LiveKit) transport is configured."""
+    from voice.livekit_config import get_livekit_config
+
+    cfg = get_livekit_config()
+    return {
+        "configured": cfg.configured,
+        "url": cfg.url if cfg.configured else "",
+        "room_prefix": cfg.room_prefix,
+        "missing": list(cfg.missing),
+    }
+
+
+@app.post("/agent/sam/livekit/token")
+async def sam_livekit_token_backend(
+    body: SamLiveKitTokenRequest, user: dict = Depends(get_current_user)
+):
+    """Mint a LiveKit room token so the dashboard can talk to SAM live."""
+    from voice.livekit_config import get_livekit_config
+    from voice.livekit_token import mint_access_token
+
+    cfg = get_livekit_config()
+    if not cfg.configured:
+        raise HTTPException(
+            status_code=503,
+            detail="LiveKit is not configured — missing: " + ", ".join(cfg.missing),
+        )
+
+    identity = str(user.get("email") or user.get("_id") or "commander")
+    room = (body.room or "").strip() or f"{cfg.room_prefix}-{identity.split('@')[0]}"
+    try:
+        token = mint_access_token(
+            api_key=cfg.api_key,
+            api_secret=cfg.api_secret,
+            identity=identity,
+            room=room,
+            name=str(user.get("name") or "Commander"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=f"Token minting failed: {exc}")
+    return {"url": cfg.url, "token": token, "room": room, "identity": identity}
+
+
 # ─── Doctor / System Health endpoint ────────────────────────────────────────────
 
 class _DoctorCheck(BaseModel):
