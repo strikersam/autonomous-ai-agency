@@ -102,9 +102,17 @@ def _is_model_dead(provider_id: str, model: str) -> bool:
 
 
 def get_dead_models() -> dict[str, float]:
-    """Snapshot of active dead-model entries {provider_id/model: expiry_ts}."""
+    """Snapshot of active dead-model entries {provider_id/model: expiry_ts}.
+
+    Also evicts expired entries while snapshotting, so a model that fell out of
+    the candidate list (and is thus never re-queried via _is_model_dead) cannot
+    linger in the map indefinitely.
+    """
     now = time.time()
-    return {k: v for k, v in _dead_models.items() if v > now}
+    expired = [k for k, v in _dead_models.items() if v <= now]
+    for k in expired:
+        _dead_models.pop(k, None)
+    return dict(_dead_models)
 
 
 async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:

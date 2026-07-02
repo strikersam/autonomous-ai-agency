@@ -103,6 +103,40 @@ async def test_dead_model_is_skipped_on_next_request(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_dead_model_becomes_eligible_again_after_ttl_expiry(monkeypatch):
+    """Once _DEAD_MODEL_COOLDOWN_SECONDS elapses, the model is re-probed."""
+    import packages.ai.router as router_mod
+
+    tried: list[str] = []
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        model = payload["model"]
+        tried.append(model)
+        if model == "dead/model":
+            return httpx.Response(410, json={"error": "Gone"})
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "ok"}}]}
+        )
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    # Negative window → the entry is already expired the instant it is marked.
+    monkeypatch.setattr(router_mod, "_DEAD_MODEL_COOLDOWN_SECONDS", -1)
+    router = ProviderRouter([_nvidia()])
+
+    payload = {"model": "dead/model", "messages": [{"role": "user", "content": "hi"}]}
+    await router.chat_completion(dict(payload), max_retries=0)
+
+    # Expired immediately → not considered dead, and pruned from the snapshot.
+    assert _is_model_dead("nvidia", "dead/model") is False
+    assert get_dead_models() == {}
+
+    tried.clear()
+    await router.chat_completion(dict(payload), max_retries=0)
+    # Eligible again → the model is re-probed rather than silently skipped.
+    assert "dead/model" in tried
+
+
+@pytest.mark.anyio
 async def test_all_models_dead_cools_the_provider(monkeypatch):
     """When every candidate 410s, the provider is cooled and failover proceeds."""
     async def fake_post_chat(self, provider, payload, timeout_sec):
