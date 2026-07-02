@@ -32,8 +32,15 @@ control of the agency, modelled on
 
 ### 1. Get LiveKit credentials
 
-Create a free project at <https://cloud.livekit.io> (or self-host
-`livekit-server`). Note the project URL, API key, and API secret.
+1. Sign in at <https://cloud.livekit.io> (free — Google/GitHub login works)
+   and create a project if you don't have one.
+2. `LIVEKIT_URL` — copy the `wss://<project>.livekit.cloud` URL shown at the
+   top of the project dashboard.
+3. `LIVEKIT_API_KEY` + `LIVEKIT_API_SECRET` — project **Settings → Keys →
+   Create key**. The secret is shown **once** at creation; copy both then.
+
+(Self-hosting `livekit-server` instead also works — use its URL and the
+key/secret pair from its config.)
 
 ### 2. Configure the backend (Render env vars)
 
