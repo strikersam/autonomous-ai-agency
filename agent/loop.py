@@ -577,6 +577,15 @@ class AgentRunner:
             if key_id:
                 self.key_id = key_id
 
+            # ── Learning loop: persist the cause of every failed step so the
+            # next run's planner sees it (agent/lessons.py). Retry without
+            # this is not learning — the same mistake recurs forever.
+            try:
+                from agent.lessons import record_step_failures
+                record_step_failures(plan.goal, step_results)
+            except Exception:
+                pass
+
             return {
                 "goal": plan.goal,
                 "plan": plan.model_dump(),
@@ -657,6 +666,15 @@ class AgentRunner:
         messages = build_planning_prompt(instruction, history, user_memories=user_memories)
         # ── Harness enrichment: inject available tools + skills into planner ───
         self._inject_enrichment(messages)
+        # ── Learning loop: surface lessons from recent failed runs so the
+        # planner avoids known failure modes (agent/lessons.py).
+        try:
+            from agent.lessons import recent_lessons_block
+            _lessons = recent_lessons_block()
+            if _lessons and messages and messages[0].get("role") == "system":
+                messages[0]["content"] = f"{messages[0]['content']}\n\n{_lessons}"
+        except Exception:
+            pass
         planner_decision = get_router().route(
             requested_model=requested_model,
             messages=messages,
