@@ -11,6 +11,9 @@ Required for realtime voice:
   LIVEKIT_API_SECRET   — LiveKit API secret (signs access tokens)
 
 Optional (worker brain / speech providers — sensible free-tier defaults):
+  SAM_VOICE_IN_PROCESS — run the voice worker inside the web process (default
+                         "true"; forced off under TESTING). Set "false" when
+                         running the worker as a dedicated process instead.
   SAM_LIVEKIT_ROOM     — room name prefix (default: "sam-voice")
   SAM_LLM_BASE_URL     — OpenAI-compatible base URL for SAM's brain.
                          Point at Hermes (http://localhost:8100/v1), the
@@ -51,6 +54,8 @@ class LiveKitConfig:
     groq_api_key: str = ""
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+
+    in_process: bool = True
 
     missing: tuple[str, ...] = field(default_factory=tuple)
 
@@ -96,6 +101,14 @@ def get_livekit_config() -> LiveKitConfig:
         elevenlabs_api_key=os.environ.get("ELEVENLABS_API_KEY", "").strip(),
         elevenlabs_voice_id=(
             os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or "21m00Tcm4TlvDq8ikWAM"
+        ),
+        # In-process worker: on by default so a single web service carries
+        # SAM's ears and voice; never under TESTING (same rule as the other
+        # in-web background services).
+        in_process=(
+            os.environ.get("SAM_VOICE_IN_PROCESS", "true").strip().lower()
+            in {"1", "true", "yes"}
+            and os.environ.get("TESTING", "").strip().lower() != "true"
         ),
         missing=missing,
     )

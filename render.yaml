@@ -173,6 +173,10 @@ services:
         sync: false
       - key: LIVEKIT_API_SECRET
         sync: false
+      # Run SAM's voice worker inside this web service (no separate paid
+      # worker). Set "false" to run voice/sam_livekit_worker.py elsewhere.
+      - key: SAM_VOICE_IN_PROCESS
+        value: "true"
       # Voice worker speech providers (optional upgrades over free Groq)
       - key: GROQ_API_KEY
         sync: false

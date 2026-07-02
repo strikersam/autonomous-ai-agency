@@ -14,8 +14,18 @@ Providers (resolved by voice/livekit_config.py, free-tier first):
        (http://localhost:8100/v1), or the proxy (http://localhost:8000/v1)
   TTS: ElevenLabs → Groq PlayAI (free)
 
-Tools call the agency **in-process** (agent.sam context + tasks.store), so run
-the worker from the repo root with the same env as the backend:
+Tools call the agency **in-process** (agent.sam context + tasks.store).
+
+Two ways to run the worker:
+
+1. **In-process (default, fully hands-off)** — the backend lifespan calls
+   ``start_in_process()`` on startup, which runs the worker in a daemon
+   thread inside the web process (same pattern as the in-web Telegram bot).
+   Requires livekit-agents installed (Dockerfile.backend installs
+   voice/requirements-livekit.txt) + the LIVEKIT_* env vars. Set
+   ``SAM_VOICE_IN_PROCESS=false`` to opt out.
+
+2. **Dedicated process** — from the repo root with the same env:
 
     pip install -r voice/requirements-livekit.txt
     python -m voice.sam_livekit_worker dev      # local dev (hot reload)
@@ -30,6 +40,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import TYPE_CHECKING, Any
 
 from voice.livekit_config import LiveKitConfig, get_livekit_config
@@ -210,6 +221,90 @@ async def entrypoint(ctx: "JobContext") -> None:
     )
     await session.start(room=ctx.room, agent=_make_sam_assistant(participant.identity))
     await session.generate_reply(instructions=GREETING_INSTRUCTIONS)
+
+
+# ── In-process mode (fully hands-off) ─────────────────────────────────────────
+
+_inproc_thread: threading.Thread | None = None
+_inproc_lock = threading.Lock()
+
+
+def start_in_process() -> bool:
+    """Start the voice worker in a daemon thread inside this process.
+
+    Called by the backend lifespan on startup so a single web service carries
+    SAM's realtime voice. Never raises — returns True only when a worker
+    thread was actually started; every disqualifier is a logged no-op:
+    flag off / TESTING, LiveKit env unset, livekit-agents not installed,
+    or a worker thread already running.
+    """
+    global _inproc_thread
+    cfg = get_livekit_config()
+    if not cfg.in_process:
+        log.info("SAM voice in-process worker disabled (SAM_VOICE_IN_PROCESS/TESTING)")
+        return False
+    if not cfg.configured:
+        log.info("SAM voice in-process worker skipped — missing: %s", ", ".join(cfg.missing))
+        return False
+    try:
+        import livekit.agents  # noqa: F401
+    except ImportError:
+        log.info("SAM voice in-process worker skipped — livekit-agents not installed (%s)",
+                 _INSTALL_HINT)
+        return False
+
+    with _inproc_lock:
+        if _inproc_thread is not None and _inproc_thread.is_alive():
+            return False
+        _inproc_thread = threading.Thread(
+            target=_run_worker_thread, name="sam-livekit-worker", daemon=True
+        )
+        _inproc_thread.start()
+    log.info("SAM voice worker started in-process (room prefix=%s)", cfg.room_prefix)
+    return True
+
+
+def _run_worker_thread() -> None:
+    """Thread body: run the LiveKit agents server on a dedicated event loop."""
+    import asyncio
+    import math
+
+    from livekit.agents import WorkerOptions
+
+    cfg = get_livekit_config()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        opts = WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            ws_url=cfg.url,
+            api_key=cfg.api_key,
+            api_secret=cfg.api_secret,
+            # Free-tier web dyno: no prewarmed job subprocesses idling in RAM,
+            # and never reject a job on CPU load (single-operator platform).
+            num_idle_processes=0,
+            load_threshold=math.inf,
+            # The agents worker runs a small health HTTP server; bind it to an
+            # ephemeral port so it can never collide with the web app (:8001)
+            # or Hermes (:8100) inside the same container.
+            port=0,
+        )
+        try:
+            # livekit-agents >= 1.6: Worker was replaced by AgentServer
+            from livekit.agents.worker import AgentServer
+
+            server = AgentServer.from_server_options(opts)
+            loop.run_until_complete(server.run())
+        except ImportError:
+            from livekit.agents import Worker  # older livekit-agents
+
+            loop.run_until_complete(Worker(opts, loop=loop).run())
+    except Exception as exc:
+        # Never take the web process down with us — the dashboard keeps
+        # working, only live voice is unavailable until the next restart.
+        log.error("SAM voice in-process worker stopped: %s", exc)
+    finally:
+        loop.close()
 
 
 def main() -> None:
