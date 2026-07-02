@@ -4,10 +4,17 @@
   Uses the browser's Web Speech API for STT/TTS (completely free, no API keys).
   Backs up with server-side gTTS for higher quality voice synthesis.
   
-  Architecture:
+  Architecture (push-to-talk, default):
     Mic → MediaRecorder API → audio blob → Web Speech API STT → text
     → POST /agent/sam/chat → SAM response text
     → POST /agent/sam/speak → OGG audio → <audio> playback
+
+  Architecture (live conversation, when LiveKit is configured):
+    POST /agent/sam/livekit/token → livekit-client Room (WebRTC)
+    → SAM worker (voice/sam_livekit_worker.py) joins the room
+    → hands-free full-duplex voice (VAD + STT + LLM tools + TTS server-side).
+    livekit-client is imported dynamically so the bundle/Jest never load it
+    unless the user actually goes live.
 */
 import React from 'react';
 import API from '../../api';
@@ -112,6 +119,8 @@ export default function SamVoiceScreen() {
   const [history, setHistory] = React.useState([]);
   const [error, setError] = React.useState(null);
   const [samStatus, setSamStatus] = React.useState(null);
+  const [liveAvailable, setLiveAvailable] = React.useState(false);
+  const [liveState, setLiveState] = React.useState('off'); // off | connecting | live
 
   const mediaRecorderRef = React.useRef(null);
   const audioChunksRef = React.useRef([]);
@@ -119,6 +128,8 @@ export default function SamVoiceScreen() {
   const streamRef = React.useRef(null);
   const sessionIdRef = React.useRef('voice_' + Date.now().toString(36));
   const mountedRef = React.useRef(true);
+  const roomRef = React.useRef(null);
+  const liveAudioElsRef = React.useRef([]);
 
   React.useEffect(() => () => {
     mountedRef.current = false;
@@ -130,14 +141,104 @@ export default function SamVoiceScreen() {
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
+    // Leave the live room on unmount — prevents a stuck WebRTC session
+    if (roomRef.current) {
+      try { roomRef.current.disconnect(); } catch (e) { /* already gone */ }
+      roomRef.current = null;
+    }
+    liveAudioElsRef.current.forEach(({ el }) => el.remove());
+    liveAudioElsRef.current = [];
   }, []);
 
-  // Check SAM status on mount
+  // Check SAM status + LiveKit availability on mount
   React.useEffect(() => {
     API.get('/agent/sam/status').then(r => {
       if (mountedRef.current) setSamStatus(r.data);
     }).catch(() => {});
+    API.get('/agent/sam/livekit/status').then(r => {
+      if (mountedRef.current) setLiveAvailable(!!r.data?.configured);
+    }).catch(() => {});
   }, []);
+
+  // ── Live conversation (LiveKit full-duplex) ────────────────────────────
+
+  const cleanupLive = React.useCallback(() => {
+    liveAudioElsRef.current.forEach(({ track, el }) => {
+      try { track.detach(el); } catch (e) { /* best effort */ }
+      el.remove();
+    });
+    liveAudioElsRef.current = [];
+    roomRef.current = null;
+    if (mountedRef.current) {
+      setLiveState('off');
+      setState('idle');
+    }
+  }, []);
+
+  const startLive = async () => {
+    setError(null);
+    setLiveState('connecting');
+    try {
+      const tokenRes = await API.post('/agent/sam/livekit/token', {});
+      const { url, token } = tokenRes.data || {};
+      if (!url || !token) throw new Error('LiveKit token unavailable');
+
+      const lk = await import('livekit-client');
+      const room = new lk.Room();
+      roomRef.current = room;
+
+      room.on(lk.RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === lk.Track.Kind.Audio) {
+          const el = track.attach();
+          el.style.display = 'none';
+          document.body.appendChild(el);
+          liveAudioElsRef.current.push({ track, el });
+        }
+      });
+
+      room.on(lk.RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        if (!mountedRef.current || roomRef.current !== room) return;
+        const agentSpeaking = speakers.some(p => p !== room.localParticipant);
+        const meSpeaking = speakers.some(p => p === room.localParticipant);
+        setState(agentSpeaking ? 'speaking' : meSpeaking ? 'listening' : 'idle');
+      });
+
+      room.on(lk.RoomEvent.Disconnected, () => cleanupLive());
+
+      // Live captions: the agent publishes transcriptions as text streams
+      try {
+        room.registerTextStreamHandler('lk.transcription', async (reader, participantInfo) => {
+          const text = await reader.readAll();
+          if (!text || !mountedRef.current || roomRef.current !== room) return;
+          const isMe = participantInfo?.identity === room.localParticipant?.identity;
+          if (isMe) setTranscript(text); else setResponse(text);
+          setHistory(h => [...h.slice(-20), { type: isMe ? 'user' : 'sam', text }]);
+        });
+      } catch (e) { /* captions are optional — older livekit-client */ }
+
+      await room.connect(url, token);
+      await room.localParticipant.setMicrophoneEnabled(true);
+      if (!mountedRef.current) { room.disconnect(); return; }
+      setLiveState('live');
+      setState('idle');
+    } catch (err) {
+      if (roomRef.current) {
+        try { roomRef.current.disconnect(); } catch (e) { /* not connected */ }
+      }
+      cleanupLive();
+      if (mountedRef.current) {
+        setError(err?.response?.data?.detail || err?.message || 'Live voice failed');
+      }
+    }
+  };
+
+  const stopLive = () => {
+    if (roomRef.current) {
+      roomRef.current.disconnect(); // Disconnected event → cleanupLive()
+    } else {
+      cleanupLive();
+    }
+  };
 
   // ── Start listening ────────────────────────────────────────────────────
 
@@ -368,7 +469,7 @@ export default function SamVoiceScreen() {
 
         <button
           onClick={state === 'listening' ? stopListening : startListening}
-          disabled={state === 'thinking'}
+          disabled={state === 'thinking' || liveState !== 'off'}
           style={{
             width: 64, height: 64, borderRadius: '50%', border: 'none', cursor: 'pointer',
             background: state === 'listening'
@@ -399,12 +500,39 @@ export default function SamVoiceScreen() {
           )}
         </button>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, fontFamily: 'var(--font-mono)' }}>
-          {state === 'idle' && 'Tap to speak'}
-          {state === 'listening' && 'Listening... tap to stop'}
-          {state === 'thinking' && 'Processing...'}
-          {state === 'speaking' && 'SAM is speaking...'}
-          {state === 'error' && 'Error — tap to retry'}
+          {liveState === 'live' && (state === 'speaking' ? 'SAM is speaking...' :
+            state === 'listening' ? 'Listening...' : 'Live — just talk')}
+          {liveState === 'connecting' && 'Connecting live session...'}
+          {liveState === 'off' && <>
+            {state === 'idle' && 'Tap to speak'}
+            {state === 'listening' && 'Listening... tap to stop'}
+            {state === 'thinking' && 'Processing...'}
+            {state === 'speaking' && 'SAM is speaking...'}
+            {state === 'error' && 'Error — tap to retry'}
+          </>}
         </div>
+
+        {/* Live conversation (LiveKit) — only offered when the backend is configured */}
+        {liveAvailable && (
+          <button
+            onClick={liveState === 'live' ? stopLive : startLive}
+            disabled={liveState === 'connecting' || state === 'listening'}
+            style={{
+              marginTop: 14, padding: '10px 18px', borderRadius: 999, cursor: 'pointer',
+              border: liveState === 'live'
+                ? '1px solid rgba(255,107,125,0.4)' : '1px solid rgba(70,217,164,0.35)',
+              background: liveState === 'live'
+                ? 'rgba(255,107,125,0.12)' : 'rgba(70,217,164,0.08)',
+              color: liveState === 'live' ? '#ff6b7d' : '#46d9a4',
+              fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)',
+              letterSpacing: '0.06em', transition: 'all 0.3s ease',
+              opacity: liveState === 'connecting' ? 0.6 : 1,
+            }}>
+            {liveState === 'off' && '● Start live conversation'}
+            {liveState === 'connecting' && '● Connecting...'}
+            {liveState === 'live' && '■ End live conversation'}
+          </button>
+        )}
       </div>
 
       {/* Error */}

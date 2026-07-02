@@ -141,6 +141,10 @@ class SamAgent:
             "uptime_seconds": time.time() - self._started_at,
         }
 
+    async def build_context(self) -> dict[str, Any]:
+        """Public snapshot of live agency state (used by the LiveKit worker tools)."""
+        return await self._build_context()
+
     # ── Context building ───────────────────────────────────────────────────
 
     async def _build_context(self) -> dict[str, Any]:
