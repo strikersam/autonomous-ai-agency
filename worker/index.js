@@ -81,30 +81,9 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    // Cloudflare Cron fires every minute. Two pings run in PARALLEL:
-    //
-    //   1. GET /api/ping  — unauthenticated, no DB I/O. The PRIMARY keep-warm
-    //      signal: works even if CRON_SECRET is mismatched between Render env
-    //      and the Cloudflare Worker secret (a 403 on the POST below would
-    //      otherwise silently defeat Layer-A keep-warm and let Render sleep).
-    //      This is the fix for the "everything is very slow" regression after
-    //      PR #919 — that revert removed the parallel /api/health ping, leaving
-    //      only the secret-gated POST, so any CRON_SECRET drift made Render
-    //      sleep after 15 min idle.
-    //
-    //   2. POST /api/scheduler/tick — secret-gated, fires overdue APScheduler
-    //      jobs + runs schedule cleanup. Best-effort: a 403 here is logged but
-    //      does NOT stop the GET /api/ping keep-warm above.
+    // Cloudflare Cron fires every minute — pings the Render backend tick endpoint
+    // to keep APScheduler alive and fire overdue scheduled jobs.
     const secret = env.CRON_SECRET || "";
-
-    // Primary keep-warm — always runs, always unauthenticated.
-    ctx.waitUntil(
-      fetch(BACKEND_ORIGIN + "/api/ping", { method: "GET" })
-        .then(r => r.ok ? console.log("ping ok") : console.warn("ping", r.status))
-        .catch(e => console.error("ping error", e))
-    );
-
-    // Secondary: scheduler tick (best-effort, secret-gated).
     ctx.waitUntil(
       fetch(BACKEND_ORIGIN + "/api/scheduler/tick", {
         method: "POST",
