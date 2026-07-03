@@ -433,6 +433,17 @@ class TaskStore:
         # tasks that are under the retry cap so they get another chance after the
         # backend recovers. Tasks that have hit the cap stay FAILED (operator must
         # manually re-queue or delete them).
+        #
+        # PR #936: MIN_RETRY_AGE_S gate — don't re-queue a FAILED task until it
+        # has been FAILED for at least 120s. Without this gate, the reconciler
+        # re-queues failed tasks instantly, the dispatcher picks them up, they
+        # fail again (e.g. brain is down), and the cycle repeats every few
+        # seconds — saturating the CPU and making login time out. The 120s
+        # cooldown gives the brain/provider time to recover between retries.
+        import time as _retry_time
+        MIN_RETRY_AGE_S = 120
+        now_s = _retry_time.time()
+
         if self._mode == "mongo":
             cursor = self._collection.find(
                 {"status": TaskStatus.FAILED.value},
@@ -452,6 +463,15 @@ class TaskStore:
             retry_count = int(doc.get("auto_retry_count") or 0)
             if retry_count >= auto_retry_cap:
                 continue  # at cap — leave FAILED, operator must intervene
+
+            # Age gate: don't re-queue a FAILED task until it has cooled down.
+            # This breaks the fail → re-queue → fail → re-queue hot loop that
+            # saturates the CPU when the brain is down.
+            updated_at = doc.get("updated_at")
+            if updated_at is not None:
+                age_s = now_s - float(updated_at)
+                if age_s < MIN_RETRY_AGE_S:
+                    continue  # too soon — let the brain recover first
 
             task = Task.model_validate(doc)
             task.status = TaskStatus.TODO
