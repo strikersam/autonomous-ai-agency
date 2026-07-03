@@ -1504,6 +1504,17 @@ async def lifespan(app_: "FastAPI"):
     # free-tier service can host both the API and the phone-control bot.
     extra_tasks = _start_in_web_bot_tasks()
 
+    # SAM realtime voice worker (LiveKit) — same single-service philosophy:
+    # run SAM's ears/voice inside the web process. Safe no-op when the
+    # LIVEKIT_* env vars or the livekit-agents deps are absent, and forced
+    # off under TESTING. Set SAM_VOICE_IN_PROCESS=false to run it as a
+    # dedicated worker process instead. docs/SAM_VOICE_LIVEKIT.md.
+    try:
+        from voice.sam_livekit_worker import start_in_process as _start_sam_voice
+        _start_sam_voice()
+    except Exception as exc:
+        log.warning("SAM voice in-process worker not started: %s", exc)
+
     # #522 + #505: Reliability startup hooks
     await _startup_reliability_hooks()
 
@@ -8081,6 +8092,60 @@ async def sam_speak_backend(body: SamSpeakRequest, user: dict = Depends(get_curr
     except Exception as exc:
         log.warning("sam_speak: %s", exc)
         return {"audio_b64": "", "error": str(exc)}
+
+
+# ── SAM realtime voice (LiveKit) ───────────────────────────────────────────────
+# Taskmaster-style pipeline: the dashboard fetches a room token here, joins the
+# LiveKit room over WebRTC, and the SAM worker (voice/sam_livekit_worker.py)
+# is dispatched into the room to converse (STT → SAM LLM + tools → TTS).
+
+
+class SamLiveKitTokenRequest(BaseModel):
+    room: str = Field(default="", max_length=128, description="Optional room override")
+
+
+@app.get("/agent/sam/livekit/status")
+async def sam_livekit_status_backend(user: dict = Depends(get_current_user)):
+    """Report whether the SAM realtime voice (LiveKit) transport is configured."""
+    from voice.livekit_config import get_livekit_config
+
+    cfg = get_livekit_config()
+    return {
+        "configured": cfg.configured,
+        "url": cfg.url if cfg.configured else "",
+        "room_prefix": cfg.room_prefix,
+        "missing": list(cfg.missing),
+    }
+
+
+@app.post("/agent/sam/livekit/token")
+async def sam_livekit_token_backend(
+    body: SamLiveKitTokenRequest, user: dict = Depends(get_current_user)
+):
+    """Mint a LiveKit room token so the dashboard can talk to SAM live."""
+    from voice.livekit_config import get_livekit_config
+    from voice.livekit_token import mint_access_token
+
+    cfg = get_livekit_config()
+    if not cfg.configured:
+        raise HTTPException(
+            status_code=503,
+            detail="LiveKit is not configured — missing: " + ", ".join(cfg.missing),
+        )
+
+    identity = str(user.get("email") or user.get("_id") or "commander")
+    room = (body.room or "").strip() or f"{cfg.room_prefix}-{identity.split('@')[0]}"
+    try:
+        token = mint_access_token(
+            api_key=cfg.api_key,
+            api_secret=cfg.api_secret,
+            identity=identity,
+            room=room,
+            name=str(user.get("name") or "Commander"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=f"Token minting failed: {exc}")
+    return {"url": cfg.url, "token": token, "room": room, "identity": identity}
 
 
 # ─── Doctor / System Health endpoint ────────────────────────────────────────────

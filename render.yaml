@@ -158,6 +158,34 @@ services:
         value: https://autonomous-ai-agency.strikersam.workers.dev
 
       # ================================================================
+      # SAM REALTIME VOICE (LiveKit) — docs/SAM_VOICE_LIVEKIT.md
+      # Generate credentials at https://cloud.livekit.io → open (or create)
+      # a project → Settings → Keys → "Create key" (the secret is shown ONCE
+      # — copy it immediately). LIVEKIT_URL is the wss://…livekit.cloud URL
+      # shown at the top of the project dashboard.
+      # The dashboard's "Start live conversation" button appears as soon as
+      # these three are set. The voice worker additionally needs one STT+TTS
+      # key — GROQ_API_KEY alone covers both for free.
+      # ================================================================
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      # Run SAM's voice worker inside this web service (no separate paid
+      # worker). Set "false" to run voice/sam_livekit_worker.py elsewhere.
+      - key: SAM_VOICE_IN_PROCESS
+        value: "true"
+      # Voice worker speech providers (optional upgrades over free Groq)
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+
+      # ================================================================
       # AGENT RUNTIME CONFIGURATIONS
       # internal_agent is always available (uses Nvidia NIM).
       # Set *_BASE_URL keys to enable optional sidecar runtimes.
