@@ -305,6 +305,12 @@ services:
       # was data + concurrency, not code). Raise only on a >=2GB instance.
       - key: TASK_DISPATCH_CONCURRENCY
         value: "1"
+      # One-shot backlog purge on boot (2026-07-03 remediation). Runs ONCE
+      # per nonce value: the app stores the executed nonce durably and skips
+      # every boot after that, so leaving this set is harmless. To purge
+      # again later, change the value (e.g. bump the date suffix).
+      - key: PURGE_BACKLOG_ON_BOOT
+        value: "purge-2026-07-03"
 
       # ================================================================
       # FREEBUFF TELEGRAM BOT — run inside this web service (free tier:

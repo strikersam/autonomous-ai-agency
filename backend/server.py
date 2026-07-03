@@ -1512,6 +1512,13 @@ async def lifespan(app_: "FastAPI"):
     except Exception as exc:
         log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
 
+    # One-shot boot purge (PURGE_BACKLOG_ON_BOOT nonce) — background task so
+    # draining a large Mongo backlog never blocks startup or the health check.
+    try:
+        asyncio.create_task(_maybe_boot_purge())
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Boot purge scheduling failed (non-fatal): %s", exc)
+
     # N5: Surface SERVICE_TOKEN misconfiguration at startup so the operator
     # sees the gap in the backend logs (not just when /setbrain fails at
     # runtime). Best-effort — never blocks startup.
@@ -3532,13 +3539,17 @@ class PurgeBacklogRequest(BaseModel):
     stranded: bool = Field(default=True, description="Delete all IN_PROGRESS strays")
 
 
-@app.post("/api/admin/maintenance/purge-backlog")
-async def purge_backlog(body: PurgeBacklogRequest, user: dict = Depends(get_current_user)):
-    """Erase the schedule backlog and poisoned tasks (admin only)."""
-    _require_admin(user)
+async def _purge_backlog_core(
+    *,
+    schedules: bool = True,
+    blocked: bool = True,
+    queued: bool = True,
+    stranded: bool = True,
+) -> dict[str, object]:
+    """Shared purge implementation for the admin endpoint and the boot hook."""
     summary: dict[str, object] = {}
 
-    if body.schedules:
+    if schedules:
         try:
             summary["schedules"] = await SCHEDULER.purge_all()
         except Exception as exc:
@@ -3548,11 +3559,11 @@ async def purge_backlog(body: PurgeBacklogRequest, user: dict = Depends(get_curr
     from tasks.store import get_task_store
     store = get_task_store()
     wanted: list[TaskStatus] = []
-    if body.blocked:
+    if blocked:
         wanted.append(TaskStatus.BLOCKED)
-    if body.queued:
+    if queued:
         wanted.append(TaskStatus.TODO)
-    if body.stranded:
+    if stranded:
         wanted.append(TaskStatus.IN_PROGRESS)
     deleted_tasks: dict[str, int] = {}
     for status in wanted:
@@ -3571,8 +3582,49 @@ async def purge_backlog(body: PurgeBacklogRequest, user: dict = Depends(get_curr
             log.warning("purge-backlog: %s drain failed: %s", status.value, exc)
         deleted_tasks[status.value] = count
     summary["tasks_deleted"] = deleted_tasks
+    return summary
+
+
+@app.post("/api/admin/maintenance/purge-backlog")
+async def purge_backlog(body: PurgeBacklogRequest, user: dict = Depends(get_current_user)):
+    """Erase the schedule backlog and poisoned tasks (admin only)."""
+    _require_admin(user)
+    summary = await _purge_backlog_core(
+        schedules=body.schedules,
+        blocked=body.blocked,
+        queued=body.queued,
+        stranded=body.stranded,
+    )
     log.info("purge-backlog by %s: %s", user.get("email", "?"), summary)
     return {"ok": True, **summary}
+
+
+async def _maybe_boot_purge() -> None:
+    """One-shot boot purge keyed to the PURGE_BACKLOG_ON_BOOT nonce.
+
+    Lets the operator trigger the backlog purge via a deploy instead of an
+    authenticated API call (the 2026-07-03 remediation had to run without
+    dashboard/API access). Semantics: if the env nonce is set AND differs
+    from the durably-stored marker, purge once and store the nonce — so the
+    env var can stay in render.yaml forever; a re-purge requires changing
+    its value. The marker is written only after a successful purge, so a
+    failed attempt retries on the next boot. Never raises.
+    """
+    nonce = os.environ.get("PURGE_BACKLOG_ON_BOOT", "").strip()
+    if not nonce:
+        return
+    try:
+        from app_settings import get_setting, set_setting
+        done = await get_setting("purge_backlog_boot_nonce", "")
+        if done == nonce:
+            return
+        summary = await _purge_backlog_core()
+        await set_setting(
+            "purge_backlog_boot_nonce", nonce, updated_by="system:boot_purge"
+        )
+        log.info("Boot purge complete (nonce=%s): %s", nonce, summary)
+    except Exception as exc:
+        log.warning("Boot purge failed (non-fatal, retries next boot): %s", exc)
 
 
 def _brain_provider_status() -> list[dict]:

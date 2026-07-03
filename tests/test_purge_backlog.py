@@ -174,3 +174,81 @@ def test_tick_requeue_caps_at_one_and_preserves_retry_count(client, monkeypatch)
     assert requeued[0].auto_retry_count == 2, "retry counter must be preserved"
     assert fake.tasks[poisoned.task_id].status == TaskStatus.BLOCKED, \
         "poisoned task must stay BLOCKED"
+
+
+# ── One-shot boot purge (PURGE_BACKLOG_ON_BOOT nonce) ────────────────────────
+
+def _run_boot_purge(monkeypatch, *, nonce_env, stored_nonce):
+    """Drive _maybe_boot_purge with fakes; return (purged, marker_writes)."""
+    import backend.server as srv
+    import app_settings
+
+    calls = {"purged": 0, "markers": []}
+
+    async def _fake_core(**kwargs):
+        calls["purged"] += 1
+        return {"schedules": {"total": 0, "deleted": 0}, "tasks_deleted": {}}
+
+    async def _fake_get(key, default=None):
+        return stored_nonce
+
+    async def _fake_set(key, value, updated_by="admin"):
+        calls["markers"].append(value)
+
+    monkeypatch.setattr(srv, "_purge_backlog_core", _fake_core)
+    monkeypatch.setattr(app_settings, "get_setting", _fake_get)
+    monkeypatch.setattr(app_settings, "set_setting", _fake_set)
+    if nonce_env is None:
+        monkeypatch.delenv("PURGE_BACKLOG_ON_BOOT", raising=False)
+    else:
+        monkeypatch.setenv("PURGE_BACKLOG_ON_BOOT", nonce_env)
+
+    asyncio.run(srv._maybe_boot_purge())
+    return calls["purged"], calls["markers"]
+
+
+def test_boot_purge_runs_once_for_new_nonce(monkeypatch):
+    purged, markers = _run_boot_purge(
+        monkeypatch, nonce_env="purge-2026-07-03", stored_nonce=""
+    )
+    assert purged == 1
+    assert markers == ["purge-2026-07-03"], "nonce must be stored after success"
+
+
+def test_boot_purge_skips_already_executed_nonce(monkeypatch):
+    purged, markers = _run_boot_purge(
+        monkeypatch, nonce_env="purge-2026-07-03", stored_nonce="purge-2026-07-03"
+    )
+    assert purged == 0
+    assert markers == []
+
+
+def test_boot_purge_noop_without_env(monkeypatch):
+    purged, markers = _run_boot_purge(monkeypatch, nonce_env=None, stored_nonce="")
+    assert purged == 0
+    assert markers == []
+
+
+def test_boot_purge_failure_does_not_store_marker(monkeypatch):
+    """A failed purge must NOT record the nonce — it retries next boot."""
+    import backend.server as srv
+    import app_settings
+
+    markers = []
+
+    async def _boom(**kwargs):
+        raise RuntimeError("store unavailable")
+
+    async def _fake_get(key, default=None):
+        return ""
+
+    async def _fake_set(key, value, updated_by="admin"):
+        markers.append(value)
+
+    monkeypatch.setattr(srv, "_purge_backlog_core", _boom)
+    monkeypatch.setattr(app_settings, "get_setting", _fake_get)
+    monkeypatch.setattr(app_settings, "set_setting", _fake_set)
+    monkeypatch.setenv("PURGE_BACKLOG_ON_BOOT", "purge-x")
+
+    asyncio.run(srv._maybe_boot_purge())  # must not raise
+    assert markers == []
