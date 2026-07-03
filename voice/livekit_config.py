@@ -12,8 +12,12 @@ Required for realtime voice:
 
 Optional (worker brain / speech providers — sensible free-tier defaults):
   SAM_VOICE_IN_PROCESS — run the voice worker inside the web process (default
-                         "true"; forced off under TESTING). Set "false" when
-                         running the worker as a dedicated process instead.
+                         "false"; forced off under TESTING). Opt-in only: the
+                         worker's plugin stack (numpy/onnxruntime/av) needs
+                         roughly 300MB+ of headroom, which OOM-kills a 512MB
+                         Render instance at boot. Set "true" only on >=2GB
+                         instances; otherwise run the worker as a dedicated
+                         process (see voice/sam_livekit_worker.py docstring).
   SAM_LIVEKIT_ROOM     — room name prefix (default: "sam-voice")
   SAM_LLM_BASE_URL     — OpenAI-compatible base URL for SAM's brain.
                          Point at Hermes (http://localhost:8100/v1), the
@@ -55,7 +59,7 @@ class LiveKitConfig:
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
 
-    in_process: bool = True
+    in_process: bool = False
 
     missing: tuple[str, ...] = field(default_factory=tuple)
 
@@ -102,11 +106,12 @@ def get_livekit_config() -> LiveKitConfig:
         elevenlabs_voice_id=(
             os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or "21m00Tcm4TlvDq8ikWAM"
         ),
-        # In-process worker: on by default so a single web service carries
-        # SAM's ears and voice; never under TESTING (same rule as the other
-        # in-web background services).
+        # In-process worker: OPT-IN. Defaulting to "true" OOM-killed the
+        # 512MB Render web instance at boot (worker plugin preload loads
+        # numpy/onnxruntime/av on top of the backend) — every deploy after
+        # PR #931 crash-looped until this became opt-in. Never under TESTING.
         in_process=(
-            os.environ.get("SAM_VOICE_IN_PROCESS", "true").strip().lower()
+            os.environ.get("SAM_VOICE_IN_PROCESS", "false").strip().lower()
             in {"1", "true", "yes"}
             and os.environ.get("TESTING", "").strip().lower() != "true"
         ),
