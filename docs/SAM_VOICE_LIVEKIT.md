@@ -76,6 +76,7 @@ so voice tools see the same tasks/schedules as the app.)
 **B. Bare process, no Docker.** Same thing without the container:
 
 ```bash
+pip install -r backend/requirements.txt      # agency-tool imports (tasks/, agent/, packages/)
 pip install -r voice/requirements-livekit.txt
 python -m voice.sam_livekit_worker dev      # local development (hot reload)
 python -m voice.sam_livekit_worker start    # production worker

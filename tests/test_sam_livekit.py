@@ -246,6 +246,38 @@ def test_start_in_process_noop_when_unconfigured(no_livekit_env, monkeypatch):
 
 # ── Production image ships the voice pipeline ────────────────────────────────
 
+def _normalize_dockerfile(content: str) -> list[str]:
+    """Parse a Dockerfile into a list of active instruction lines.
+
+    Strips comment lines (lines whose first non-whitespace char is ``#``) and
+    joins line-continuation lines (``\\``) so a single ``RUN``/``COPY`` block
+    becomes one element. This prevents the guard tests from being fooled by
+    commented-out text or split multi-line ``RUN`` blocks.
+
+    Returns a list of normalized instruction strings (one per logical Dockerfile
+    instruction, leading whitespace stripped).
+    """
+    # 1. Drop full-line comments + blank lines.
+    raw_lines = [
+        line for line in content.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    # 2. Join line-continuation lines (backslash at end) into single instructions.
+    joined: list[str] = []
+    buf = ""
+    for line in raw_lines:
+        stripped = line.rstrip()
+        if stripped.endswith("\\"):
+            buf += stripped[:-1] + " "
+        else:
+            buf += stripped
+            joined.append(buf.strip())
+            buf = ""
+    if buf.strip():
+        joined.append(buf.strip())
+    return joined
+
+
 def test_dockerfile_ships_voice_package():
     """Dockerfile.backend must COPY voice/ (server-side TTS + LiveKit token
     endpoints import it) but must NOT install the heavy LiveKit worker deps —
@@ -254,16 +286,17 @@ def test_dockerfile_ships_voice_package():
 
     dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile.backend"
     content = dockerfile.read_text()
-    assert "COPY voice/ voice/" in content
+    active_instructions = _normalize_dockerfile(content)
+    # COPY voice/ voice/ must be an ACTIVE instruction (not commented out).
+    assert any(
+        instr == "COPY voice/ voice/" for instr in active_instructions
+    ), "Dockerfile.backend must have an active 'COPY voice/ voice/' instruction"
     # No ACTIVE instruction may install the livekit deps (a commented example
     # showing how to re-enable in-process mode is fine).
-    active_lines = [
-        line for line in content.splitlines() if not line.lstrip().startswith("#")
-    ]
     assert not any(
-        "requirements-livekit" in line and line.lstrip().startswith(("RUN", "COPY"))
-        for line in active_lines
-    )
+        "requirements-livekit" in instr and instr.startswith(("RUN", "COPY"))
+        for instr in active_instructions
+    ), "Dockerfile.backend must not actively install requirements-livekit — it belongs in Dockerfile.voice"
 
 
 def test_dockerfile_voice_builds_the_worker():
@@ -274,11 +307,20 @@ def test_dockerfile_voice_builds_the_worker():
 
     dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile.voice"
     content = dockerfile.read_text()
-    assert "voice/requirements-livekit.txt" in content
-    assert "backend/requirements.txt" in content
-    assert "libgomp1" in content
-    assert "COPY voice/ voice/" in content
-    assert "voice.sam_livekit_worker" in content
+    active_instructions = _normalize_dockerfile(content)
+    # Flatten for substring checks that span multiple instructions (libgomp1
+    # may appear inside a multi-line RUN apt-get block).
+    flat = "\n".join(active_instructions)
+    assert "voice/requirements-livekit.txt" in flat
+    assert "backend/requirements.txt" in flat
+    assert "libgomp1" in flat
+    assert any(
+        instr == "COPY voice/ voice/" for instr in active_instructions
+    ), "Dockerfile.voice must have an active 'COPY voice/ voice/' instruction"
+    assert any(
+        instr == 'CMD ["python", "-m", "voice.sam_livekit_worker", "start"]'
+        for instr in active_instructions
+    ), "Dockerfile.voice must start voice.sam_livekit_worker as the CMD"
 
 
 # ── Worker module ─────────────────────────────────────────────────────────────
