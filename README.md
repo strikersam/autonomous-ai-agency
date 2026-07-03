@@ -558,6 +558,15 @@ Responsive layout — sign in, view the dashboard, and work the task board from 
 
 Retry without learning repeats the same mistake forever. Every failed agent step now writes a deduplicated **lesson** (failure phase + cause, with a recurrence counter) to a durable store (`agent/lessons.py`). The planner injects the most persistent recent lessons into its system prompt on every new run, so known failure modes are avoided instead of rediscovered. Recording and recall are fail-open — a broken lesson store can never break a run.
 
+## Stuck detection & microagents (OpenHands-inspired)
+
+Two mechanisms adapted from [OpenHands](https://github.com/OpenHands/OpenHands):
+
+- **Stuck detection** (`agent/stuck_detector.py`) — the executor's tool loop aborts early when its recent observations show no progress: the same tool call returning the same result 3× in a row, the same call failing 3× in a row, or two calls alternating A,B,A,B,A,B. A stuck step stops spending LLM calls and moves on to the edit/verify phase.
+- **Microagents** (`agent/microagents.py`) — markdown files with YAML frontmatter under `.openhands/microagents/` in the workspace inject targeted knowledge into the planner prompt: `type: repo` files always, `type: knowledge` files only when one of their `triggers` keywords appears in the task. The format is OpenHands-compatible, so this repo's microagents work verbatim in any tool reading the convention.
+
+Both are fail-open: neither can break a run.
+
 ---
 
 ## Architecture
