@@ -141,10 +141,6 @@ class SamAgent:
             "uptime_seconds": time.time() - self._started_at,
         }
 
-    async def build_context(self) -> dict[str, Any]:
-        """Public snapshot of live agency state (used by the LiveKit worker tools)."""
-        return await self._build_context()
-
     # ── Context building ───────────────────────────────────────────────────
 
     async def _build_context(self) -> dict[str, Any]:
@@ -266,12 +262,7 @@ class SamAgent:
 
             text = await call_llm(
                 messages=messages,
-                # No model= kwarg — let call_llm resolve the active provider's
-                # default model. Hardcoding "meta/llama-3.3-70b-instruct" breaks
-                # when BRAIN_PREFERENCE=ollama (the NVIDIA model id is invalid
-                # for the Ollama provider → call_llm raises → SAM returns
-                # fallback text). Resolving via the active provider works for
-                # both NVIDIA NIM and Ollama.
+                model="meta/llama-3.3-70b-instruct",  # FREE NVIDIA NIM — never paid
                 temperature=0.5,
             )
             return str(text).strip()[:300]

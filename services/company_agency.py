@@ -456,7 +456,6 @@ class CompanyAgencyService:
                         name=schedule_name,
                         cron=schedule_def["cron"],
                         instruction=instruction,
-                        description=f"[{schedule_def.get('name_suffix','agency')}] {schedule_def.get('instruction','')[:80]}",
                         runtime_id=runtime_id,
                         tags=[
                             "company-agency",

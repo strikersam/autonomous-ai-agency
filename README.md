@@ -12,7 +12,7 @@ Self-hosted · Privacy-first · One URL to start
 [![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**[Live Demo](https://autonomous-ai-agency.strikersam.workers.dev/) · [API Docs](https://local-llm-server.onrender.com/docs) · [Changelog](docs/changelog.md)**
+**[Live Demo](https://autonomous-ai-agency.strikersam.workers.dev/) · [API Docs](https://autonomous-ai-agency.onrender.com/docs) · [Changelog](docs/changelog.md)**
 
 </div>
 
@@ -274,7 +274,6 @@ Every specialist can call typed, versioned Skills on demand:
 | **Financial Analyst** | Burn rate, runway, gross margin, ROI-based budget reallocation |
 | **Release Readiness** | Gate check before any version tag |
 | **Docs Sync** | Keep API docs and architecture records in sync after code changes |
-| **Karpathy Guidelines** | Behavioral guardrails for coding agents: surface assumptions, minimum viable diff, surgical changes, verifiable success criteria (issue #926) |
 
 The **Skill Registry** discovers new skills automatically from GitHub repositories — flat or nested layouts — with ETag caching and rate-limit-aware fetching. No restart required.
 
@@ -551,21 +550,6 @@ Responsive layout — sign in, view the dashboard, and work the task board from 
   <img src="docs/screenshots/v5/mobile-tasks.png" width="30%" alt="Mobile task board"/>
 </p>
 <!-- README_UI_GALLERY:END -->
-
----
-
-## Learning loop — failures become context
-
-Retry without learning repeats the same mistake forever. Every failed agent step now writes a deduplicated **lesson** (failure phase + cause, with a recurrence counter) to a durable store (`agent/lessons.py`). The planner injects the most persistent recent lessons into its system prompt on every new run, so known failure modes are avoided instead of rediscovered. Recording and recall are fail-open — a broken lesson store can never break a run.
-
-## Stuck detection & microagents (OpenHands-inspired)
-
-Two mechanisms adapted from [OpenHands](https://github.com/OpenHands/OpenHands):
-
-- **Stuck detection** (`agent/stuck_detector.py`) — the executor's tool loop aborts early when its recent observations show no progress: the same tool call returning the same result 3× in a row, the same call failing 3× in a row, or two calls alternating A,B,A,B,A,B. A stuck step stops spending LLM calls and moves on to the edit/verify phase.
-- **Microagents** (`agent/microagents.py`) — markdown files with YAML frontmatter under `.openhands/microagents/` in the workspace inject targeted knowledge into the planner prompt: `type: repo` files always, `type: knowledge` files only when one of their `triggers` keywords appears in the task. The format is OpenHands-compatible, so this repo's microagents work verbatim in any tool reading the convention.
-
-Both are fail-open: neither can break a run.
 
 ---
 

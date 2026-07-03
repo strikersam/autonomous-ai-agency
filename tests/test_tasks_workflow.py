@@ -533,20 +533,10 @@ async def test_end_to_end_api_task_creation_and_execution_history(
 
 
 @pytest.mark.asyncio
-async def test_execution_timeout_requeues_task(
+async def test_execution_timeout_marks_task_failed(
     task_store: TaskStore,
     workflow: TaskWorkflowService,
 ) -> None:
-    """PR #923: timeout is now TRANSIENT (re-queue) instead of permanent FAILED.
-
-    Previously, a timeout hard-failed the task (status=FAILED,
-    pending_agent_run=False) and it was never picked up again. Now the
-    timeout handler calls _requeue_or_block_unavailable, which re-queues
-    the task (status=TODO, pending_agent_run=True) so the next dispatch
-    cycle retries it. Tasks that exceed the auto-retry cap still get
-    BLOCKED (not FAILED), which is the existing behavior for transient
-    failures.
-    """
     task = Task(
         owner_id="owner@example.com",
         title="Long running task",
@@ -571,9 +561,8 @@ async def test_execution_timeout_requeues_task(
 
     updated = await coordinator.execute(task.task_id)
 
-    # Task should be re-queued (TODO + pending), NOT FAILED
-    assert updated.status is TaskStatus.TODO
-    assert updated.pending_agent_run is True
+    assert updated.status is TaskStatus.FAILED
+    assert updated.pending_agent_run is False
     assert updated.error_message is not None
     assert "timed out" in updated.error_message.lower()
 
