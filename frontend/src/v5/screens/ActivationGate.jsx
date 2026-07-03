@@ -60,14 +60,7 @@ function Step({ num, title, children, done }) {
 }
 
 export default function ActivationGate({ children }) {
-  // Instant paint: a previously confirmed activation renders children
-  // immediately while the status revalidates in the background. Without this,
-  // every fresh page load blocks on a full backend round trip (30-60s on a
-  // cold Render dyno) showing nothing but a spinner on a dark screen.
-  const cachedActivated = React.useMemo(() => {
-    try { return localStorage.getItem('activation_ok') === '1'; } catch { return false; }
-  }, []);
-  const [status,   setStatus]   = React.useState(cachedActivated ? { activated: true } : null);   // null = loading
+  const [status,   setStatus]   = React.useState(null);   // null = loading
   const [statusError, setStatusError] = React.useState('');
   const [token,    setToken]    = React.useState('');
   const [error,    setError]    = React.useState('');
@@ -76,21 +69,13 @@ export default function ActivationGate({ children }) {
 
   React.useEffect(() => {
     api.get('/api/activation/status')
-      .then(r => {
-        setStatusError('');
-        setStatus(r.data);
-        try { localStorage.setItem('activation_ok', r.data?.activated ? '1' : '0'); } catch {}
-      })
+      .then(r => { setStatusError(''); setStatus(r.data); })
       .catch(e => {
         // Don't disguise an unreachable backend as "not activated" — surface it.
-        // If we already painted from cache, keep the app usable rather than
-        // downgrading to the activation wall on a transient network error.
-        if (!cachedActivated) {
-          setStatusError(e.response?.data?.detail || 'Unable to reach the activation service. Is the backend running?');
-          setStatus({ activated: false, instance_id: 'unknown', register_email: '' });
-        }
+        setStatusError(e.response?.data?.detail || 'Unable to reach the activation service. Is the backend running?');
+        setStatus({ activated: false, instance_id: 'unknown', register_email: '' });
       });
-  }, [cachedActivated]);
+  }, []);
 
   if (status === null) {
     return (

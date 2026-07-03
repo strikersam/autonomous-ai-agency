@@ -32,8 +32,8 @@ jobs:
           set -euo pipefail
 
           if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
-            echo "::warning::Telegram notify skipped — TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHAT_ID are not set in repository secrets (Settings -> Secrets and variables -> Actions). Set both to enable merge notifications."
-            exit 0
+            echo "::error::Both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in repository secrets (Settings -> Secrets and variables -> Actions)."
+            exit 1
           fi
 
           python3 - << 'EOF'

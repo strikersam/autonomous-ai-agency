@@ -58,63 +58,6 @@ def _exponential_backoff_cooldown(provider_id: str, base_secs: float) -> float:
     return min(base_secs * (2 ** (count - 1)), _RATELIMIT_COOLDOWN_MAX_SECONDS)
 
 
-# ── Dead-model memory (410 Gone) ──────────────────────────────────────────────
-# A 410 means *this specific model/endpoint* is permanently removed — not that
-# the whole provider is down. Historically a single dead model (e.g. an NVIDIA
-# NIM model deprecated upstream) cooled the entire provider for 5 minutes,
-# taking every other model on it offline too. Instead we remember the dead model
-# for a while and skip only it, so sibling models on the same provider keep
-# serving. Entries expire after _DEAD_MODEL_COOLDOWN_SECONDS so a model that
-# comes back (or was mis-flagged) is re-probed. In-process dict, same
-# best-effort/no-lock convention as _consecutive_429_count above.
-_DEAD_MODEL_COOLDOWN_SECONDS: int = int(
-    os.environ.get("PROVIDER_DEAD_MODEL_COOLDOWN_SECONDS", "3600")
-)
-_dead_models: dict[str, float] = {}
-
-
-def _dead_model_key(provider_id: str, model: str) -> str:
-    return f"{provider_id}/{model}"
-
-
-def _mark_model_dead(provider_id: str, model: str) -> None:
-    """Remember that (provider, model) returned 410 Gone; skip it until it expires."""
-    if not model:
-        return
-    _dead_models[_dead_model_key(provider_id, model)] = (
-        time.time() + _DEAD_MODEL_COOLDOWN_SECONDS
-    )
-    log.warning(
-        "Model %s/%s returned 410 Gone — skipping for %ds",
-        provider_id, model, _DEAD_MODEL_COOLDOWN_SECONDS,
-    )
-
-
-def _is_model_dead(provider_id: str, model: str) -> bool:
-    """Return True if (provider, model) is on the dead list and not yet expired."""
-    expiry = _dead_models.get(_dead_model_key(provider_id, model))
-    if expiry is None:
-        return False
-    if expiry <= time.time():
-        _dead_models.pop(_dead_model_key(provider_id, model), None)
-        return False
-    return True
-
-
-def get_dead_models() -> dict[str, float]:
-    """Snapshot of active dead-model entries {provider_id/model: expiry_ts}.
-
-    Also evicts expired entries while snapshotting, so a model that fell out of
-    the candidate list (and is thus never re-queried via _is_model_dead) cannot
-    linger in the map indefinitely.
-    """
-    now = time.time()
-    expired = [k for k, v in _dead_models.items() if v <= now]
-    for k in expired:
-        _dead_models.pop(k, None)
-    return dict(_dead_models)
-
-
 async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
     """Put provider_id on cooldown for *cooldown_seconds* (default: PROVIDER_COOLDOWN_SECONDS)."""
     from services.shared_state import cooldown_set
@@ -211,8 +154,6 @@ async def clear_cooldowns() -> None:
     """
     from services.shared_state import cooldown_clear
     await cooldown_clear()
-    _consecutive_429_count.clear()
-    _dead_models.clear()
 
 
 @dataclass(frozen=True)
@@ -989,15 +930,13 @@ class ProviderRouter:
                         retry_after_sec = self._parse_retry_after(response)
                         break
                     if response.status_code == 410:
-                        # This *model* is permanently removed (410 Gone) — but
-                        # the provider itself may still serve other models. Mark
-                        # only this model dead and advance to the next candidate
-                        # on the same provider (like 419), instead of cooling the
-                        # whole provider. If it was the last/only candidate the
-                        # post-loop cooldown below still applies.
+                        # Endpoint/model permanently removed (410 Gone):
+                        # fail over to next provider immediately — no retry.
+                        # Exit both the attempt loop AND the model loop (set
+                        # rate_limited so the bottom-of-loop check also breaks).
                         last_status = 410
-                        _mark_model_dead(provider.provider_id, model)
-                        break  # stop retrying this model; try next candidate
+                        rate_limited = True
+                        break
                     if response.status_code == 419:
                         # NVIDIA NIM per-model concurrency limit:
                         # this specific model is exhausted, but another model
@@ -1180,12 +1119,7 @@ class ProviderRouter:
         for value in values:
             if value and value not in deduped:
                 deduped.append(value)
-        # Drop models known-dead (410 Gone) so we don't waste a request on them.
-        # If *every* candidate is flagged dead, fall through to the full list so
-        # the provider is still re-probed (a recovered model refreshes itself on
-        # the next 200; a still-dead one just re-marks itself).
-        live = [m for m in deduped if not _is_model_dead(provider.provider_id, m)]
-        return live or deduped
+        return deduped
 
     async def _post_chat(
         self,

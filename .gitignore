@@ -53,12 +53,6 @@ graphify-out/.graphify_root
 graphify-out/manifest.json
 graphify-out/.rebuild.lock
 graphify-out/GRAPH_REPORT.md
-# Dated graphify snapshot dirs (graphify-out/2026-07-02/ etc.) — 20MB+ per run
-graphify-out/20*/
-
-# Stray "Z:/…" dir created by a session-hook path bug (Windows-style path
-# treated as relative on Linux). Ignore until the hook is fixed.
-Z:/
 
 # Temporary / backup files
 *.bak

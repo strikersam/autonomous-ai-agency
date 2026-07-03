@@ -245,9 +245,8 @@ function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin })
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const navItem = NAV_ITEMS.find(n => n.id === activeScreen) || NAV_ITEMS[0];
   return (
-    <div style={{ display:'flex', height:'100dvh', overflow:'hidden', background:'var(--bg-base)', position:'relative' }}>
-      <div className="fx-aurora" aria-hidden="true"/>
-      <div className="desktop-sidebar glass" style={{ width:252, flexShrink:0, height:'100%', flexDirection:'column', position:'relative', zIndex:1 }}>
+    <div style={{ display:'flex', height:'100dvh', overflow:'hidden', background:'var(--bg-base)' }}>
+      <div className="desktop-sidebar" style={{ width:252, flexShrink:0, height:'100%', flexDirection:'column' }}>
         <SidebarNav activeScreen={activeScreen} onNavigate={onNavigate} agentRunning={agentRunning} isAdmin={isAdmin} user={authUser} onLogout={logout}/>
       </div>
       {sidebarOpen && (
@@ -257,7 +256,7 @@ function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin })
           </div>
         </div>
       )}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, height:'100%', overflow:'hidden', position:'relative', zIndex:1 }}>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, height:'100%', overflow:'hidden' }}>
         <div className="mobile-topbar">
           <MobileTopBar title={APP_LABEL} subtitle={navItem.label} onMenuOpen={()=>setSidebarOpen(true)}/>
         </div>

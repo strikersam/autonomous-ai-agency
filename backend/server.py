@@ -180,14 +180,7 @@ _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
 # Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
 # execute + verify). Caps a hung provider so the chat job fails cleanly
 # instead of sitting at phase "planning" forever. Configurable via env.
-# PR #923: bumped default from 240s to 600s. The old 240s budget was too tight
-# for NVIDIA NIM under load (cold model loading + queue depth) and for Ollama
-# pulling a model on first call. A 240s timeout mid-agent-run left the chat
-# response half-formed and showed "The agent run timed out before completing".
-# 600s gives enough headroom for a slow first call while still bounding the
-# request so a truly dead endpoint doesn't hang forever. Operators can still
-# override via the CHAT_AGENT_RUN_BUDGET_SEC env var.
-_AGENT_RUN_BUDGET_SEC = float(os.environ.get("CHAT_AGENT_RUN_BUDGET_SEC", "600"))
+_AGENT_RUN_BUDGET_SEC = float(os.environ.get("CHAT_AGENT_RUN_BUDGET_SEC", "240"))
 
 _CHAT_AGENT_JOBS = AgentJobManager()
 _CHAT_AGENT_WORKSPACE_ROOT = Path(
@@ -1504,17 +1497,6 @@ async def lifespan(app_: "FastAPI"):
     # free-tier service can host both the API and the phone-control bot.
     extra_tasks = _start_in_web_bot_tasks()
 
-    # SAM realtime voice worker (LiveKit) — same single-service philosophy:
-    # run SAM's ears/voice inside the web process. Safe no-op when the
-    # LIVEKIT_* env vars or the livekit-agents deps are absent, and forced
-    # off under TESTING. Set SAM_VOICE_IN_PROCESS=false to run it as a
-    # dedicated worker process instead. docs/SAM_VOICE_LIVEKIT.md.
-    try:
-        from voice.sam_livekit_worker import start_in_process as _start_sam_voice
-        _start_sam_voice()
-    except Exception as exc:
-        log.warning("SAM voice in-process worker not started: %s", exc)
-
     # #522 + #505: Reliability startup hooks
     await _startup_reliability_hooks()
 
@@ -1526,10 +1508,6 @@ async def lifespan(app_: "FastAPI"):
     # /api/scheduler/tick also runs force_cleanup on every tick, so cleanup
     # still happens within 60s of cold start. Don't block the first request
     # on cleanup that can happen 60s later with no user-visible impact.
-    #
-    # PR #923: also runs nuclear_cleanup (dedup-by-name pipeline) to clear
-    # the 2000+ schedule backlog that accumulates when run-once agency tasks
-    # fail (e.g. NVIDIA 410) and their schedule rows persist + multiply.
     async def _deferred_startup_cleanup() -> None:
         try:
             cleanup = await SCHEDULER.force_cleanup()
@@ -1538,20 +1516,6 @@ async def lifespan(app_: "FastAPI"):
                          cleanup["deleted"], cleanup["deduped"], cleanup["total"])
         except Exception as exc:
             log.warning("Startup schedule cleanup failed (non-fatal): %s", exc)
-
-        # Nuclear cleanup: bulk-delete duplicates directly in the DB. This is
-        # the fix for the 2100+ schedule multiplication bug — force_cleanup
-        # only deduplicates in-memory jobs, but if 2100 duplicates are
-        # persisted in the DB (from a previous bug), force_cleanup alone
-        # won't catch them all. nuclear_cleanup deduplicates by name.
-        try:
-            from packages.scheduler.cleanup import nuclear_cleanup
-            nuclear = await nuclear_cleanup(get_db())
-            if nuclear.get("deduped", 0) > 0 or nuclear.get("deleted_run_once", 0) > 0 or nuclear.get("deleted_stuck", 0) > 0:
-                log.info("Startup nuclear cleanup: run_once=%d stuck=%d deduped=%d total_remaining=%d",
-                         nuclear["deleted_run_once"], nuclear["deleted_stuck"], nuclear["deduped"], nuclear["total"])
-        except Exception as exc:
-            log.warning("Startup nuclear cleanup failed (non-fatal): %s", exc)
 
     try:
         import asyncio
@@ -6275,7 +6239,6 @@ _autonomy_ceo_cache: dict[str, object] = {"triggered": False}
 _autonomy_dispatch_cache: dict[str, object] = {"ran": False}
 _autonomy_bg_task: asyncio.Task | None = None
 _autonomy_bg_last_run: float = 0.0
-_self_bootstrap_task: asyncio.Task | None = None
 
 async def _autonomy_bg_cycle():
     """Background CEO cycle + task dispatch. Runs fire-and-forget."""
@@ -6606,28 +6569,23 @@ async def autonomy_status() -> dict[str, object]:
     except Exception:  # pragma: no cover - defensive
         pass
     try:
-        # If self-bootstrap is enabled AND no company exists yet, SCHEDULE
-        # ensure_self_company() as a background task on this event loop and
-        # return immediately. It must NEVER be awaited inline: onboarding
-        # (website scan + specialist provisioning + LLM calls with 300s
-        # timeouts) takes minutes, and awaiting it here held this public
-        # endpoint past Render's 120s proxy read timeout — on an ephemeral
-        # SQLite deploy ("no company" after every restart) that made the
-        # first post-boot status call, and everything queued behind it,
-        # time out for the user. The task still runs on the request loop
-        # (same Motor/aiosqlite safety as before); the guarded global keeps
-        # concurrent status calls from stacking duplicate bootstraps.
-        # Skip in tests (SELF_BOOTSTRAP_ENABLED=false) as before.
-        global _self_bootstrap_task
+        # If self-bootstrap is enabled AND no company exists yet, try to
+        # ensure the company exists. This runs on the request's event loop
+        # (the FastAPI main loop), so it safely touches Motor/aiosqlite
+        # clients. On Render free tier, the CEO agency thread can't reliably
+        # dispatch because the event loop stops pumping between requests.
+        # Skip in tests (SELF_BOOTSTRAP_ENABLED=false) to avoid interfering
+        # with E2E/unit tests.
         from services.self_bootstrap import _find_self_company
         existing = await _find_self_company()
         if existing is None and self_bootstrap_status.get("enabled"):
-            if _self_bootstrap_task is not None and not _self_bootstrap_task.done():
-                self_bootstrap_status["last_result"] = "bootstrapping"
-            else:
-                from services.self_bootstrap import ensure_self_company
-                _self_bootstrap_task = asyncio.create_task(ensure_self_company())
-                self_bootstrap_status["last_result"] = "bootstrap_scheduled"
+            # No company yet — trigger ensure_self_company() on this
+            # request's event loop. Idempotent: subsequent calls no-op.
+            from services.self_bootstrap import ensure_self_company
+            bootstrap_result = await ensure_self_company()
+            self_bootstrap_status["last_result"] = bootstrap_result.get("status")
+            # Re-read after bootstrap
+            existing = await _find_self_company()
         if existing is not None:
             self_bootstrap_status["company_id"] = existing.id
             self_bootstrap_status["onboarding_status"] = existing.onboarding_status
@@ -7922,7 +7880,6 @@ async def legacy_scheduler_create(
         name=body.name,
         cron=body.cron,
         instruction=body.instruction,
-        description=getattr(body, 'description', None) or body.name,
         agent_id=body.agent_id,
         runtime_id=body.runtime_id,
         model=body.model,
@@ -8098,60 +8055,6 @@ async def sam_speak_backend(body: SamSpeakRequest, user: dict = Depends(get_curr
     except Exception as exc:
         log.warning("sam_speak: %s", exc)
         return {"audio_b64": "", "error": str(exc)}
-
-
-# ── SAM realtime voice (LiveKit) ───────────────────────────────────────────────
-# Taskmaster-style pipeline: the dashboard fetches a room token here, joins the
-# LiveKit room over WebRTC, and the SAM worker (voice/sam_livekit_worker.py)
-# is dispatched into the room to converse (STT → SAM LLM + tools → TTS).
-
-
-class SamLiveKitTokenRequest(BaseModel):
-    room: str = Field(default="", max_length=128, description="Optional room override")
-
-
-@app.get("/agent/sam/livekit/status")
-async def sam_livekit_status_backend(user: dict = Depends(get_current_user)):
-    """Report whether the SAM realtime voice (LiveKit) transport is configured."""
-    from voice.livekit_config import get_livekit_config
-
-    cfg = get_livekit_config()
-    return {
-        "configured": cfg.configured,
-        "url": cfg.url if cfg.configured else "",
-        "room_prefix": cfg.room_prefix,
-        "missing": list(cfg.missing),
-    }
-
-
-@app.post("/agent/sam/livekit/token")
-async def sam_livekit_token_backend(
-    body: SamLiveKitTokenRequest, user: dict = Depends(get_current_user)
-):
-    """Mint a LiveKit room token so the dashboard can talk to SAM live."""
-    from voice.livekit_config import get_livekit_config
-    from voice.livekit_token import mint_access_token
-
-    cfg = get_livekit_config()
-    if not cfg.configured:
-        raise HTTPException(
-            status_code=503,
-            detail="LiveKit is not configured — missing: " + ", ".join(cfg.missing),
-        )
-
-    identity = str(user.get("email") or user.get("_id") or "commander")
-    room = (body.room or "").strip() or f"{cfg.room_prefix}-{identity.split('@')[0]}"
-    try:
-        token = mint_access_token(
-            api_key=cfg.api_key,
-            api_secret=cfg.api_secret,
-            identity=identity,
-            room=room,
-            name=str(user.get("name") or "Commander"),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=f"Token minting failed: {exc}")
-    return {"url": cfg.url, "token": token, "room": room, "identity": identity}
 
 
 # ─── Doctor / System Health endpoint ────────────────────────────────────────────

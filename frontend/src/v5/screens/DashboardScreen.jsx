@@ -30,26 +30,8 @@ function fmtTokens(n) {
 
 // Widget wrapper with per-widget loading/error states
 function Widget({ title, action, actionLabel, loading, error, errorSeverity = 'warning', onRetry, children, span = 1 }) {
-  const ref = React.useRef(null);
-  const onMove = React.useCallback((e) => {
-    const el = ref.current;
-    if (!el || window.matchMedia('(hover: none)').matches) return;
-    const r = el.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width;
-    const py = (e.clientY - r.top) / r.height;
-    el.style.setProperty('--ry', `${(px - 0.5) * 4}deg`);
-    el.style.setProperty('--rx', `${(0.5 - py) * 4}deg`);
-    el.style.setProperty('--mx', `${px * 100}%`);
-    el.style.setProperty('--my', `${py * 100}%`);
-  }, []);
-  const onLeave = React.useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.setProperty('--rx', '0deg');
-    el.style.setProperty('--ry', '0deg');
-  }, []);
   return (
-    <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave} className="card-3d glass fx-rise" style={{
+    <div style={{
       borderRadius: 18, border: '1px solid var(--border)',
       background: 'rgba(10,12,15,0.80)',
       overflow: 'hidden', gridColumn: `span ${span}`,

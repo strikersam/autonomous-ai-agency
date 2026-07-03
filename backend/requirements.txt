@@ -36,9 +36,3 @@ playwright>=1.60.0
 # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports (services/seo_report_pdf.py).
 # Must stay in sync with the root requirements.txt entry.
 reportlab>=5.0.0,<6
-
-# Free server-side TTS for /agent/sam/speak (voice/tts.py gTTS backend). The
-# push-to-talk SAM flow falls back to browser SpeechSynthesis without it, but
-# with gtts installed the backend returns real audio (mp3 bytes when ffmpeg
-# is absent — browsers play them fine).
-gTTS>=2.5.0
