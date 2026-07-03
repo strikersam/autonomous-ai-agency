@@ -176,10 +176,12 @@ services:
       # Run SAM's voice worker inside this web service. MUST stay "false" on
       # 512MB instances (free/starter): the worker's plugin preload
       # (numpy/onnxruntime/av) OOM-killed the service at boot and failed
-      # every deploy when this defaulted to "true". Flip to "true" only after
-      # upgrading this service to a >=2GB instance; otherwise run
-      # `python -m voice.sam_livekit_worker start` as a dedicated process
-      # (any machine with the same env — it dials out to LiveKit Cloud).
+      # every deploy when this defaulted to "true". The voice deps now live
+      # in their own image — run the worker standalone via Dockerfile.voice
+      # on any machine with ~512MB free RAM (it dials out to LiveKit Cloud):
+      #   docker build -f Dockerfile.voice -t sam-voice . && docker run --env-file .env sam-voice
+      # In-process ("true") needs a >=2GB instance AND the livekit pip layer
+      # re-added to Dockerfile.backend (see the commented lines there).
       - key: SAM_VOICE_IN_PROCESS
         value: "false"
       # Voice worker speech providers (optional upgrades over free Groq)
