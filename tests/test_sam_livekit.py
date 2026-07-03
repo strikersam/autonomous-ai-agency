@@ -213,16 +213,18 @@ def test_in_process_flag_forced_off_under_testing(livekit_env, monkeypatch):
     assert get_livekit_config().in_process is False
 
 
-def test_in_process_flag_default_on(livekit_env, monkeypatch):
+def test_in_process_flag_default_off(livekit_env, monkeypatch):
+    """OPT-IN: defaulting to on OOM-killed the 512MB Render instance at boot
+    (post-#931 deploys crash-looped). The default must stay False."""
     monkeypatch.delenv("TESTING", raising=False)
     monkeypatch.delenv("SAM_VOICE_IN_PROCESS", raising=False)
-    assert get_livekit_config().in_process is True
-
-
-def test_in_process_flag_opt_out(livekit_env, monkeypatch):
-    monkeypatch.delenv("TESTING", raising=False)
-    monkeypatch.setenv("SAM_VOICE_IN_PROCESS", "false")
     assert get_livekit_config().in_process is False
+
+
+def test_in_process_flag_opt_in(livekit_env, monkeypatch):
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.setenv("SAM_VOICE_IN_PROCESS", "true")
+    assert get_livekit_config().in_process is True
 
 
 def test_start_in_process_noop_under_testing(livekit_env):
@@ -236,6 +238,7 @@ def test_start_in_process_noop_under_testing(livekit_env):
 def test_start_in_process_noop_when_unconfigured(no_livekit_env, monkeypatch):
     """Flag on but LiveKit env absent → logged no-op, never raises."""
     monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.setenv("SAM_VOICE_IN_PROCESS", "true")
     from voice.sam_livekit_worker import start_in_process
 
     assert start_in_process() is False

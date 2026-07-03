@@ -173,10 +173,15 @@ services:
         sync: false
       - key: LIVEKIT_API_SECRET
         sync: false
-      # Run SAM's voice worker inside this web service (no separate paid
-      # worker). Set "false" to run voice/sam_livekit_worker.py elsewhere.
+      # Run SAM's voice worker inside this web service. MUST stay "false" on
+      # 512MB instances (free/starter): the worker's plugin preload
+      # (numpy/onnxruntime/av) OOM-killed the service at boot and failed
+      # every deploy when this defaulted to "true". Flip to "true" only after
+      # upgrading this service to a >=2GB instance; otherwise run
+      # `python -m voice.sam_livekit_worker start` as a dedicated process
+      # (any machine with the same env — it dials out to LiveKit Cloud).
       - key: SAM_VOICE_IN_PROCESS
-        value: "true"
+        value: "false"
       # Voice worker speech providers (optional upgrades over free Groq)
       - key: GROQ_API_KEY
         sync: false

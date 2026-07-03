@@ -54,16 +54,32 @@ key/secret pair from its config.)
 Once set, `GET /agent/sam/livekit/status` returns `configured: true` and the
 dashboard's SAM screen shows **Start live conversation**.
 
-### 3. The SAM voice worker (in-process by default — nothing to run)
+### 3. The SAM voice worker
 
-The backend starts the worker **inside the web process** on boot
-(`voice/sam_livekit_worker.py` `start_in_process()`, same pattern as the
-in-web Telegram bot; `Dockerfile.backend` installs the deps). As soon as the
-`LIVEKIT_*` env vars are set and the service redeploys, SAM's ears and voice
-are live — no separate worker service needed. Set `SAM_VOICE_IN_PROCESS=false`
-to opt out and run it as a dedicated process instead (see below).
+Two ways to run it — pick by instance size:
 
-The worker needs one STT and one TTS key alongside the backend env:
+**A. Dedicated process (default; required on 512MB Render instances).**
+The worker's plugin stack (numpy/onnxruntime/av) needs ~300MB+ of headroom.
+Running it inside a 512MB web instance OOM-killed the service at boot and
+failed every deploy — which is why `SAM_VOICE_IN_PROCESS` defaults to
+`false`. Run the worker anywhere with the same env (it dials **out** to
+LiveKit Cloud, so no inbound networking/ngrok is needed — your local Ollama
+box is a perfect free host):
+
+```bash
+pip install -r voice/requirements-livekit.txt
+python -m voice.sam_livekit_worker dev      # local development (hot reload)
+python -m voice.sam_livekit_worker start    # production worker
+```
+
+**B. In-process (only on ≥2GB instances).** Set `SAM_VOICE_IN_PROCESS=true`
+in Render and the backend starts the worker inside the web process on boot
+(`voice/sam_livekit_worker.py` `start_in_process()`; the Docker image already
+ships the deps) — nothing else to run.
+
+Either way, LiveKit dispatches the worker into every new SAM voice room
+automatically. The worker needs one STT and one TTS key alongside the
+backend env:
 
 | Variable | Purpose |
 |----------|---------|
@@ -73,20 +89,6 @@ The worker needs one STT and one TTS key alongside the backend env:
 | `SAM_LLM_BASE_URL` | SAM's brain (OpenAI-compatible). Default: NVIDIA NIM. Hermes: `http://localhost:8100/v1`. Proxy: `http://localhost:8000/v1` |
 | `SAM_LLM_MODEL` | Default: `NVIDIA_DEFAULT_MODEL` |
 | `SAM_LLM_API_KEY` | Default: `NVIDIA_API_KEY` |
-
-Dedicated-process alternative (when `SAM_VOICE_IN_PROCESS=false`):
-
-```bash
-pip install -r voice/requirements-livekit.txt
-python -m voice.sam_livekit_worker dev      # local development (hot reload)
-python -m voice.sam_livekit_worker start    # production worker
-```
-
-Run it from the repo root next to the backend (a Render background worker
-works well), or deploy it to LiveKit Cloud Agents. Either way, LiveKit
-dispatches the worker into every new SAM voice room automatically. If the
-free-tier instance runs out of memory during calls (Silero VAD uses
-onnxruntime), the dedicated-process mode is the escape hatch.
 
 ### 4. Talk to SAM
 
