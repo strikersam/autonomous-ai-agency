@@ -1514,8 +1514,10 @@ async def lifespan(app_: "FastAPI"):
 
     # One-shot boot purge (PURGE_BACKLOG_ON_BOOT nonce) — background task so
     # draining a large Mongo backlog never blocks startup or the health check.
+    # Kept in extra_tasks: create_task results are only weakly referenced by
+    # the loop, and a GC'd pending task would silently skip the purge.
     try:
-        asyncio.create_task(_maybe_boot_purge())
+        extra_tasks.append(asyncio.create_task(_maybe_boot_purge()))
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("Boot purge scheduling failed (non-fatal): %s", exc)
 
@@ -3595,8 +3597,25 @@ async def purge_backlog(body: PurgeBacklogRequest, user: dict = Depends(get_curr
         queued=body.queued,
         stranded=body.stranded,
     )
-    log.info("purge-backlog by %s: %s", user.get("email", "?"), summary)
+    log.info("purge-backlog by user_id=%s: %s", user.get("_id", "?"), summary)
     return {"ok": True, **summary}
+
+
+def _purge_summary_clean(summary: dict[str, object]) -> bool:
+    """True when a purge summary contains no error markers.
+
+    _purge_backlog_core degrades failures into the summary (an ``error`` key
+    under ``schedules``; ``<status>_error`` keys under ``tasks_deleted``)
+    instead of raising — the boot hook must not persist its nonce for such a
+    partial purge, or the retry-next-boot contract silently breaks.
+    """
+    schedules = summary.get("schedules")
+    if isinstance(schedules, dict) and "error" in schedules:
+        return False
+    tasks = summary.get("tasks_deleted")
+    if isinstance(tasks, dict) and any(k.endswith("_error") for k in tasks):
+        return False
+    return True
 
 
 async def _maybe_boot_purge() -> None:
@@ -3619,6 +3638,12 @@ async def _maybe_boot_purge() -> None:
         if done == nonce:
             return
         summary = await _purge_backlog_core()
+        if not _purge_summary_clean(summary):
+            log.warning(
+                "Boot purge PARTIAL (nonce=%s, marker NOT stored — retries "
+                "next boot): %s", nonce, summary,
+            )
+            return
         await set_setting(
             "purge_backlog_boot_nonce", nonce, updated_by="system:boot_purge"
         )
