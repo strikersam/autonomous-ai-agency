@@ -548,6 +548,45 @@ class AgentScheduler:
             log.warning("Force-cleanup failed: %s", exc)
         return summary
 
+    async def purge_all(self) -> dict[str, int]:
+        """Delete EVERY schedule from the durable store and in-memory state.
+
+        Operator maintenance escape hatch for schedule-backlog poisoning:
+        force_cleanup() only removes fired run-once jobs, >10-retry agency
+        tasks, and name-duplicates — a backlog of uniquely-named rows (2,859
+        in the 2026-07-03 incident) passes all three filters and keeps
+        OOM-cycling the free-tier instance on every boot. Platform loops
+        recreate their own schedules on demand, so a full wipe is safe;
+        company cadences are re-established by their owning services.
+
+        Returns ``{"total": <rows seen>, "deleted": <rows removed>}``.
+        """
+        await self._ensure_store()
+        summary = {"total": 0, "deleted": 0}
+        if self._store is not None:
+            try:
+                result = self._store.load_all()
+                docs = (await result) if inspect.isawaitable(result) else result
+                summary["total"] = len(docs)
+                for doc in docs:
+                    job_id = doc.get("job_id") or doc.get("id")
+                    if not job_id:
+                        continue
+                    await self._remove_persisted(job_id)
+                    summary["deleted"] += 1
+            except Exception as exc:
+                log.warning("Purge-all failed while draining the store: %s", exc)
+        # In-memory jobs (incl. any not yet persisted) — APScheduler entries
+        # are unregistered via the normal delete() path where possible.
+        for job_id in list(self._jobs):
+            try:
+                self.delete(job_id)
+            except Exception:
+                self._jobs.pop(job_id, None)
+        log.info("Purge-all: total=%d deleted=%d (schedule store wiped by operator)",
+                 summary["total"], summary["deleted"])
+        return summary
+
     async def _remove_persisted(self, job_id: str) -> None:
         """#505: Remove a job from durable storage."""
         if self._store is None:

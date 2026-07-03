@@ -3517,6 +3517,64 @@ def _require_admin(user: dict) -> None:
         )
 
 
+# ─── Maintenance: backlog purge (2026-07-03 crash-loop remediation) ───────────
+# The Mongo-persisted schedule backlog (2,873 uniquely-named rows) and a set
+# of poisoned BLOCKED tasks were requeued + dispatched concurrently on every
+# boot, OOM-cycling the 512MB instance regardless of code version (verified by
+# rolling back to #922 and #896 — both crashed the same way). This endpoint is
+# the operator's one-shot reset; the tick-requeue hardening and
+# TASK_DISPATCH_CONCURRENCY=1 keep a new backlog from repeating the loop.
+
+class PurgeBacklogRequest(BaseModel):
+    schedules: bool = Field(default=True, description="Wipe ALL scheduler rows")
+    blocked: bool = Field(default=True, description="Delete all BLOCKED tasks")
+    queued: bool = Field(default=True, description="Delete all TODO (queued) tasks")
+    stranded: bool = Field(default=True, description="Delete all IN_PROGRESS strays")
+
+
+@app.post("/api/admin/maintenance/purge-backlog")
+async def purge_backlog(body: PurgeBacklogRequest, user: dict = Depends(get_current_user)):
+    """Erase the schedule backlog and poisoned tasks (admin only)."""
+    _require_admin(user)
+    summary: dict[str, object] = {}
+
+    if body.schedules:
+        try:
+            summary["schedules"] = await SCHEDULER.purge_all()
+        except Exception as exc:
+            summary["schedules"] = {"error": str(exc)[:200]}
+
+    from tasks.models import TaskStatus
+    from tasks.store import get_task_store
+    store = get_task_store()
+    wanted: list[TaskStatus] = []
+    if body.blocked:
+        wanted.append(TaskStatus.BLOCKED)
+    if body.queued:
+        wanted.append(TaskStatus.TODO)
+    if body.stranded:
+        wanted.append(TaskStatus.IN_PROGRESS)
+    deleted_tasks: dict[str, int] = {}
+    for status in wanted:
+        count = 0
+        try:
+            # Batches of 500 until the status is drained (bounded: 20 rounds).
+            for _ in range(20):
+                batch = await store.list_all(status=status, limit=500)
+                if not batch:
+                    break
+                for task in batch:
+                    if await store.delete(task.task_id):
+                        count += 1
+        except Exception as exc:
+            deleted_tasks[f"{status.value}_error"] = 0
+            log.warning("purge-backlog: %s drain failed: %s", status.value, exc)
+        deleted_tasks[status.value] = count
+    summary["tasks_deleted"] = deleted_tasks
+    log.info("purge-backlog by %s: %s", user.get("email", "?"), summary)
+    return {"ok": True, **summary}
+
+
 def _brain_provider_status() -> list[dict]:
     """Return per-provider metadata for the GET endpoint.
 
@@ -6815,31 +6873,39 @@ async def autonomy_tick() -> dict[str, object]:
     except Exception as exc:
         result["ceo"] = {"error": str(exc)[:200]}
 
-    # 1.5. Requeue blocked tasks (from previous model failures)
-    # Old tasks that were blocked because of the dead 120b model or asyncio
-    # bug need to be requeued so they can execute with the new models.
+    # 1.5. Requeue blocked tasks — HARDENED after the 2026-07-03 crash loop.
+    # The old version requeued up to 5 blocked tasks per tick AND reset each
+    # task's auto_retry_count to 0, defeating the dispatcher's retry cap: the
+    # same poisoned tasks were re-dispatched concurrently on every boot,
+    # OOM-cycling the 512MB instance forever. Now: at most ONE requeue per
+    # tick, the retry counter is preserved, and tasks that already burned
+    # through their retries stay BLOCKED for a human (or the purge endpoint).
     requeued = 0
     try:
         from tasks.store import get_task_store
         from tasks.models import TaskStatus
+        _requeue_retry_cap = int(os.environ.get("TICK_REQUEUE_RETRY_CAP", "5"))
         store = get_task_store()
-        blocked = await store.list_blocked(limit=5)
+        blocked = await store.list_blocked(limit=10)
         for task in blocked:
+            if getattr(task, "auto_retry_count", 0) >= _requeue_retry_cap:
+                continue  # poisoned — leave BLOCKED, never auto-requeue again
             task.status = TaskStatus.TODO
             task.pending_agent_run = True
-            task.auto_retry_count = 0
             task.error_message = None
             task.review_reason = None
             task.add_log(
-                "Requeued from BLOCKED — model/asyncio fix deployed",
+                "Requeued from BLOCKED (retry %d/%d preserved)"
+                % (getattr(task, "auto_retry_count", 0), _requeue_retry_cap),
                 event_type="auto_retry_reset",
                 actor="system:tick_requeue",
                 task_status=TaskStatus.TODO,
             )
             await store.update(task)
             requeued += 1
+            break  # one per tick — never a concurrent thundering herd
         if requeued:
-            log.info("Tick: requeued %d blocked tasks", requeued)
+            log.info("Tick: requeued %d blocked task(s)", requeued)
     except Exception as exc:
         result["requeue_error"] = str(exc)[:100]
     result["requeued"] = requeued

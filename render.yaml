@@ -298,6 +298,13 @@ services:
       # ================================================================
       - key: RUN_BACKGROUND_IN_WEB
         value: "true"
+      # One agent execution at a time on the 512MB instance. The default of 5
+      # let the per-minute tick requeue 5 poisoned BLOCKED tasks and dispatch
+      # them concurrently, OOM-killing the box on every boot (2026-07-03
+      # crash loop — reproduced identically on the #922 and #896 trees, so it
+      # was data + concurrency, not code). Raise only on a >=2GB instance.
+      - key: TASK_DISPATCH_CONCURRENCY
+        value: "1"
 
       # ================================================================
       # FREEBUFF TELEGRAM BOT — run inside this web service (free tier:
