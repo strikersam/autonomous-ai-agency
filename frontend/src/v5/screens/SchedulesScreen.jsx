@@ -286,7 +286,7 @@ function SchedulesScreen() {
       </div>
 
       {/* Stats */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:10, marginBottom:16 }}>
         {[
           { label:'Active', value:jobs.filter(j=>j.status==='active').length, color:'#46d9a4' },
           { label:'Total runs', value:jobs.reduce((s,j)=>s+j.runs,0).toLocaleString(), color:'var(--accent)' },

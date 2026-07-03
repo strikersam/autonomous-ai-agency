@@ -263,19 +263,6 @@ loops:
     gate: none
     purpose: Mine user-research signals from the repo and issues.
 
-  - id: perplexity-maintenance
-    name: Perplexity Maintenance
-    pattern: dependency-sweeper
-    level: L3
-    trigger: schedule
-    cadence: weekly (Mon 02:00 UTC)
-    runs_per_day: 0.14
-    cost: medium
-    source: .github/workflows/perplexity-maintenance.yml
-    self_heal: true
-    gate: none
-    purpose: Research-backed maintenance — deps, advisories, doc freshness (opens fix PRs).
-
   # ── Triage / orchestration loops ────────────────────────────────────────
   - id: agency-cycle
     name: Agency Cycle

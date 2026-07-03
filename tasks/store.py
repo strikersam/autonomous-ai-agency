@@ -425,6 +425,67 @@ class TaskStore:
             reconciled += 1
             log.info("Reconciler: re-queued unqueued TODO task %s", task_id)
 
+        # Third pass (PR #923): FAILED tasks that haven't exceeded the auto-retry
+        # cap. Previously, once a task hit FAILED status it was permanently stuck
+        # (pending_agent_run=False, never picked up by the dispatcher). This meant
+        # every transient failure (LLM timeout, NVIDIA 410, brain connection error
+        # that slipped through) permanently killed the task. Now we re-queue FAILED
+        # tasks that are under the retry cap so they get another chance after the
+        # backend recovers. Tasks that have hit the cap stay FAILED (operator must
+        # manually re-queue or delete them).
+        #
+        # PR #936: MIN_RETRY_AGE_S gate — don't re-queue a FAILED task until it
+        # has been FAILED for at least 120s. Without this gate, the reconciler
+        # re-queues failed tasks instantly, the dispatcher picks them up, they
+        # fail again (e.g. brain is down), and the cycle repeats every few
+        # seconds — saturating the CPU and making login time out. The 120s
+        # cooldown gives the brain/provider time to recover between retries.
+        import time as _retry_time
+        MIN_RETRY_AGE_S = 120
+        now_s = _retry_time.time()
+
+        if self._mode == "mongo":
+            cursor = self._collection.find(
+                {"status": TaskStatus.FAILED.value},
+                {"_id": 0},
+            )
+            failed_docs = await cursor.to_list(length=500)
+        else:
+            failed_docs = [
+                v for v in self._mem.values()
+                if v.get("status") == TaskStatus.FAILED.value
+            ]
+
+        for doc in failed_docs:
+            task_id = doc.get("task_id") or doc.get("_id")
+            if not task_id or task_id in active:
+                continue
+            retry_count = int(doc.get("auto_retry_count") or 0)
+            if retry_count >= auto_retry_cap:
+                continue  # at cap — leave FAILED, operator must intervene
+
+            # Age gate: don't re-queue a FAILED task until it has cooled down.
+            # This breaks the fail → re-queue → fail → re-queue hot loop that
+            # saturates the CPU when the brain is down.
+            updated_at = doc.get("updated_at")
+            if updated_at is not None:
+                age_s = now_s - float(updated_at)
+                if age_s < MIN_RETRY_AGE_S:
+                    continue  # too soon — let the brain recover first
+
+            task = Task.model_validate(doc)
+            task.status = TaskStatus.TODO
+            task.pending_agent_run = True
+            task.add_log(
+                f"Task re-queued by reconciler (was FAILED, auto_retry_count={retry_count} < cap={auto_retry_cap})",
+                event_type="reconciled",
+                actor="system:reconciler",
+                task_status=TaskStatus.TODO,
+            )
+            await self.update(task)
+            reconciled += 1
+            log.info("Reconciler: re-queued FAILED task %s (retry %d/%d)", task_id, retry_count, auto_retry_cap)
+
         if reconciled:
             log.info("Reconciler: reset %d stranded task(s) to TODO/pending", reconciled)
         return reconciled

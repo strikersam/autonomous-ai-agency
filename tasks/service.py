@@ -546,8 +546,13 @@ class TaskExecutionCoordinator:
         # "Execution timed out after 150s" / "blocked after N dispatch attempts"
         # churn that made the board feel dead-slow. Giving runs room to *complete*
         # once beats failing and retrying many times. Tune via env.
+        # PR #923: bumped default from 300s to 600s to match the chat agent-run
+        # budget. A 300s timeout was too tight for NVIDIA NIM under load + Ollama
+        # cold model loading. Combined with the new transient-timeout handling
+        # (re-queue instead of hard-fail), 600s gives tasks room to complete
+        # while still bounding a truly dead endpoint. Tune via env.
         self.execution_timeout_s = execution_timeout_s or float(
-            os.environ.get("TASK_EXECUTION_TIMEOUT_SEC", "300")
+            os.environ.get("TASK_EXECUTION_TIMEOUT_SEC", "600")
         )
         # In-memory set of task_ids currently being executed by this coordinator
         # instance.  Used by TaskDispatcher._reconcile() to determine which tasks
@@ -750,13 +755,16 @@ class TaskExecutionCoordinator:
             )
             log.error("Task %s %s", task.task_id, message)
             task.error_message = message
-            task.workflow_phase = WorkflowPhase.FAILED.value
-            self.workflow.transition(
-                task,
-                TaskStatus.FAILED,
-                actor="system:coordinator",
-                message=message,
-            )
+            # PR #923: treat execution timeout as TRANSIENT (re-queue) instead
+            # of hard-failing the task. A timeout usually means the LLM endpoint
+            # is overloaded or slow (e.g. NVIDIA NIM under load, or a cold
+            # Ollama model loading for the first time) — NOT a task defect.
+            # Hard-failing meant every timed-out task was permanently stuck
+            # (pending_agent_run=False) and never picked up again, even after
+            # the backend recovered. Re-queueing gives the task another chance
+            # on the next dispatch cycle. The _requeue_or_block_unavailable
+            # helper handles the retry-count cap + eventual BLOCKED transition.
+            self._requeue_or_block_unavailable(task, asyncio.TimeoutError(), what=message)
         except RuntimeUnavailableError as exc:
             # No healthy runtime was available at dispatch time.  Re-queue the
             # task instead of failing it so the next dispatcher cycle retries.

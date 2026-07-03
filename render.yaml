@@ -44,6 +44,18 @@ services:
         value: "false"
 
       # ================================================================
+      # Website-scanner headless rendering — OFF on the 512MB free dyno.
+      # Chromium adds 150-300MB across processes; on this instance size a
+      # scan (incl. the self-bootstrap scan after every restart, since
+      # STORAGE_BACKEND=sqlite is ephemeral) squeezes the whole service into
+      # memory pressure. The scanner degrades to its static-HTML tier by
+      # design (services/scanner.py honours this flag); JS-rendered systems
+      # simply go undetected. Set "auto" again on a >=2GB instance.
+      # ================================================================
+      - key: SCANNER_HEADLESS_RENDER
+        value: "off"
+
+      # ================================================================
       # BRAIN PREFERENCE — "nvidia" (cloud, default) or "ollama" (local).
       # When "ollama", the agent brain skips cloud providers and routes
       # directly to the local Ollama instance (OLLAMA_BASE / OLLAMA_BASE_URL).
@@ -156,6 +168,41 @@ services:
       # users to the wrong origin and silently breaks GitHub/Google login.
       - key: FRONTEND_URL
         value: https://autonomous-ai-agency.strikersam.workers.dev
+
+      # ================================================================
+      # SAM REALTIME VOICE (LiveKit) — docs/SAM_VOICE_LIVEKIT.md
+      # Generate credentials at https://cloud.livekit.io → open (or create)
+      # a project → Settings → Keys → "Create key" (the secret is shown ONCE
+      # — copy it immediately). LIVEKIT_URL is the wss://…livekit.cloud URL
+      # shown at the top of the project dashboard.
+      # The dashboard's "Start live conversation" button appears as soon as
+      # these three are set. The voice worker additionally needs one STT+TTS
+      # key — GROQ_API_KEY alone covers both for free.
+      # ================================================================
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      # Run SAM's voice worker inside this web service. MUST stay "false" on
+      # 512MB instances (free/starter): the worker's plugin preload
+      # (numpy/onnxruntime/av) OOM-killed the service at boot and failed
+      # every deploy when this defaulted to "true". The voice deps now live
+      # in their own image — run the worker standalone via Dockerfile.voice
+      # on any machine with ~512MB free RAM (it dials out to LiveKit Cloud):
+      #   docker build -f Dockerfile.voice -t sam-voice . && docker run --env-file .env sam-voice
+      # In-process ("true") needs a >=2GB instance AND the livekit pip layer
+      # re-added to Dockerfile.backend (see the commented lines there).
+      - key: SAM_VOICE_IN_PROCESS
+        value: "false"
+      # Voice worker speech providers (optional upgrades over free Groq)
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
 
       # ================================================================
       # AGENT RUNTIME CONFIGURATIONS
@@ -311,6 +358,23 @@ services:
       # again later, change the value (e.g. bump the date suffix).
       - key: PURGE_BACKLOG_ON_BOOT
         value: "purge-2026-07-03"
+
+      # ================================================================
+      # LANGFUSE — observability/tracing for chat + agent runs.
+      # Set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY in the Render
+      # dashboard (from your Langfuse project settings at
+      # cloud.langfuse.com or your self-hosted instance). Without these,
+      # _langfuse_enabled() returns False and NO traces are emitted —
+      # the Langfuse dashboard stays empty. Verify via:
+      #   curl https://local-llm-server.onrender.com/api/observability/status
+      # (look for "langfuse_configured": true).
+      # ================================================================
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_HOST
+        value: "https://cloud.langfuse.com"
 
       # ================================================================
       # FREEBUFF TELEGRAM BOT — run inside this web service (free tier:

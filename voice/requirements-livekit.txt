@@ -1,0 +1,7 @@
+# Optional dependencies for the SAM realtime voice worker
+# (voice/sam_livekit_worker.py). Kept out of requirements.txt on purpose —
+# the backend only needs PyJWT (already installed) to mint room tokens.
+#
+#   pip install -r voice/requirements-livekit.txt
+#   python -m voice.sam_livekit_worker dev
+livekit-agents[silero,openai,deepgram,elevenlabs,groq]>=1.0,<2

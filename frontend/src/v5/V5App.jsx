@@ -2,27 +2,38 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { AppShell } from './AppShell';
-import ChatScreen from './screens/ChatScreen';
-import DashboardScreen from './screens/DashboardScreen';
-import TaskBoardScreen from './screens/TaskBoardScreen';
-import AgentsScreen from './screens/AgentsScreen';
-import SchedulesScreen from './screens/SchedulesScreen';
-import SkillsScreen from './screens/SkillsScreen';
-import PortfolioScreen from './screens/PortfolioScreen';
-import IntelligenceScreen from './screens/IntelligenceScreen';
-import KnowledgeScreen from './screens/KnowledgeScreen';
-import ProvidersScreen from './screens/ProvidersScreen';
-import LoopsScreen from './screens/LoopsScreen';
-import GitHubScreen from './screens/GitHubScreen';
-import LogsScreen from './screens/LogsScreen';
-import CompanyScreen from './screens/CompanyScreen';
-import OnboardingScreen from './screens/OnboardingScreen';
-import DoctorScreen from './screens/DoctorScreen';
-import AdminScreen from './screens/AdminScreen';
-import SamVoiceScreen from './screens/SamVoiceScreen';
+// Chat is the default screen — keep it eager so the common path paints in one
+// round trip. Every other screen is code-split: its chunk downloads only when
+// the user first opens it, cutting the boot bundle for phones.
 import AlertsBell from './screens/AlertsBell';
 import QuickNotesFAB from './screens/QuickNotesFAB';
 import ActivationGate from './screens/ActivationGate';
+import ChatScreen from './screens/ChatScreen';
+const DashboardScreen    = React.lazy(() => import('./screens/DashboardScreen'));
+const TaskBoardScreen    = React.lazy(() => import('./screens/TaskBoardScreen'));
+const AgentsScreen       = React.lazy(() => import('./screens/AgentsScreen'));
+const SchedulesScreen    = React.lazy(() => import('./screens/SchedulesScreen'));
+const SkillsScreen       = React.lazy(() => import('./screens/SkillsScreen'));
+const PortfolioScreen    = React.lazy(() => import('./screens/PortfolioScreen'));
+const IntelligenceScreen = React.lazy(() => import('./screens/IntelligenceScreen'));
+const KnowledgeScreen    = React.lazy(() => import('./screens/KnowledgeScreen'));
+const ProvidersScreen    = React.lazy(() => import('./screens/ProvidersScreen'));
+const LoopsScreen        = React.lazy(() => import('./screens/LoopsScreen'));
+const GitHubScreen       = React.lazy(() => import('./screens/GitHubScreen'));
+const LogsScreen         = React.lazy(() => import('./screens/LogsScreen'));
+const CompanyScreen      = React.lazy(() => import('./screens/CompanyScreen'));
+const OnboardingScreen   = React.lazy(() => import('./screens/OnboardingScreen'));
+const DoctorScreen       = React.lazy(() => import('./screens/DoctorScreen'));
+const AdminScreen        = React.lazy(() => import('./screens/AdminScreen'));
+const SamVoiceScreen     = React.lazy(() => import('./screens/SamVoiceScreen'));
+
+function ScreenLoading() {
+  return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'60vh' }}>
+      <div style={{ width:22, height:22, border:'2px solid rgba(255,255,255,0.15)', borderTopColor:'#6CB0FF', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>
+    </div>
+  );
+}
 
 const V5_THEME = `
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
@@ -116,7 +127,9 @@ export default function V5App() {
       <div className="v5-root">
         <style>{V5_THEME}</style>
         <AppShell activeScreen={screen} onNavigate={go} agentRunning={agentRunning} isAdmin={isAdmin}>
-          {screens[screen] || screens.chat}
+          <React.Suspense fallback={<ScreenLoading/>}>
+            {screens[screen] || screens.chat}
+          </React.Suspense>
         </AppShell>
         <AlertsBell onNavigate={go} />
         <QuickNotesFAB visible={true} />
