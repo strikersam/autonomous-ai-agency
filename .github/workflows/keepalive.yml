@@ -5,25 +5,17 @@ name: Keep-alive (prevent free-tier spin-down)
 # INSIDE the web service (render.yaml: RUN_BACKGROUND_IN_WEB=true), so keeping
 # the web service awake keeps the loops running — no paid worker required.
 #
-# This pings /api/ping (no DB I/O — cheaper than /api/health) every 3 min from
-# GitHub's runners. The 3-min interval gives 5 pings inside Render's 15-min
-# sleep window — wide margin against GitHub cron jitter (which can delay
-# scheduled runs by 5-10 min under load). Override the target with a repo
-# variable KEEPALIVE_URL if the service URL changes.
+# This pings the public health endpoint every ~10 min from GitHub's runners
+# (which have open internet, unlike the dev sandbox). Override the target with a
+# repo variable KEEPALIVE_URL if the service URL changes.
 #
-# Layer diagram (defense-in-depth against Render free-tier cold starts):
-#   Layer A: Cloudflare Worker scheduled() — every 1 min (worker/index.js)
-#              GET /api/ping (primary) + POST /api/scheduler/tick (secondary)
-#   Layer B: THIS workflow — every 3 min, GET /api/ping + GET /api/health
-#   Layer C: autonomous-cycle.yml — every 2 min, GET /api/ping + /api/autonomy/tick
-#   Layer D: backend BOT_KEEPALIVE — every 10 min, self-ping (last resort)
-#
-# NOTE: For hard 24×7 uptime, also point a free external monitor
-# (UptimeRobot / cron-job.org) at /api/ping on a 5-minute interval.
+# NOTE: GitHub cron is best-effort and can be delayed under load. For hard 24×7
+# uptime, also point a free external monitor (UptimeRobot / cron-job.org) at the
+# same /api/health URL on a 5-minute interval.
 
 on:
   schedule:
-    - cron: "*/3 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -38,35 +30,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Ping /api/ping + /api/health (warm the dyno)
+      - name: Ping health + autonomy status (warm the dyno)
         env:
           BASE_URL: ${{ vars.KEEPALIVE_URL || 'https://local-llm-server.onrender.com' }}
         run: |
           set -u
-          # /api/ping is the primary keep-warm — no DB I/O, returns in <10ms
-          # on a warm instance. /api/health is a secondary check that also
-          # pings MongoDB so we surface DB connectivity issues in the run log.
           # Free dynos can take 30-60s to cold-start; retry with backoff and
           # treat a wake-up as success even if the first probes are slow.
           ok=0
           for attempt in 1 2 3 4 5 6; do
-            code=$(curl -s -o /tmp/ping.txt -w '%{http_code}' --max-time 60 "$BASE_URL/api/ping" || echo "000")
-            echo "attempt $attempt: GET /api/ping -> $code"
+            code=$(curl -s -o /tmp/health.txt -w '%{http_code}' --max-time 60 "$BASE_URL/api/health" || echo "000")
+            echo "attempt $attempt: GET /api/health -> $code"
             if [ "$code" = "200" ]; then ok=1; break; fi
             sleep 15
           done
 
-          # Best-effort: surface the DB-backed health + autonomy readiness so
-          # the run log doubles as a live status check. Non-fatal.
-          echo "--- /api/health ---"
-          curl -s --max-time 60 "$BASE_URL/api/health" || true
-          echo ""
+          # Best-effort: surface the autonomy readiness so the run log doubles as
+          # a live status check. Non-fatal.
           echo "--- /api/autonomy/status ---"
           curl -s --max-time 60 "$BASE_URL/api/autonomy/status" || true
           echo ""
 
           if [ "$ok" != "1" ]; then
-            echo "::warning::/api/ping did not return 200 after retries — the service may be cold-starting or down."
+            echo "::warning::Health endpoint did not return 200 after retries — the service may be cold-starting or down."
             # Do not fail the scheduled job on a single missed wake-up; the next
             # run retries. Flip to 'exit 1' if you want failure notifications.
           fi
