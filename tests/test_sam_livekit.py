@@ -247,15 +247,38 @@ def test_start_in_process_noop_when_unconfigured(no_livekit_env, monkeypatch):
 # ── Production image ships the voice pipeline ────────────────────────────────
 
 def test_dockerfile_ships_voice_package():
-    """Dockerfile.backend must COPY voice/ and install the LiveKit worker deps
-    — without these, /agent/sam/* imports fail in production while working in
-    CI (which installs the root requirements from a full checkout)."""
+    """Dockerfile.backend must COPY voice/ (server-side TTS + LiveKit token
+    endpoints import it) but must NOT install the heavy LiveKit worker deps —
+    those live in Dockerfile.voice so the 512MB web image stays small."""
     from pathlib import Path
 
     dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile.backend"
     content = dockerfile.read_text()
     assert "COPY voice/ voice/" in content
+    # No ACTIVE instruction may install the livekit deps (a commented example
+    # showing how to re-enable in-process mode is fine).
+    active_lines = [
+        line for line in content.splitlines() if not line.lstrip().startswith("#")
+    ]
+    assert not any(
+        "requirements-livekit" in line and line.lstrip().startswith(("RUN", "COPY"))
+        for line in active_lines
+    )
+
+
+def test_dockerfile_voice_builds_the_worker():
+    """Dockerfile.voice is the standalone home of the heavy voice deps: it
+    must install both requirement sets, ship libgomp1 (onnxruntime needs it
+    on slim), copy voice/, and start the worker."""
+    from pathlib import Path
+
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile.voice"
+    content = dockerfile.read_text()
     assert "voice/requirements-livekit.txt" in content
+    assert "backend/requirements.txt" in content
+    assert "libgomp1" in content
+    assert "COPY voice/ voice/" in content
+    assert "voice.sam_livekit_worker" in content
 
 
 # ── Worker module ─────────────────────────────────────────────────────────────

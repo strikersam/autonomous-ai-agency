@@ -58,13 +58,22 @@ dashboard's SAM screen shows **Start live conversation**.
 
 Two ways to run it — pick by instance size:
 
-**A. Dedicated process (default; required on 512MB Render instances).**
-The worker's plugin stack (numpy/onnxruntime/av) needs ~300MB+ of headroom.
-Running it inside a 512MB web instance OOM-killed the service at boot and
-failed every deploy — which is why `SAM_VOICE_IN_PROCESS` defaults to
-`false`. Run the worker anywhere with the same env (it dials **out** to
-LiveKit Cloud, so no inbound networking/ngrok is needed — your local Ollama
-box is a perfect free host):
+**A. Standalone container — `Dockerfile.voice` (recommended).**
+The heavy deps (livekit-agents, onnxruntime, av — ~600MB installed, ~300MB+
+RAM at runtime) live in their own image, NOT in the web image, so the 512MB
+Render web service never carries them. The worker dials **out** to LiveKit
+Cloud, so no inbound networking/ngrok is needed — your local Ollama box is a
+perfect free host:
+
+```bash
+docker build -f Dockerfile.voice -t sam-voice .
+docker run --rm --env-file .env sam-voice
+```
+
+(`.env` needs `LIVEKIT_*`, one STT/TTS key, the brain key, and `MONGO_URL`
+so voice tools see the same tasks/schedules as the app.)
+
+**B. Bare process, no Docker.** Same thing without the container:
 
 ```bash
 pip install -r voice/requirements-livekit.txt
@@ -72,10 +81,14 @@ python -m voice.sam_livekit_worker dev      # local development (hot reload)
 python -m voice.sam_livekit_worker start    # production worker
 ```
 
-**B. In-process (only on ≥2GB instances).** Set `SAM_VOICE_IN_PROCESS=true`
-in Render and the backend starts the worker inside the web process on boot
-(`voice/sam_livekit_worker.py` `start_in_process()`; the Docker image already
-ships the deps) — nothing else to run.
+**C. In-process (≥2GB instances only, and deps must be re-added).** Set
+`SAM_VOICE_IN_PROCESS=true` and the backend starts the worker inside the web
+process on boot (`start_in_process()`). Since the voice deps were moved out
+of `Dockerfile.backend`, this mode also requires re-adding the
+`pip install -r voice/requirements-livekit.txt` layer there (the commented
+lines in the Dockerfile show exactly where). Running it inside a 512MB
+instance OOM-kills the service at boot — that is why the flag defaults to
+`false`.
 
 Either way, LiveKit dispatches the worker into every new SAM voice room
 automatically. The worker needs one STT and one TTS key alongside the
