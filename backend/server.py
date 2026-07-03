@@ -6275,6 +6275,7 @@ _autonomy_ceo_cache: dict[str, object] = {"triggered": False}
 _autonomy_dispatch_cache: dict[str, object] = {"ran": False}
 _autonomy_bg_task: asyncio.Task | None = None
 _autonomy_bg_last_run: float = 0.0
+_self_bootstrap_task: asyncio.Task | None = None
 
 async def _autonomy_bg_cycle():
     """Background CEO cycle + task dispatch. Runs fire-and-forget."""
@@ -6605,23 +6606,28 @@ async def autonomy_status() -> dict[str, object]:
     except Exception:  # pragma: no cover - defensive
         pass
     try:
-        # If self-bootstrap is enabled AND no company exists yet, try to
-        # ensure the company exists. This runs on the request's event loop
-        # (the FastAPI main loop), so it safely touches Motor/aiosqlite
-        # clients. On Render free tier, the CEO agency thread can't reliably
-        # dispatch because the event loop stops pumping between requests.
-        # Skip in tests (SELF_BOOTSTRAP_ENABLED=false) to avoid interfering
-        # with E2E/unit tests.
+        # If self-bootstrap is enabled AND no company exists yet, SCHEDULE
+        # ensure_self_company() as a background task on this event loop and
+        # return immediately. It must NEVER be awaited inline: onboarding
+        # (website scan + specialist provisioning + LLM calls with 300s
+        # timeouts) takes minutes, and awaiting it here held this public
+        # endpoint past Render's 120s proxy read timeout — on an ephemeral
+        # SQLite deploy ("no company" after every restart) that made the
+        # first post-boot status call, and everything queued behind it,
+        # time out for the user. The task still runs on the request loop
+        # (same Motor/aiosqlite safety as before); the guarded global keeps
+        # concurrent status calls from stacking duplicate bootstraps.
+        # Skip in tests (SELF_BOOTSTRAP_ENABLED=false) as before.
+        global _self_bootstrap_task
         from services.self_bootstrap import _find_self_company
         existing = await _find_self_company()
         if existing is None and self_bootstrap_status.get("enabled"):
-            # No company yet — trigger ensure_self_company() on this
-            # request's event loop. Idempotent: subsequent calls no-op.
-            from services.self_bootstrap import ensure_self_company
-            bootstrap_result = await ensure_self_company()
-            self_bootstrap_status["last_result"] = bootstrap_result.get("status")
-            # Re-read after bootstrap
-            existing = await _find_self_company()
+            if _self_bootstrap_task is not None and not _self_bootstrap_task.done():
+                self_bootstrap_status["last_result"] = "bootstrapping"
+            else:
+                from services.self_bootstrap import ensure_self_company
+                _self_bootstrap_task = asyncio.create_task(ensure_self_company())
+                self_bootstrap_status["last_result"] = "bootstrap_scheduled"
         if existing is not None:
             self_bootstrap_status["company_id"] = existing.id
             self_bootstrap_status["onboarding_status"] = existing.onboarding_status

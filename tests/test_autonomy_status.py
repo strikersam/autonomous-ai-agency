@@ -80,3 +80,52 @@ def test_brain_configured_when_nvidia_key_present(client, monkeypatch):
     assert "NVIDIA_API_KEY" not in body["missing_secrets"]
     # Brain ready but loops aren't bootstrapped under TestClient → not "no_brain".
     assert body["status"] in {"idle", "partial", "autonomous"}
+
+
+def test_self_bootstrap_never_awaited_inline(monkeypatch):
+    """Regression: /api/autonomy/status must SCHEDULE self-bootstrap, never
+    await it inline. Awaiting onboarding (scan + provisioning + 300s-timeout
+    LLM calls) on the request held this public endpoint past Render's 120s
+    proxy read timeout — on an ephemeral-SQLite deploy that broke the first
+    post-boot call (and the user session behind it) after every restart.
+
+    Drives the handler coroutine directly on one event loop (like the
+    production loop) so the in-flight dedup guard is observable across calls.
+    """
+    import asyncio
+    import time as _time
+
+    import backend.server as srv
+    import services.self_bootstrap as sb
+
+    async def _slow_bootstrap(**kwargs):
+        await asyncio.sleep(300)  # would blow any sane request budget
+        return {"status": "created"}
+
+    async def _no_company():
+        return None
+
+    monkeypatch.setattr(sb, "ensure_self_company", _slow_bootstrap)
+    monkeypatch.setattr(sb, "_find_self_company", _no_company)
+    monkeypatch.setattr(sb, "self_bootstrap_enabled", lambda: True)
+    monkeypatch.setattr(srv, "_self_bootstrap_task", None)
+
+    async def _scenario():
+        t0 = _time.monotonic()
+        body1 = await srv.autonomy_status()
+        elapsed = _time.monotonic() - t0
+        # Second call while the task is still pending must not stack another.
+        body2 = await srv.autonomy_status()
+        task = srv._self_bootstrap_task
+        pending = task is not None and not task.done()
+        if pending:
+            task.cancel()
+        srv._self_bootstrap_task = None
+        return elapsed, body1, body2, pending
+
+    elapsed, body1, body2, pending = asyncio.run(_scenario())
+
+    assert elapsed < 30, f"endpoint blocked {elapsed:.1f}s — bootstrap ran inline"
+    assert body1["self_bootstrap"]["last_result"] == "bootstrap_scheduled"
+    assert body2["self_bootstrap"]["last_result"] == "bootstrapping"
+    assert pending, "scheduled bootstrap task should still be in flight"

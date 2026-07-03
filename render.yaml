@@ -44,6 +44,18 @@ services:
         value: "false"
 
       # ================================================================
+      # Website-scanner headless rendering — OFF on the 512MB free dyno.
+      # Chromium adds 150-300MB across processes; on this instance size a
+      # scan (incl. the self-bootstrap scan after every restart, since
+      # STORAGE_BACKEND=sqlite is ephemeral) squeezes the whole service into
+      # memory pressure. The scanner degrades to its static-HTML tier by
+      # design (services/scanner.py honours this flag); JS-rendered systems
+      # simply go undetected. Set "auto" again on a >=2GB instance.
+      # ================================================================
+      - key: SCANNER_HEADLESS_RENDER
+        value: "off"
+
+      # ================================================================
       # BRAIN PREFERENCE — "nvidia" (cloud, default) or "ollama" (local).
       # When "ollama", the agent brain skips cloud providers and routes
       # directly to the local Ollama instance (OLLAMA_BASE / OLLAMA_BASE_URL).
