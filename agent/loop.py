@@ -31,6 +31,7 @@ from agent.prompts import (
 from agent.harness_enrichment import get_enrichment
 from agent.react_loop import ReactScratchpad
 from agent.state import AgentSessionStore
+from agent.stuck_detector import StuckDetector
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
 from router import get_router
@@ -255,6 +256,9 @@ class AgentRunner:
         # 3-phase context-pruner middleware: runs before every LLM call to enforce
         # token budgets and wrap older context as historical memory.
         self.pruner = ContextPruner()
+        # OpenHands-style stuck detection: breaks a step's tool loop when the
+        # last observations repeat or alternate without progress.
+        self.stuck = StuckDetector()
         # Specialized sub-agent configurations (★2 roadmap item).
         # Keyed by role name ("file_picker", "planner", "editor", "reviewer").
         # When set, _spawn_subagent uses the configured per-role model.
@@ -577,6 +581,15 @@ class AgentRunner:
             if key_id:
                 self.key_id = key_id
 
+            # ── Learning loop: persist the cause of every failed step so the
+            # next run's planner sees it (agent/lessons.py). Retry without
+            # this is not learning — the same mistake recurs forever.
+            try:
+                from agent.lessons import record_step_failures
+                record_step_failures(plan.goal, step_results)
+            except Exception:
+                pass
+
             return {
                 "goal": plan.goal,
                 "plan": plan.model_dump(),
@@ -657,6 +670,25 @@ class AgentRunner:
         messages = build_planning_prompt(instruction, history, user_memories=user_memories)
         # ── Harness enrichment: inject available tools + skills into planner ───
         self._inject_enrichment(messages)
+        # ── Learning loop: surface lessons from recent failed runs so the
+        # planner avoids known failure modes (agent/lessons.py).
+        try:
+            from agent.lessons import recent_lessons_block
+            _lessons = recent_lessons_block()
+            if _lessons and messages and messages[0].get("role") == "system":
+                messages[0]["content"] = f"{messages[0]['content']}\n\n{_lessons}"
+        except Exception:
+            pass
+        # ── Microagents: OpenHands-style keyword-triggered repo knowledge
+        # (.openhands/microagents/*.md) injected when the instruction matches
+        # a trigger (agent/microagents.py).
+        try:
+            from agent.microagents import microagents_block
+            _knowledge = microagents_block(instruction, root=self.tools.root)
+            if _knowledge and messages and messages[0].get("role") == "system":
+                messages[0]["content"] = f"{messages[0]['content']}\n\n{_knowledge}"
+        except Exception:
+            pass
         planner_decision = get_router().route(
             requested_model=requested_model,
             messages=messages,
@@ -742,6 +774,19 @@ class AgentRunner:
         tool_retry_count = 0
         max_tool_retries = 3
         for remaining in range(15, 0, -1):
+            # Stuck detection (OpenHands pattern): when the recent observations
+            # repeat or alternate without progress, stop the tool loop instead
+            # of spending the remaining LLM-call budget on the same mistake.
+            stuck_reason = self.stuck.check(observations)
+            if stuck_reason:
+                log.warning(
+                    "stuck detector tripped on step %s: %s", step.get("id"), stuck_reason,
+                )
+                observations.append(
+                    {"tool": "stuck_detector", "result": f"tool loop aborted: {stuck_reason}"}
+                )
+                self._log_event(session_id, "stuck_detected", {"reason": stuck_reason})
+                break
             try:
                 # Observation masking: pass truncated older observations to
                 # keep the tool-selection prompt lean.  Recent observations are

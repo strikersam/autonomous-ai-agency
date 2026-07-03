@@ -1,0 +1,61 @@
+# Dockerfile.voice — SAM realtime voice worker (LiveKit Agents), standalone.
+#
+# The heavy voice deps (livekit-agents, onnxruntime, av, numpy — ~600MB
+# installed) live HERE, not in Dockerfile.backend, so the web image stays
+# small and the 512MB web instance never loads them. The worker dials OUT
+# to LiveKit Cloud, so this container runs anywhere with ~512MB of free RAM
+# and the platform env vars — local machine, home server, or a Render
+# background worker. No inbound ports need to be exposed.
+#
+# Build + run (from the repo root):
+#   docker build -f Dockerfile.voice -t sam-voice .
+#   docker run --rm --env-file .env sam-voice
+#
+# Required env: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET,
+#   GROQ_API_KEY (free STT+TTS) or DEEPGRAM/ELEVENLABS keys,
+#   NVIDIA_API_KEY or SAM_LLM_* (SAM's brain),
+#   MONGO_URL (so the voice tools see the same tasks/schedules as the app).
+FROM python:3.11-slim
+
+# libgomp1: OpenMP runtime required by onnxruntime (Silero VAD inference);
+# python:3.11-slim does not ship it.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Backend requirements first: the worker's agency tools run in-process
+# against the same modules (agent/sam.py context, tasks/store.py), which
+# need motor/pydantic/httpx etc. The playwright pip package installs but no
+# browser is downloaded — the scanner never runs here.
+COPY backend/requirements.txt backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+COPY voice/requirements-livekit.txt voice/requirements-livekit.txt
+RUN pip install --no-cache-dir -r voice/requirements-livekit.txt
+
+# Same wholesale module copy as Dockerfile.backend (minus the frontend build,
+# Chromium, and .claude skills — none are used by the voice worker).
+COPY backend/ backend/
+COPY packages/ packages/
+COPY db/ db/
+COPY agent/ agent/
+COPY router/ router/
+COPY agents/ agents/
+COPY mcp_server/ mcp_server/
+COPY schedules/ schedules/
+COPY docker/ docker/
+COPY runtimes/ runtimes/
+COPY loops/ loops/
+COPY tasks/ tasks/
+COPY handlers/ handlers/
+COPY workflow/ workflow/
+COPY sync/ sync/
+COPY setup/ setup/
+COPY hardware/ hardware/
+COPY *.py ./
+COPY models/ models/
+COPY services/ services/
+COPY voice/ voice/
+
+CMD ["python", "-m", "voice.sam_livekit_worker", "start"]
