@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { fmtErr, getBackendUrl } from '../api';
-import { Lock, AlertCircle, GitFork as Github, CheckCircle, Bot, Database } from 'lucide-react';
+import { Lock, AlertCircle, GitFork as Github, CheckCircle, Bot, Database, ChevronDown, ShieldCheck } from 'lucide-react';
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none">
@@ -45,6 +45,12 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState(null); // null | 'github' | 'google'
+  // Email/password sign-in only works for the admin account and users an
+  // admin has created directly (there is no public self-registration
+  // endpoint). It's collapsed behind this toggle by default so general
+  // users are funneled to social login instead of assuming they need a
+  // password the platform never gave them.
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
 
   // Social login URLs use a per-click nonce path segment to bypass
   // Cloudflare's CDN cache. The CDN cached the SPA's index.html at
@@ -174,69 +180,11 @@ export default function LoginPage() {
               <div className="app-kicker">Sign in</div>
               <h1 className="app-title text-[var(--text-primary)]">Autonomous AI Agency</h1>
               <p className="app-subtitle">
-                Sign in to your agency. Your AI-powered workforce — plan, execute, and deliver across any codebase or workflow.
+                Continue with GitHub or Google to access your agency. Email &amp; password sign-in is reserved for admins and accounts an admin has created for you.
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <FieldGroup label="Email">
-                <TextInput
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@llmrelay.local"
-                  required
-                  testId="email-input"
-                />
-              </FieldGroup>
-              <FieldGroup label="Password">
-                <TextInput
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  testId="password-input"
-                />
-              </FieldGroup>
-
-              {error && (
-                <div className="rounded-[18px] border p-4" style={{ background: 'rgba(255,107,125,0.1)', borderColor: 'rgba(255,107,125,0.22)' }}>
-                  <AlertCircle size={16} className="mb-2 text-[var(--danger)]" />
-                  <p className="text-[0.92rem] text-[var(--text-primary)]">{error}</p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="app-button-primary w-full rounded-[18px] text-[0.82rem]"
-              >
-                {loading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
-                      style={{ borderColor: '#06111f' }} />
-                    <span>Signing in…</span>
-                  </>
-                ) : (
-                  <>
-                    <Lock size={18} />
-                    <span>Sign in</span>
-                  </>
-                )}
-              </button>
-            </form>
-
             <div className="space-y-4">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-[var(--border)]" />
-                </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-[var(--bg-surface)] px-3 text-[0.7rem] font-mono uppercase tracking-[0.18em] text-[var(--text-muted)]">or continue with</span>
-                </div>
-              </div>
-
               <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <a
                   href={githubHref}
@@ -297,6 +245,85 @@ export default function LoginPage() {
                   )}
                 </a>
               </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-[var(--border)]" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="bg-[var(--bg-surface)] px-3 text-[0.7rem] font-mono uppercase tracking-[0.18em] text-[var(--text-muted)]">or</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAdminLogin((v) => !v)}
+                aria-expanded={showAdminLogin}
+                data-testid="toggle-admin-login"
+                className="w-full flex items-center justify-center gap-2 py-1 text-[0.78rem] font-semibold uppercase tracking-widest text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              >
+                <ShieldCheck size={14} />
+                <span>Admin sign-in</span>
+                <ChevronDown size={14} style={{ transform: showAdminLogin ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
+              </button>
+
+              {showAdminLogin && (
+                <div className="space-y-4 animate-fade-in" data-testid="admin-login-form">
+                  <p className="text-[0.82rem] text-[var(--text-muted)] leading-relaxed">
+                    For the admin account and users an admin has created directly. Not an admin? Use GitHub or Google above instead.
+                  </p>
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <FieldGroup label="Email">
+                      <TextInput
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="admin@llmrelay.local"
+                        required
+                        testId="email-input"
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="Password">
+                      <TextInput
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        required
+                        testId="password-input"
+                      />
+                    </FieldGroup>
+
+                    {error && (
+                      <div className="rounded-[18px] border p-4" style={{ background: 'rgba(255,107,125,0.1)', borderColor: 'rgba(255,107,125,0.22)' }}>
+                        <AlertCircle size={16} className="mb-2 text-[var(--danger)]" />
+                        <p className="text-[0.92rem] text-[var(--text-primary)]">{error}</p>
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="app-button-primary w-full rounded-[18px] text-[0.82rem]"
+                    >
+                      {loading ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
+                            style={{ borderColor: '#06111f' }} />
+                          <span>Signing in…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Lock size={18} />
+                          <span>Sign in</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
 

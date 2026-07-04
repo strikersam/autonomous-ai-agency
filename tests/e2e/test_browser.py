@@ -101,6 +101,14 @@ def do_login(page: Page, base_url: str) -> bool:
         ok("login — already authenticated")
         return True
 
+    # The email/password form is collapsed by default behind an "Admin
+    # sign-in" toggle (social login is the primary path for general users).
+    # Expand it so the field-detection strategies below can find it.
+    admin_toggle = page.locator('[data-testid="toggle-admin-login"]')
+    if admin_toggle.count() > 0 and admin_toggle.first.is_visible():
+        admin_toggle.first.click()
+        page.wait_for_timeout(300)
+
     # Find email and password fields using multiple strategies
     email_field = None
     pw_field = None
