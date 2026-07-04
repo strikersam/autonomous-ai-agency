@@ -466,10 +466,14 @@ function DetailsStep({ onNext, onBack, companyId }) {
         const stored = JSON.parse(localStorage.getItem('v5_onboarding_details') || '{}');
         stored.goals = cleanGoals;
         localStorage.setItem('v5_onboarding_details', JSON.stringify(stored));
-        // Also send goals to the backend so they become part of the company profile
+        // Persist goals as the company's priorities (surfaced on the Company
+        // screen's Priorities tab and used to seed agent work) — previously
+        // these were dropped into `description` instead of the dedicated
+        // `priorities` field, so they never showed up there. Fire-and-forget:
+        // this triggers an LLM call server-side and must not block the wizard.
         if (companyId) {
-          await api.updateCompany(companyId, {
-            description: cleanGoals.slice(0, 3).join('; '),
+          api.submitOnboardingAnswers(companyId, {
+            answers: { goals: cleanGoals },
           }).catch(() => {});
         }
       }
@@ -546,7 +550,7 @@ function DetailsStep({ onNext, onBack, companyId }) {
 }
 
 // ── Step 4: Smart tailored questions based on site type ───────────────────────
-function QuestionsStep({ onNext, onBack, siteType }) {
+function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = [] }) {
   const [answers, setAnswers] = React.useState(() => {
     // Restore previously saved answers for this site type
     try {
@@ -615,7 +619,19 @@ function QuestionsStep({ onNext, onBack, siteType }) {
       </div>
       <div style={{ display:'flex', gap:10 }}>
         <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
-        <button onClick={onNext} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>→ Provision specialists</button>
+        <button onClick={() => {
+          // Submit the tailored Q&A so the backend can derive company
+          // priorities and remediation tasks from it (fire-and-forget —
+          // don't block navigation on an LLM round trip).
+          if (companyId && Object.keys(answers).length > 0) {
+            api.submitOnboardingAnswers(companyId, {
+              answers,
+              site_type: siteType,
+              detected_systems: detectedSystems,
+            }).catch(() => {});
+          }
+          onNext();
+        }} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>→ Provision specialists</button>
       </div>
     </div>
   );
@@ -645,11 +661,14 @@ function DoneStep({ onFinish, onRestart, onBack, companyId, companyName }) {
       api.listSpecialists(companyId)
         .then(res => {
           const list = Array.isArray(res?.data?.specialists) ? res.data.specialists : [];
+          // If specialists did get created despite an earlier provisioning
+          // error/timeout, provisioning actually succeeded — don't surface a
+          // scary error for a client-side timeout that resolved itself.
           finish(list.map(sp => ({
             name: sp.name,
             desc: sp.description || 'Specialist ready and active.',
             icon: sp.icon || '🤖',
-          })), errPrefix || '');
+          })), list.length > 0 ? '' : (errPrefix || ''));
         })
         .catch(e => {
           finish([], (errPrefix ? errPrefix + ' ' : '') +
@@ -875,7 +894,7 @@ function OnboardingScreen({ onComplete, isAdmin }) {
       {step==='url'       && <DiscoveryStep onNext={handleScanDone} onCompanyCreated={handleCompanyCreated}/>}
       {step==='systems'   && <SystemsStep onNext={handleSystemsConfirmed} onBack={()=>setStep('url')} detectedSystems={systems}/>}
       {step==='details'   && <DetailsStep onNext={()=>setStep('questions')} onBack={()=>setStep('systems')} companyId={companyId}/>}
-      {step==='questions' && <QuestionsStep onNext={()=>setStep('done')} onBack={()=>setStep('details')} siteType={siteType}/>}
+      {step==='questions' && <QuestionsStep onNext={()=>setStep('done')} onBack={()=>setStep('details')} siteType={siteType} companyId={companyId} detectedSystems={systems}/>}
       {step==='done'      && <DoneStep onFinish={onComplete} onRestart={handleRestartOnboarding} onBack={()=>setStep('questions')} companyId={companyId} companyName={companyName}/>}
     </div>
   );

@@ -249,7 +249,16 @@ function SeoAuditPanel({ companyId, defaultUrl }) {
           Bot-protected sites (Akamai/Cloudflare) need <b>browser</b> or <b>auto</b> mode (real Chromium via
           browser-use/Playwright). The dollar figure is a transparent <b>model estimate</b>, not a measured loss.
         </div>
-        {err && <div style={{ marginTop: 8, fontSize: 12, color: '#ff6b7d' }}>{err}</div>}
+        {err && (
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: '#ff6b7d' }}>{err}</span>
+            <button
+              onClick={run}
+              disabled={running || !url || !companyId}
+              style={{ ...dlBtn, background: 'rgba(255,107,125,0.10)', borderColor: 'rgba(255,107,125,0.28)', color: '#ff9aa6' }}
+            >↻ Retry</button>
+          </div>
+        )}
         {msg && <div style={{ marginTop: 8, fontSize: 12, color: '#46d9a4' }}>{msg}</div>}
       </Card>
 
