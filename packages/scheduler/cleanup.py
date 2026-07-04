@@ -185,7 +185,7 @@ async def nuclear_cleanup(db: Any) -> dict[str, int]:
         # Try ISO format cutoff (scheduler uses strftime "%Y-%m-%dT%H:%M:%SZ")
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
         result = await collection.delete_many({
-            "tags": "run-once",
+            "tags": {"$in": ["run-once"]},
             "run_count": 0,
             "created_at": {"$lt": cutoff_str},
         })
