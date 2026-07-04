@@ -10,6 +10,11 @@ Root causes pinned by these tests:
 2. Stale run-once jobs with run_count==0 survived every cleanup filter.
 3. force_cleanup dedup-by-name couldn't touch uniquely-named rows.
 4. No growth-bound invariant existed.
+5. Switching to title-based schedule names (the fix for #1) introduced its
+   own collision risk: a generic/missing title (e.g. the CEO-parser's
+   "CEO directive" fallback when the LLM's JSON omits "title") collapses
+   distinct directives onto the same schedule name, and scheduler.create()'s
+   dedup-by-name silently drops the second one instead of scheduling it.
 
 Each test below pins one invariant that makes the incident impossible.
 """
@@ -457,3 +462,95 @@ def test_health_reports_schedule_count():
         "Health/autonomy endpoint must report schedule_count for the ops tripwire. "
         "This is how the operator sees schedule growth before OOM."
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Test 9: test_dispatch_directive_disambiguates_generic_titles
+# A generic/missing directive title (the CEO-parser's "CEO directive"
+# fallback) must not silently collapse distinct directives onto the same
+# schedule name — regression test for the follow-up to Workstream D.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_dispatch_directive_disambiguates_generic_titles():
+    """Distinct directives sharing a generic title must get distinct
+    schedule names; the same instruction retried under a generic title
+    must still dedup to one.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from agent.agency import (
+        Agency,
+        AgentDirective,
+        AgentRole,
+        _GENERIC_DIRECTIVE_TITLE,
+    )
+
+    agency = Agency(tick_minutes=60)
+    created_names: list[str] = []
+
+    fake_scheduler = MagicMock()
+
+    def fake_create(*, name, **kwargs):
+        created_names.append(name)
+        job = MagicMock()
+        job.job_id = f"job_{len(created_names)}"
+        return job
+
+    fake_scheduler.create.side_effect = fake_create
+
+    directive_a = AgentDirective(
+        directive_id="dir_a",
+        role=AgentRole.DEV,
+        title=_GENERIC_DIRECTIVE_TITLE,
+        instruction="Fix the flaky login test in tests/test_auth.py",
+        priority=3,
+    )
+    directive_b = AgentDirective(
+        directive_id="dir_b",
+        role=AgentRole.DEV,
+        title=_GENERIC_DIRECTIVE_TITLE,
+        instruction="Patch the SQL injection in agent/tools.py",
+        priority=3,
+    )
+    directive_a_retry = AgentDirective(
+        directive_id="dir_a_retry",
+        role=AgentRole.DEV,
+        title=_GENERIC_DIRECTIVE_TITLE,
+        instruction="Fix the flaky login test in tests/test_auth.py",
+        priority=3,
+    )
+    directive_named = AgentDirective(
+        directive_id="dir_named",
+        role=AgentRole.REVIEWER,
+        title="Periodic council review",
+        instruction="Run the council-review skill on changes since the last git tag.",
+        priority=6,
+    )
+
+    with patch("packages.scheduler.scheduler.get_scheduler", return_value=fake_scheduler):
+        agency._dispatch_directive(directive_a)
+        agency._dispatch_directive(directive_b)
+        agency._dispatch_directive(directive_a_retry)
+        agency._dispatch_directive(directive_named)
+
+    assert directive_a.status == "running"
+    assert directive_b.status == "running"
+    assert directive_a_retry.status == "running"
+    assert directive_named.status == "running"
+
+    assert len(created_names) == 4
+    # Two distinct instructions under the same generic title must NOT
+    # produce the same schedule name (that's the collision that silently
+    # drops one of them via scheduler.create()'s dedup-by-name).
+    assert created_names[0] != created_names[1], (
+        f"Distinct directives sharing a generic title collided: {created_names}"
+    )
+    # The same instruction retried under the generic title must still
+    # produce the same schedule name (dedup for genuine retries).
+    assert created_names[0] == created_names[2], (
+        f"Same instruction under a generic title must dedup: {created_names}"
+    )
+    # A distinct title (the normal cadence-directive case) is used verbatim,
+    # unaffected by the generic-title disambiguation.
+    assert created_names[3] == "agency: Periodic council review"

@@ -26,6 +26,7 @@ from __future__ import annotations
 # nosec: B603,B607,B413,B301,B104,B608
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -184,6 +185,13 @@ class AgentRole(str, Enum):
     SCOUT     = "scout"
     OPTIMIZER = "optimizer"
 
+
+# Fallback title used when a directive has no distinguishing title of its own
+# (e.g. the CEO's LLM response omitted "title" from its JSON). Shared between
+# `_parse_ceo_directives` and `Agency._dispatch_directive` so the latter can
+# detect the generic case and disambiguate the schedule name — see the
+# comment in `_dispatch_directive` for why this matters.
+_GENERIC_DIRECTIVE_TITLE = "CEO directive"
 
 # Preferred runtime per role (ordered: first available wins)
 _ROLE_RUNTIME_PREFERENCE: dict[AgentRole, list[str]] = {
@@ -616,7 +624,24 @@ class Agency:
             # Render instance on 2026-07-03.
             # Use the title (truncated) which is deterministic for the same
             # recurring directive.
-            _name = directive.title[:80].strip() or "agency-directive"
+            #
+            # BUT: a generic/missing title (blank, or the CEO-parser's
+            # "CEO directive" fallback when the LLM's JSON omits "title")
+            # would collapse EVERY such directive onto the same schedule
+            # name. scheduler.create() dedups by name and returns the
+            # existing job unchanged — so the second and every later
+            # generic-titled directive would be silently dropped (never
+            # scheduled) while still being marked "running" below. Detect
+            # the generic case and disambiguate with a deterministic hash of
+            # the instruction instead: identical retries of the same
+            # instruction still dedup to one row, but distinct directives
+            # that merely share a generic title no longer collide.
+            _title = directive.title[:80].strip()
+            if _title and _title != _GENERIC_DIRECTIVE_TITLE:
+                _name = _title
+            else:
+                _digest = hashlib.sha256(directive.instruction.encode("utf-8")).hexdigest()[:10]
+                _name = f"agency-directive-{_digest}"
             job = scheduler.create(
                 name=f"agency: {_name}",
                 cron="* * * * *",
@@ -842,7 +867,7 @@ def _parse_ceo_directives(
             directives.append(AgentDirective(
                 directive_id="dir_" + secrets.token_hex(4),
                 role=role,
-                title=str(item.get("title", "CEO directive"))[:80],
+                title=str(item.get("title", _GENERIC_DIRECTIVE_TITLE))[:80],
                 instruction=str(item.get("instruction", "")),
                 priority=int(item.get("priority", 5)),
                 preferred_runtime=prefs[0],
