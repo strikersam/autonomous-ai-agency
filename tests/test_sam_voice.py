@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 import asyncio
+import time
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from agent.sam import SamAgent, get_sam, SamConversation
@@ -151,3 +152,57 @@ async def test_build_context_returns_dict(sam_with_mocks):
     assert ctx["schedules"]["total"] == 3
     assert ctx["schedules"]["active"] == 2
     assert ctx["schedules"]["paused"] == 1
+
+
+# ── Bounded LLM/context timeouts — no-hang guarantee ────────────────────────
+# Regression tests for "SAM takes input and never responds": call_llm defaults
+# to a 300s provider_timeout_sec with multiple provider/retry attempts, and
+# the frontend axios client has no default timeout either. Without a bound
+# here, a slow/degraded provider chain hung the chat UI indefinitely with no
+# error shown. These tests pin that SAM always resolves promptly instead.
+
+@pytest.mark.asyncio
+async def test_call_llm_times_out_and_falls_back(sam, monkeypatch):
+    """A hung LLM call must not block SAM — it must time out and fall back."""
+    import agent.sam as sam_mod
+
+    monkeypatch.setattr(sam_mod, "_LLM_TIMEOUT_SEC", 0.05)
+
+    async def _hanging_call_llm(*args, **kwargs):
+        await asyncio.sleep(5)
+        return "should never get here"
+
+    session = sam._get_session("timeout-test")
+    with patch("backend.server.call_llm", side_effect=_hanging_call_llm):
+        start = time.monotonic()
+        response = await sam._call_llm("some prompt", session)
+        elapsed = time.monotonic() - start
+
+    assert elapsed < 1.0, f"_call_llm must respect _LLM_TIMEOUT_SEC, took {elapsed}s"
+    assert "fallback" in response.lower() or "standing by" in response.lower()
+
+
+@pytest.mark.asyncio
+async def test_process_command_does_not_hang_when_context_stalls(sam, monkeypatch):
+    """A stalled context read must not block process_command indefinitely."""
+    import agent.sam as sam_mod
+
+    monkeypatch.setattr(sam_mod, "_CONTEXT_TIMEOUT_SEC", 0.05)
+
+    async def _hanging_build_context(self):
+        await asyncio.sleep(5)
+        return {}
+
+    async def _fast_call_llm(*args, **kwargs):
+        return "SAM response"
+
+    with patch.object(sam_mod.SamAgent, "_build_context", _hanging_build_context), \
+         patch("backend.server.call_llm", side_effect=_fast_call_llm):
+        start = time.monotonic()
+        response = await sam.process_command("status check", session_id="context-timeout-test")
+        elapsed = time.monotonic() - start
+
+    assert elapsed < 1.0, (
+        f"process_command must not hang on a stalled context build, took {elapsed}s"
+    )
+    assert response
