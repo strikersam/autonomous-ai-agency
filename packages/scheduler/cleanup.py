@@ -160,7 +160,17 @@ async def nuclear_cleanup(db: Any) -> dict[str, int]:
     summary = {"deleted": 0, "deduped": 0, "deleted_run_once": 0, "deleted_stuck": 0, "total": 0}
 
     try:
-        collection = db["scheduled_jobs"] if hasattr(db, "__getitem__") else db.scheduled_jobs
+        # Access the collection — handle both dict-style (db["scheduled_jobs"])
+        # and attribute-style (db.scheduled_jobs) databases
+        if hasattr(db, "__getitem__"):
+            try:
+                collection = db["scheduled_jobs"]
+            except (KeyError, TypeError):
+                collection = getattr(db, "scheduled_jobs", None)
+                if collection is None:
+                    raise AttributeError("DB has neither db['scheduled_jobs'] nor db.scheduled_jobs")
+        else:
+            collection = db.scheduled_jobs
         summary["total"] = await collection.count_documents({})
 
         # 1. Delete fired run-once jobs (run_count > 0)
