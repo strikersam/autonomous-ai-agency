@@ -176,7 +176,7 @@ async def nuclear_cleanup(db: Any) -> dict[str, int]:
         summary["total"] = await collection.count_documents({})
 
         # 1. Delete fired run-once jobs (run_count > 0)
-        result = await collection.delete_many({"tags": "run-once", "run_count": {"$gt": 0}})
+        result = await collection.delete_many({"tags": {"$in": ["run-once"]}, "run_count": {"$gt": 0}})
         summary["deleted_run_once"] = result.deleted_count
 
         # 2. Delete stale unfired run-once jobs (run_count == 0, old created_at)
@@ -192,7 +192,7 @@ async def nuclear_cleanup(db: Any) -> dict[str, int]:
         summary["deleted_run_once"] += result.deleted_count
 
         # 3. Delete stuck agency tasks (run_count > 10)
-        result = await collection.delete_many({"run_count": {"$gt": 10}, "tags": "agency"})
+        result = await collection.delete_many({"run_count": {"$gt": 10}, "tags": {"$in": ["agency"]}})
         summary["deleted_stuck"] = result.deleted_count
 
         # 4. Dedup by name: keep newest, delete rest
