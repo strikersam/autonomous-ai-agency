@@ -12,6 +12,7 @@ tasks against the REAL company repo inside the E2B sandbox:
 from __future__ import annotations
 
 import os
+import tempfile
 from typing import Any
 
 import pytest
@@ -99,7 +100,9 @@ def _build_coordinator(*, company_store=None) -> TaskExecutionCoordinator:
         store=_FakeStore(),
         agent_store=None,  # not used by _build_spec
         runtime_manager=None,  # not used by _build_spec
-        workspace_root="/tmp/test-workspace",
+        workspace_root=os.path.join(
+            tempfile.gettempdir(), "test-workspace"
+        ),  # nosec B108 — test fixture, not attacker-controlled
         company_graph_store=company_store,
     )
 
