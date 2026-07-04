@@ -3,6 +3,10 @@
 Constitution §1: this is the ONLY module that reads ``os.environ.get`` for E2B
 keys. Tests cover the activation matrix and the kill-switch, plus the
 never-leak-the-key invariant on the frozen E2BConfig dataclass.
+
+Post-data-flow-fix guardrail: E2B requires explicit opt-in via
+``E2B_ENABLED=true`` / ``RUNTIME_E2B_ENABLED=true`` / ``AGENT_SANDBOX_MODE=e2b``.
+A bare ``E2B_API_KEY`` no longer auto-enables.
 """
 from __future__ import annotations
 
@@ -15,9 +19,6 @@ from services.e2b_config import E2BConfig, e2b_enabled, is_e2b_sdk_importable, r
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     """Strip every E2B-related env var before each test."""
-    for k in list(monkeypatch._setenv.keys() if hasattr(monkeypatch, "_setenv") else []):
-        if k.startswith("E2B") or k == "AGENT_SANDBOX_MODE":
-            monkeypatch.delenv(k, raising=False)
     for k in ("E2B_API_KEY", "E2B_ENABLED", "RUNTIME_E2B_ENABLED",
               "E2B_TEMPLATE", "E2B_TIMEOUT_SEC", "E2B_SANDBOX_METADATA",
               "AGENT_SANDBOX_MODE"):
@@ -25,17 +26,31 @@ def _clean_env(monkeypatch):
     yield
 
 
+# ── Activation matrix (post-guardrail: explicit opt-in required) ──────────
+
+
 def test_e2b_disabled_when_no_key(monkeypatch):
     """No key → e2b_enabled() is False and resolve_e2b_config() returns None."""
-    monkeypatch.delenv("E2B_API_KEY", raising=False)
-    monkeypatch.delenv("E2B_ENABLED", raising=False)
     assert e2b_enabled() is False
     assert resolve_e2b_config() is None
 
 
-def test_e2b_enabled_when_key_present(monkeypatch):
-    """Key present, no explicit opt-out → enabled, config resolves."""
+def test_e2b_disabled_when_key_only_no_opt_in(monkeypatch):
+    """GUARDRAIL: bare E2B_API_KEY without E2B_ENABLED=true → NOT enabled.
+
+    This is the critical guardrail: adding the key alone must NOT silently
+    activate E2B (the execution data flow was broken before the fixes).
+    """
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    # No E2B_ENABLED, no RUNTIME_E2B_ENABLED, no AGENT_SANDBOX_MODE
+    assert e2b_enabled() is False
+    assert resolve_e2b_config() is None
+
+
+def test_e2b_enabled_with_explicit_opt_in(monkeypatch):
+    """E2B_ENABLED=true + key → enabled, config resolves."""
+    monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     assert e2b_enabled() is True
     cfg = resolve_e2b_config()
     assert cfg is not None
@@ -44,8 +59,37 @@ def test_e2b_enabled_when_key_present(monkeypatch):
     assert cfg.timeout_sec == 300
 
 
+def test_e2b_enabled_with_runtime_flag(monkeypatch):
+    """RUNTIME_E2B_ENABLED=true + key → enabled (alt opt-in path)."""
+    monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("RUNTIME_E2B_ENABLED", "true")
+    assert e2b_enabled() is True
+    cfg = resolve_e2b_config()
+    assert cfg is not None
+
+
+def test_e2b_enabled_with_sandbox_mode(monkeypatch):
+    """AGENT_SANDBOX_MODE=e2b + key → enabled (roadmap ★5 kill-switch)."""
+    monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("AGENT_SANDBOX_MODE", "e2b")
+    assert e2b_enabled() is True
+    cfg = resolve_e2b_config()
+    assert cfg is not None
+
+
+def test_e2b_enabled_opt_in_without_key_returns_false(monkeypatch):
+    """E2B_ENABLED=true but no key → False (key is still required)."""
+    monkeypatch.setenv("E2B_ENABLED", "true")
+    monkeypatch.delenv("E2B_API_KEY", raising=False)
+    assert e2b_enabled() is False
+    assert resolve_e2b_config() is None
+
+
+# ── Kill-switch ───────────────────────────────────────────────────────────
+
+
 def test_e2b_kill_switch_explicit_false(monkeypatch):
-    """E2B_ENABLED=false wins over a present key (operator kill-switch)."""
+    """E2B_ENABLED=false wins over key + opt-in (operator kill-switch)."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
     monkeypatch.setenv("E2B_ENABLED", "false")
     assert e2b_enabled() is False
@@ -61,20 +105,13 @@ def test_e2b_kill_switch_case_insensitive(monkeypatch):
         assert resolve_e2b_config() is None
 
 
-def test_e2b_sandbox_mode_alt_activation(monkeypatch):
-    """AGENT_SANDBOX_MODE=e2b is the roadmap ★5 kill-switch — but a bare key
-    already activates, so this only matters when both are set together
-    (the key is still the actual activation signal)."""
-    monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
-    monkeypatch.setenv("AGENT_SANDBOX_MODE", "e2b")
-    assert e2b_enabled() is True
-    cfg = resolve_e2b_config()
-    assert cfg is not None
+# ── Config resolution ────────────────────────────────────────────────────
 
 
 def test_e2b_template_override(monkeypatch):
     """E2B_TEMPLATE overrides the default 'base'."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("E2B_TEMPLATE", "python-pytest")
     cfg = resolve_e2b_config()
     assert cfg is not None
@@ -84,6 +121,7 @@ def test_e2b_template_override(monkeypatch):
 def test_e2b_timeout_clamped_low(monkeypatch):
     """E2B_TIMEOUT_SEC below 30 is clamped to 30."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("E2B_TIMEOUT_SEC", "5")
     cfg = resolve_e2b_config()
     assert cfg is not None
@@ -93,6 +131,7 @@ def test_e2b_timeout_clamped_low(monkeypatch):
 def test_e2b_timeout_clamped_high(monkeypatch):
     """E2B_TIMEOUT_SEC above 1800 is clamped to 1800."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("E2B_TIMEOUT_SEC", "9999")
     cfg = resolve_e2b_config()
     assert cfg is not None
@@ -102,6 +141,7 @@ def test_e2b_timeout_clamped_high(monkeypatch):
 def test_e2b_timeout_invalid_falls_back_to_default(monkeypatch):
     """A non-int E2B_TIMEOUT_SEC falls back to 300 (default)."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("E2B_TIMEOUT_SEC", "not-a-number")
     cfg = resolve_e2b_config()
     assert cfg is not None
@@ -111,6 +151,7 @@ def test_e2b_timeout_invalid_falls_back_to_default(monkeypatch):
 def test_e2b_metadata_parsed(monkeypatch):
     """E2B_SANDBOX_METADATA 'key=value,key=value' is parsed into a dict."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("E2B_SANDBOX_METADATA", "team=platform,env=test")
     cfg = resolve_e2b_config()
     assert cfg is not None
@@ -120,14 +161,19 @@ def test_e2b_metadata_parsed(monkeypatch):
 def test_e2b_metadata_none_when_unset(monkeypatch):
     """metadata is None when E2B_SANDBOX_METADATA is unset."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     cfg = resolve_e2b_config()
     assert cfg is not None
     assert cfg.metadata is None
 
 
+# ── Security invariants ──────────────────────────────────────────────────
+
+
 def test_e2b_config_does_not_leak_key_in_repr(monkeypatch):
     """The frozen dataclass __repr__ must not include the actual key."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_super_secret_key_xyz_12345")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     cfg = resolve_e2b_config()
     assert cfg is not None
     r = repr(cfg)
@@ -140,6 +186,7 @@ def test_e2b_config_does_not_leak_key_in_repr(monkeypatch):
 def test_e2b_config_is_frozen(monkeypatch):
     """E2BConfig is frozen — assignment must raise FrozenInstanceError."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     cfg = resolve_e2b_config()
     assert cfg is not None
     with pytest.raises(Exception):  # FrozenInstanceError
@@ -147,7 +194,7 @@ def test_e2b_config_is_frozen(monkeypatch):
 
 
 def test_e2b_sdk_importable_returns_bool():
-    """is_e2b_sdk_importable() returns a bool (True in test env with the SDK installed)."""
+    """is_e2b_sdk_importable() returns a bool (True in test env with SDK)."""
     result = is_e2b_sdk_importable()
     assert isinstance(result, bool)
 
@@ -155,18 +202,14 @@ def test_e2b_sdk_importable_returns_bool():
 def test_e2b_enabled_idempotent(monkeypatch):
     """Calling e2b_enabled() twice returns the same value (no side effects)."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     first = e2b_enabled()
     second = e2b_enabled()
     assert first == second
 
 
 def test_e2b_config_module_is_sole_env_reader():
-    """Constitution §1: no other module in services/ may read E2B_API_KEY directly.
-
-    This is a structural test — it greps the services/ tree (minus e2b_config.py
-    itself) for direct E2B_API_KEY env reads. The check is intentionally strict:
-    any new code path that needs the key must go through resolve_e2b_config().
-    """
+    """Constitution §1: no other module in services/ may read E2B_API_KEY directly."""
     import re
     from pathlib import Path
     services_dir = Path(__file__).parent.parent / "services"

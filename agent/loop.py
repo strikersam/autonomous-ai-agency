@@ -861,8 +861,27 @@ class AgentRunner:
             context_items.append({"tool": call.tool, "result": result})
 
         if not target_files and step.get("type") not in ("github", "analyze"):
-            search_hits = self.tools.search_code(step["description"], limit=3)
-            target_files = [hit["path"] for hit in search_hits if isinstance(hit.get("path"), str)]
+            # Route search_code through _mcp (E2B sandbox) when attached so
+            # the agent sees the sandbox's files, not the host worktree's.
+            from agent.mcp_client import MCPUnavailableError as _MCPUnavail
+            search_hits: list = []
+            if self._mcp is not None:
+                try:
+                    raw = await self._mcp.call_tool(
+                        "search_code",
+                        {"query": step["description"], "limit": 3},
+                    )
+                    import json as _json
+                    search_hits = _json.loads(raw) if isinstance(raw, str) else raw
+                    # search_hits from E2B is a list of path strings; adapt
+                    # to the dict shape the host tools return.
+                    target_files = [h if isinstance(h, str) else h.get("path", "") for h in search_hits if h]
+                except _MCPUnavail:
+                    search_hits = self.tools.search_code(step["description"], limit=3)
+                    target_files = [hit["path"] for hit in search_hits if isinstance(hit.get("path"), str)]
+            else:
+                search_hits = self.tools.search_code(step["description"], limit=3)
+                target_files = [hit["path"] for hit in search_hits if isinstance(hit.get("path"), str)]
 
         if not target_files and step.get("type") not in ("github", "analyze"):
             return {
@@ -1003,7 +1022,22 @@ class AgentRunner:
                             }
                         continue
                 if verdict.status == "pass" and not syntax_issues:
-                    diff_result = self.tools.apply_diff(out_path, new_content)
+                    # Route apply_diff through _mcp (E2B sandbox) when attached,
+                    # falling back to host WorkspaceTools on MCPUnavailableError.
+                    # This is the PRIMARY edit path — routing it through the
+                    # sandbox is what makes "all code edits go to the sandbox"
+                    # actually true (roadmap ★5 data-flow fix).
+                    from agent.mcp_client import MCPUnavailableError as _MCPUnavail
+                    if self._mcp is not None:
+                        try:
+                            diff_result = await self._mcp.call_tool(
+                                "apply_diff",
+                                {"path": out_path, "new_content": new_content},
+                            )
+                        except _MCPUnavail:
+                            diff_result = self.tools.apply_diff(out_path, new_content)
+                    else:
+                        diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
                     file_applied = True
@@ -1125,15 +1159,51 @@ class AgentRunner:
                     return f"[tool error via registry: {exc}]"
 
         # Legacy hardcoded dispatch (fallback)
+        # ── E2B sandbox routing (roadmap ★5) ───────────────────────────────
+        # When runner._mcp is attached (E2B sandbox), route ALL fs/edit ops
+        # through it first. On MCPUnavailableError, fall back to local
+        # WorkspaceTools — mirroring the existing write_file/run_command
+        # pattern. This ensures reads, edits, and commands all hit the same
+        # sandbox working directory instead of the host worktree.
+        from agent.mcp_client import MCPUnavailableError as _MCPUnavail
+
         if tool == "read_file":
+            if self._mcp is not None:
+                try:
+                    return await self._mcp.call_tool("read_file", args)
+                except _MCPUnavail:
+                    pass
             return self.tools.read_file(str(args.get("path", "")))
         if tool == "head_file":
+            # head_file is read_file + truncate; route through _mcp when attached.
+            if self._mcp is not None:
+                try:
+                    content = await self._mcp.call_tool("read_file", args)
+                    lines = int(args.get("lines", 50))
+                    return "\n".join(content.splitlines()[:lines])
+                except _MCPUnavail:
+                    pass
             return self.tools.head_file(str(args.get("path", "")), int(args.get("lines", 50)))
         if tool == "file_index":
+            if self._mcp is not None:
+                try:
+                    return await self._mcp.call_tool("file_index", args)
+                except _MCPUnavail:
+                    pass
             return self.tools.file_index(str(args.get("path", ".")), int(args.get("max_entries", 100)))
         if tool == "list_files":
+            if self._mcp is not None:
+                try:
+                    return await self._mcp.call_tool("list_files", args)
+                except _MCPUnavail:
+                    pass
             return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
         if tool == "search_code":
+            if self._mcp is not None:
+                try:
+                    return await self._mcp.call_tool("search_code", args)
+                except _MCPUnavail:
+                    pass
             return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
         if tool == "recall_memory":
             if not memory_store or not user_id:
@@ -1811,9 +1881,26 @@ class AgentRunner:
         return self._steering if self._steering is not False else None
 
     def _safe_read(self, path: str) -> str:
+        """Read a file safely, returning '' on error.
+
+        When an E2B sandbox is attached (``self._mcp``), reads should go to
+        the sandbox — but this method is sync and the sandbox is async. The
+        caller (verifier/judge) runs inside an async step, so we use
+        ``asyncio.get_event_loop().run_until_complete`` is NOT safe here
+        (we're already in a running loop). Instead, the primary edit path
+        (apply_diff at line ~1006) routes through the sandbox directly, and
+        after the run ``extract_changes_to_worktree`` copies sandbox changes
+        back to the host worktree. So this host-side read sees the extracted
+        changes — which is correct for the verifier's post-extraction checks.
+
+        During the run (before extraction), the verifier may see stale host
+        content. This is acceptable because the verifier's job is to check
+        syntax/safety of the *new* content (which it receives via the
+        ``new_content`` argument, not by re-reading the file).
+        """
         try:
             return self.tools.read_file(path, max_chars=200000)
-        except Exception:  # nosec B110 -- KPI tracking is best-effort
+        except Exception:  # nosec B110 -- best-effort read
             return ""
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
