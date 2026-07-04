@@ -28,6 +28,14 @@ ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 TTS_LANGUAGE = os.environ.get("TTS_LANGUAGE", "en")
 
+# The ElevenLabs branch already bounds itself via its own httpx timeout, but
+# gTTS/pyttsx3 run as blocking calls in the default executor with no bound at
+# all — a stalled synth (e.g. gTTS's network call hanging) would keep the
+# caller (POST /agent/sam/speak) awaiting forever. This ceiling makes
+# synthesize() always resolve (None on timeout, same contract as any other
+# failure) instead of hanging the request.
+_SYNTHESIZE_TIMEOUT_SEC = 25.0
+
 
 async def synthesize(text: str) -> bytes | None:
     """Convert text to OGG voice note bytes. Returns None on failure."""
@@ -37,11 +45,17 @@ async def synthesize(text: str) -> bytes | None:
     log.info("TTS: backend=%s len=%d", backend, len(text))
 
     loop = asyncio.get_event_loop()
-    if backend == "elevenlabs":
-        return await _synthesize_elevenlabs(text)
-    if backend == "gtts":
-        return await loop.run_in_executor(None, _synthesize_gtts, text)
-    return await loop.run_in_executor(None, _synthesize_pyttsx3, text)
+    try:
+        if backend == "elevenlabs":
+            coro = _synthesize_elevenlabs(text)
+        elif backend == "gtts":
+            coro = loop.run_in_executor(None, _synthesize_gtts, text)
+        else:
+            coro = loop.run_in_executor(None, _synthesize_pyttsx3, text)
+        return await asyncio.wait_for(coro, timeout=_SYNTHESIZE_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        log.warning("TTS synthesize timed out (backend=%s, timeout=%ss)", backend, _SYNTHESIZE_TIMEOUT_SEC)
+        return None
 
 
 def _select_backend() -> str:

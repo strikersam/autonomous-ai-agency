@@ -130,6 +130,12 @@ export default function SamVoiceScreen() {
   const mountedRef = React.useRef(true);
   const roomRef = React.useRef(null);
   const liveAudioElsRef = React.useRef([]);
+  // Browser SpeechRecognition must listen to the LIVE microphone while the
+  // Commander is speaking (it has no way to transcribe a pre-recorded
+  // Blob) — it is started alongside MediaRecorder in startListening() and
+  // its result is awaited via this promise in handleRecordingStop().
+  const recognitionRef = React.useRef(null);
+  const recognitionPromiseRef = React.useRef(null);
 
   React.useEffect(() => () => {
     mountedRef.current = false;
@@ -140,6 +146,10 @@ export default function SamVoiceScreen() {
     }
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
+    }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) { /* already stopped */ }
+      recognitionRef.current = null;
     }
     // Leave the live room on unmount — prevents a stuck WebRTC session
     if (roomRef.current) {
@@ -269,6 +279,51 @@ export default function SamVoiceScreen() {
       recorder.onstop = () => handleRecordingStop();
 
       recorder.start(1000); // timeslice=1000ms → flush data every second (prevents buffer cutoff)
+
+      // Start browser speech recognition LIVE, in parallel with the
+      // recording — SpeechRecognition only ever listens to the current
+      // microphone stream, it cannot be fed a pre-recorded Blob. Starting
+      // it after the recording already stopped (the previous approach)
+      // meant it opened a brand new mic listen with nobody speaking, so
+      // every command silently waited out the browser's no-speech timeout
+      // before falling back to backend STT — this was the "lag between
+      // the voice I send and the voice that gets registered".
+      recognitionRef.current = null;
+      recognitionPromiseRef.current = new Promise((resolve) => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) { resolve(''); return; }
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        recognition.continuous = true;
+
+        let finalText = '';
+        let settled = false;
+        const settle = () => {
+          if (settled) return;
+          settled = true;
+          resolve(finalText.trim());
+        };
+        recognition.onresult = (event) => {
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+              finalText += (finalText ? ' ' : '') + event.results[i][0].transcript;
+            }
+          }
+        };
+        recognition.onerror = settle;
+        recognition.onend = settle;
+
+        try {
+          recognition.start();
+          recognitionRef.current = recognition;
+        } catch (e) {
+          settle();
+        }
+      });
+
       setState('listening');
 
       // Auto-stop after 30 seconds (was 8 — too short for natural speech)
@@ -302,6 +357,13 @@ export default function SamVoiceScreen() {
     }
     analyserRef.current = null;
 
+    // Stop live speech recognition (started alongside the recording in
+    // startListening) so it finalises promptly instead of continuing to
+    // listen after the mic stream has already been torn down.
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) { /* already stopped */ }
+    }
+
     const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
     if (audioBlob.size < 100) {
       setState('idle');
@@ -311,8 +373,12 @@ export default function SamVoiceScreen() {
     setState('thinking');
 
     try {
-      // Step 1: Transcribe using Web Speech API (free, built into Chrome)
-      const text = await transcribeWithWebSpeech(audioBlob);
+      // Step 1: Use the live browser transcript captured WHILE the
+      // Commander was speaking. Fall back to backend STT only if the
+      // browser produced nothing usable (no SpeechRecognition support,
+      // permission/network error, or genuinely no speech detected).
+      const liveText = recognitionPromiseRef.current ? await recognitionPromiseRef.current : '';
+      const text = liveText || await transcribeWithBackend(audioBlob);
       if (!text || !mountedRef.current) { setState('idle'); return; }
 
       setTranscript(text);
@@ -354,47 +420,14 @@ export default function SamVoiceScreen() {
 
     } catch (err) {
       if (mountedRef.current) {
-        setError(err?.message || 'Voice processing failed');
+        setError(
+          err?.code === 'ECONNABORTED'
+            ? 'SAM is taking too long to respond. Please try again.'
+            : (err?.message || 'Voice processing failed')
+        );
         setState('error');
       }
     }
-  };
-
-  // ── Web Speech API transcription (free, browser-native) ────────────────
-
-  const transcribeWithWebSpeech = (audioBlob) => {
-    return new Promise((resolve, reject) => {
-      // Try browser SpeechRecognition first (works offline in Chrome)
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        // Fallback: send audio to backend STT
-        return transcribeWithBackend(audioBlob).then(resolve).catch(reject);
-      }
-
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'en-US';
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
-      recognition.continuous = false;
-
-      let resolved = false;
-      recognition.onresult = (event) => {
-        resolved = true;
-        const text = event.results[0][0].transcript;
-        resolve(text);
-      };
-      recognition.onerror = (event) => {
-        if (!resolved) {
-          // Fall back to backend STT on browser STT failure
-          transcribeWithBackend(audioBlob).then(resolve).catch(reject);
-        }
-      };
-      recognition.onend = () => {
-        if (!resolved) resolve('');
-      };
-
-      recognition.start();
-    });
   };
 
   // ── Backend STT fallback ───────────────────────────────────────────────

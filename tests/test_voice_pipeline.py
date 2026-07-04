@@ -50,6 +50,35 @@ def test_tts_explicit_backend(monkeypatch):
     assert tts._select_backend() == "gtts"
 
 
+@pytest.mark.asyncio
+async def test_synthesize_times_out_on_stalled_backend(monkeypatch):
+    """A stalled gTTS/pyttsx3 call must not hang synthesize() forever.
+
+    gTTS/pyttsx3 run as blocking calls in the default executor with no bound
+    of their own — a stalled synth (e.g. gTTS's network call hanging) must
+    not keep the caller (POST /agent/sam/speak) awaiting indefinitely.
+
+    Uses the shared event loop (not asyncio.run) — asyncio.run() waits for
+    the default executor to fully drain on teardown, which would make this
+    test's wall-clock time include the stalled thread's full duration and
+    mask the fact that synthesize() itself already returned on time.
+    """
+    import time
+    monkeypatch.setenv("TTS_BACKEND", "gtts")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "")
+    import importlib, voice.tts as tts
+    importlib.reload(tts)
+    monkeypatch.setattr(tts, "_SYNTHESIZE_TIMEOUT_SEC", 0.05)
+    monkeypatch.setattr(tts, "_synthesize_gtts", lambda text: time.sleep(0.3))
+
+    start = time.monotonic()
+    result = await tts.synthesize("hello there")
+    elapsed = time.monotonic() - start
+
+    assert result is None
+    assert elapsed < 0.2, f"synthesize() must respect _SYNTHESIZE_TIMEOUT_SEC, took {elapsed}s"
+
+
 # ── Memory kernel ─────────────────────────────────────────────────────────────
 
 @pytest.fixture()
