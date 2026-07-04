@@ -221,7 +221,12 @@ async def test_nuclear_cleanup_dedup_both_backends(store_type):
 
     # After cleanup: the duplicate "fix: issue A [security]" should be deduped
     # We should have at most 2 unique names remaining
-    remaining = await adapter.load_all() if hasattr(adapter, 'load_all') else store.load_all()
+    import inspect as _inspect
+    if hasattr(adapter, 'load_all'):
+        result_load = adapter.load_all()
+        remaining = await result_load if _inspect.isawaitable(result_load) else result_load
+    else:
+        remaining = store.load_all()
     names = [d.get("name") for d in remaining]
     assert len(names) == len(set(names)), (
         f"Duplicate names remain after cleanup: {names}. "
