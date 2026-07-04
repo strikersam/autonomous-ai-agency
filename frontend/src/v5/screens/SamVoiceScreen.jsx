@@ -410,19 +410,30 @@ export default function SamVoiceScreen() {
       setHistory(h => [...h.slice(-20), { type: 'user', text },
                        { type: 'sam', text: samText }]);
 
-      // Step 3: Synthesise SAM's voice. Bounded so a slow/stalled TTS call
-      // falls back to browser SpeechSynthesis instead of leaving SAM silent.
+      // Step 3: Synthesise SAM's voice. Falls back to browser
+      // SpeechSynthesis whenever backend audio doesn't actually play —
+      // not just on a request error, but also when the backend responds
+      // 200 with no audio (server-side synth failure — /agent/sam/speak
+      // returns {"audio_b64": ""} in that case, it doesn't throw) or when
+      // audio.play() itself is rejected (e.g. the browser's autoplay
+      // policy, since playback here happens several async hops after the
+      // original tap/click, not synchronously within the gesture).
+      let spoke = false;
       try {
         const speakRes = await API.post('/agent/sam/speak', { text: samText }, { timeout: 35000 });
         const audioB64 = speakRes.data?.audio_b64;
         if (audioB64) {
           const audio = new Audio('data:audio/ogg;base64,' + audioB64);
           audio.onended = () => { if (mountedRef.current) setState('idle'); };
-          audio.play();
-          return;
+          await audio.play();
+          spoke = true;
         }
       } catch (e) {
-        // Fall back to browser SpeechSynthesis
+        // Request failed, or audio.play() was rejected — fall through to
+        // the browser-TTS fallback below.
+      }
+
+      if (!spoke) {
         trySpeakBrowser(samText);
       }
 
