@@ -394,7 +394,7 @@ A task is **Done** when:
 When operating in autonomous maintenance mode, agents MUST:
 
 1. **Read before modifying.** Always read the current file before editing. Never assume content.
-2. **Query graphify first.** Use `graphify query "..."` before opening source files — 30x token savings.
+2. **Query graphify first.** Use `graphify query "..."` before opening source files — 70x token savings.
 3. **Run baseline tests.** `pytest -x` before any change. If baseline is broken, report before fixing.
 4. **Scope changes tightly.** Fix only what is requested. Do not refactor or clean up adjacent code unless explicitly asked.
 5. **Update state after milestones.** Write to `.claude/state/` after completing significant steps.

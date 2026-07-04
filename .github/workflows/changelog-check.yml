@@ -3,7 +3,7 @@ name: Changelog check
 on:
   pull_request:
     branches: ["main", "master"]
-    paths-ignore: ["docs/context/**"]
+    paths-ignore: ["docs/context/**", "graphify-out/**"]
 
 permissions:
   contents: read
