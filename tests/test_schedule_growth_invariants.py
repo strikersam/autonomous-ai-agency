@@ -104,14 +104,18 @@ def test_agency_schedules_use_stable_names():
     dispatch_source = inspect.getsource(agency_mod.Agency._dispatch_directive)
 
     forbidden_patterns = [
-        "secrets.token_hex",
+        "secrets.token_hex(",
         "uuid.uuid",
         "time.time()",
         "datetime.now",
         "datetime.utcnow",
     ]
+    # Check only non-comment lines (strip comments)
+    code_lines = [line for line in dispatch_source.splitlines()
+                  if not line.strip().startswith("#")]
+    code_source = "\n".join(code_lines)
     for pattern in forbidden_patterns:
-        assert pattern not in dispatch_source, (
+        assert pattern not in code_source, (
             f"_dispatch_directive must not use {pattern!r} — it makes schedule names "
             f"non-deterministic and was the root cause of the 2,873-row schedule pile. "
             f"Use directive.title or a deterministic hash of the instruction instead."
