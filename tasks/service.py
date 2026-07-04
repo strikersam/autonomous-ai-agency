@@ -534,12 +534,18 @@ class TaskExecutionCoordinator:
         runtime_manager: RuntimeManager | None = None,
         workspace_root: str = ".",
         execution_timeout_s: float | None = None,
+        company_graph_store: Any = None,
     ) -> None:
         self.store = store or get_task_store()
         self.workflow = workflow or TaskWorkflowService(store=self.store)
         self.agent_store = agent_store or get_agent_store()
         self.runtime_manager = runtime_manager or get_runtime_manager()
         self.workspace_root = workspace_root
+        # Company graph store is optional — only used when task.company_id is
+        # set AND E2B is enabled (roadmap ★5 sandbox integration). Lazy-loaded
+        # on first use so a deploy without MongoDB / the company-graph feature
+        # is unaffected.
+        self._company_graph_store = company_graph_store
         # Default raised 150s → 300s: a full agent run on the FREE cloud brain
         # makes several sequential LLM calls (plan → execute → verify → judge),
         # which routinely exceeds 150s and then fails + auto-retries — the
@@ -904,6 +910,63 @@ class TaskExecutionCoordinator:
         # Always allow paid-free escalation to Nvidia NIM (it's free)
         allow_paid_escalation = True
 
+        context = {
+            "task": {
+                "title": task.title,
+                "description": task.description,
+                "prompt": task.prompt,
+                "tags": task.tags,
+                "requires_approval": task.requires_approval,
+            },
+            "agent": {
+                "agent_id": agent.agent_id if agent else None,
+                "name": agent.name if agent else "Default Agent",
+                "system_prompt": agent.system_prompt if agent else "",
+                "cost_policy": agent.cost_policy if agent else "local_only",
+                "task_types": agent.task_types if agent else [],
+            },
+            "comments": [comment.model_dump() for comment in task.comments[-20:]],
+            "history": [entry.model_dump() for entry in task.execution_log[-20:]],
+            # Structured conversation history for the runtime's AgentRunner
+            # (it reads context["conversation"]). This is what carries follow-up
+            # instructions and prior agent replies across re-runs — without it,
+            # a re-queued task would lose the thread.
+            "conversation": [
+                {
+                    "role": "assistant"
+                    if comment.author.startswith(("agent:", "runtime:"))
+                    else "user",
+                    "content": comment.body,
+                }
+                for comment in task.comments[-20:]
+            ],
+        }
+
+        # ── Onboarded company repo wiring (roadmap ★5 — E2B sandbox) ──────
+        # When a task is bound to a company (task.company_id set) AND the
+        # company has a RepoConnection, resolve repo_url / base_branch /
+        # github_token and inject them into spec.context so the runtime
+        # (E2BAdapter or InternalAgentAdapter) clones the REAL company repo
+        # into the sandbox instead of running against the agency's own
+        # checkout. E2B-enabled check happens here so the legacy path is
+        # untouched when E2B is off — a deploy without E2B_API_KEY continues
+        # to run against the agency checkout exactly as before.
+        if getattr(task, "company_id", None):
+            try:
+                from services.e2b_config import e2b_enabled as _e2b_on
+                if _e2b_on():
+                    repo_info = self._resolve_company_repo(task.company_id)
+                    if repo_info:
+                        context["repo_url"] = repo_info["repo_url"]
+                        context["base_branch"] = repo_info["base_branch"]
+                        context["github_token"] = repo_info["github_token"]
+                        context["company_id"] = task.company_id
+            except Exception as exc:
+                log.warning(
+                    "Task %s company repo resolution failed (continuing with default workspace): %s",
+                    task.task_id, exc,
+                )
+
         return TaskSpec(
             task_id=task.task_id,
             instruction=self._compose_instruction(task, agent),
@@ -912,38 +975,82 @@ class TaskExecutionCoordinator:
             model_preference=model_preference,
             provider_preference=runtime_preference,
             allow_paid_escalation=allow_paid_escalation,
-            context={
-                "task": {
-                    "title": task.title,
-                    "description": task.description,
-                    "prompt": task.prompt,
-                    "tags": task.tags,
-                    "requires_approval": task.requires_approval,
-                },
-                "agent": {
-                    "agent_id": agent.agent_id if agent else None,
-                    "name": agent.name if agent else "Default Agent",
-                    "system_prompt": agent.system_prompt if agent else "",
-                    "cost_policy": agent.cost_policy if agent else "local_only",
-                    "task_types": agent.task_types if agent else [],
-                },
-                "comments": [comment.model_dump() for comment in task.comments[-20:]],
-                "history": [entry.model_dump() for entry in task.execution_log[-20:]],
-                # Structured conversation history for the runtime's AgentRunner
-                # (it reads context["conversation"]). This is what carries follow-up
-                # instructions and prior agent replies across re-runs — without it,
-                # a re-queued task would lose the thread.
-                "conversation": [
-                    {
-                        "role": "assistant"
-                        if comment.author.startswith(("agent:", "runtime:"))
-                        else "user",
-                        "content": comment.body,
-                    }
-                    for comment in task.comments[-20:]
-                ],
-            },
+            context=context,
         )
+
+    def _resolve_company_repo(self, company_id: str) -> dict[str, Any] | None:
+        """Resolve a company's RepoConnection into runtime-ready repo info.
+
+        Returns ``None`` when:
+          * The company doesn't exist.
+          * The company has no RepoConnection (URL-only company — code work
+            pauses ``awaiting_repo_connection`` per the Autonomy Charter).
+          * The CompanyGraphStore isn't reachable (lazy load failure).
+
+        Returns a dict with ``repo_url``, ``base_branch``, ``github_token``
+        when resolution succeeds. The token is read from env (``GITHUB_TOKEN``
+        / ``GH_TOKEN``) — RepoConnection.token_ref is a *reference* into the
+        secrets store, never the token itself, so we resolve it the same way
+        ``mcp_server.workspace.Workspace.clone`` does.
+        """
+        try:
+            store = self._company_graph_store
+            if store is None:
+                # Lazy-load the singleton on first use. Wrapped in try/except
+                # so a deploy without Mongo (or with the company feature off)
+                # degrades gracefully — the task runs against the agency
+                # checkout as before.
+                from services.company_graph_store import get_company_graph_store
+                store = get_company_graph_store()
+                self._company_graph_store = store
+
+            company = None
+            try:
+                company = store.get_company(company_id)
+            except TypeError:
+                # Some store impls are async — try the async path.
+                import asyncio as _asyncio
+                try:
+                    loop = _asyncio.get_event_loop()
+                    if loop.is_running():
+                        # We're inside an event loop already; can't call run
+                        # until. Fall through to None — the runtime will run
+                        # against the default workspace.
+                        company = None
+                    else:
+                        company = _asyncio.run(store.get_company(company_id))
+                except Exception:
+                    company = None
+            if company is None:
+                return None
+
+            repo_conn = getattr(company, "repo_connection", None)
+            if repo_conn is None:
+                return None
+
+            owner = getattr(repo_conn, "owner", None)
+            repo = getattr(repo_conn, "repo", None)
+            if not owner or not repo:
+                return None
+
+            repo_url = f"https://github.com/{owner}/{repo}"
+            base_branch = getattr(repo_conn, "default_branch", "main") or "main"
+            github_token = (
+                os.environ.get("GITHUB_TOKEN")
+                or os.environ.get("GH_TOKEN")
+                or ""
+            )
+            return {
+                "repo_url": repo_url,
+                "base_branch": base_branch,
+                "github_token": github_token,
+            }
+        except Exception as exc:
+            log.debug(
+                "company repo resolution failed for %s: %s",
+                company_id, exc,
+            )
+            return None
 
     async def _apply_result(self, task: Task, agent: AgentDefinition | None, result: TaskResult) -> None:
         metadata = result.metadata or {}

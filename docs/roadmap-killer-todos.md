@@ -84,17 +84,28 @@ After a successful agent run, Hermes distills the trajectory into a named skill 
 
 ---
 
-### ★5 — Sandboxed Agent Execution (E2B / Docker micro-VM) [P1] [CHM]
+### ★5 — Sandboxed Agent Execution (E2B / Docker micro-VM) [P1] [CHM] ✅ Delivered 2026-07-04
 CompanyHelm runs every agent in a fresh E2B micro-VM (clean isolation per session). The current `agent/tools.py` writes directly to the host filesystem — documented as RISKY. Sandboxing closes this gap and enables in-sandbox test verification (pytest inside the VM as the Reviewer step).
 
-**What to build:**
-- `services/sandbox.py` — sandbox provider abstraction (E2B cloud, local Docker, subprocess fallback)
-- `AGENT_SANDBOX_MODE=docker|e2b|none` env var
-- Agent file writes go into the sandbox; only extracted diffs escape to host
-- In-sandbox `pytest` run as the Verifier step — results fed back to Editor for retry
-- Per-session cleanup on success/failure (no cross-session contamination)
+**Delivered in PR branch `claude/e2b-code-changes-integration-sgg21f`:**
+- `services/e2b_config.py` — sole reader of E2B env (Constitution §1)
+- `services/e2b_sandbox.py::E2BSandboxSession` — drop-in `runner._mcp` replacement implementing `call_tool(name, args)` for write_file/read_file/run_command/clone_repo/git_commit/git_push/git_diff
+- `runtimes/adapters/e2b.py::E2BAdapter` — RuntimeAdapter declaring the full capability set; auto-registered when `E2B_API_KEY` set
+- `runtimes/adapters/internal_agent.py` — calls `maybe_attach_e2b(runner, spec)` so every chat code-edit + default-runtime task runs in-sandbox with graceful fallback
+- `tasks/models.py::Task.company_id` + `tasks/service.py::_build_spec` — onboarded-company tasks clone the REAL company repo into the sandbox
+- In-sandbox `pytest` verifier step with one retry on failure (this section's original spec)
+- Token scrubbing in clone/push mirrors `mcp_server/workspace.py`
+- Activation: `E2B_API_KEY` env (auto-on), `E2B_ENABLED=false` kill-switch, `AGENT_SANDBOX_MODE=e2b` alt activation
+- 67 tests across 4 test files (config, sandbox, adapter, task wiring)
 
-**Files:** new `services/sandbox.py`, `agent/tools.py` (risky — needs `risky-module-review`), `agent/loop.py`
+**Original design notes (kept for reference):**
+- `services/sandbox.py` — sandbox provider abstraction (E2B cloud, local Docker, subprocess fallback) — superseded by `services/e2b_sandbox.py` (E2B-only first; the abstraction layer was YAGNI)
+- `AGENT_SANDBOX_MODE=docker|e2b|none` env var — `AGENT_SANDBOX_MODE=e2b` honoured; `docker|none` left as future work
+- Agent file writes go into the sandbox; only extracted diffs escape to host — delivered via `git_diff` extraction
+- In-sandbox `pytest` run as the Verifier step — results fed back to Editor for retry — delivered (one retry)
+- Per-session cleanup on success/failure (no cross-session contamination) — delivered via `E2BSandboxSession.close()` in `finally`
+
+**Files:** `services/e2b_config.py`, `services/e2b_sandbox.py`, `runtimes/adapters/e2b.py`, `runtimes/manager.py`, `runtimes/adapters/internal_agent.py`, `tasks/models.py`, `tasks/service.py`, `frontend/src/v5/screens/ProvidersScreen.jsx`, `frontend/src/api.js`, `requirements.txt`, `.env.example`, `render.yaml`, `tests/test_e2b_*.py`
 
 ---
 

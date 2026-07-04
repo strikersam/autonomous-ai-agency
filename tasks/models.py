@@ -119,6 +119,15 @@ class Task(BaseModel):
     runtime_id: str | None = None   # preferred runtime
     model_preference: str | None = None
 
+    # Onboarded company this task is bound to (roadmap ★5 — E2B sandbox
+    # integration). When set AND E2B is enabled, the TaskExecutionCoordinator
+    # resolves the company's RepoConnection and passes repo_url /
+    # base_branch / github_token into the runtime spec so the agent runs
+    # against the real company repo inside the sandbox instead of the
+    # agency's own checkout. ``None`` (the default) preserves the legacy
+    # "run against the agency checkout" behaviour with zero change.
+    company_id: str | None = None
+
     # Classification
     status: TaskStatus = TaskStatus.TODO
     priority: TaskPriority = TaskPriority.MEDIUM
@@ -238,6 +247,7 @@ class TaskCreateRequest(BaseModel):
     status: TaskStatus = TaskStatus.TODO
     story_points: int | None = Field(default=None, ge=0, le=100)
     sprint_id: str | None = Field(default=None, max_length=64)
+    company_id: str | None = Field(default=None, max_length=128)
 
 
 class TaskUpdateRequest(BaseModel):
@@ -255,6 +265,7 @@ class TaskUpdateRequest(BaseModel):
     requires_approval: bool | None = None
     story_points: int | None = Field(default=None, ge=0, le=100)
     sprint_id: str | None = Field(default=None, max_length=64)
+    company_id: str | None = Field(default=None, max_length=128)
 
 
 class CommentAddRequest(BaseModel):

@@ -288,6 +288,33 @@ def _build_default_manager() -> RuntimeManager:
         mgr.register(TaskHarnessAdapter())
         log.info("RuntimeManager: TaskHarnessAdapter registered")
 
+    # ── E2B Firecracker micro-VM sandbox (roadmap ★5) ─────────────────────
+    # Auto-on whenever E2B_API_KEY is set and E2B_ENABLED is not explicitly
+    # false. The adapter self-reports available=False (via health_check)
+    # when the e2b-code-interpreter SDK is not installed, so an unavailable
+    # E2B simply falls back to internal_agent via the router.
+    # RUNTIME_E2B_ENABLED is an explicit opt-in flag for parity with the
+    # other optional runtimes; the primary activation signal is the key.
+    from services.e2b_config import e2b_enabled as _e2b_enabled
+    if _env_flag("RUNTIME_E2B_ENABLED") or _e2b_enabled():
+        from runtimes.adapters.e2b import E2BAdapter
+        from services.e2b_config import e2b_enabled as _e2b_on, is_e2b_sdk_importable as _e2b_sdk
+        mgr.register(E2BAdapter())
+        log.info(
+            "RuntimeManager: E2BAdapter registered (enabled=%s sdk=%s)",
+            _e2b_on(), _e2b_sdk(),
+        )
+        # When E2B is fully available, prefer it for code_generation /
+        # repo_editing so new tasks route to the sandbox automatically.
+        # internal_agent stays as the fallback in fallback_runtime_ids.
+        if _e2b_on() and _e2b_sdk():
+            existing_overrides = policy.task_type_runtime_overrides or {}
+            for task_type in ("code_generation", "repo_editing"):
+                existing_overrides.setdefault(task_type, "e2b")
+            policy.task_type_runtime_overrides = existing_overrides
+            if policy.preferred_runtime_id == "internal_agent":
+                policy.preferred_runtime_id = "e2b"
+
     registered = [a.RUNTIME_ID for a in mgr._registry.all()]
     log.info("RuntimeManager: %d runtime(s) registered: %s", len(registered), registered)
     return mgr
