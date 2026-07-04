@@ -1046,3 +1046,5 @@ All notable changes to this project will be documented in this file.
 
 
 
+
+<!-- Workstream D: schedule growth invariants -->
