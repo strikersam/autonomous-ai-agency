@@ -363,14 +363,12 @@ async def test_dispatcher_honors_concurrency_env(monkeypatch):
 
         async def execute(self, task_id):
             nonlocal concurrent, max_concurrent
+            self._active_task_ids.add(task_id)
             concurrent += 1
             max_concurrent = max(max_concurrent, concurrent)
             await asyncio.sleep(0.05)  # simulate work
             concurrent -= 1
-
-        @property
-        def _active_task_ids(self):
-            return set()
+            self._active_task_ids.discard(task_id)
 
     class _FakeStore:
         def __init__(self):
