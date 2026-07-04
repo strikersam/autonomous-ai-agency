@@ -90,6 +90,13 @@ def _do_login(page, base_url: str) -> bool:
     if "login" not in page.url.lower():
         return True
 
+    # The email/password form is collapsed by default behind an "Admin
+    # sign-in" toggle (social login is the primary path for general users).
+    admin_toggle = page.locator('[data-testid="toggle-admin-login"]')
+    if admin_toggle.count() and admin_toggle.first.is_visible():
+        admin_toggle.first.click()
+        page.wait_for_timeout(300)
+
     email = None
     pw = None
     for sel in (

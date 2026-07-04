@@ -744,6 +744,10 @@ function OnboardingScreen({ onComplete, isAdmin }) {
 
   React.useEffect(() => {
     if (isAdmin) { setCheckingAccess(false); return undefined; }
+    // Re-close the gate immediately so a stale `onboardingAllowed=true` from
+    // a prior admin session can't render the wizard while this fetch is in
+    // flight (e.g. isAdmin flips true → false without unmounting).
+    setCheckingAccess(true);
     let cancelled = false;
     (async () => {
       try {
