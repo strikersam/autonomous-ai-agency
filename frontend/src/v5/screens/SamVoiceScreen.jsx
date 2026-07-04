@@ -317,11 +317,14 @@ export default function SamVoiceScreen() {
 
       setTranscript(text);
 
-      // Step 2: Send to SAM backend for processing
+      // Step 2: Send to SAM backend for processing. SAM's own backend path
+      // bounds itself to ~28s (context + LLM timeouts) and always resolves
+      // with a fallback reply — this axios timeout is only a backstop for a
+      // network/proxy-level stall, so it's set well above that.
       const chatRes = await API.post('/agent/sam/chat', {
         text,
         session_id: sessionIdRef.current,
-      });
+      }, { timeout: 45000 });
       const samText = chatRes.data?.text || '';
 
       if (!mountedRef.current) return;
@@ -331,9 +334,10 @@ export default function SamVoiceScreen() {
       setHistory(h => [...h.slice(-20), { type: 'user', text },
                        { type: 'sam', text: samText }]);
 
-      // Step 3: Synthesise SAM's voice
+      // Step 3: Synthesise SAM's voice. Bounded so a slow/stalled TTS call
+      // falls back to browser SpeechSynthesis instead of leaving SAM silent.
       try {
-        const speakRes = await API.post('/agent/sam/speak', { text: samText });
+        const speakRes = await API.post('/agent/sam/speak', { text: samText }, { timeout: 35000 });
         const audioB64 = speakRes.data?.audio_b64;
         if (audioB64) {
           const audio = new Audio('data:audio/ogg;base64,' + audioB64);

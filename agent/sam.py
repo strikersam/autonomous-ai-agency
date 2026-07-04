@@ -27,6 +27,7 @@ Uses entirely FREE cloud services:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -34,6 +35,17 @@ from dataclasses import dataclass, field
 from typing import Any
 
 log = logging.getLogger("qwen-sam")
+
+# SAM must always respond within a voice-friendly window — never block the
+# caller (HTTP request, LiveKit turn) on a slow/degraded LLM provider chain
+# or a stalled context read. `call_llm()` defaults to a 300s provider_timeout_sec
+# with multiple provider/retry attempts on top, which — with no bound here and
+# no timeout on the frontend's axios client — silently hung the chat UI with
+# no error shown ("takes input, no response") whenever the provider chain was
+# slow. These ceilings force `process_command` to fall back gracefully well
+# within any reasonable HTTP/proxy timeout instead of hanging indefinitely.
+_CONTEXT_TIMEOUT_SEC = 8.0
+_LLM_TIMEOUT_SEC = 20.0
 
 SAM_PERSONA = """You are SAM (System Autonomy Manager), the voice-controlled AI assistant
 for an autonomous AI engineering agency operating 24/7. You are inspired by Iron Man's
@@ -121,8 +133,13 @@ class SamAgent:
 
         session = self._get_session(session_id)
 
-        # Build context for the LLM
-        context = await self._build_context()
+        # Build context for the LLM — bounded so a stalled scheduler/task-store
+        # read (e.g. during a backlog purge) can't hang the whole command.
+        try:
+            context = await asyncio.wait_for(self._build_context(), timeout=_CONTEXT_TIMEOUT_SEC)
+        except Exception as exc:
+            log.warning("SAM context build failed/timed out: %s", exc)
+            context = {}
 
         # Compose the prompt
         prompt = self._build_prompt(text, context, session)
@@ -264,15 +281,18 @@ class SamAgent:
                 messages.append(h)
             messages.append({"role": "user", "content": prompt})
 
-            text = await call_llm(
-                messages=messages,
-                # No model= kwarg — let call_llm resolve the active provider's
-                # default model. Hardcoding "meta/llama-3.3-70b-instruct" breaks
-                # when BRAIN_PREFERENCE=ollama (the NVIDIA model id is invalid
-                # for the Ollama provider → call_llm raises → SAM returns
-                # fallback text). Resolving via the active provider works for
-                # both NVIDIA NIM and Ollama.
-                temperature=0.5,
+            text = await asyncio.wait_for(
+                call_llm(
+                    messages=messages,
+                    # No model= kwarg — let call_llm resolve the active provider's
+                    # default model. Hardcoding "meta/llama-3.3-70b-instruct" breaks
+                    # when BRAIN_PREFERENCE=ollama (the NVIDIA model id is invalid
+                    # for the Ollama provider → call_llm raises → SAM returns
+                    # fallback text). Resolving via the active provider works for
+                    # both NVIDIA NIM and Ollama.
+                    temperature=0.5,
+                ),
+                timeout=_LLM_TIMEOUT_SEC,
             )
             return str(text).strip()[:300]
         except Exception as exc:
