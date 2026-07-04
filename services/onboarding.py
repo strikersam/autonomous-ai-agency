@@ -96,6 +96,9 @@ class OnboardingService:
         self.graph_service = graph_service or get_company_graph_service()
         self.specialist_service = specialist_service or get_specialist_service()
         self._lock = asyncio.Lock()
+        # asyncio.create_task() results must be referenced somewhere other than
+        # the event loop's internal weak ref, or the task can be GC'd mid-flight.
+        self._background_tasks: set[asyncio.Task] = set()
 
     # =========================================================================
     # ONBOARDING MAIN FLOW
@@ -365,7 +368,7 @@ class OnboardingService:
                     from agent.skill_registry import get_skill_registry_safe
                     sr = get_skill_registry_safe()
                     if sr:
-                        asyncio.create_task(
+                        self._spawn_background(
                             self._refresh_skills_background(sr, company_id, websites, repos)
                         )
                 except Exception as exc:
@@ -383,7 +386,7 @@ class OnboardingService:
                     "completed_at": datetime.now(timezone.utc).isoformat(),
                     "message": "Activating 24x7 agency runtimes in the background",
                 })
-                asyncio.create_task(self._activate_agency_background(company_id))
+                self._spawn_background(self._activate_agency_background(company_id))
                 
             except Exception as e:
                 progress.status = "failed"
@@ -400,6 +403,18 @@ class OnboardingService:
                 log.error(f"Onboarding failed for company {company_id}: {e}")
             
             return progress
+
+    def _spawn_background(self, coro) -> "asyncio.Task":
+        """Schedule a fire-and-forget background task, keeping a strong reference.
+
+        `asyncio.create_task()`'s return value must be referenced somewhere
+        other than the event loop's internal weak ref, or the task can be
+        garbage-collected before it completes.
+        """
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     async def _refresh_skills_background(
         self,
@@ -440,7 +455,7 @@ class OnboardingService:
                 log.info("Onboarding: refreshed dynamic skills for %s — %d recommendations from %d detected techs",
                          company_id, len(recs), len(set(tech_stack)))
         except Exception as exc:
-            log.debug("Onboarding: background skill refresh failed for %s: %s", company_id, exc)
+            log.warning("Onboarding: background skill refresh failed for %s: %s", company_id, exc)
 
     async def _activate_agency_background(self, company_id: str) -> None:
         """Activate a company's 24x7 agency runtimes in the background.
