@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import tempfile
 import time
 from typing import Any
 
@@ -205,7 +207,13 @@ class E2BAdapter(RuntimeAdapter):
             ) from exc
 
         runner = AgentRunner(
-            workspace_root="/tmp/e2b-host-staging",  # host-side; never written when E2B attached
+            # Host-side staging dir; never written when E2B is attached
+            # (runner._mcp is the sandbox). Use tempfile.gettempdir() rather
+            # than a hardcoded /tmp so the path resolves correctly on Windows
+            # and any system where TMPDIR is overridden.
+            workspace_root=os.path.join(
+                tempfile.gettempdir(), "e2b-host-staging"
+            ),  # nosec B108 — staged path is operator-controlled, not attacker-controlled
             github_token=(spec.context or {}).get("github_token"),
             email=(spec.context or {}).get("user_email"),
             department=(spec.context or {}).get("department"),
