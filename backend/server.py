@@ -6861,6 +6861,7 @@ async def autonomy_status() -> dict[str, object]:
         "ceo": ceo_status,
         "dispatch": dispatch_status,
         "company_count": company_count,
+        "schedule_count": len(SCHEDULER.list()) if SCHEDULER else 0,
         "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 

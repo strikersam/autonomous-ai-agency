@@ -493,3 +493,5 @@ All notable changes to this project will be documented in this file.
   in `tests/e2e/test_live_server.py`. `tests/conftest.py` autouse fixture sets legacy workflow mode
 
   for test suite compatibility with Phase 2 deprecation.
+
+<!-- Workstream D: schedule growth invariants -->

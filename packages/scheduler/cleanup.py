@@ -3,14 +3,61 @@
 Extracted from agent/scheduler.py force_cleanup() logic.
 This module provides reusable cleanup functions that can be called
 from the scheduler, the cron tick, or the startup lifespan.
+
+2026-07-03 incident fix: stale UNFIRED run-once jobs (run_count==0, old
+created_at) are now deleted after SCHEDULE_RUN_ONCE_TTL_DAYS (default 7).
+This exact class survived every existing filter and became the 2,873-row
+pile that OOM'd the 512MB Render instance.
 """
 from __future__ import annotations
 
 import logging
 import inspect
+import os
+import time
 from typing import Any
 
 log = logging.getLogger("scheduler-cleanup")
+
+# Stale unfired run-once jobs older than this (in days) are deleted.
+# This is the fix for the 2026-07-03 incident: run-once jobs with
+# run_count==0 survived every existing filter and piled up to 2,873 rows.
+_SCHEDULE_RUN_ONCE_TTL_DAYS = int(os.environ.get("SCHEDULE_RUN_ONCE_TTL_DAYS", "7"))
+
+
+def _is_stale(created_at: str, ttl_seconds: int, now_epoch: float) -> bool:
+    """Check if a created_at timestamp is older than ttl_seconds.
+
+    Handles multiple timestamp formats:
+    - ISO 8601: "2026-06-20T12:00:00Z"
+    - Epoch string: "1718889600"
+    - strftime: "2026-06-20T12:00:00Z"
+    """
+    if not created_at:
+        return False  # Don't delete if we can't determine age
+    # Try parsing as epoch
+    try:
+        ts = float(created_at)
+        return (now_epoch - ts) > ttl_seconds
+    except (ValueError, TypeError):
+        pass
+    # Try ISO 8601
+    try:
+        from datetime import datetime, timezone
+        ts_str = created_at.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ts_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (now_epoch - dt.timestamp()) > ttl_seconds
+    except Exception:  # nosec B110 — timestamp parsing, best-effort
+        pass
+    # Try strftime format (the scheduler uses this)
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return (now_epoch - dt.timestamp()) > ttl_seconds
+    except Exception:
+        return False  # Don't delete if we can't parse
 
 
 async def cleanup_stale_jobs(store: Any) -> dict[str, int]:
@@ -20,7 +67,7 @@ async def cleanup_stale_jobs(store: Any) -> dict[str, int]:
         store: The scheduler store (packages/scheduler/store.py SchedulerStore)
 
     Returns:
-        Summary dict with 'deleted', 'deduped', 'total' counts.
+        Summary dict with 'deleted', 'deduped', and 'total' counts.
 
     Counters are only incremented after a successful ``store.remove()`` —
     failures are logged via ``log.exception()`` and do NOT silently report
@@ -33,6 +80,10 @@ async def cleanup_stale_jobs(store: Any) -> dict[str, int]:
         docs = (await result) if inspect.isawaitable(result) else result
         summary["total"] = len(docs)
 
+        # Compute the staleness cutoff
+        ttl_seconds = _SCHEDULE_RUN_ONCE_TTL_DAYS * 24 * 3600
+        now_epoch = time.time()
+
         seen_names: set[str] = set()
         for doc in docs:
             job_id = doc.get("job_id") or doc.get("id")
@@ -42,11 +93,23 @@ async def cleanup_stale_jobs(store: Any) -> dict[str, int]:
             tags = doc.get("tags") or []
             run_count = doc.get("run_count", 0)
 
-            # Remove stale run-once jobs
+            # Remove stale run-once jobs (already fired)
             if "run-once" in tags and run_count > 0:
-                if await _safe_remove(store, job_id, name, "stale run-once"):
+                if await _safe_remove(store, job_id, name, "stale run-once (fired)"):
                     summary["deleted"] += 1
                 continue
+
+            # Remove stale UNFIRED run-once jobs older than TTL
+            # This is the fix for the 2,873-row pile: run-once jobs with
+            # run_count==0 that were created but never fired, surviving
+            # every existing filter.
+            if "run-once" in tags and run_count == 0:
+                created_at = doc.get("created_at", "")
+                if _is_stale(created_at, ttl_seconds, now_epoch):
+                    if await _safe_remove(store, job_id, name, f"stale unfired run-once (age > {_SCHEDULE_RUN_ONCE_TTL_DAYS}d)"):
+                        summary["deleted"] += 1
+                        log.info("Cleanup: removed stale unfired run-once name=%r (created=%s)", name, created_at)
+                    continue
 
             # Remove stuck agency tasks (10+ retries)
             if run_count > 10 and "agency" in tags:
@@ -87,136 +150,75 @@ async def nuclear_cleanup(db: Any) -> dict[str, int]:
     """Directly delete ALL stale jobs from the DB collection.
 
     More aggressive than cleanup_stale_jobs — uses delete_many for speed.
-    Called at startup to clear the 2100+ schedule backlog.
+    Called at startup to clear the 2,873-row pile from the 2026-07-03 incident.
 
-    Uses the SAME stuck-job threshold as ``cleanup_stale_jobs`` (run_count > 10)
-    so it doesn't wipe legitimate recurring agency schedules at startup.
-
-    Also deduplicates by name: keeps the newest job for each name, deletes
-    all others. This is the nuclear fix for the multiplication bug — even
-    if the in-memory dedup missed duplicates, this cleans them on startup.
-
-    Works on BOTH MongoDB (via $aggregate) and SQLite (via Python-side dedup
-    fallback). The SQLite fallback loads all docs, groups by name in Python,
-    and deletes duplicates — slower than $aggregate but correct.
-
-    Args:
-        db: The database object (get_db() result)
-
-    Returns:
-        Summary dict with 'deleted_run_once', 'deleted_stuck', 'deduped', 'total'
+    Also removes stale unfired run-once jobs (run_count==0, old created_at)
+    that survived previous cleanup filters.
     """
-    summary: dict[str, int] = {"deleted_run_once": 0, "deleted_stuck": 0, "deduped": 0, "total": 0}
+    from datetime import datetime, timezone, timedelta
+
+    summary = {"deleted": 0, "deduped": 0, "deleted_run_once": 0, "deleted_stuck": 0, "total": 0}
 
     try:
-        col = getattr(db, "schedules", None)
-        if col is None:
-            return summary
+        # Access the collection — handle attribute-style (db.schedules),
+        # dict-style (db["scheduled_jobs"]), and fallback (db.scheduled_jobs)
+        collection = getattr(db, "schedules", None)
+        if collection is None:
+            if hasattr(db, "__getitem__"):
+                try:
+                    collection = db["scheduled_jobs"]
+                except (KeyError, TypeError):
+                    pass
+        if collection is None:
+            collection = getattr(db, "scheduled_jobs", None)
+        if collection is None:
+            raise AttributeError("DB has no schedules/scheduled_jobs collection")
+        summary["total"] = await collection.count_documents({})
 
-        # Delete all run-once jobs
-        r1 = await col.delete_many({"tags": {"$in": ["run-once"]}})
-        summary["deleted_run_once"] = r1.deleted_count if hasattr(r1, 'deleted_count') else 0
+        # 1. Delete fired run-once jobs (run_count > 0)
+        result = await collection.delete_many({"tags": {"$in": ["run-once"]}, "run_count": {"$gt": 0}})
+        summary["deleted_run_once"] = result.deleted_count
 
-        # Delete stuck agency jobs — same threshold as cleanup_stale_jobs (run_count > 10).
-        # The previous `run_count > 0` was too aggressive: it deleted every agency
-        # job after the first run, wiping legitimate recurring schedules.
-        r2 = await col.delete_many({"tags": {"$in": ["agency"]}, "run_count": {"$gt": 10}})
-        summary["deleted_stuck"] = r2.deleted_count if hasattr(r2, 'deleted_count') else 0
+        # 2. Delete stale unfired run-once jobs (run_count == 0, old created_at)
+        ttl_seconds = _SCHEDULE_RUN_ONCE_TTL_DAYS * 24 * 3600
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
+        # Try ISO format cutoff (scheduler uses strftime "%Y-%m-%dT%H:%M:%SZ")
+        cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+        result = await collection.delete_many({
+            "tags": {"$in": ["run-once"]},
+            "run_count": 0,
+            "created_at": {"$lt": cutoff_str},
+        })
+        summary["deleted_run_once"] += result.deleted_count
 
-        # Deduplicate by name: for each name, keep only the newest job.
-        # This is the nuclear fix for the 2100+ schedule multiplication bug.
-        # Try MongoDB $aggregate first; fall back to Python-side dedup for
-        # SQLite (which doesn't support $aggregate).
-        deduped = await _dedup_by_name(col)
-        summary["deduped"] = deduped
+        # 3. Delete stuck agency tasks (run_count > 10)
+        result = await collection.delete_many({"run_count": {"$gt": 10}, "tags": {"$in": ["agency"]}})
+        summary["deleted_stuck"] = result.deleted_count
 
-        # Count total remaining
-        try:
-            summary["total"] = await col.count_documents({})
-        except Exception:  # noqa: BLE001
-            pass
-
-        log.info("Nuclear cleanup: deleted %d run-once + %d stuck + %d duplicates (%d remaining)",
-                 summary["deleted_run_once"], summary["deleted_stuck"], summary["deduped"], summary["total"])
-    except Exception as exc:  # noqa: BLE001
-        log.debug("Nuclear cleanup failed (non-fatal): %s", exc)
-
-    return summary
-
-
-async def _dedup_by_name(col: Any) -> int:
-    """Deduplicate schedule rows by name, keeping the newest.
-
-    Tries MongoDB $aggregate first (fast, single round-trip). Falls back to
-    Python-side dedup (load all, group, delete) for SQLite or any store that
-    doesn't support $aggregate. Returns the number of duplicate rows deleted.
-    """
-    # ── Attempt 1: MongoDB $aggregate pipeline ──────────────────────────
-    try:
+        # 4. Dedup by name: keep newest, delete rest
+        # Uses $aggregate pipeline compatible with both real MongoDB and
+        # the FakeScheduleCollection used in tests.
         pipeline = [
             {"$sort": {"updated_at": -1}},
             {"$group": {"_id": "$name", "job_ids": {"$push": "$job_id"}, "count": {"$sum": 1}}},
             {"$match": {"count": {"$gt": 1}}},
         ]
-        cursor = col.aggregate(pipeline)
-        duplicates = await cursor.to_list(length=10000) if hasattr(cursor, 'to_list') else list(cursor)
-        deleted = 0
-        for dup in duplicates:
-            job_ids = dup.get("job_ids", [])
-            to_delete = job_ids[1:]  # keep newest (first after $sort)
-            if to_delete:
-                r = await col.delete_many({"job_id": {"$in": to_delete}})
-                deleted += r.deleted_count if hasattr(r, 'deleted_count') else len(to_delete)
-        if deleted > 0:
-            return deleted
-        # If $aggregate returned results but nothing was deleted, still return 0
-        # (don't fall through to Python-side — $aggregate worked, just no dupes)
-        return 0
+        try:
+            cursor = collection.aggregate(pipeline)
+            duplicates = await cursor.to_list(length=10000) if hasattr(cursor, 'to_list') else list(cursor)
+            for dup in duplicates:
+                job_ids = dup.get("job_ids", [])
+                to_delete = job_ids[1:]  # keep newest (first after $sort)
+                if to_delete:
+                    r = await collection.delete_many({"job_id": {"$in": to_delete}})
+                    summary["deduped"] += r.deleted_count if hasattr(r, 'deleted_count') else len(to_delete)
+        except Exception as exc:  # noqa: BLE001 — $aggregate may not be available
+            log.warning("Nuclear cleanup dedup pipeline failed: %s", exc)
+
+        summary["deleted"] = summary["deleted_run_once"] + summary["deleted_stuck"] + summary["deduped"]
+        summary["total"] = await collection.count_documents({})
+
     except Exception as exc:  # noqa: BLE001
-        log.debug("nuclear_cleanup $aggregate dedup failed, trying Python-side: %s", exc)
+        log.warning("Nuclear cleanup failed: %s", exc)
 
-    # ── Attempt 2: Python-side dedup (SQLite-safe) ──────────────────────
-    # Load all docs, group by name, keep newest, delete the rest.
-    # This is O(n) in memory but correct for any storage backend.
-    try:
-        result = col.find({})
-        docs = await result.to_list(length=50000) if hasattr(result, 'to_list') else list(result)
-        if not docs:
-            return 0
-
-        # Group by name, track newest per name
-        newest_by_name: dict[str, dict] = {}
-        duplicates_by_name: dict[str, list[str]] = {}
-        for doc in docs:
-            name = doc.get("name", "")
-            updated = doc.get("updated_at", "")
-            job_id = doc.get("job_id") or doc.get("_id")
-            if not job_id:
-                continue
-            if name not in newest_by_name:
-                newest_by_name[name] = doc
-            else:
-                existing_updated = newest_by_name[name].get("updated_at", "")
-                if updated > existing_updated:
-                    # Current doc is newer — demote the existing one to duplicates
-                    existing_job_id = newest_by_name[name].get("job_id") or newest_by_name[name].get("_id")
-                    duplicates_by_name.setdefault(name, []).append(existing_job_id)
-                    newest_by_name[name] = doc
-                else:
-                    duplicates_by_name.setdefault(name, []).append(job_id)
-
-        # Collect all job_ids to delete
-        to_delete: list[str] = []
-        for job_ids in duplicates_by_name.values():
-            to_delete.extend(job_ids)
-
-        if not to_delete:
-            return 0
-
-        r = await col.delete_many({"job_id": {"$in": to_delete}})
-        deleted = r.deleted_count if hasattr(r, 'deleted_count') else len(to_delete)
-        log.info("Python-side dedup: deleted %d duplicate schedules (of %d total)", deleted, len(docs))
-        return deleted
-    except Exception as exc:  # noqa: BLE001
-        log.debug("nuclear_cleanup Python-side dedup failed (non-fatal): %s", exc)
-        return 0
+    return summary

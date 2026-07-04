@@ -609,10 +609,16 @@ class Agency:
         from packages.scheduler.scheduler import get_scheduler
         try:
             scheduler = get_scheduler()
-            # Derive a short human-readable label from the instruction (first 60 chars).
-            _label = directive.instruction.split("\n")[0][:60].strip()
+            # Derive a DETERMINISTIC schedule name from the directive title.
+            # NEVER use directive_id (which contains secrets.token_hex) — it
+            # makes every schedule name unique and defeats dedup-by-name,
+            # causing the 2,873-row schedule pile that OOM'd the 512MB
+            # Render instance on 2026-07-03.
+            # Use the title (truncated) which is deterministic for the same
+            # recurring directive.
+            _name = directive.title[:80].strip() or "agency-directive"
             job = scheduler.create(
-                name=f"agency: {_label}" if _label else f"agency:{directive.directive_id}",
+                name=f"agency: {_name}",
                 cron="* * * * *",
                 instruction=directive.instruction,
                 description=f"[{directive.role.value}] {directive.title}",
