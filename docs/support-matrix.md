@@ -17,6 +17,7 @@ This document is generated from the single source of truth in `features/matrix.p
 
 | Feature | ID | Maturity | Enabled | Dependencies | Config Flags | Notes |
 |---------|----|----------|---------|--------------|-------------|-------|
+| Proxy Endpoints | `proxy_endpoints` | stable | ✅ | — | — | Core OpenAI-compatible proxy endpoints (/v1/*). |
 | Direct Chat | `direct_chat` | stable | ✅ | Ollama or cloud provider | — | Core synchronous chat feature. |
 | OpenAI API Compatibility | `openai_compat` | stable | ✅ | Ollama | — | /v1/ chat completions endpoint. |
 | Anthropic API Compatibility | `anthropic_compat` | stable | ✅ | Ollama | — | /v1/messages endpoint for Claude Code etc. |
@@ -32,20 +33,20 @@ This document is generated from the single source of truth in `features/matrix.p
 | Judge (Release Gate) | `agent_judge` | stable | ✅ | Ollama or cloud provider | AGENT_JUDGE_MODEL | Quality gate after verification. |
 | Local Runtime (internal_agent) | `local_runtime` | stable | ✅ | — | RUNTIME_DEFAULT | Built-in agent loop, always available. |
 | Local-First Model Routing | `local_model_routing` | stable | ✅ | Ollama | — | |
-| Async Agent Jobs | `async_agent_jobs` | beta | ✅ | Agent runtime | DIRECT_CHAT_AGENT_WORKSPACE_ROOT | Agent mode returns 202 + pollable job ID. |
 | Runtime Readiness Diagnostics | `runtime_readiness_diagnostics` | beta | ✅ | — | — | Preflight validation with structured issues. |
 | Policies & Governance | `policies_governance` | beta | ✅ | — | — | Approval gates, RBAC, admin controls. |
-| CRISPY Workflow Engine | `crispy_workflow` | beta | ✅ | — | CRISPY_ARTIFACTS_ROOT | Structured build workflow with approval gates. |
-| Task-Harness Runtime | `task_harness_runtime` | beta | ✅ | task-harness binary | TASK_HARNESS_REQUIRED, TASK_HARNESS_BIN | Requires external harness binary. |
-| OpenHands Runtime | `openhands_runtime` | experimental | ❌ | Docker, OpenHands image | OPENHANDS_ENABLED | Opt-in, requires Docker. Set OPENHANDS_ENABLED=true. |
-| Sidecar Runtimes (Hermes/OpenCode/Goose) | `sidecar_runtimes` | experimental | ✅ | Sidecar process running | — | Registered but may be unhealthy if sidecar is not running. |
-| Telegram Bot | `telegram_bot` | experimental | ✅ | Telegram Bot Token | TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS | Remote control via Telegram. |
-| Tunnels (Cloudflare/ngrok) | `tunnels` | experimental | ✅ | cloudflared or ngrok | NGROK_AUTH_TOKEN, CLOUDFLARED_EXE | Exposes proxy over HTTPS. |
-| Multi-Agent / Swarm | `multi_agent_swarm` | experimental | ✅ | — | — | Agent coordination and swarm dispatch. |
-| OpenClaw Integration | `openclaw_integration` | experimental | ✅ | OpenClaw | — | Maintenance: vulnerability fixes, code scans. |
-| JCode Runtime | `jcode_runtime` | experimental | ✅ | JCode | — | JCode execution runtime. |
-| Quick Actions / iOS Shortcuts | `quick_actions_ios` | experimental | ✅ | — | — | iOS Shortcuts integration for remote commands. |
-| Machine Sync / Peer Sync | `machine_peer_sync` | experimental | ✅ | — | — | Sync service for multi-machine coordination. |
+| Sidecar Runtimes (Hermes/OpenCode/Goose) | `sidecar_runtimes` | **beta** | ✅ | Sidecar process running, `RuntimeManager.wake_all_sleeping_runtimes()` | CEO_WAKE_COOLDOWN_SEC | **Promoted from disabled** — every CEO delegation wakes + health-checks sidecars before dispatch (real guarantee, not a guess) and routes around any still sleeping. Hermes ships deployed by default (`agency-hermes` on Render); OpenCode/Goose remain opt-in. |
+| Multi-Agent / Swarm | `multi_agent_swarm` | **beta** | ✅ | CEO dispatcher (`services/ceo_dispatcher.py`) | CEO_FANOUT_COMPLEXITY, CEO_MAX_CONCURRENT, QN_ATOMIC_CLAIM | **Promoted from disabled** — wired into the golden path via `CEODispatcher.delegate`; the `WorkflowOrchestrator` EXECUTE phase fans out across N specialists for medium/high-complexity tasks. |
+| CRISPY Workflow Engine | `crispy_workflow` | experimental | ✅ | — | CRISPY_ARTIFACTS_ROOT, CRISPY_WORKSPACE_ROOT | **Re-enabled** from disabled — phase-sequence enforcement (`PhaseSequenceError`) and per-task workspace isolation added. Flag flip to stable is gated on burn-in criteria (issue #467 follow-up). |
+| Async Agent Jobs | `async_agent_jobs` | disabled | ❌ | Agent runtime | DIRECT_CHAT_AGENT_WORKSPACE_ROOT | **Demoted** per issue #467 Section I — contract gaps, not production-ready. Re-enable with `FEATURE_ASYNC_AGENT_JOBS=enabled`. |
+| Task-Harness Runtime | `task_harness_runtime` | disabled | ❌ | task-harness binary | TASK_HARNESS_REQUIRED, TASK_HARNESS_BIN | **Demoted** per issue #467 Section I — external binary dependency, not self-contained. |
+| OpenHands Runtime | `openhands_runtime` | disabled | ❌ | Docker, OpenHands image | OPENHANDS_ENABLED | **Demoted** per issue #467 Section I — Docker dependency, unmaintained. |
+| Telegram Bot | `telegram_bot` | disabled | ❌ | Telegram Bot Token | TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS | **Demoted** per issue #467 Section I pending an isolation/gating review, despite a full implementation + test suite. Re-enable with `FEATURE_TELEGRAM_BOT=experimental`. |
+| Tunnels (Cloudflare/ngrok) | `tunnels` | disabled | ❌ | cloudflared or ngrok | NGROK_AUTH_TOKEN, CLOUDFLARED_EXE | **Demoted** per issue #467 Section I — stability not verified. |
+| OpenClaw Integration | `openclaw_integration` | disabled | ❌ | OpenClaw | — | **Demoted** per issue #467 Section I — not verified, docs only. |
+| JCode Runtime | `jcode_runtime` | disabled | ❌ | JCode | — | **Demoted** per issue #467 Section I — not self-contained, no test coverage. |
+| Quick Actions / iOS Shortcuts | `quick_actions_ios` | disabled | ❌ | — | — | **Demoted** per issue #467 Section I — no test coverage, not self-contained. |
+| Machine Sync / Peer Sync | `machine_peer_sync` | disabled | ❌ | — | — | **Demoted** per issue #467 Section I — not implemented, no test coverage. |
 
 ## Config Overrides
 
