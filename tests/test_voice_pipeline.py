@@ -54,9 +54,9 @@ def test_tts_explicit_backend(monkeypatch):
 async def test_synthesize_times_out_on_stalled_backend(monkeypatch):
     """A stalled gTTS/pyttsx3 call must not hang synthesize() forever.
 
-    gTTS/pyttsx3 run as blocking calls in the default executor with no bound
-    of their own — a stalled synth (e.g. gTTS's network call hanging) must
-    not keep the caller (POST /agent/sam/speak) awaiting indefinitely.
+    gTTS/pyttsx3 run as blocking calls with no bound of their own — a
+    stalled synth (e.g. gTTS's network call hanging) must not keep the
+    caller (POST /agent/sam/speak) awaiting indefinitely.
 
     Uses the shared event loop (not asyncio.run) — asyncio.run() waits for
     the default executor to fully drain on teardown, which would make this
@@ -77,6 +77,47 @@ async def test_synthesize_times_out_on_stalled_backend(monkeypatch):
 
     assert result is None
     assert elapsed < 0.2, f"synthesize() must respect _SYNTHESIZE_TIMEOUT_SEC, took {elapsed}s"
+
+
+def test_synthesize_timeout_is_configurable_via_env(monkeypatch):
+    """TTS_SYNTHESIZE_TIMEOUT_SEC must override the default ceiling."""
+    monkeypatch.setenv("TTS_SYNTHESIZE_TIMEOUT_SEC", "5")
+    import importlib, voice.tts as tts
+    importlib.reload(tts)
+    assert tts._SYNTHESIZE_TIMEOUT_SEC == 5.0
+
+
+@pytest.mark.asyncio
+async def test_synthesize_uses_dedicated_executor_not_default(monkeypatch):
+    """gTTS/pyttsx3 must run on a dedicated executor, not the shared default.
+
+    asyncio.wait_for() can't interrupt a blocking call already running in a
+    thread — a timed-out synth keeps occupying a worker. Using the
+    process-wide default executor for that would let repeated TTS stalls
+    exhaust the pool every other run_in_executor(None, ...) call shares.
+    """
+    monkeypatch.setenv("TTS_BACKEND", "gtts")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "")
+    import importlib, voice.tts as tts
+    importlib.reload(tts)
+    monkeypatch.setattr(tts, "_synthesize_gtts", lambda text: b"fake-audio")
+
+    seen_executors = []
+    loop = asyncio.get_event_loop()
+    original_run_in_executor = loop.run_in_executor
+
+    def _spy_run_in_executor(executor, func, *args):
+        seen_executors.append(executor)
+        return original_run_in_executor(executor, func, *args)
+
+    monkeypatch.setattr(loop, "run_in_executor", _spy_run_in_executor)
+
+    result = await tts.synthesize("hello there")
+
+    assert result == b"fake-audio"
+    assert len(seen_executors) == 1
+    assert seen_executors[0] is tts._TTS_EXECUTOR
+    assert seen_executors[0] is not None
 
 
 # ── Memory kernel ─────────────────────────────────────────────────────────────

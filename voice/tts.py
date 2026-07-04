@@ -12,6 +12,7 @@ Config env vars:
   ELEVENLABS_API_KEY   — for ElevenLabs
   ELEVENLABS_VOICE_ID  — voice ID (default: "21m00Tcm4TlvDq8ikWAM" = Rachel)
   TTS_LANGUAGE         — language for gTTS (default: "en")
+  TTS_SYNTHESIZE_TIMEOUT_SEC — ceiling for a single synth call (default: 25)
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ import asyncio
 import logging
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 log = logging.getLogger("qwen-proxy")
@@ -29,12 +31,20 @@ ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWA
 TTS_LANGUAGE = os.environ.get("TTS_LANGUAGE", "en")
 
 # The ElevenLabs branch already bounds itself via its own httpx timeout, but
-# gTTS/pyttsx3 run as blocking calls in the default executor with no bound at
-# all — a stalled synth (e.g. gTTS's network call hanging) would keep the
-# caller (POST /agent/sam/speak) awaiting forever. This ceiling makes
-# synthesize() always resolve (None on timeout, same contract as any other
-# failure) instead of hanging the request.
-_SYNTHESIZE_TIMEOUT_SEC = 25.0
+# gTTS/pyttsx3 run as blocking calls with no bound at all — a stalled synth
+# (e.g. gTTS's network call hanging) would keep the caller
+# (POST /agent/sam/speak) awaiting forever. This ceiling makes synthesize()
+# always resolve (None on timeout, same contract as any other failure)
+# instead of hanging the request.
+_SYNTHESIZE_TIMEOUT_SEC = float(os.environ.get("TTS_SYNTHESIZE_TIMEOUT_SEC", "25.0"))
+
+# asyncio.wait_for() only stops *awaiting* a run_in_executor() future — it
+# can't interrupt the blocking call already running in the thread, so a
+# stalled gTTS/pyttsx3 job keeps occupying a worker after its timeout fires.
+# Using the process-wide default executor for that would let repeated
+# stalls exhaust the pool every other run_in_executor(None, ...) call in the
+# app shares. A small dedicated pool contains that damage to TTS alone.
+_TTS_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tts-synth")
 
 
 async def synthesize(text: str) -> bytes | None:
@@ -49,9 +59,9 @@ async def synthesize(text: str) -> bytes | None:
         if backend == "elevenlabs":
             coro = _synthesize_elevenlabs(text)
         elif backend == "gtts":
-            coro = loop.run_in_executor(None, _synthesize_gtts, text)
+            coro = loop.run_in_executor(_TTS_EXECUTOR, _synthesize_gtts, text)
         else:
-            coro = loop.run_in_executor(None, _synthesize_pyttsx3, text)
+            coro = loop.run_in_executor(_TTS_EXECUTOR, _synthesize_pyttsx3, text)
         return await asyncio.wait_for(coro, timeout=_SYNTHESIZE_TIMEOUT_SEC)
     except asyncio.TimeoutError:
         log.warning("TTS synthesize timed out (backend=%s, timeout=%ss)", backend, _SYNTHESIZE_TIMEOUT_SEC)

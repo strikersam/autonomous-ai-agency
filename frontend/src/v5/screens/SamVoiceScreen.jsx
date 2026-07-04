@@ -136,6 +136,11 @@ export default function SamVoiceScreen() {
   // its result is awaited via this promise in handleRecordingStop().
   const recognitionRef = React.useRef(null);
   const recognitionPromiseRef = React.useRef(null);
+  // onend/onerror are not reliably fired after stop() on some browsers
+  // (known Chromium/Android SpeechRecognition bug) — this lets
+  // handleRecordingStop force-settle the promise with whatever transcript
+  // was captured so far instead of leaving "thinking" stuck forever.
+  const recognitionSettleRef = React.useRef(null);
 
   React.useEffect(() => () => {
     mountedRef.current = false;
@@ -306,6 +311,7 @@ export default function SamVoiceScreen() {
           settled = true;
           resolve(finalText.trim());
         };
+        recognitionSettleRef.current = settle;
         recognition.onresult = (event) => {
           for (let i = event.resultIndex; i < event.results.length; i++) {
             if (event.results[i].isFinal) {
@@ -362,6 +368,10 @@ export default function SamVoiceScreen() {
     // listen after the mic stream has already been torn down.
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch (e) { /* already stopped */ }
+      // onend/onerror are known to not always fire after stop() (Chromium/
+      // Android reliability bug) — force-settle with whatever was captured
+      // so far if the event never arrives, so this can never hang forever.
+      setTimeout(() => { recognitionSettleRef.current?.(); }, 3000);
     }
 
     const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
