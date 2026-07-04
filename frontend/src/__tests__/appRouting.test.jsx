@@ -35,7 +35,7 @@ describe('GitHub Pages app routing', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText(/sign in to your agency/i)).toBeInTheDocument();
+    expect(await screen.findByTestId('login-page')).toBeInTheDocument();
     expect(screen.getByText(/need to connect a backend first/i)).toBeInTheDocument();
   });
 });

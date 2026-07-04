@@ -734,6 +734,29 @@ function OnboardingScreen({ onComplete, isAdmin }) {
   const [companyId, setCompanyId] = React.useState(null);
   const [companyName, setCompanyName] = React.useState('');
   const [checkingProgress, setCheckingProgress] = React.useState(true);
+  // Non-admins may still onboard once an admin turns the global onboarding
+  // gate off (or allow-lists this user specifically) — see
+  // activation_api.is_user_onboarding_allowed(). Admins always have access
+  // and skip this check. Defaults to blocked (not `isAdmin`) so a slow/failed
+  // fetch doesn't briefly show the wizard to someone who isn't allowed in.
+  const [checkingAccess, setCheckingAccess] = React.useState(!isAdmin);
+  const [onboardingAllowed, setOnboardingAllowed] = React.useState(isAdmin);
+
+  React.useEffect(() => {
+    if (isAdmin) { setCheckingAccess(false); return undefined; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.getSetupState();
+        if (!cancelled) setOnboardingAllowed(Boolean(data?._activation?.onboarding_allowed));
+      } catch {
+        if (!cancelled) setOnboardingAllowed(false);
+      } finally {
+        if (!cancelled) setCheckingAccess(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAdmin]);
 
   // On mount, check if there is already an in-progress onboarding to resume
   React.useEffect(() => {
@@ -769,7 +792,14 @@ function OnboardingScreen({ onComplete, isAdmin }) {
     })();
   }, []);
 
-  if (!isAdmin) return (
+  if (!isAdmin && checkingAccess) return (
+    <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto', textAlign:'center' }}>
+      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
+      <div style={{ padding:'40px 0', color:'var(--text-muted)', fontSize:14 }}>Checking onboarding access...</div>
+    </div>
+  );
+
+  if (!isAdmin && !onboardingAllowed) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:580, margin:'0 auto' }}>
       <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
       <NonAdminGate/>

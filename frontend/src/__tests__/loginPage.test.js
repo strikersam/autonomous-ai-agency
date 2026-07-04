@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import LoginPage from '../pages/LoginPage';
 
@@ -55,4 +55,23 @@ test('shows disabled social login actions when no backend is configured', () => 
   expect(googleLink).not.toHaveAttribute('href');
   expect(githubLink).toHaveAttribute('aria-disabled', 'true');
   expect(googleLink).toHaveAttribute('aria-disabled', 'true');
+});
+
+test('hides the email/password form behind an "Admin sign-in" toggle by default', () => {
+  mockGetBackendUrl.mockReturnValue('https://relay.example.com');
+
+  renderPage();
+
+  // Social login is the default, prominent path for general users.
+  expect(screen.getByText('GitHub')).toBeInTheDocument();
+  expect(screen.getByText('Google')).toBeInTheDocument();
+
+  // Password sign-in (admin / admin-created users only) is collapsed by default.
+  expect(screen.queryByTestId('email-input')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('password-input')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId('toggle-admin-login'));
+
+  expect(screen.getByTestId('email-input')).toBeInTheDocument();
+  expect(screen.getByTestId('password-input')).toBeInTheDocument();
 });
