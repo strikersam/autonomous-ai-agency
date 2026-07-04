@@ -3,10 +3,10 @@ name: Browser E2E — Playwright (desktop + mobile)
 on:
   push:
     branches: ["**"]
-    paths-ignore: ["docs/context/**"]
+    paths-ignore: ["docs/context/**", "graphify-out/**"]
   pull_request:
     branches: ["main", "master"]
-    paths-ignore: ["docs/context/**"]
+    paths-ignore: ["docs/context/**", "graphify-out/**"]
   workflow_dispatch:
 
 permissions:

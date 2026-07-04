@@ -6,6 +6,25 @@
 
 ---
 
+## Before you read any source file: query graphify
+
+This repo ships a pre-built knowledge graph at `graphify-out/graph.json` (auto-refreshed by
+`.claude/hooks/graphify-refresh` on every session start and turn). **Query it before opening
+raw source files** — it costs a fraction of the tokens of a `Read`/`Grep` pass over the codebase:
+
+```bash
+graphify query "how does model routing work"
+graphify explain "AgentRunner"
+graphify path "OnboardingScreen" "CompanyGraphStore"
+cat graphify-out/GRAPH_REPORT.md        # free overview: god nodes, communities, suggested questions
+graphify update .                       # refresh after you make changes
+```
+
+If `graphify` isn't on `PATH`: `python -m pip install graphifyy && graphify install && graphify update .`
+Full reference: [`AGENTS.md`](AGENTS.md#graphify-knowledge-graph).
+
+---
+
 ## 0. The Golden Rule
 
 **No user-visible behaviour may change unless explicitly requested.**

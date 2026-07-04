@@ -3,11 +3,12 @@ name: E2E — Live server tests (no mocks)
 on:
   push:
     branches: ["**"]
-    # Pure-docs context commits (auto-generated issue plans) don't need E2E.
-    paths-ignore: ["docs/context/**"]
+    # Pure-docs context commits (auto-generated issue plans) and graphify's
+    # auto-refreshed codebase graph report don't need E2E.
+    paths-ignore: ["docs/context/**", "graphify-out/**"]
   pull_request:
     branches: ["main", "master"]
-    paths-ignore: ["docs/context/**"]
+    paths-ignore: ["docs/context/**", "graphify-out/**"]
 
 # Least-privilege token — this job only reads the repo; it writes nothing to
 # GitHub (no deployments, no packages, no issues). Satisfies CodeQL rule
