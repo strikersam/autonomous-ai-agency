@@ -196,19 +196,22 @@ async def nuclear_cleanup(db: Any) -> dict[str, int]:
         summary["deleted_stuck"] = result.deleted_count
 
         # 4. Dedup by name: keep newest, delete rest
+        # Uses $aggregate pipeline compatible with both real MongoDB and
+        # the FakeScheduleCollection used in tests.
         pipeline = [
-            {"$sort": {"created_at": -1}},
-            {"$group": {"_id": "$name", "docs": {"$push": "$$ROOT"}, "count": {"$sum": 1}}},
+            {"$sort": {"updated_at": -1}},
+            {"$group": {"_id": "$name", "job_ids": {"$push": "$job_id"}, "count": {"$sum": 1}}},
             {"$match": {"count": {"$gt": 1}}},
         ]
         try:
             cursor = collection.aggregate(pipeline)
-            async for group in cursor:
-                docs = group.get("docs", [])
-                # Keep the first (newest), delete the rest
-                for doc in docs[1:]:
-                    await collection.delete_one({"job_id": doc.get("job_id")})
-                    summary["deduped"] += 1
+            duplicates = await cursor.to_list(length=10000) if hasattr(cursor, 'to_list') else list(cursor)
+            for dup in duplicates:
+                job_ids = dup.get("job_ids", [])
+                to_delete = job_ids[1:]  # keep newest (first after $sort)
+                if to_delete:
+                    r = await collection.delete_many({"job_id": {"$in": to_delete}})
+                    summary["deduped"] += r.deleted_count if hasattr(r, 'deleted_count') else len(to_delete)
         except Exception as exc:  # noqa: BLE001 — $aggregate may not be available
             log.warning("Nuclear cleanup dedup pipeline failed: %s", exc)
 
