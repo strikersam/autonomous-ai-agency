@@ -49,7 +49,7 @@ def _is_stale(created_at: str, ttl_seconds: int, now_epoch: float) -> bool:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return (now_epoch - dt.timestamp()) > ttl_seconds
-    except Exception:
+    except Exception:  # nosec B110 — timestamp parsing, best-effort
         pass
     # Try strftime format (the scheduler uses this)
     try:

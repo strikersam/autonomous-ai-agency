@@ -387,7 +387,7 @@ async def test_dispatcher_honors_concurrency_env(monkeypatch):
 
     coord = _FakeCoordinator()
     dispatcher = TaskDispatcher(
-        workspace_root="/tmp",
+        workspace_root="/tmp"  # nosec B108,
         poll_interval_s=0.01,
         store=store,
         coordinator=coord,
