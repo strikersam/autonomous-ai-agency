@@ -366,6 +366,23 @@ class InternalAgentAdapter(RuntimeAdapter):
 
         started = time.perf_counter()
 
+        # ── E2B sandbox attach (roadmap ★5) ────────────────────────────────
+        # When E2B is enabled (E2B_API_KEY set, E2B_ENABLED not false, SDK
+        # importable), open a Firecracker micro-VM and attach it as
+        # runner._mcp so every write_file / run_command / git_commit /
+        # git_push / clone_repo executes inside the sandbox instead of
+        # against the host worktree. Falls back gracefully to today's local
+        # path when E2B is unavailable — maybe_attach_e2b returns None and
+        # the runner keeps its original (None) _mcp, routing through the
+        # local WorkspaceTools as before.
+        _e2b_session = None
+        try:
+            from services.e2b_sandbox import maybe_attach_e2b
+            _e2b_session = await maybe_attach_e2b(runner, spec)
+        except Exception as _e2b_exc:  # pragma: no cover - defensive
+            self._log.debug("E2B attach failed; using local tools: %s", _e2b_exc)
+            _e2b_session = None
+
         try:
             # Resolve model: prefer spec → Nvidia default → leave None (auto)
             model = spec.model_preference
@@ -396,7 +413,20 @@ class InternalAgentAdapter(RuntimeAdapter):
             )
         except Exception as exc:
             self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
+            # Close the E2B sandbox if it was opened (best-effort).
+            if _e2b_session is not None:
+                try:
+                    await _e2b_session.close()
+                except Exception:  # pragma: no cover - best-effort
+                    pass
             raise RuntimeExecutionError(self.RUNTIME_ID, str(exc), spec.task_id) from exc
+
+        # Close the E2B sandbox now that the agent run is complete (best-effort).
+        if _e2b_session is not None:
+            try:
+                await _e2b_session.close()
+            except Exception:  # pragma: no cover - best-effort
+                pass
 
         # Collect every file that was actually written to disk across all steps.
         changed_files: list[str] = []

@@ -83,6 +83,19 @@ services:
       - key: NVIDIA_DEFAULT_MODEL
         value: "meta/llama-3.3-70b-instruct"
 
+      # ================================================================
+      # E2B Firecracker micro-VM sandbox (roadmap ★5)
+      # Set E2B_API_KEY in the Render dashboard to your e2b_... key.
+      # Auto-on when present; agents route code edits / commands / git ops
+      # into isolated sandboxes. Falls back to local tools when unset.
+      # ================================================================
+      - key: E2B_API_KEY
+        sync: false
+      - key: E2B_TEMPLATE
+        value: "base"
+      - key: E2B_TIMEOUT_SEC
+        value: "300"
+
       # Agent brain roles run on the FREE NVIDIA model — NOT paid Anthropic
       # Bedrock Opus. Pinning these to us.anthropic.* is what made every agent
       # task call api.anthropic.com and fail with 400 (issue #656). Set

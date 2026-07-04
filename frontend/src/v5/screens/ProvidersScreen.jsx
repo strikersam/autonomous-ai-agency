@@ -28,6 +28,12 @@ const ALL_PROVIDERS = [
   { id:'anthropic',    name:'Anthropic',        tier:'commercial', icon:'◬', color:'#d97757', defaultPriority:4, defaultModel:'claude-opus-4-5', models:['claude-opus-4-5','claude-sonnet-4-5','claude-haiku-4-5','claude-3-5-sonnet-20241022'], keyEnv:'ANTHROPIC_API_KEY', keyHint:'sk-ant-…', free:false, desc:'Claude family. Commercial fallback — tried last.', capabilities:['chat','code','reasoning','vision'] },
   { id:'openrouter',   name:'OpenRouter',       tier:'commercial', icon:'⇄', color:'#6366f1', defaultPriority:4, defaultModel:'configurable', models:['configurable'], keyEnv:'OPENROUTER_API_KEY', keyHint:'sk-or-…', free:false, desc:'Unified gateway to 200+ models. Pay-per-use.', capabilities:['chat','code','reasoning'] },
   { id:'bedrock',      name:'AWS Bedrock',      tier:'commercial', icon:'▲', color:'#ff9900', defaultPriority:4, defaultModel:'us.anthropic.claude-opus-4-7', models:['us.anthropic.claude-opus-4-7','us.anthropic.claude-sonnet-4-5','amazon.nova-pro-v1:0'], keyEnv:'AWS_ACCESS_KEY_ID', keyHint:'AKIA…', free:false, desc:'AWS-hosted Claude + Amazon Nova via Converse API.', capabilities:['chat','code','reasoning'] },
+  // E2B is a sandbox execution runtime (not an LLM provider) — listed here
+  // because this is the catalogue users browse for env-configured
+  // integrations. The live enabled/health badge is driven by the /runtimes
+  // endpoint (RuntimeManager.list_runtimes() includes 'e2b' when
+  // E2B_API_KEY is set), so this card is informational only.
+  { id:'e2b',          name:'E2B Sandbox',      tier:'free-cloud', icon:'■', color:'#9333ea', defaultPriority:0, defaultModel:'base', models:['base'], keyEnv:'E2B_API_KEY', keyHint:'e2b_…', free:true, desc:'Firecracker micro-VM sandbox for isolated code execution. Auto-on when E2B_API_KEY is set.', capabilities:['code','shell','git'] },
 ];
 
 const TIER_CONFIG = {
