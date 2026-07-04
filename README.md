@@ -168,7 +168,7 @@ You see it in the morning: "PR merged, page restored at 3:12 AM"
 | Failure scenario | Countermeasure |
 |---|---|
 | Agent crashes mid-task | Crash-recovery reconciler re-queues stranded tasks on restart |
-| Runtime container stops | ⚡ Wake All Runtimes restarts every Docker container instantly |
+| Runtime sidecar goes to sleep | Every CEO delegation calls `RuntimeManager.wake_all_sleeping_runtimes()` first — sleeping sidecars are woken or marked `still_sleeping`, and the CEO routes around whichever stay down |
 | AI session rate-limited / exhausted | `ai_runner.py` watchdog detects the gap and resumes from last checkpoint |
 | LLM provider goes down | Provider chain: Bedrock → NIM → DeepSeek → Anthropic → Ollama — automatic failover |
 | Missed schedule | Scheduler reconciles on boot — nothing is silently skipped |
@@ -411,26 +411,30 @@ Autonomous AI Agency runs entirely on hardware you control. There is no cloud re
 
 ## The V5 Control Plane — every screen
 
-The dashboard has 16 fully-wired screens, all backed by live API endpoints:
+The dashboard has 18 fully-wired screens, all backed by live API endpoints:
 
 | Screen | What it does |
 |---|---|
-| **Dashboard** | Live health of all agents, recent activity, system metrics at a glance |
 | **Chat** | Conversational interface to the CEO agent; persistent history, ModelPicker, code-task repo URL |
+| **Dashboard** | Live health of all agents, recent activity, system metrics at a glance |
 | **Task Board** | Kanban: queued → planning → executing → review → awaiting approval → done; sprint metrics + burndown |
-| **Agents** | All specialists: capabilities, current load, runtime, model, task stats |
-| **Company** | Organisation profile, tech stack detection, knowledge graph seed, system status badges |
-| **GitHub** | Connected repos, PR management, issue tracking, repo scanner with authenticated API access |
-| **Skills** | The skill library — dynamic registry with local + remote GitHub discovery, auto-recommendations per tech stack |
-| **Intelligence** | Routing policy editor — model, cost tier, task-type rules; competitor/keyword tracking |
-| **Portfolio** | WSJF-prioritized initiatives with Now/Next/Later roadmap, source-provenance badges, sprint-health rollup |
-| **Doctor** | Live self-diagnostics — per-check pass/warn/fail scores, one-click Fix buttons, auto-refresh every 60s |
-| **Logs** | Every LLM call: tokens, latency, provider, cost, decision context; expandable messages |
-| **Admin** | Users, roles, instance activation, audit log, company management with delete cleanup |
-| **Onboarding** | Company setup wizard — URL scan → AI questions → specialist provisioning → 24x7 schedules |
-| **Providers** | Connected LLM providers (Ollama, Bedrock, Nvidia NIM, 17 clouds) with health + cost; MCP server CRUD |
+| **Agents** | All specialists: capabilities, current load, runtime, model, task stats — includes the runtime status bar (Hermes, OpenCode, Claude Code, …) and health per specialist |
 | **Schedules** | Recurring agent tasks; pause, resume, trigger, view run history; signal-driven instructions |
-| **Runtimes** | Execution substrates: internal loop, Docker agents, external harnesses; Wake All Runtimes one-click |
+| **Skills** | The skill library — dynamic registry with local + remote GitHub discovery, auto-recommendations per tech stack |
+| **Portfolio** | WSJF-prioritized initiatives with Now/Next/Later roadmap, source-provenance badges, sprint-health rollup |
+| **Intelligence** | Routing policy editor — model, cost tier, task-type rules; competitor/keyword tracking |
+| **Knowledge** | Wiki pages, source docs, and agent activity — the team's persistent, self-updating memory |
+| **Providers** | Connected LLM providers (Ollama, Bedrock, Nvidia NIM, 17 clouds) with health + cost; MCP server CRUD |
+| **Loops** | Every autonomous loop catalogued: readiness score, maturity, self-heal coverage, drift status, cost estimate |
+| **Logs** | Every LLM call: tokens, latency, provider, cost, decision context; expandable messages |
+| **GitHub** | Connected repos, PR management, issue tracking, repo scanner with authenticated API access |
+| **Company** | Organisation profile, tech stack detection, knowledge graph seed, system status badges |
+| **Onboarding** | Company setup wizard — URL scan → AI questions → specialist provisioning → 24x7 schedules |
+| **Doctor** | Live self-diagnostics — per-check pass/warn/fail scores, one-click Fix buttons, auto-refresh every 60s |
+| **Admin** | Users, roles, instance activation, audit log, company management with delete cleanup |
+| **SAM** | Voice command and control of the agency — push-to-talk Web Speech API STT/TTS by default, hands-free live conversation when LiveKit is configured |
+
+> The standalone "Runtimes" screen from earlier versions was folded into **Agents** (per-specialist runtime + health) and **Doctor** (aggregate runtime health panel) — there's no separate Runtimes page anymore.
 
 ---
 
@@ -628,9 +632,13 @@ We'd rather under-promise. Here's the honest split (see `docs/architecture/featu
 | Scheduled tasks / persistent schedule store | **Stable** | Durable across redeploys — `ScheduleStore` works with both Mongo and SQLite; `AgentScheduler` rehydrates every cadence on boot; APScheduler's worker thread dispatches `on_fire` coroutines onto the FastAPI main loop via `run_coroutine_threadsafe`, so 24x7 cadences produce tasks instead of dying on a cross-loop error. |
 | Skill bindings + dynamic skill registry | **Stable** | GitHub discovery with ETag caching and rate-limit semaphores. |
 | Langfuse observability + local TCO cost model | **Stable** | Cost figures are an estimated commercial-equivalent model, not a billed invoice. |
-| Telegram bot remote control | **Beta** | Works; long-running 24x7 deployment paths are still hardening. |
-| Multi-agent orchestration (CEO -> specialists) | **Beta** | Plan->execute->verify loop is solid for single-specialist jobs; deep multi-hop swarms are experimental. |
-| External agent runtimes (Goose / Hermes / OpenHands / Aider / OpenCode) | **Experimental** | Optional sidecars — must be deployed separately. When absent, the agency automatically falls back to the Internal Agent (NVIDIA NIM) so work continues. The Doctor reports absent sidecars as warnings, never blocking. |
+| Multi-agent orchestration — single specialist (CEO → one specialist, Golden-Path plan→execute→verify→judge) | **Stable** | Core delegation path; production-tested. |
+| Multi-agent orchestration — swarm (CEO fans out across N specialists) | **Beta** | Promoted from disabled — wired into the golden path via `services/ceo_dispatcher.py:CEODispatcher.delegate`; the `WorkflowOrchestrator` EXECUTE phase calls the CEO for medium/high-complexity tasks, which routes each specialist through `RuntimeManager` to its preferred runtime. `CEO_FANOUT_COMPLEXITY=high` restricts fan-out to the hardest requests; fallback stats via `get_ceo_fallback_stats()`. |
+| Hermes runtime (default code-generation sidecar) | **Beta** | Promoted from disabled — deployed by default (`agency-hermes` on Render) and set as the default runtime for `code_generation` tasks. `RuntimeManager.wake_all_sleeping_runtimes()` gives every CEO delegation a real, rate-limited health check (not a guess) before dispatch, with automatic fallback to the Internal Agent if Hermes is down. |
+| Other external runtimes (Goose / OpenCode / Aider / OpenHands / Task Harness) | **Disabled by default** | Optional sidecars that need their own deployment and an explicit `FEATURE_<ID>=experimental` override — not part of the default deploy. When absent, the agency falls back to the Internal Agent (NVIDIA NIM) so work continues; the Doctor reports them as warnings, never blocking. |
+| Telegram bot remote control | **Disabled by default** | Demoted pending an isolation/gating review (issue #467) — the service manager, inbound routing, approval gates, `/diag`, and a full test suite are implemented, but it ships off. Enable with `TELEGRAM_BOT_TOKEN` + `FEATURE_TELEGRAM_BOT=experimental`. |
+
+The canonical, machine-readable source of truth for every row above is [`features/matrix.py`](features/matrix.py) — check it (or `GET /admin/features`) before trusting any maturity claim made elsewhere, including in this README.
 
 If a screen or capability isn't listed above, treat it as experimental.
 
@@ -672,7 +680,7 @@ SECRET_KEY=$(openssl rand -hex 32)
 NVIDIA_API_KEY=nvapi-...       # free at build.nvidia.com — no GPU needed
 ```
 
-Full list of variables: [`docs/configuration.md`](docs/configuration.md)
+Full list of variables: [`docs/configuration-reference.md`](docs/configuration-reference.md)
 
 ### 3. Start the backend
 
@@ -756,7 +764,7 @@ Live demo:
 | `DEEPSEEK_API_KEY` | *(optional)* | DeepSeek cloud API |
 | `GITHUB_TOKEN` | *(optional)* | Required for agents that open PRs or read issues |
 | `LANGFUSE_HOST` + keys | *(optional)* | Observability traces |
-| `TELEGRAM_BOT_TOKEN` | *(optional)* | Remote control via Telegram |
+| `TELEGRAM_BOT_TOKEN` | *(optional)* | Remote control via Telegram — feature ships **disabled by default** (issue #467); also set `FEATURE_TELEGRAM_BOT=experimental` |
 | `ADMIN_EMAIL` + `ADMIN_PASSWORD` | *(optional)* | First admin — created on first boot |
 | `RUNTIME_DOCKER_ENABLED` | `false` | Enable Docker agent runtime |
 
@@ -816,17 +824,17 @@ means *nothing* there — the backend has to reach your box over the network.
 
 | Specialist family | Runtime | Type |
 |---|---|---|
-| `frontend` · `ux` · `design` · `docs` · `operations` | **Goose** | 🐳 Docker (sidecar) |
-| `backend` · `mobile` · `ecommerce` · `qa` | **OpenCode** | 🐳 Docker (sidecar) |
-| `security` · `engineering` · `architecture` · `ml` | **Claude Code** | 💻 CLI (sidecar) |
-| `devops` · `cloud` · `infra` | **Aider** | 🐳 Docker (sidecar) |
-| `analytics` · `data` | **Hermes** | 🐳 Docker (sidecar) |
-| Long-running workflows | **Task Harness** | 🐳 Docker (sidecar) |
+| `code_generation` · CEO · Security · Reviewer · Release (default) | **Hermes** | 🐳 Docker sidecar — **deployed by default** (`agency-hermes` on Render); thin HTTP wrapper around the same Internal Agent brain |
+| `backend` · `mobile` · `ecommerce` · `qa` | **OpenCode** | 🐳 Docker (sidecar, opt-in — not deployed by default) |
+| `security` · `engineering` · `architecture` · `ml` | **Claude Code** | 💻 CLI (sidecar, opt-in) |
+| `frontend` · `ux` · `design` · `docs` · `operations` | **Goose** | 🐳 Docker (sidecar, opt-in — not deployed by default) |
+| `devops` · `cloud` · `infra` | **Aider** | 🐳 Docker (sidecar, opt-in — not deployed by default) |
+| Long-running workflows | **Task Harness** | 🐳 Docker (sidecar) — disabled by default, needs an external binary |
 | `agile` · `portfolio` · `delivery` · all fallbacks | **Internal Agent** | 🏠 Built-in (always available) |
 
-> **Runtime availability**: The **Internal Agent** is always available (runs on NVIDIA NIM or any configured cloud provider — no sidecar needed). Goose, OpenCode, Claude Code, Aider, and Hermes are optional sidecars that need to be deployed separately. When a sidecar is absent, the agency automatically falls back to the Internal Agent so work continues without interruption. The Doctor page reports absent sidecars as warnings, never as blocking errors.
+> **Runtime availability**: The **Internal Agent** is always available (runs on NVIDIA NIM or any configured cloud provider — no sidecar needed). **Hermes ships deployed by default** and is the default runtime for `code_generation` tasks — it's a thin HTTP shim over the same Internal Agent brain, so there's no separate model or infra to trust. OpenCode, Claude Code, Goose, and Aider are optional sidecars that still need to be deployed separately. When any sidecar is absent, the agency automatically falls back to the Internal Agent so work continues without interruption. The Doctor page reports absent sidecars as warnings, never as blocking errors.
 
-⚡ **Wake All Runtimes** on the Runtimes page starts every available sidecar for a company's specialists in one click.
+Runtime wake-up isn't a manual dashboard action: `RuntimeManager.wake_all_sleeping_runtimes()` runs automatically before every CEO delegation (rate-limited via `CEO_WAKE_COOLDOWN_SEC`, default 30s), and the **Agents** and **Doctor** screens surface the resulting health inline.
 
 ---
 
@@ -851,6 +859,13 @@ See [`CLAUDE.md`](CLAUDE.md) for the contributor guide, skill map, risky-module 
 ---
 
 ## What's New
+
+### 2026-07-04
+
+- **Docs audit: CEO orchestration and Hermes maturity corrected.** `features/matrix.py` (the canonical source of truth) had already promoted **sidecar runtimes (Hermes/OpenCode/Goose)** and **multi-agent swarm dispatch** from `disabled` to **Beta**, but the README, `docs/support-matrix.md`, and `docs/architecture/feature-maturity-matrix.md` still described them as "Experimental." Corrected across all three. Hermes specifically ships **deployed by default** (`agency-hermes` on Render) and is the default runtime for `code_generation` tasks — it's a thin HTTP wrapper over the same Internal Agent brain, woken and health-checked before every CEO delegation. Goose/Aider/OpenCode remain optional, undeployed sidecars.
+- **Telegram bot corrected to "disabled by default."** The bot was demoted to `disabled` in `features/matrix.py` per issue #467 pending an isolation/gating review, but docs still called it "Beta" / "stable, opt-in." Corrected.
+- **V5 Control Plane screen table refreshed** — added **Knowledge**, **Loops**, and **SAM** (voice command & control), which existed in the live dashboard nav but were missing from the README table; removed the standalone **Runtimes** row (folded into Agents + Doctor in an earlier release). Screen count corrected from 16 to 18.
+- **Broken links fixed**: `docs/configuration.md` → `docs/configuration-reference.md`; added the missing `LICENSE` file (the README and badge already declared MIT).
 
 ### 2026-06-26
 

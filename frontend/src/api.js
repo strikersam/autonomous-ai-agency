@@ -152,7 +152,13 @@ API.interceptors.response.use(
 );
 
 export function fmtErr(detail) {
-  if (detail == null) return 'Something went wrong.';
+  // Return null (not a hardcoded string) when there's no detail to format —
+  // every call site chains `api.fmtErr(...) || e?.message || 'fallback'`, and
+  // a truthy placeholder here would always win that chain, permanently
+  // hiding the more specific e.message (e.g. "timeout of 25000ms exceeded",
+  // "Network Error") and the call site's own descriptive fallback text
+  // behind a generic "Something went wrong."
+  if (detail == null) return null;
   if (typeof detail === 'string') return detail;
   if (detail.message) return detail.message;
   if (Array.isArray(detail)) return detail.map(e => {
@@ -418,6 +424,7 @@ export const provisionSpecialist = (id, data) => API.post(`/api/company/${id}/sp
 export const matchSpecialists = (id, systems) => API.post(`/api/company/${id}/specialists/match`, systems);
 export const getOnboardingProgress = (id) => API.get(`/api/company/${id}/onboarding`);
 export const startOnboarding = (id, data, config) => API.post(`/api/company/${id}/onboarding/start`, data, config);
+export const submitOnboardingAnswers = (id, data) => API.post(`/api/company/${id}/onboarding/answers`, data);
 export const pauseOnboarding = (id) => API.post(`/api/company/${id}/onboarding/pause`);
 export const resumeOnboarding = (id) => API.post(`/api/company/${id}/onboarding/resume`);
 export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/cancel`);
