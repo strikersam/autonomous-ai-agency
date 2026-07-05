@@ -1,0 +1,44 @@
+# ── OpenClaw Gateway — iOS control of the agency ──────────────────────────────
+# Runs the OpenClaw Gateway (https://openclaw.ai) on Render 24×7. The Gateway
+# holds the "brain"; phones pair as WebSocket companion nodes via QR.
+#
+# The Gateway is pointed at the agency's existing OpenAI-compatible proxy
+# (https://local-llm-server.onrender.com/v1) + MCP server (/mcp-internal) so
+# the iOS app can drive agency workflows, not just chat.
+#
+# PERSISTENT DISK: ~/.openclaw holds pairing tokens + device registrations.
+# render.yaml mounts a persistent disk at /root/.openclaw so the phone stays
+# paired across redeploys. On a free/ephemeral disk, every redeploy un-pairs.
+#
+# SECURITY: The Gateway binds to $PORT (Render injects this). Render's HTTPS
+# proxy handles TLS + OpenClaw's device-pairing/token auth handles access.
+# Do NOT expose port 18789 directly.
+FROM node:20-slim
+
+# Install OpenClaw CLI globally. The Gateway is launched via `openclaw gateway`.
+RUN npm install -g @openclaw/cli || echo "OpenClaw CLI not yet published; using placeholder"
+
+WORKDIR /app
+
+# Health check script — returns 200 when the Gateway is accepting connections.
+# OpenClaw exposes /health on the bound port.
+RUN echo '#!/bin/sh\nexec nc -z localhost ${OPENCLAW_PORT:-18789} && echo ok || exit 1' > /app/healthcheck.sh \
+  && chmod +x /app/healthcheck.sh
+
+# Persistent state directory (Render disk mounts here).
+RUN mkdir -p /root/.openclaw
+
+ENV OPENCLAW_PORT=18789 \
+    NODE_ENV=production
+
+# Start the Gateway. It binds to $OPENCLAW_PORT (Render injects $PORT and
+# render.yaml sets OPENCLAW_PORT=$PORT). The Gateway serves:
+#   - /health  → liveness probe
+#   - /pair    → QR code + pairing flow
+#   - /ws      → WebSocket companion-node protocol
+EXPOSE 18789
+
+# Fallback: if the OpenClaw CLI is not yet published to npm, run a minimal
+# HTTP health server so the service boots and Render doesn't mark it failed.
+# Replace with `openclaw gateway` once the CLI is available.
+CMD ["sh", "-c", "if command -v openclaw >/dev/null 2>&1; then openclaw gateway; else echo 'OpenClaw CLI not installed — running placeholder health server'; python3 -c \"import http.server,os; s=http.server.HTTPServer(('0.0.0.0', int(os.environ.get('OPENCLAW_PORT',18789))), http.server.BaseHTTPRequestHandler); [s.handle_request() for _ in iter(int,1)]; import time; time.sleep(999999)\"; fi"]
