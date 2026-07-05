@@ -139,6 +139,7 @@ def test_build_spec_company_id_e2b_off_unchanged(monkeypatch):
 def test_build_spec_company_id_e2b_on_with_repo_connection(monkeypatch):
     """company_id + E2B on + company has RepoConnection → spec.context wired."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test_token_xyz")
     repo_conn = _FakeRepoConnection(owner="acme", repo="platform", default_branch="main")
     company = _FakeCompany(repo_connection=repo_conn)
@@ -155,6 +156,7 @@ def test_build_spec_company_id_e2b_on_with_repo_connection(monkeypatch):
 def test_build_spec_company_id_e2b_on_no_repo_connection(monkeypatch):
     """company_id + E2B on + company has NO RepoConnection → spec.context unchanged."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     company = _FakeCompany(repo_connection=None)  # URL-only company
     store = _FakeCompanyGraphStore(company=company)
     coord = _build_coordinator(company_store=store)
@@ -166,6 +168,7 @@ def test_build_spec_company_id_e2b_on_no_repo_connection(monkeypatch):
 def test_build_spec_company_id_e2b_on_company_not_found(monkeypatch):
     """company_id + E2B on + company doesn't exist → spec.context unchanged."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     store = _FakeCompanyGraphStore(company=None)  # company not found
     coord = _build_coordinator(company_store=store)
     task = _make_task(company_id="comp_unknown")
@@ -176,6 +179,7 @@ def test_build_spec_company_id_e2b_on_company_not_found(monkeypatch):
 def test_build_spec_company_id_uses_custom_default_branch(monkeypatch):
     """company's RepoConnection.default_branch flows through to spec.context."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test_token")
     repo_conn = _FakeRepoConnection(owner="acme", repo="platform", default_branch="develop")
     company = _FakeCompany(repo_connection=repo_conn)
@@ -190,6 +194,7 @@ def test_build_spec_company_resolution_failure_is_graceful(monkeypatch):
     """If the company store raises, _build_spec must NOT crash — it logs and
     continues with the legacy (no repo_url) spec."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
 
     class _ExplodingStore:
         def get_company(self, company_id):
@@ -205,6 +210,7 @@ def test_build_spec_company_resolution_failure_is_graceful(monkeypatch):
 def test_build_spec_company_id_no_token_still_resolves(monkeypatch):
     """company_id + E2B on but no GITHUB_TOKEN → repo_url is set but token is empty."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
     repo_conn = _FakeRepoConnection(owner="acme", repo="platform")
@@ -223,6 +229,7 @@ def test_build_spec_company_id_no_token_still_resolves(monkeypatch):
 def test_resolve_company_repo_returns_none_when_not_found(monkeypatch):
     """_resolve_company_repo returns None when the company doesn't exist."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     store = _FakeCompanyGraphStore(company=None)
     coord = _build_coordinator(company_store=store)
     result = coord._resolve_company_repo("comp_unknown")
@@ -232,6 +239,7 @@ def test_resolve_company_repo_returns_none_when_not_found(monkeypatch):
 def test_resolve_company_repo_returns_none_when_no_connection(monkeypatch):
     """_resolve_company_repo returns None when the company has no RepoConnection."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     company = _FakeCompany(repo_connection=None)
     store = _FakeCompanyGraphStore(company=company)
     coord = _build_coordinator(company_store=store)
@@ -242,6 +250,7 @@ def test_resolve_company_repo_returns_none_when_no_connection(monkeypatch):
 def test_resolve_company_repo_returns_dict_when_resolved(monkeypatch):
     """_resolve_company_repo returns {repo_url, base_branch, github_token}."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test_token")
     repo_conn = _FakeRepoConnection(owner="acme", repo="platform", default_branch="main")
     company = _FakeCompany(repo_connection=repo_conn)

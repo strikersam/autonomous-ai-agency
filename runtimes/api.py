@@ -115,6 +115,65 @@ async def refresh_runtime_health() -> dict:
     return {"health": health, "message": "Health refresh complete"}
 
 
+@runtime_router.get("/e2b/status")
+async def e2b_status() -> dict:
+    """Return the E2B sandbox integration status for the ProvidersScreen badge.
+
+    Does NOT require authentication (the ProvidersScreen shows the badge
+    pre-login; the status is non-sensitive — enabled / sdk_installed / healthy
+    only, never the key).
+
+    Returns:
+        ``{enabled, sdk_installed, healthy, template, timeout_sec, error}``
+    """
+    try:
+        from services.e2b_config import (
+            e2b_enabled,
+            is_e2b_sdk_importable,
+            resolve_e2b_config,
+        )
+        from runtimes.adapters.e2b import E2BAdapter
+
+        enabled = e2b_enabled()
+        sdk_installed = is_e2b_sdk_importable()
+        cfg = resolve_e2b_config()
+
+        if not enabled or not sdk_installed or cfg is None:
+            return {
+                "enabled": enabled,
+                "sdk_installed": sdk_installed,
+                "healthy": False,
+                "template": cfg.template if cfg else "base",
+                "timeout_sec": cfg.timeout_sec if cfg else 300,
+                "error": None if enabled and sdk_installed else (
+                    "E2B_ENABLED=true required (experimental guardrail)"
+                    if not enabled and sdk_installed
+                    else "e2b-code-interpreter SDK not installed"
+                ),
+            }
+
+        # Live health check.
+        adapter = E2BAdapter()
+        health = await adapter.health_check()
+        return {
+            "enabled": True,
+            "sdk_installed": True,
+            "healthy": health.available,
+            "template": cfg.template,
+            "timeout_sec": cfg.timeout_sec,
+            "error": health.error,
+        }
+    except Exception as exc:
+        return {
+            "enabled": False,
+            "sdk_installed": False,
+            "healthy": False,
+            "template": "base",
+            "timeout_sec": 300,
+            "error": str(exc),
+        }
+
+
 _RICH_POLICY_KEY = "ui_routing_policy"
 
 

@@ -84,16 +84,28 @@ class _FakeFiles:
         self.written: dict[str, str] = {}
         self._read_contents: dict[str, str] = {}
 
-    async def write(self, path: str, content: str) -> None:
+    async def write(self, path: str, content) -> None:
+        # Handle both str and bytes content (SDK accepts both).
         self.written[path] = content
 
     async def read(self, path: str) -> str:
-        if path not in self._read_contents:
-            raise FileNotFoundError(path)
-        return self._read_contents[path]
+        # Try exact match first, then try resolving against SANDBOX_WORKDIR.
+        if path in self._read_contents:
+            return self._read_contents[path]
+        from services.e2b_sandbox import SANDBOX_WORKDIR
+        if not path.startswith("/"):
+            full = f"{SANDBOX_WORKDIR}/{path}"
+            if full in self._read_contents:
+                return self._read_contents[full]
+        raise FileNotFoundError(path)
 
     def seed_read(self, path: str, content: str) -> None:
+        # Seed under both the bare path and the resolved path so tests
+        # don't need to know the resolution rule.
+        from services.e2b_sandbox import SANDBOX_WORKDIR
         self._read_contents[path] = content
+        if not path.startswith("/"):
+            self._read_contents[f"{SANDBOX_WORKDIR}/{path}"] = content
 
 
 class _FakeSandbox:
@@ -180,6 +192,7 @@ def patched_async_sandbox(monkeypatch):
 @pytest.mark.asyncio
 async def test_session_open_and_close(monkeypatch, patched_async_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     session = E2BSandboxSession()
     await session.open()
     assert session.is_open is True
@@ -196,6 +209,7 @@ async def test_session_open_and_close(monkeypatch, patched_async_sandbox):
 async def test_session_open_raises_when_sdk_missing(monkeypatch):
     """When the SDK is missing, open() raises MCPUnavailableError."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     # Force is_e2b_sdk_importable to return False
     monkeypatch.setattr(e2b_config, "is_e2b_sdk_importable", lambda: False)
     session = E2BSandboxSession()
@@ -206,6 +220,7 @@ async def test_session_open_raises_when_sdk_missing(monkeypatch):
 @pytest.mark.asyncio
 async def test_session_open_raises_on_create_failure(monkeypatch, patched_async_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.raise_on_create = RuntimeError("quota exceeded")
     session = E2BSandboxSession()
     with pytest.raises(MCPUnavailableError) as exc_info:
@@ -216,6 +231,7 @@ async def test_session_open_raises_on_create_failure(monkeypatch, patched_async_
 @pytest.mark.asyncio
 async def test_session_close_is_idempotent(monkeypatch, patched_async_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     session = E2BSandboxSession()
     await session.open()
     await session.close()
@@ -229,19 +245,23 @@ async def test_session_close_is_idempotent(monkeypatch, patched_async_sandbox):
 @pytest.mark.asyncio
 async def test_call_tool_write_file(monkeypatch, patched_async_sandbox, fake_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
     session = E2BSandboxSession()
     await session.open()
     result = await session.call_tool("write_file", {"path": "test.py", "content": "print('hi')"})
-    assert "test.py" in fake_sandbox.files.written
-    assert fake_sandbox.files.written["test.py"] == "print('hi')"
-    assert "written" in result
+    # write_file resolves paths against SANDBOX_WORKDIR
+    from services.e2b_sandbox import SANDBOX_WORKDIR
+    expected_path = f"{SANDBOX_WORKDIR}/test.py"
+    assert expected_path in fake_sandbox.files.written
+    assert fake_sandbox.files.written[expected_path] == "print('hi')"
     assert "test.py" in result
 
 
 @pytest.mark.asyncio
 async def test_call_tool_read_file(monkeypatch, patched_async_sandbox, fake_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
     fake_sandbox.files.seed_read("existing.py", "print('existing')")
     session = E2BSandboxSession()
@@ -253,6 +273,7 @@ async def test_call_tool_read_file(monkeypatch, patched_async_sandbox, fake_sand
 @pytest.mark.asyncio
 async def test_call_tool_read_file_missing(monkeypatch, patched_async_sandbox, fake_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
     session = E2BSandboxSession()
     await session.open()
@@ -263,6 +284,7 @@ async def test_call_tool_read_file_missing(monkeypatch, patched_async_sandbox, f
 @pytest.mark.asyncio
 async def test_call_tool_run_command(monkeypatch, patched_async_sandbox, fake_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
     fake_sandbox.set_command_result("ls", _FakeCommandResult(stdout="file1\nfile2\n", exit_code=0))
     session = E2BSandboxSession()
@@ -276,6 +298,7 @@ async def test_call_tool_run_command(monkeypatch, patched_async_sandbox, fake_sa
 @pytest.mark.asyncio
 async def test_call_tool_unknown_tool_raises(monkeypatch, patched_async_sandbox, fake_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
     session = E2BSandboxSession()
     await session.open()
@@ -286,6 +309,7 @@ async def test_call_tool_unknown_tool_raises(monkeypatch, patched_async_sandbox,
 @pytest.mark.asyncio
 async def test_call_tool_when_not_open_raises(monkeypatch):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     session = E2BSandboxSession()
     # Don't call open() — call_tool should raise MCPUnavailableError
     with pytest.raises(MCPUnavailableError):
@@ -298,10 +322,11 @@ async def test_call_tool_when_not_open_raises(monkeypatch):
 @pytest.mark.asyncio
 async def test_call_tool_clone_repo_success(monkeypatch, patched_async_sandbox, fake_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_secret_token_abc")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
     fake_sandbox.set_command_result("git clone", _FakeCommandResult(stdout="", exit_code=0))
-    fake_sandbox.set_command_result("git -C repo remote set-url", _FakeCommandResult(stdout="", exit_code=0))
+    fake_sandbox.set_command_result("git -C /home/user/repo remote set-url", _FakeCommandResult(stdout="", exit_code=0))
     session = E2BSandboxSession()
     await session.open()
     result = await session.call_tool("clone_repo", {
@@ -325,6 +350,7 @@ async def test_call_tool_clone_repo_success(monkeypatch, patched_async_sandbox, 
 async def test_call_tool_clone_repo_no_token(monkeypatch, patched_async_sandbox, fake_sandbox):
     """clone_repo without a GitHub token uses the bare URL (no injection)."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
@@ -345,6 +371,7 @@ async def test_call_tool_clone_repo_no_token(monkeypatch, patched_async_sandbox,
 async def test_call_tool_clone_repo_scrubs_token_from_error(monkeypatch, patched_async_sandbox, fake_sandbox):
     """A git clone failure must not leak the token via stderr in the error."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_secret_token_xyz")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
     fake_sandbox.set_command_result(
@@ -369,9 +396,10 @@ async def test_call_tool_clone_repo_scrubs_token_from_error(monkeypatch, patched
 @pytest.mark.asyncio
 async def test_call_tool_git_commit(monkeypatch, patched_async_sandbox, fake_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
-    fake_sandbox.set_command_result("git -C repo add", _FakeCommandResult(stdout="", exit_code=0))
-    fake_sandbox.set_command_result("git -C repo commit", _FakeCommandResult(stdout="", exit_code=0))
+    fake_sandbox.set_command_result("git -C /home/user/repo add", _FakeCommandResult(stdout="", exit_code=0))
+    fake_sandbox.set_command_result("git -C /home/user/repo commit", _FakeCommandResult(stdout="", exit_code=0))
     session = E2BSandboxSession()
     await session.open()
     result = await session.call_tool("git_commit", {"message": "test commit"})
@@ -382,12 +410,13 @@ async def test_call_tool_git_commit(monkeypatch, patched_async_sandbox, fake_san
 @pytest.mark.asyncio
 async def test_call_tool_git_push_scrubs_token(monkeypatch, patched_async_sandbox, fake_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_push_token_abc")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
     # First call: get-url returns the clean URL
-    fake_sandbox.set_command_result("git -C repo remote get-url", _FakeCommandResult(stdout="https://github.com/owner/repo\n", exit_code=0))
-    fake_sandbox.set_command_result("git -C repo remote set-url", _FakeCommandResult(stdout="", exit_code=0))
-    fake_sandbox.set_command_result("git -C repo push", _FakeCommandResult(stdout="", exit_code=0))
+    fake_sandbox.set_command_result("git -C /home/user/repo remote get-url", _FakeCommandResult(stdout="https://github.com/owner/repo\n", exit_code=0))
+    fake_sandbox.set_command_result("git -C /home/user/repo remote set-url", _FakeCommandResult(stdout="", exit_code=0))
+    fake_sandbox.set_command_result("git -C /home/user/repo push", _FakeCommandResult(stdout="", exit_code=0))
     session = E2BSandboxSession()
     await session.open()
     result = await session.call_tool("git_push", {"branch": "feature-x"})
@@ -409,8 +438,9 @@ async def test_call_tool_git_push_scrubs_token(monkeypatch, patched_async_sandbo
 @pytest.mark.asyncio
 async def test_call_tool_git_diff(monkeypatch, patched_async_sandbox, fake_sandbox):
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
-    fake_sandbox.set_command_result("git -C repo diff", _FakeCommandResult(stdout="diff content here", exit_code=0))
+    fake_sandbox.set_command_result("git -C /home/user/repo diff", _FakeCommandResult(stdout="diff content here", exit_code=0))
     session = E2BSandboxSession()
     await session.open()
     result = await session.call_tool("git_diff", {})
@@ -440,6 +470,7 @@ async def test_maybe_attach_e2b_disabled_returns_none(monkeypatch):
 async def test_maybe_attach_e2b_sdk_missing_returns_none(monkeypatch):
     """When the SDK is missing, maybe_attach_e2b returns None (graceful degradation)."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setattr(e2b_config, "is_e2b_sdk_importable", lambda: False)
     runner = _FakeRunner()
     result = await maybe_attach_e2b(runner)
@@ -451,6 +482,7 @@ async def test_maybe_attach_e2b_sdk_missing_returns_none(monkeypatch):
 async def test_maybe_attach_e2b_open_failure_returns_none(monkeypatch, patched_async_sandbox):
     """When sandbox open fails, maybe_attach_e2b returns None and runner._mcp untouched."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.raise_on_create = RuntimeError("network down")
     runner = _FakeRunner()
     result = await maybe_attach_e2b(runner)
@@ -462,6 +494,7 @@ async def test_maybe_attach_e2b_open_failure_returns_none(monkeypatch, patched_a
 async def test_maybe_attach_e2b_success(monkeypatch, patched_async_sandbox, fake_sandbox):
     """When everything works, runner._mcp is set to the session and the session is returned."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.next_sandbox = fake_sandbox
     runner = _FakeRunner()
     prior_mcp = object()

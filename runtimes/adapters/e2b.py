@@ -290,7 +290,33 @@ class E2BAdapter(RuntimeAdapter):
                 except Exception as exc:
                     log.warning("E2B agent retry after pytest failure errored: %s", exc)
 
-        # ── Extract diff via git_diff ─────────────────────────────────────
+        # ── Land changes via in-sandbox git_commit + git_push ─────────────
+        # For the company-repo flow, commit and push the sandbox changes to
+        # a branch so they land as a PR (roadmap ★5: "only extracted diffs
+        # escape to host" — here the "diff" lands directly on the repo via
+        # git push, not via a host-side write).
+        pushed_branch: str | None = None
+        if repo_url and (spec.context or {}).get("github_token"):
+            try:
+                # Create a feature branch for the changes.
+                branch_name = f"e2b-agent/{spec.task_id[:40]}"
+                await session.call_tool("run_command", {
+                    "cmd": f"git checkout -b {branch_name}",
+                    "timeout": 10,
+                })
+                await session.call_tool("git_commit", {
+                    "message": f"agent: {spec.instruction[:200]}",
+                })
+                await session.call_tool("git_push", {
+                    "branch": branch_name,
+                    "github_token": (spec.context or {}).get("github_token"),
+                })
+                pushed_branch = branch_name
+                log.info("E2B changes pushed to branch %s", branch_name)
+            except Exception as exc:
+                log.warning("E2B in-sandbox git push failed (best-effort): %s", exc)
+
+        # ── Extract diff via git_diff for metadata ────────────────────────
         diff = ""
         if repo_url:
             try:
@@ -306,6 +332,7 @@ class E2BAdapter(RuntimeAdapter):
             "test_passed": test_passed,
             "test_output_excerpt": test_output[:2000] if test_output else "",
             "diff_excerpt": diff[:2000] if diff else "",
+            "pushed_branch": pushed_branch,
         }
         # The list of changed files is what the coordinator surfaces in the
         # task discussion comment. When the agent ran inside E2B against a
@@ -346,13 +373,16 @@ class E2BAdapter(RuntimeAdapter):
     async def _run_in_sandbox_pytest(self, session: E2BSandboxSession) -> tuple[str, bool]:
         """Run ``pytest`` inside the sandbox. Returns ``(output, passed)``.
 
+        ``run_command`` already cds to ``SANDBOX_WORKDIR`` (/home/user/repo),
+        so pytest runs against the cloned/edited code directly.
+
         Best-effort: if pytest is not installed in the sandbox template, or
         there are no tests, returns ``("", True)`` so the verifier is a no-op
         rather than a hard failure.
         """
         try:
             raw = await session.call_tool("run_command", {
-                "cmd": "cd repo && python -m pytest -x --tb=short 2>&1 | tail -200",
+                "cmd": "python -m pytest -x --tb=short 2>&1 | tail -200",
                 "timeout": 120,
             })
         except Exception as exc:

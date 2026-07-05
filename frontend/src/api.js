@@ -290,14 +290,12 @@ export const stopRuntime = (runtimeId) => API.post(`/runtimes/${runtimeId}/stop`
 export const startAllRuntimes = () => API.post('/runtimes/start-all');
 export const stopAllRuntimes = () => API.post('/runtimes/stop-all');
 
-// E2B sandbox integration status (roadmap ★5). Mirrors /runtimes/health but
-// filtered to the 'e2b' runtime so the Providers screen can show a live
-// enabled/health badge without re-fetching every runtime on every render.
-// Falls back gracefully (returns null) if the endpoint is not yet wired on
-// the backend — the UI then shows "Status unknown".
+// E2B sandbox integration status (roadmap ★5). Backend endpoint at
+// /runtimes/e2b/status returns {enabled, sdk_installed, healthy, template,
+// timeout_sec, error}. Falls back gracefully (returns null) on network error.
 export const getE2BStatus = async () => {
   try {
-    const { data } = await API.get('/runtimes/e2b/health');
+    const { data } = await API.get('/runtimes/e2b/status');
     return data;
   } catch (e) {
     return null;

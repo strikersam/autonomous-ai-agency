@@ -49,6 +49,7 @@ async def test_health_unavailable_without_key(monkeypatch):
 async def test_health_unavailable_with_kill_switch(monkeypatch):
     """E2B_ENABLED=false wins over a present key."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     monkeypatch.setenv("E2B_ENABLED", "false")
     adapter = E2BAdapter()
     health = await adapter.health_check()
@@ -59,6 +60,7 @@ async def test_health_unavailable_with_kill_switch(monkeypatch):
 async def test_health_unavailable_when_sdk_missing(monkeypatch):
     """Key present but SDK missing → unavailable with a clear error."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     # Patch in BOTH the config module and the adapter module (the adapter
     # imports the function directly into its own namespace via `from ... import`).
     monkeypatch.setattr(e2b_config, "is_e2b_sdk_importable", lambda: False)
@@ -74,6 +76,7 @@ async def test_health_unavailable_when_sdk_missing(monkeypatch):
 async def test_health_available_when_configured(monkeypatch):
     """Key present + SDK importable → available with template/timeout details."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     adapter = E2BAdapter()
     health = await adapter.health_check()
     assert health.available is True
@@ -220,6 +223,7 @@ def patched_agent_runner(monkeypatch):
 async def test_execute_happy_path(monkeypatch, patched_async_sandbox, patched_agent_runner):
     """execute() opens a sandbox, runs the agent, returns a TaskResult."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     captured, _ = patched_agent_runner
     adapter = E2BAdapter()
     spec = TaskSpec(
@@ -244,6 +248,7 @@ async def test_execute_happy_path(monkeypatch, patched_async_sandbox, patched_ag
 async def test_execute_with_repo_url_clones(monkeypatch, patched_async_sandbox, patched_agent_runner):
     """When spec.context['repo_url'] is set, execute() clones it into the sandbox."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.next_sandbox = _FakeSandbox()
     # Stub git clone success
     _FakeAsyncSandboxClass.next_sandbox.commands.set_result("git clone", _FakeCommandResult(exit_code=0))
@@ -278,6 +283,7 @@ async def test_execute_with_repo_url_clones(monkeypatch, patched_async_sandbox, 
 async def test_execute_in_sandbox_pytest_retry(monkeypatch, patched_async_sandbox, patched_agent_runner):
     """When in-sandbox pytest fails, execute() retries once with failure feedback."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     fake_sb = _FakeSandbox()
     _FakeAsyncSandboxClass.next_sandbox = fake_sb
     # First pytest call fails, second passes
@@ -332,6 +338,7 @@ async def test_execute_sandbox_open_failure_raises(monkeypatch, patched_async_sa
     """When sandbox open fails, execute() raises RuntimeExecutionError (so the
     coordinator can fall back to internal_agent)."""
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
+    monkeypatch.setenv("E2B_ENABLED", "true")
     _FakeAsyncSandboxClass.raise_on_create = RuntimeError("quota exceeded")
     adapter = E2BAdapter()
     spec = TaskSpec(task_id="task-5", instruction="do something", context={})

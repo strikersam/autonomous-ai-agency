@@ -10,14 +10,21 @@ Mirrors the helper style in ``packages/ai/brain.py`` (``allow_paid_brain``,
 dataclass (or ``None`` when unconfigured), so callers can short-circuit without
 ever touching the secret-bearing env.
 
-Activation rule (matches the user decision in the E2B integration plan):
+Activation rule (updated post-data-flow-fix — E2B is EXPERIMENTAL until the
+host↔sandbox↔repo data flow is proven on the live deploy):
 
-  * Auto-on whenever ``E2B_API_KEY`` is set AND ``E2B_ENABLED`` is not
-    explicitly ``false``.
-  * Also auto-on when ``AGENT_SANDBOX_MODE=e2b`` (the roadmap ★5 kill-switch)
-    is set together with the key.
-  * Graceful fallback: callers that get ``None`` (no key) skip E2B and use
-    today's local / MCP path — no behaviour change when E2B is off.
+  * **Explicit opt-in required**: ``E2B_ENABLED=true`` or
+    ``RUNTIME_E2B_ENABLED=true`` must be set. A bare ``E2B_API_KEY`` no longer
+    auto-enables E2B — the previous auto-on behaviour silently activated a
+    broken execution path (host writes bypassed the sandbox, sandbox writes
+    were destroyed on close, reads couldn't see the cloned repo). This
+    guardrail ensures operators consciously opt in until the data-flow fixes
+    are verified end-to-end on the live deploy.
+  * ``E2B_ENABLED=false`` is still honoured as an explicit kill-switch.
+  * ``AGENT_SANDBOX_MODE=e2b`` is also honoured as an alt activation signal
+    (the roadmap ★5 kill-switch), but still requires ``E2B_API_KEY``.
+  * Graceful fallback: callers that get ``None`` skip E2B and use today's
+    local / MCP path — no behaviour change when E2B is off.
 
 The key is NEVER persisted, NEVER logged, NEVER returned to a frontend. The
 returned :class:`E2BConfig` carries it only for in-process SDK calls and is
@@ -93,25 +100,38 @@ def _sandbox_mode_e2b() -> bool:
 def e2b_enabled() -> bool:
     """Return ``True`` when E2B sandboxing should be activated.
 
-    Activation requires:
-      1. ``E2B_API_KEY`` present and non-empty (the actual reader is in
-         :func:`resolve_e2b_config`, but we mirror the rule here so callers can
-         do a cheap bool check without paying for the dataclass allocation).
-      2. ``E2B_ENABLED`` not explicitly ``false`` (operator kill-switch).
+    **EXPERIMENTAL guardrail** (post-data-flow-fix): E2B requires explicit
+    opt-in via ``E2B_ENABLED=true`` or ``RUNTIME_E2B_ENABLED=true``. A bare
+    ``E2B_API_KEY`` no longer auto-enables — the previous auto-on behaviour
+    silently activated a broken execution path. Operators must consciously
+    opt in until the host↔sandbox↔repo data flow is verified on the live
+    deploy.
 
-    When ``E2B_ENABLED=true`` is set but no key is present, returns ``False``
-    — the key is the activation signal, the flag is only the opt-out.
+    Activation requires ALL of:
+      1. ``E2B_ENABLED`` is not explicitly ``false`` (kill-switch).
+      2. ``E2B_ENABLED=true`` OR ``RUNTIME_E2B_ENABLED=true`` OR
+         ``AGENT_SANDBOX_MODE=e2b`` (explicit opt-in).
+      3. ``E2B_API_KEY`` is present and non-empty (checked in
+         :func:`resolve_e2b_config`; ``e2b_enabled`` only gates the
+         behavioural switch, the key gates the actual config resolution).
     """
     if _env_falsy("E2B_ENABLED"):
         # Explicit opt-out wins over everything (including AGENT_SANDBOX_MODE).
         return False
-    key = (os.environ.get("E2B_API_KEY") or "").strip()
-    if not key:
+    # Require explicit opt-in: E2B_ENABLED=true, RUNTIME_E2B_ENABLED=true,
+    # or AGENT_SANDBOX_MODE=e2b. A bare key is NOT enough.
+    explicit_opt_in = (
+        _env_truthy("E2B_ENABLED")
+        or _env_truthy("RUNTIME_E2B_ENABLED")
+        or _sandbox_mode_e2b()
+    )
+    if not explicit_opt_in:
         return False
-    # Key present and not explicitly disabled → enabled. The optional
-    # AGENT_SANDBOX_MODE=e2b is also honoured (it's the canonical roadmap
-    # kill-switch), but a bare key already enables E2B per the user decision.
-    return True
+    # Key presence is checked by resolve_e2b_config(); here we only return
+    # True so callers know they should attempt E2B. The actual key read
+    # happens in resolve_e2b_config() (the single env reader).
+    key = (os.environ.get("E2B_API_KEY") or "").strip()
+    return bool(key)
 
 
 def resolve_e2b_config() -> E2BConfig | None:
@@ -123,10 +143,11 @@ def resolve_e2b_config() -> E2BConfig | None:
     key never escapes this module's dataclass.
 
     Returns ``None`` when:
+      * E2B is not explicitly enabled (see :func:`e2b_enabled`).
       * ``E2B_API_KEY`` is unset / empty.
       * ``E2B_ENABLED=false`` is explicitly set (kill-switch).
     """
-    if _env_falsy("E2B_ENABLED"):
+    if not e2b_enabled():
         return None
     key = (os.environ.get("E2B_API_KEY") or "").strip()
     if not key:

@@ -367,14 +367,22 @@ class InternalAgentAdapter(RuntimeAdapter):
         started = time.perf_counter()
 
         # ── E2B sandbox attach (roadmap ★5) ────────────────────────────────
-        # When E2B is enabled (E2B_API_KEY set, E2B_ENABLED not false, SDK
+        # When E2B is enabled (E2B_ENABLED=true, E2B_API_KEY set, SDK
         # importable), open a Firecracker micro-VM and attach it as
-        # runner._mcp so every write_file / run_command / git_commit /
-        # git_push / clone_repo executes inside the sandbox instead of
-        # against the host worktree. Falls back gracefully to today's local
-        # path when E2B is unavailable — maybe_attach_e2b returns None and
-        # the runner keeps its original (None) _mcp, routing through the
-        # local WorkspaceTools as before.
+        # runner._mcp so every write_file / read_file / run_command /
+        # apply_diff / git_commit / git_push / clone_repo executes inside
+        # the sandbox instead of against the host worktree.
+        #
+        # Data-flow (post-fix):
+        #   1. Seed the sandbox from the host worktree (tar tracked files
+        #      into the sandbox's /home/user/repo).
+        #   2. Run the agent — all reads/writes/commands hit the sandbox.
+        #   3. Extract changed files back to the host worktree so the
+        #      existing changed_files collection + auto-commit work.
+        #
+        # Falls back gracefully to today's local path when E2B is
+        # unavailable — maybe_attach_e2b returns None and the runner
+        # keeps its original (None) _mcp, routing through local WorkspaceTools.
         _e2b_session = None
         try:
             from services.e2b_sandbox import maybe_attach_e2b
@@ -382,6 +390,20 @@ class InternalAgentAdapter(RuntimeAdapter):
         except Exception as _e2b_exc:  # pragma: no cover - defensive
             self._log.debug("E2B attach failed; using local tools: %s", _e2b_exc)
             _e2b_session = None
+
+        # Seed the sandbox from the host worktree so the agent can read
+        # the files it's meant to edit. Only seed when there's no repo_url
+        # in the context (the company-repo flow clones its own repo).
+        if _e2b_session is not None and not spec.context.get("repo_url"):
+            try:
+                seeded = await _e2b_session.seed_from_worktree(worktree_path)
+                if not seeded:
+                    self._log.debug(
+                        "E2B seed_from_worktree returned False; agent will run "
+                        "against an empty sandbox (reads may fail)"
+                    )
+            except Exception as exc:  # pragma: no cover - best-effort
+                self._log.debug("E2B seed failed (best-effort): %s", exc)
 
         try:
             # Resolve model: prefer spec → Nvidia default → leave None (auto)
@@ -422,7 +444,20 @@ class InternalAgentAdapter(RuntimeAdapter):
             raise RuntimeExecutionError(self.RUNTIME_ID, str(exc), spec.task_id) from exc
 
         # Close the E2B sandbox now that the agent run is complete (best-effort).
+        # Before closing, extract changed files from the sandbox back to the
+        # host worktree so the existing changed_files collection + auto-commit
+        # see the sandbox's edits. This is the "writes go to sandbox, diffs
+        # escape to host" model made real.
         if _e2b_session is not None:
+            try:
+                extracted = await _e2b_session.extract_changes_to_worktree(worktree_path)
+                if extracted:
+                    self._log.info(
+                        "E2B: extracted %d changed files from sandbox to %s",
+                        len(extracted), worktree_path,
+                    )
+            except Exception as exc:  # pragma: no cover - best-effort
+                self._log.debug("E2B extract failed (best-effort): %s", exc)
             try:
                 await _e2b_session.close()
             except Exception:  # pragma: no cover - best-effort
