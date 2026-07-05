@@ -242,7 +242,7 @@ async def run_task_on_runtime(
     except RuntimePreflightError as exc:
         raise HTTPException(status_code=412, detail=exc.report.as_dict()) from exc
     except RuntimeUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail="Internal server error") from exc
     except RuntimeExecutionError:
         # Log internally for debugging; return sanitized message to caller
         log.exception("Runtime execution error for %s", runtime_id)

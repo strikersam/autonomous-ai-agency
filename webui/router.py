@@ -262,7 +262,7 @@ def register_webui(
             }
         except Exception as exc:
             log.warning("route preview failed: %s", exc)
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            raise HTTPException(status_code=503, detail="Internal server error") from exc
 
     @router.get("/workspaces")
     async def list_workspaces(request: Request, _: Any = Depends(verify_user)):
@@ -536,7 +536,7 @@ def register_webui(
         try:
             ws = mgr.create(body)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail="Internal server error") from exc
         return {"workspace": ws.model_dump(), "admin": _admin_out(admin)}
 
     @admin_router.patch("/workspaces/{workspace_id}")
@@ -570,11 +570,11 @@ def register_webui(
         try:
             result = mgr.sync_git(workspace_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail="Internal server error") from exc
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail="Internal server error") from exc
         except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            raise HTTPException(status_code=503, detail="Internal server error") from exc
         return {"result": result, "admin": _admin_out(admin)}
 
     @admin_router.post("/commands/run")
@@ -590,7 +590,7 @@ def register_webui(
                 timeout_sec=body.timeout_sec,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail="Internal server error") from exc
         except subprocess.TimeoutExpired:  # type: ignore[name-defined]
             raise HTTPException(status_code=408, detail="Command timed out")
         return {"result": result, "admin": _admin_out(admin)}

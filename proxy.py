@@ -1074,7 +1074,7 @@ async def admin_control(
 
     except ValueError as exc:
 
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Internal server error") from exc
 
     result["admin"] = {"username": admin.username}
 
