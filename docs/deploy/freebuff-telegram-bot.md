@@ -75,7 +75,7 @@ These are marked `sync:false` in `render.yaml`, so you set them once:
 
 Already defaulted in `render.yaml` (no action needed): `FREEBUFF_EMBEDDED=true`,
 `AGENCY_WORKFLOW_MODE=legacy`, `AGENT_AUTO_PR_ENABLED=true`,
-`FREEBUFF_REPO_URL=https://github.com/strikersam/local-llm-server`,
+`FREEBUFF_REPO_URL=https://github.com/strikersam/autonomous-ai-agency`,
 `FREEBUFF_BASE_BRANCH=master`.
 
 > **Note:** Render env vars are per-service. The `NVIDIA_API_KEY` on your existing
@@ -104,12 +104,83 @@ docker run -d --name freebuff-bot --restart unless-stopped \
   -e TELEGRAM_ADMIN_USER_IDS=8120976 \
   -e NVIDIA_API_KEY=nvapi-xxx \
   -e GITHUB_TOKEN=ghp_xxx \
-  -e FREEBUFF_REPO_URL=https://github.com/strikersam/local-llm-server \
+  -e FREEBUFF_REPO_URL=https://github.com/strikersam/autonomous-ai-agency \
   freebuff-bot
 ```
 
 `--restart unless-stopped` keeps it running 24×7 across reboots. Check logs with
 `docker logs -f freebuff-bot`.
+
+---
+
+## Troubleshooting (bot is silent)
+
+If the bot doesn't respond to your Telegram messages, check these in order:
+
+### 1. Hit the diagnostic endpoint
+
+```bash
+curl -s https://local-llm-server.onrender.com/api/telegram/diag | python3 -m json.tool
+```
+
+This returns a non-sensitive snapshot of the bot's runtime config (token masked,
+allowlist IDs, poller state, repo URL, keepalive flag). Verify:
+- `bot_token_set` is `true`
+- `allowed_user_ids` contains your numeric Telegram ID (message [@userinfobot](https://t.me/userinfobot) to get it)
+- `poller_disabled` is `false` on the service that should poll
+- `freebuff_repo_url` is `https://github.com/strikersam/autonomous-ai-agency` (not `local-llm-server`)
+
+### 2. Single-poller guard (409 conflict)
+
+Telegram allows only ONE `getUpdates` consumer per bot token. If both the web
+service (`RUN_TELEGRAM_BOT=true`) and the worker (`TELEGRAM_POLLER_DISABLED=false`)
+poll the same token, you get a 409/429 conflict storm and the bot goes silent.
+
+**Fix — pick one:**
+- **Option 1 (recommended):** Give the worker its OWN bot token (create a second
+  bot via @BotFather), set `TELEGRAM_POLLER_DISABLED=false` on the worker, and
+  set `RUN_TELEGRAM_BOT=false` on the web service. Each service polls its own
+  token — no conflict.
+- **Option 2 (single-bot):** Keep the worker's `TELEGRAM_POLLER_DISABLED=true`
+  and rely on the web service's `RUN_TELEGRAM_BOT=true` + `BOT_KEEPALIVE=true`
+  self-ping to keep the free web dyno awake. Verify `BOT_KEEPALIVE` is actually
+  pinging `/api/ping` every 10 min (check Render logs for "keepalive ping").
+  If the web dyno sleeps, the bot goes silent.
+- **Option 3 (paid):** Upgrade the web service to a paid plan so it never
+  sleeps — keepalive is not needed.
+
+### 3. Webhook set → long-poll blocked
+
+If `getUpdates` returns 409 "Conflict: terminated by other getUpdates request",
+a webhook may be set. The bot calls `deleteWebhook` on startup, but if the
+conflict persists, run manually:
+
+```bash
+curl -s "https://api.telegram.org/bot<YOUR_TOKEN>/deleteWebhook"
+```
+
+Then restart the bot and confirm the startup log line:
+```
+Cleared any existing webhook (deleteWebhook ok=True).
+Bot @<yourbot> online.
+```
+
+### 4. Validate the token
+
+```bash
+curl -s "https://api.telegram.org/bot<YOUR_TOKEN>/getMe" | python3 -m json.tool
+```
+
+If this fails with 401, the token is wrong or revoked. Create a new one via
+@BotFather → `/revoke` → `/newbot`.
+
+### 5. Check allowed IDs
+
+If the bot is online but doesn't respond to YOUR messages (only silently drops
+them), your numeric Telegram user ID is not in the allowlist. Message
+[@userinfobot](https://t.me/userinfobot) to get your ID, then set:
+- `TELEGRAM_CHAT_ID=<your_numeric_id>` (single-operator shortcut — falls back
+  for both `TELEGRAM_ALLOWED_USER_IDS` and `TELEGRAM_ADMIN_USER_IDS`)
 
 ---
 

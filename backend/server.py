@@ -6344,7 +6344,7 @@ async def platform_info(user: dict = Depends(get_current_user)):
         "langfuse_configured": bool(LANGFUSE_PK and LANGFUSE_SK),
         "langfuse_url": LANGFUSE_BASE,
         "ollama_base": OLLAMA_BASE,
-        "github_repo": "https://github.com/strikersam/local-llm-server",
+        "github_repo": "https://github.com/strikersam/autonomous-ai-agency",
     }
 
 
@@ -6352,6 +6352,56 @@ async def platform_info(user: dict = Depends(get_current_user)):
 async def ping() -> dict[str, object]:
     """Lightweight liveness probe — no external I/O."""
     return {"status": "ok", "pong": True}
+
+
+@app.get("/api/telegram/diag")
+async def telegram_diag() -> dict[str, object]:
+    """Telegram bot diagnostic endpoint — surfaces the bot's runtime config.
+
+    Returns a non-sensitive snapshot so an operator can diagnose silent-drop /
+    401 / 409 / poller issues from a browser or curl, without grepping logs.
+
+    No authentication required (the endpoint returns no secrets — the bot token
+    is masked to its first 8 chars). Use this to verify:
+      * Is the bot enabled? (RUN_TELEGRAM_BOT)
+      * Is the poller running? (TELEGRAM_POLLER_DISABLED)
+      * Is the allowlist configured? (TELEGRAM_ALLOWED_USER_IDS / TELEGRAM_CHAT_ID)
+      * Is the repo URL correct? (FREEBUFF_REPO_URL)
+      * Is keepalive on? (BOT_KEEPALIVE)
+    """
+    import os as _os
+
+    def _mask(val: str | None) -> str:
+        if not val:
+            return "(unset)"
+        if len(val) <= 8:
+            return "***"
+        return val[:8] + "..."
+
+    token = _os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = _os.environ.get("TELEGRAM_CHAT_ID", "")
+    allowed = _os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "")
+    admins = _os.environ.get("TELEGRAM_ADMIN_USER_IDS", "")
+
+    return {
+        "run_telegram_bot": _os.environ.get("RUN_TELEGRAM_BOT", "false").strip().lower() in ("true", "1", "yes", "on"),
+        "poller_disabled": _os.environ.get("TELEGRAM_POLLER_DISABLED", "false").strip().lower() in ("true", "1", "yes", "on"),
+        "bot_token_set": bool(token),
+        "bot_token_prefix": _mask(token),
+        "chat_id": chat_id or "(unset)",
+        "allowed_user_ids": allowed or chat_id or "(unset)",
+        "admin_user_ids": admins or chat_id or "(unset)",
+        "freebuff_repo_url": _os.environ.get("FREEBUFF_REPO_URL", "(unset)"),
+        "freebuff_base_branch": _os.environ.get("FREEBUFF_BASE_BRANCH", "master"),
+        "bot_keepalive": _os.environ.get("BOT_KEEPALIVE", "false").strip().lower() in ("true", "1", "yes", "on"),
+        "freebuff_embedded": _os.environ.get("FREEBUFF_EMBEDDED", "false").strip().lower() in ("true", "1", "yes", "on"),
+        "render_external_url": _os.environ.get("RENDER_EXTERNAL_URL", "(unset)"),
+        "diagnostic_hints": {
+            "bot_silent": "If the bot is silent: (1) check bot_token_set is true; (2) check allowed_user_ids contains your numeric Telegram ID (message @userinfobot to get it); (3) check poller_disabled is false on the service that should poll; (4) only ONE service may poll a given token (409 conflict otherwise); (5) if on free tier, verify BOT_KEEPALIVE=true and /api/ping is reachable.",
+            "stale_repo": "If FREEBUFF_REPO_URL points at strikersam/local-llm-server, repoint to strikersam/autonomous-ai-agency (the repo was renamed).",
+            "webhook_conflict": "If getUpdates returns 409 'conflict', a webhook is set. The bot calls deleteWebhook on startup; if the conflict persists, run: curl -s 'https://api.telegram.org/bot<TOKEN>/deleteWebhook' manually.",
+        },
+    }
 
 
 @app.get("/api/kpi/public")

@@ -416,8 +416,10 @@ services:
         value: "true"
       - key: AGENT_AUTO_PR_ENABLED
         value: "true"
+      # FREEBUFF_REPO_URL — the repo the bot clones, edits, and opens PRs against.
+      # Was strikersam/local-llm-server (pre-rebrand); now autonomous-ai-agency.
       - key: FREEBUFF_REPO_URL
-        value: "https://github.com/strikersam/local-llm-server"
+        value: "https://github.com/strikersam/autonomous-ai-agency"
       - key: FREEBUFF_BASE_BRANCH
         value: "master"
       - key: BOT_KEEPALIVE
@@ -553,12 +555,21 @@ services:
       - key: TELEGRAM_ADMIN_USER_IDS
         sync: false
       # Single-poller guard (issue #656): Telegram allows only ONE getUpdates
-      # consumer per bot token. The web service (local-llm-server) owns the
-      # long-poll because it also runs the WorkflowOrchestrator in-process
-      # (RUN_BACKGROUND_IN_WEB=true), which the G1 approval-gate Approve/Reject
-      # callbacks need. If this worker shares the same TELEGRAM_BOT_TOKEN, keep
-      # this "true" so it does NOT poll (avoids the 409/429 conflict storm).
-      # Give it a SEPARATE bot token and set this to "false" to run two bots.
+      # consumer per bot token. Two services polling the same token get a
+      # 409/429 conflict storm and the bot goes silent.
+      #
+      # TO FIX THE TELEGRAM BOT (if it's silent):
+      #   Option 1 (recommended): give this worker its OWN bot token (create a
+      #     second bot via @BotFather), set TELEGRAM_POLLER_DISABLED=false here,
+      #     and set RUN_TELEGRAM_BOT=false on the web service. Each service
+      #     polls its own token — no conflict.
+      #   Option 2 (single-bot): keep this worker's TELEGRAM_POLLER_DISABLED=true
+      #     and rely on the web service's RUN_TELEGRAM_BOT=true + BOT_KEEPALIVE
+      #     self-ping to keep the free web dyno awake. Verify BOT_KEEPALIVE is
+      #     actually pinging /api/ping every 10 min (check Render logs for
+      #     "keepalive ping" lines). If the web dyno sleeps, the bot goes silent.
+      #   Option 3 (paid): upgrade the web service to a paid plan so it never
+      #     sleeps, then the keepalive is not needed.
       - key: TELEGRAM_POLLER_DISABLED
         value: "true"
       # FreeBuff embedded-mode config
@@ -568,8 +579,10 @@ services:
         value: "legacy"
       - key: AGENT_AUTO_PR_ENABLED
         value: "true"
+      # FREEBUFF_REPO_URL — was strikersam/local-llm-server (pre-rebrand);
+      # now autonomous-ai-agency.
       - key: FREEBUFF_REPO_URL
-        value: "https://github.com/strikersam/local-llm-server"
+        value: "https://github.com/strikersam/autonomous-ai-agency"
       - key: FREEBUFF_BASE_BRANCH
         value: "master"
       # Optional: override the free-model list (comma-separated)
@@ -638,3 +651,58 @@ services:
       # Storage
       - key: STORAGE_BACKEND
         value: "sqlite"
+
+  # ── OpenClaw Gateway (iOS control of the agency) ──────────────────────────
+  # OpenClaw (https://openclaw.ai) is a self-hosted Gateway + native iOS/Android
+  # app. The Gateway holds the "brain"; phones pair as WebSocket companion nodes
+  # via `openclaw pair qr` (QR encodes gateway host + pairing token). This
+  # service runs the Gateway 24×7, pointed at the agency's existing OpenAI-
+  # compatible proxy + MCP server so the iOS app can drive agency workflows.
+  #
+  # PERSISTENT DISK REQUIRED: ~/.openclaw holds pairing tokens and device
+  # registrations. On a free/ephemeral disk, every redeploy un-pairs the phone
+  # and you must re-scan the QR. Mount a persistent disk (see disk: block below)
+  # or use a paid instance.
+  #
+  # SECURITY: OpenClaw's device-pairing + token auth runs over Render's HTTPS.
+  # Do NOT expose port 18789 directly — the Gateway binds to $PORT internally
+  # and Render's HTTPS proxy handles TLS + auth. For users who don't want a
+  # public gateway, the OpenClaw-recommended alternative is Tailscale / a small
+  # always-on host.
+  - type: web
+    name: openclaw-gateway
+    env: docker
+    dockerfilePath: ./Dockerfile.openclaw
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # The Gateway binds to $PORT (Render injects this). Internally OpenClaw
+      # uses 18789, but Render requires binding to $PORT.
+      - key: OPENCLAW_PORT
+        value: "$PORT"
+      # Agency backend — the Gateway's agent uses this as its OpenAI-compatible
+      # brain (free NVIDIA NIM routing, all existing setup).
+      - key: OPENCLAW_AGENT_BASE_URL
+        value: "https://local-llm-server.onrender.com/v1"
+      - key: OPENCLAW_AGENT_API_KEY
+        sync: false  # Set to the agency's API key (or a bearer token) in the dashboard
+      - key: OPENCLAW_AGENT_MODEL
+        value: "meta/llama-3.3-70b-instruct"
+      # Agency MCP server — the Gateway registers this as a tool source so the
+      # iOS app can drive agency workflows (clone_repo, git_commit, etc.), not
+      # just chat.
+      - key: OPENCLAW_MCP_BASE_URL
+        value: "https://local-llm-server.onrender.com/mcp-internal"
+      - key: OPENCLAW_MCP_SECRET_TOKEN
+        sync: false  # Must match MCP_SECRET_TOKEN on the web service
+      # GitHub token — needed if the iOS app drives repo-editing workflows
+      - key: GITHUB_TOKEN
+        sync: false
+      # Pairing token — set this to a strong random string (e.g. `openssl rand
+      # -hex 32`) to gate who can pair. The QR encodes gateway host + this token.
+      - key: OPENCLAW_PAIRING_TOKEN
+        sync: false
+    disk:
+      name: openclaw-state
+      mountPath: /root/.openclaw
+      sizeGB: 1
