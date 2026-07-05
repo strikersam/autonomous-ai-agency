@@ -242,6 +242,22 @@ class ProviderConfig:
                 headers["anthropic-version"] = os.environ.get(
                     "ANTHROPIC_VERSION", "2023-06-01"
                 )
+                betas: list[str] = []
+                _caching_off = os.environ.get(
+                    "ANTHROPIC_PROMPT_CACHING", "true"
+                ).strip().lower() in ("0", "false", "no", "off")
+                if not _caching_off:
+                    betas.append("prompt-caching-2024-07-31")
+                try:
+                    _thinking_budget = int(
+                        os.environ.get("ANTHROPIC_THINKING_BUDGET", "0") or "0"
+                    )
+                except ValueError:
+                    _thinking_budget = 0
+                if _thinking_budget > 0:
+                    betas.append("interleaved-thinking-2025-05-14")
+                if betas:
+                    headers["anthropic-beta"] = ",".join(betas)
             else:
                 headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
@@ -1359,13 +1375,41 @@ class ProviderRouter:
                 system_parts.append(content)
             elif role in ("user", "assistant"):
                 messages.append({"role": role, "content": content})
-        return {
+
+        system_text = "\n\n".join(system_parts) if system_parts else None
+        _caching_off = os.environ.get(
+            "ANTHROPIC_PROMPT_CACHING", "true"
+        ).strip().lower() in ("0", "false", "no", "off")
+        if system_text and not _caching_off:
+            system_field: Any = [
+                {
+                    "type": "text",
+                    "text": system_text,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        else:
+            system_field = system_text
+
+        out: dict[str, Any] = {
             "model": payload.get("model"),
             "messages": messages or [{"role": "user", "content": ""}],
-            "system": "\n\n".join(system_parts) if system_parts else None,
+            "system": system_field,
             "max_tokens": int(payload.get("max_tokens") or 1024),
             "temperature": float(payload.get("temperature") or 0.3),
         }
+
+        try:
+            _thinking_budget = int(
+                os.environ.get("ANTHROPIC_THINKING_BUDGET", "0") or "0"
+            )
+        except ValueError:
+            _thinking_budget = 0
+        if _thinking_budget > 0:
+            out["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
+            out["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
+
+        return out
 
     @staticmethod
     def _anthropic_to_openai_response(
@@ -1395,6 +1439,13 @@ class ProviderRouter:
                 "completion_tokens": int(usage.get("output_tokens") or 0),
                 "total_tokens": int(usage.get("input_tokens") or 0)
                 + int(usage.get("output_tokens") or 0),
+                # Prompt-caching fields: always present so callers can read them safely
+                "cache_creation_input_tokens": int(
+                    usage.get("cache_creation_input_tokens") or 0
+                ),
+                "cache_read_input_tokens": int(
+                    usage.get("cache_read_input_tokens") or 0
+                ),
             },
         }
         return httpx.Response(
