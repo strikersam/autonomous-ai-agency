@@ -860,6 +860,11 @@ See [`CLAUDE.md`](CLAUDE.md) for the contributor guide, skill map, risky-module 
 
 ## What's New
 
+### 2026-07-05
+
+- **Anthropic prompt caching** — Calls to the Anthropic provider now automatically mark system prompts with `cache_control: ephemeral` and send the `anthropic-beta: prompt-caching-2024-07-31` header. Long system prompts (agent personas, coding guidelines, company context) are cached at the Anthropic API tier and reused across requests — reducing input-token costs by up to 90% on cache hits. No config change needed; opt-out with `ANTHROPIC_PROMPT_CACHING=false`. Cache hit/miss token counts are now surfaced in response usage so Langfuse can track them.
+- **Claude extended thinking** — Set `ANTHROPIC_THINKING_BUDGET=<tokens>` (e.g. `8000`) to enable Claude's interleaved extended-reasoning mode for complex tasks. The `thinking` parameter and `anthropic-beta: interleaved-thinking-2025-05-14` header are injected automatically; no API changes required.
+
 ### 2026-07-04
 
 - **Docs audit: CEO orchestration and Hermes maturity corrected.** `features/matrix.py` (the canonical source of truth) had already promoted **sidecar runtimes (Hermes/OpenCode/Goose)** and **multi-agent swarm dispatch** from `disabled` to **Beta**, but the README, `docs/support-matrix.md`, and `docs/architecture/feature-maturity-matrix.md` still described them as "Experimental." Corrected across all three. Hermes specifically ships **deployed by default** (`agency-hermes` on Render) and is the default runtime for `code_generation` tasks — it's a thin HTTP wrapper over the same Internal Agent brain, woken and health-checked before every CEO delegation. Goose/Aider/OpenCode remain optional, undeployed sidecars.
