@@ -52,7 +52,7 @@ jobs:
 
     steps:
       # ── 1. Checkout ──────────────────────────────────────────────────────────
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GH_PAT }}
           fetch-depth: 0

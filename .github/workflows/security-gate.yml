@@ -21,7 +21,7 @@ jobs:
     # Skip on draft PRs (e.g. auto-generated context plans).
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

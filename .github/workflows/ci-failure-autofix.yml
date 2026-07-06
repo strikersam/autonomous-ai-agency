@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Check out master (trusted base — never the PR branch)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: master
           fetch-depth: 0
