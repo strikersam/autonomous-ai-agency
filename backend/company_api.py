@@ -7,7 +7,7 @@ This is the canonical API for the Autonomous AI Agency Company Graph.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, Request, Response, status
 from typing import List, Optional, Any
 from datetime import datetime
 import json
@@ -585,18 +585,29 @@ async def account_lifecycle(
 @router.get("/{company_id}", response_model=CompanyResponse)
 async def get_company(
     company_id: str = Path(..., description="Company ID"),
-    user: dict = Depends(_get_current_user_thunk)
+    user: dict = Depends(_get_current_user_thunk),
+    response: Response = None,
 ) -> CompanyResponse:
+    # Note: response is injected by FastAPI — set headers on it for cache control
     """
     Get a company by ID.
-    
+
     Returns the company with its current state and onboarding progress.
     """
     company = await get_company_access(company_id, user)
-    
+
     service = get_company_graph_service()
     graph = await service.get_company_graph(company.id)
-    
+
+    # PR #962: Set no-store cache headers so the browser/CDN never caches a
+    # stale company response. Without this, a company that was deleted or a
+    # DB that was reset can leave a cached 200 response that prevents the
+    # frontend from seeing the 404 + self-healing.
+    if response is not None:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
     return CompanyResponse(
         company=company,
         graph=graph,

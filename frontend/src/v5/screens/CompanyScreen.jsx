@@ -422,16 +422,26 @@ function CompanyScreen() {
         if (!mounted.current) return;
         const list = data.companies || [];
         setCompanies(list);
-        // Auto-select: prefer stored company, then first company, else empty
+        // Auto-select: prefer stored company, then first company, else empty.
+        // PR #962: validate storedId against the list — if it's stale (e.g.
+        // from a previous DB), clear it and fall back to the first company.
         if (!selectedCompanyId && list.length > 0) {
           const match = storedId ? list.find(c => c.id === storedId) : null;
-          const id = match ? match.id : list[0].id;
-          setSelectedCompanyId(id);
-          try { localStorage.setItem(COMPANY_ID_KEY, id); } catch {}
+          if (match) {
+            setSelectedCompanyId(match.id);
+          } else {
+            // storedId is stale or absent — use the first company + clear stale ID
+            if (storedId) {
+              try { localStorage.removeItem(COMPANY_ID_KEY); } catch {}
+            }
+            setSelectedCompanyId(list[0].id);
+            try { localStorage.setItem(COMPANY_ID_KEY, list[0].id); } catch {}
+          }
         }
         if (list.length === 0) setLoading(false);
       } catch (e) {
-        // Fall back to stored company ID if listing fails
+        // Fall back to stored company ID if listing fails (backend may be cold-starting).
+        // The detail-load effect will handle the 404 if the stored ID is also stale.
         if (storedId) setSelectedCompanyId(storedId);
         setLoading(false);
       }
@@ -458,6 +468,33 @@ function CompanyScreen() {
         } catch { /* specialists are optional */ }
       } catch (e) {
         if (!mounted.current) return;
+        // PR #962: If the company 404s (e.g. DB was reset, company was deleted,
+        // or the localStorage ID is stale from a previous deploy), clear the
+        // stale ID + auto-select the first available company instead of
+        // showing a permanent error. This makes the Company screen self-heal
+        // instead of leaving the user stuck on "Company xxx not found".
+        if (e?.response?.status === 404) {
+          try { localStorage.removeItem(COMPANY_ID_KEY); } catch {}
+          // Try to load the company list + auto-select the first one
+          try {
+            const { data: listData } = await api.listCompanies();
+            const list = listData.companies || [];
+            setCompanies(list);
+            if (list.length > 0) {
+              setSelectedCompanyId(list[0].id);
+              try { localStorage.setItem(COMPANY_ID_KEY, list[0].id); } catch {}
+              return; // the selectedCompanyId change will re-trigger this effect
+            }
+          } catch {
+            // list failed too — fall through to the error display
+          }
+          // No companies available — show the empty state, not the 404 error
+          setSelectedCompanyId('');
+          setCompany(null);
+          setGraph(null);
+          setLoading(false);
+          return;
+        }
         const detail = e?.response?.data?.detail;
         setError(detail ? api.fmtErr(detail) : (e?.message || 'Could not load the company graph.'));
       } finally {
