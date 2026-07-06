@@ -6254,6 +6254,95 @@ async def observability_status(user: dict = Depends(get_current_user)):
     return status
 
 
+@app.get("/api/observability/diag")
+async def observability_diag_public():
+    """PUBLIC diagnostic endpoint for Langfuse — no auth required.
+
+    Returns exactly what the Langfuse integration sees so operators can
+    debug "0 traces" without logging in. Checks:
+    1. Are the env vars set?
+    2. Is the langfuse Python package installed?
+    3. Can we reach the Langfuse API with the configured keys?
+    4. Can we create a Langfuse client?
+
+    Also emits a test trace so the operator can verify the dashboard
+    populates immediately (look for trace name "diag-test-trace").
+    """
+    import importlib
+    pk = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
+    sk = os.environ.get("LANGFUSE_SECRET_KEY", "")
+    host = os.environ.get("LANGFUSE_HOST") or os.environ.get("LANGFUSE_BASE_URL") or "https://cloud.langfuse.com"
+
+    diag = {
+        "env_vars": {
+            "LANGFUSE_PUBLIC_KEY": f"{pk[:8]}..." if pk else "(not set)",
+            "LANGFUSE_SECRET_KEY": f"{sk[:4]}..." if sk else "(not set)",
+            "LANGFUSE_HOST": host,
+        },
+        "enabled": bool(pk and sk),
+    }
+
+    # Check if langfuse package is installed
+    try:
+        import langfuse
+        diag["package_installed"] = True
+        diag["package_version"] = getattr(langfuse, "__version__", "unknown")
+    except ImportError:
+        diag["package_installed"] = False
+        diag["package_version"] = None
+        diag["error"] = "langfuse Python package not installed — pip install langfuse"
+        return diag
+
+    # Try to reach the Langfuse API
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(
+                f"{host}/api/public/health",
+                auth=(pk, sk),
+            )
+            diag["api_reachable"] = r.status_code == 200
+            diag["api_status_code"] = r.status_code
+            if r.status_code != 200:
+                diag["api_response"] = r.text[:200]
+    except Exception as e:
+        diag["api_reachable"] = False
+        diag["api_error"] = str(e)
+
+    # Try to create a client + emit a test trace
+    if diag.get("api_reachable"):
+        try:
+            from langfuse_obs import get_langfuse_client, emit_chat_observation
+            client = get_langfuse_client()
+            diag["client_created"] = client is not None
+            if client is not None:
+                # Emit a test trace so the operator can verify the dashboard
+                emit_chat_observation(
+                    email="diag@test.local",
+                    department="diagnostics",
+                    key_id=None,
+                    model="diag-test",
+                    messages=[{"role": "user", "content": "Langfuse diagnostic test trace"}],
+                    output_text="If you see this trace in Langfuse, the integration is working.",
+                    prompt_tokens=10,
+                    completion_tokens=15,
+                    latency_ms=42,
+                    task_name="diag-test-trace",
+                )
+                # Force flush so the trace is sent immediately
+                try:
+                    client.flush()
+                except Exception:
+                    pass
+                diag["test_trace_emitted"] = True
+                diag["message"] = "Test trace emitted — check Langfuse dashboard for 'diag-test-trace' within ~5s"
+        except Exception as e:
+            diag["client_created"] = False
+            diag["test_trace_emitted"] = False
+            diag["error"] = f"Failed to emit test trace: {e}"
+
+    return diag
+
+
 @app.get("/api/observability/dashboard-url")
 async def observability_dashboard(user: dict = Depends(get_current_user)):
     langfuse_pk, _, langfuse_base = _langfuse_credentials()
