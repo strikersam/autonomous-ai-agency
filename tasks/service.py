@@ -448,7 +448,12 @@ class TaskWorkflowService:
         return best
 
 
-_DISPATCH_RETRY_LIMIT = 10  # max re-queues before a task is blocked
+# PR #937: lowered from 10 to 5. With the self_heal module unblocking tasks
+# every minute, 10 retries meant a task could burn 10 dispatch cycles before
+# getting blocked — each cycle hitting a dead endpoint. 5 is enough to ride
+# out a transient blip, and the self_heal pass will unblock it after the
+# brain failovers anyway.
+_DISPATCH_RETRY_LIMIT = 5  # max re-queues before a task is blocked
 _BRAIN_DEFER_LIMIT = 12     # max brain-unavailable deferrals before blocking — a
                             # missing brain is an operator-fixable config issue, so
                             # we keep the task queued a little longer than a runtime

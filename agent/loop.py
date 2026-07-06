@@ -1675,7 +1675,8 @@ class AgentRunner:
         # NVIDIA NIM error handling:
         #   429 = Too Many Requests — retry with backoff
         #   419 = NIM per-model concurrency limit — retry with backoff
-        #   410 = Gone — endpoint/model permanently removed, DO NOT retry
+        #   410 = Gone — endpoint/model permanently removed, DO NOT retry,
+        #         trigger brain watchdog failover immediately
         _max_retries = 3
         for _attempt in range(_max_retries + 1):
             async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
@@ -1684,13 +1685,41 @@ class AgentRunner:
                 # Permanent removal — no retry, fail immediately so the caller
                 # can fail over to the next provider via provider_router.
                 log.error("NVIDIA NIM returned 410 Gone — endpoint/model permanently removed")
+                # Trigger brain watchdog failover so the system self-heals
+                # instead of keeping the dead provider as the active brain.
+                try:
+                    from packages.ai.watchdog import get_watchdog
+                    watchdog = get_watchdog()
+                    new_provider = watchdog.record_failure("nvidia-nim")
+                    if new_provider:
+                        log.info("Brain watchdog triggered failover to %s after 410 Gone", new_provider)
+                except Exception as _wd_err:
+                    log.debug("Brain watchdog failover trigger failed (non-fatal): %s", _wd_err)
                 break
             if resp.status_code in (429, 419) and _attempt < _max_retries:
                 _wait = 2 ** _attempt  # 1s, 2s, 4s
                 log.warning("NVIDIA NIM rate-limited (HTTP %d) — retrying in %ds (attempt %d/%d)",
                            resp.status_code, _wait, _attempt + 1, _max_retries)
+                # Record 429 as a provider failure so the brain watchdog can
+                # trigger a failover if rate-limiting is sustained. The watchdog
+                # thresholds at 3 failures — a single 429 won't failover, but
+                # 3 consecutive 429s will switch to Ollama (local, no rate limit).
+                try:
+                    from packages.ai.watchdog import get_watchdog
+                    get_watchdog().record_failure("nvidia-nim")
+                except Exception:
+                    pass
                 await asyncio.sleep(_wait)
                 continue
+            # Success or non-retryable status — reset the watchdog failure
+            # counter for this provider so a transient failure doesn't
+            # accumulate across successful calls.
+            if resp.status_code < 400:
+                try:
+                    from packages.ai.watchdog import get_watchdog
+                    get_watchdog().record_success("nvidia-nim")
+                except Exception:
+                    pass
             break
         duration_ms = int((time.perf_counter() - start) * 1000)
         resp.raise_for_status()
