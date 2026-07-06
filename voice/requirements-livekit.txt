@@ -4,4 +4,4 @@
 #
 #   pip install -r voice/requirements-livekit.txt
 #   python -m voice.sam_livekit_worker dev
-livekit-agents[silero,openai,deepgram,elevenlabs,groq]>=1.0,<2
+livekit-agents[silero,openai,deepgram,elevenlabs,groq]>=1.6.4,<2
