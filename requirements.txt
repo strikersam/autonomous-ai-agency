@@ -43,4 +43,4 @@ reportlab>=5.0.0,<6  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
 # E2B Firecracker micro-VM sandbox (roadmap ★5). Optional — imports are guarded
 # so the deploy works without it; install to enable sandboxed agent execution.
 # Auto-on when E2B_API_KEY is set; kill-switch E2B_ENABLED=false.
-e2b-code-interpreter>=1.0.0
+e2b-code-interpreter>=2.8.1
