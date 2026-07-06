@@ -7421,6 +7421,19 @@ async def scheduler_tick(request: Request):
         except Exception as exc:
             log.debug("scheduler_tick: self_heal failed (non-fatal): %s", exc)
 
+        # Langfuse trace: scheduler tick (so the dashboard shows the agency
+        # heartbeat — 1 trace per minute showing how many jobs fired)
+        try:
+            from langfuse_obs import emit_agency_observation
+            emit_agency_observation(
+                operation="scheduler_tick",
+                actor="scheduler",
+                status="ok",
+                metadata={"fired_count": len(fired), "total_jobs": len(jobs)},
+            )
+        except Exception:
+            pass
+
     except Exception as exc:
         log.error("scheduler_tick error: %s", exc)
     return {"ok": True, "fired": fired, "total_jobs": len(scheduler.list())}

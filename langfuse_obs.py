@@ -360,3 +360,92 @@ def emit_chat_observation(
             )
         except Exception as e2:
             log.warning("Langfuse HTTP fallback failed: %s", e2)
+
+
+# ── Agency-wide observation emitter ──────────────────────────────────────────
+
+def emit_agency_observation(
+    *,
+    operation: str,
+    actor: str = "system",
+    task_id: str | None = None,
+    task_title: str | None = None,
+    task_type: str | None = None,
+    status: str = "ok",
+    duration_ms: int = 0,
+    model: str | None = None,
+    input_text: str | None = None,
+    output_text: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> None:
+    """Record an agency platform operation in Langfuse.
+
+    Unlike ``emit_chat_observation`` (which is chat-specific), this function
+    traces ANY agency operation: CEO directives, task execution, SAM voice,
+    workflow orchestrator phases, scheduler ticks, runtime dispatch, etc.
+
+    The trace appears in Langfuse under the ``operation`` name with tags
+    ``agency`` + the operation type, so you can filter the dashboard by
+    agency subsystem.
+
+    Args:
+        operation:    Short name — "ceo_directive", "task_execute", "sam_voice",
+                      "orchestrator_phase", "scheduler_tick", "runtime_dispatch"
+        actor:        Who triggered it — "system", "ceo", "user", "scheduler"
+        task_id:      Task ID if this is a task-related operation
+        task_title:   Task title (truncated to 100 chars for readability)
+        task_type:    Task type — "code_generation", "code_review", etc.
+        status:       "ok", "failed", "blocked", "deferred", "skipped"
+        duration_ms:  How long the operation took
+        model:        LLM model used (if applicable)
+        input_text:   Input prompt/instruction (truncated to 2000 chars)
+        output_text:  Output result (truncated to 2000 chars)
+        metadata:     Additional context dict
+        error:        Error message if status="failed"
+    """
+    if not _langfuse_enabled():
+        return
+
+    # Build the metadata payload
+    meta: dict[str, Any] = {
+        "operation": operation,
+        "actor": actor,
+        "status": status,
+        "source": "agency_platform",
+        "trace_id": str(uuid.uuid4()),
+    }
+    if task_id:
+        meta["task_id"] = task_id
+    if task_title:
+        meta["task_title"] = task_title[:100]
+    if task_type:
+        meta["task_type"] = task_type
+    if model:
+        meta["model"] = model
+    if error:
+        meta["error"] = error[:500]
+    if metadata:
+        meta.update(metadata)
+
+    # Truncate input/output for Langfuse payload limits
+    safe_input = _truncate_for_langfuse(input_text, 2000) if input_text else None
+    safe_output = _truncate_for_langfuse(output_text, 2000) if output_text else None
+
+    # Use the HTTP emitter directly (no LLM token counting needed for
+    # agency operations — they're not chat completions)
+    try:
+        _emit_langfuse_http(
+            email=f"{actor}@agency.internal",
+            department=operation,
+            key_id=None,
+            model=model or "agency-internal",
+            messages=[{"role": "user", "content": safe_input or "(no input)"}],
+            output_text=safe_output or "(no output)",
+            prompt_tokens=0,
+            completion_tokens=0,
+            meta=meta,
+            task_name=f"agency:{operation}",
+        )
+    except Exception as e:
+        log.debug("Langfuse agency observation emit failed (non-fatal): %s", e)

@@ -192,6 +192,17 @@ async def self_heal_brain_and_unblock_tasks() -> dict[str, Any]:
 
     if summary["failover_persisted"] or summary["tasks_unblocked"]:
         log.info("self_heal: %s", summary)
+        # Langfuse trace: self-healing action
+        try:
+            from langfuse_obs import emit_agency_observation
+            emit_agency_observation(
+                operation="self_heal",
+                actor="system:self_heal",
+                status="ok",
+                metadata=summary,
+            )
+        except Exception:
+            pass
 
     return summary
 

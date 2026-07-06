@@ -145,11 +145,26 @@ class SamAgent:
         prompt = self._build_prompt(text, context, session)
 
         # Call the LLM (NVIDIA NIM — free)
+        _sam_start = time.time()
         response = await self._call_llm(prompt, session)
 
         session.add_turn(text, response)
         log.info("SAM: processed command (session=%s, turn=%d, len=%d)",
                  session_id, session.command_count, len(response))
+        # Langfuse trace: SAM voice command processed
+        try:
+            from langfuse_obs import emit_agency_observation
+            emit_agency_observation(
+                operation="sam_voice",
+                actor="user",
+                status="ok" if not response.startswith(self._fallback_response("")) else "fallback",
+                duration_ms=int((time.time() - _sam_start) * 1000),
+                input_text=text[:2000],
+                output_text=response[:2000],
+                metadata={"session_id": session_id, "turn": session.command_count},
+            )
+        except Exception:
+            pass
         return response
 
     def get_status(self) -> dict[str, Any]:
