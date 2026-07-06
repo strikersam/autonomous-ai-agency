@@ -30,6 +30,30 @@ _DEFAULT_MAX_FAILURES = int(os.environ.get("BRAIN_WATCHDOG_MAX_FAILURES", "3"))
 from packages.ai import brain_config as _bcs  # noqa: E402
 
 
+def _is_provider_actually_available(provider: str) -> bool:
+    """Check if a provider is actually available (not just has a key).
+
+    Unlike ``brain_config.provider_key_present()``, this also checks:
+    - For ollama: is OLLAMA_BASE_URL or OLLAMA_BASE actually set? On Render
+      free tier, ollama is "present" (key_present returns True) but not
+      reachable without a tunnel URL. Without this check, the watchdog
+      fails over to ollama and tasks still fail.
+    - For cloud providers: is the API key set? (same as provider_key_present)
+    """
+    provider = BrainWatchdog._normalize_provider(provider)
+    if provider == "ollama":
+        # Ollama is only available if a base URL is configured (tunnel or localhost)
+        ollama_url = (
+            os.environ.get("OLLAMA_BASE_URL", "").strip()
+            or os.environ.get("OLLAMA_BASE", "").strip()
+        )
+        if not ollama_url:
+            log.debug("watchdog: ollama skipped — no OLLAMA_BASE_URL/OLLAMA_BASE set")
+            return False
+        return True
+    return _bcs.provider_key_present(provider)
+
+
 class BrainWatchdog:
     """Monitors provider health and triggers failover on consecutive failures."""
 
@@ -39,8 +63,28 @@ class BrainWatchdog:
         self._last_failover: float = 0
         self._failover_log: list[dict[str, Any]] = []
 
+    @staticmethod
+    def _normalize_provider(provider: str) -> str:
+        """Normalize provider names to the short form used in RECOMMENDED_PROVIDER_PRIORITY.
+
+        The codebase uses two name forms interchangeably:
+        - Short: "nvidia", "ollama", "cerebras", "groq" (RECOMMENDED_PROVIDER_PRIORITY)
+        - Long:  "nvidia-nim", "ollama-local" (DB provider_id, agent/loop.py)
+
+        This maps both forms to the short form so the watchdog's failure counts
+        and failover logic work regardless of which name the caller uses.
+        """
+        p = (provider or "").strip().lower()
+        # Strip common suffixes: -nim, -local, -cloud
+        for suffix in ("-nim", "-local", "-cloud"):
+            if p.endswith(suffix):
+                p = p[: -len(suffix)]
+                break
+        return p
+
     def record_success(self, provider: str) -> None:
         """Reset failure counter for a provider after a successful call."""
+        provider = self._normalize_provider(provider)
         if self._failure_counts.get(provider, 0) > 0:
             log.info("Brain watchdog: %s recovered (was at %d failures)",
                      provider, self._failure_counts[provider])
@@ -48,6 +92,7 @@ class BrainWatchdog:
 
     def record_failure(self, provider: str) -> str | None:
         """Record a provider failure. Returns the new provider if failover triggered."""
+        provider = self._normalize_provider(provider)
         count = self._failure_counts.get(provider, 0) + 1
         self._failure_counts[provider] = count
         log.warning("Brain watchdog: %s failure #%d (threshold=%d)",
@@ -59,9 +104,10 @@ class BrainWatchdog:
 
     def _trigger_failover(self, failed_provider: str) -> str | None:
         """Fail over to the next available provider."""
+        failed_provider = self._normalize_provider(failed_provider)
         candidates = [
             p for p in _bcs.RECOMMENDED_PROVIDER_PRIORITY
-            if p != failed_provider and _bcs.provider_key_present(p)
+            if p != failed_provider and _is_provider_actually_available(p)
         ]
         if not candidates:
             log.error("Brain watchdog: no failover candidates available "
