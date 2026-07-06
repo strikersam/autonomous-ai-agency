@@ -24,14 +24,11 @@ log = logging.getLogger("brain_policy")
 # free cloud model via NVIDIA_DEFAULT_MODEL; this fallback is the documented
 # default (see .env.example / render.yaml).
 #
-# This MUST match the live, endpoint-tested model the rest of the codebase uses
-# (router/, services/, agents/, and seeded provider records all reference it). A
-# later curation pass (see the docs/changelog entry "NVIDIA NIM model list curated
-# from live endpoint testing") found the old `llama-3.3-nemotron-super-49b-v1` returns 410 Gone
-# 404, so the free-brain default is the empirically-live Nemotron Super 49B.
-# Without this, a deploy that leaves NVIDIA_DEFAULT_MODEL unset would resolve a
-# dead model and every dispatched task would fail at EXECUTE with a 400/404.
-DEFAULT_FREE_NVIDIA_MODEL = "meta/llama-3.3-70b-instruct"
+# PR #984: default changed to z-ai/glm-5.2 — the operator's preferred brain
+# model (https://build.nvidia.com/z-ai/glm-5.2). Free, high-quality, fast.
+# The old default (meta/llama-3.3-70b-instruct) is kept as the fallback in
+# the model registry.
+DEFAULT_FREE_NVIDIA_MODEL = "z-ai/glm-5.2"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
