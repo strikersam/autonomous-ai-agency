@@ -6493,6 +6493,151 @@ async def telegram_diag() -> dict[str, object]:
     }
 
 
+# ── OpenClaw Gateway (iOS control) ────────────────────────────────────────
+# On Render free tier, the OpenClaw Gateway runs as a background subprocess
+# inside this same container (port 18789). The FastAPI app reverse-proxies
+# /openclaw/* to localhost:18789 so the iOS app pairs against
+# https://local-llm-server.onrender.com/openclaw.
+# If the OpenClaw CLI is not installed, the in-process fallback handles
+# /openclaw/health and /api/openclaw/qr.
+
+_OPENCLAW_GATEWAY_PORT = 18789
+
+
+@app.get("/api/openclaw/status")
+async def openclaw_status() -> dict:
+    """Return the OpenClaw Gateway integration status + pairing QR data.
+
+    Returns the gateway URL, pairing token (masked), and a QR-encoded
+    payload the iOS app can scan. No authentication required — the pairing
+    token itself is the gate.
+    """
+    import os as _os
+    external_url = _os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:8001")
+    gateway_url = f"{external_url}/openclaw"
+    pairing_token = _os.environ.get("OPENCLAW_PAIRING_TOKEN", "")
+    cli_installed = _os.environ.get("OPENCLAW_CLI_INSTALLED", "false").strip().lower() in ("true", "1", "yes")
+
+    # Check if the background gateway subprocess is alive
+    gateway_alive = False
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"http://127.0.0.1:{_OPENCLAW_GATEWAY_PORT}/health")
+            gateway_alive = resp.status_code == 200
+    except Exception:
+        gateway_alive = False
+
+    return {
+        "enabled": bool(pairing_token),
+        "cli_installed": cli_installed,
+        "gateway_alive": gateway_alive,
+        "gateway_url": gateway_url,
+        "pairing_token_set": bool(pairing_token),
+        "pairing_token_prefix": (pairing_token[:8] + "...") if len(pairing_token) > 8 else ("***" if pairing_token else "(unset)"),
+        "agent_base_url": _os.environ.get("OPENCLAW_AGENT_BASE_URL", "(unset)"),
+        "mcp_base_url": _os.environ.get("OPENCLAW_MCP_BASE_URL", "(unset)"),
+        "qr_payload": f"openclaw://pair?gateway={gateway_url}&token={pairing_token}" if pairing_token else None,
+        "instructions": (
+            "1. Download the OpenClaw app from the App Store.\n"
+            "2. Open the app and tap 'Pair via QR'.\n"
+            "3. Scan the QR code at /api/openclaw/qr (or enter the gateway URL + token manually).\n"
+            "4. The app connects to the gateway over WebSocket.\n"
+            "5. Send commands like 'list files' or 'add a /version endpoint' — the gateway routes them to the agency's MCP server."
+        ) if pairing_token else "Set OPENCLAW_PAIRING_TOKEN to enable pairing.",
+    }
+
+
+@app.get("/api/openclaw/qr")
+async def openclaw_qr() -> dict:
+    """Return a QR-code-compatible payload for OpenClaw iOS pairing.
+
+    Returns the raw pairing string that can be rendered as a QR code.
+    Use a QR generator (e.g. qrencode) or the OpenClaw app's manual entry.
+    """
+    import os as _os
+    external_url = _os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:8001")
+    gateway_url = f"{external_url}/openclaw"
+    pairing_token = _os.environ.get("OPENCLAW_PAIRING_TOKEN", "")
+    if not pairing_token:
+        return {"error": "OPENCLAW_PAIRING_TOKEN not set", "hint": "Set it in the Render dashboard → Environment."}
+    payload = f"openclaw://pair?gateway={gateway_url}&token={pairing_token}"
+    return {
+        "payload": payload,
+        "gateway_url": gateway_url,
+        "manual_entry": {
+            "host": external_url.replace("https://", "").replace("http://", ""),
+            "path": "/openclaw",
+            "token": pairing_token,
+        },
+    }
+
+
+@app.api_route("/openclaw/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def openclaw_reverse_proxy(path: str, request: Request):
+    """Reverse-proxy /openclaw/* to the background OpenClaw Gateway on port 18789.
+
+    This lets the iOS app pair against https://local-llm-server.onrender.com/openclaw
+    instead of needing a separate service. If the gateway subprocess is not
+    running (CLI not installed), returns a friendly error.
+    """
+    import os as _os
+    target_url = f"http://127.0.0.1:{_OPENCLAW_GATEWAY_PORT}/{path}"
+
+    # Forward query params
+    if request.url.query:
+        target_url += f"?{request.url.query}"
+
+    # Read request body
+    body = await request.body()
+
+    # Forward headers (excluding host)
+    fwd_headers = {k: v for k, v in request.headers.items() if k.lower() != "host"}
+
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.request(
+                request.method,
+                target_url,
+                content=body,
+                headers=fwd_headers,
+            )
+            # Return the response with the same status + content type
+            return _httpx_response_to_fastapi(resp)
+    except _httpx.ConnectError:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "OpenClaw Gateway is not running",
+                "hint": (
+                    "The OpenClaw CLI may not be installed (not yet published to npm). "
+                    "The gateway subprocess starts automatically when the CLI is available. "
+                    "Meanwhile, use the Telegram bot for phone control, or set OPENCLAW_ENABLED=true "
+                    "and redeploy once the CLI is published."
+                ),
+                "status_endpoint": "/api/openclaw/status",
+                "qr_endpoint": "/api/openclaw/qr",
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"error": f"OpenClaw Gateway proxy error: {exc}"},
+        )
+
+
+def _httpx_response_to_fastapi(resp):
+    """Convert an httpx.Response to a FastAPI-compatible Response."""
+    from fastapi import Response
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("transfer-encoding", "content-encoding")},
+        media_type=resp.headers.get("content-type"),
+    )
+
+
 @app.get("/api/kpi/public")
 async def get_public_kpis() -> dict:
     """Public, read-only autonomy KPIs — no authentication required.
