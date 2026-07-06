@@ -47,4 +47,4 @@ gTTS>=2.5.0
 # THIS file (not root requirements.txt), so langfuse MUST be here — without it,
 # get_langfuse_client() logs "langfuse package not installed" and no traces
 # are emitted, even when LANGFUSE_PUBLIC_KEY/SECRET_KEY are set on Render.
-langfuse>=4.11.0,<5
+langfuse>=4.13.0,<5
