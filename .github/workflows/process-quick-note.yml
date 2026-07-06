@@ -222,7 +222,7 @@ jobs:
             --repo "$REPO" --body "$MSG"
 
       # ── 5. Python + Node setup ─────────────────────────────────────────────
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.pick.outputs.found == 'true' && steps.auto_test.outputs.is_automation_test != 'true'
         with:
           python-version: "3.12"
