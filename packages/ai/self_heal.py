@@ -73,8 +73,15 @@ async def self_heal_brain_and_unblock_tasks() -> dict[str, Any]:
     summary["active_provider"] = active_provider
     summary["preference"] = preference
 
-    failure_count = watchdog._failure_counts.get(active_provider, 0)
+    # PR #963: normalize the provider name before checking failure counts.
+    # The watchdog stores failures under the normalized name (e.g. "nvidia"),
+    # but active_provider might be "nvidia-nim" (DB provider_id). Without
+    # normalization, self_heal never sees the failures → no failover.
+    from packages.ai.watchdog import BrainWatchdog as _BW
+    normalized_active = _BW._normalize_provider(str(active_provider))
+    failure_count = watchdog._failure_counts.get(normalized_active, 0)
     summary["failure_count"] = failure_count
+    summary["normalized_active"] = normalized_active
 
     # If the active provider has sustained failures, force a failover.
     # threshold=3 matches the watchdog's max_failures default — by this
@@ -94,7 +101,8 @@ async def self_heal_brain_and_unblock_tasks() -> dict[str, Any]:
 
     # ── Step 2: Find the best healthy provider ──────────────────────────
     # Priority: BRAIN_PREFERENCE first, then RECOMMENDED_PROVIDER_PRIORITY.
-    # Skip providers that have active failures or no API key.
+    # Skip providers that have active failures or are not actually available.
+    from packages.ai.watchdog import _is_provider_actually_available, BrainWatchdog
     healthy_provider = None
     candidates = []
     if preference == "ollama":
@@ -103,11 +111,15 @@ async def self_heal_brain_and_unblock_tasks() -> dict[str, Any]:
         candidates = list(RECOMMENDED_PROVIDER_PRIORITY)
 
     for provider in candidates:
-        # Skip providers without an API key (except ollama which is local)
-        if provider != "ollama" and not provider_key_present(provider):
+        # Use _is_provider_actually_available instead of provider_key_present
+        # so ollama is only picked if OLLAMA_BASE_URL is set (not just because
+        # it's always "present"). This prevents false failover to an
+        # unreachable ollama on Render free tier.
+        if not _is_provider_actually_available(provider):
             continue
-        # Skip providers currently in failure state
-        if watchdog._failure_counts.get(provider, 0) >= 3:
+        # Skip providers currently in failure state (normalized name)
+        normalized = BrainWatchdog._normalize_provider(provider)
+        if watchdog._failure_counts.get(normalized, 0) >= 3:
             continue
         healthy_provider = provider
         break
