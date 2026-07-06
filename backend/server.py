@@ -6475,6 +6475,19 @@ async def ping() -> dict[str, object]:
     return {"status": "ok", "pong": True}
 
 
+@app.get("/api/brain/failover/status")
+async def brain_failover_status() -> dict:
+    """Return the brain failover health snapshot.
+
+    Shows every configured provider, its circuit-breaker state (closed/open/
+    half_open), failure count, average latency, and cooldown status. No
+    authentication required — no secrets are exposed (API keys are not
+    included in the snapshot).
+    """
+    from services.brain_failover import get_failover_manager
+    return get_failover_manager().status_snapshot()
+
+
 @app.get("/api/telegram/diag")
 async def telegram_diag() -> dict[str, object]:
     """Telegram bot diagnostic endpoint — surfaces the bot's runtime config.

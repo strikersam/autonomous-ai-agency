@@ -38,13 +38,15 @@ def test_admin_self_heal_endpoint_exists():
 
 
 def test_agent_loop_410_triggers_watchdog():
-    """agent/loop.py 410 handler must call watchdog.record_failure to trigger failover."""
+    """agent/loop.py 410 handler must trigger failover via the brain_failover manager."""
     import agent.loop as loop_mod
     src = inspect.getsource(loop_mod)
-    # Find the 410 handling block
+    # The 410 handling is now in the universal failover loop, which calls
+    # fm.record_failure(provider.id, "gone", 410) to mark the provider
+    # with a 10-minute cooldown and fail over to the next provider.
     assert "410" in src
     assert "record_failure" in src
-    assert "get_watchdog" in src
+    assert "brain_failover" in src or "get_failover_manager" in src
 
 
 def test_agent_loop_429_records_failure():

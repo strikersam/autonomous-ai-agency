@@ -1662,94 +1662,114 @@ class AgentRunner:
                     pass
             return out_text
 
-        # Fallback: call Ollama/OpenAI-compatible endpoint. Uses _call_base /
-        # _call_headers, which the free-brain guard above may have overridden to
-        # the free NVIDIA brain (issue #656).
-        headers = {"Content-Type": "application/json", **_call_headers}
-        start = time.perf_counter()
-        # Build the chat URL defensively: use _openai_url to prevent double /v1
-        # when the base already ends with /v1 (e.g. Nvidia NIM).
+        # ── Universal multi-provider failover ──────────────────────────────
+        # The brain_failover manager treats EVERY configured provider as a
+        # candidate brain. On 429/410/5xx, it marks the provider unhealthy
+        # and we retry on the next healthy provider. This is the permanent
+        # solution to the recurring NVIDIA 429/410 rate-limit problem.
+        from services.brain_failover import get_failover_manager
         from packages.ai.router import _openai_url
-        chat_url = _openai_url(_call_base, "/chat/completions")
 
-        # NVIDIA NIM error handling:
-        #   429 = Too Many Requests — retry with backoff
-        #   419 = NIM per-model concurrency limit — retry with backoff
-        #   410 = Gone — endpoint/model permanently removed, DO NOT retry,
-        #         trigger brain watchdog failover immediately
-        _max_retries = 3
-        for _attempt in range(_max_retries + 1):
-            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
-                resp = await client.post(chat_url, json=payload, headers=headers)
-            if resp.status_code == 410:
-                # Permanent removal — no retry, fail immediately so the caller
-                # can fail over to the next provider via provider_router.
-                log.error("NVIDIA NIM returned 410 Gone — endpoint/model permanently removed")
-                # Trigger brain watchdog failover so the system self-heals
-                # instead of keeping the dead provider as the active brain.
-                try:
-                    from packages.ai.watchdog import get_watchdog
-                    watchdog = get_watchdog()
-                    new_provider = watchdog.record_failure("nvidia-nim")
-                    if new_provider:
-                        log.info("Brain watchdog triggered failover to %s after 410 Gone", new_provider)
-                except Exception as _wd_err:
-                    log.debug("Brain watchdog failover trigger failed (non-fatal): %s", _wd_err)
+        fm = get_failover_manager()
+        tried: set[str] = set()
+        last_resp: httpx.Response | None = None
+        last_error: str = ""
+
+        for _attempt in range(fm.max_attempts()):
+            provider = fm.next_provider(exclude=tried, requested_model=model)
+            if provider is None:
+                log.error("brain_failover: no healthy providers left (tried=%s)", tried)
                 break
-            if resp.status_code in (429, 419) and _attempt < _max_retries:
-                _wait = 2 ** _attempt  # 1s, 2s, 4s
-                log.warning("NVIDIA NIM rate-limited (HTTP %d) — retrying in %ds (attempt %d/%d)",
-                           resp.status_code, _wait, _attempt + 1, _max_retries)
-                # Record 429 as a provider failure so the brain watchdog can
-                # trigger a failover if rate-limiting is sustained. The watchdog
-                # thresholds at 3 failures — a single 429 won't failover, but
-                # 3 consecutive 429s will switch to Ollama (local, no rate limit).
-                try:
-                    from packages.ai.watchdog import get_watchdog
-                    get_watchdog().record_failure("nvidia-nim")
-                except Exception:
-                    pass
-                await asyncio.sleep(_wait)
-                continue
-            # Success or non-retryable status — reset the watchdog failure
-            # counter for this provider so a transient failure doesn't
-            # accumulate across successful calls.
-            if resp.status_code < 400:
-                try:
-                    from packages.ai.watchdog import get_watchdog
-                    get_watchdog().record_success("nvidia-nim")
-                except Exception:
-                    pass
-            break
-        duration_ms = int((time.perf_counter() - start) * 1000)
-        resp.raise_for_status()
-        data = resp.json()
-        out_text = data["choices"][0]["message"]["content"]
 
-        # Emit Langfuse observation
-        if self.email:
-            usage = data.get("usage", {})
-            pt = int(usage.get("prompt_tokens") or 0)
-            ct = int(usage.get("completion_tokens") or 0)
+            tried.add(provider.id)
+            # Resolve the model for this provider (alias mapping)
+            provider_model = fm.resolve_model(provider, model)
+            payload["model"] = provider_model
+
+            # Build the URL + headers for this provider
+            chat_url = _openai_url(provider.base_url, "/chat/completions")
+            headers = {"Content-Type": "application/json"}
+            if provider.api_key:
+                headers["Authorization"] = f"Bearer {provider.api_key}"
+
+            log.debug("brain_failover: attempt %d → %s (model=%s, url=%s)",
+                       _attempt + 1, provider.id, provider_model, chat_url)
+
+            call_start = time.perf_counter()
             try:
-                from langfuse_obs import emit_chat_observation
-                await asyncio.to_thread(
-                    emit_chat_observation,
-                    email=self.email,
-                    department=self.department or "agent",
-                    key_id=self.key_id,
-                    model=model,
-                    messages=messages,
-                    output_text=out_text,
-                    prompt_tokens=pt,
-                    completion_tokens=ct,
-                    latency_ms=duration_ms,
-                    task_name="agent-task",
-                )
+                async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+                    resp = await client.post(chat_url, json=payload, headers=headers)
             except Exception as exc:
-                log.debug("Agent Langfuse emit failed: %s", exc)
+                last_error = f"{provider.id} network error: {exc}"
+                log.warning("brain_failover: %s network error: %s", provider.id, exc)
+                fm.record_failure(provider.id, "network_error")
+                continue
 
-        return out_text
+            last_resp = resp
+            call_ms = int((time.perf_counter() - call_start) * 1000)
+
+            # ── Handle response status ──
+            if resp.status_code < 400:
+                # Success — record it and return
+                fm.record_success(provider.id, latency_ms=call_ms)
+                log.debug("brain_failover: %s succeeded (%dms)", provider.id, call_ms)
+                data = resp.json()
+                out_text = data["choices"][0]["message"]["content"]
+
+                # Emit Langfuse observation
+                if self.email:
+                    usage = data.get("usage", {})
+                    pt = int(usage.get("prompt_tokens") or 0)
+                    ct = int(usage.get("completion_tokens") or 0)
+                    try:
+                        from langfuse_obs import emit_chat_observation
+                        await asyncio.to_thread(
+                            emit_chat_observation,
+                            email=self.email,
+                            department=self.department or "agent",
+                            key_id=self.key_id,
+                            model=provider_model,
+                            messages=messages,
+                            output_text=out_text,
+                            prompt_tokens=pt,
+                            completion_tokens=ct,
+                            latency_ms=call_ms,
+                            task_name="agent-task",
+                        )
+                    except Exception as exc:
+                        log.debug("Agent Langfuse emit failed: %s", exc)
+
+                return out_text
+
+            if resp.status_code == 410:
+                last_error = f"{provider.id} 410 Gone (model removed)"
+                log.error("brain_failover: %s returned 410 Gone — model permanently removed", provider.id)
+                fm.record_failure(provider.id, "gone", 410)
+                continue
+
+            if resp.status_code in (429, 419):
+                last_error = f"{provider.id} {resp.status_code} rate-limited"
+                log.warning("brain_failover: %s rate-limited (%d) — failing over to next provider",
+                           provider.id, resp.status_code)
+                fm.record_failure(provider.id, "rate_limited", resp.status_code)
+                continue
+
+            if resp.status_code >= 500:
+                last_error = f"{provider.id} {resp.status_code} server error"
+                log.warning("brain_failover: %s server error (%d) — failing over", provider.id, resp.status_code)
+                fm.record_failure(provider.id, "server_error", resp.status_code)
+                continue
+
+            # 4xx (non-429/410) — likely a model/auth issue, try next provider
+            last_error = f"{provider.id} {resp.status_code}: {resp.text[:200]}"
+            log.warning("brain_failover: %s returned %d — failing over", provider.id, resp.status_code)
+            fm.record_failure(provider.id, f"http_{resp.status_code}", resp.status_code)
+            continue
+
+        # All providers exhausted — raise with the last error
+        if last_resp is not None:
+            last_resp.raise_for_status()
+        raise RuntimeError(f"All brain providers exhausted. Last error: {last_error}")
 
     async def _chat_json(self, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
         raw = await self._chat_text(model, messages)
