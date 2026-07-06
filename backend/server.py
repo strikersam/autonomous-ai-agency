@@ -7318,6 +7318,20 @@ async def scheduler_tick(request: Request):
                     fired.append(job.job_id)
                 except Exception as exc:
                     log.warning("tick: failed to trigger %s: %s", job.job_id, exc)
+
+        # ── Self-healing pass (PR #937) ────────────────────────────────
+        # Every tick (1 min), check if the active brain provider is in a
+        # failure state (410 Gone / sustained 429). If so, persist a
+        # failover to the next healthy provider (Ollama local first) and
+        # unblock tasks that were BLOCKED due to runtime/brain unavailability.
+        # This makes the system self-heal — no more permanently blocked tasks
+        # from a dead NVIDIA model or a rate-limit storm.
+        try:
+            from packages.ai.self_heal import _self_heal_tick
+            await _self_heal_tick()
+        except Exception as exc:
+            log.debug("scheduler_tick: self_heal failed (non-fatal): %s", exc)
+
     except Exception as exc:
         log.error("scheduler_tick error: %s", exc)
     return {"ok": True, "fired": fired, "total_jobs": len(scheduler.list())}
@@ -7382,6 +7396,28 @@ async def scheduler_force_cleanup(user: dict = Depends(get_current_user)):
         return {"ok": True, **summary}
     except Exception as exc:
         log.warning("Force-cleanup failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/scheduler/self-heal")
+async def scheduler_self_heal(user: dict = Depends(get_current_user)):
+    """Manually trigger brain self-healing + unblock tasks.
+
+    Admin-only endpoint. Runs the self_heal pass immediately:
+    1. Checks if the active brain provider is in a failure state (410/429).
+    2. Persists a failover to the next healthy provider (Ollama local first).
+    3. Unblocks tasks that were BLOCKED due to runtime/brain unavailability.
+
+    Also runs automatically every minute via /api/scheduler/tick.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    try:
+        from packages.ai.self_heal import self_heal_brain_and_unblock_tasks
+        summary = await self_heal_brain_and_unblock_tasks()
+        return {"ok": True, **summary}
+    except Exception as exc:
+        log.warning("Self-heal failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
