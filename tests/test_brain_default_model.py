@@ -26,8 +26,7 @@ import packages.ai.brain as brain_policy
 # HTTP 200 with a coherent ~600-token reply). Keeping both names in tests so a
 # future flip doesn't silently regress.
 LIVE_MODELS = {
-    "meta/llama-3.3-70b-instruct",
-    "meta/llama-3.3-70b-instruct",
+    "z-ai/glm-5.2",
     "meta/llama-3.3-70b-instruct",
 }
 
@@ -45,9 +44,9 @@ def test_default_model_is_a_live_namespaced_id():
     assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL in LIVE_MODELS
 
 
-def test_default_model_is_the_nemotron_super_49b():
-    """Default is the Nemotron Super 49B (v1.5 as of the NVIDIA-default-brain change)."""
-    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == "meta/llama-3.3-70b-instruct"
+def test_default_model_is_glm52():
+    """PR #984: default is now z-ai/glm-5.2 (was meta/llama-3.3-70b-instruct)."""
+    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == "z-ai/glm-5.2"
 
 
 def test_resolve_uses_default_when_env_unset(monkeypatch):
@@ -56,7 +55,7 @@ def test_resolve_uses_default_when_env_unset(monkeypatch):
     resolved = brain_policy.resolve_free_nvidia_brain()
     assert resolved is not None, "a key is set, so a brain must resolve"
     _base, _headers, model = resolved
-    assert model == "meta/llama-3.3-70b-instruct"
+    assert model == "z-ai/glm-5.2"
 
 
 def test_resolve_respects_env_override(monkeypatch):

@@ -41,7 +41,7 @@ log = logging.getLogger("brain_config_store")
 # (see ``brain_policy.DEFAULT_FREE_NVIDIA_MODEL``). A bad DB write or a corrupt
 # config doc must never displace it.
 SAFE_DEFAULT_PROVIDER: str = "nvidia"
-SAFE_DEFAULT_MODEL: str = "meta/llama-3.3-70b-instruct"
+SAFE_DEFAULT_MODEL: str = "z-ai/glm-5.2"
 
 # Provider ids the Brain card recognises. The Literal keeps the Pydantic model
 # strict so a typo in the UI ("cerebrass") fails validation instead of
@@ -64,10 +64,10 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "llama-3.3-70b-versatile",
     },
     "nvidia": {
-        "planner":   "meta/llama-3.3-70b-instruct",
-        "executor":  "meta/llama-3.3-70b-instruct",
-        "verifier":  "meta/llama-3.3-70b-instruct",
-        "judge":     "meta/llama-3.3-70b-instruct",
+        "planner":   "z-ai/glm-5.2",
+        "executor":  "z-ai/glm-5.2",
+        "verifier":  "z-ai/glm-5.2",
+        "judge":     "z-ai/glm-5.2",
     },
     "ollama": {
         "planner":   "deepseek-r1:32b",

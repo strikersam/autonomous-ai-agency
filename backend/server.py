@@ -1568,6 +1568,38 @@ async def lifespan(app_: "FastAPI"):
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("Boot purge scheduling failed (non-fatal): %s", exc)
 
+    # PR #984: Reset the brain config to GLM-5.2 if it's pointing at the old
+    # default (meta/llama-3.3-70b-instruct). The persisted BrainConfig in the
+    # DB survives across deploys, so without this the new default never takes
+    # effect — the resolver keeps using the stale config. This is a one-shot
+    # migration: once the config is on GLM-5.2, it won't be reset again.
+    async def _migrate_brain_to_glm52() -> None:
+        try:
+            from packages.ai.brain_config import get_brain_config_store, BrainConfigPatch
+            store = await get_brain_config_store()
+            cfg = await store.get_brain_config()
+            old_models = {"meta/llama-3.3-70b-instruct", "llama-3.3-70b-instruct"}
+            if cfg.updated_at and any(
+                getattr(cfg, f, "") in old_models
+                for f in ("planner_model", "executor_model", "verifier_model", "judge_model")
+            ):
+                patch = BrainConfigPatch(
+                    primary_provider="nvidia",
+                    planner_model="z-ai/glm-5.2",
+                    executor_model="z-ai/glm-5.2",
+                    verifier_model="z-ai/glm-5.2",
+                    judge_model="z-ai/glm-5.2",
+                )
+                await store.set_brain_config(patch, actor="startup_migration_glm52")
+                log.info("Startup migration: reset brain config from llama-3.3-70b to z-ai/glm-5.2")
+        except Exception as exc:
+            log.warning("Brain config GLM-5.2 migration failed (non-fatal): %s", exc)
+
+    try:
+        extra_tasks.append(asyncio.create_task(_migrate_brain_to_glm52()))
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Brain migration scheduling failed (non-fatal): %s", exc)
+
     # N5: Surface SERVICE_TOKEN misconfiguration at startup so the operator
     # sees the gap in the backend logs (not just when /setbrain fails at
     # runtime). Best-effort — never blocks startup.

@@ -81,7 +81,7 @@ services:
       # the ultra was pinned then; confirmed live again at
       # https://build.nvidia.com/meta/llama-3.3-70b-instruct )
       - key: NVIDIA_DEFAULT_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
 
       # ================================================================
       # E2B Firecracker micro-VM sandbox (roadmap ★5)
@@ -101,13 +101,13 @@ services:
       # task call api.anthropic.com and fail with 400 (issue #656). Set
       # ALLOW_PAID_BRAIN=true only to deliberately opt back into paid Anthropic.
       - key: AGENT_PLANNER_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: AGENT_EXECUTOR_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: AGENT_VERIFIER_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: AGENT_JUDGE_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
 
       # LLM Provider
       - key: LLM_PROVIDER
@@ -399,13 +399,6 @@ services:
       # ================================================================
       - key: RUN_TELEGRAM_BOT
         value: "true"
-      # PROXY_BASE_URL — the bot's /status and /models commands call the
-      # backend's /admin/api/status and /health endpoints. Without this, the
-      # bot defaults to http://localhost:8000 (nothing listening there on
-      # Render — the app binds to $PORT), so /status fails with
-      # "All connection attempts failed".
-      - key: PROXY_BASE_URL
-        value: "https://local-llm-server.onrender.com"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       # Single-operator shortcut: TELEGRAM_CHAT_ID alone is enough — it falls
@@ -431,32 +424,6 @@ services:
         value: "master"
       - key: BOT_KEEPALIVE
         value: "true"
-
-      # ================================================================
-      # OPENCLAW GATEWAY (iOS control) — runs as a background subprocess
-      # inside this same container on the free tier. The OpenClaw CLI
-      # (Node.js) is installed in Dockerfile.backend; the startup wrapper
-      # (docker/start_web_with_openclaw.sh) launches it on port 18789.
-      # FastAPI reverse-proxies /openclaw/* to localhost:18789 so the
-      # iOS app pairs against https://local-llm-server.onrender.com/openclaw.
-      # Set the *sync:false* secrets in the dashboard.
-      # ================================================================
-      # Agency backend — the Gateway's agent uses this as its brain.
-      - key: OPENCLAW_AGENT_BASE_URL
-        value: "https://local-llm-server.onrender.com/v1"
-      - key: OPENCLAW_AGENT_API_KEY
-        sync: false  # Set to your NVIDIA_API_KEY (nvapi-...) in the dashboard
-      - key: OPENCLAW_AGENT_MODEL
-        value: "meta/llama-3.3-70b-instruct"
-      # Agency MCP server — the Gateway registers this as a tool source.
-      - key: OPENCLAW_MCP_BASE_URL
-        value: "https://local-llm-server.onrender.com/mcp-internal"
-      - key: OPENCLAW_MCP_SECRET_TOKEN
-        sync: false  # Must match MCP_SECRET_TOKEN on this service
-      # Pairing token — gates who can pair their phone. Generate with:
-      #   openssl rand -hex 32
-      - key: OPENCLAW_PAIRING_TOKEN
-        sync: false
 
   # ── Always-on Worker (24×7 task execution + CEO loop) ─────────────────────
   # A separate worker service so task execution continues even when the web
@@ -503,18 +470,18 @@ services:
       # background agent/CEO task runs stay on the fast path too. Confirmed live:
       # https://build.nvidia.com/meta/llama-3.3-70b-instruct
       - key: NVIDIA_DEFAULT_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       # Agent brain roles run on the FREE NVIDIA model — NOT paid Anthropic
       # Bedrock Opus (issue #656: agents were stuck calling api.anthropic.com /
       # Bedrock and 400ing). Set ALLOW_PAID_BRAIN=true only to opt back into paid.
       - key: AGENT_PLANNER_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: AGENT_EXECUTOR_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: AGENT_VERIFIER_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: AGENT_JUDGE_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
       # Telegram approval-gate pushes when this worker runs the orchestrator
@@ -658,18 +625,18 @@ services:
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
       - key: NVIDIA_DEFAULT_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
       # Agent brain roles on free NVIDIA NIM
       - key: AGENT_PLANNER_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: AGENT_EXECUTOR_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: AGENT_VERIFIER_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       - key: AGENT_JUDGE_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "z-ai/glm-5.2"
       # Optional bearer gate — set in dashboard if needed
       - key: HERMES_API_KEY
         sync: false
@@ -684,3 +651,58 @@ services:
       # Storage
       - key: STORAGE_BACKEND
         value: "sqlite"
+
+  # ── OpenClaw Gateway (iOS control of the agency) ──────────────────────────
+  # OpenClaw (https://openclaw.ai) is a self-hosted Gateway + native iOS/Android
+  # app. The Gateway holds the "brain"; phones pair as WebSocket companion nodes
+  # via `openclaw pair qr` (QR encodes gateway host + pairing token). This
+  # service runs the Gateway 24×7, pointed at the agency's existing OpenAI-
+  # compatible proxy + MCP server so the iOS app can drive agency workflows.
+  #
+  # PERSISTENT DISK REQUIRED: ~/.openclaw holds pairing tokens and device
+  # registrations. On a free/ephemeral disk, every redeploy un-pairs the phone
+  # and you must re-scan the QR. Mount a persistent disk (see disk: block below)
+  # or use a paid instance.
+  #
+  # SECURITY: OpenClaw's device-pairing + token auth runs over Render's HTTPS.
+  # Do NOT expose port 18789 directly — the Gateway binds to $PORT internally
+  # and Render's HTTPS proxy handles TLS + auth. For users who don't want a
+  # public gateway, the OpenClaw-recommended alternative is Tailscale / a small
+  # always-on host.
+  - type: web
+    name: openclaw-gateway
+    env: docker
+    dockerfilePath: ./Dockerfile.openclaw
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # The Gateway binds to $PORT (Render injects this). Internally OpenClaw
+      # uses 18789, but Render requires binding to $PORT.
+      - key: OPENCLAW_PORT
+        value: "$PORT"
+      # Agency backend — the Gateway's agent uses this as its OpenAI-compatible
+      # brain (free NVIDIA NIM routing, all existing setup).
+      - key: OPENCLAW_AGENT_BASE_URL
+        value: "https://local-llm-server.onrender.com/v1"
+      - key: OPENCLAW_AGENT_API_KEY
+        sync: false  # Set to the agency's API key (or a bearer token) in the dashboard
+      - key: OPENCLAW_AGENT_MODEL
+        value: "z-ai/glm-5.2"
+      # Agency MCP server — the Gateway registers this as a tool source so the
+      # iOS app can drive agency workflows (clone_repo, git_commit, etc.), not
+      # just chat.
+      - key: OPENCLAW_MCP_BASE_URL
+        value: "https://local-llm-server.onrender.com/mcp-internal"
+      - key: OPENCLAW_MCP_SECRET_TOKEN
+        sync: false  # Must match MCP_SECRET_TOKEN on the web service
+      # GitHub token — needed if the iOS app drives repo-editing workflows
+      - key: GITHUB_TOKEN
+        sync: false
+      # Pairing token — set this to a strong random string (e.g. `openssl rand
+      # -hex 32`) to gate who can pair. The QR encodes gateway host + this token.
+      - key: OPENCLAW_PAIRING_TOKEN
+        sync: false
+    disk:
+      name: openclaw-state
+      mountPath: /root/.openclaw
+      sizeGB: 1

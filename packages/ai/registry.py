@@ -122,6 +122,24 @@ def _register_defaults() -> None:
         priority=30,
         fallback_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
     ))
+
+    # GLM-5.2 (Z.AI) on NVIDIA NIM — the operator's preferred brain model.
+    # https://build.nvidia.com/z-ai/glm-5.2 — free, high-quality, fast.
+    # Registered with priority 20 (higher than llama-3.3-70b at 30) so
+    # best_model_for() prefers it when both are available.
+    register(ModelInfo(
+        model_id="z-ai/glm-5.2",
+        provider_id="nvidia",
+        display_name="GLM-5.2 (Z.AI)",
+        supports_streaming=True,
+        context_window=128000,
+        max_output_tokens=8192,
+        speed_tier="fast",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        priority=20,
+        fallback_model="meta/llama-3.3-70b-instruct",
+    ))
     
     # Cerebras (free, fastest)
     register(ModelInfo(
