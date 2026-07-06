@@ -41,7 +41,7 @@ reportlab>=5.0.0,<6
 # push-to-talk SAM flow falls back to browser SpeechSynthesis without it, but
 # with gtts installed the backend returns real audio (mp3 bytes when ffmpeg
 # is absent — browsers play them fine).
-gTTS>=2.5.0
+gTTS>=2.5.4
 
 # Langfuse observability/tracing for chat + agent runs. The Dockerfile installs
 # THIS file (not root requirements.txt), so langfuse MUST be here — without it,
