@@ -425,6 +425,23 @@ services:
       - key: BOT_KEEPALIVE
         value: "true"
 
+      # ================================================================
+      # OPENCLAW GATEWAY (in-process on the web service per PR #987)
+      # The Gateway runs as a background subprocess inside the web service
+      # so the iOS/Android app can drive agency workflows. These env vars
+      # configure the Gateway's connection to the agency backend + MCP server.
+      # ================================================================
+      - key: OPENCLAW_AGENT_BASE_URL
+        value: "https://local-llm-server.onrender.com/v1"
+      - key: OPENCLAW_AGENT_API_KEY
+        sync: false
+      - key: OPENCLAW_MCP_BASE_URL
+        value: "https://local-llm-server.onrender.com/mcp-internal"
+      - key: OPENCLAW_MCP_SECRET_TOKEN
+        generateValue: true
+      - key: OPENCLAW_PAIRING_TOKEN
+        generateValue: true
+
   # ── Always-on Worker (24×7 task execution + CEO loop) ─────────────────────
   # A separate worker service so task execution continues even when the web
   # service is sleeping on the free tier.  Switch the web service
@@ -651,58 +668,6 @@ services:
       # Storage
       - key: STORAGE_BACKEND
         value: "sqlite"
-
-  # ── OpenClaw Gateway (iOS control of the agency) ──────────────────────────
-  # OpenClaw (https://openclaw.ai) is a self-hosted Gateway + native iOS/Android
-  # app. The Gateway holds the "brain"; phones pair as WebSocket companion nodes
-  # via `openclaw pair qr` (QR encodes gateway host + pairing token). This
-  # service runs the Gateway 24×7, pointed at the agency's existing OpenAI-
-  # compatible proxy + MCP server so the iOS app can drive agency workflows.
-  #
-  # PERSISTENT DISK REQUIRED: ~/.openclaw holds pairing tokens and device
-  # registrations. On a free/ephemeral disk, every redeploy un-pairs the phone
-  # and you must re-scan the QR. Mount a persistent disk (see disk: block below)
-  # or use a paid instance.
-  #
-  # SECURITY: OpenClaw's device-pairing + token auth runs over Render's HTTPS.
-  # Do NOT expose port 18789 directly — the Gateway binds to $PORT internally
-  # and Render's HTTPS proxy handles TLS + auth. For users who don't want a
-  # public gateway, the OpenClaw-recommended alternative is Tailscale / a small
-  # always-on host.
-  - type: web
-    name: openclaw-gateway
-    env: docker
-    dockerfilePath: ./Dockerfile.openclaw
-    plan: free
-    healthCheckPath: /health
-    envVars:
-      # The Gateway binds to $PORT (Render injects this). Internally OpenClaw
-      # uses 18789, but Render requires binding to $PORT.
-      - key: OPENCLAW_PORT
-        value: "$PORT"
-      # Agency backend — the Gateway's agent uses this as its OpenAI-compatible
-      # brain (free NVIDIA NIM routing, all existing setup).
-      - key: OPENCLAW_AGENT_BASE_URL
-        value: "https://local-llm-server.onrender.com/v1"
-      - key: OPENCLAW_AGENT_API_KEY
-        sync: false  # Set to the agency's API key (or a bearer token) in the dashboard
-      - key: OPENCLAW_AGENT_MODEL
-        value: "z-ai/glm-5.2"
-      # Agency MCP server — the Gateway registers this as a tool source so the
-      # iOS app can drive agency workflows (clone_repo, git_commit, etc.), not
-      # just chat.
-      - key: OPENCLAW_MCP_BASE_URL
-        value: "https://local-llm-server.onrender.com/mcp-internal"
-      - key: OPENCLAW_MCP_SECRET_TOKEN
-        sync: false  # Must match MCP_SECRET_TOKEN on the web service
-      # GitHub token — needed if the iOS app drives repo-editing workflows
-      - key: GITHUB_TOKEN
-        sync: false
-      # Pairing token — set this to a strong random string (e.g. `openssl rand
-      # -hex 32`) to gate who can pair. The QR encodes gateway host + this token.
-      - key: OPENCLAW_PAIRING_TOKEN
-        sync: false
-    disk:
-      name: openclaw-state
-      mountPath: /root/.openclaw
-      sizeGB: 1
+  # NOTE: OpenClaw Gateway runs in-process on the web service (PR #987).
+  # The OPENCLAW_* env vars are declared on the local-llm-server service above.
+  # No separate openclaw-gateway service — test_no_separate_openclaw_service pins this.

@@ -41,7 +41,10 @@ class TestBrainWatchdog:
     @patch.object(BrainWatchdog, "_notify_failover")
     def test_failover_triggers_at_threshold(self, mock_notify, mock_persist):
         wd = BrainWatchdog(max_failures=3)
-        with patch.object(_bw._bcs, "provider_key_present",
+        # PR #983: _trigger_failover now uses _is_provider_actually_available
+        # instead of provider_key_present. Mock it so ollama is NOT available
+        # (no OLLAMA_BASE_URL in CI) and groq/nvidia ARE.
+        with patch.object(_bw, "_is_provider_actually_available",
                           side_effect=lambda p: p in ("groq", "nvidia")):
             wd.record_failure("cerebras")
             wd.record_failure("cerebras")
@@ -56,7 +59,7 @@ class TestBrainWatchdog:
     @patch.object(BrainWatchdog, "_notify_failover")
     def test_failover_skips_provider_without_key(self, mock_notify, mock_persist):
         wd = BrainWatchdog(max_failures=2)
-        with patch.object(_bw._bcs, "provider_key_present",
+        with patch.object(_bw, "_is_provider_actually_available",
                           side_effect=lambda p: p == "nvidia"):
             wd.record_failure("cerebras")
             result = wd.record_failure("cerebras")
@@ -67,7 +70,7 @@ class TestBrainWatchdog:
     @patch.object(BrainWatchdog, "_notify_failover")
     def test_no_failover_candidates(self, mock_notify, mock_persist):
         wd = BrainWatchdog(max_failures=1)
-        with patch.object(_bw._bcs, "provider_key_present",
+        with patch.object(_bw, "_is_provider_actually_available",
                           return_value=False):
             result = wd.record_failure("cerebras")
 
@@ -78,7 +81,7 @@ class TestBrainWatchdog:
     @patch.object(BrainWatchdog, "_notify_failover")
     def test_failover_log_recorded(self, mock_notify, mock_persist):
         wd = BrainWatchdog(max_failures=1)
-        with patch.object(_bw._bcs, "provider_key_present",
+        with patch.object(_bw, "_is_provider_actually_available",
                           side_effect=lambda p: p == "groq"):
             wd.record_failure("cerebras")
 
