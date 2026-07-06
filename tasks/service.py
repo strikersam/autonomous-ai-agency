@@ -571,6 +571,7 @@ class TaskExecutionCoordinator:
         self._active_task_ids: set[str] = set()
 
     async def execute(self, task_id: str) -> Task:
+        _exec_start = time.time()
         claimed = await self._claim_task(task_id)
         if not claimed:
             # Either we already hold the lock or another process does — either way
@@ -760,6 +761,23 @@ class TaskExecutionCoordinator:
                 event_type="workflow_verify",
                 actor="system:workflow",
             )
+            # Langfuse trace: task executed successfully
+            try:
+                from langfuse_obs import emit_agency_observation
+                emit_agency_observation(
+                    operation="task_execute",
+                    actor="system:coordinator",
+                    task_id=task.task_id,
+                    task_title=task.title,
+                    task_type=task.task_type,
+                    status="ok",
+                    duration_ms=int((time.time() - _exec_start) * 1000) if _exec_start else 0,
+                    model=result.model_used,
+                    output_text=result.output[:2000] if result.output else None,
+                    metadata={"runtime_id": decision.selected_runtime_id},
+                )
+            except Exception:
+                pass
         except asyncio.TimeoutError:
             message = (
                 f"Execution timed out after {self.execution_timeout_s:.0f}s"
@@ -776,6 +794,21 @@ class TaskExecutionCoordinator:
             # on the next dispatch cycle. The _requeue_or_block_unavailable
             # helper handles the retry-count cap + eventual BLOCKED transition.
             self._requeue_or_block_unavailable(task, asyncio.TimeoutError(), what=message)
+            # Langfuse trace: task timed out
+            try:
+                from langfuse_obs import emit_agency_observation
+                emit_agency_observation(
+                    operation="task_execute",
+                    actor="system:coordinator",
+                    task_id=task.task_id,
+                    task_title=task.title,
+                    task_type=task.task_type,
+                    status="timeout",
+                    duration_ms=int((time.time() - _exec_start) * 1000),
+                    error=message,
+                )
+            except Exception:
+                pass
         except RuntimeUnavailableError as exc:
             # No healthy runtime was available at dispatch time.  Re-queue the
             # task instead of failing it so the next dispatcher cycle retries.
@@ -796,6 +829,21 @@ class TaskExecutionCoordinator:
                     actor="system:coordinator",
                     message=f"Execution failed: {exc}",
                 )
+                # Langfuse trace: task failed
+                try:
+                    from langfuse_obs import emit_agency_observation
+                    emit_agency_observation(
+                        operation="task_execute",
+                        actor="system:coordinator",
+                        task_id=task.task_id,
+                        task_title=task.title,
+                        task_type=task.task_type,
+                        status="failed",
+                        duration_ms=int((time.time() - _exec_start) * 1000),
+                        error=str(exc)[:500],
+                    )
+                except Exception:
+                    pass
         finally:
             await self.store.update(task)
             await self._release_task(task_id)

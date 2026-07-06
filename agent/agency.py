@@ -658,10 +658,38 @@ class Agency:
                 directive.directive_id, directive.role.value,
                 directive.preferred_runtime, job.job_id,
             )
+            # Langfuse trace: CEO directive dispatched
+            try:
+                from langfuse_obs import emit_agency_observation
+                emit_agency_observation(
+                    operation="ceo_directive",
+                    actor="ceo",
+                    task_id=job.job_id,
+                    task_title=directive.title,
+                    task_type=directive.role.value,
+                    status="dispatched",
+                    input_text=directive.instruction[:2000],
+                    metadata={"directive_id": directive.directive_id, "priority": directive.priority},
+                )
+            except Exception:
+                pass
         except Exception as exc:
             directive.status = "failed"
             directive.result = str(exc)
             log.warning("Agency: dispatch failed for %s: %s", directive.directive_id, exc)
+            # Langfuse trace: CEO directive dispatch failed
+            try:
+                from langfuse_obs import emit_agency_observation
+                emit_agency_observation(
+                    operation="ceo_directive",
+                    actor="ceo",
+                    task_title=directive.title,
+                    task_type=directive.role.value,
+                    status="failed",
+                    error=str(exc)[:500],
+                )
+            except Exception:
+                pass
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
