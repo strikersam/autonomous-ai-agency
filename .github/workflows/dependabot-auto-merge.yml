@@ -19,9 +19,17 @@ jobs:
         id: meta
         uses: dependabot/fetch-metadata@v3
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          # Use the built-in GITHUB_TOKEN for metadata fetching — the
+          # dependabot/fetch-metadata action requires this (a PAT like GH_PAT
+          # causes "github-token is not set!" because the action validates
+          # the token differently). The built-in GITHUB_TOKEN is automatically
+          # available in every Actions run and has read access to PR metadata.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Auto-merge patch and minor version bumps (squash, bypass required checks)
+      # Uses GH_PAT (admin PAT) here because the built-in GITHUB_TOKEN doesn't
+      # have admin bypass for branch protection — only a PAT with repo scope can
+      # merge with --admin to bypass required status checks.
       - name: Auto-merge patch / minor
         if: |
           steps.meta.outputs.update-type == 'version-update:semver-patch' ||
