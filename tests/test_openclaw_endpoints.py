@@ -63,8 +63,8 @@ def test_mobile_ui_returns_html(client):
     assert "text/html" in resp.headers.get("content-type", "")
     html = resp.text
     assert "Agency Control" in html
-    assert "WebSocket" in html or "websocket" in html.lower()
     assert "connect" in html.lower()
+    assert "command" in html.lower()
 
 
 def test_openclaw_catch_all_returns_info(client):

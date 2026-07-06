@@ -1,10 +1,8 @@
 """services/openclaw_mobile.py — Mobile web UI for iOS control of the agency.
 
-Served at /mobile. A single-page app that connects to the WebSocket gateway
-at /openclaw/ws, pairs automatically using the token from /api/openclaw/qr,
-and provides a chat interface for sending commands to the agency.
-
-Add to Home Screen from Safari for an app-like experience.
+Served at /mobile. Uses HTTP POST to /api/openclaw/command (more reliable on
+Render free tier than WebSockets). Add to Home Screen from Safari for an
+app-like experience.
 """
 from __future__ import annotations
 
@@ -53,7 +51,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 <div id="connect-screen">
   <h2 style="font-size: 22px;">Agency Control</h2>
   <button id="connect-btn" onclick="connect()">Connect</button>
-  <p id="connect-status">Tap to pair with the agency gateway.</p>
+  <p id="connect-status">Tap to connect to the agency gateway.</p>
 </div>
 
 <div id="header">
@@ -72,12 +70,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 <div id="input-bar">
   <input id="msg-input" type="text" placeholder="Send a command..." onkeydown="if(event.key==='Enter')send()">
-  <button id="send-btn" onclick="send" disabled>Send</button>
+  <button id="send-btn" onclick="send()" disabled>Send</button>
 </div>
 
 <script>
-let ws = null;
-let paired = false;
+let token = null;
+let connected = false;
 
 async function connect() {
   document.getElementById('connect-status').textContent = 'Fetching pairing token...';
@@ -88,69 +86,72 @@ async function connect() {
       document.getElementById('connect-status').textContent = data.error;
       return;
     }
-    const wsUrl = data.websocket_url.replace('https://', 'wss://').replace('http://', 'ws://');
+    token = data.manual_entry.token;
+
+    // Wake the service with a ping
+    document.getElementById('connect-status').textContent = 'Waking service...';
+    await fetch('/api/ping');
+
+    // Test the command endpoint with a ping
     document.getElementById('connect-status').textContent = 'Connecting...';
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      document.getElementById('connect-status').textContent = 'Pairing...';
-      ws.send(JSON.stringify({type: 'pair', token: data.manual_entry.token}));
-    };
-
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'paired' && msg.ok) {
-        paired = true;
-        document.getElementById('connect-screen').classList.add('hidden');
-        document.getElementById('status-dot').className = 'connected';
-        document.getElementById('send-btn').disabled = false;
-        addMessage('Connected to agency gateway.', 'system');
-      } else if (msg.type === 'response') {
-        addMessage(msg.content, 'server');
-      } else if (msg.type === 'error') {
-        addMessage(msg.error, 'error');
-      } else if (msg.type === 'pong') {
-        addMessage('pong', 'server');
-      }
-    };
-
-    ws.onerror = () => {
-      document.getElementById('connect-status').textContent = 'Connection error. Check your network.';
-      document.getElementById('status-dot').className = 'error';
-    };
-
-    ws.onclose = () => {
-      paired = false;
-      document.getElementById('status-dot').className = 'error';
-      document.getElementById('send-btn').disabled = true;
-      document.getElementById('connect-screen').classList.remove('hidden');
-      document.getElementById('connect-status').textContent = 'Disconnected. Tap to reconnect.';
-    };
+    const testResp = await fetch('/api/openclaw/command', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: token, type: 'ping'})
+    });
+    const testData = await testResp.json();
+    if (testData.type === 'pong') {
+      connected = true;
+      document.getElementById('connect-screen').classList.add('hidden');
+      document.getElementById('status-dot').className = 'connected';
+      document.getElementById('send-btn').disabled = false;
+      addMessage('Connected to agency gateway.', 'system');
+    } else {
+      document.getElementById('connect-status').textContent = 'Connection test failed: ' + JSON.stringify(testData);
+    }
   } catch (e) {
     document.getElementById('connect-status').textContent = 'Error: ' + e.message;
+    document.getElementById('status-dot').className = 'error';
   }
 }
 
-function send() {
+async function send() {
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
-  if (!text || !paired) return;
+  if (!text || !connected) return;
   addMessage(text, 'user');
-  ws.send(JSON.stringify({type: 'chat', message: text}));
   input.value = '';
+  await sendCommand({type: 'chat', message: text});
 }
 
-function sendQuick(cmd) {
-  if (!paired) return;
+async function sendQuick(cmd) {
+  if (!connected) return;
   addMessage(cmd, 'user');
-  if (cmd === 'status') {
-    ws.send(JSON.stringify({type: 'status'}));
-  } else if (cmd === 'list files') {
-    ws.send(JSON.stringify({type: 'list_files', path: '.'}));
-  } else if (cmd === 'read README.md') {
-    ws.send(JSON.stringify({type: 'read_file', path: 'README.md'}));
-  } else if (cmd === 'ping') {
-    ws.send(JSON.stringify({type: 'ping'}));
+  let body = {token: token};
+  if (cmd === 'status') body.type = 'status';
+  else if (cmd === 'list files') body.type = 'list_files', body.path = '.';
+  else if (cmd === 'read README.md') body.type = 'read_file', body.path = 'README.md';
+  else if (cmd === 'ping') body.type = 'ping';
+  await sendCommand(body);
+}
+
+async function sendCommand(body) {
+  try {
+    const resp = await fetch('/api/openclaw/command', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (data.type === 'response') {
+      addMessage(data.content, 'server');
+    } else if (data.type === 'error') {
+      addMessage(data.error, 'error');
+    } else if (data.type === 'pong') {
+      addMessage('pong', 'server');
+    }
+  } catch (e) {
+    addMessage('Request failed: ' + e.message, 'error');
   }
 }
 

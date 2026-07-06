@@ -6582,13 +6582,41 @@ async def openclaw_websocket(websocket: WebSocket):
     await openclaw_websocket_endpoint(websocket)
 
 
+@app.post("/api/openclaw/command")
+async def openclaw_command(request: Request) -> dict:
+    """HTTP command endpoint — same as the WebSocket command path but over POST.
+
+    More reliable on Render free tier (WebSockets can fail with 443 bad connection).
+    The mobile UI uses this instead of the WebSocket.
+
+    Body: {"token": "<OPENCLAW_PAIRING_TOKEN>", "type": "chat|status|list_files|read_file|ping", ...}
+    """
+    import os as _os
+    from services.openclaw_gateway import _handle_command
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"type": "error", "error": "Invalid JSON body"})
+
+    # Validate pairing token
+    pairing_token = _os.environ.get("OPENCLAW_PAIRING_TOKEN", "").strip()
+    if not pairing_token:
+        return JSONResponse(status_code=503, content={"type": "error", "error": "OPENCLAW_PAIRING_TOKEN not set"})
+    if body.get("token") != pairing_token:
+        return JSONResponse(status_code=401, content={"type": "error", "error": "Invalid token"})
+
+    response = await _handle_command(body)
+    return response
+
+
 @app.get("/mobile", response_class=HTMLResponse)
 async def openclaw_mobile_ui() -> str:
     """Mobile web UI for iOS control of the agency.
 
     Open this on your iPhone, tap Connect, then Add to Home Screen from
-    Safari for an app-like experience. Connects to the WebSocket gateway
-    at /openclaw/ws and routes commands to the agency backend.
+    Safari for an app-like experience. Uses HTTP POST for command sending
+    (more reliable on Render free tier than WebSockets).
     """
     from services.openclaw_mobile import get_mobile_html
     return get_mobile_html()
