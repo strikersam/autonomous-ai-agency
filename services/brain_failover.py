@@ -361,6 +361,15 @@ class BrainFailoverManager:
                         continue
 
                 # Preserve health state from the old registry
+                # Honor NVIDIA_DEFAULT_MODEL env var (set by the free-brain guard
+                # and operator config) so the failover uses the same model the
+                # rest of the system expects.
+                default_model = spec["default_model"]
+                if pid == "nvidia":
+                    env_model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip()
+                    if env_model:
+                        default_model = env_model
+
                 old = old_providers.get(pid)
                 if old:
                     info = ProviderInfo(
@@ -369,8 +378,8 @@ class BrainFailoverManager:
                         tier=spec["tier"],
                         base_url=base_url,
                         api_key=api_key,
-                        default_model=spec["default_model"],
-                        models=spec["models"],
+                        default_model=default_model,
+                        models=spec["models"] + ([default_model] if default_model not in spec["models"] else []),
                         cooldown_seconds=spec["cooldown"],
                         health=old.health,
                         failure_count=old.failure_count,
@@ -389,8 +398,8 @@ class BrainFailoverManager:
                         tier=spec["tier"],
                         base_url=base_url,
                         api_key=api_key,
-                        default_model=spec["default_model"],
-                        models=spec["models"],
+                        default_model=default_model,
+                        models=spec["models"] + ([default_model] if default_model not in spec["models"] else []),
                         cooldown_seconds=spec["cooldown"],
                     )
                 self._providers[pid] = info
