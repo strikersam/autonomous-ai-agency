@@ -399,6 +399,13 @@ services:
       # ================================================================
       - key: RUN_TELEGRAM_BOT
         value: "true"
+      # PROXY_BASE_URL — the bot's /status and /models commands call the
+      # backend's /admin/api/status and /health endpoints. Without this, the
+      # bot defaults to http://localhost:8000 (nothing listening there on
+      # Render — the app binds to $PORT), so /status fails with
+      # "All connection attempts failed".
+      - key: PROXY_BASE_URL
+        value: "https://local-llm-server.onrender.com"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       # Single-operator shortcut: TELEGRAM_CHAT_ID alone is enough — it falls
