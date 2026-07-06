@@ -16,13 +16,7 @@ RUN CI=false npm run build
 FROM python:3.11-slim
 
 # git is required by mcp_server workspace tools (clone_repo, git_commit, etc.)
-# Node.js is required for the OpenClaw Gateway (iOS control) which runs as a
-# background subprocess inside this same container on the free tier.
-RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates \
-  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-  && apt-get install -y --no-install-recommends nodejs \
-  && rm -rf /var/lib/apt/lists/* \
-  && npm install -g @openclaw/cli 2>/dev/null || echo "OpenClaw CLI not yet published; gateway will use in-process fallback"
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -91,7 +85,5 @@ COPY --from=frontend-build /frontend/build/ frontend/build/
 EXPOSE 8001
 
 # Render injects PORT; fall back to 8001 for local use.
-# The wrapper script also launches the OpenClaw Gateway in the background.
-COPY docker/ docker/
-RUN chmod +x docker/start_web_with_openclaw.sh
-CMD ["sh", "-c", "docker/start_web_with_openclaw.sh"]
+# The OpenClaw Gateway is an in-process WebSocket server — no background subprocess needed.
+CMD ["sh", "-c", "uvicorn backend.server:app --host 0.0.0.0 --port ${PORT:-8001}"]
