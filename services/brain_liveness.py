@@ -31,6 +31,7 @@ Design notes
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Literal
 
@@ -91,19 +92,64 @@ async def probe_model_liveness(
         )
 
     provider_norm = (provider or "").strip().lower()
-    if provider_norm not in PROVIDER_DEFAULT_BASE_URL:
+
+    # Map new failover-system provider ids to the liveness probe's known providers.
+    # The failover system (services/brain_failover.py) uses ids like "zai" and
+    # "aerolink" which aren't in the old PROVIDER_DEFAULT_BASE_URL map. Map them
+    # here so the liveness probe can test them.
+    _PROVIDER_URLS = {
+        **PROVIDER_DEFAULT_BASE_URL,
+        "zai": "https://api.z.ai/api/paas/v4",
+        "aerolink": "https://capi.aerolink.lat/v1",
+        "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+        "deepseek": "https://api.deepseek.com/v1",
+        "together": "https://api.together.xyz/v1",
+        "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "moonshot": "https://api.moonshot.cn/v1",
+        "openrouter": "https://openrouter.ai/api/v1",
+        "minimax": "https://api.minimax.chat/v1",
+        "google": "https://generativelanguage.googleapis.com",
+        "anthropic": "https://api.anthropic.com",
+    }
+    _PROVIDER_KEYS = {
+        **PROVIDER_KEY_ENV,
+        "zai": "ZAI_API_KEY",
+        "aerolink": "AEROLINK_API_KEY",
+        "zhipu": "ZHIPU_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
+        "together": "TOGETHER_API_KEY",
+        "dashscope": "DASHSCOPE_API_KEY",
+        "moonshot": "MOONSHOT_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+        "minimax": "MINIMAX_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+    }
+
+    if provider_norm not in _PROVIDER_URLS:
         return ProbeResult(
             provider=provider, model=model, live=False,
             reason=f"Unknown provider: {provider!r}",
         )
 
     override = (base_url or "").strip()
-    base_url = override.rstrip("/") if override else provider_base_url(provider_norm)
-    api_key = provider_api_key(provider_norm)
+    if override:
+        resolved_base = override.rstrip("/")
+    elif provider_norm in PROVIDER_DEFAULT_BASE_URL:
+        resolved_base = provider_base_url(provider_norm)
+    else:
+        resolved_base = _PROVIDER_URLS[provider_norm]
+
+    # Get the API key
+    if provider_norm in PROVIDER_KEY_ENV:
+        api_key = provider_api_key(provider_norm)
+    else:
+        env_var = _PROVIDER_KEYS.get(provider_norm, "")
+        api_key = (os.environ.get(env_var) or "").strip() or None
 
     # Ollama is local — no key required. Other providers need a key.
     if provider_norm != "ollama" and not api_key:
-        env_var = PROVIDER_KEY_ENV.get(provider_norm) or ""
+        env_var = _PROVIDER_KEYS.get(provider_norm, "")
         return ProbeResult(
             provider=provider, model=model, live=False,
             reason=f"Provider API key not configured (set {env_var})",
@@ -112,8 +158,8 @@ async def probe_model_liveness(
     start = time.monotonic()
     try:
         if provider_norm == "ollama":
-            return await _probe_ollama(model, base_url, timeout, start)
-        return await _probe_openai_compat(provider_norm, model, base_url, api_key, timeout, start)
+            return await _probe_ollama(model, resolved_base, timeout, start)
+        return await _probe_openai_compat(provider_norm, model, resolved_base, api_key, timeout, start)
     except httpx.TimeoutException:
         return ProbeResult(
             provider=provider, model=model, live=False,
@@ -137,10 +183,16 @@ async def _probe_openai_compat(
     timeout: float,
     start: float,
 ) -> ProbeResult:
-    """Probe an OpenAI-compatible provider (Cerebras / Groq / NIM)."""
+    """Probe an OpenAI-compatible provider (Cerebras / Groq / NIM / Z.ai / Aerolink)."""
     url = base_url.rstrip("/")
-    if not url.endswith("/v1"):
-        url = f"{url}/v1"
+    # Don't double-append /v1 — some providers (Z.ai, Aerolink, Groq) already
+    # include it in the base URL.
+    if not url.endswith("/v1") and not url.endswith("/v1/"):
+        # Only append /v1 if the base URL has no path (e.g. https://api.cerebras.ai)
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if not parsed.path or parsed.path == "/":
+            url = f"{url}/v1"
     url = f"{url}/chat/completions"
 
     headers = {"Content-Type": "application/json"}
@@ -158,7 +210,10 @@ async def _probe_openai_compat(
         resp = await client.post(url, json=payload, headers=headers)
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    live = 200 <= resp.status_code < 300
+    # A provider is "live" if it responded with 2xx OR 429 (rate-limited but
+    # up) OR 401/403 (auth issue — the endpoint exists, the key is wrong).
+    # Only 410 Gone / 404 Not Found / 5xx are "dead".
+    live = 200 <= resp.status_code < 300 or resp.status_code in (429, 401, 403)
     reason = _describe_http_status(resp.status_code, resp.text, provider)
     return ProbeResult(
         provider=provider, model=model, live=live,
