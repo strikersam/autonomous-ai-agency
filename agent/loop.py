@@ -1684,7 +1684,6 @@ class AgentRunner:
             tried.add(provider.id)
             # Resolve the model for this provider (alias mapping)
             provider_model = fm.resolve_model(provider, model)
-            payload["model"] = provider_model
 
             # Build the URL + headers for this provider
             chat_url = _openai_url(provider.base_url, "/chat/completions")
@@ -1692,79 +1691,79 @@ class AgentRunner:
             if provider.api_key:
                 headers["Authorization"] = f"Bearer {provider.api_key}"
 
-            log.debug("brain_failover: attempt %d → %s (model=%s, url=%s)",
-                       _attempt + 1, provider.id, provider_model, chat_url)
+            # Try multiple models on this provider before giving up — when a
+            # model returns 410 Gone (dead), try the next model. This handles
+            # the case where NVIDIA_DEFAULT_MODEL points at a dead model.
+            models_to_try = [provider_model] + [
+                m for m in provider.models if m != provider_model
+            ]
+            for try_model in models_to_try[:3]:
+                payload["model"] = try_model
+                log.debug("brain_failover: attempt %d -> %s (model=%s)",
+                           _attempt + 1, provider.id, try_model)
 
-            call_start = time.perf_counter()
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
-                    resp = await client.post(chat_url, json=payload, headers=headers)
-            except Exception as exc:
-                last_error = f"{provider.id} network error: {exc}"
-                log.warning("brain_failover: %s network error: %s", provider.id, exc)
-                fm.record_failure(provider.id, "network_error")
+                call_start = time.perf_counter()
+                try:
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+                        resp = await client.post(chat_url, json=payload, headers=headers)
+                except Exception as exc:
+                    last_error = f"{provider.id} network error: {exc}"
+                    log.warning("brain_failover: %s network error: %s", provider.id, exc)
+                    fm.record_failure(provider.id, "network_error")
+                    break
+
+                last_resp = resp
+                call_ms = int((time.perf_counter() - call_start) * 1000)
+
+                if resp.status_code < 400:
+                    fm.record_success(provider.id, latency_ms=call_ms)
+                    data = resp.json()
+                    out_text = data["choices"][0]["message"]["content"]
+                    if self.email:
+                        usage = data.get("usage", {})
+                        pt = int(usage.get("prompt_tokens") or 0)
+                        ct = int(usage.get("completion_tokens") or 0)
+                        try:
+                            from langfuse_obs import emit_chat_observation
+                            await asyncio.to_thread(
+                                emit_chat_observation,
+                                email=self.email,
+                                department=self.department or "agent",
+                                key_id=self.key_id,
+                                model=try_model,
+                                messages=messages,
+                                output_text=out_text,
+                                prompt_tokens=pt,
+                                completion_tokens=ct,
+                                latency_ms=call_ms,
+                                task_name="agent-task",
+                            )
+                        except Exception as exc:
+                            log.debug("Agent Langfuse emit failed: %s", exc)
+                    return out_text
+
+                if resp.status_code == 410:
+                    log.warning("brain_failover: %s model %s 410 Gone - trying next model",
+                               provider.id, try_model)
+                    continue
+
+                if resp.status_code in (429, 419):
+                    last_error = f"{provider.id} {resp.status_code} rate-limited"
+                    fm.record_failure(provider.id, "rate_limited", resp.status_code)
+                    break
+
+                if resp.status_code >= 500:
+                    last_error = f"{provider.id} {resp.status_code} server error"
+                    fm.record_failure(provider.id, "server_error", resp.status_code)
+                    break
+
+                last_error = f"{provider.id} {resp.status_code}: {resp.text[:200]}"
+                log.warning("brain_failover: %s model %s returned %d - trying next model",
+                           provider.id, try_model, resp.status_code)
                 continue
-
-            last_resp = resp
-            call_ms = int((time.perf_counter() - call_start) * 1000)
-
-            # ── Handle response status ──
-            if resp.status_code < 400:
-                # Success — record it and return
-                fm.record_success(provider.id, latency_ms=call_ms)
-                log.debug("brain_failover: %s succeeded (%dms)", provider.id, call_ms)
-                data = resp.json()
-                out_text = data["choices"][0]["message"]["content"]
-
-                # Emit Langfuse observation
-                if self.email:
-                    usage = data.get("usage", {})
-                    pt = int(usage.get("prompt_tokens") or 0)
-                    ct = int(usage.get("completion_tokens") or 0)
-                    try:
-                        from langfuse_obs import emit_chat_observation
-                        await asyncio.to_thread(
-                            emit_chat_observation,
-                            email=self.email,
-                            department=self.department or "agent",
-                            key_id=self.key_id,
-                            model=provider_model,
-                            messages=messages,
-                            output_text=out_text,
-                            prompt_tokens=pt,
-                            completion_tokens=ct,
-                            latency_ms=call_ms,
-                            task_name="agent-task",
-                        )
-                    except Exception as exc:
-                        log.debug("Agent Langfuse emit failed: %s", exc)
-
-                return out_text
-
-            if resp.status_code == 410:
-                last_error = f"{provider.id} 410 Gone (model removed)"
-                log.error("brain_failover: %s returned 410 Gone — model permanently removed", provider.id)
-                fm.record_failure(provider.id, "gone", 410)
+            else:
+                fm.record_failure(provider.id, "all_models_failed")
                 continue
-
-            if resp.status_code in (429, 419):
-                last_error = f"{provider.id} {resp.status_code} rate-limited"
-                log.warning("brain_failover: %s rate-limited (%d) — failing over to next provider",
-                           provider.id, resp.status_code)
-                fm.record_failure(provider.id, "rate_limited", resp.status_code)
-                continue
-
-            if resp.status_code >= 500:
-                last_error = f"{provider.id} {resp.status_code} server error"
-                log.warning("brain_failover: %s server error (%d) — failing over", provider.id, resp.status_code)
-                fm.record_failure(provider.id, "server_error", resp.status_code)
-                continue
-
-            # 4xx (non-429/410) — likely a model/auth issue, try next provider
-            last_error = f"{provider.id} {resp.status_code}: {resp.text[:200]}"
-            log.warning("brain_failover: %s returned %d — failing over", provider.id, resp.status_code)
-            fm.record_failure(provider.id, f"http_{resp.status_code}", resp.status_code)
-            continue
 
         # All providers exhausted — raise with the last error
         if last_resp is not None:
