@@ -218,7 +218,37 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
         "cooldown": 30.0,
     },
+    {
+        "id": "zai",
+        "name": "Z.ai (GLM international)",
+        "tier": "free",
+        "key_env": "ZAI_API_KEY",
+        "base_url_env": "ZAI_BASE_URL",
+        "default_base_url": "https://api.z.ai/api/paas/v4",
+        "default_model": "glm-5.2",
+        "models": ["glm-5.2", "glm-5.1", "glm-4-flash", "glm-4", "glm-4-air"],
+        "cooldown": 30.0,
+    },
     # ── Paid tier (tried last, only if ALLOW_PAID_BRAIN=true) ──
+    {
+        "id": "aerolink",
+        "name": "Aerolink (Claude gateway)",
+        "tier": "paid",
+        "key_env": "AEROLINK_API_KEY",
+        "base_url_env": "AEROLINK_BASE_URL",
+        "default_base_url": "https://capi.aerolink.lat/v1",
+        "default_model": "claude-sonnet-4-6",
+        "models": [
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-opus-4-6",
+            "claude-fable-5",
+            "claude-sonnet-5",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
+        ],
+        "cooldown": 30.0,
+    },
     {
         "id": "openrouter",
         "name": "OpenRouter",
@@ -292,10 +322,12 @@ _MODEL_ALIASES: dict[str, dict[str, str]] = {
     },
     "z-ai/glm-5.2": {
         "zhipu": "glm-5.2",
+        "zai": "glm-5.2",
         "nvidia": "z-ai/glm-5.2",
     },
     "z-ai/glm-5.1": {
         "zhipu": "glm-5.1",
+        "zai": "glm-5.1",
         "nvidia": "z-ai/glm-5.1",
     },
 }
