@@ -565,6 +565,39 @@ class BrainFailoverManager:
                 )
                 return
 
+            # 401/403 = auth failure — long cooldown (5 min) so we don't keep
+            # retrying a provider with a bad/expired key. The key won't fix
+            # itself in 30s.
+            if status_code in (401, 403):
+                p.cooldown_until = time.time() + 300.0
+                p.health = ProviderHealth.OPEN
+                log.warning(
+                    "brain_failover: %s marked OPEN (auth %d — 5min cooldown, "
+                    "check API key)",
+                    provider_id, status_code,
+                )
+                return
+
+            # 402 = payment required — long cooldown (10 min, quota won't reset soon)
+            if status_code == 402:
+                p.cooldown_until = time.time() + 600.0
+                p.health = ProviderHealth.OPEN
+                log.warning(
+                    "brain_failover: %s marked OPEN (402 payment required — 10min cooldown)",
+                    provider_id,
+                )
+                return
+
+            # 404 = model not found — medium cooldown (2 min)
+            if status_code == 404:
+                p.cooldown_until = time.time() + 120.0
+                p.health = ProviderHealth.OPEN
+                log.warning(
+                    "brain_failover: %s marked OPEN (404 not found — 2min cooldown)",
+                    provider_id,
+                )
+                return
+
             # Other failures — 30s cooldown
             p.cooldown_until = time.time() + p.cooldown_seconds
             p.health = ProviderHealth.OPEN
