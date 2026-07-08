@@ -3543,7 +3543,12 @@ class ProviderPolicyUpdate(BaseModel):
 
 
 async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
-    """Persist the durable provider policy and return the new state."""
+    """Persist the durable provider policy and return the new state.
+
+    Also writes to the SQLite kv_store so the brain_failover system's sync
+    reader (_is_paid_allowed_db) can read it without needing Mongo or an
+    event loop.
+    """
     now = datetime.now(timezone.utc).isoformat()
     await get_db().providers.update_one(
         {"provider_id": "provider_policy"},
@@ -3554,6 +3559,31 @@ async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
         }},
         upsert=True,
     )
+    # Also write to SQLite kv_store so the sync failover reader can access it
+    try:
+        import sqlite3
+        import os as _os
+        db_path = _os.environ.get("SQLITE_PATH", ".data/agency.db")
+        _os.makedirs(_os.path.dirname(db_path) or ".", exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
+            ("provider_policy:allow_paid", str(update.allow_paid).lower()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as _exc:
+        log.debug("provider_policy SQLite write failed (non-fatal): %s", _exc)
+    # Invalidate the brain_failover cache so the next call re-reads from DB
+    try:
+        from services.brain_failover import _PAID_CACHE
+        import services.brain_failover as _bf
+        _bf._PAID_CACHE = (update.allow_paid, 0.0)  # force cache miss
+    except Exception:
+        pass
     return {"allow_paid": update.allow_paid, "surfaces": update.surfaces}
 
 

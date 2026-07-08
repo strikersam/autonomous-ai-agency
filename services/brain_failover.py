@@ -61,6 +61,52 @@ from typing import Any
 log = logging.getLogger("qwen-proxy")
 
 
+# ── DB-stored provider policy (UI toggle) ────────────────────────────────
+# The Providers UI toggle writes allow_paid to the DB (Mongo or SQLite).
+# This sync helper reads it so the failover system honours the UI toggle
+# without requiring an env var change + redeploy.
+
+_PAID_CACHE: tuple[bool, float] = (False, 0.0)
+_PAID_CACHE_TTL = 10.0  # seconds — short so the UI toggle takes effect quickly
+
+
+def _is_paid_allowed_db() -> bool:
+    """Check if the DB-stored provider policy allows paid providers.
+
+    Sync + never raises. Reads from the SQLite kv_store (written by
+    _set_provider_policy in backend/server.py when the UI toggle is flipped).
+    Cached for 10s so the hot path (every LLM call) doesn't hit the DB.
+    """
+    global _PAID_CACHE
+    now = time.time()
+    cached_val, cached_at = _PAID_CACHE
+    if now - cached_at < _PAID_CACHE_TTL:
+        return cached_val
+
+    # Read from SQLite kv_store (sync, works inside an event loop)
+    try:
+        import sqlite3
+        import os as _os
+        db_path = _os.environ.get("SQLITE_PATH", ".data/agency.db")
+        if _os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            cursor = conn.execute(
+                "SELECT value FROM kv_store WHERE key = ?",
+                ("provider_policy:allow_paid",),
+            )
+            row = cursor.fetchone()
+            conn.close()
+            if row:
+                val = row[0].strip().lower() in ("true", "1", "yes", "on")
+                _PAID_CACHE = (val, now)
+                return val
+    except Exception:
+        pass
+
+    _PAID_CACHE = (False, now)
+    return False
+
+
 # ── Provider definitions ─────────────────────────────────────────────────
 
 
@@ -386,9 +432,14 @@ class BrainFailoverManager:
                     # Still include it as a last-resort — it might work in dev
                     pass
 
-                # Check if paid providers are allowed
+                # Check if paid providers are allowed — check BOTH the env var
+                # AND the DB-stored provider policy (which is what the Providers
+                # UI toggle writes to). Either being true allows paid providers.
                 if spec["tier"] == "paid":
-                    allow_paid = os.environ.get("ALLOW_PAID_BRAIN", "false").strip().lower() in ("true", "1", "yes", "on")
+                    allow_paid = (
+                        os.environ.get("ALLOW_PAID_BRAIN", "false").strip().lower() in ("true", "1", "yes", "on")
+                        or _is_paid_allowed_db()
+                    )
                     if not allow_paid:
                         continue
 
