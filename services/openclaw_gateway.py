@@ -132,36 +132,74 @@ async def _handle_command(msg: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _cmd_chat(msg: dict[str, Any]) -> dict[str, Any]:
-    """Send a chat message to the agency's /v1/chat/completions endpoint."""
+    """Send a chat message via the brain failover system.
+
+    Uses the same multi-provider failover as the agent loop — tries NVIDIA
+    first, then Groq, Cerebras, Z.ai, etc., falling back to Aerolink (Claude)
+    if all free providers are rate-limited.
+    """
     message = str(msg.get("message", ""))
     if not message:
         return {"type": "error", "error": "message is required"}
 
+    from services.brain_failover import get_failover_manager
+    from packages.ai.router import _openai_url
     import httpx
-    base_url = os.environ.get("OPENCLAW_AGENT_BASE_URL", "https://local-llm-server.onrender.com/v1")
-    api_key = os.environ.get("OPENCLAW_AGENT_API_KEY", "")
-    model = os.environ.get("OPENCLAW_AGENT_MODEL", "meta/llama-3.3-70b-instruct")
 
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    fm = get_failover_manager()
+    tried: set[str] = set()
+    last_error = ""
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{base_url}/chat/completions",
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": message}],
-                "max_tokens": 2048,
-                "temperature": 0.3,
-            },
-            headers=headers,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    for _attempt in range(fm.max_attempts()):
+        provider = fm.next_provider(exclude=tried, requested_model="z-ai/glm-5.2")
+        if provider is None:
+            break
 
-    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return {"type": "response", "content": content, "model": model}
+        tried.add(provider.id)
+        provider_model = fm.resolve_model(provider, "z-ai/glm-5.2")
+        chat_url = _openai_url(provider.base_url, "/chat/completions")
+        headers = {"Content-Type": "application/json"}
+        if provider.api_key:
+            headers["Authorization"] = f"Bearer {provider.api_key}"
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    chat_url,
+                    json={
+                        "model": provider_model,
+                        "messages": [{"role": "user", "content": message}],
+                        "max_tokens": 2048,
+                        "temperature": 0.3,
+                    },
+                    headers=headers,
+                )
+        except Exception as exc:
+            last_error = f"{provider.id} network error: {exc}"
+            fm.record_failure(provider.id, "network_error")
+            continue
+
+        if resp.status_code < 400:
+            fm.record_success(provider.id)
+            data = resp.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return {"type": "response", "content": content, "model": provider_model, "provider": provider.id}
+
+        if resp.status_code == 410:
+            fm.record_failure(provider.id, "gone", 410)
+            continue
+        if resp.status_code in (429, 419):
+            fm.record_failure(provider.id, "rate_limited", resp.status_code)
+            continue
+        if resp.status_code >= 500:
+            fm.record_failure(provider.id, "server_error", resp.status_code)
+            continue
+
+        last_error = f"{provider.id} {resp.status_code}: {resp.text[:200]}"
+        fm.record_failure(provider.id, f"http_{resp.status_code}", resp.status_code)
+        continue
+
+    return {"type": "error", "error": f"All providers exhausted. Last error: {last_error}"}
 
 
 async def _cmd_status() -> dict[str, Any]:
