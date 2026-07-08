@@ -40,26 +40,43 @@ jobs:
 
       # ubuntu-latest (>=24.04) no longer ships a `chromium-browser` apt
       # package; Playwright bundles its own Chromium with `--with-deps`.
-      # ADMIN_PASSWORD must be set as a GitHub Actions secret — no hardcoded fallback.
-      - name: Set admin password from secrets
-        run: echo "ADMIN_PW=${{ secrets.ADMIN_PASSWORD }}" >> $GITHUB_ENV
+      - name: Generate ephemeral test credentials
+        env:
+          CI_ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD }}
+          LEGACY_ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          if [ -n "$CI_ADMIN_PASSWORD" ]; then
+            admin_password="$CI_ADMIN_PASSWORD"
+          elif [ -n "$LEGACY_ADMIN_PASSWORD" ]; then
+            admin_password="$LEGACY_ADMIN_PASSWORD"
+          else
+            admin_password="$(openssl rand -base64 18)"
+          fi
+
+          echo "::add-mask::$admin_password"
+          {
+            echo "E2E_ADMIN_EMAIL=admin@llmrelay.local"
+            printf 'E2E_ADMIN_PASSWORD=%s\n' "$admin_password"
+            printf 'E2E_JWT_SECRET=%s\n' "$(openssl rand -hex 32)"
+            printf 'E2E_SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
+          } >> "$GITHUB_ENV"
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install httpx pytest pytest-html playwright
+          pip install -r requirements.txt pytest-html
           python -m playwright install --with-deps chromium
 
       - name: Build and start backend
-        env:
-          ADMIN_PW: ${{ env.ADMIN_PW }}
         run: |
           docker build -f Dockerfile.backend -t llm-relay-backend:nightly .
           docker run -d --name llm-relay-nightly \
             -p 8001:8001 \
             -e STORAGE_BACKEND=sqlite \
-            -e ADMIN_EMAIL=admin@llmrelay.local \
-            -e ADMIN_PASSWORD="${ADMIN_PW}" \
+            -e ADMIN_EMAIL="$E2E_ADMIN_EMAIL" \
+            -e ADMIN_PASSWORD="$E2E_ADMIN_PASSWORD" \
+            -e JWT_SECRET="$E2E_JWT_SECRET" \
+            -e SECRET_KEY="$E2E_SECRET_KEY" \
             -e SCANNER_HEADLESS_RENDER=off \
             -e SCANNER_BUILTWITH_FALLBACK=off \
             -e ACTIVATION_REQUIRED=false \
@@ -83,14 +100,27 @@ jobs:
         env:
           RELAY_BASE_URL: http://localhost:8001
           E2E_ARTIFACT_DIR: /tmp/e2e-artifacts
+          ADMIN_EMAIL: ${{ env.E2E_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.E2E_ADMIN_PASSWORD }}
         run: |
           mkdir -p /tmp/e2e-artifacts
+          set +e
           python tests/e2e/test_regression.py 2>&1 | tee /tmp/regression-output.txt
-          echo "exitcode=$?" >> $GITHUB_OUTPUT
+          exitcode=${PIPESTATUS[0]}
+          echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
+          exit "$exitcode"
         continue-on-error: true
 
       - name: Generate HTML report
         if: always()
+        env:
+          RELAY_BASE_URL: http://localhost:8001
+          E2E_ARTIFACT_DIR: /tmp/e2e-artifacts
+          ADMIN_EMAIL: ${{ env.E2E_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.E2E_ADMIN_PASSWORD }}
+          STORAGE_BACKEND: sqlite
+          JWT_SECRET: ${{ env.E2E_JWT_SECRET }}
+          SECRET_KEY: ${{ env.E2E_SECRET_KEY }}
         run: |
           python -m pytest tests/e2e/test_regression.py \
             --html=/tmp/e2e-artifacts/regression-report.html \
@@ -106,6 +136,10 @@ jobs:
             /tmp/e2e-artifacts/
             /tmp/regression-output.txt
           retention-days: 7
+
+      - name: Fail if regression suite failed
+        if: steps.regression.outputs.exitcode != '0'
+        run: exit 1
 
       - name: Stop backend
         if: always()
