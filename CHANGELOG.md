@@ -2,6 +2,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Nightly regression workflow hardening (follow-up to #994)** (2026-07-09). Two review fixes on top of the self-contained nightly regression change: (1) the generated `E2E_JWT_SECRET` and `E2E_SECRET_KEY` are now masked with `::add-mask::` before being written to `$GITHUB_ENV` (previously only the admin password was masked, so those ephemeral values could surface unmasked in debug/error logs); (2) the "Generate HTML report" step no longer re-invokes `tests/e2e/test_regression.py` — re-running the suite executed its CRUD tests a second time against the same backend, mutating state so the report could diverge from the gated result. The report is now built from the already-captured `/tmp/regression-output.txt`, and the unused `pytest-html` dependency plus the now-redundant `RELAY_BASE_URL`/`ADMIN_*`/`JWT_SECRET`/`SECRET_KEY` env on that step were dropped. Workflow-only change (`.github/workflows/nightly-regression.yml`); no product behaviour affected.
+
+- **Fix flaky `Test (Python 3.13)` CI failure in `test_daily_automation_2026_07_09.py`** (2026-07-09). The `get_current_time` tests used the deprecated `asyncio.get_event_loop().run_until_complete(...)`, which raises `RuntimeError: There is no current event loop` once an earlier test in the suite has closed/cleared the thread's event loop (and always under Python 3.13). The tests passed in isolation but failed in the full `pytest -x` run, turning the required `Test (Python 3.13)` check red on `master`. Switched the four call sites to `asyncio.run(...)`, which is loop-state-independent. Test-only change; no product behaviour affected.
+
 ### Added
 
 - **Agent time-awareness tool: `get_current_time`** (2026-07-09). Agents can now query the current UTC time directly instead of relying on hallucinated or stale dates embedded in their context. The new `get_current_time` tool is dispatched in `AgentRunner._dispatch_tool` and returns `{ utc, unix_timestamp, date, day_of_week }` — zero external dependencies, no network call, just `datetime.now(timezone.utc)`. Inspired by the Codex July 2026 feature that lets agents receive scheduled UTC time reminders and query current time. Covered by `tests/test_daily_automation_2026_07_09.py` (4 tests: UTC string format, unix timestamp in range, date + day-of-week fields, unsupported tool still raises).
