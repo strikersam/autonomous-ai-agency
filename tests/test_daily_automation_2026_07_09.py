@@ -30,9 +30,7 @@ class TestGetCurrentTimeTool:
             workspace_root=tmp_path,
         )
 
-        result = asyncio.run(
-            runner._dispatch_tool("get_current_time", {})
-        )
+        result = asyncio.run(runner._dispatch_tool("get_current_time", {}))
 
         assert isinstance(result, dict)
         assert "utc" in result
@@ -49,9 +47,7 @@ class TestGetCurrentTimeTool:
         )
 
         before = int(time.time())
-        result = asyncio.run(
-            runner._dispatch_tool("get_current_time", {})
-        )
+        result = asyncio.run(runner._dispatch_tool("get_current_time", {}))
         after = int(time.time())
 
         assert before <= result["unix_timestamp"] <= after
@@ -64,9 +60,7 @@ class TestGetCurrentTimeTool:
             workspace_root=tmp_path,
         )
 
-        result = asyncio.run(
-            runner._dispatch_tool("get_current_time", {})
-        )
+        result = asyncio.run(runner._dispatch_tool("get_current_time", {}))
 
         assert "date" in result
         assert len(result["date"]) == 10  # YYYY-MM-DD
@@ -87,9 +81,7 @@ class TestGetCurrentTimeTool:
         )
 
         with pytest.raises(ValueError, match="Unsupported tool"):
-            asyncio.run(
-                runner._dispatch_tool("definitely_not_a_tool_xyz", {})
-            )
+            asyncio.run(runner._dispatch_tool("definitely_not_a_tool_xyz", {}))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
