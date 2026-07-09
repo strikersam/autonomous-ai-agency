@@ -535,7 +535,7 @@ class Website(BaseModel):
 
 class Repo(BaseModel):
     """A company repository with detected technologies and metadata."""
-    model_config = {"frozen": True, "extra": "forbid"}
+    model_config = {"frozen": True, "extra": "allow"}
     
     id: str = Field(
         default_factory=lambda: str(ObjectId()),

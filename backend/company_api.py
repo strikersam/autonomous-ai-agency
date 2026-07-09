@@ -946,7 +946,7 @@ async def scan_repo_endpoint(
         
         if not repo_exists:
             from services.scanner import RepoScanner
-            scanner = RepoScanner(company_id)
+            scanner = RepoScanner(company_id=company.id, github_token=github_token)
             provider = scanner._detect_provider(request.repo_url)
             
             repo = Repo(
