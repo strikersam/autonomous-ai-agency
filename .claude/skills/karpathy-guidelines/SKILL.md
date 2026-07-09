@@ -1,3 +1,8 @@
+---
+name: karpathy-guidelines
+description: "Andrej Karpathy's coding guidelines for AI agents — concise, correct, and well-tested code"
+---
+
 # Karpathy Guidelines Skill
 
 **Inspired by:** [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) — behavioral guidelines derived from Andrej Karpathy's observations on common LLM coding pitfalls (MIT licensed).

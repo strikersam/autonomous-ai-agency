@@ -72,7 +72,7 @@
 | `proxy.py` | Main entry point, auth, rate limit, routing | 1,719 | HIGH |
 | `chat_handlers.py` | OpenAI/Ollama streaming handlers | 710 | Medium |
 | `direct_chat.py` | Direct chat sessions, intent classification | 833 | Medium |
-| `provider_router.py` | Multi-provider backend with fallback | 1,238 | Medium |
+| `packages/ai/router.py` | Multi-provider backend with fallback | 1,238 | Medium |
 | `admin_auth.py` | Admin session auth (Windows + secret) | 154 | **RISKY** |
 | `key_store.py` | API key CRUD, SHA-256 hashing, JSON persistence | 244 | **RISKY** |
 | `langfuse_obs.py` | Langfuse trace emission | ~300 | Low |

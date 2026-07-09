@@ -1,3 +1,8 @@
+---
+name: obsidian-knowledge-graph
+description: "Obsidian-compatible knowledge graph with bidirectional links and graph-based retrieval"
+---
+
 # Skill: Obsidian Knowledge Graph
 
 ## Purpose

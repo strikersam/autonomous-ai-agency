@@ -1,3 +1,8 @@
+---
+name: session-planning
+description: "Mandatory planning workflow for all AI agents — decompose tasks before execution"
+---
+
 # Skill: session-planning — Mandatory Planning Workflow for All AI Agents
 
 > **When to use:** At the start of EVERY non-trivial agentic session, before writing any code.

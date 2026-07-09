@@ -1,3 +1,8 @@
+---
+name: workflow-engine
+description: "DAG-based workflow execution engine with parallel steps, retries, and conditional branching"
+---
+
 # Skill: SuperClaude Workflow Engine
 
 ## Purpose

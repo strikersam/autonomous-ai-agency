@@ -13,9 +13,8 @@ REPORT="graphify-out/GRAPH_REPORT.md"
 cd "$ROOT" || exit 0
 
 if ! command -v graphify >/dev/null 2>&1; then
-  if [ "$MODE" = "--session" ]; then
-    echo "[graphify] not installed — run: python -m pip install graphifyy && graphify install && graphify update ."
-  fi
+  # Degrade silently — hooks should never fail or produce noise
+  # just because an optional tool isn't installed.
   exit 0
 fi
 

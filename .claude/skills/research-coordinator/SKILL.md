@@ -1,3 +1,8 @@
+---
+name: research-coordinator
+description: "Multi-agent research coordination — deduplicate findings, assign work, and synthesize results"
+---
+
 # Multi-Agent Research Coordinator Skill
 
 **Inspired by:** [Build a Multi-Agent Research Assistant](https://machinelearningmastery.com/build-multi-agent-research-assistant/)

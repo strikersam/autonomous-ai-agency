@@ -90,16 +90,16 @@ Autonomous AI Agency is a **self-hosted, OpenAI-compatible AI proxy and multi-ag
 ### Forbidden patterns
 | Rule | Description |
 |------|-------------|
-| No new provider implementation may bypass `ProviderManager` | All LLM calls go through `provider_router.py` |
-| No module may read environment variables directly | Use `brain_policy.py` or `services/brain_config_store.py` |
+| No new provider implementation may bypass `ProviderManager` | All LLM calls go through `packages/ai/router.py` |
+| No module may read environment variables directly | Use `packages/ai/brain.py` or `packages/ai/brain_config.py` |
 | No module may write secrets to disk | Secrets are env-only, never persisted |
 | No frontend API calls outside `frontend/src/api.js` | All HTTP calls go through the shared axios instance |
 | No scheduler logic inside workers | Scheduler decides, workers execute |
 | No worker updates UI directly | Workers emit events, UI subscribes |
 | No duplicate authentication | One auth system: `get_current_user` / `get_optional_user` |
-| No duplicate models | One `BrainConfig` model in `services/brain_config_store.py` |
+| No duplicate models | One `BrainConfig` model in `packages/ai/brain_config.py` |
 | No circular imports | Use lazy imports inside functions if needed |
-| No `os.environ.get()` outside of config modules | Centralize in `brain_policy.py` / `app_settings.py` |
+| No `os.environ.get()` outside of config modules | Centralize in `packages/ai/brain.py` / `app_settings.py` |
 
 ### Required patterns
 | Rule | Description |
@@ -136,8 +136,8 @@ Autonomous AI Agency is a **self-hosted, OpenAI-compatible AI proxy and multi-ag
 
 ### Current folder structure (problematic)
 ```
-/                     ← 38 root-level .py files (should be in packages)
-backend/              ← Main FastAPI app (server.py is 8700+ lines)
+/                     ← 33 root-level .py files (should be in packages)
+backend/              ← Main FastAPI app (server.py is 9667 lines)
 proxy.py              ← Second FastAPI app (3400+ lines, port 8000)
 agent/                ← 70 .py files (agent loop, tools, skills, repowise)
 agents/               ← 24 .py files (specialist agent profiles)
@@ -182,11 +182,11 @@ tests/                ← 297 test files
 ### External providers
 | Provider | Env var | Module | Purpose |
 |----------|---------|--------|---------|
-| NVIDIA NIM | `NVIDIA_API_KEY` | `provider_router.py`, `brain_policy.py` | Free LLM (meta/llama-3.3-70b-instruct) |
-| Cerebras | `CEREBRAS_API_KEY` | `provider_router.py`, `brain_config_store.py` | Free fast LLM (qwen-3-coder-480b) |
-| Groq | `GROQ_API_KEY` | `provider_router.py`, `brain_config_store.py` | Free fast LLM (deepseek-r1-70b) |
-| Anthropic | `ANTHROPIC_API_KEY` | `provider_router.py` | Paid LLM (Claude) |
-| Ollama | `OLLAMA_BASE` | `provider_router.py` | Local LLM |
+| NVIDIA NIM | `NVIDIA_API_KEY` | `packages/ai/router.py`, `packages/ai/brain.py` | Free LLM (meta/llama-3.3-70b-instruct) |
+| Cerebras | `CEREBRAS_API_KEY` | `packages/ai/router.py`, `packages/ai/brain_config.py` | Free fast LLM (qwen-3-coder-480b) |
+| Groq | `GROQ_API_KEY` | `packages/ai/router.py`, `packages/ai/brain_config.py` | Free fast LLM (deepseek-r1-70b) |
+| Anthropic | `ANTHROPIC_API_KEY` | `packages/ai/router.py` | Paid LLM (Claude) |
+| Ollama | `OLLAMA_BASE` | `packages/ai/router.py` | Local LLM |
 | GitHub OAuth | `GITHUB_CLIENT_ID/SECRET` | `social_auth.py`, `backend/server.py` | Social login |
 | Google OAuth | `GOOGLE_CLIENT_ID/SECRET` | `social_auth.py`, `backend/server.py` | Social login |
 | Telegram | `TELEGRAM_BOT_TOKEN` | `telegram_bot.py` | Bot control |
@@ -194,10 +194,10 @@ tests/                ← 297 test files
 ### Secrets inventory
 | Secret | Stored in | Used by |
 |--------|-----------|---------|
-| `NVIDIA_API_KEY` | Render env (sync: false) | `brain_policy.py`, `provider_router.py` |
-| `CEREBRAS_API_KEY` | Render env (sync: false) | `brain_config_store.py` |
-| `GROQ_API_KEY` | Render env (sync: false) | `brain_config_store.py` |
-| `ANTHROPIC_API_KEY` | Render env (sync: false) | `provider_router.py` |
+| `NVIDIA_API_KEY` | Render env (sync: false) | `packages/ai/brain.py`, `packages/ai/router.py` |
+| `CEREBRAS_API_KEY` | Render env (sync: false) | `packages/ai/brain_config.py` |
+| `GROQ_API_KEY` | Render env (sync: false) | `packages/ai/brain_config.py` |
+| `ANTHROPIC_API_KEY` | Render env (sync: false) | `packages/ai/router.py` |
 | `GITHUB_CLIENT_ID/SECRET` | Render env (sync: false) | `social_auth.py` |
 | `GOOGLE_CLIENT_ID/SECRET` | Render env (sync: false) | `social_auth.py` |
 | `TELEGRAM_BOT_TOKEN` | Render env (sync: false) | `telegram_bot.py` |
@@ -213,10 +213,10 @@ tests/                ← 297 test files
 ## 5. AI Provider Architecture
 
 ### Current state
-- `provider_router.py` (1400+ lines) handles multi-provider failover
-- `brain_policy.py` resolves the recommended free-cloud brain
-- `services/brain_config_store.py` persists brain config to MongoDB/SQLite
-- `services/brain_watchdog.py` monitors provider health + auto-failover
+- `packages/ai/router.py` (1400+ lines) handles multi-provider failover
+- `packages/ai/brain.py` resolves the recommended free-cloud brain
+- `packages/ai/brain_config.py` persists brain config to MongoDB/SQLite
+- `packages/ai/watchdog.py` monitors provider health + auto-failover
 - `runtimes/adapters/` has 11 runtime adapters (hermes, goose, aider, etc.)
 
 ### Provider interface contract
