@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Autonomous self-healing system** (2026-07-09). New `services/self_heal.py` runs a background loop every 5 minutes that automatically fixes four common failure modes without human intervention: (1) **Task dedup** — scans for duplicate tasks (same `source_id` or same `title+source`) and deletes the duplicates, preventing the "tons of duplicate tasks" buildup from the CEO agency creating tasks on every cycle. (2) **Brain failover reset** — when ALL brain providers are unhealthy (all circuit breakers open — the "no healthy providers left" deadlock), resets all breakers to CLOSED and clears cooldown timers so the next LLM call can try again. Without this, the system stays stuck until the longest cooldown expires (up to 10 minutes for 410 Gone). (3) **Stuck task cleanup** — moves tasks that have been IN_PROGRESS for more than 30 minutes back to TODO with `pending_agent_run=True` (they were likely abandoned by a crashed worker). (4) **Telegram webhook clear** — checks and clears any set webhook so the bot's long-polling works. New `POST /api/admin/maintenance/self-heal` endpoint for manual triggers. Configurable via `SELF_HEAL_INTERVAL_SEC` (default 300s) and `STUCK_TASK_TIMEOUT_SEC` (default 1800s). Tests: `tests/test_self_heal_v2.py` (7 tests — brain reset when all unhealthy, brain no-reset when healthy, task dedup by title+source, stuck task cleanup, Telegram no-token skip, full cycle runs, module imports).
+
 ### Fixed
 
 - **Nightly regression workflow hardening (follow-up to #994)** (2026-07-09). Two review fixes on top of the self-contained nightly regression change: (1) the generated `E2E_JWT_SECRET` and `E2E_SECRET_KEY` are now masked with `::add-mask::` before being written to `$GITHUB_ENV` (previously only the admin password was masked, so those ephemeral values could surface unmasked in debug/error logs); (2) the "Generate HTML report" step no longer re-invokes `tests/e2e/test_regression.py` — re-running the suite executed its CRUD tests a second time against the same backend, mutating state so the report could diverge from the gated result. The report is now built from the already-captured `/tmp/regression-output.txt`, and the unused `pytest-html` dependency plus the now-redundant `RELAY_BASE_URL`/`ADMIN_*`/`JWT_SECRET`/`SECRET_KEY` env on that step were dropped. Workflow-only change (`.github/workflows/nightly-regression.yml`); no product behaviour affected.
@@ -528,6 +532,7 @@ All notable changes to this project will be documented in this file.
   in `tests/e2e/test_live_server.py`. `tests/conftest.py` autouse fixture sets legacy workflow mode
 
   for test suite compatibility with Phase 2 deprecation.
+
 ## [5.0.0] — 2026-05-24
 
 

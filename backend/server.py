@@ -1604,6 +1604,16 @@ async def lifespan(app_: "FastAPI"):
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("Boot purge scheduling failed (non-fatal): %s", exc)
 
+    # Start the self-heal background loop (runs every 5 min).
+    # Deduplicates tasks, resets brain failover deadlocks, clears stuck
+    # tasks, and clears Telegram webhook conflicts — all automatically.
+    try:
+        from services.self_heal import start_self_heal_scheduler
+        start_self_heal_scheduler()
+        log.info("Self-heal scheduler started")
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Self-heal scheduler start failed (non-fatal): %s", exc)
+
     # PR #984: Reset the brain config to GLM-5.2 if it's pointing at the old
     # default (meta/llama-3.3-70b-instruct). The persisted BrainConfig in the
     # DB survives across deploys, so without this the new default never takes
@@ -3743,6 +3753,20 @@ async def purge_backlog(body: PurgeBacklogRequest, user: dict = Depends(get_curr
         stranded=body.stranded,
     )
     log.info("purge-backlog by user_id=%s: %s", user.get("_id", "?"), summary)
+    return {"ok": True, **summary}
+
+
+@app.post("/api/admin/maintenance/self-heal")
+async def trigger_self_heal(user: dict = Depends(get_current_user)):
+    """Manually trigger a self-healing cycle (admin only).
+
+    Runs the same healing as the background loop: task dedup, brain failover
+    reset, stuck task cleanup, Telegram webhook clear.
+    """
+    _require_admin(user)
+    from services.self_heal import run_self_heal_cycle
+    summary = await run_self_heal_cycle()
+    log.info("self-heal triggered by user_id=%s: %s", user.get("_id", "?"), summary)
     return {"ok": True, **summary}
 
 
