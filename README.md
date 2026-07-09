@@ -860,6 +860,11 @@ See [`CLAUDE.md`](CLAUDE.md) for the contributor guide, skill map, risky-module 
 
 ## What's New
 
+### 2026-07-09
+
+- **Agent time awareness** — Agents can now answer "what time is it?" without hallucinating. The new `get_current_time` tool returns `{ utc, unix_timestamp, date, day_of_week }` from the server clock and is available to all agent runs immediately — no config needed.
+- **Token budget daily reset** — `POST /agent/budget/reset` resets all session token counters at the start of a new quota day (caps preserved). Operators can call this at midnight UTC (or hook it into a cron) to reclaim daily allocations without touching per-session configuration. The `TokenBudget.maybe_auto_reset()` helper can also be called inline to auto-detect day rollover.
+
 ### 2026-07-05
 
 - **Anthropic prompt caching** — Calls to the Anthropic provider now automatically mark system prompts with `cache_control: ephemeral` and send the `anthropic-beta: prompt-caching-2024-07-31` header. Long system prompts (agent personas, coding guidelines, company context) are cached at the Anthropic API tier and reused across requests — reducing input-token costs by up to 90% on cache hits. No config change needed; opt-out with `ANTHROPIC_PROMPT_CACHING=false`. Cache hit/miss token counts are now surfaced in response usage so Langfuse can track them.

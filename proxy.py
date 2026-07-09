@@ -2161,6 +2161,25 @@ async def budget_list(auth: AuthContext = Depends(verify_api_key)):
 
 
 
+@app.post("/agent/budget/reset")
+
+async def budget_reset_daily(auth: AuthContext = Depends(verify_api_key)):
+
+    """Reset all session token counters for a new day (caps preserved).
+
+    Mirrors the rollout-budget reset-credits model used by modern agent
+    orchestrators: at the start of a new billing/quota day, call this endpoint
+    to reclaim each session's full daily token allocation without losing the
+    configured cap.
+    """
+
+    count = TOKEN_BUDGET.reset_daily()
+
+    return {"sessions_reset": count, "message": f"Daily budget reset: {count} sessions cleared"}
+
+
+
+
 
 # --- Multi-Agent Coordinator --------------------------------------------------
 

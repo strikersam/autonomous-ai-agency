@@ -1292,6 +1292,18 @@ class AgentRunner:
             except MCPUnavailableError as exc:
                 return f"[tool error: MCP unavailable for {tool}: {exc}]"
 
+        # Time awareness — agents can query the current UTC time without
+        # relying on hallucinated or stale dates embedded in context.
+        if tool == "get_current_time":
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            return {
+                "utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "unix_timestamp": int(now.timestamp()),
+                "date": now.strftime("%Y-%m-%d"),
+                "day_of_week": now.strftime("%A"),
+            }
+
         raise ValueError(f"Unsupported tool: {tool}")
 
     # ------------------------------------------------------------------

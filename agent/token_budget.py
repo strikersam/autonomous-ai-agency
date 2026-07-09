@@ -70,6 +70,7 @@ class TokenBudget:
 
     def __init__(self) -> None:
         self._usage: dict[str, BudgetUsage] = {}
+        self._last_daily_reset: float = 0.0
 
     # ------------------------------------------------------------------
     # Public API
@@ -133,6 +134,42 @@ class TokenBudget:
         if usage:
             cap = usage.cap
             self._usage[session_id] = BudgetUsage(session_id=session_id, cap=cap)
+
+    def reset_daily(self) -> int:
+        """Reset token counters for all sessions (caps preserved).
+
+        Called at the start of a new UTC day to reclaim each session's full
+        daily allocation. Inspired by rollout-budget reset credits in modern
+        agent orchestrators.
+
+        Returns the number of sessions whose counters were reset.
+        """
+        count = 0
+        for session_id, usage in list(self._usage.items()):
+            cap = usage.cap
+            self._usage[session_id] = BudgetUsage(session_id=session_id, cap=cap)
+            count += 1
+        self._last_daily_reset = time.monotonic()
+        log.info("Daily token budget reset: %d sessions cleared", count)
+        return count
+
+    def maybe_auto_reset(self) -> bool:
+        """Reset all budgets if the UTC calendar day has changed since last reset.
+
+        Safe to call on every request — exits immediately when no reset is needed.
+        Returns True if a reset occurred.
+        """
+        from datetime import datetime, timezone
+        now_day = datetime.now(timezone.utc).date()
+        if self._last_daily_reset > 0:
+            last_day = datetime.fromtimestamp(
+                time.time() - (time.monotonic() - self._last_daily_reset),
+                tz=timezone.utc,
+            ).date()
+            if now_day <= last_day:
+                return False
+        self.reset_daily()
+        return True
 
     def list_all(self) -> list[BudgetUsage]:
         return list(self._usage.values())
