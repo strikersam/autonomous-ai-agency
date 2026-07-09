@@ -6194,12 +6194,41 @@ def _period_cutoff(period: str) -> datetime:
 
 
 async def _load_local_metrics_since(cutoff: datetime) -> list[dict]:
+    """Load local_metrics docs since cutoff. Works with both MongoDB and SQLite."""
     docs: list[dict] = []
     try:
-        cursor = get_db().local_metrics.find({"timestamp": {"$gte": cutoff}}).sort("timestamp", 1)
-        async for doc in cursor:
-            docs.append(doc)
-    except Exception:
+        col = get_db().local_metrics
+        backend = os.environ.get("STORAGE_BACKEND", "mongo").lower()
+        if backend == "sqlite":
+            # SQLite: use find() with a Python-side filter — SQLiteStore
+            # stores timestamps as ISO strings, so we compare via >=.
+            cutoff_iso = cutoff.isoformat() if hasattr(cutoff, 'isoformat') else str(cutoff)
+            all_docs = col.find({}) if hasattr(col, 'find') else []
+            # SQLiteStore.find returns a list (not a cursor)
+            if hasattr(all_docs, 'to_list'):
+                all_docs = await all_docs.to_list(length=100000)
+            elif not isinstance(all_docs, list):
+                all_docs = list(all_docs)
+            for doc in all_docs:
+                ts = doc.get("timestamp")
+                if ts is None:
+                    continue
+                # Compare as strings (ISO format sorts correctly)
+                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+                if ts_str >= cutoff_iso:
+                    docs.append(doc)
+            # Sort by timestamp
+            docs.sort(key=lambda d: str(d.get("timestamp", "")))
+        else:
+            # MongoDB: use the cursor with $gte
+            cursor = col.find({"timestamp": {"$gte": cutoff}}).sort("timestamp", 1)
+            if hasattr(cursor, 'to_list'):
+                docs = await cursor.to_list(length=100000)
+            else:
+                async for doc in cursor:
+                    docs.append(doc)
+    except Exception as exc:
+        log.debug("_load_local_metrics_since failed: %s", exc)
         return []
     return docs
 
@@ -6491,21 +6520,59 @@ async def observability_metrics(user: dict = Depends(get_current_user)):
             }
         },
     ]
-    cursor = get_db().local_metrics.aggregate(pipeline)
-    agg = await cursor.to_list(length=1)
-    summary = (
-        agg[0]
-        if agg
-        else {"total_requests": 0, "total_tokens": 0, "total_savings_usd": 0}
-    )
-    summary.pop("_id", None)
+    col = get_db().local_metrics
+    backend = os.environ.get("STORAGE_BACKEND", "mongo").lower()
+    if backend == "sqlite":
+        # SQLite: no $aggregate support — compute summary in Python
+        all_docs = col.find({}) if hasattr(col, 'find') else []
+        if hasattr(all_docs, 'to_list'):
+            all_docs = await all_docs.to_list(length=100000)
+        elif not isinstance(all_docs, list):
+            all_docs = list(all_docs)
+        day_cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+        day_cutoff_iso = day_cutoff.isoformat()
+        recent_docs = []
+        total_requests = 0
+        total_tokens = 0
+        total_savings = 0.0
+        for doc in all_docs:
+            ts = doc.get("timestamp")
+            ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+            if ts_str >= day_cutoff_iso:
+                total_requests += 1
+                total_tokens += int(doc.get("prompt_tokens") or 0) + int(doc.get("completion_tokens") or 0)
+                total_savings += float(doc.get("cost_usd") or 0.0)
+                recent_docs.append(doc)
+        summary = {
+            "total_requests": total_requests,
+            "total_tokens": total_tokens,
+            "total_savings_usd": round(total_savings, 6),
+        }
+        # Recent activity (last 10, sorted by timestamp desc)
+        recent_docs.sort(key=lambda d: str(d.get("timestamp", "")), reverse=True)
+        recent = []
+        for m in recent_docs[:10]:
+            m["_id"] = str(m.get("_id", ""))
+            if hasattr(m.get("timestamp"), "isoformat"):
+                m["timestamp"] = m["timestamp"].isoformat()
+            recent.append(m)
+    else:
+        # MongoDB: use aggregate pipeline
+        cursor = col.aggregate(pipeline)
+        agg = await cursor.to_list(length=1)
+        summary = (
+            agg[0]
+            if agg
+            else {"total_requests": 0, "total_tokens": 0, "total_savings_usd": 0}
+        )
+        summary.pop("_id", None)
 
-    # Recent activity
-    recent = []
-    async for m in get_db().local_metrics.find({}).sort("timestamp", -1).limit(10):
-        m["_id"] = str(m["_id"])
-        m["timestamp"] = m["timestamp"].isoformat()
-        recent.append(m)
+        # Recent activity
+        recent = []
+        async for m in col.find({}).sort("timestamp", -1).limit(10):
+            m["_id"] = str(m["_id"])
+            m["timestamp"] = m["timestamp"].isoformat()
+            recent.append(m)
 
     return {"summary_24h": summary, "recent_traces": recent}
 
@@ -6525,18 +6592,41 @@ async def observability_traces(
     """
     traces: list[dict] = []
     try:
-        cursor = (
-            get_db()
-            .local_metrics.find({})
-            .sort("timestamp", -1)
-            .skip(offset)
-            .limit(max(1, min(limit, 200)))
-        )
-        async for m in cursor:
-            m["_id"] = str(m["_id"])
-            if hasattr(m.get("timestamp"), "isoformat"):
-                m["timestamp"] = m["timestamp"].isoformat()
-            traces.append(m)
+        col = get_db().local_metrics
+        backend = os.environ.get("STORAGE_BACKEND", "mongo").lower()
+        if backend == "sqlite":
+            # SQLite: load all, sort in Python, apply skip+limit
+            all_docs = col.find({}) if hasattr(col, 'find') else []
+            if hasattr(all_docs, 'to_list'):
+                all_docs = await all_docs.to_list(length=100000)
+            elif not isinstance(all_docs, list):
+                all_docs = list(all_docs)
+            # Sort by timestamp descending
+            all_docs.sort(key=lambda d: str(d.get("timestamp", "")), reverse=True)
+            # Apply skip + limit
+            limited = all_docs[offset:offset + max(1, min(limit, 200))]
+            for m in limited:
+                m["_id"] = str(m.get("_id", ""))
+                if hasattr(m.get("timestamp"), "isoformat"):
+                    m["timestamp"] = m["timestamp"].isoformat()
+                traces.append(m)
+        else:
+            # MongoDB: use cursor with sort/skip/limit
+            cursor = (
+                col.find({})
+                .sort("timestamp", -1)
+                .skip(offset)
+                .limit(max(1, min(limit, 200)))
+            )
+            if hasattr(cursor, 'to_list'):
+                traces = await cursor.to_list(length=200)
+            else:
+                async for m in cursor:
+                    traces.append(m)
+            for m in traces:
+                m["_id"] = str(m.get("_id", ""))
+                if hasattr(m.get("timestamp"), "isoformat"):
+                    m["timestamp"] = m["timestamp"].isoformat()
     except Exception as exc:
         log.warning("observability_traces: DB query failed: %s", exc)
 
@@ -7671,7 +7761,16 @@ async def system_status(user: dict = Depends(get_current_user)) -> dict[str, obj
 @app.get("/api/health")
 async def health():
     storage_ok = await _check_storage_health()
-    return {"status": "ok" if storage_ok else "degraded", "storage": storage_ok, "backend": os.environ.get("STORAGE_BACKEND", "mongo")}
+    backend = os.environ.get("STORAGE_BACKEND", "mongo")
+    return {
+        "status": "ok" if storage_ok else "degraded",
+        "storage": storage_ok,
+        "backend": backend,
+        # Backward compat: old frontend code checks health.mongo.
+        # Keep it as an alias so existing dashboards don't show "MongoDB Down"
+        # when the backend is actually SQLite (which is healthy).
+        "mongo": storage_ok,
+    }
 
 
 _last_cron_tick_at: Optional[datetime] = None
