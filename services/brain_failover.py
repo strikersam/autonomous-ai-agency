@@ -275,6 +275,17 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "models": ["glm-5.2", "glm-5.1", "glm-4-flash", "glm-4", "glm-4-air"],
         "cooldown": 30.0,
     },
+    {
+        "id": "mistral",
+        "name": "Mistral",
+        "tier": "free",
+        "key_env": "MISTRAL_API_KEY",
+        "base_url_env": "MISTRAL_BASE_URL",
+        "default_base_url": "https://api.mistral.ai/v1",
+        "default_model": "mistral-small-latest",
+        "models": ["mistral-small-latest", "mistral-large-latest", "codestral-latest", "mistral-nemo"],
+        "cooldown": 30.0,
+    },
     # ── Paid tier (tried last, only if ALLOW_PAID_BRAIN=true) ──
     {
         "id": "aerolink",

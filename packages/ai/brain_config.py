@@ -46,7 +46,7 @@ SAFE_DEFAULT_MODEL: str = "z-ai/glm-5.2"
 # Provider ids the Brain card recognises. The Literal keeps the Pydantic model
 # strict so a typo in the UI ("cerebrass") fails validation instead of
 # silently storing an unusable provider.
-BrainProvider = Literal["nvidia", "cerebras", "groq", "ollama"]
+BrainProvider = Literal["nvidia", "cerebras", "groq", "ollama", "mistral", "deepseek", "zhipu", "zai", "together", "dashscope", "moonshot", "openrouter", "anthropic", "aerolink"]
 
 # Per-provider sensible presets surfaced by the UI's "presets" dropdown.
 # Operators can still type any model id — these are just convenience defaults.
@@ -75,6 +75,30 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "verifier":  "deepseek-r1:32b",
         "judge":     "deepseek-r1:32b",
     },
+    "mistral": {
+        "planner":   "mistral-large-latest",
+        "executor":  "mistral-small-latest",
+        "verifier":  "mistral-small-latest",
+        "judge":     "mistral-large-latest",
+    },
+    "deepseek": {
+        "planner":   "deepseek-chat",
+        "executor":  "deepseek-coder",
+        "verifier":  "deepseek-chat",
+        "judge":     "deepseek-chat",
+    },
+    "zai": {
+        "planner":   "glm-5.2",
+        "executor":  "glm-5.2",
+        "verifier":  "glm-5.2",
+        "judge":     "glm-5.2",
+    },
+    "aerolink": {
+        "planner":   "claude-sonnet-4-6",
+        "executor":  "claude-sonnet-4-6",
+        "verifier":  "claude-sonnet-4-6",
+        "judge":     "claude-sonnet-4-6",
+    },
 }
 
 # Env-var names each provider reads its API key from. Used by the GET endpoint
@@ -84,6 +108,16 @@ PROVIDER_KEY_ENV: dict[str, str | None] = {
     "cerebras": "CEREBRAS_API_KEY",
     "groq":    "GROQ_API_KEY",
     "ollama":  None,  # local — no key
+    "mistral": "MISTRAL_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "zhipu":   "ZHIPU_API_KEY",
+    "zai":     "ZAI_API_KEY",
+    "together": "TOGETHER_API_KEY",
+    "dashscope": "DASHSCOPE_API_KEY",
+    "moonshot": "MOONSHOT_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "aerolink": "AEROLINK_API_KEY",
 }
 
 # Env-var name each provider reads its base URL from (optional override).
@@ -92,14 +126,34 @@ PROVIDER_BASE_URL_ENV: dict[str, str | None] = {
     "cerebras": "CEREBRAS_BASE_URL",
     "groq":     "GROQ_BASE_URL",
     "ollama":   "OLLAMA_BASE",
+    "mistral":  "MISTRAL_BASE_URL",
+    "deepseek": "DEEPSEEK_BASE_URL",
+    "zhipu":    "ZHIPU_BASE_URL",
+    "zai":      "ZAI_BASE_URL",
+    "together": "TOGETHER_BASE_URL",
+    "dashscope": "DASHSCOPE_BASE_URL",
+    "moonshot": "MOONSHOT_BASE_URL",
+    "openrouter": "OPENROUTER_BASE_URL",
+    "anthropic": "ANTHROPIC_BASE_URL",
+    "aerolink": "AEROLINK_BASE_URL",
 }
 
 # Default public base URL for each provider (used when no env override).
 PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
     "nvidia":   "https://integrate.api.nvidia.com",
     "cerebras": "https://api.cerebras.ai",
-    "groq":     "https://api.groq.com/openai",
+    "groq":     "https://api.groq.com/openai/v1",
     "ollama":   "http://localhost:11434",
+    "mistral":  "https://api.mistral.ai/v1",
+    "deepseek": "https://api.deepseek.com/v1",
+    "zhipu":    "https://open.bigmodel.cn/api/paas/v4",
+    "zai":      "https://api.z.ai/api/paas/v4",
+    "together": "https://api.together.xyz/v1",
+    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "moonshot": "https://api.moonshot.cn/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "anthropic": "https://api.anthropic.com",
+    "aerolink": "https://capi.aerolink.lat/v1",
 }
 
 
