@@ -47,6 +47,18 @@ class TaskStore:
     # ── CRUD ──────────────────────────────────────────────────────────────────
 
     async def create(self, task: Task) -> Task:
+        """Create a task. Deduplicates by source_id if set (Charter G3).
+
+        If a task with the same source_id already exists, returns the
+        existing task instead of creating a duplicate.
+        """
+        # Dedup by source_id (Autonomy Charter G3) — prevents duplicate
+        # tasks when the CEO agency or webhook replays the same issue.
+        if task.source_id:
+            existing = await self.find_by_source_id(task.source_id)
+            if existing is not None:
+                return existing
+
         doc = task.model_dump()
         if self._mode == "mongo":
             await self._collection.insert_one({**doc, "_id": task.task_id})

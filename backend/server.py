@@ -1553,6 +1553,42 @@ async def lifespan(app_: "FastAPI"):
         except Exception as exc:
             log.warning("Startup nuclear cleanup failed (non-fatal): %s", exc)
 
+        # Task dedup: remove duplicate tasks by source_id and by title+source.
+        # This is the fix for the "tons of duplicate tasks" issue — the CEO
+        # agency creates tasks from GitHub issues on every cycle, and without
+        # dedup at the store level, the same issue gets a new task each cycle.
+        try:
+            from tasks.store import get_task_store
+            store = get_task_store()
+            all_tasks = await store.list_all(limit=10_000)
+            seen_source: dict[str, str] = {}
+            seen_title_source: dict[str, str] = {}
+            deleted = 0
+            for t in all_tasks:
+                # Dedup by source_id (highest priority — Charter G3)
+                sid = t.source_id or ""
+                if sid:
+                    if sid in seen_source:
+                        await store.delete(t.task_id)
+                        deleted += 1
+                        continue
+                    seen_source[sid] = t.task_id
+                # Dedup by title + source (catches tasks without source_id
+                # but with the same title from the same origin)
+                title_key = f"{t.title}|{t.source or ''}"
+                if title_key in seen_title_source and t.status.value in ("todo", "blocked"):
+                    # Only delete duplicates that are still pending — keep
+                    # completed/failed ones for history
+                    await store.delete(t.task_id)
+                    deleted += 1
+                    continue
+                seen_title_source[title_key] = t.task_id
+            if deleted > 0:
+                log.info("Startup task dedup: deleted %d duplicate tasks (of %d total)",
+                         deleted, len(all_tasks))
+        except Exception as exc:
+            log.warning("Startup task dedup failed (non-fatal): %s", exc)
+
     try:
         import asyncio
         asyncio.create_task(_deferred_startup_cleanup())
