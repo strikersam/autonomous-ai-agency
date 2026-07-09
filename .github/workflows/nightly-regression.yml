@@ -53,18 +53,23 @@ jobs:
             admin_password="$(openssl rand -base64 18)"
           fi
 
+          jwt_secret="$(openssl rand -hex 32)"
+          secret_key="$(openssl rand -hex 32)"
+
           echo "::add-mask::$admin_password"
+          echo "::add-mask::$jwt_secret"
+          echo "::add-mask::$secret_key"
           {
             echo "E2E_ADMIN_EMAIL=admin@llmrelay.local"
             printf 'E2E_ADMIN_PASSWORD=%s\n' "$admin_password"
-            printf 'E2E_JWT_SECRET=%s\n' "$(openssl rand -hex 32)"
-            printf 'E2E_SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
+            printf 'E2E_JWT_SECRET=%s\n' "$jwt_secret"
+            printf 'E2E_SECRET_KEY=%s\n' "$secret_key"
           } >> "$GITHUB_ENV"
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest-html
+          pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
       - name: Build and start backend
@@ -111,21 +116,29 @@ jobs:
           exit "$exitcode"
         continue-on-error: true
 
+      # Build the report from the captured output of the single regression
+      # run above — re-invoking the suite here would run the CRUD tests a
+      # second time against the same backend and mutate its state, so the
+      # report could diverge from the actual result the job is gated on.
       - name: Generate HTML report
         if: always()
-        env:
-          RELAY_BASE_URL: http://localhost:8001
-          E2E_ARTIFACT_DIR: /tmp/e2e-artifacts
-          ADMIN_EMAIL: ${{ env.E2E_ADMIN_EMAIL }}
-          ADMIN_PASSWORD: ${{ env.E2E_ADMIN_PASSWORD }}
-          STORAGE_BACKEND: sqlite
-          JWT_SECRET: ${{ env.E2E_JWT_SECRET }}
-          SECRET_KEY: ${{ env.E2E_SECRET_KEY }}
         run: |
-          python -m pytest tests/e2e/test_regression.py \
-            --html=/tmp/e2e-artifacts/regression-report.html \
-            --self-contained-html \
-            -q 2>&1 || true
+          python - <<'PY'
+          import html, pathlib
+
+          src = pathlib.Path("/tmp/regression-output.txt")
+          out = pathlib.Path("/tmp/e2e-artifacts/regression-report.html")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          body = src.read_text(encoding="utf-8", errors="replace") if src.exists() \
+              else "No regression output was captured."
+          out.write_text(
+              "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+              "<title>Nightly Regression Report</title></head><body>"
+              "<h1>Nightly Regression Report</h1>"
+              f"<pre>{html.escape(body)}</pre></body></html>",
+              encoding="utf-8",
+          )
+          PY
 
       - name: Upload regression artifacts
         if: always()
