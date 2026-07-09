@@ -30,7 +30,7 @@ class TestGetCurrentTimeTool:
             workspace_root=tmp_path,
         )
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             runner._dispatch_tool("get_current_time", {})
         )
 
@@ -49,7 +49,7 @@ class TestGetCurrentTimeTool:
         )
 
         before = int(time.time())
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             runner._dispatch_tool("get_current_time", {})
         )
         after = int(time.time())
@@ -64,7 +64,7 @@ class TestGetCurrentTimeTool:
             workspace_root=tmp_path,
         )
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             runner._dispatch_tool("get_current_time", {})
         )
 
@@ -87,7 +87,7 @@ class TestGetCurrentTimeTool:
         )
 
         with pytest.raises(ValueError, match="Unsupported tool"):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 runner._dispatch_tool("definitely_not_a_tool_xyz", {})
             )
 
