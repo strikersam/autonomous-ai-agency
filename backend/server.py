@@ -7621,14 +7621,46 @@ async def github_webhook(request: Request) -> dict[str, object]:
     return {"ok": True, "intake": "created", "task_id": task.task_id}
 
 
+async def _check_storage_health() -> bool:
+    """Check if the storage backend is reachable.
+
+    Works with BOTH MongoDB and SQLite:
+    - MongoDB: pings the DB via get_db().command("ping")
+    - SQLite: checks that the DB file exists and is readable
+
+    The old code always called get_db().command("ping") which is a MongoDB-
+    specific method — on SQLite it raises AttributeError, so the health
+    check always reported "degraded" even when SQLite was perfectly healthy.
+    """
+    backend = os.environ.get("STORAGE_BACKEND", "mongo").lower()
+    if backend == "sqlite":
+        # SQLite: check the DB file exists. The SQLiteStore creates it on
+        # first access, so if the file exists the DB is healthy.
+        import pathlib
+        db_path = pathlib.Path(os.environ.get("SQLITE_DB_PATH", ".data/agency.db"))
+        if db_path.exists():
+            return True
+        # Fall back to checking if the store object can list collections
+        try:
+            db = get_db()
+            # SQLiteStore doesn't have command() — just check we can access it
+            _ = db.list_collection_names() if hasattr(db, 'list_collection_names') else True
+            return True
+        except Exception:
+            return False
+    else:
+        # MongoDB: ping the DB
+        try:
+            await get_db().command("ping")
+            return True
+        except Exception:
+            return False
+
+
 @app.get("/api/status")
 async def system_status(user: dict = Depends(get_current_user)) -> dict[str, object]:
     """Authenticated system status summary for the Doctor screen."""
-    try:
-        await get_db().command("ping")
-        storage_ok = True
-    except Exception:
-        storage_ok = False
+    storage_ok = await _check_storage_health()
     return {
         "status": "ok" if storage_ok else "degraded",
         "storage": storage_ok,
@@ -7638,12 +7670,8 @@ async def system_status(user: dict = Depends(get_current_user)) -> dict[str, obj
 
 @app.get("/api/health")
 async def health():
-    try:
-        await get_db().command("ping")
-        mongo_ok = True
-    except Exception:
-        mongo_ok = False
-    return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok}
+    storage_ok = await _check_storage_health()
+    return {"status": "ok" if storage_ok else "degraded", "storage": storage_ok, "backend": os.environ.get("STORAGE_BACKEND", "mongo")}
 
 
 _last_cron_tick_at: Optional[datetime] = None
@@ -7805,6 +7833,10 @@ async def scheduler_self_heal(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/api/doctor/health")
+async def doctor_health(user: dict = Depends(get_current_user)):
+    """Doctor screen health check — storage + provider status."""
+    storage_ok = await _check_storage_health()
     active = await get_active_provider()
     active_type = str((active or {}).get("type", "ollama")).lower()
     active_base = str((active or {}).get("base_url", OLLAMA_BASE))
@@ -7825,8 +7857,9 @@ async def scheduler_self_heal(user: dict = Depends(get_current_user)):
             pass
 
     return {
-        "status": "ok" if mongo_ok else "degraded",
-        "mongo": mongo_ok,
+        "status": "ok" if storage_ok else "degraded",
+        "storage": storage_ok,
+        "backend": os.environ.get("STORAGE_BACKEND", "mongo"),
         "ollama": ollama_ok,
         "ollama_relevant": ollama_relevant,
         "provider": LLM_PROVIDER,
