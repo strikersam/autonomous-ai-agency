@@ -1,3 +1,8 @@
+---
+name: agentic-portfolio
+description: "Initiative-level portfolio management with dependency tracking and milestone coordination"
+---
+
 # Skill: Agentic Portfolio Management
 
 ## Purpose

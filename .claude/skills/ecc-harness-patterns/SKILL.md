@@ -1,3 +1,8 @@
+---
+name: ecc-harness-patterns
+description: "Cross-harness agent patterns — standardize agent execution across different coding assistants"
+---
+
 # ECC Harness Patterns Skill
 
 **Inspired by:** [ECC](https://github.com/affaan-m/ECC) — the definitive cross-harness agent orchestration system

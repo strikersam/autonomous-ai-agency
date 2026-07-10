@@ -1,3 +1,8 @@
+---
+name: ai-engineering-insights
+description: "AI-assisted engineering impact analysis — productivity metrics and code quality insights"
+---
+
 # AI Engineering Insights Skill
 
 **Inspired by:** [DX Q1 AI-Assisted Engineering Impact Report](https://getdx.com/report/ai-assisted-engineering-Q1-impact-report/)

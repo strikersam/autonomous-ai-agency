@@ -1,3 +1,8 @@
+---
+name: stop-slop-quality
+description: "Remove AI writing tells and cliches — enforce natural, human-quality output"
+---
+
 # Stop-Slop Quality Skill
 
 **Inspired by:** [stop-slop](https://github.com/hardikpandya/stop-slop) — removing AI tells from prose

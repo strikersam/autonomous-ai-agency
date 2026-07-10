@@ -1,3 +1,8 @@
+---
+name: graphiti-temporal
+description: "Temporal context graph for agent memory — track entity relationships and state changes over time"
+---
+
 # Graphiti Temporal Context Skill
 
 **Inspired by:** [Graphiti](https://github.com/getzep/graphiti) — temporal context graphs for AI agents

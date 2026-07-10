@@ -1,3 +1,8 @@
+---
+name: user-research
+description: "User research skill — plan interviews, synthesize findings, and generate personas"
+---
+
 # Skill: user-research
 
 > **Module:** `agent/user_research_skill.py`

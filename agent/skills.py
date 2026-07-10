@@ -136,7 +136,14 @@ class SkillLibrary:
 
     @staticmethod
     def _extract_description(markdown: str) -> str:
-        for line in markdown.splitlines():
+        # Skip YAML frontmatter (--- ... ---) so the description isn't "---"
+        lines = markdown.splitlines()
+        if lines and lines[0].strip() == "---":
+            for i in range(1, len(lines)):
+                if lines[i].strip() == "---":
+                    lines = lines[i + 1:]
+                    break
+        for line in lines:
             stripped = line.strip()
             if stripped and not stripped.startswith("#") and not stripped.startswith("<!--"):
                 return stripped[:200]
