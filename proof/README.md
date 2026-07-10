@@ -34,13 +34,12 @@ PYTHONPATH=. python scripts/run_seo_audit.py \
   --max-pages 50 \
   --output-dir ./my-audit
 
-# Reproduce the self-audit exactly:
+# Reproduce the self-audit exactly (loopback needs the dedicated helper — see note):
 python -m http.server 8899 -d docs &
-PYTHONPATH=. python scripts/run_seo_audit.py \
-  --website-url http://127.0.0.1:8899/ --max-pages 20 --output-dir ./self-audit
+PYTHONPATH=. python scripts/self_audit_local.py http://127.0.0.1:8899/ ./self-audit
 ```
 
-(The committed self-audit was produced through the engine's fetcher-injection seam because the standalone script correctly refuses loopback URLs by default — see `SeoAuditEngine(fetcher=...)` in `services/seo_audit.py`.)
+(The standalone `run_seo_audit.py` script correctly refuses loopback/private URLs — an SSRF fail-closed guard in `SeoAuditEngine.run`. Auditing a locally served copy of your own site is the one legitimate loopback case, so `scripts/self_audit_local.py` wraps the engine's documented fetcher-injection seam, `SeoAuditEngine(fetcher=...)` — the exact path used to generate the committed report.)
 
 ## What's coming next in this directory
 
