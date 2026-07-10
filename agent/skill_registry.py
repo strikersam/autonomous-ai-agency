@@ -807,8 +807,18 @@ def _fmt_name(name: str) -> str:
 
 
 def _first_paragraph(text: str) -> str:
-    """Return the first non-empty, non-heading line."""
-    for line in text.splitlines():
+    """Return the first non-empty, non-heading line.
+
+    Skips YAML frontmatter (--- ... ---) so the description isn't "---".
+    """
+    lines = text.splitlines()
+    # Skip YAML frontmatter
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                lines = lines[i + 1:]
+                break
+    for line in lines:
         s = line.strip()
         if s and not s.startswith("#") and not s.startswith("<!--") and len(s) > 10:
             return s[:250]
