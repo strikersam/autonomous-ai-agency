@@ -38,11 +38,11 @@ REPO_ROOT = Path(os.environ.get("REPO_ROOT", str(Path(__file__).parent.parent.pa
 # NVIDIA NIM models tried in order.
 # nvidia/llama-3.1-nemotron-ultra-253b-v1 removed — returns 404 on this account.
 NVIDIA_MODELS = [
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "z-ai/glm-5.2",
     "meta/llama-3.3-70b-instruct",
     "qwen/qwen2.5-coder-32b-instruct",
 ]
+MISTRAL_MODEL = "mistral-small-latest"
 CLAUDE_MODEL = "claude-opus-4-8"
 
 
@@ -254,6 +254,33 @@ def _call_claude(prompt: str, user_msg: str) -> dict:
     return _parse_json(text)
 
 
+def _call_mistral(prompt: str, user_msg: str) -> dict:
+    """Call Mistral as a fallback when NVIDIA models are exhausted."""
+    from openai import OpenAI
+
+    api_key = os.environ.get("MISTRAL_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("MISTRAL_API_KEY not set")
+
+    client = OpenAI(
+        base_url="https://api.mistral.ai/v1",
+        api_key=api_key,
+    )
+    log.info("Trying Mistral model: %s", MISTRAL_MODEL)
+    resp = client.chat.completions.create(
+        model=MISTRAL_MODEL,
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_msg},
+        ],
+        temperature=0.3,
+        max_tokens=2048,
+        timeout=240,
+    )
+    text = resp.choices[0].message.content or ""
+    return _parse_json(text)
+
+
 def _parse_json(text: str) -> dict:
     """Extract JSON from LLM output, stripping any markdown fences."""
     text = text.strip()
@@ -359,13 +386,12 @@ def main() -> None:
     result: dict = {}
     errors: list[str] = []
 
-    # Try NVIDIA first. Claude is gated behind the provider policy
-    # (allow_paid must be True to fall through to paid Anthropic).
+    # Try NVIDIA first, then Mistral (free), then Claude (paid).
     callers = [("NVIDIA NIM", _call_nvidia)]
+    if os.environ.get("MISTRAL_API_KEY", "").strip():
+        callers.append(("Mistral", _call_mistral))
     try:
-        # Ensure the scripts directory is on sys.path so provider_policy is importable
-        import sys as _sys, os as _os
-        _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from provider_policy import allow_paid
         if allow_paid():
             callers.append(("Claude", _call_claude))
