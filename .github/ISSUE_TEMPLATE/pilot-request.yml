@@ -1,0 +1,62 @@
+name: Pilot request / assistance
+description: Ask for help deploying the platform, request a hands-on pilot, or get advice on what the agent fleet could automate for your company.
+title: "[Pilot] "
+labels: ["pilot-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest! Fill in what you can — only the first two fields are required.
+        Prefer private? Email **strikersam@gmail.com** instead. Either way you'll hear back within 48 hours.
+  - type: input
+    id: company
+    attributes:
+      label: Company / project name
+      placeholder: Acme Store
+    validations:
+      required: true
+  - type: input
+    id: website
+    attributes:
+      label: Website URL
+      description: The URL you'd onboard (a free audit of it usually comes back with the first reply).
+      placeholder: https://acme-store.com
+    validations:
+      required: true
+  - type: dropdown
+    id: infra
+    attributes:
+      label: Where would the platform run?
+      options:
+        - Our own cloud (AWS / GCP / Azure / Render / …)
+        - On-premise servers
+        - Not sure yet — advise me
+    validations:
+      required: false
+  - type: dropdown
+    id: models
+    attributes:
+      label: Model provider preference
+      description: Production deployments run on your keys. All of these are supported by the router.
+      options:
+        - Anthropic Claude
+        - OpenAI
+        - Free-tier stack (Cerebras / Groq / NVIDIA NIM)
+        - Local models (Ollama)
+        - Not sure yet — advise me
+    validations:
+      required: false
+  - type: textarea
+    id: automation
+    attributes:
+      label: What would you want automated first?
+      placeholder: e.g. daily CVE scans with fix PRs, SEO monitoring, PR review, support ticket triage, docs that stay in sync...
+    validations:
+      required: false
+  - type: input
+    id: timeline
+    attributes:
+      label: Timeline
+      placeholder: e.g. exploring / this quarter / ASAP
+    validations:
+      required: false

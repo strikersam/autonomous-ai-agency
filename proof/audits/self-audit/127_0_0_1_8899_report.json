@@ -1,0 +1,867 @@
+{
+  "audit_id": "seoaudit_e821c48aa3f01ec0",
+  "company_id": null,
+  "website_url": "http://127.0.0.1:8899/",
+  "status": "success",
+  "error": "",
+  "started_at": "2026-07-10T05:09:31.267412Z",
+  "completed_at": "2026-07-10T05:09:31.326846Z",
+  "pages_crawled": 1,
+  "pages_failed": 0,
+  "urls_discovered": 1,
+  "health_score": 43.1,
+  "pillar_scores": {
+    "technical": 83.5,
+    "content": 99.2,
+    "security": 79.4,
+    "social": 97.5,
+    "geo": 85.9,
+    "aio": 97.5
+  },
+  "total_issues": 21,
+  "issues_by_priority": {
+    "high": 2,
+    "medium": 7,
+    "low": 12
+  },
+  "issues_by_type": {
+    "issue": 2,
+    "warning": 8,
+    "opportunity": 11
+  },
+  "monthly_organic_revenue": 0.0,
+  "estimated_monthly_revenue_loss": 0.0,
+  "rows": [
+    {
+      "check_code": "security_http_url",
+      "issue_name": "Security: HTTP URLs",
+      "issue_type": "issue",
+      "issue_priority": "high",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Pages served over plain HTTP. HTTPS is a ranking signal and browsers mark HTTP pages as 'not secure'.",
+      "how_to_fix": "Serve all pages over HTTPS and 301 redirect HTTP to HTTPS.",
+      "help_url": "https://developers.google.com/search/docs/crawling-indexing/http-https",
+      "pillar": "security",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "links_no_internal_outlinks",
+      "issue_name": "Links: Pages Without Internal Outlinks",
+      "issue_type": "warning",
+      "issue_priority": "high",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Pages with no links to other internal pages. Search engines have trouble discovering pages that are not linked, and PageRank cannot flow onwards.",
+      "how_to_fix": "Link to relevant internal pages to help users continue their journey and pass PageRank onwards. If links are only client-side, render them server-side.",
+      "help_url": "https://www.screamingfrog.co.uk/seo-spider/issues/",
+      "pillar": "technical",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "geo_missing_sitemap",
+      "issue_name": "GEO: Missing XML Sitemap",
+      "issue_type": "issue",
+      "issue_priority": "medium",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "No XML sitemap found. Sitemaps are the primary discovery mechanism for search engines and many AI crawlers.",
+      "how_to_fix": "Generate a sitemap.xml of canonical URLs and reference it from robots.txt.",
+      "help_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview",
+      "pillar": "geo",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "canonical_missing",
+      "issue_name": "Canonicals: Missing",
+      "issue_type": "warning",
+      "issue_priority": "medium",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Pages with no canonical URL (link element or HTTP header). Without one, search engines pick the version they consider best, which can be unpredictable when multiple versions exist.",
+      "how_to_fix": "Specify a canonical URL on every indexable page.",
+      "help_url": "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls",
+      "pillar": "technical",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "geo_missing_robots_txt",
+      "issue_name": "GEO: Missing robots.txt",
+      "issue_type": "warning",
+      "issue_priority": "medium",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "No robots.txt found. Crawlers (search and AI) fall back to default behavior and you lose the ability to declare sitemaps and per-bot policies.",
+      "how_to_fix": "Add a robots.txt declaring crawl policy and the sitemap location.",
+      "help_url": "https://developers.google.com/search/docs/crawling-indexing/robots/intro",
+      "pillar": "geo",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "title_over_60",
+      "issue_name": "Page Titles: Over 60 Characters",
+      "issue_type": "opportunity",
+      "issue_priority": "medium",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Pages whose titles exceed 60 characters. Characters over the limit may be truncated in Google's search results and carry less weight in scoring.",
+      "how_to_fix": "Write concise page titles so important words are not truncated in the SERPs.",
+      "help_url": "https://www.screamingfrog.co.uk/seo-spider/issues/",
+      "pillar": "technical",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "social_missing_open_graph",
+      "issue_name": "Social: Missing Open Graph Tags",
+      "issue_type": "opportunity",
+      "issue_priority": "medium",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Pages without Open Graph tags (og:title, og:description, og:image). Shares on social platforms and chat apps render without a rich preview, lowering CTR.",
+      "how_to_fix": "Add og:title, og:description, og:image and og:url meta tags.",
+      "help_url": "https://ogp.me/",
+      "pillar": "social",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "geo_missing_llms_txt",
+      "issue_name": "GEO: Missing llms.txt",
+      "issue_type": "opportunity",
+      "issue_priority": "medium",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "No llms.txt found. llms.txt is an emerging standard that gives LLMs and AI agents a curated, markdown map of your most important content - improving how AI systems summarize and cite the site.",
+      "how_to_fix": "Add /llms.txt with a short site description and links to key pages and docs.",
+      "help_url": "https://llmstxt.org/",
+      "pillar": "geo",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "aio_missing_organization_schema",
+      "issue_name": "AIO: Missing Organization Schema",
+      "issue_type": "opportunity",
+      "issue_priority": "medium",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "No Organization (or WebSite) schema found anywhere on the site. Entity-level markup helps AI systems attribute content to a verified organization (E-E-A-T).",
+      "how_to_fix": "Add Organization JSON-LD (name, url, logo, sameAs) on the homepage.",
+      "help_url": "https://schema.org/Organization",
+      "pillar": "aio",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "h2_multiple",
+      "issue_name": "H2: Multiple",
+      "issue_type": "warning",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Pages with multiple <h2>s. HTML standards allow this within a logical heading hierarchy; the filter helps review whether they are used appropriately.",
+      "how_to_fix": "Ensure <h2>s sit in a logical hierarchical structure, using h3-h6 for deeper levels where appropriate.",
+      "help_url": "https://www.screamingfrog.co.uk/seo-spider/issues/",
+      "pillar": "technical",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "security_missing_csp",
+      "issue_name": "Security: Missing Content-Security-Policy Header",
+      "issue_type": "warning",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "URLs missing the Content-Security-Policy response header, which guards against cross-site scripting by controlling which resources may load.",
+      "how_to_fix": "Set a strict Content-Security-Policy response header across all pages.",
+      "help_url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP",
+      "pillar": "security",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "security_missing_x_content_type_options",
+      "issue_name": "Security: Missing X-Content-Type-Options Header",
+      "issue_type": "warning",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "URLs missing the X-Content-Type-Options: nosniff header, allowing browsers to MIME-sniff responses away from the declared content type.",
+      "how_to_fix": "Set X-Content-Type-Options: nosniff on all responses.",
+      "help_url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options",
+      "pillar": "security",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "security_missing_x_frame_options",
+      "issue_name": "Security: Missing X-Frame-Options Header",
+      "issue_type": "warning",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "URLs missing X-Frame-Options (or CSP frame-ancestors), leaving pages embeddable in iframes and exposed to clickjacking.",
+      "how_to_fix": "Set X-Frame-Options: SAMEORIGIN or a CSP frame-ancestors directive.",
+      "help_url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Frame-Options",
+      "pillar": "security",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "security_missing_referrer_policy",
+      "issue_name": "Security: Missing Secure Referrer-Policy Header",
+      "issue_type": "warning",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "URLs missing a secure Referrer-Policy (no-referrer-when-downgrade, strict-origin-when-cross-origin, no-referrer or strict-origin). Full URLs can leak cross-origin in the Referer header.",
+      "how_to_fix": "Set Referrer-Policy: strict-origin-when-cross-origin.",
+      "help_url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referrer-Policy",
+      "pillar": "security",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "meta_desc_missing",
+      "issue_name": "Meta Description: Missing",
+      "issue_type": "opportunity",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Pages with a missing, empty or whitespace meta description. This is a missed opportunity to influence click-through rates from search results.",
+      "how_to_fix": "Write unique, descriptive meta descriptions on key pages that communicate the purpose of the page and entice clicks.",
+      "help_url": "https://developers.google.com/search/docs/appearance/snippet",
+      "pillar": "technical",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "geo_missing_heading_anchors",
+      "issue_name": "GEO: Headings Without Anchor IDs",
+      "issue_type": "opportunity",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Section headings lack id attributes, so deep links to specific passages are impossible. Citable fragments improve how AI answers and SERP features link in.",
+      "how_to_fix": "Add stable id attributes to h2/h3 headings to enable deep links.",
+      "help_url": "",
+      "pillar": "geo",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "content_readability_very_difficult",
+      "issue_name": "Content: Readability Very Difficult",
+      "issue_type": "opportunity",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Copy on the page is very difficult to read (Flesch reading-ease below 30) and is best understood by university graduates.",
+      "how_to_fix": "Use shorter sentences and simpler words to improve readability for your audience.",
+      "help_url": "https://www.screamingfrog.co.uk/seo-spider/issues/",
+      "pillar": "content",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "aio_missing_breadcrumb_schema",
+      "issue_name": "AIO: Missing Breadcrumb Schema",
+      "issue_type": "opportunity",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Pages without BreadcrumbList schema. Breadcrumbs help search and answer engines understand site hierarchy and display better result paths.",
+      "how_to_fix": "Add BreadcrumbList JSON-LD reflecting the page's position in the site.",
+      "help_url": "https://developers.google.com/search/docs/appearance/structured-data/breadcrumb",
+      "pillar": "aio",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "social_missing_twitter_card",
+      "issue_name": "Social: Missing Twitter Card",
+      "issue_type": "opportunity",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "Pages without a twitter:card meta tag; X/Twitter shares fall back to a bare link.",
+      "how_to_fix": "Add <meta name=\"twitter:card\" content=\"summary_large_image\"> plus title, description and image tags.",
+      "help_url": "https://developer.x.com/en/docs/x-for-websites/cards/overview/markup",
+      "pillar": "social",
+      "auto_fixable": true,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "geo_missing_rss_feed",
+      "issue_name": "GEO: Missing RSS/Atom Feed",
+      "issue_type": "opportunity",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "No RSS/Atom feed discovered. Feeds help aggregators and AI systems track fresh content and surface it quickly.",
+      "how_to_fix": "Publish an RSS/Atom feed and declare it with <link rel=\"alternate\">.",
+      "help_url": "",
+      "pillar": "geo",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    },
+    {
+      "check_code": "validation_missing_favicon",
+      "issue_name": "Validation: Missing Favicon",
+      "issue_type": "opportunity",
+      "issue_priority": "low",
+      "urls_affected": 1,
+      "percent_of_total": 100.0,
+      "description": "No favicon was discovered. Favicons appear in browser tabs, bookmarks and Google's mobile search results.",
+      "how_to_fix": "Add a favicon and declare it with a <link rel=\"icon\"> element.",
+      "help_url": "https://developers.google.com/search/docs/appearance/favicon-in-search",
+      "pillar": "technical",
+      "auto_fixable": false,
+      "estimated_monthly_revenue_loss": 0.0,
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "check_code": "security_http_url",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Page served over plain HTTP",
+      "evidence": {}
+    },
+    {
+      "check_code": "title_over_60",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Title is 64 characters: 'Autonomous AI Agency v5 - Your AI-powered workforce | StrikerSam'",
+      "evidence": {}
+    },
+    {
+      "check_code": "meta_desc_missing",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Page has no (or an empty) meta description",
+      "evidence": {}
+    },
+    {
+      "check_code": "canonical_missing",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Page declares no canonical URL",
+      "evidence": {}
+    },
+    {
+      "check_code": "h2_multiple",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Page has 4 <h2> elements",
+      "evidence": {}
+    },
+    {
+      "check_code": "geo_missing_heading_anchors",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "None of the 13 h2/h3 headings have id attributes",
+      "evidence": {}
+    },
+    {
+      "check_code": "content_readability_very_difficult",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Flesch reading ease is 17.4",
+      "evidence": {}
+    },
+    {
+      "check_code": "links_no_internal_outlinks",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Page links to no other internal pages",
+      "evidence": {}
+    },
+    {
+      "check_code": "aio_missing_breadcrumb_schema",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "No BreadcrumbList schema on the page",
+      "evidence": {}
+    },
+    {
+      "check_code": "social_missing_open_graph",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Page has no Open Graph tags",
+      "evidence": {}
+    },
+    {
+      "check_code": "social_missing_twitter_card",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Page has no twitter:card meta tag",
+      "evidence": {}
+    },
+    {
+      "check_code": "geo_missing_robots_txt",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "No robots.txt found",
+      "evidence": {}
+    },
+    {
+      "check_code": "geo_missing_sitemap",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "No XML sitemap found",
+      "evidence": {}
+    },
+    {
+      "check_code": "geo_missing_llms_txt",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "No llms.txt found",
+      "evidence": {}
+    },
+    {
+      "check_code": "geo_missing_rss_feed",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "No RSS/Atom feed discovered",
+      "evidence": {}
+    },
+    {
+      "check_code": "validation_missing_favicon",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "No favicon discovered",
+      "evidence": {}
+    },
+    {
+      "check_code": "security_missing_csp",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Missing Content-Security-Policy header",
+      "evidence": {}
+    },
+    {
+      "check_code": "security_missing_x_content_type_options",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Missing X-Content-Type-Options header",
+      "evidence": {}
+    },
+    {
+      "check_code": "security_missing_x_frame_options",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Missing X-Frame-Options header (and no CSP frame-ancestors)",
+      "evidence": {}
+    },
+    {
+      "check_code": "security_missing_referrer_policy",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "Missing secure Referrer-Policy header",
+      "evidence": {}
+    },
+    {
+      "check_code": "aio_missing_organization_schema",
+      "url": "http://127.0.0.1:8899/",
+      "detail": "No Organization or WebSite schema found on any crawled page",
+      "evidence": {}
+    }
+  ],
+  "pages": [
+    {
+      "url": "http://127.0.0.1:8899/",
+      "final_url": "http://127.0.0.1:8899/",
+      "status_code": 200,
+      "redirected": false,
+      "content_type": "text/html",
+      "html_bytes": 7115,
+      "fetch_ms": 2,
+      "depth": 0,
+      "title": "Autonomous AI Agency v5 - Your AI-powered workforce | StrikerSam",
+      "meta_description": "",
+      "canonical": "",
+      "lang": "en",
+      "robots_directives": [],
+      "h1s": [
+        "Autonomous AI Agency v5"
+      ],
+      "h2s": [
+        "Platform Capabilities",
+        "Platform in Action",
+        "How It Works",
+        "What Our Users Say"
+      ],
+      "word_count": 246,
+      "flesch_reading_ease": 17.4,
+      "internal_links": 0,
+      "external_links": 0,
+      "images_total": 0,
+      "structured_data_types": [
+        "TechArticle"
+      ],
+      "has_open_graph": false,
+      "has_twitter_card": false,
+      "has_viewport": true,
+      "issue_codes": [
+        "aio_missing_breadcrumb_schema",
+        "canonical_missing",
+        "content_readability_very_difficult",
+        "geo_missing_heading_anchors",
+        "h2_multiple",
+        "links_no_internal_outlinks",
+        "meta_desc_missing",
+        "security_http_url",
+        "social_missing_open_graph",
+        "social_missing_twitter_card",
+        "title_over_60"
+      ]
+    }
+  ],
+  "site": {
+    "https": false,
+    "robots_txt_present": false,
+    "robots_txt_url": "",
+    "sitemap_present": false,
+    "sitemap_urls": [],
+    "sitemap_in_robots": false,
+    "llms_txt_present": false,
+    "rss_feed_present": false,
+    "favicon_present": false,
+    "ai_crawlers_blocked": [],
+    "security_headers": {
+      "strict-transport-security": false,
+      "content-security-policy": false,
+      "x-content-type-options": false,
+      "x-frame-options": false,
+      "referrer-policy": false
+    }
+  },
+  "delegation_plan": [
+    {
+      "task_key": "seo-fix-links",
+      "title": "Fix Links findings: 1 finding type(s) across 1 URL hit(s)",
+      "priority": "high",
+      "effort": "S",
+      "pillar": "technical",
+      "category": "Links",
+      "suggested_specialist": "frontend",
+      "check_codes": [
+        "links_no_internal_outlinks"
+      ],
+      "urls_affected": 1,
+      "auto_fixable": false,
+      "instructions": "- Links: Pages Without Internal Outlinks (1 URLs): Link to relevant internal pages to help users continue their journey and pass PageRank onwards. If links are only client-side, render them server-side.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 3,
+      "time_criticality": 8,
+      "risk_reduction": 5,
+      "job_size": 2,
+      "wsjf_score": 8.0
+    },
+    {
+      "task_key": "seo-fix-structured-data",
+      "title": "Fix Structured Data findings: 2 finding type(s) across 2 URL hit(s)",
+      "priority": "medium",
+      "effort": "S",
+      "pillar": "aio",
+      "category": "Structured Data",
+      "suggested_specialist": "seo",
+      "check_codes": [
+        "aio_missing_organization_schema",
+        "aio_missing_breadcrumb_schema"
+      ],
+      "urls_affected": 2,
+      "auto_fixable": false,
+      "instructions": "- AIO: Missing Organization Schema (1 URLs): Add Organization JSON-LD (name, url, logo, sameAs) on the homepage.\n- AIO: Missing Breadcrumb Schema (1 URLs): Add BreadcrumbList JSON-LD reflecting the page's position in the site.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 8,
+      "time_criticality": 5,
+      "risk_reduction": 3,
+      "job_size": 2,
+      "wsjf_score": 8.0
+    },
+    {
+      "task_key": "seo-fix-social",
+      "title": "Fix Social findings: 2 finding type(s) across 2 URL hit(s)",
+      "priority": "medium",
+      "effort": "S",
+      "pillar": "social",
+      "category": "Social",
+      "suggested_specialist": "marketing",
+      "check_codes": [
+        "social_missing_open_graph",
+        "social_missing_twitter_card"
+      ],
+      "urls_affected": 2,
+      "auto_fixable": true,
+      "instructions": "- Social: Missing Open Graph Tags (1 URLs): Add og:title, og:description, og:image and og:url meta tags.\n- Social: Missing Twitter Card (1 URLs): Add <meta name=\"twitter:card\" content=\"summary_large_image\"> plus title, description and image tags.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 8,
+      "time_criticality": 5,
+      "risk_reduction": 2,
+      "job_size": 2,
+      "wsjf_score": 7.5
+    },
+    {
+      "task_key": "seo-fix-security",
+      "title": "Fix Security findings: 5 finding type(s) across 5 URL hit(s)",
+      "priority": "high",
+      "effort": "M",
+      "pillar": "security",
+      "category": "Security",
+      "suggested_specialist": "security",
+      "check_codes": [
+        "security_http_url",
+        "security_missing_csp",
+        "security_missing_x_content_type_options",
+        "security_missing_x_frame_options",
+        "security_missing_referrer_policy"
+      ],
+      "urls_affected": 5,
+      "auto_fixable": false,
+      "instructions": "- Security: HTTP URLs (1 URLs): Serve all pages over HTTPS and 301 redirect HTTP to HTTPS.\n- Security: Missing Content-Security-Policy Header (1 URLs): Set a strict Content-Security-Policy response header across all pages.\n- Security: Missing X-Content-Type-Options Header (1 URLs): Set X-Content-Type-Options: nosniff on all responses.\n- Security: Missing X-Frame-Options Header (1 URLs): Set X-Frame-Options: SAMEORIGIN or a CSP frame-ancestors directive.\n- Security: Missing Secure Referrer-Policy Header (1 URLs): Set Referrer-Policy: strict-origin-when-cross-origin.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 20,
+      "time_criticality": 8,
+      "risk_reduction": 8,
+      "job_size": 5,
+      "wsjf_score": 7.2
+    },
+    {
+      "task_key": "seo-fix-canonicals",
+      "title": "Fix Canonicals findings: 1 finding type(s) across 1 URL hit(s)",
+      "priority": "medium",
+      "effort": "S",
+      "pillar": "technical",
+      "category": "Canonicals",
+      "suggested_specialist": "seo",
+      "check_codes": [
+        "canonical_missing"
+      ],
+      "urls_affected": 1,
+      "auto_fixable": true,
+      "instructions": "- Canonicals: Missing (1 URLs): Specify a canonical URL on every indexable page.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 3,
+      "time_criticality": 5,
+      "risk_reduction": 5,
+      "job_size": 2,
+      "wsjf_score": 6.5
+    },
+    {
+      "task_key": "seo-fix-page-titles",
+      "title": "Fix Page Titles findings: 1 finding type(s) across 1 URL hit(s)",
+      "priority": "medium",
+      "effort": "S",
+      "pillar": "technical",
+      "category": "Page Titles",
+      "suggested_specialist": "seo",
+      "check_codes": [
+        "title_over_60"
+      ],
+      "urls_affected": 1,
+      "auto_fixable": false,
+      "instructions": "- Page Titles: Over 60 Characters (1 URLs): Write concise page titles so important words are not truncated in the SERPs.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 3,
+      "time_criticality": 5,
+      "risk_reduction": 5,
+      "job_size": 2,
+      "wsjf_score": 6.5
+    },
+    {
+      "task_key": "seo-fix-geo",
+      "title": "Fix GEO findings: 5 finding type(s) across 5 URL hit(s)",
+      "priority": "medium",
+      "effort": "M",
+      "pillar": "geo",
+      "category": "GEO",
+      "suggested_specialist": "seo",
+      "check_codes": [
+        "geo_missing_sitemap",
+        "geo_missing_robots_txt",
+        "geo_missing_llms_txt",
+        "geo_missing_heading_anchors",
+        "geo_missing_rss_feed"
+      ],
+      "urls_affected": 5,
+      "auto_fixable": false,
+      "instructions": "- GEO: Missing XML Sitemap (1 URLs): Generate a sitemap.xml of canonical URLs and reference it from robots.txt.\n- GEO: Missing robots.txt (1 URLs): Add a robots.txt declaring crawl policy and the sitemap location.\n- GEO: Missing llms.txt (1 URLs): Add /llms.txt with a short site description and links to key pages and docs.\n- GEO: Headings Without Anchor IDs (1 URLs): Add stable id attributes to h2/h3 headings to enable deep links.\n- GEO: Missing RSS/Atom Feed (1 URLs): Publish an RSS/Atom feed and declare it with <link rel=\"alternate\">.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 20,
+      "time_criticality": 5,
+      "risk_reduction": 3,
+      "job_size": 5,
+      "wsjf_score": 5.6
+    },
+    {
+      "task_key": "seo-fix-h2",
+      "title": "Fix H2 findings: 1 finding type(s) across 1 URL hit(s)",
+      "priority": "low",
+      "effort": "S",
+      "pillar": "technical",
+      "category": "H2",
+      "suggested_specialist": "content",
+      "check_codes": [
+        "h2_multiple"
+      ],
+      "urls_affected": 1,
+      "auto_fixable": false,
+      "instructions": "- H2: Multiple (1 URLs): Ensure <h2>s sit in a logical hierarchical structure, using h3-h6 for deeper levels where appropriate.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 3,
+      "time_criticality": 2,
+      "risk_reduction": 5,
+      "job_size": 2,
+      "wsjf_score": 5.0
+    },
+    {
+      "task_key": "seo-fix-meta-description",
+      "title": "Fix Meta Description findings: 1 finding type(s) across 1 URL hit(s)",
+      "priority": "low",
+      "effort": "S",
+      "pillar": "technical",
+      "category": "Meta Description",
+      "suggested_specialist": "seo",
+      "check_codes": [
+        "meta_desc_missing"
+      ],
+      "urls_affected": 1,
+      "auto_fixable": true,
+      "instructions": "- Meta Description: Missing (1 URLs): Write unique, descriptive meta descriptions on key pages that communicate the purpose of the page and entice clicks.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 3,
+      "time_criticality": 2,
+      "risk_reduction": 5,
+      "job_size": 2,
+      "wsjf_score": 5.0
+    },
+    {
+      "task_key": "seo-fix-validation",
+      "title": "Fix Validation findings: 1 finding type(s) across 1 URL hit(s)",
+      "priority": "low",
+      "effort": "S",
+      "pillar": "technical",
+      "category": "Validation",
+      "suggested_specialist": "frontend",
+      "check_codes": [
+        "validation_missing_favicon"
+      ],
+      "urls_affected": 1,
+      "auto_fixable": false,
+      "instructions": "- Validation: Missing Favicon (1 URLs): Add a favicon and declare it with a <link rel=\"icon\"> element.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 3,
+      "time_criticality": 2,
+      "risk_reduction": 5,
+      "job_size": 2,
+      "wsjf_score": 5.0
+    },
+    {
+      "task_key": "seo-fix-content",
+      "title": "Fix Content findings: 1 finding type(s) across 1 URL hit(s)",
+      "priority": "low",
+      "effort": "S",
+      "pillar": "content",
+      "category": "Content",
+      "suggested_specialist": "content",
+      "check_codes": [
+        "content_readability_very_difficult"
+      ],
+      "urls_affected": 1,
+      "auto_fixable": false,
+      "instructions": "- Content: Readability Very Difficult (1 URLs): Use shorter sentences and simpler words to improve readability for your audience.",
+      "sample_urls": [
+        "http://127.0.0.1:8899/"
+      ],
+      "estimated_monthly_value": 0.0,
+      "business_value": 3,
+      "time_criticality": 2,
+      "risk_reduction": 2,
+      "job_size": 2,
+      "wsjf_score": 3.5
+    }
+  ],
+  "summary": "Crawled 1 page(s) of http://127.0.0.1:8899/ - health score 43.1/100. 21 distinct finding types across 21 occurrences (2 high, 7 medium, 12 low priority URL hits). Top high-priority findings: Security: HTTP URLs (1 URLs); Links: Pages Without Internal Outlinks (1 URLs). 11 finding type(s) are auto-fixable by the repo-aware SEO fixer."
+}
