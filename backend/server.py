@@ -7462,8 +7462,20 @@ async def autonomy_tick() -> dict[str, object]:
         "dispatch": {},
     }
 
-    # 1. Fire CEO cycle in background (non-blocking)
+    # 1. Fire CEO cycle — but SKIP if there are already pending tasks to execute.
+    # The CEO cycle takes 10-15s, which eats the tick's timeout and leaves no
+    # time for the dispatch to actually execute a task. When tasks are pending,
+    # we skip the CEO and go straight to dispatch.
+    _has_pending = False
     try:
+        from tasks.store import get_task_store
+        _pending_check = await get_task_store().list_pending(limit=1)
+        _has_pending = bool(_pending_check)
+    except Exception:
+        pass
+
+    if not _has_pending:
+      try:
         from agent.agency import Agency, get_agency, set_agency, _gh_token, _gh_repo
         # Wire scheduler on_fire if not done
         try:
@@ -7512,8 +7524,10 @@ async def autonomy_tick() -> dict[str, object]:
                 result["ceo"] = {"triggered": True, "error": "CEO cycle timed out (15s)"}
             except Exception as exc:
                 result["ceo"] = {"triggered": False, "error": str(exc)[:200]}
-    except Exception as exc:
+      except Exception as exc:
         result["ceo"] = {"error": str(exc)[:200]}
+      else:
+        result["ceo"] = {"triggered": False, "skipped": "pending tasks exist — dispatching directly"}
 
     # 1.5. Requeue blocked tasks — HARDENED after the 2026-07-03 crash loop.
     # The old version requeued up to 5 blocked tasks per tick AND reset each
