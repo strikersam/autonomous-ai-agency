@@ -325,7 +325,7 @@ def test_patch_rejects_invalid_provider(app_client):
     """Pydantic Literal rejects an unknown provider before any probe fires."""
     r = app_client.patch(
         "/admin/api/policy/brain",
-        json={"primary_provider": "anthropic"},  # not in the BrainProvider Literal
+        json={"primary_provider": "not-a-real-provider"},  # not in the BrainProvider Literal
     )
     assert r.status_code == 422
     # Pydantic validation error, not our probe-failure 422.
