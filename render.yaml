@@ -63,7 +63,7 @@ services:
       # when rebuilding the brain config from a cold Render instance.
       # ================================================================
       - key: BRAIN_PREFERENCE
-        value: "ollama"
+        value: "nvidia"
 
       # ================================================================
       # NVIDIA NIM - Free models, first priority (no local infra needed)
@@ -467,7 +467,7 @@ services:
       # Brain preference — must match the web service so the worker's brain
       # resolution produces the same result (ollama = local, nvidia = cloud).
       - key: BRAIN_PREFERENCE
-        value: "ollama"
+        value: "nvidia"
       # Ollama tunnel URL — must match the web service. The worker runs the
       # same resolve_ollama_base_url() path and could cold-start independently
       # of the web service, so both services declare these placeholders and

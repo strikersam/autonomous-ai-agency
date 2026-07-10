@@ -30,8 +30,11 @@ def _select_brain():
     if os.environ.get('GROQ_API_KEY'):
         return ('groq', 'https://api.groq.com/openai/v1/chat/completions',
                 os.environ['GROQ_API_KEY'], 'llama-3.3-70b-versatile')
+    if os.environ.get('MISTRAL_API_KEY'):
+        return ('mistral', 'https://api.mistral.ai/v1/chat/completions',
+                os.environ['MISTRAL_API_KEY'], 'mistral-small-latest')
     return ('nvidia', 'https://integrate.api.nvidia.com/v1/chat/completions',
-            os.environ.get('NVIDIA_API_KEY', ''), 'nvidia/llama-3.3-nemotron-super-49b-v1')
+            os.environ.get('NVIDIA_API_KEY', ''), 'z-ai/glm-5.2')
 
 # 1. Find the oldest open issue
 if issue_input:
