@@ -174,6 +174,8 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "default_model": "meta/llama-3.3-70b-instruct",
         "models": [
             "meta/llama-3.3-70b-instruct",
+            "meta/llama-4-maverick-17b-128e-instruct",
+            "meta/llama-4-scout-17b-16e-instruct",
             "z-ai/glm-5.2",
             "z-ai/glm-5.1",
             "nvidia/llama-3.1-nemotron-70b-instruct",
@@ -191,10 +193,11 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "default_base_url": "https://api.groq.com/openai/v1",
         "default_model": "llama-3.3-70b-versatile",
         "models": [
+            "llama-4-maverick-17b-128e-instruct",
+            "llama-4-scout-17b-16e-instruct",
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
             "deepseek-r1-distill-llama-70b",
-            "mixtral-8x7b-32768",
         ],
         "cooldown": 30.0,
     },
@@ -335,8 +338,8 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "key_env": "GOOGLE_API_KEY",
         "base_url_env": "GOOGLE_BASE_URL",
         "default_base_url": "https://generativelanguage.googleapis.com",
-        "default_model": "gemini-2.0-flash",
-        "models": ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+        "default_model": "gemini-2.5-flash",
+        "models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
         "cooldown": 30.0,
     },
     {
@@ -346,8 +349,8 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "key_env": "ANTHROPIC_API_KEY",
         "base_url_env": "ANTHROPIC_BASE_URL",
         "default_base_url": "https://api.anthropic.com",
-        "default_model": "claude-3-5-sonnet-20241022",
-        "models": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-opus-4-5"],
+        "default_model": "claude-sonnet-5",
+        "models": ["claude-sonnet-5", "claude-opus-4-8", "claude-fable-5", "claude-haiku-4-5-20251001", "claude-sonnet-4-6"],
         "cooldown": 30.0,
     },
     # ── Local (always available if configured) ──
@@ -386,6 +389,25 @@ _MODEL_ALIASES: dict[str, dict[str, str]] = {
         "zhipu": "glm-5.1",
         "zai": "glm-5.1",
         "nvidia": "z-ai/glm-5.1",
+    },
+    # Llama 4 cross-provider aliases (Meta, July 2026)
+    "meta/llama-4-maverick-17b-128e-instruct": {
+        "groq": "llama-4-maverick-17b-128e-instruct",
+        "nvidia": "meta/llama-4-maverick-17b-128e-instruct",
+        "together": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "openrouter": "meta-llama/llama-4-maverick-17b-128e-instruct",
+    },
+    "meta/llama-4-scout-17b-16e-instruct": {
+        "groq": "llama-4-scout-17b-16e-instruct",
+        "nvidia": "meta/llama-4-scout-17b-16e-instruct",
+        "together": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        "openrouter": "meta-llama/llama-4-scout-17b-16e-instruct",
+    },
+    # Claude Sonnet 5 cross-provider alias
+    "claude-sonnet-5": {
+        "aerolink": "claude-sonnet-5",
+        "openrouter": "anthropic/claude-sonnet-5",
+        "anthropic": "claude-sonnet-5",
     },
 }
 

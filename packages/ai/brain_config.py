@@ -46,7 +46,7 @@ SAFE_DEFAULT_MODEL: str = "z-ai/glm-5.2"
 # Provider ids the Brain card recognises. The Literal keeps the Pydantic model
 # strict so a typo in the UI ("cerebrass") fails validation instead of
 # silently storing an unusable provider.
-BrainProvider = Literal["nvidia", "cerebras", "groq", "ollama", "mistral", "deepseek", "zhipu", "zai", "together", "dashscope", "moonshot", "openrouter", "anthropic", "aerolink"]
+BrainProvider = Literal["nvidia", "cerebras", "groq", "ollama", "mistral", "deepseek", "zhipu", "zai", "together", "dashscope", "moonshot", "openrouter", "anthropic", "aerolink", "google"]
 
 # Per-provider sensible presets surfaced by the UI's "presets" dropdown.
 # Operators can still type any model id — these are just convenience defaults.
@@ -58,10 +58,10 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "llama-3.3-70b",
     },
     "groq": {
-        "planner":   "deepseek-r1-distill-llama-70b",
-        "executor":  "llama-3.3-70b-versatile",
-        "verifier":  "deepseek-r1-distill-llama-70b",
-        "judge":     "llama-3.3-70b-versatile",
+        "planner":   "llama-4-maverick-17b-128e-instruct",
+        "executor":  "llama-4-maverick-17b-128e-instruct",
+        "verifier":  "llama-4-scout-17b-16e-instruct",
+        "judge":     "llama-4-maverick-17b-128e-instruct",
     },
     "nvidia": {
         "planner":   "z-ai/glm-5.2",
@@ -94,10 +94,22 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "glm-5.2",
     },
     "aerolink": {
-        "planner":   "claude-sonnet-4-6",
-        "executor":  "claude-sonnet-4-6",
-        "verifier":  "claude-sonnet-4-6",
-        "judge":     "claude-sonnet-4-6",
+        "planner":   "claude-opus-4-8",
+        "executor":  "claude-sonnet-5",
+        "verifier":  "claude-sonnet-5",
+        "judge":     "claude-opus-4-8",
+    },
+    "anthropic": {
+        "planner":   "claude-opus-4-8",
+        "executor":  "claude-sonnet-5",
+        "verifier":  "claude-sonnet-5",
+        "judge":     "claude-opus-4-8",
+    },
+    "google": {
+        "planner":   "gemini-2.5-pro",
+        "executor":  "gemini-2.5-flash",
+        "verifier":  "gemini-2.5-flash",
+        "judge":     "gemini-2.5-pro",
     },
 }
 
@@ -118,6 +130,7 @@ PROVIDER_KEY_ENV: dict[str, str | None] = {
     "openrouter": "OPENROUTER_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "aerolink": "AEROLINK_API_KEY",
+    "google": "GOOGLE_API_KEY",
 }
 
 # Env-var name each provider reads its base URL from (optional override).
@@ -136,6 +149,7 @@ PROVIDER_BASE_URL_ENV: dict[str, str | None] = {
     "openrouter": "OPENROUTER_BASE_URL",
     "anthropic": "ANTHROPIC_BASE_URL",
     "aerolink": "AEROLINK_BASE_URL",
+    "google": "GOOGLE_BASE_URL",
 }
 
 # Default public base URL for each provider (used when no env override).
@@ -154,6 +168,7 @@ PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
     "openrouter": "https://openrouter.ai/api/v1",
     "anthropic": "https://api.anthropic.com",
     "aerolink": "https://capi.aerolink.lat/v1",
+    "google": "https://generativelanguage.googleapis.com/v1beta/openai",
 }
 
 

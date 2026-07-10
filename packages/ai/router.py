@@ -770,7 +770,7 @@ class ProviderRouter:
                     type="openai-compatible",
                     base_url="https://generativelanguage.googleapis.com/v1beta/openai",
                     api_key=gemini_key,
-                    default_model=os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash",
+                    default_model=os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash",
                     priority=39,
                 )
             )
