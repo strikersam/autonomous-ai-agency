@@ -1,6 +1,7 @@
 ---
 name: ai-engineering-insights
-description: "AI-assisted engineering impact analysis — productivity metrics and code quality insights"
+description: >
+  AI-assisted engineering impact analysis — productivity metrics and code quality insights
 ---
 
 # AI Engineering Insights Skill

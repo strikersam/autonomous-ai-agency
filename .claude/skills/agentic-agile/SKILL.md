@@ -1,6 +1,7 @@
 ---
 name: agentic-agile
-description: "Agile sprint planning, velocity tracking, and burndown metrics for agent-managed projects"
+description: >
+  Agile sprint planning, velocity tracking, and burndown metrics for agent-managed projects
 ---
 
 # Skill: Agentic Agile

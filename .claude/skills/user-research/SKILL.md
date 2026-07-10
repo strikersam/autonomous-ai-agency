@@ -1,6 +1,7 @@
 ---
 name: user-research
-description: "User research skill — plan interviews, synthesize findings, and generate personas"
+description: >
+  User research skill — plan interviews, synthesize findings, and generate personas
 ---
 
 # Skill: user-research

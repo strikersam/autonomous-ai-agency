@@ -31,6 +31,17 @@ def test_search_by_description():
     assert len(results) == 1
 
 
+def test_extract_description_skips_yaml_frontmatter():
+    """Regression: frontmatter (--- ... ---) must not surface as '---'."""
+    markdown = (
+        "---\nname: some-skill\ndescription: A real description here.\n---\n"
+        "# Some Skill\n\nA real description here.\n"
+    )
+    result = SkillLibrary._extract_description(markdown)
+    assert result != "---"
+    assert "real description" in result.lower()
+
+
 def test_search_no_results():
     lib = SkillLibrary()
     results = lib.search("zzz_no_match_zzz")

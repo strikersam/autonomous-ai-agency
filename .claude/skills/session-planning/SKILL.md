@@ -1,6 +1,7 @@
 ---
 name: session-planning
-description: "Mandatory planning workflow for all AI agents — decompose tasks before execution"
+description: >
+  Mandatory planning workflow for all AI agents — decompose tasks before execution
 ---
 
 # Skill: session-planning — Mandatory Planning Workflow for All AI Agents
