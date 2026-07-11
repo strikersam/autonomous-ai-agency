@@ -50,7 +50,8 @@ def _default_repo() -> str:
     try:
         from packages.config import settings
         return settings.github_repository
-    except Exception:
+    except Exception as exc:
+        log.debug("portfolio: could not resolve github_repository from config: %s", exc)
         return "strikersam/autonomous-ai-agency"
 
 
@@ -337,8 +338,17 @@ def _run_coro_sync(coro):
     except RuntimeError:
         return asyncio.run(coro)  # no loop running — the fast path
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=1) as pool:
+    # Explicit executor (not a `with` block): the context manager's
+    # __exit__ calls shutdown(wait=True), which would block until the
+    # worker thread finishes even after .result(timeout=15) raises
+    # TimeoutError — defeating the timeout for up to TrendWatcher's own
+    # ~20s HTTP timeout. shutdown(wait=False) lets the caller return
+    # promptly; the orphaned thread still terminates on its own.
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
         return pool.submit(asyncio.run, coro).result(timeout=15)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def fetch_research_alerts(*, limit: int = 6, min_relevance: float = 0.35) -> List[Dict]:
