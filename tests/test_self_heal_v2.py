@@ -116,6 +116,47 @@ async def test_task_dedup(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_task_dedup_ignores_same_title_without_source_id(monkeypatch):
+    """Self-heal must NOT delete same-title tasks that lack a source_id.
+
+    Regression test for the dispatch-breaking bug fixed by removing
+    title-based dedup: each task without a source_id is a distinct
+    execution attempt (e.g. separate GitHub issue runs sharing a title)
+    and must survive the heal cycle.
+    """
+    from tasks.store import TaskStore, get_task_store
+    from tasks.models import Task, TaskStatus
+    from services.self_heal import _heal_task_duplicates
+
+    store = TaskStore()  # in-memory by default
+
+    # Same title+source, but NO source_id — must NOT be deduped.
+    t1 = Task(owner_id="user1", title="Fix bug", source="ceo_agency",
+              status=TaskStatus.TODO)
+    t2 = Task(owner_id="user1", title="Fix bug", source="ceo_agency",
+              status=TaskStatus.TODO)
+    await store.create(t1)
+    await store.create(t2)
+
+    all_tasks = await store.list_all(limit=100)
+    assert len(all_tasks) >= 2
+
+    # Monkeypatch the store singleton
+    import tasks.store as ts
+    original_get = ts.get_task_store
+    ts.get_task_store = lambda: store
+
+    try:
+        result = await _heal_task_duplicates()
+        assert result["deleted"] == 0
+
+        remaining = await store.list_all(limit=100)
+        assert len(remaining) >= 2
+    finally:
+        ts.get_task_store = original_get
+
+
+@pytest.mark.asyncio
 async def test_stuck_task_cleanup(monkeypatch):
     """Self-heal moves tasks stuck in IN_PROGRESS back to TODO."""
     from tasks.store import TaskStore
