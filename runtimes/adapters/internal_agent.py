@@ -562,7 +562,7 @@ class InternalAgentAdapter(RuntimeAdapter):
         # Prune any stale worktree from a previous crash before adding a new one.
         if os.path.exists(wt_path):
             try:
-                subprocess.run(  # nosec B603,B607 — constant git argv, list form, no shell
+                subprocess.run(  # nosec B603, B607 — constant git argv, list form, no shell
                     ["git", "worktree", "prune"],
                     cwd=workspace,
                     capture_output=True,
@@ -573,7 +573,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 pass
 
         try:
-            result = subprocess.run(  # nosec B603,B607 — constant git argv, list form, no shell
+            result = subprocess.run(  # nosec B603, B607 — constant git argv, list form, no shell
                 ["git", "worktree", "add", "--detach", wt_path, "HEAD"],
                 cwd=workspace,
                 capture_output=True,
@@ -633,7 +633,7 @@ class InternalAgentAdapter(RuntimeAdapter):
 
         # Git worktree — remove via git first, then rmtree as a safety net.
         try:
-            subprocess.run(  # nosec B603,B607 — constant git argv, list form, no shell
+            subprocess.run(  # nosec B603, B607 — constant git argv, list form, no shell
                 ["git", "worktree", "remove", "--force", worktree_path],
                 cwd=workspace,
                 capture_output=True,
