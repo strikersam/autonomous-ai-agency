@@ -121,6 +121,15 @@ class Settings:
         # Portfolio materializer (default ON — flag is the rollback lever)
         self.portfolio_materialize_enabled: str = os.environ.get("PORTFOLIO_MATERIALIZE_ENABLED", "true").lower()
 
+        # Free-LLM-API model catalog sync (UNIT 8 — default OFF).
+        # When ON, the catalog (config/models.yaml) + active BrainConfig are
+        # periodically mirrored to the DB so external services can query
+        # which models are available. Advisory-only — does NOT change
+        # brain routing. The flag is the rollout lever.
+        self.freellm_api_model_catalog_enabled: str = os.environ.get(
+            "FREELLM_API_MODEL_CATALOG_ENABLED", "false"
+        ).lower()
+
     @property
     def is_testing(self) -> bool:
         return self.testing == "true"
@@ -140,6 +149,12 @@ class Settings:
     @property
     def is_hermes_in_process(self) -> bool:
         return self.run_hermes_in_process == "true" and not self.is_testing
+
+    @property
+    def is_freellm_api_model_catalog_enabled(self) -> bool:
+        """UNIT 8: when True, the catalog is mirrored to the DB + the
+        ``GET /api/catalog/models`` endpoint is enabled. Advisory-only."""
+        return self.freellm_api_model_catalog_enabled == "true"
 
 
 @lru_cache(maxsize=1)

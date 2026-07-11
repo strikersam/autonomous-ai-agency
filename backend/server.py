@@ -3791,6 +3791,79 @@ async def trigger_self_heal(user: dict = Depends(get_current_user)):
     return {"ok": True, **summary}
 
 
+# ── Model catalog endpoints (UNIT 8 — flag-gated, advisory-only) ───────────
+
+
+@app.get("/api/catalog/models")
+async def get_catalog_models_route():
+    """Return the mirrored model catalog (advisory-only).
+
+    Flag-gated by ``FREELLM_API_MODEL_CATALOG_ENABLED`` (default OFF).
+    When off, returns 503 with a message explaining how to enable. When
+    on, returns the full catalog mirror (providers, role presets,
+    candidates, the active brain config, and per-provider key_present
+    flags) so external services can render a provider picker without
+    loading the YAML or querying the brain config.
+
+    The catalog mirror NEVER changes brain routing — it's a read-only
+    snapshot for observability. ``resolve_component_model()`` is still
+    the single source of truth for model resolution.
+    """
+    from packages.ai.model_catalog import get_catalog, is_catalog_enabled
+    if not is_catalog_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "detail": (
+                    "Model catalog endpoint is disabled. Set "
+                    "FREELLM_API_MODEL_CATALOG_ENABLED=true to enable "
+                    "(UNIT 8 — advisory-only, does not change brain routing)."
+                ),
+                "enabled": False,
+            },
+        )
+    catalog = await get_catalog()
+    return {
+        "ok": True,
+        "enabled": True,
+        "catalog": catalog.model_dump(mode="json"),
+    }
+
+
+@app.post("/api/admin/maintenance/sync-catalog")
+async def sync_catalog_route(user: dict = Depends(get_current_user)):
+    """Force a catalog mirror rebuild + persist (admin only).
+
+    Rebuilds the catalog from ``config/models.yaml`` + the active
+    BrainConfig cache and persists it to Mongo + the sqlite mirror.
+    Returns the synced catalog. Flag-gated by
+    ``FREELLM_API_MODEL_CATALOG_ENABLED`` (returns 503 when off).
+    """
+    _require_admin(user)
+    from packages.ai.model_catalog import is_catalog_enabled, sync_catalog
+    if not is_catalog_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "detail": (
+                    "Model catalog sync is disabled. Set "
+                    "FREELLM_API_MODEL_CATALOG_ENABLED=true to enable."
+                ),
+                "enabled": False,
+            },
+        )
+    actor = f"user:{user.get('email') or user.get('_id') or 'unknown'}"
+    catalog = await sync_catalog(actor=actor)
+    log.info("catalog synced by %s (%d providers)", actor, len(catalog.providers))
+    return {
+        "ok": True,
+        "enabled": True,
+        "catalog": catalog.model_dump(mode="json"),
+    }
+
+
 def _purge_summary_clean(summary: dict[str, object]) -> bool:
     """True when a purge summary contains no error markers.
 
