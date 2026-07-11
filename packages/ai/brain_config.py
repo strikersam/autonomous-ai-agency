@@ -984,7 +984,7 @@ def resolve_role_model_sync(role: str, requested: str | None = None) -> str:
       1. ``requested`` — the per-call override (e.g. a sub-agent config)
       2. BrainConfig DB field for this role (if cache is fresh)
       3. Env var (``AGENT_<ROLE>_MODEL``)
-      4. Safe default (``meta/llama-3.3-70b-instruct``)
+      4. Safe default (``SAFE_DEFAULT_MODEL``)
 
     Never raises — returns the safe default on any error so the agent loop
     can keep running even if the cache is in a weird state.

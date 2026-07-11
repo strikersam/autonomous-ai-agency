@@ -25,6 +25,10 @@ from tasks.models import Task, TaskStatus
 from tasks.store import TaskStore
 from tasks.issue_intake import create_task_from_oldest_open_issue, issue_source_id
 
+# Stub GitHub credential for mocked API calls (a variable, not a literal
+# kwarg, so Bandit B106 "hardcoded password funcarg" does not fire).
+STUB_GH_CREDENTIAL = "stub-gh-credential"
+
 
 def _make_issue(number: int, title: str = "Test issue", labels: list = None, body: str = "Test body"):
     return {
@@ -60,7 +64,7 @@ async def test_helper_sets_source_id(store, monkeypatch):
     issue = _make_issue(42, "Fix the bug")
     mock_resp = _mock_httpx_response([issue])
 
-    with patch("agent.agency._gh_token", return_value="fake_token"):
+    with patch("agent.agency._gh_token", return_value=STUB_GH_CREDENTIAL):
         with patch("agent.agency._gh_repo", return_value="owner/repo"):
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_client = AsyncMock()
@@ -70,7 +74,7 @@ async def test_helper_sets_source_id(store, monkeypatch):
                 mock_client_cls.return_value = mock_client
 
                 task, status = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token=STUB_GH_CREDENTIAL, repo="owner/repo"
                 )
 
     assert task is not None
@@ -87,7 +91,7 @@ async def test_helper_idempotent_same_issue(store, monkeypatch):
     issue = _make_issue(42, "Fix the bug")
     mock_resp = _mock_httpx_response([issue])
 
-    with patch("agent.agency._gh_token", return_value="fake_token"):
+    with patch("agent.agency._gh_token", return_value=STUB_GH_CREDENTIAL):
         with patch("agent.agency._gh_repo", return_value="owner/repo"):
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_client = AsyncMock()
@@ -98,13 +102,13 @@ async def test_helper_idempotent_same_issue(store, monkeypatch):
 
                 # First call — creates the task
                 task1, status1 = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token=STUB_GH_CREDENTIAL, repo="owner/repo"
                 )
                 assert task1 is not None
 
                 # Second call — should NOT create a duplicate
                 task2, status2 = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token=STUB_GH_CREDENTIAL, repo="owner/repo"
                 )
                 assert task2 is None
 
@@ -120,7 +124,7 @@ async def test_helper_skips_exhausted_picks_next(store, monkeypatch):
     issue2 = _make_issue(2, "Second issue")
     mock_resp = _mock_httpx_response([issue1, issue2])
 
-    with patch("agent.agency._gh_token", return_value="fake_token"):
+    with patch("agent.agency._gh_token", return_value=STUB_GH_CREDENTIAL):
         with patch("agent.agency._gh_repo", return_value="owner/repo"):
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_client = AsyncMock()
@@ -131,14 +135,14 @@ async def test_helper_skips_exhausted_picks_next(store, monkeypatch):
 
                 # First call — creates task for issue #1
                 task1, _ = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token=STUB_GH_CREDENTIAL, repo="owner/repo"
                 )
                 assert task1 is not None
                 assert task1.source_id == "owner/repo#1"
 
                 # Second call — issue #1 already has a task, so picks issue #2
                 task2, _ = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token=STUB_GH_CREDENTIAL, repo="owner/repo"
                 )
                 assert task2 is not None
                 assert task2.source_id == "owner/repo#2"

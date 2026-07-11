@@ -120,6 +120,10 @@ class Settings:
 
         # Portfolio materializer (default ON — flag is the rollback lever)
         self.portfolio_materialize_enabled: str = os.environ.get("PORTFOLIO_MATERIALIZE_ENABLED", "true").lower()
+        try:
+            self.portfolio_materialize_max: int = int(os.environ.get("PORTFOLIO_MATERIALIZE_MAX", "3"))
+        except ValueError:
+            self.portfolio_materialize_max = 3
 
         # Free-LLM-API model catalog sync (UNIT 8 — default OFF).
         # When ON, the catalog (config/models.yaml) + active BrainConfig are

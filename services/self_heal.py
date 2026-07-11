@@ -123,10 +123,21 @@ async def _heal_task_duplicates() -> dict[str, int]:
         # Re-read after backfill
         all_tasks = await store.list_all(limit=10_000)
 
+    def _created_ts(x: Any) -> float:
+        # Task.created_at is Union[str, float] — coerce so "oldest-created"
+        # ordering also holds for stringified timestamps.
+        v = x.created_at
+        if isinstance(v, (int, float)):
+            return float(v)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return 0.0
+
     seen: dict[str, str] = {}  # source_id -> task_id to keep
     for t in sorted(all_tasks, key=lambda x: (
         0 if x.status.value == "in_progress" else 1 if x.status.value == "done" else 2,
-        x.created_at if isinstance(x.created_at, (int, float)) else 0,
+        _created_ts(x),
     )):
         if t.status.value == "in_progress":
             # Never delete in_progress tasks — always keep them

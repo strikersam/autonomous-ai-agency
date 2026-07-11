@@ -14,15 +14,21 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from typing import Any
 
 from tasks.models import Task, TaskPriority
 
 log = logging.getLogger("qwen-proxy")
 
-# Cap: max tasks per refresh cycle
-_PORTFOLIO_MATERIALIZE_MAX = int(os.environ.get("PORTFOLIO_MATERIALIZE_MAX", "3"))
+
+def _portfolio_materialize_max() -> int:
+    """Cap: max tasks per refresh cycle (read from the canonical config module)."""
+    try:
+        from packages.config import settings
+        return settings.portfolio_materialize_max
+    except Exception:
+        return 3
+
 
 # Flag: default ON (read from the canonical config module)
 def _portfolio_materialize_enabled() -> bool:
@@ -41,7 +47,9 @@ def portfolio_source_id(initiative: Any) -> str:
     """
     source = getattr(initiative, "source", "manual") or "manual"
     title = (getattr(initiative, "title", "") or "").strip().lower()
-    digest = hashlib.sha1(f"{source}|{title}".encode()).hexdigest()[:16]
+    digest = hashlib.sha1(
+        f"{source}|{title}".encode(), usedforsecurity=False
+    ).hexdigest()[:16]
     return f"portfolio:{digest}"
 
 
@@ -86,7 +94,7 @@ async def materialize_committed(
     portfolio: Any,
     *,
     store: Any = None,
-    cap: int = _PORTFOLIO_MATERIALIZE_MAX,
+    cap: int | None = None,
 ) -> list[Task]:
     """Materialize committed portfolio initiatives into tasks.
 
@@ -100,6 +108,9 @@ async def materialize_committed(
     if not _portfolio_materialize_enabled():
         log.debug("portfolio_intake: materialize disabled (PORTFOLIO_MATERIALIZE_ENABLED=false)")
         return []
+
+    if cap is None:
+        cap = _portfolio_materialize_max()
 
     if store is None:
         from tasks.store import get_task_store

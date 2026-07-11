@@ -3795,8 +3795,10 @@ async def trigger_self_heal(user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/catalog/models")
-async def get_catalog_models_route():
-    """Return the mirrored model catalog (advisory-only).
+async def get_catalog_models_route(user: dict = Depends(get_current_user)):
+    """Return the mirrored model catalog (advisory-only). Requires auth —
+    the mirror includes per-provider ``key_present`` flags and the active
+    brain config, which should not be world-readable.
 
     Flag-gated by ``FREELLM_API_MODEL_CATALOG_ENABLED`` (default OFF).
     When off, returns 503 with a message explaining how to enable. When

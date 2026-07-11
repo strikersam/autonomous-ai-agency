@@ -228,6 +228,13 @@ def test_build_in_memory_active_brain_populated_when_cache_fresh(monkeypatch):
 # ── 6. GET /api/catalog/models returns 503 when flag OFF ──────────────────
 
 
+def test_get_catalog_models_requires_auth(unauth_client):
+    """The catalog mirror includes key_present flags + the active brain
+    config, so the GET endpoint must not be world-readable."""
+    r = unauth_client.get("/api/catalog/models")
+    assert r.status_code == 401
+
+
 def test_get_catalog_models_returns_503_when_flag_off(app_client, monkeypatch):
     """The endpoint returns 503 when the flag is OFF (default)."""
     monkeypatch.delenv("FREELLM_API_MODEL_CATALOG_ENABLED", raising=False)
