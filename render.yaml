@@ -83,6 +83,10 @@ services:
       - key: NVIDIA_DEFAULT_MODEL
         value: "z-ai/glm-5.2"
 
+      # Mistral API key — free tier, used as brain provider + failover fallback
+      - key: MISTRAL_API_KEY
+        sync: false
+
       # ================================================================
       # E2B Firecracker micro-VM sandbox (roadmap ★5)
       # Set E2B_API_KEY in the Render dashboard to your e2b_... key.
