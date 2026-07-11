@@ -50,14 +50,30 @@ CLAUDE_MODEL = "claude-opus-4-8"
 # Codebase context loader
 # ---------------------------------------------------------------------------
 
+STANDING_INSTRUCTIONS_MARKER = "## 14. Standing Instructions"
+
+
 def _load_codebase_context() -> str:
-    """Load CLAUDE.md + GRAPH_REPORT summary for LLM context."""
+    """Load CLAUDE.md + GRAPH_REPORT summary for LLM context.
+
+    CLAUDE.md is excerpted to the first 4000 chars for a general repo
+    overview, which falls short of §14 Standing Instructions further down
+    the file. Every autonomous agent must receive those mandatory
+    procedures regardless of truncation, so they're extracted and appended
+    verbatim when not already covered by the excerpt.
+    """
     parts: list[str] = []
 
     claude_md = REPO_ROOT / "CLAUDE.md"
     if claude_md.exists():
+        full_text = claude_md.read_text()
         parts.append("=== CLAUDE.md (project guide) ===")
-        parts.append(claude_md.read_text()[:4000])
+        parts.append(full_text[:4000])
+
+        marker_idx = full_text.find(STANDING_INSTRUCTIONS_MARKER)
+        if marker_idx >= 4000:
+            parts.append("\n=== CLAUDE.md — Standing Instructions (mandatory, full text) ===")
+            parts.append(full_text[marker_idx:])
 
     graph_report = REPO_ROOT / "graphify-out" / "GRAPH_REPORT.md"
     if graph_report.exists():

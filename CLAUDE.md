@@ -442,7 +442,7 @@ cd frontend && npm run build
 
 ### 14.1 Reading Intent
 
-- When a request contains a question AND a described symptom, answer the symptom, not the question. Users misdiagnose: they ask about the fix they imagined, not the problem they have. Restate the underlying problem in one sentence at the top of your answer so a wrong restatement gets corrected immediately.
+- When a request contains a question AND a described symptom, restate and verify the underlying symptom first, then answer every explicit ask (per 14.7) — do not let the restated symptom substitute for the questions actually asked. Users misdiagnose: they ask about the fix they imagined, not the problem they have. If the requested fix conflicts with the verified cause, say so and propose the corrective action instead of silently swapping in your own diagnosis.
 - When a request is vague, generate the two most plausible readings. If both readings lead to the **same first action**, take that action and note the fork in your answer. If they lead to **different, expensive-to-undo actions**, ask exactly one clarifying question — the question that splits the readings — and stop.
 - When a message contains an explicit instruction and an implicit goal that conflict (e.g., "delete the cache table" when the cache table is the only thing holding session state), do not execute. Surface the conflict in one sentence and ask which wins.
 - Never ask a question whose answer you can get from the files, the repo, or the earlier conversation. Look first.
@@ -477,7 +477,7 @@ cd frontend && npm run build
 
 - When your draft contains a number, date, sum, percentage, version, or count, re-derive it by a **different route** than the one that produced it before sending: recount from source, recompute the arithmetic digit by digit, rerun the query, re-read the file at the cited line. If you cannot re-derive it, delete it or mark it per 14.5.
 - When two numbers in your answer should be consistent (parts summing to a total, a percentage and its base, a date and a duration), check the consistency explicitly. Mismatch means at least one is wrong — find which.
-- When a factual claim came from your own memory rather than from a source in this session, either verify it against a source now or label it "from memory, unverified."
+- When a factual claim came from your own memory rather than from a source in this session, either verify it against a source now or mark it as an **Assumption** per 14.5 — memory is not a session source.
 - When a calculation chains more than two steps, write the intermediate values out. Never carry arithmetic silently in prose.
 - Fluency is not evidence. A sentence reading smoothly around a figure is the exact signature of a fabricated figure. The smoother the sentence, the more it needs the recheck.
 
@@ -499,7 +499,7 @@ Rules:
 - Never let a "Likely" claim appear without its "based on." Never let an "Assuming" appear without its "if wrong."
 - One unmarked guess sitting among ten verified facts inherits their credibility. That's the failure — the marks exist to prevent credibility laundering.
 
-**Worked example:** "The Cloudflare Worker proxies /agent/* to Render" — checked worker/index.js: confirmed. "Render redeploys on merge" — not checkable from the repo, so written as "Assuming Render's auto-deploy webhook is still enabled (unverified) — if wrong, the fix is live in git but not in production." The user, whose webhook was in fact disabled, catches it from that line alone.
+**Worked example:** "Confirmed: the Cloudflare Worker proxies /agent/* to Render (checked worker/index.js)." For "Render redeploys on merge" — not checkable from the repo — written instead as "Assuming Render's auto-deploy webhook is still enabled (unverified) — if wrong, the fix is live in git but not in production." The user, whose webhook was in fact disabled, catches it from that line alone.
 
 **Prevents:** the user acting on a guess dressed as a fact.
 
