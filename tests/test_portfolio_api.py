@@ -127,3 +127,37 @@ class TestRoutes:
         c = self._client()
         r = c.post("/api/portfolio/initiatives", json={"title": "Bad", "job_size": 0})
         assert r.status_code == 422
+
+    def test_materialize_failure_is_non_fatal_and_logged_loudly(self, monkeypatch, caplog):
+        """A materializer exception must not break /refresh (the board still
+        returns), and — the follow-up fix — must be logged at ERROR with a
+        traceback (was log.debug(), invisible at the default log level, the
+        exact reason a live signal-collection bug went unnoticed)."""
+        c = self._client()
+
+        async def _boom(*_a, **_kw):
+            raise RuntimeError("simulated materializer failure")
+
+        import tasks.portfolio_intake as intake
+        monkeypatch.setattr(intake, "materialize_committed", _boom)
+
+        with caplog.at_level("ERROR", logger="qwen-proxy"):
+            r = c.post("/api/portfolio/refresh")
+        assert r.status_code == 200
+        assert r.json()["materialized_task_ids"] == []
+        assert any("materialize failed" in rec.message for rec in caplog.records)
+
+    def test_materialize_endpoint_success_returns_task_ids(self, monkeypatch):
+        c = self._client()
+
+        async def _fake_materialize(portfolio, *, store=None):
+            class _T:
+                task_id = "task_abc123"
+            return [_T()]
+
+        import tasks.portfolio_intake as intake
+        monkeypatch.setattr(intake, "materialize_committed", _fake_materialize)
+
+        r = c.post("/api/portfolio/materialize")
+        assert r.status_code == 200
+        assert r.json()["materialized_task_ids"] == ["task_abc123"]

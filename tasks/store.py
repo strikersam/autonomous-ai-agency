@@ -22,6 +22,15 @@ log = logging.getLogger("qwen-proxy")
 _AGENCY_OWNER_ID = "system"
 
 
+def _is_duplicate_key_error(exc: Exception) -> bool:
+    """True if *exc* is a pymongo E11000 duplicate-key error.
+
+    Checked by class name (not ``isinstance``) so this module doesn't need
+    a hard ``pymongo`` import dependency for the in-memory/no-Mongo path.
+    """
+    return type(exc).__name__ == "DuplicateKeyError" or "E11000" in str(exc)
+
+
 class TaskStore:
     """Persistent task store backed by MongoDB.
 
@@ -51,6 +60,17 @@ class TaskStore:
 
         If a task with the same source_id already exists, returns the
         existing task instead of creating a duplicate.
+
+        The check-then-insert below is race-prone by itself: two
+        concurrent callers (e.g. the ``_autonomy_bg_cycle()`` background
+        loop and an HTTP-triggered ``autonomy_tick()`` request, or two
+        overlapping portfolio refreshes) can both pass the
+        ``find_by_source_id`` check before either commits, producing a
+        duplicate. In Mongo mode this is closed by a unique sparse index
+        on ``source_id`` (created at bootstrap in ``backend/server.py``):
+        a losing insert raises a duplicate-key error, which we catch and
+        resolve to the winner's task, making ``create()`` atomic even
+        under concurrency.
         """
         # Dedup by source_id (Autonomy Charter G3) — prevents duplicate
         # tasks when the CEO agency or webhook replays the same issue.
@@ -61,7 +81,17 @@ class TaskStore:
 
         doc = task.model_dump()
         if self._mode == "mongo":
-            await self._collection.insert_one({**doc, "_id": task.task_id})
+            try:
+                await self._collection.insert_one({**doc, "_id": task.task_id})
+            except Exception as exc:
+                # Lost a create-create race on the source_id unique index —
+                # return the winner's task instead of raising, so callers
+                # never see a spurious 500 for what is really a success.
+                if task.source_id and _is_duplicate_key_error(exc):
+                    existing = await self.find_by_source_id(task.source_id)
+                    if existing is not None:
+                        return existing
+                raise
         else:
             self._mem[task.task_id] = doc
         return task
