@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Sub-agent delegation depth guard (`MAX_SUBAGENT_DEPTH = 5`)** (2026-07-11). `AgentRunner._spawn_subagent` now tracks nesting depth and refuses to spawn a child runner once the chain reaches `MAX_SUBAGENT_DEPTH` (default 5, env-overridable via `MAX_SUBAGENT_DEPTH`). Prevents runaway recursive delegation from burning the entire token/rate-limit quota. Inspired by Claude Code's July 2026 "background chains capped at five levels deep" feature. When blocked, returns a structured error dict `{"error": "...", "depth": N, "instruction": "..."}` instead of raising, so the parent step degrades gracefully. Depth is propagated: each child runner starts at `parent._depth + 1`. The constant `MAX_SUBAGENT_DEPTH` is exported from `agent/loop.py` for use in monitoring/observability. Tests: `tests/test_daily_automation_2026_07_11.py` (8 tests — default cap value, cap is a positive int, depth initialises at zero, blocked at limit, error dict keys, allowed one below limit, child depth increment, no-raise guarantee).
+
 ### Fixed
 
 - **Fix brain config reverting to ollama + quicknote context + git actions** (2026-07-11). Multiple root-cause fixes: (1) **BRAIN_PREFERENCE=ollama → nvidia** in `render.yaml` — the env var was overriding the DB brain config on every restart, making the agency use unreachable ollama instead of Mistral/NVIDIA. (2) **generate_context.py**: replaced dead NVIDIA models (nemotron-49b) with live `z-ai/glm-5.2` + added Mistral as a free-tier fallback before Claude. (3) **autonomous_agent.py**: added Mistral to the provider chain (Cerebras → Groq → Mistral → NVIDIA). (4) **GH_PAT secret updated** to the correct token (`ghp_D9pG...`). (5) **MISTRAL_API_KEY** added as a GitHub Actions secret + to all 6 workflows that use NVIDIA_API_KEY. (6) All Render env vars restored with `BRAIN_PREFERENCE=nvidia` and correct `GITHUB_TOKEN`.

@@ -203,6 +203,10 @@ _REASONING_BUDGET_MAP: dict[str, int] = {
 }
 _REASONING_BUDGET_DEFAULT = os.environ.get("AGENT_REASONING_BUDGET", "high").strip().lower()
 
+# Maximum sub-agent nesting depth (inspired by Claude Code July 2026 "5 levels deep" cap).
+# Prevents runaway recursive spawning from consuming the entire token/rate-limit budget.
+MAX_SUBAGENT_DEPTH: int = int(os.environ.get("MAX_SUBAGENT_DEPTH", "5"))
+
 
 
 
@@ -263,6 +267,10 @@ class AgentRunner:
         # Keyed by role name ("file_picker", "planner", "editor", "reviewer").
         # When set, _spawn_subagent uses the configured per-role model.
         self.sub_agents: dict[str, Any] = {}
+        # Sub-agent nesting depth.  Root runners start at 0; every call to
+        # _spawn_subagent passes _depth + 1 to the child so the chain self-
+        # limits at MAX_SUBAGENT_DEPTH (env-overridable, default 5).
+        self._depth: int = 0
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
@@ -2102,6 +2110,18 @@ class AgentRunner:
             instruction = kwargs.pop("command", None) or kwargs.pop("task", None) or kwargs.pop("text", None) or ""
         if not instruction or not instruction.strip():
             return {"error": "spawn_subagent requires a non-empty instruction"}
+        # Depth guard: prevent runaway recursive spawning (matches Claude Code 5-level cap).
+        child_depth = self._depth + 1
+        if child_depth > MAX_SUBAGENT_DEPTH:
+            log.warning(
+                "spawn_subagent blocked at depth %d (MAX_SUBAGENT_DEPTH=%d): %r",
+                child_depth, MAX_SUBAGENT_DEPTH, instruction[:80],
+            )
+            return {
+                "error": f"spawn_subagent depth limit reached ({MAX_SUBAGENT_DEPTH})",
+                "depth": child_depth,
+                "instruction": instruction[:80],
+            }
         sub = AgentRunner(
             ollama_base=self.ollama_base,
             workspace_root=self.tools.root,
@@ -2109,12 +2129,13 @@ class AgentRunner:
             provider_temperature=self.provider_temperature,
             session_store=self._session_store,
         )
+        sub._depth = child_depth
         # Apply per-role sub-agent config if available
         cfg = self.sub_agents.get(role) if role else None
         if cfg:
             sub.configure_sub_agents([cfg])
             override_model = cfg.model or None
-            log.debug("spawn_subagent role=%s model=%s", role, override_model or "(inherit)")
+            log.debug("spawn_subagent depth=%d role=%s model=%s", child_depth, role, override_model or "(inherit)")
         else:
             override_model = None
         return await sub.run(
