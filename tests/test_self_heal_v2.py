@@ -67,24 +67,39 @@ async def test_brain_no_reset_when_healthy(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_task_dedup(monkeypatch):
-    """Self-heal deletes duplicate tasks with same title+source (no source_id)."""
+    """Self-heal deletes duplicate tasks with the same source_id.
+
+    UNIT 1 (commit 312e9ba) changed the dedup strategy from title+source
+    to source_id only — title-based dedup was deliberately removed because
+    it was too aggressive (deleted legitimately different tasks that
+    happened to share a title). This test was updated to match: the two
+    tasks now share a source_id (the dedup key) rather than just a title.
+
+    The store's ``create()`` already deduplicates by source_id at insert
+    time, so to test the heal function's dedup (which cleans up duplicates
+    that slipped in via race conditions or legacy data), we insert the two
+    tasks directly into the store's in-memory dict, bypassing ``create()``.
+    """
     from tasks.store import TaskStore, get_task_store
     from tasks.models import Task, TaskStatus
     from services.self_heal import _heal_task_duplicates
 
     store = TaskStore()  # in-memory by default
 
-    # Create two tasks with the same title+source but NO source_id.
-    # The store-level dedup only catches source_id duplicates; the heal
-    # loop catches title+source duplicates.
-    t1 = Task(owner_id="user1", title="Fix bug", source="ceo_agency",
+    # Create two tasks with the SAME source_id — the dedup key.
+    # Both are TODO status (not in_progress — in_progress tasks are never deleted).
+    t1 = Task(owner_id="user1", title="Fix bug", source="ceo_direct",
+              source_id="strikersam/autonomous-ai-agency#999",
               status=TaskStatus.TODO)
-    t2 = Task(owner_id="user1", title="Fix bug", source="ceo_agency",
+    t2 = Task(owner_id="user1", title="Fix bug", source="ceo_direct",
+              source_id="strikersam/autonomous-ai-agency#999",
               status=TaskStatus.TODO)
-    await store.create(t1)
-    await store.create(t2)
+    # Insert directly into the store's in-memory dict, bypassing create()'s
+    # source_id dedup — this simulates a race condition or legacy data.
+    store._mem[t1.task_id] = t1.model_dump()
+    store._mem[t2.task_id] = t2.model_dump()
 
-    # Both should exist (different task_ids, no source_id)
+    # Both should exist (different task_ids, same source_id)
     all_tasks = await store.list_all(limit=100)
     assert len(all_tasks) >= 2
 

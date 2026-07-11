@@ -53,12 +53,11 @@ _MODEL_COSTS: dict[str, float] = {
     "tinyllama:latest": 0.3,
     # Cloud NVIDIA NIM models (free tier = $0, else approximate)
     "meta/llama-3.3-70b-instruct": 0.0,
-    "meta/llama-3.3-70b-instruct": 0.0,
     "qwen/qwen2.5-coder-32b-instruct": 0.0,
-    "meta/llama-3.3-70b-instruct": 0.0,
     "meta/llama-3.1-8b-instruct": 0.0,
     "deepseek-ai/deepseek-r1": 0.0,
     "deepseek-ai/deepseek-v4-pro": 0.0,
+    "z-ai/glm-5.2": 0.0,
     # Cloud Anthropic models
     "claude-opus-4-8": 75.0,
     "claude-sonnet-4-6": 15.0,

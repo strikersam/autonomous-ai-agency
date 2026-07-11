@@ -305,23 +305,38 @@ async def _persist_chat_session(
 
 
 def _default_agent_role_models() -> dict[str, str]:
+    """Resolve default per-role agent models via the catalog (UNIT 6).
+
+    Was a hardcoded NIM/Ollama split with stale model ids
+    (``qwen/qwen3-coder-480b-a35b-instruct`` and ``deepseek-ai/deepseek-v4-pro``
+    were never in the catalog). Now derives from the catalog via
+    ``resolve_component_model``, which honours the active BrainConfig (DB),
+    the catalog presets (``config/models.yaml``), and the existing env-var
+    overrides (``AGENT_<ROLE>_MODEL``, ``NVIDIA_DEFAULT_MODEL``,
+    ``OLLAMA_MODEL``) — so a UI Apply is reflected in the wizard defaults
+    without a redeploy.
+    """
+    # Late import — brain_config imports from backend.server (cycle).
+    from packages.ai.brain_config import resolve_component_model
+
     nim_enabled = bool(
         (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
     )
-    if nim_enabled:
-        return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "qwen/qwen3-coder-480b-a35b-instruct",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "meta/llama-3.3-70b-instruct",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "meta/llama-3.3-70b-instruct",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
-        }
+    # Pick the catalog provider to consult: NVIDIA when a NIM key is
+    # present, Ollama otherwise (matches the legacy NIM/Ollama split).
+    provider = "nvidia" if nim_enabled else "ollama"
+
+    executor = resolve_component_model(
+        component="server",
+        role="executor",
+        provider=provider,
+    )
     return {
-        "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
-        "planner": os.environ.get("AGENT_PLANNER_MODEL") or "deepseek-r1:32b",
-        "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "qwen3-coder:30b",
-        "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
-        "judge": os.environ.get("AGENT_JUDGE_MODEL") or os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
+        "default":  executor,  # "default" is a synonym for executor
+        "planner":  resolve_component_model("server", "planner",  provider=provider),
+        "executor": executor,
+        "verifier": resolve_component_model("server", "verifier", provider=provider),
+        "judge":    resolve_component_model("server", "judge",    provider=provider),
     }
 
 
@@ -3655,6 +3670,12 @@ from packages.ai.brain_config import (  # noqa: E402 — late import to avoid cy
     PROVIDER_KEY_ENV,
     PROVIDER_PRESETS,
     PROVIDER_DEFAULT_BASE_URL,
+    PROVIDER_DISPLAY_NAMES,
+    PROVIDER_TIERS,
+    PROVIDER_CANDIDATES,
+    SAFE_DEFAULT_PROVIDER,
+    SAFE_DEFAULT_MODEL,
+    all_provider_ids,
     get_brain_config,
     get_brain_config_store,
     invalidate_brain_config_cache,
@@ -3770,6 +3791,79 @@ async def trigger_self_heal(user: dict = Depends(get_current_user)):
     return {"ok": True, **summary}
 
 
+# ── Model catalog endpoints (UNIT 8 — flag-gated, advisory-only) ───────────
+
+
+@app.get("/api/catalog/models")
+async def get_catalog_models_route():
+    """Return the mirrored model catalog (advisory-only).
+
+    Flag-gated by ``FREELLM_API_MODEL_CATALOG_ENABLED`` (default OFF).
+    When off, returns 503 with a message explaining how to enable. When
+    on, returns the full catalog mirror (providers, role presets,
+    candidates, the active brain config, and per-provider key_present
+    flags) so external services can render a provider picker without
+    loading the YAML or querying the brain config.
+
+    The catalog mirror NEVER changes brain routing — it's a read-only
+    snapshot for observability. ``resolve_component_model()`` is still
+    the single source of truth for model resolution.
+    """
+    from packages.ai.model_catalog import get_catalog, is_catalog_enabled
+    if not is_catalog_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "detail": (
+                    "Model catalog endpoint is disabled. Set "
+                    "FREELLM_API_MODEL_CATALOG_ENABLED=true to enable "
+                    "(UNIT 8 — advisory-only, does not change brain routing)."
+                ),
+                "enabled": False,
+            },
+        )
+    catalog = await get_catalog()
+    return {
+        "ok": True,
+        "enabled": True,
+        "catalog": catalog.model_dump(mode="json"),
+    }
+
+
+@app.post("/api/admin/maintenance/sync-catalog")
+async def sync_catalog_route(user: dict = Depends(get_current_user)):
+    """Force a catalog mirror rebuild + persist (admin only).
+
+    Rebuilds the catalog from ``config/models.yaml`` + the active
+    BrainConfig cache and persists it to Mongo + the sqlite mirror.
+    Returns the synced catalog. Flag-gated by
+    ``FREELLM_API_MODEL_CATALOG_ENABLED`` (returns 503 when off).
+    """
+    _require_admin(user)
+    from packages.ai.model_catalog import is_catalog_enabled, sync_catalog
+    if not is_catalog_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "detail": (
+                    "Model catalog sync is disabled. Set "
+                    "FREELLM_API_MODEL_CATALOG_ENABLED=true to enable."
+                ),
+                "enabled": False,
+            },
+        )
+    actor = f"user:{user.get('email') or user.get('_id') or 'unknown'}"
+    catalog = await sync_catalog(actor=actor)
+    log.info("catalog synced by %s (%d providers)", actor, len(catalog.providers))
+    return {
+        "ok": True,
+        "enabled": True,
+        "catalog": catalog.model_dump(mode="json"),
+    }
+
+
 def _purge_summary_clean(summary: dict[str, object]) -> bool:
     """True when a purge summary contains no error markers.
 
@@ -3824,17 +3918,25 @@ async def _maybe_boot_purge() -> None:
 def _brain_provider_status() -> list[dict]:
     """Return per-provider metadata for the GET endpoint.
 
+    Iterates every provider in the ``BrainProvider`` Literal (currently 14)
+    via ``all_provider_ids()`` so adding a provider to the catalog
+    (``config/models.yaml``) automatically surfaces it in the UI — no
+    parallel list to keep in sync, no "forgot to add it to the dropdown" bug.
+
     Surfaces ``key_present`` (bool) and the env-var name the operator would
     need to set if the key is missing. Never includes the key itself.
     """
     out: list[dict] = []
-    for provider in ("cerebras", "groq", "nvidia", "ollama"):
+    for provider in all_provider_ids():
         out.append({
             "provider_id": provider,
+            "display_name": PROVIDER_DISPLAY_NAMES.get(provider, provider),
+            "tier": PROVIDER_TIERS.get(provider, "unknown"),
             "key_present": provider_key_present(provider),
             "key_env_var": PROVIDER_KEY_ENV.get(provider),
             "base_url": provider_base_url(provider),
             "presets": PROVIDER_PRESETS.get(provider, {}),
+            "candidates": PROVIDER_CANDIDATES.get(provider, []),
         })
     return out
 
@@ -3863,8 +3965,8 @@ async def get_brain_policy_route(user: dict = Depends(get_current_user)):
         "config": cfg.model_dump(mode="json"),
         "providers": _brain_provider_status(),
         "safe_default": {
-            "primary_provider": "nvidia",
-            "model": "meta/llama-3.3-70b-instruct",
+            "primary_provider": SAFE_DEFAULT_PROVIDER,
+            "model": SAFE_DEFAULT_MODEL,
         },
     }
 
@@ -7000,46 +7102,15 @@ async def _autonomy_bg_cycle():
                 pending = await store.list_pending(limit=1)
                 if not pending:
                     try:
-                        from tasks.models import Task
-                        from tasks.service import TaskWorkflowService
-                        import agent.agency as _ag
-                        import httpx
-                        token = _ag._gh_token()
-                        repo = _ag._gh_repo()
-                        if token and repo:
-                            async with httpx.AsyncClient(timeout=15) as client:
-                                resp = await client.get(
-                                    f"https://api.github.com/repos/{repo}/issues",
-                                    params={"state": "open", "per_page": "50", "sort": "created", "direction": "asc"},
-                                    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-                                )
-                                if resp.status_code == 200:
-                                    all_issues = [i for i in resp.json() if "pull_request" not in i]
-                                    actionable = [
-                                        i for i in all_issues
-                                        if "quick-note:exhausted" not in [lb.get("name","") for lb in i.get("labels", [])]
-                                    ]
-                                    if actionable:
-                                        issue = actionable[0]
-                                        is_qn = "quick-note" in [lb.get("name","") for lb in issue.get("labels", [])]
-                                        prefix = "quick-note" if is_qn else "issue"
-                                        task = Task(
-                                            owner_id="system",
-                                            title=f"{prefix} #{issue['number']}: {issue['title'][:50]}",
-                                            description=f"Implement GitHub issue #{issue['number']}: {issue['title']}",
-                                            prompt=(issue.get("body") or "")[:2000],
-                                            task_type="quick_note" if is_qn else "issue",
-                                            tags=[lb["name"] for lb in issue.get("labels", [])] + ["needs-implementation"],
-                                            source="ceo_direct",
-                                            pending_agent_run=True,
-                                        )
-                                        wf = TaskWorkflowService(store=store)
-                                        await wf.create_task(task, actor="system:ceo_direct")
-                                        dispatch_status["direct_task_created"] = task.task_id
-                                        dispatch_status["direct_issue_number"] = issue["number"]
-                                        import asyncio as _aio_sync
-                                        await _aio_sync.sleep(0.5)
-                                        pending = await store.list_pending(limit=1)
+                        from tasks.issue_intake import create_task_from_oldest_open_issue
+                        _task, _status = await create_task_from_oldest_open_issue(
+                            store=store, timeout=15
+                        )
+                        dispatch_status.update(_status)
+                        if _task:
+                            import asyncio as _aio_sync
+                            await _aio_sync.sleep(0.5)
+                            pending = await store.list_pending(limit=1)
                     except Exception as exc:
                         dispatch_status["direct_task_error"] = str(exc)[:100]
                 if pending:
@@ -7579,42 +7650,14 @@ async def autonomy_tick() -> dict[str, object]:
         # If no pending tasks, create one from the oldest GitHub issue
         if not pending:
             try:
-                from tasks.models import Task
-                from tasks.service import TaskWorkflowService
-                import agent.agency as _ag
-                import httpx
-                token = _ag._gh_token()
-                repo = _ag._gh_repo()
-                if token and repo:
-                    async with httpx.AsyncClient(timeout=10) as client:
-                        resp = await client.get(
-                            f"https://api.github.com/repos/{repo}/issues",
-                            params={"state": "open", "per_page": "5", "sort": "created", "direction": "asc"},
-                            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-                        )
-                        if resp.status_code == 200:
-                            all_issues = [i for i in resp.json() if "pull_request" not in i]
-                            actionable = [i for i in all_issues if "quick-note:exhausted" not in [lb.get("name","") for lb in i.get("labels", [])]]
-                            if actionable:
-                                issue = actionable[0]
-                                is_qn = "quick-note" in [lb.get("name","") for lb in issue.get("labels", [])]
-                                prefix = "quick-note" if is_qn else "issue"
-                                task = Task(
-                                    owner_id="system",
-                                    title=f"{prefix} #{issue['number']}: {issue['title'][:50]}",
-                                    description=f"Implement GitHub issue #{issue['number']}: {issue['title']}",
-                                    prompt=(issue.get("body") or "")[:2000],
-                                    task_type="quick_note" if is_qn else "issue",
-                                    tags=[lb["name"] for lb in issue.get("labels", [])] + ["needs-implementation"],
-                                    source="ceo_direct",
-                                    pending_agent_run=True,
-                                )
-                                wf = TaskWorkflowService(store=store)
-                                await wf.create_task(task, actor="system:ceo_direct")
-                                result["dispatch"]["direct_issue_number"] = issue["number"]
-                                result["dispatch"]["direct_task_created"] = task.task_id
-                                await asyncio.sleep(0.3)
-                                pending = await store.list_pending(limit=1)
+                from tasks.issue_intake import create_task_from_oldest_open_issue
+                _task, _status = await create_task_from_oldest_open_issue(
+                    store=store, timeout=10
+                )
+                result["dispatch"].update(_status)
+                if _task:
+                    await asyncio.sleep(0.3)
+                    pending = await store.list_pending(limit=1)
             except Exception as exc:
                 result["dispatch"]["direct_task_error"] = str(exc)[:100]
 

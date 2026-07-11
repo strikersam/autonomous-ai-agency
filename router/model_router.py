@@ -255,24 +255,32 @@ def _get_model_map() -> dict[str, str]:
 
 
 def _default_model() -> str:
-    explicit = os.environ.get("AGENT_EXECUTOR_MODEL", "").strip()
-    if explicit:
-        return explicit
-    return (
-        "qwen/qwen2.5-coder-32b-instruct"
-        if _nvidia_key_present()
-        else "qwen3-coder:30b"
+    """Resolve the default executor model via the catalog (UNIT 7).
+
+    Was a hardcoded NIM/Ollama split with stale model id
+    (``qwen/qwen2.5-coder-32b-instruct`` was never in the catalog). Now
+    delegates to ``resolve_component_model`` which honours DB → catalog →
+    env var → safe default.
+    """
+    # Late import — brain_config is heavy and we don't want to pull it in
+    # at module-import time of the router (which is imported very early).
+    from packages.ai.brain_config import resolve_component_model
+    provider = "nvidia" if _nvidia_key_present() else "ollama"
+    return resolve_component_model(
+        component="router",
+        role="executor",
+        provider=provider,
     )
 
 
 def _default_reasoning_model() -> str:
-    explicit = os.environ.get("AGENT_PLANNER_MODEL", "").strip()
-    if explicit:
-        return explicit
-    return (
-        "deepseek-ai/deepseek-r1"
-        if _nvidia_key_present()
-        else "deepseek-r1:32b"
+    """Resolve the default planner (reasoning) model via the catalog (UNIT 7)."""
+    from packages.ai.brain_config import resolve_component_model
+    provider = "nvidia" if _nvidia_key_present() else "ollama"
+    return resolve_component_model(
+        component="router",
+        role="planner",
+        provider=provider,
     )
 
 

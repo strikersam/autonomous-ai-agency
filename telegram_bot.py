@@ -60,6 +60,16 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+# UNIT 6: import the component-level resolver so /setbrain can derive the
+# per-role preset models from the catalog (config/models.yaml) instead of
+# keeping a duplicate preset table inline. The catalog is the single source
+# of truth — adding a provider to config/models.yaml + the BrainProvider
+# Literal makes it /setbrain-eligible with no other change.
+from packages.ai.brain_config import (
+    all_provider_ids,
+    resolve_component_role_models,
+)
+
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 log = logging.getLogger("qwen-telegram")
@@ -409,15 +419,19 @@ def _service_token_headers() -> dict[str, str]:
 async def cmd_setbrain(user_id: int, provider: str) -> str:
     """/setbrain <provider> — switch the active brain from the phone (N5).
 
-    Provider must be one of the canonical presets (cerebras / groq / nvidia /
-    ollama). Calls ``PATCH /admin/api/policy/brain`` with the provider's
-    preset model ids; the backend's liveness-probe guard refuses to persist
-    a dead model.
+    Provider must be one of the catalog providers (UNIT 6: all 14 providers
+    in ``config/models.yaml`` are now eligible — was previously limited to
+    a hardcoded 4-element set). Calls ``PATCH /admin/api/policy/brain`` with
+    the provider's preset model ids (resolved from the catalog via
+    ``resolve_component_role_models``); the backend's liveness-probe guard
+    refuses to persist a dead model.
     """
     if not _is_admin(user_id):
         return "Permission denied. Admin only."
     provider = (provider or "").lower().strip()
-    valid = {"cerebras", "groq", "nvidia", "ollama"}
+    # UNIT 6: derive the valid set from the catalog (BrainProvider Literal)
+    # so adding a provider makes it /setbrain-eligible with no other change.
+    valid = set(all_provider_ids())
     if provider not in valid:
         return f"Invalid provider. Use one of: {sorted(valid)}"
 
@@ -427,35 +441,21 @@ async def cmd_setbrain(user_id: int, provider: str) -> str:
             "enable /setbrain (the backend must also have it set)."
         )
 
-    # Resolve the preset for the provider so we PATCH all four role models at
-    # once. Mirrors services.brain_config_store.PROVIDER_PRESETS.
-    presets = {
-        "cerebras": {
-            "planner_model": "qwen-3-coder-480b",
-            "executor_model": "qwen-3-coder-480b",
-            "verifier_model": "llama-3.3-70b",
-            "judge_model": "llama-3.3-70b",
-        },
-        "groq": {
-            "planner_model": "deepseek-r1-distill-llama-70b",
-            "executor_model": "llama-3.3-70b-versatile",
-            "verifier_model": "deepseek-r1-distill-llama-70b",
-            "judge_model": "llama-3.3-70b-versatile",
-        },
-        "nvidia": {
-            "planner_model": "meta/llama-3.3-70b-instruct",
-            "executor_model": "meta/llama-3.3-70b-instruct",
-            "verifier_model": "meta/llama-3.3-70b-instruct",
-            "judge_model": "meta/llama-3.3-70b-instruct",
-        },
-        "ollama": {
-            "planner_model": "deepseek-r1:32b",
-            "executor_model": "qwen3-coder:30b",
-            "verifier_model": "deepseek-r1:32b",
-            "judge_model": "deepseek-r1:32b",
-        },
+    # UNIT 6: resolve the per-role preset models from the catalog (single
+    # source of truth) instead of keeping a duplicate preset table inline.
+    # The resolver honours a saved DB brain config when the provider matches
+    # the active primary; otherwise it returns the catalog preset.
+    role_models = resolve_component_role_models(
+        component="telegram_bot",
+        provider=provider,
+    )
+    patch = {
+        "primary_provider": provider,
+        "planner_model":  role_models["planner"],
+        "executor_model": role_models["executor"],
+        "verifier_model": role_models["verifier"],
+        "judge_model":    role_models["judge"],
     }
-    patch = {"primary_provider": provider, **presets[provider]}
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -1123,7 +1123,7 @@ async def _process_update(bot_token: str, update: dict) -> None:
             "/freebuff <task> — free-NVIDIA coding agent (pick model, review, accept)\n"
             "/keylist — list API keys\n"
             "\n*Mutating control (N5 — service-token-gated):*\n"
-            "/setbrain <provider> — switch brain to cerebras|groq|nvidia|ollama\n"
+            "/setbrain <provider> — switch brain (any of the 14 catalog providers)\n"
             "/merge <pr-number> — merge an approved, CI-green PR via squash\n"
         )
 
@@ -1208,7 +1208,8 @@ async def _process_update(bot_token: str, update: dict) -> None:
         # N5: mutating Telegram control (service-token-gated).
         provider = parts[1].lower() if len(parts) > 1 else ""
         if not provider:
-            response = "Usage: /setbrain <cerebras|groq|nvidia|ollama>"
+            valid = sorted(all_provider_ids())
+            response = f"Usage: /setbrain <provider>  (one of: {valid})"
         else:
             response = await cmd_setbrain(user_id, provider)
 

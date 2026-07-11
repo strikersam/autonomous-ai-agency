@@ -1,0 +1,293 @@
+# config/models.yaml — Canonical model catalog for the agency's brain.
+#
+# This file is the single source of truth for:
+#   • per-provider display metadata (name, tier, base_url, key_env)
+#   • per-provider role presets (planner / executor / verifier / judge)
+#   • per-provider candidate failover list (used by the watchdog /
+#     brain_failover chain when the primary model 410s / 404s / times out)
+#
+# Loaded by `packages/ai/brain_config.py::load_models_yaml()` at module
+# import time. If the file is missing or corrupt, the module falls back to
+# the in-module hardcoded defaults (kept in sync with this file) so a bad
+# YAML edit can never brick the agent loop.
+#
+# Format (per provider):
+#   providers:
+#     <provider-id>:
+#       display_name:  Human-readable label for the BrainCard dropdown
+#       tier:          free | paid | local  (drives failover ordering)
+#       key_env:       env-var name that holds the API key (null for ollama)
+#       base_url_env:  env-var name for optional base URL override (null = none)
+#       default_base_url:  default public base URL (used when env override absent)
+#       role_presets:        # sensible defaults surfaced by the UI's "presets"
+#         planner:   <model-id>
+#         executor:  <model-id>
+#         verifier:  <model-id>
+#         judge:     <model-id>
+#       candidates:   # ordered failover list — first model is the preset;
+#                     # subsequent models are tried in order on 404/410/timeout
+#         - <model-id>
+#         - <model-id>
+#
+# Adding a new provider: append an entry here, then add the same id to the
+# `BrainProvider` Literal in `packages/ai/brain_config.py`. The literal is
+# the validation gate that keeps a typo in the UI from persisting an
+# unusable provider.
+#
+# All model ids here must be live-probed by `services/brain_liveness.py`
+# before a BrainConfig with them can be persisted (the PATCH /admin/api/
+# policy/brain endpoint refuses dead models with 422).
+
+# Top-level metadata
+catalog_version: 1
+safe_default:
+  provider: nvidia
+  model: z-ai/glm-5.2
+
+# Recommended priority for auto-config (first key present wins) and for the
+# watchdog's failover chain. Cloud chain is Cerebras → Groq → NVIDIA (NIM).
+# Ollama leads so an operator's explicit local-brain choice is preserved
+# across cloud failovers.
+recommended_priority:
+  - ollama
+  - cerebras
+  - groq
+  - nvidia
+
+providers:
+  # ── Free tier (preferred) ────────────────────────────────────────────────
+  nvidia:
+    display_name: NVIDIA NIM (free, broad catalogue)
+    tier: free
+    key_env: NVIDIA_API_KEY
+    base_url_env: NVIDIA_BASE_URL
+    default_base_url: https://integrate.api.nvidia.com
+    role_presets:
+      planner:   z-ai/glm-5.2
+      executor:  z-ai/glm-5.2
+      verifier:  z-ai/glm-5.2
+      judge:     z-ai/glm-5.2
+    candidates:
+      - z-ai/glm-5.2
+      - z-ai/glm-5.1
+      - meta/llama-3.3-70b-instruct
+      - nvidia/llama-3.1-nemotron-70b-instruct
+      - deepseek-ai/deepseek-r1
+
+  cerebras:
+    display_name: Cerebras (fast, free tier)
+    tier: free
+    key_env: CEREBRAS_API_KEY
+    base_url_env: CEREBRAS_BASE_URL
+    default_base_url: https://api.cerebras.ai
+    role_presets:
+      planner:   qwen-3-coder-480b
+      executor:  qwen-3-coder-480b
+      verifier:  llama-3.3-70b
+      judge:     llama-3.3-70b
+    candidates:
+      - qwen-3-coder-480b
+      - llama-3.3-70b
+      - llama-3.1-8b
+
+  groq:
+    display_name: Groq (fast, free tier)
+    tier: free
+    key_env: GROQ_API_KEY
+    base_url_env: GROQ_BASE_URL
+    default_base_url: https://api.groq.com/openai/v1
+    role_presets:
+      planner:   deepseek-r1-distill-llama-70b
+      executor:  llama-3.3-70b-versatile
+      verifier:  deepseek-r1-distill-llama-70b
+      judge:     llama-3.3-70b-versatile
+    candidates:
+      - llama-3.3-70b-versatile
+      - deepseek-r1-distill-llama-70b
+      - llama-3.1-8b-instant
+      - mixtral-8x7b-32768
+
+  mistral:
+    display_name: Mistral (free tier)
+    tier: free
+    key_env: MISTRAL_API_KEY
+    base_url_env: MISTRAL_BASE_URL
+    default_base_url: https://api.mistral.ai/v1
+    role_presets:
+      planner:   mistral-large-latest
+      executor:  mistral-small-latest
+      verifier:  mistral-small-latest
+      judge:     mistral-large-latest
+    candidates:
+      - mistral-small-latest
+      - mistral-large-latest
+      - codestral-latest
+      - mistral-nemo
+
+  deepseek:
+    display_name: DeepSeek (free tier)
+    tier: free
+    key_env: DEEPSEEK_API_KEY
+    base_url_env: DEEPSEEK_BASE_URL
+    default_base_url: https://api.deepseek.com/v1
+    role_presets:
+      planner:   deepseek-chat
+      executor:  deepseek-coder
+      verifier:  deepseek-chat
+      judge:     deepseek-chat
+    candidates:
+      - deepseek-chat
+      - deepseek-reasoner
+      - deepseek-coder
+
+  zhipu:
+    display_name: ZhipuAI / GLM (China)
+    tier: free
+    key_env: ZHIPU_API_KEY
+    base_url_env: ZHIPU_BASE_URL
+    default_base_url: https://open.bigmodel.cn/api/paas/v4
+    role_presets:
+      planner:   glm-5.2
+      executor:  glm-5.2
+      verifier:  glm-5.2
+      judge:     glm-5.2
+    candidates:
+      - glm-5.2
+      - glm-5.1
+      - glm-4
+      - glm-4-flash
+      - glm-4-air
+
+  zai:
+    display_name: Z.ai (GLM international)
+    tier: free
+    key_env: ZAI_API_KEY
+    base_url_env: ZAI_BASE_URL
+    default_base_url: https://api.z.ai/api/paas/v4
+    role_presets:
+      planner:   glm-5.2
+      executor:  glm-5.2
+      verifier:  glm-5.2
+      judge:     glm-5.2
+    candidates:
+      - glm-5.2
+      - glm-5.1
+      - glm-4-flash
+      - glm-4
+      - glm-4-air
+
+  together:
+    display_name: Together AI (free tier)
+    tier: free
+    key_env: TOGETHER_API_KEY
+    base_url_env: TOGETHER_BASE_URL
+    default_base_url: https://api.together.xyz/v1
+    role_presets:
+      planner:   Llama-3.3-70B-Instruct-Turbo-Free
+      executor:  Llama-3.3-70B-Instruct-Turbo-Free
+      verifier:  Llama-3.3-70B-Instruct-Turbo-Free
+      judge:     Llama-3.3-70B-Instruct-Turbo-Free
+    candidates:
+      - Llama-3.3-70B-Instruct-Turbo-Free
+      - Mixtral-8x7B-Instruct-v0.1-Free
+
+  dashscope:
+    display_name: Qwen DashScope (Alibaba)
+    tier: free
+    key_env: DASHSCOPE_API_KEY
+    base_url_env: DASHSCOPE_BASE_URL
+    default_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    role_presets:
+      planner:   qwen-plus
+      executor:  qwen-coder-plus
+      verifier:  qwen-plus
+      judge:     qwen-plus
+    candidates:
+      - qwen-plus
+      - qwen-max
+      - qwen-turbo
+      - qwen-coder-plus
+
+  moonshot:
+    display_name: Moonshot / Kimi (China)
+    tier: free
+    key_env: MOONSHOT_API_KEY
+    base_url_env: MOONSHOT_BASE_URL
+    default_base_url: https://api.moonshot.cn/v1
+    role_presets:
+      planner:   moonshot-v1-32k
+      executor:  moonshot-v1-32k
+      verifier:  moonshot-v1-32k
+      judge:     moonshot-v1-32k
+    candidates:
+      - moonshot-v1-8k
+      - moonshot-v1-32k
+      - moonshot-v1-128k
+
+  # ── Paid tier (only tried when ALLOW_PAID_BRAIN=true) ────────────────────
+  openrouter:
+    display_name: OpenRouter (paid aggregator)
+    tier: paid
+    key_env: OPENROUTER_API_KEY
+    base_url_env: OPENROUTER_BASE_URL
+    default_base_url: https://openrouter.ai/api/v1
+    role_presets:
+      planner:   meta-llama/llama-3.3-70b-instruct
+      executor:  meta-llama/llama-3.3-70b-instruct
+      verifier:  meta-llama/llama-3.3-70b-instruct
+      judge:     meta-llama/llama-3.3-70b-instruct
+    candidates:
+      - meta-llama/llama-3.3-70b-instruct
+      - anthropic/claude-3.5-sonnet
+
+  anthropic:
+    display_name: Anthropic (Claude, paid)
+    tier: paid
+    key_env: ANTHROPIC_API_KEY
+    base_url_env: ANTHROPIC_BASE_URL
+    default_base_url: https://api.anthropic.com
+    role_presets:
+      planner:   claude-3-5-sonnet-20241022
+      executor:  claude-3-5-sonnet-20241022
+      verifier:  claude-3-5-sonnet-20241022
+      judge:     claude-3-5-sonnet-20241022
+    candidates:
+      - claude-3-5-sonnet-20241022
+      - claude-3-5-haiku-20241022
+      - claude-opus-4-5
+
+  aerolink:
+    display_name: Aerolink (Claude gateway)
+    tier: paid
+    key_env: AEROLINK_API_KEY
+    base_url_env: AEROLINK_BASE_URL
+    default_base_url: https://capi.aerolink.lat/v1
+    role_presets:
+      planner:   claude-sonnet-4-6
+      executor:  claude-sonnet-4-6
+      verifier:  claude-sonnet-4-6
+      judge:     claude-sonnet-4-6
+    candidates:
+      - claude-sonnet-4-6
+      - claude-opus-4-8
+      - claude-opus-4-7
+      - claude-opus-4-6
+      - claude-haiku-4-5-20251001
+
+  # ── Local (no key, no rate limit — opt-in via UI or BRAIN_PREFERENCE) ────
+  ollama:
+    display_name: Local Ollama (no key, private)
+    tier: local
+    key_env: null  # local — no key
+    base_url_env: OLLAMA_BASE  # also accepts OLLAMA_BASE_URL
+    default_base_url: http://localhost:11434
+    role_presets:
+      planner:   deepseek-r1:32b
+      executor:  qwen3-coder:30b
+      verifier:  deepseek-r1:32b
+      judge:     deepseek-r1:32b
+    candidates:
+      - deepseek-r1:32b
+      - qwen3-coder:30b
+      - qwen3-coder:7b
+      - llama3.3:70b

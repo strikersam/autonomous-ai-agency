@@ -13,6 +13,10 @@ Pins the contract from docs/plans/db-brain-switcher.md §3c + §4:
 All provider probes are mocked — no live network in CI. Tests use the
 TestClient against ``backend.server.app`` and patch the auth dependency
 plus the liveness prober.
+
+The ``app_client``, ``non_admin_client``, and ``unauth_client`` fixtures
+are defined in ``tests/conftest.py`` so they can be shared with other
+brain-config-related test modules (e.g. test_unit5_ui_provider_surface.py).
 """
 from __future__ import annotations
 
@@ -22,76 +26,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from services.brain_liveness import ProbeResult
-
-
-# ── Fixtures ────────────────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def app_client(monkeypatch, tmp_path):
-    """A TestClient with the auth dependency overridden + a clean store."""
-    import packages.ai.brain_config as mod
-    monkeypatch.setattr(mod, "_store", None)
-    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
-
-    from backend.server import app, get_current_user, get_optional_user
-    # Always authed as admin by default; individual tests override.
-    admin_dict = {
-        "_id": "admin-1", "email": "admin@example.com", "role": "admin",
-    }
-    app.dependency_overrides[get_current_user] = lambda: admin_dict
-    # N5: also override get_optional_user so the brain PATCH endpoint's
-    # _user_or_service_token dependency sees the admin identity.
-    app.dependency_overrides[get_optional_user] = lambda: admin_dict
-    # Clean Mongo collection so each test starts fresh.
-    db = MagicMock()
-    db.app_settings = MagicMock()
-    db.app_settings.find_one = AsyncMock(return_value=None)
-    db.app_settings.update_one = AsyncMock(return_value=MagicMock(matched_count=1))
-    app.dependency_overrides[patch("backend.server.get_db", create=True).start()] = db
-    # Easier: just patch the symbol after the override.
-    yield TestClient(app, raise_server_exceptions=False)
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def non_admin_client(monkeypatch, tmp_path):
-    """A TestClient authenticated as a non-admin user."""
-    import packages.ai.brain_config as mod
-    monkeypatch.setattr(mod, "_store", None)
-    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
-
-    from backend.server import app, get_current_user, get_optional_user
-    user_dict = {"_id": "user-1", "email": "user@example.com", "role": "user"}
-    app.dependency_overrides[get_current_user] = lambda: user_dict
-    # N5: the brain PATCH endpoint now uses _user_or_service_token which
-    # depends on get_optional_user (so the service-token path can bypass
-    # user auth). Override both so this fixture's "non-admin user" identity
-    # is visible to either dependency path.
-    app.dependency_overrides[get_optional_user] = lambda: user_dict
-    yield TestClient(app, raise_server_exceptions=False)
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def unauth_client(monkeypatch, tmp_path):
-    """A TestClient where get_current_user raises 401 (no auth)."""
-    import packages.ai.brain_config as mod
-    monkeypatch.setattr(mod, "_store", None)
-    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
-
-    from fastapi import HTTPException
-    from backend.server import app, get_current_user, get_optional_user
-
-    async def _raise():
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    app.dependency_overrides[get_current_user] = _raise
-    # N5: also override get_optional_user so the brain PATCH endpoint's
-    # _user_or_service_token dependency sees no user (rather than calling
-    # the real get_optional_user, which would try to parse a JWT).
-    app.dependency_overrides[get_optional_user] = lambda: None
-    yield TestClient(app, raise_server_exceptions=False)
-    app.dependency_overrides.clear()
 
 
 # ── Auth gating ─────────────────────────────────────────────────────────────
@@ -146,23 +80,43 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
 
     assert "providers" in body
     provider_ids = {p["provider_id"] for p in body["providers"]}
-    assert provider_ids == {"cerebras", "groq", "nvidia", "ollama"}
+    # UNIT 5: the GET endpoint now returns ALL 14 providers from the
+    # BrainProvider Literal (server-driven UI), not just the original 4.
+    # The 14 ids must match the catalog (config/models.yaml).
+    assert provider_ids == {
+        "nvidia", "cerebras", "groq", "ollama", "mistral",
+        "deepseek", "zhipu", "zai", "together", "dashscope",
+        "moonshot", "openrouter", "anthropic", "aerolink",
+    }
+    assert len(provider_ids) == 14
 
-    # Each provider entry has key_present + key_env_var, but never the key.
+    # Each provider entry has key_present + key_env_var + display_name +
+    # tier + candidates, but never the key.
     for p in body["providers"]:
         assert "key_present" in p
         assert "key_env_var" in p
+        assert "display_name" in p
+        assert "tier" in p
+        assert p["tier"] in ("free", "paid", "local", "unknown")
+        assert "candidates" in p
         assert "api_key" not in p
         assert "key" not in p
 
     # cerebras/groq/nvidia should be key_present=True (we set the env vars).
     cb = next(p for p in body["providers"] if p["provider_id"] == "cerebras")
     assert cb["key_present"] is True
+    assert cb["display_name"] == "Cerebras (fast, free tier)"
+    assert cb["tier"] == "free"
+    assert cb["candidates"][0] == "qwen-3-coder-480b"
     # ollama is always key_present=True (local).
     ol = next(p for p in body["providers"] if p["provider_id"] == "ollama")
     assert ol["key_present"] is True
+    assert ol["tier"] == "local"
+    # A paid provider is included (was previously filtered out).
+    al = next(p for p in body["providers"] if p["provider_id"] == "aerolink")
+    assert al["tier"] == "paid"
 
-    assert body["safe_default"]["model"] == "meta/llama-3.3-70b-instruct"
+    assert body["safe_default"]["model"] == "z-ai/glm-5.2"
 
 
 def test_get_response_never_leaks_api_keys(app_client):

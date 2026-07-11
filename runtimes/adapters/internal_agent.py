@@ -38,7 +38,31 @@ from runtimes.base import (
 # NOTE: do NOT include /v1 in the base URL; the downstream OpenAI-compatible
 # URL builders (_openai_url, AgentRunner._chat_text) append it themselves.
 _NVIDIA_BASE_URL = "https://integrate.api.nvidia.com"
-_NVIDIA_DEFAULT_MODEL = "meta/llama-3.3-70b-instruct"
+
+
+def _resolve_nvidia_default_model() -> str:
+    """Resolve the NVIDIA default model via the catalog (UNIT 7).
+
+    Was hardcoded to ``meta/llama-3.3-70b-instruct`` — now consults the
+    catalog so a UI Apply or a ``config/models.yaml`` edit is reflected
+    without a redeploy. Falls back to the legacy hardcoded value on
+    import error so this module never breaks the agent runtime.
+    """
+    try:
+        from packages.ai.brain_config import (
+            PROVIDER_CANDIDATES,
+            SAFE_DEFAULT_MODEL,
+        )
+        cands = PROVIDER_CANDIDATES.get("nvidia") or []
+        # First candidate is the catalog preset for nvidia's executor role.
+        if cands:
+            return cands[0]
+        return SAFE_DEFAULT_MODEL
+    except Exception:
+        return "meta/llama-3.3-70b-instruct"
+
+
+_NVIDIA_DEFAULT_MODEL = _resolve_nvidia_default_model()
 
 
 def _nvidia_provider_chain() -> list[ProviderConfig]:
@@ -538,7 +562,7 @@ class InternalAgentAdapter(RuntimeAdapter):
         # Prune any stale worktree from a previous crash before adding a new one.
         if os.path.exists(wt_path):
             try:
-                subprocess.run(
+                subprocess.run(  # nosec B603, B607 — constant git argv, list form, no shell
                     ["git", "worktree", "prune"],
                     cwd=workspace,
                     capture_output=True,
@@ -549,7 +573,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 pass
 
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603, B607 — constant git argv, list form, no shell
                 ["git", "worktree", "add", "--detach", wt_path, "HEAD"],
                 cwd=workspace,
                 capture_output=True,
@@ -609,7 +633,7 @@ class InternalAgentAdapter(RuntimeAdapter):
 
         # Git worktree — remove via git first, then rmtree as a safety net.
         try:
-            subprocess.run(
+            subprocess.run(  # nosec B603, B607 — constant git argv, list form, no shell
                 ["git", "worktree", "remove", "--force", worktree_path],
                 cwd=workspace,
                 capture_output=True,

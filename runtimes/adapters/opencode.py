@@ -44,6 +44,24 @@ from runtimes.base import (
 log = logging.getLogger("runtime.opencode")
 
 
+def _resolve_default_executor_model(component: str) -> str:
+    """Resolve the default executor model via the catalog (UNIT 7).
+
+    Was hardcoded to ``meta/llama-3.3-70b-instruct`` — now consults the
+    catalog so a UI Apply or a ``config/models.yaml`` edit is reflected
+    without a redeploy. Falls back to the safe default on import error.
+    """
+    try:
+        from packages.ai.brain_config import resolve_component_model
+        return resolve_component_model(
+            component=component,
+            role="executor",
+            provider=None,  # use the active brain's primary
+        )
+    except Exception:
+        return "meta/llama-3.3-70b-instruct"
+
+
 class OpenCodeAdapter(RuntimeAdapter):
     """Adapter for OpenCode — FIRST CLASS coding runtime."""
 
@@ -72,7 +90,11 @@ class OpenCodeAdapter(RuntimeAdapter):
         super().__init__(config)
         self._bin = (config or {}).get("bin") or os.environ.get("OPENCODE_BIN", "opencode")
         self._base_url = (config or {}).get("base_url") or os.environ.get("OPENCODE_BASE_URL", "")
-        self._default_model = (config or {}).get("model") or            os.environ.get("OPENCODE_MODEL", os.environ.get("AGENT_EXECUTOR_MODEL", "meta/llama-3.3-70b-instruct"))
+        self._default_model = (
+            (config or {}).get("model")
+            or os.environ.get("OPENCODE_MODEL")
+            or _resolve_default_executor_model("opencode")
+        )
         self._workspace = (config or {}).get("workspace") or os.environ.get("OPENCODE_WORKSPACE", ".")
 
     def required_dependencies(self) -> list[RuntimeDependency]:

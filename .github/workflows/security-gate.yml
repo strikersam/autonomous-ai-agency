@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # full history so we can check out the base sha
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -33,23 +33,49 @@ jobs:
       - name: Install Bandit
         run: pip install bandit
 
-      - name: Count Bandit alerts on base branch
-        id: base
-        run: |
-          git stash --quiet 2>/dev/null || true
-          git checkout ${{ github.event.pull_request.base.sha }} --quiet 2>/dev/null
-          BASE_COUNT=$(bandit -r . -f json --exit-zero -q 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('results',[])))" 2>/dev/null || echo "0")
-          echo "count=$BASE_COUNT" >> "$GITHUB_OUTPUT"
-          echo "Base branch Bandit alerts: $BASE_COUNT"
-          git checkout ${{ github.event.pull_request.head.sha }} --quiet 2>/dev/null
-          git stash pop --quiet 2>/dev/null || true
-
+      # ── Count Bandit alerts on the PR branch (current checkout) ──────────
       - name: Count Bandit alerts on PR branch
         id: pr
         run: |
           PR_COUNT=$(bandit -r . -f json --exit-zero -q 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('results',[])))" 2>/dev/null || echo "0")
           echo "count=$PR_COUNT" >> "$GITHUB_OUTPUT"
           echo "PR branch Bandit alerts: $PR_COUNT"
+
+      # ── Count Bandit alerts on the base branch (clean worktree) ──────────
+      #
+      # Uses `git worktree add` to create a SEPARATE clean checkout of the
+      # base sha in /tmp/base. This guarantees the base scan sees exactly
+      # the base branch state — no PR files leak in, no base files are
+      # missing. The previous `git checkout <base.sha> -- .` approach was
+      # fragile: it overwrote shared files with base versions but did NOT
+      # remove PR-only new files, leaving them in the working tree during
+      # the "base" scan.
+      #
+      # IMPORTANT: the .bandit config must NOT rely on bandit's default
+      # EXCLUDE constant (which includes '.git') to exclude '.github/'
+      # files. bandit's discover_files does `if os.path.isdir(path): path =
+      # path + "/*"` on each excluded path. When .git is a real directory
+      # (normal checkout), '.git' becomes '.git/*' which is NOT a substring
+      # of '.github/...' → .github files get scanned. When .git is a file
+      # (git worktree), '.git' stays as '.git' which IS a substring of
+      # '.github/...' → .github files get excluded. This inconsistency
+      # caused false "new alert" reports. The .bandit config now excludes
+      # '.github' explicitly (or rather, doesn't rely on '.git' for it).
+      - name: Count Bandit alerts on base branch (clean worktree)
+        id: base
+        run: |
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          git worktree add --detach /tmp/base "$BASE_SHA" 2>/dev/null
+          # Copy the PR's .bandit config over the base worktree's config so
+          # both scans use the SAME bandit rules. Without this, a PR that
+          # changes .bandit (e.g. fixes the exclude_dirs→exclude key bug)
+          # would be compared against a base scan using the old .bandit —
+          # an apples-to-oranges comparison that produces false positives.
+          cp .bandit /tmp/base/.bandit
+          BASE_COUNT=$(cd /tmp/base && bandit -r . -f json --exit-zero -q 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('results',[])))" 2>/dev/null || echo "0")
+          echo "count=$BASE_COUNT" >> "$GITHUB_OUTPUT"
+          echo "Base branch Bandit alerts: $BASE_COUNT"
+          git worktree remove /tmp/base --force 2>/dev/null || true
 
       - name: Compare alert counts
         run: |

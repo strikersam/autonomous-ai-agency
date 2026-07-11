@@ -77,39 +77,77 @@ async def run_self_heal_cycle() -> dict[str, Any]:
 
 
 async def _heal_task_duplicates() -> dict[str, int]:
-    """Delete duplicate tasks by source_id only.
+    """Backfill source_id on legacy ceo_direct tasks, then dedup by source_id.
 
-    Only deletes EXACT duplicates (same source_id) — NOT tasks with the
-    same title but different task_ids. The title-based dedup was too
-    aggressive: it deleted all tasks from the same GitHub issue, even
-    though each task is a separate execution attempt.
+    Two passes:
+    1. BACKFILL: for tasks with source=="ceo_direct" and empty source_id, parse
+       the issue number from the title (regex: ``^(issue|quick-note) #(\\d+):``)
+       and set source_id = issue_source_id(repo, number).
+    2. DEDUP: by source_id only — keep in_progress > done > oldest-created.
+       Never delete in_progress tasks.
 
-    Also: NEVER deletes tasks that are in_progress (they're being executed).
+    Title-based dedup was deliberately removed (commit 312e9ba) — do NOT
+    reintroduce it.
     """
     from tasks.store import get_task_store
     store = get_task_store()
     all_tasks = await store.list_all(limit=10_000)
 
-    seen_source: dict[str, str] = {}
+    backfilled = 0
     deleted = 0
 
+    # Pass 1: Backfill source_id on legacy ceo_direct tasks
+    import re
+    _title_re = re.compile(r"^(?:issue|quick-note) #(\d+):", re.IGNORECASE)
+    try:
+        import agent.agency as _ag
+        repo = _ag._gh_repo()
+    except Exception:
+        repo = None
+
     for t in all_tasks:
-        # Skip tasks that are being executed
+        if t.source == "ceo_direct" and not t.source_id and repo:
+            m = _title_re.match(t.title or "")
+            if m:
+                number = int(m.group(1))
+                sid = f"{repo}#{number}"
+                t.source_id = sid
+                try:
+                    await store.update(t)
+                    backfilled += 1
+                except Exception:
+                    pass
+
+    # Pass 2: Dedup by source_id (keep in_progress > done > oldest-created)
+    if backfilled > 0:
+        # Re-read after backfill
+        all_tasks = await store.list_all(limit=10_000)
+
+    seen: dict[str, str] = {}  # source_id -> task_id to keep
+    for t in sorted(all_tasks, key=lambda x: (
+        0 if x.status.value == "in_progress" else 1 if x.status.value == "done" else 2,
+        x.created_at if isinstance(x.created_at, (int, float)) else 0,
+    )):
         if t.status.value == "in_progress":
+            # Never delete in_progress tasks — always keep them
+            if t.source_id:
+                seen[t.source_id] = t.task_id
             continue
 
-        # Dedup ONLY by source_id (exact match)
         sid = t.source_id or ""
-        if sid:
-            if sid in seen_source:
-                await store.delete(t.task_id)
-                deleted += 1
-                continue
-            seen_source[sid] = t.task_id
+        if not sid:
+            continue  # No source_id — can't dedup, leave it
 
-    if deleted > 0:
-        log.info("self_heal: deleted %d duplicate tasks (of %d total)", deleted, len(all_tasks))
-    return {"deleted": deleted, "total_scanned": len(all_tasks)}
+        if sid in seen:
+            await store.delete(t.task_id)
+            deleted += 1
+        else:
+            seen[sid] = t.task_id
+
+    if deleted > 0 or backfilled > 0:
+        log.info("self_heal: backfilled %d source_ids, deleted %d duplicate tasks (of %d total)",
+                 backfilled, deleted, len(all_tasks))
+    return {"deleted": deleted, "backfilled": backfilled, "total_scanned": len(all_tasks)}
 
 
 async def _heal_brain_failover() -> dict[str, Any]:

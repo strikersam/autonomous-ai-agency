@@ -33,6 +33,140 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger("brain_config_store")
 
+
+# ── Model catalog loader (config/models.yaml) ──────────────────────────────
+#
+# The YAML file at ``config/models.yaml`` is the canonical source of truth
+# for per-provider metadata, role presets, and the failover candidate list.
+# It is loaded once at module import time. If the file is missing or
+# corrupt, the in-module hardcoded defaults below are used — a bad YAML
+# edit can never brick the agent loop.
+#
+# The hardcoded dicts are kept in sync with the YAML so a no-YAML install
+# behaves identically to a YAML-present install. Tests in
+# ``tests/test_model_catalog.py`` enforce parity.
+
+_MODELS_YAML_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "config",
+    "models.yaml",
+)
+
+
+def _load_models_yaml() -> dict[str, Any] | None:
+    """Load ``config/models.yaml`` and return the parsed dict.
+
+    Returns ``None`` on any error (missing file, YAML parse error, schema
+    mismatch). Callers fall back to the in-module hardcoded defaults.
+    """
+    try:
+        if not os.path.isfile(_MODELS_YAML_PATH):
+            return None
+        import yaml  # PyYAML — implicit dep already used by agent/loop_registry.py
+        with open(_MODELS_YAML_PATH, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            return None
+        if not isinstance(data.get("providers"), dict):
+            return None
+        return data
+    except Exception as exc:  # noqa: BLE001 — never break module import
+        log.warning("brain_config_store: models.yaml load failed (%s) — using hardcoded defaults", exc)
+        return None
+
+
+def _provider_ids_from_literal() -> tuple[str, ...]:
+    """Return the provider ids allowed by the ``BrainProvider`` Literal.
+
+    Reads the Literal's args via ``typing.get_args`` so adding a provider
+    to the Literal (and to ``config/models.yaml``) is the only change
+    needed — no parallel list to keep in sync.
+    """
+    import typing
+    args = typing.get_args(BrainProvider)
+    return tuple(str(a) for a in args)  # type: ignore[name-defined]
+
+
+def _build_presets_from_yaml(yaml_data: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Extract the per-provider ``role_presets`` mapping from the YAML."""
+    out: dict[str, dict[str, str]] = {}
+    for pid, pinfo in (yaml_data.get("providers") or {}).items():
+        presets = pinfo.get("role_presets") or {}
+        if not isinstance(presets, dict):
+            continue
+        clean: dict[str, str] = {}
+        for role in ("planner", "executor", "verifier", "judge"):
+            v = presets.get(role)
+            if isinstance(v, str) and v.strip():
+                clean[role] = v.strip()
+        if clean:
+            out[str(pid)] = clean
+    return out
+
+
+def _build_key_env_from_yaml(yaml_data: dict[str, Any]) -> dict[str, str | None]:
+    """Extract the per-provider ``key_env`` mapping from the YAML."""
+    out: dict[str, str | None] = {}
+    for pid, pinfo in (yaml_data.get("providers") or {}).items():
+        v = pinfo.get("key_env")
+        out[str(pid)] = str(v) if isinstance(v, str) and v.strip() else None
+    return out
+
+
+def _build_base_url_env_from_yaml(yaml_data: dict[str, Any]) -> dict[str, str | None]:
+    """Extract the per-provider ``base_url_env`` mapping from the YAML."""
+    out: dict[str, str | None] = {}
+    for pid, pinfo in (yaml_data.get("providers") or {}).items():
+        v = pinfo.get("base_url_env")
+        out[str(pid)] = str(v) if isinstance(v, str) and v.strip() else None
+    return out
+
+
+def _build_default_base_url_from_yaml(yaml_data: dict[str, Any]) -> dict[str, str]:
+    """Extract the per-provider ``default_base_url`` mapping from the YAML."""
+    out: dict[str, str] = {}
+    for pid, pinfo in (yaml_data.get("providers") or {}).items():
+        v = pinfo.get("default_base_url")
+        if isinstance(v, str) and v.strip():
+            out[str(pid)] = v.strip()
+    return out
+
+
+def _build_candidates_from_yaml(yaml_data: dict[str, Any]) -> dict[str, list[str]]:
+    """Extract the per-provider ``candidates`` failover list from the YAML."""
+    out: dict[str, list[str]] = {}
+    for pid, pinfo in (yaml_data.get("providers") or {}).items():
+        cands = pinfo.get("candidates") or []
+        if not isinstance(cands, list):
+            continue
+        clean: list[str] = []
+        for c in cands:
+            if isinstance(c, str) and c.strip():
+                clean.append(c.strip())
+        if clean:
+            out[str(pid)] = clean
+    return out
+
+
+def _build_display_names_from_yaml(yaml_data: dict[str, Any]) -> dict[str, str]:
+    """Extract the per-provider ``display_name`` mapping from the YAML."""
+    out: dict[str, str] = {}
+    for pid, pinfo in (yaml_data.get("providers") or {}).items():
+        v = pinfo.get("display_name")
+        if isinstance(v, str) and v.strip():
+            out[str(pid)] = v.strip()
+    return out
+
+
+def _build_tier_from_yaml(yaml_data: dict[str, Any]) -> dict[str, str]:
+    """Extract the per-provider ``tier`` mapping from the YAML."""
+    out: dict[str, str] = {}
+    for pid, pinfo in (yaml_data.get("providers") or {}).items():
+        v = pinfo.get("tier")
+        if isinstance(v, str) and v.strip():
+            out[str(pid)] = v.strip().lower()
+    return out
+
 # ── Safe default ────────────────────────────────────────────────────────────
 #
 # The plan's hard constraint #1: "Never land on a dead model. Always keep a
@@ -155,6 +289,170 @@ PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
     "anthropic": "https://api.anthropic.com",
     "aerolink": "https://capi.aerolink.lat/v1",
 }
+
+# Per-provider failover candidate list. The first model is the preset;
+# subsequent models are tried in order by the watchdog / brain_failover
+# chain on 404 / 410 / timeout. Mirrored from config/models.yaml.
+PROVIDER_CANDIDATES: dict[str, list[str]] = {
+    "nvidia": [
+        "z-ai/glm-5.2",
+        "z-ai/glm-5.1",
+        "meta/llama-3.3-70b-instruct",
+        "nvidia/llama-3.1-nemotron-70b-instruct",
+        "deepseek-ai/deepseek-r1",
+    ],
+    "cerebras": ["qwen-3-coder-480b", "llama-3.3-70b", "llama-3.1-8b"],
+    "groq": [
+        "llama-3.3-70b-versatile",
+        "deepseek-r1-distill-llama-70b",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+    ],
+    "mistral": [
+        "mistral-small-latest",
+        "mistral-large-latest",
+        "codestral-latest",
+        "mistral-nemo",
+    ],
+    "deepseek": ["deepseek-chat", "deepseek-reasoner", "deepseek-coder"],
+    "zhipu": ["glm-5.2", "glm-5.1", "glm-4", "glm-4-flash", "glm-4-air"],
+    "zai": ["glm-5.2", "glm-5.1", "glm-4-flash", "glm-4", "glm-4-air"],
+    "together": [
+        "Llama-3.3-70B-Instruct-Turbo-Free",
+        "Mixtral-8x7B-Instruct-v0.1-Free",
+    ],
+    "dashscope": ["qwen-plus", "qwen-max", "qwen-turbo", "qwen-coder-plus"],
+    "moonshot": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+    "openrouter": [
+        "meta-llama/llama-3.3-70b-instruct",
+        "anthropic/claude-3.5-sonnet",
+    ],
+    "anthropic": [
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku-20241022",
+        "claude-opus-4-5",
+    ],
+    "aerolink": [
+        "claude-sonnet-4-6",
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-haiku-4-5-20251001",
+    ],
+    "ollama": ["deepseek-r1:32b", "qwen3-coder:30b", "qwen3-coder:7b", "llama3.3:70b"],
+}
+
+# Per-provider human-readable label surfaced by the BrainCard dropdown.
+# When the UI's PROVIDER_LABELS map doesn't have an entry, it falls back
+# to this dict (UNIT 5 makes the UI server-driven).
+PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "nvidia":    "NVIDIA NIM (free, broad catalogue)",
+    "cerebras":  "Cerebras (fast, free tier)",
+    "groq":      "Groq (fast, free tier)",
+    "ollama":    "Local Ollama (no key, private)",
+    "mistral":   "Mistral (free tier)",
+    "deepseek":  "DeepSeek (free tier)",
+    "zhipu":     "ZhipuAI / GLM (China)",
+    "zai":       "Z.ai (GLM international)",
+    "together":  "Together AI (free tier)",
+    "dashscope": "Qwen DashScope (Alibaba)",
+    "moonshot":  "Moonshot / Kimi (China)",
+    "openrouter": "OpenRouter (paid aggregator)",
+    "anthropic": "Anthropic (Claude, paid)",
+    "aerolink":  "Aerolink (Claude gateway)",
+}
+
+# Per-provider tier: free | paid | local. Used by brain_failover to order
+# the failover chain (free first, paid last when ALLOW_PAID_BRAIN=true,
+# local always available if configured).
+PROVIDER_TIERS: dict[str, str] = {
+    "nvidia":    "free",
+    "cerebras":  "free",
+    "groq":      "free",
+    "mistral":   "free",
+    "deepseek":  "free",
+    "zhipu":     "free",
+    "zai":       "free",
+    "together":  "free",
+    "dashscope": "free",
+    "moonshot":  "free",
+    "openrouter": "paid",
+    "anthropic": "paid",
+    "aerolink":  "paid",
+    "ollama":    "local",
+}
+
+
+def get_provider_candidates(provider: str) -> list[str]:
+    """Return the ordered failover candidate list for *provider*.
+
+    The first element is the role preset; subsequent elements are tried in
+    order by the watchdog / brain_failover chain on 404 / 410 / timeout.
+    Returns an empty list if the provider is unknown (callers fall back to
+    the safe default model).
+    """
+    return list(PROVIDER_CANDIDATES.get(provider, []))
+
+
+def get_provider_display_name(provider: str) -> str:
+    """Return the human-readable label for *provider* (fallback: the id)."""
+    return PROVIDER_DISPLAY_NAMES.get(provider, provider)
+
+
+def get_provider_tier(provider: str) -> str:
+    """Return the tier (``free`` / ``paid`` / ``local``) for *provider*.
+
+    Returns ``"unknown"`` if the provider isn't in the catalog.
+    """
+    return PROVIDER_TIERS.get(provider, "unknown")
+
+
+def all_provider_ids() -> tuple[str, ...]:
+    """Return every provider id recognised by the brain config system.
+
+    Iterates the ``BrainProvider`` Literal via ``typing.get_args`` so
+    adding a provider to the Literal (and to ``config/models.yaml``) is
+    the only change needed — no parallel list to keep in sync.
+    """
+    return _provider_ids_from_literal()
+
+
+# ── Apply YAML overrides (catalog is the source of truth) ───────────────────
+#
+# Load ``config/models.yaml`` once at module import. If present + valid,
+# the YAML overrides the hardcoded defaults above. The hardcoded defaults
+# stay as the fallback so a missing/corrupt YAML never breaks the agent
+# loop. Tests in ``tests/test_model_catalog.py`` verify both paths.
+
+_YAML_DATA: dict[str, Any] | None = _load_models_yaml()
+if _YAML_DATA is not None:
+    # Override the in-module dicts with the YAML data. Use ``update`` so a
+    # partial YAML (only some providers) doesn't lose entries from the
+    # hardcoded fallback for the providers it doesn't mention.
+    PROVIDER_PRESETS.update(_build_presets_from_yaml(_YAML_DATA))
+    PROVIDER_KEY_ENV.update(_build_key_env_from_yaml(_YAML_DATA))
+    PROVIDER_BASE_URL_ENV.update(_build_base_url_env_from_yaml(_YAML_DATA))
+    PROVIDER_DEFAULT_BASE_URL.update(_build_default_base_url_from_yaml(_YAML_DATA))
+    PROVIDER_CANDIDATES.update(_build_candidates_from_yaml(_YAML_DATA))
+    PROVIDER_DISPLAY_NAMES.update(_build_display_names_from_yaml(_YAML_DATA))
+    PROVIDER_TIERS.update(_build_tier_from_yaml(_YAML_DATA))
+
+    # Override the safe-default provider/model if the YAML specifies one.
+    _yaml_safe = _YAML_DATA.get("safe_default") or {}
+    if isinstance(_yaml_safe, dict):
+        _sp = _yaml_safe.get("provider")
+        _sm = _yaml_safe.get("model")
+        if isinstance(_sp, str) and _sp.strip():
+            SAFE_DEFAULT_PROVIDER = _sp.strip()  # noqa: PLW0603
+        if isinstance(_sm, str) and _sm.strip():
+            SAFE_DEFAULT_MODEL = _sm.strip()  # noqa: PLW0603
+
+    # Override the recommended priority if the YAML specifies one.
+    _yaml_prio = _YAML_DATA.get("recommended_priority")
+    if isinstance(_yaml_prio, list) and _yaml_prio:
+        _clean_prio = tuple(str(p).strip() for p in _yaml_prio if isinstance(p, str) and p.strip())
+        if _clean_prio:
+            RECOMMENDED_PROVIDER_PRIORITY = _clean_prio  # noqa: PLW0603
 
 
 def resolve_hermes_base_url() -> str:
@@ -737,6 +1035,142 @@ async def resolve_role_model(role: str, requested: str | None = None) -> str:
     except Exception:  # noqa: BLE001 — never block resolution
         pass
     return resolve_role_model_sync(role, requested)
+
+
+# ── Component-level model resolver (UNIT 6) ────────────────────────────────
+#
+# The codebase has multiple call sites that need "the model id for this
+# role on this provider" — e.g. ``telegram_bot.cmd_setbrain`` PATCHes all
+# four role models when switching providers, ``brain_failover`` walks the
+# provider chain, ``server._default_agent_role_models`` seeds the wizard.
+# Each had its own duplicate preset table (UNIT 6 deletes them).
+#
+# ``resolve_component_model`` is the single entry point: it consults the
+# catalog (``config/models.yaml`` → ``PROVIDER_PRESETS``) and the active
+# BrainConfig (DB), with DB winning when the requested provider matches
+# the active primary. Never raises — falls back to the safe default.
+
+
+def resolve_component_model(
+    component: str,
+    role: str = "executor",
+    provider: str | None = None,
+    requested: str | None = None,
+) -> str:
+    """Resolve the model id for a component's role on a provider.
+
+    Parameters
+    ----------
+    component : str
+        The calling component id (e.g. ``"telegram_bot"``,
+        ``"brain_failover"``, ``"router"``, ``"server"``). Used only for
+        logging — there are no per-component overrides (the catalog is
+        the single source of truth).
+    role : str
+        One of ``"planner"``, ``"executor"``, ``"verifier"``, ``"judge"``,
+        or ``"default"``. ``"default"`` is a synonym for ``"executor"``
+        (the most-used role).
+    provider : str | None
+        The provider id whose preset should be used. If ``None``, the
+        active brain config's ``primary_provider`` is consulted. If the
+        provider matches the active primary AND the cache is fresh, the
+        DB-saved model for that role wins (so a UI Apply is honoured).
+    requested : str | None
+        Per-call override. If non-empty, returned verbatim (highest
+        precedence).
+
+    Returns
+    -------
+    str
+        The resolved model id. Never empty. Falls back to
+        ``SAFE_DEFAULT_MODEL`` on any error.
+
+    Precedence (highest to lowest):
+      1. ``requested`` — per-call override
+      2. DB-saved model for this role (when ``provider`` is None or
+         matches the active brain's ``primary_provider`` AND the cache
+         is fresh)
+      3. Catalog preset: ``PROVIDER_PRESETS[provider][role]``
+      4. Env var ``AGENT_<ROLE>_MODEL`` (backward compat)
+      5. ``SAFE_DEFAULT_MODEL``
+    """
+    # Normalise role.
+    role_norm = (role or "executor").strip().lower()
+    if role_norm == "default":
+        role_norm = "executor"
+    if role_norm not in _ROLE_TO_DB_FIELD:
+        # Unknown role — return the safe default rather than raising.
+        return SAFE_DEFAULT_MODEL
+
+    # 1. Per-call override wins.
+    if requested and requested.strip():
+        return requested.strip()
+
+    # 2. DB-saved model (if cache is fresh and provider matches).
+    try:
+        if _store is not None and _store._cache is not None:
+            if (time.monotonic() - _store._cache_at) < _CACHE_TTL_SECONDS:
+                cfg = _store._cache
+                active_provider = str(getattr(cfg, "primary_provider", "")).strip()
+                if provider is None or provider == active_provider:
+                    field = _ROLE_TO_DB_FIELD[role_norm]
+                    val = getattr(cfg, field, None)
+                    if val and val.strip():
+                        return val.strip()
+    except Exception:  # noqa: BLE001 — defensive
+        pass
+
+    # 3. Catalog preset for the resolved provider.
+    resolved_provider = provider
+    if resolved_provider is None:
+        # Use the active brain's primary_provider if available.
+        try:
+            if _store is not None and _store._cache is not None:
+                resolved_provider = str(
+                    getattr(_store._cache, "primary_provider", "")
+                ).strip() or None
+        except Exception:  # noqa: BLE001
+            pass
+    if resolved_provider:
+        presets = PROVIDER_PRESETS.get(resolved_provider) or {}
+        v = presets.get(role_norm)
+        if v and v.strip():
+            return v.strip()
+
+    # 4. Env var (kept working so nothing regresses).
+    env_var = _ROLE_TO_ENV_VAR.get(role_norm)
+    if env_var:
+        v = (os.environ.get(env_var) or "").strip()
+        if v:
+            return v
+
+    # 5. Safe default.
+    return SAFE_DEFAULT_MODEL
+
+
+def resolve_component_role_models(
+    component: str,
+    provider: str | None = None,
+    requested: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Convenience: resolve all four role models for a component.
+
+    Returns a dict with keys ``planner``, ``executor``, ``verifier``,
+    ``judge`` — the same shape as ``PROVIDER_PRESETS[provider]`` but
+    resolved through the full precedence chain (DB → catalog → env →
+    safe default). Used by ``telegram_bot.cmd_setbrain`` to PATCH all
+    four role models at once.
+    """
+    requested = requested or {}
+    out: dict[str, str] = {}
+    for role in ("planner", "executor", "verifier", "judge"):
+        out[role] = resolve_component_model(
+            component=component,
+            role=role,
+            provider=provider,
+            requested=requested.get(role),
+        )
+    return out
 
 
 async def refresh_brain_config_cache() -> BrainConfig:
