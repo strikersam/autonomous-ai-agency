@@ -203,3 +203,94 @@ async def intake_issue(
     await service.create_task(task, actor="system:issue-intake")
     log.info("issue-intake: created task %s for %s", task.task_id, source_id)
     return task
+
+
+async def create_task_from_oldest_open_issue(
+    *,
+    store: Any = None,
+    token: str | None = None,
+    repo: str | None = None,
+    timeout: float = 15.0,
+) -> tuple[Task | None, dict[str, Any]]:
+    """Create a task from the oldest open GitHub issue that isn't already tracked.
+
+    Idempotent: uses ``issue_source_id(repo, number)`` as the ``source_id``,
+    so each issue gets exactly one task — forever (matches ``intake_issue``).
+
+    Iterates actionable issues (skips PRs and ``quick-note:exhausted`` labels)
+    and picks the first whose ``source_id`` has no existing task.
+
+    Returns ``(task_or_none, status_dict)`` where ``status_dict`` preserves the
+    shape that both call sites in ``backend/server.py`` currently produce:
+    ``direct_task_created``, ``direct_issue_number``, ``direct_task_error``.
+    """
+    import httpx
+
+    if store is None:
+        from tasks.store import get_task_store
+        store = get_task_store()
+
+    status: dict[str, Any] = {}
+
+    if not token or not repo:
+        try:
+            import agent.agency as _ag
+            token = token or _ag._gh_token()
+            repo = repo or _ag._gh_repo()
+        except Exception:
+            pass
+
+    if not token or not repo:
+        return None, status
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{repo}/issues",
+                params={"state": "open", "per_page": "50", "sort": "created", "direction": "asc"},
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            )
+        if resp.status_code != 200:
+            status["direct_task_error"] = f"GitHub API {resp.status_code}"
+            return None, status
+
+        all_issues = [i for i in resp.json() if "pull_request" not in i]
+        actionable = [
+            i for i in all_issues
+            if "quick-note:exhausted" not in [lb.get("name", "") for lb in i.get("labels", [])]
+        ]
+
+        from tasks.service import TaskWorkflowService
+        wf = TaskWorkflowService(store=store)
+
+        for issue in actionable:
+            number = issue["number"]
+            sid = issue_source_id(repo, number)
+            existing = await store.find_by_source_id(sid)
+            if existing is not None:
+                # Already tracked — skip to the next issue
+                continue
+
+            is_qn = "quick-note" in [lb.get("name", "") for lb in issue.get("labels", [])]
+            prefix = "quick-note" if is_qn else "issue"
+            task = Task(
+                owner_id="system",
+                title=f"{prefix} #{number}: {issue['title'][:50]}",
+                description=f"Implement GitHub issue #{number}: {issue['title']}",
+                prompt=(issue.get("body") or "")[:2000],
+                task_type="quick_note" if is_qn else "issue",
+                tags=[lb["name"] for lb in issue.get("labels", [])] + ["needs-implementation"],
+                source="ceo_direct",
+                source_id=sid,
+                pending_agent_run=True,
+            )
+            await wf.create_task(task, actor="system:ceo_direct")
+            status["direct_task_created"] = task.task_id
+            status["direct_issue_number"] = number
+            log.info("ceo_direct: created task %s for %s", task.task_id, sid)
+            return task, status
+
+    except Exception as exc:
+        status["direct_task_error"] = str(exc)[:100]
+
+    return None, status

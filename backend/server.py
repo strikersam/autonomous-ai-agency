@@ -7000,46 +7000,15 @@ async def _autonomy_bg_cycle():
                 pending = await store.list_pending(limit=1)
                 if not pending:
                     try:
-                        from tasks.models import Task
-                        from tasks.service import TaskWorkflowService
-                        import agent.agency as _ag
-                        import httpx
-                        token = _ag._gh_token()
-                        repo = _ag._gh_repo()
-                        if token and repo:
-                            async with httpx.AsyncClient(timeout=15) as client:
-                                resp = await client.get(
-                                    f"https://api.github.com/repos/{repo}/issues",
-                                    params={"state": "open", "per_page": "50", "sort": "created", "direction": "asc"},
-                                    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-                                )
-                                if resp.status_code == 200:
-                                    all_issues = [i for i in resp.json() if "pull_request" not in i]
-                                    actionable = [
-                                        i for i in all_issues
-                                        if "quick-note:exhausted" not in [lb.get("name","") for lb in i.get("labels", [])]
-                                    ]
-                                    if actionable:
-                                        issue = actionable[0]
-                                        is_qn = "quick-note" in [lb.get("name","") for lb in issue.get("labels", [])]
-                                        prefix = "quick-note" if is_qn else "issue"
-                                        task = Task(
-                                            owner_id="system",
-                                            title=f"{prefix} #{issue['number']}: {issue['title'][:50]}",
-                                            description=f"Implement GitHub issue #{issue['number']}: {issue['title']}",
-                                            prompt=(issue.get("body") or "")[:2000],
-                                            task_type="quick_note" if is_qn else "issue",
-                                            tags=[lb["name"] for lb in issue.get("labels", [])] + ["needs-implementation"],
-                                            source="ceo_direct",
-                                            pending_agent_run=True,
-                                        )
-                                        wf = TaskWorkflowService(store=store)
-                                        await wf.create_task(task, actor="system:ceo_direct")
-                                        dispatch_status["direct_task_created"] = task.task_id
-                                        dispatch_status["direct_issue_number"] = issue["number"]
-                                        import asyncio as _aio_sync
-                                        await _aio_sync.sleep(0.5)
-                                        pending = await store.list_pending(limit=1)
+                        from tasks.issue_intake import create_task_from_oldest_open_issue
+                        _task, _status = await create_task_from_oldest_open_issue(
+                            store=store, timeout=15
+                        )
+                        dispatch_status.update(_status)
+                        if _task:
+                            import asyncio as _aio_sync
+                            await _aio_sync.sleep(0.5)
+                            pending = await store.list_pending(limit=1)
                     except Exception as exc:
                         dispatch_status["direct_task_error"] = str(exc)[:100]
                 if pending:
@@ -7579,42 +7548,14 @@ async def autonomy_tick() -> dict[str, object]:
         # If no pending tasks, create one from the oldest GitHub issue
         if not pending:
             try:
-                from tasks.models import Task
-                from tasks.service import TaskWorkflowService
-                import agent.agency as _ag
-                import httpx
-                token = _ag._gh_token()
-                repo = _ag._gh_repo()
-                if token and repo:
-                    async with httpx.AsyncClient(timeout=10) as client:
-                        resp = await client.get(
-                            f"https://api.github.com/repos/{repo}/issues",
-                            params={"state": "open", "per_page": "5", "sort": "created", "direction": "asc"},
-                            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-                        )
-                        if resp.status_code == 200:
-                            all_issues = [i for i in resp.json() if "pull_request" not in i]
-                            actionable = [i for i in all_issues if "quick-note:exhausted" not in [lb.get("name","") for lb in i.get("labels", [])]]
-                            if actionable:
-                                issue = actionable[0]
-                                is_qn = "quick-note" in [lb.get("name","") for lb in issue.get("labels", [])]
-                                prefix = "quick-note" if is_qn else "issue"
-                                task = Task(
-                                    owner_id="system",
-                                    title=f"{prefix} #{issue['number']}: {issue['title'][:50]}",
-                                    description=f"Implement GitHub issue #{issue['number']}: {issue['title']}",
-                                    prompt=(issue.get("body") or "")[:2000],
-                                    task_type="quick_note" if is_qn else "issue",
-                                    tags=[lb["name"] for lb in issue.get("labels", [])] + ["needs-implementation"],
-                                    source="ceo_direct",
-                                    pending_agent_run=True,
-                                )
-                                wf = TaskWorkflowService(store=store)
-                                await wf.create_task(task, actor="system:ceo_direct")
-                                result["dispatch"]["direct_issue_number"] = issue["number"]
-                                result["dispatch"]["direct_task_created"] = task.task_id
-                                await asyncio.sleep(0.3)
-                                pending = await store.list_pending(limit=1)
+                from tasks.issue_intake import create_task_from_oldest_open_issue
+                _task, _status = await create_task_from_oldest_open_issue(
+                    store=store, timeout=10
+                )
+                result["dispatch"].update(_status)
+                if _task:
+                    await asyncio.sleep(0.3)
+                    pending = await store.list_pending(limit=1)
             except Exception as exc:
                 result["dispatch"]["direct_task_error"] = str(exc)[:100]
 
