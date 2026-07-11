@@ -151,6 +151,15 @@ def _get_defaults() -> dict[str, str]:
 
 # ── System prompts ────────────────────────────────────────────────────────────
 
+# Single source of truth for the mandatory-discipline pointer appended to every
+# CRISPY role prompt below — one line, not the full text, so all five roles
+# stay bound to CLAUDE.md §14 without duplicating or bloating each prompt.
+STANDING_INSTRUCTIONS_NOTICE = (
+    "You are bound by the mandatory Standing Instructions in CLAUDE.md §14 "
+    "(verification, epistemic marking, completeness, self-attack, refusing "
+    "to guess) — apply them to every response in this role."
+)
+
 SCOUT_SYSTEM = """\
 You are SCOUT, a read-only research agent.
 
@@ -160,7 +169,9 @@ HARD RULES:
   • Your output is always a well-structured Markdown document.
 
 Your job: gather context faithfully. Read files, understand structure,
-summarise findings. Leave judgement to the Architect."""
+summarise findings. Leave judgement to the Architect.
+
+""" + STANDING_INSTRUCTIONS_NOTICE
 
 ARCHITECT_SYSTEM = """\
 You are ARCHITECT, a senior engineering lead.
@@ -177,7 +188,9 @@ Slice format (mandatory):
 **Files**: path/to/file.py, tests/test_file.py
 **Tests**: describe what must pass
 
-Plans that list no slices or vague files will be rejected."""
+Plans that list no slices or vague files will be rejected.
+
+""" + STANDING_INSTRUCTIONS_NOTICE
 
 CODER_SYSTEM = """\
 You are CODER, the implementation engine.
@@ -192,7 +205,9 @@ HARD RULES:
       ## Files modified
       <one fenced code block per file, with filename as caption>
 
-Do not modify files outside your slice specification."""
+Do not modify files outside your slice specification.
+
+""" + STANDING_INSTRUCTIONS_NOTICE
 
 REVIEWER_SYSTEM = """\
 You are REVIEWER, an adversarial code reviewer.
@@ -214,7 +229,9 @@ Output format (mandatory):
 ## Verdict
 PASS (no blocking) | FAIL (blocking issues found)
 
-Be adversarial. Assume the Coder left bugs."""
+Be adversarial. Assume the Coder left bugs.
+
+""" + STANDING_INSTRUCTIONS_NOTICE
 
 VERIFIER_SYSTEM = """\
 You are VERIFIER, a test-command oracle.
@@ -226,7 +243,9 @@ HARD RULES:
   • Always include at minimum: pytest -x
 
 Example output:
-["pytest -x", "ruff check .", "mypy workflow/"]"""
+["pytest -x", "ruff check .", "mypy workflow/"]
+
+""" + STANDING_INSTRUCTIONS_NOTICE
 
 _SYSTEM_PROMPTS: dict[str, str] = {
     "architect": ARCHITECT_SYSTEM,

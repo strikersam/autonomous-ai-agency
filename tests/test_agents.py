@@ -70,6 +70,18 @@ class TestAgentProfile:
         profiles = load_all_profiles()
         assert set(profiles.keys()) == {"architect", "scout", "coder", "reviewer", "verifier"}
 
+    def test_every_profile_carries_standing_instructions_notice(self):
+        """Every CRISPY role must be bound to CLAUDE.md §14, not just
+        IDE-facing tools — this is the production LLM prompt path for the
+        autonomous plan→execute→verify loop."""
+        from agents.profiles import STANDING_INSTRUCTIONS_NOTICE
+
+        for role, profile in load_all_profiles().items():
+            assert STANDING_INSTRUCTIONS_NOTICE in profile.system_prompt, (
+                f"{role} profile's system_prompt is missing the mandatory "
+                "Standing Instructions notice"
+            )
+
 
 # ── AgentSwarm — role routing ─────────────────────────────────────────────────
 
