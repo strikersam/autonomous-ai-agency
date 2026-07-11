@@ -31,12 +31,41 @@ const ROLE_LABELS = {
 
 const ROLE_ORDER = ['planner', 'executor', 'verifier', 'judge'];
 
-const PROVIDER_LABELS = {
-  cerebras: 'Cerebras (fast, free tier)',
-  groq:     'Groq (fast, free tier)',
-  nvidia:   'NVIDIA NIM (free, broad catalogue)',
-  ollama:   'Local Ollama (no key, private)',
+// Provider labels are now server-driven — the GET /admin/api/policy/brain
+// response includes a `display_name` per provider (UNIT 5). We keep a tiny
+// fallback map ONLY for the brief loading window before the server response
+// arrives; once `providers` is populated, the dropdown uses display_name
+// exclusively. Adding a provider to config/models.yaml + the BrainProvider
+// Literal is the only change needed — no parallel UI list to keep in sync.
+const PROVIDER_LABEL_FALLBACK = {
+  nvidia:    'NVIDIA NIM',
+  cerebras:  'Cerebras',
+  groq:      'Groq',
+  ollama:    'Local Ollama',
+  mistral:   'Mistral',
+  deepseek:  'DeepSeek',
+  zhipu:     'ZhipuAI',
+  zai:       'Z.ai',
+  together:  'Together AI',
+  dashscope: 'DashScope',
+  moonshot:  'Moonshot',
+  openrouter: 'OpenRouter',
+  anthropic: 'Anthropic',
+  aerolink:  'Aerolink',
 };
+
+function providerLabel(p) {
+  if (!p) return '';
+  return p.display_name || PROVIDER_LABEL_FALLBACK[p.provider_id] || p.provider_id;
+}
+
+function tierBadge(tier) {
+  // tier is one of: 'free' | 'paid' | 'local' | 'unknown'
+  if (tier === 'free')  return 'free';
+  if (tier === 'paid')  return 'paid';
+  if (tier === 'local') return 'local';
+  return '';
+}
 
 function errText(e, fallback) {
   const detail = e?.response?.data?.detail;
@@ -213,12 +242,17 @@ export default function BrainCard() {
             onChange={(e) => applyPresets(e.target.value)}
             style={styles.select}
           >
-            {providers.map(p => (
-              <option key={p.provider_id} value={p.provider_id}>
-                {PROVIDER_LABELS[p.provider_id] || p.provider_id}
-                {p.provider_id !== 'ollama' && !p.key_present ? '  ⚠ no key' : ''}
-              </option>
-            ))}
+            {providers.map(p => {
+              const label = providerLabel(p);
+              const tier = tierBadge(p.tier);
+              const tierTag = tier ? ` [${tier}]` : '';
+              const keyTag = (p.provider_id !== 'ollama' && !p.key_present) ? '  ⚠ no key' : '';
+              return (
+                <option key={p.provider_id} value={p.provider_id}>
+                  {label}{tierTag}{keyTag}
+                </option>
+              );
+            })}
           </select>
           {keyMissing && (
             <div style={{ marginTop: 6, fontSize: 11, color: '#ffbd66', fontFamily: 'var(--font-mono)' }}>

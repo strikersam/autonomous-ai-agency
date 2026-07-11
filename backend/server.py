@@ -3655,8 +3655,12 @@ from packages.ai.brain_config import (  # noqa: E402 — late import to avoid cy
     PROVIDER_KEY_ENV,
     PROVIDER_PRESETS,
     PROVIDER_DEFAULT_BASE_URL,
+    PROVIDER_DISPLAY_NAMES,
+    PROVIDER_TIERS,
+    PROVIDER_CANDIDATES,
     SAFE_DEFAULT_PROVIDER,
     SAFE_DEFAULT_MODEL,
+    all_provider_ids,
     get_brain_config,
     get_brain_config_store,
     invalidate_brain_config_cache,
@@ -3826,17 +3830,25 @@ async def _maybe_boot_purge() -> None:
 def _brain_provider_status() -> list[dict]:
     """Return per-provider metadata for the GET endpoint.
 
+    Iterates every provider in the ``BrainProvider`` Literal (currently 14)
+    via ``all_provider_ids()`` so adding a provider to the catalog
+    (``config/models.yaml``) automatically surfaces it in the UI — no
+    parallel list to keep in sync, no "forgot to add it to the dropdown" bug.
+
     Surfaces ``key_present`` (bool) and the env-var name the operator would
     need to set if the key is missing. Never includes the key itself.
     """
     out: list[dict] = []
-    for provider in ("cerebras", "groq", "nvidia", "ollama"):
+    for provider in all_provider_ids():
         out.append({
             "provider_id": provider,
+            "display_name": PROVIDER_DISPLAY_NAMES.get(provider, provider),
+            "tier": PROVIDER_TIERS.get(provider, "unknown"),
             "key_present": provider_key_present(provider),
             "key_env_var": PROVIDER_KEY_ENV.get(provider),
             "base_url": provider_base_url(provider),
             "presets": PROVIDER_PRESETS.get(provider, {}),
+            "candidates": PROVIDER_CANDIDATES.get(provider, []),
         })
     return out
 

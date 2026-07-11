@@ -174,3 +174,71 @@ def wiki_client() -> TestClient:
     is for integration tests that don't need a live DB connection.
     """
     return TestClient(backend_app, raise_server_exceptions=False)
+
+
+# ── Brain-policy fixtures (shared across test_brain_config_api.py,
+#    test_unit5_ui_provider_surface.py, and any future test that needs
+#    an admin-authed TestClient against the brain endpoints). ────────────────
+
+
+@pytest.fixture
+def app_client(monkeypatch, tmp_path):
+    """A TestClient with the auth dependency overridden + a clean brain store.
+
+    Always authed as admin by default; individual tests can override.
+    Patches ``get_current_user`` and ``get_optional_user`` so the brain
+    PATCH endpoint's ``_user_or_service_token`` dependency sees the admin
+    identity. Mocks the Mongo ``app_settings`` collection so each test
+    starts fresh (no persisted brain config).
+    """
+    import packages.ai.brain_config as mod
+    monkeypatch.setattr(mod, "_store", None)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
+
+    from backend.server import app, get_current_user, get_optional_user
+    from unittest.mock import AsyncMock, MagicMock
+    admin_dict = {
+        "_id": "admin-1", "email": "admin@example.com", "role": "admin",
+    }
+    app.dependency_overrides[get_current_user] = lambda: admin_dict
+    app.dependency_overrides[get_optional_user] = lambda: admin_dict
+    # Mock Mongo collection so we don't depend on a live DB.
+    db = MagicMock()
+    db.app_settings = MagicMock()
+    db.app_settings.find_one = AsyncMock(return_value=None)
+    db.app_settings.update_one = AsyncMock(return_value=MagicMock(matched_count=1))
+    yield TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def non_admin_client(monkeypatch, tmp_path):
+    """A TestClient authenticated as a non-admin user."""
+    import packages.ai.brain_config as mod
+    monkeypatch.setattr(mod, "_store", None)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
+
+    from backend.server import app, get_current_user, get_optional_user
+    user_dict = {"_id": "user-1", "email": "user@example.com", "role": "user"}
+    app.dependency_overrides[get_current_user] = lambda: user_dict
+    app.dependency_overrides[get_optional_user] = lambda: user_dict
+    yield TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def unauth_client(monkeypatch, tmp_path):
+    """A TestClient where get_current_user raises 401 (no auth)."""
+    import packages.ai.brain_config as mod
+    monkeypatch.setattr(mod, "_store", None)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
+
+    from fastapi import HTTPException
+    from backend.server import app, get_current_user, get_optional_user
+
+    async def _raise():
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    app.dependency_overrides[get_current_user] = _raise
+    app.dependency_overrides[get_optional_user] = lambda: None
+    yield TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides.clear()
