@@ -390,6 +390,33 @@ _MODEL_ALIASES: dict[str, dict[str, str]] = {
 }
 
 
+# ── Catalog override (UNIT 6) ─────────────────────────────────────────────
+#
+# The ``_PROVIDER_REGISTRY`` above has hardcoded ``default_model`` and
+# ``models`` fields per provider that duplicate the catalog
+# (``config/models.yaml`` → ``PROVIDER_CANDIDATES``). UNIT 6 makes the
+# catalog the single source of truth for model ids — the registry keeps
+# failover-specific fields (``cooldown``, ``name``, ``tier``, ``key_env``,
+# ``base_url_env``, ``default_base_url``) but ``default_model`` and
+# ``models`` are derived from the catalog at module import time.
+#
+# This eliminates the "I added a model to the catalog but brain_failover
+# still tries the old one" class of bug. The catalog's first candidate is
+# the preset (used as ``default_model``); the full candidate list becomes
+# ``models`` (the failover chain).
+try:
+    from packages.ai.brain_config import PROVIDER_CANDIDATES as _CATALOG_CANDIDATES  # noqa: E402
+
+    for _entry in _PROVIDER_REGISTRY:
+        _pid = _entry.get("id")
+        _cands = _CATALOG_CANDIDATES.get(_pid)
+        if _cands:
+            _entry["default_model"] = _cands[0]
+            _entry["models"] = list(_cands)
+except Exception:  # noqa: BLE001 — never break module import
+    pass
+
+
 # ── Failover manager ─────────────────────────────────────────────────────
 
 

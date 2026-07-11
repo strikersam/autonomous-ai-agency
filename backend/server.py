@@ -305,23 +305,38 @@ async def _persist_chat_session(
 
 
 def _default_agent_role_models() -> dict[str, str]:
+    """Resolve default per-role agent models via the catalog (UNIT 6).
+
+    Was a hardcoded NIM/Ollama split with stale model ids
+    (``qwen/qwen3-coder-480b-a35b-instruct`` and ``deepseek-ai/deepseek-v4-pro``
+    were never in the catalog). Now derives from the catalog via
+    ``resolve_component_model``, which honours the active BrainConfig (DB),
+    the catalog presets (``config/models.yaml``), and the existing env-var
+    overrides (``AGENT_<ROLE>_MODEL``, ``NVIDIA_DEFAULT_MODEL``,
+    ``OLLAMA_MODEL``) — so a UI Apply is reflected in the wizard defaults
+    without a redeploy.
+    """
+    # Late import — brain_config imports from backend.server (cycle).
+    from packages.ai.brain_config import resolve_component_model
+
     nim_enabled = bool(
         (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
     )
-    if nim_enabled:
-        return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "qwen/qwen3-coder-480b-a35b-instruct",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "meta/llama-3.3-70b-instruct",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "meta/llama-3.3-70b-instruct",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
-        }
+    # Pick the catalog provider to consult: NVIDIA when a NIM key is
+    # present, Ollama otherwise (matches the legacy NIM/Ollama split).
+    provider = "nvidia" if nim_enabled else "ollama"
+
+    executor = resolve_component_model(
+        component="server",
+        role="executor",
+        provider=provider,
+    )
     return {
-        "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
-        "planner": os.environ.get("AGENT_PLANNER_MODEL") or "deepseek-r1:32b",
-        "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "qwen3-coder:30b",
-        "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
-        "judge": os.environ.get("AGENT_JUDGE_MODEL") or os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
+        "default":  executor,  # "default" is a synonym for executor
+        "planner":  resolve_component_model("server", "planner",  provider=provider),
+        "executor": executor,
+        "verifier": resolve_component_model("server", "verifier", provider=provider),
+        "judge":    resolve_component_model("server", "judge",    provider=provider),
     }
 
 

@@ -1037,6 +1037,142 @@ async def resolve_role_model(role: str, requested: str | None = None) -> str:
     return resolve_role_model_sync(role, requested)
 
 
+# ── Component-level model resolver (UNIT 6) ────────────────────────────────
+#
+# The codebase has multiple call sites that need "the model id for this
+# role on this provider" — e.g. ``telegram_bot.cmd_setbrain`` PATCHes all
+# four role models when switching providers, ``brain_failover`` walks the
+# provider chain, ``server._default_agent_role_models`` seeds the wizard.
+# Each had its own duplicate preset table (UNIT 6 deletes them).
+#
+# ``resolve_component_model`` is the single entry point: it consults the
+# catalog (``config/models.yaml`` → ``PROVIDER_PRESETS``) and the active
+# BrainConfig (DB), with DB winning when the requested provider matches
+# the active primary. Never raises — falls back to the safe default.
+
+
+def resolve_component_model(
+    component: str,
+    role: str = "executor",
+    provider: str | None = None,
+    requested: str | None = None,
+) -> str:
+    """Resolve the model id for a component's role on a provider.
+
+    Parameters
+    ----------
+    component : str
+        The calling component id (e.g. ``"telegram_bot"``,
+        ``"brain_failover"``, ``"router"``, ``"server"``). Used only for
+        logging — there are no per-component overrides (the catalog is
+        the single source of truth).
+    role : str
+        One of ``"planner"``, ``"executor"``, ``"verifier"``, ``"judge"``,
+        or ``"default"``. ``"default"`` is a synonym for ``"executor"``
+        (the most-used role).
+    provider : str | None
+        The provider id whose preset should be used. If ``None``, the
+        active brain config's ``primary_provider`` is consulted. If the
+        provider matches the active primary AND the cache is fresh, the
+        DB-saved model for that role wins (so a UI Apply is honoured).
+    requested : str | None
+        Per-call override. If non-empty, returned verbatim (highest
+        precedence).
+
+    Returns
+    -------
+    str
+        The resolved model id. Never empty. Falls back to
+        ``SAFE_DEFAULT_MODEL`` on any error.
+
+    Precedence (highest to lowest):
+      1. ``requested`` — per-call override
+      2. DB-saved model for this role (when ``provider`` is None or
+         matches the active brain's ``primary_provider`` AND the cache
+         is fresh)
+      3. Catalog preset: ``PROVIDER_PRESETS[provider][role]``
+      4. Env var ``AGENT_<ROLE>_MODEL`` (backward compat)
+      5. ``SAFE_DEFAULT_MODEL``
+    """
+    # Normalise role.
+    role_norm = (role or "executor").strip().lower()
+    if role_norm == "default":
+        role_norm = "executor"
+    if role_norm not in _ROLE_TO_DB_FIELD:
+        # Unknown role — return the safe default rather than raising.
+        return SAFE_DEFAULT_MODEL
+
+    # 1. Per-call override wins.
+    if requested and requested.strip():
+        return requested.strip()
+
+    # 2. DB-saved model (if cache is fresh and provider matches).
+    try:
+        if _store is not None and _store._cache is not None:
+            if (time.monotonic() - _store._cache_at) < _CACHE_TTL_SECONDS:
+                cfg = _store._cache
+                active_provider = str(getattr(cfg, "primary_provider", "")).strip()
+                if provider is None or provider == active_provider:
+                    field = _ROLE_TO_DB_FIELD[role_norm]
+                    val = getattr(cfg, field, None)
+                    if val and val.strip():
+                        return val.strip()
+    except Exception:  # noqa: BLE001 — defensive
+        pass
+
+    # 3. Catalog preset for the resolved provider.
+    resolved_provider = provider
+    if resolved_provider is None:
+        # Use the active brain's primary_provider if available.
+        try:
+            if _store is not None and _store._cache is not None:
+                resolved_provider = str(
+                    getattr(_store._cache, "primary_provider", "")
+                ).strip() or None
+        except Exception:  # noqa: BLE001
+            pass
+    if resolved_provider:
+        presets = PROVIDER_PRESETS.get(resolved_provider) or {}
+        v = presets.get(role_norm)
+        if v and v.strip():
+            return v.strip()
+
+    # 4. Env var (kept working so nothing regresses).
+    env_var = _ROLE_TO_ENV_VAR.get(role_norm)
+    if env_var:
+        v = (os.environ.get(env_var) or "").strip()
+        if v:
+            return v
+
+    # 5. Safe default.
+    return SAFE_DEFAULT_MODEL
+
+
+def resolve_component_role_models(
+    component: str,
+    provider: str | None = None,
+    requested: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Convenience: resolve all four role models for a component.
+
+    Returns a dict with keys ``planner``, ``executor``, ``verifier``,
+    ``judge`` — the same shape as ``PROVIDER_PRESETS[provider]`` but
+    resolved through the full precedence chain (DB → catalog → env →
+    safe default). Used by ``telegram_bot.cmd_setbrain`` to PATCH all
+    four role models at once.
+    """
+    requested = requested or {}
+    out: dict[str, str] = {}
+    for role in ("planner", "executor", "verifier", "judge"):
+        out[role] = resolve_component_model(
+            component=component,
+            role=role,
+            provider=provider,
+            requested=requested.get(role),
+        )
+    return out
+
+
 async def refresh_brain_config_cache() -> BrainConfig:
     """Force a cache refresh (used by tests + the GET /admin/api/policy/brain endpoint)."""
     store = await get_brain_config_store()
