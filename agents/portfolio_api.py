@@ -113,6 +113,7 @@ class BoardOut(BaseModel):
     horizon_capacity: int
     sources: Dict[str, int] = Field(default_factory=dict)
     generated_at: float = 0.0
+    materialized_task_ids: List[str] = Field(default_factory=list)
 
 
 # ── In-process state ─────────────────────────────────────────────────────────
@@ -233,10 +234,54 @@ async def get_board(horizon_capacity: int = DEFAULT_HORIZON_CAPACITY) -> BoardOu
 
 @portfolio_router.post("/refresh", response_model=BoardOut)
 async def refresh_board() -> BoardOut:
-    """Force a re-sweep of all signals and return the rebuilt board."""
+    """Force a re-sweep of all signals and return the rebuilt board.
+
+    Also materializes committed portfolio initiatives into tasks (default ON,
+    flag PORTFOLIO_MATERIALIZE_ENABLED to disable).
+    """
     svc = get_service()
     svc.refresh()
-    return svc.board()
+
+    # Materialize committed initiatives into tasks
+    materialized_ids: list[str] = []
+    try:
+        from tasks.portfolio_intake import materialize_committed
+        from tasks.store import get_task_store
+        store = get_task_store()
+        created = await materialize_committed(svc.portfolio, store=store)
+        materialized_ids = [t.task_id for t in created]
+    except Exception as exc:
+        import logging
+        logging.getLogger("qwen-proxy").debug("portfolio materialize failed (non-fatal): %s", exc)
+
+    board = svc.board()
+    board.materialized_task_ids = materialized_ids
+    return board
+
+
+@portfolio_router.post("/materialize", response_model=BoardOut)
+async def materialize_portfolio() -> BoardOut:
+    """Manually trigger portfolio → task materialization and return the board.
+
+    Same auth as /refresh (none — portfolio is read-only + system task creation).
+    """
+    svc = get_service()
+    svc.ensure_fresh()
+
+    materialized_ids: list[str] = []
+    try:
+        from tasks.portfolio_intake import materialize_committed
+        from tasks.store import get_task_store
+        store = get_task_store()
+        created = await materialize_committed(svc.portfolio, store=store)
+        materialized_ids = [t.task_id for t in created]
+    except Exception as exc:
+        import logging
+        logging.getLogger("qwen-proxy").debug("portfolio materialize failed (non-fatal): %s", exc)
+
+    board = svc.board()
+    board.materialized_task_ids = materialized_ids
+    return board
 
 
 # Backward-compatible alias for the old demo-seed route — now rebuilds from signals.

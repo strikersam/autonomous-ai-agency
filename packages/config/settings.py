@@ -118,6 +118,9 @@ class Settings:
         # Self-bootstrap
         self.self_bootstrap_enabled: str = os.environ.get("SELF_BOOTSTRAP_ENABLED", "true").lower()
 
+        # Portfolio materializer (default ON — flag is the rollback lever)
+        self.portfolio_materialize_enabled: str = os.environ.get("PORTFOLIO_MATERIALIZE_ENABLED", "true").lower()
+
     @property
     def is_testing(self) -> bool:
         return self.testing == "true"

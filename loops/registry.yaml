@@ -340,7 +340,7 @@ loops:
     source: .github/workflows/portfolio-refresh.yml
     self_heal: true
     gate: none
-    purpose: Recompute WSJF portfolio prioritisation.
+    purpose: Recompute WSJF portfolio prioritisation and materialize committed NOW-horizon initiatives into tasks.
 
   - id: daily-digest
     name: Daily Digest
