@@ -561,11 +561,22 @@ git config core.hooksPath .claude/hooks            # Activate hooks
 
 ---
 
+## Standing Instructions — Universal Agent Discipline (MANDATORY)
+
+**Every agent working in this repository — Claude, Codex, Cursor, Aider, or any other tool —
+MUST follow the Standing Instructions in [`CLAUDE.md` §14](CLAUDE.md#14-standing-instructions--universal-agent-discipline).**
+They are executable procedures (trigger → action) covering: reading intent, problem decomposition,
+effort placement, verification, known-vs-guessed marking, self-attack, completeness, refusing to
+guess, delivery order, and the 10 fake-competence patterns — plus a final gate checklist that must
+pass before any answer is sent. They are not advice; run them literally on every task.
+
+---
+
 ## Further Reading
 
 | Topic | Location |
 |-------|----------|
-| Operating guide | `CLAUDE.md` |
+| Operating guide | `CLAUDE.md` (incl. §14 Standing Instructions — mandatory for all agents) |
 | Architecture overview | `docs/architecture/overview.md` |
 | Model routing | `docs/architecture/model-routing.md`, `router/CLAUDE.md` |
 | Agent orchestration | `docs/architecture/agent-orchestration.md`, `agent/CLAUDE.md` |
