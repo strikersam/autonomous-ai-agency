@@ -77,17 +77,28 @@ async def run_self_heal_cycle() -> dict[str, Any]:
 
 
 async def _heal_task_duplicates() -> dict[str, int]:
-    """Delete duplicate tasks by source_id and by title+source."""
+    """Delete duplicate tasks by source_id only.
+
+    Only deletes EXACT duplicates (same source_id) — NOT tasks with the
+    same title but different task_ids. The title-based dedup was too
+    aggressive: it deleted all tasks from the same GitHub issue, even
+    though each task is a separate execution attempt.
+
+    Also: NEVER deletes tasks that are in_progress (they're being executed).
+    """
     from tasks.store import get_task_store
     store = get_task_store()
     all_tasks = await store.list_all(limit=10_000)
 
     seen_source: dict[str, str] = {}
-    seen_title_source: dict[str, str] = {}
     deleted = 0
 
     for t in all_tasks:
-        # Dedup by source_id
+        # Skip tasks that are being executed
+        if t.status.value == "in_progress":
+            continue
+
+        # Dedup ONLY by source_id (exact match)
         sid = t.source_id or ""
         if sid:
             if sid in seen_source:
@@ -95,14 +106,6 @@ async def _heal_task_duplicates() -> dict[str, int]:
                 deleted += 1
                 continue
             seen_source[sid] = t.task_id
-
-        # Dedup by title + source (only pending tasks)
-        title_key = f"{t.title}|{t.source or ''}"
-        if title_key in seen_title_source and t.status.value in ("todo", "blocked"):
-            await store.delete(t.task_id)
-            deleted += 1
-            continue
-        seen_title_source[title_key] = t.task_id
 
     if deleted > 0:
         log.info("self_heal: deleted %d duplicate tasks (of %d total)", deleted, len(all_tasks))
