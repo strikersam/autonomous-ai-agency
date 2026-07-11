@@ -179,8 +179,14 @@ async def test_materialize_excludes_pr_source(store):
 async def test_materialize_respects_cap(store):
     """Cap limits the number of tasks created."""
     initiatives = [
-        FakeInitiative(title=f"Init {i}", source="signal", status=FakeStatus.PROPOSED,
-                       business_value=10 - i, job_size=1)
+        FakeInitiative(
+            initiative_id=f"cap-{i}",  # unique IDs so FakePortfolio doesn't collapse them
+            title=f"Init {i}",
+            source="signal",
+            status=FakeStatus.PROPOSED,
+            business_value=10 - i,
+            job_size=1,
+        )
         for i in range(10)
     ]
     portfolio = FakePortfolio(initiatives)
@@ -191,10 +197,11 @@ async def test_materialize_respects_cap(store):
 @pytest.mark.asyncio
 async def test_materialize_flag_off(store, initiatives, monkeypatch):
     """When PORTFOLIO_MATERIALIZE_ENABLED=false, no tasks are created."""
-    monkeypatch.setenv("PORTFOLIO_MATERIALIZE_ENABLED", "false")
-    # Force re-initialization of settings
-    import packages.config.settings as _s
-    _s._store = None
+    # Patch the flag on the singleton directly — `settings` is bound at
+    # module import time so env-var changes don't propagate without a
+    # full re-import. Patching the attribute is the cleanest test seam.
+    from packages.config import settings
+    monkeypatch.setattr(settings, "portfolio_materialize_enabled", "false")
 
     portfolio = FakePortfolio(initiatives)
     created = await materialize_committed(portfolio, store=store)

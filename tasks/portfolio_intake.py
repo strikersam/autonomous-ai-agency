@@ -114,10 +114,24 @@ async def materialize_committed(
         committed = list(getattr(portfolio, "_initiatives", {}).values())
 
     # Filter: status in {PROPOSED, APPROVED}, source != "pr"
+    # Tolerant of both InitiativeStatus enum values and plain strings —
+    # tests pass strings, production passes enums. Compare by .value when
+    # the status is an enum, by raw string otherwise.
     from agents.portfolio import InitiativeStatus
+    _eligible_status_values = {
+        InitiativeStatus.PROPOSED.value,
+        InitiativeStatus.APPROVED.value,
+    }
+
+    def _status_value(s: Any) -> str:
+        """Normalise a status to its string value (enum or raw string)."""
+        if hasattr(s, "value"):
+            return str(s.value)
+        return str(s)
+
     eligible = [
         i for i in committed
-        if i.status in (InitiativeStatus.PROPOSED, InitiativeStatus.APPROVED)
+        if _status_value(i.status) in _eligible_status_values
         and getattr(i, "source", "") != "pr"
     ]
 
