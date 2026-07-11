@@ -66,6 +66,12 @@ jobs:
         run: |
           BASE_SHA=${{ github.event.pull_request.base.sha }}
           git worktree add --detach /tmp/base "$BASE_SHA" 2>/dev/null
+          # Copy the PR's .bandit config over the base worktree's config so
+          # both scans use the SAME bandit rules. Without this, a PR that
+          # changes .bandit (e.g. fixes the exclude_dirs→exclude key bug)
+          # would be compared against a base scan using the old .bandit —
+          # an apples-to-oranges comparison that produces false positives.
+          cp .bandit /tmp/base/.bandit
           BASE_COUNT=$(cd /tmp/base && bandit -r . -f json --exit-zero -q 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('results',[])))" 2>/dev/null || echo "0")
           echo "count=$BASE_COUNT" >> "$GITHUB_OUTPUT"
           echo "Base branch Bandit alerts: $BASE_COUNT"
