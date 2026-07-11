@@ -34,7 +34,28 @@ from uuid import uuid4
 
 log = logging.getLogger("qwen-proxy")
 
-DEFAULT_REPO = "strikersam/local-llm-server"
+
+def _default_repo() -> str:
+    """Resolve the connected repo from the canonical config module.
+
+    Was a hardcoded stale constant (``strikersam/local-llm-server`` — the
+    repo's old name, before the ``autonomous-ai-agency`` rename). Every
+    GitHub API call made with the stale name 404s, and
+    ``fetch_github_signals`` doesn't check the response status before
+    treating the JSON body as a list, so the 404 error object (a dict)
+    crashed with ``TypeError: unhashable type: 'slice'`` — silently
+    dropping all GitHub-sourced portfolio initiatives (bugs, PRs) on
+    every refresh.
+    """
+    try:
+        from packages.config import settings
+        return settings.github_repository
+    except Exception as exc:
+        log.debug("portfolio: could not resolve github_repository from config: %s", exc)
+        return "strikersam/autonomous-ai-agency"
+
+
+DEFAULT_REPO = _default_repo()
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -260,12 +281,36 @@ def fetch_github_signals(
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
     base = f"https://api.github.com/repos/{repo}"
     payload: Dict = {"pulls": [], "bug_issues": []}
+
+    def _items(resp: object, label: str) -> list:
+        # A non-2xx GitHub response is a JSON *object* (e.g. 404's
+        # {"message": "Not Found", ...}), not a list — slicing that with
+        # [:max_items] raises "unhashable type: 'slice'" (dict.__getitem__
+        # rejects the unhashable slice key). Check status + type first so
+        # a wrong repo / bad token / outage logs a clear message instead
+        # of a cryptic TypeError that looks unrelated to the real cause.
+        status = getattr(resp, "status_code", None)
+        if status is not None and status != 200:
+            log.warning(
+                "portfolio: GitHub %s fetch got HTTP %s for repo=%s — %s",
+                label, status, repo, str(getattr(resp, "text", ""))[:200],
+            )
+            return []
+        data = resp.json()
+        if not isinstance(data, list):
+            log.warning(
+                "portfolio: GitHub %s fetch returned non-list JSON for repo=%s: %r",
+                label, repo, data if not isinstance(data, dict) else data.get("message", data),
+            )
+            return []
+        return data[:max_items]
+
     try:
         pr_resp = getter(f"{base}/pulls?state=open&per_page={max_items}", headers)
-        for pr in (pr_resp.json() or [])[:max_items]:
+        for pr in _items(pr_resp, "pulls"):
             payload["pulls"].append({"title": pr.get("title"), "number": pr.get("number")})
         issue_resp = getter(f"{base}/issues?state=open&labels=bug&per_page={max_items}", headers)
-        for issue in (issue_resp.json() or [])[:max_items]:
+        for issue in _items(issue_resp, "bug_issues"):
             if issue.get("pull_request"):
                 continue  # the issues API also returns PRs
             payload["bug_issues"].append({"title": issue.get("title"), "number": issue.get("number")})
@@ -274,17 +319,47 @@ def fetch_github_signals(
     return payload
 
 
+def _run_coro_sync(coro):
+    """Run an async coroutine from sync code, safe even inside a running loop.
+
+    ``PortfolioIntelligence.build()`` is sync but is always invoked from
+    inside FastAPI's async request handling (``refresh_board()`` /
+    ``materialize_portfolio()``), so ``asyncio.run(coro)`` here always
+    raised "cannot be called from a running event loop" — every refresh,
+    in every environment, silently dropped all trend/research-sourced
+    initiatives (caught by the caller's best-effort try/except). When a
+    loop is already running, offload to a fresh thread with its own loop
+    instead.
+    """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)  # no loop running — the fast path
+    from concurrent.futures import ThreadPoolExecutor
+    # Explicit executor (not a `with` block): the context manager's
+    # __exit__ calls shutdown(wait=True), which would block until the
+    # worker thread finishes even after .result(timeout=15) raises
+    # TimeoutError — defeating the timeout for up to TrendWatcher's own
+    # ~20s HTTP timeout. shutdown(wait=False) lets the caller return
+    # promptly; the orphaned thread still terminates on its own.
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        return pool.submit(asyncio.run, coro).result(timeout=15)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 def fetch_research_alerts(*, limit: int = 6, min_relevance: float = 0.35) -> List[Dict]:
     """Best-effort fetch of trend alerts. Returns [] if offline or unavailable."""
     try:
-        import asyncio
-
         from agent.trend_watcher import TrendWatcher
     except Exception as exc:
         log.info("portfolio: trend watcher unavailable: %s", exc)
         return []
     try:
-        alerts = asyncio.run(TrendWatcher().fetch())
+        alerts = _run_coro_sync(TrendWatcher().fetch())
     except Exception as exc:
         log.warning("portfolio: trend fetch failed: %s", exc)
         return []

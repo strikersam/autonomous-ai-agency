@@ -232,6 +232,28 @@ async def get_board(horizon_capacity: int = DEFAULT_HORIZON_CAPACITY) -> BoardOu
     return get_service().board(horizon_capacity=horizon_capacity)
 
 
+async def _materialize_and_log(svc: PortfolioService) -> list[str]:
+    """Run the initiative→task materializer, logging failures loudly.
+
+    Was ``log.debug(...)`` — a real bug here (e.g. the stale-repo /
+    asyncio.run() signal-collection bugs fixed alongside this) was
+    invisible at the default log level, so "portfolio work doesn't
+    happen" produced no diagnostic trail. Stays non-fatal (the board
+    must still render) but now logs at ERROR with the full traceback.
+    """
+    try:
+        from tasks.portfolio_intake import materialize_committed
+        from tasks.store import get_task_store
+        store = get_task_store()
+        created = await materialize_committed(svc.portfolio, store=store)
+        return [t.task_id for t in created]
+    except Exception:
+        logging.getLogger("qwen-proxy").exception(
+            "portfolio materialize failed (non-fatal — board still returns)"
+        )
+        return []
+
+
 @portfolio_router.post("/refresh", response_model=BoardOut)
 async def refresh_board() -> BoardOut:
     """Force a re-sweep of all signals and return the rebuilt board.
@@ -241,19 +263,7 @@ async def refresh_board() -> BoardOut:
     """
     svc = get_service()
     svc.refresh()
-
-    # Materialize committed initiatives into tasks
-    materialized_ids: list[str] = []
-    try:
-        from tasks.portfolio_intake import materialize_committed
-        from tasks.store import get_task_store
-        store = get_task_store()
-        created = await materialize_committed(svc.portfolio, store=store)
-        materialized_ids = [t.task_id for t in created]
-    except Exception as exc:
-        import logging
-        logging.getLogger("qwen-proxy").debug("portfolio materialize failed (non-fatal): %s", exc)
-
+    materialized_ids = await _materialize_and_log(svc)
     board = svc.board()
     board.materialized_task_ids = materialized_ids
     return board
@@ -267,18 +277,7 @@ async def materialize_portfolio() -> BoardOut:
     """
     svc = get_service()
     svc.ensure_fresh()
-
-    materialized_ids: list[str] = []
-    try:
-        from tasks.portfolio_intake import materialize_committed
-        from tasks.store import get_task_store
-        store = get_task_store()
-        created = await materialize_committed(svc.portfolio, store=store)
-        materialized_ids = [t.task_id for t in created]
-    except Exception as exc:
-        import logging
-        logging.getLogger("qwen-proxy").debug("portfolio materialize failed (non-fatal): %s", exc)
-
+    materialized_ids = await _materialize_and_log(svc)
     board = svc.board()
     board.materialized_task_ids = materialized_ids
     return board

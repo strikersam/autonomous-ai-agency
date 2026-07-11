@@ -2293,6 +2293,46 @@ _BOOTSTRAP_DONE = False
 _BOOTSTRAP_LOCK = asyncio.Lock()
 
 
+async def _ensure_tasks_source_id_unique_index() -> None:
+    """Add a unique+sparse index on tasks.source_id — isolated from the
+    main bootstrap try/except on purpose.
+
+    This closes a real race: TaskStore.create()'s dedup is a check-then-
+    insert with no DB-level backstop, so two concurrent creators (the
+    background autonomy cycle + an HTTP-triggered tick, or two
+    overlapping portfolio refreshes) can both pass the pre-insert
+    find_by_source_id check and both commit, producing a duplicate task
+    despite the source_id dedup contract.
+
+    Building a unique index FAILS outright if the collection already
+    contains duplicate values for that field — and if this were inlined
+    into ensure_bootstrap()'s single try/except, that failure would
+    re-raise and abort seed_admin()/seed_default_providers()/task-store
+    wiring too, since Mongo bootstrap failures short-circuit the whole
+    block. A deploy that already has duplicate source_id tasks (exactly
+    the state this fix exists to clean up) would otherwise break far
+    more than it fixes.
+
+    So: try a proactive dedup pass first (best-effort — the periodic
+    self-heal loop will retry every 5 minutes regardless), then attempt
+    the index build in its own try/except that only logs on failure.
+    Sparse so the many tasks with source_id=None are unaffected.
+    """
+    try:
+        from services.self_heal import _heal_task_duplicates
+        await _heal_task_duplicates()
+    except Exception as exc:
+        log.debug("pre-index task dedup pass failed (non-fatal): %s", exc)
+    try:
+        await get_db().tasks.create_index("source_id", unique=True, sparse=True)
+    except Exception as exc:
+        log.warning(
+            "tasks.source_id unique index build failed (likely pre-existing "
+            "duplicates) — will retry on next restart once self-heal has "
+            "deduped: %s", exc,
+        )
+
+
 async def ensure_bootstrap() -> None:
     """Idempotent bootstrap for indexes + seeded admin/providers.
 
@@ -2330,6 +2370,7 @@ async def ensure_bootstrap() -> None:
             await seed_default_agents()
             await seed_default_providers()
             await _sync_ollama_model()
+            await _ensure_tasks_source_id_unique_index()
             _BOOTSTRAP_DONE = True
     except Exception as exc:
         log.warning("MongoDB bootstrap failed (running in limited mode): %s", exc)
