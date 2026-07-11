@@ -162,7 +162,7 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
     ol = next(p for p in body["providers"] if p["provider_id"] == "ollama")
     assert ol["key_present"] is True
 
-    assert body["safe_default"]["model"] == "meta/llama-3.3-70b-instruct"
+    assert body["safe_default"]["model"] == "z-ai/glm-5.2"
 
 
 def test_get_response_never_leaks_api_keys(app_client):
