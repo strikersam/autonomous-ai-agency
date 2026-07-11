@@ -121,13 +121,15 @@ class Settings:
         # Portfolio materializer (default ON — flag is the rollback lever)
         self.portfolio_materialize_enabled: str = os.environ.get("PORTFOLIO_MATERIALIZE_ENABLED", "true").lower()
 
-        # Free-LLM-API model catalog sync (UNIT 8 — default OFF).
+        # Free-LLM-API model catalog sync (UNIT 8 — default ON).
         # When ON, the catalog (config/models.yaml) + active BrainConfig are
-        # periodically mirrored to the DB so external services can query
-        # which models are available. Advisory-only — does NOT change
-        # brain routing. The flag is the rollout lever.
+        # mirrored to the DB + the GET /api/catalog/models endpoint is enabled,
+        # so external services can query which models are available. Advisory-
+        # only — does NOT change brain routing (resolve_component_model() is
+        # still the single source of truth for model resolution). The flag is
+        # the rollback lever if the catalog endpoint causes issues.
         self.freellm_api_model_catalog_enabled: str = os.environ.get(
-            "FREELLM_API_MODEL_CATALOG_ENABLED", "false"
+            "FREELLM_API_MODEL_CATALOG_ENABLED", "true"
         ).lower()
 
     @property

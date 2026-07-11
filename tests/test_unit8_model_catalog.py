@@ -1,9 +1,9 @@
 """tests/test_unit8_model_catalog.py — UNIT 8 regression tests.
 
 Verifies that:
-  1. The ``FREELLM_API_MODEL_CATALOG_ENABLED`` flag defaults to OFF.
-  2. ``is_catalog_enabled()`` returns False by default, True when the
-     env var is set to ``true``.
+  1. The ``FREELLM_API_MODEL_CATALOG_ENABLED`` flag defaults to ON.
+  2. ``is_catalog_enabled()`` returns True by default, False when the
+     env var is set to a non-``true`` value.
   3. ``ModelCatalogStore._build_in_memory()`` builds a complete catalog
      with all 14 providers, the safe default, and the recommended
      priority list.
@@ -12,7 +12,8 @@ Verifies that:
   5. The ``active_brain`` block is populated when the brain config cache
      is fresh; empty otherwise.
   6. ``GET /api/catalog/models`` returns 503 when the flag is OFF.
-  7. ``GET /api/catalog/models`` returns the catalog when the flag is ON.
+  7. ``GET /api/catalog/models`` returns the catalog when the flag is ON
+     (which is the default).
   8. ``POST /api/admin/maintenance/sync-catalog`` requires admin auth.
   9. ``POST /api/admin/maintenance/sync-catalog`` returns 503 when the
      flag is OFF.
@@ -56,23 +57,24 @@ from packages.ai.model_catalog import (
 # ── 1-2. Flag default + setter ─────────────────────────────────────────────
 
 
-def test_catalog_flag_defaults_off(monkeypatch):
-    """The flag must default to OFF (UNIT 8 — rollout lever)."""
+def test_catalog_flag_defaults_on(monkeypatch):
+    """The flag must default to ON (UNIT 8 — rollout complete, flag is the
+    rollback lever)."""
     monkeypatch.delenv("FREELLM_API_MODEL_CATALOG_ENABLED", raising=False)
     # Need to bypass lru_cache by constructing a fresh Settings.
     from packages.config.settings import Settings
     s = Settings()
-    assert s.freellm_api_model_catalog_enabled == "false"
-    assert s.is_freellm_api_model_catalog_enabled is False
+    assert s.freellm_api_model_catalog_enabled == "true"
+    assert s.is_freellm_api_model_catalog_enabled is True
 
 
-def test_is_catalog_enabled_returns_false_by_default(monkeypatch):
+def test_is_catalog_enabled_returns_true_by_default(monkeypatch):
     monkeypatch.delenv("FREELLM_API_MODEL_CATALOG_ENABLED", raising=False)
     # Force a fresh settings instance.
-    from packages.config.settings import Settings, _get_settings
+    from packages.config.settings import Settings
     # Bypass lru_cache by constructing fresh.
     s = Settings()
-    assert s.is_freellm_api_model_catalog_enabled is False
+    assert s.is_freellm_api_model_catalog_enabled is True
 
 
 def test_is_catalog_enabled_returns_true_when_set(monkeypatch):
@@ -229,8 +231,14 @@ def test_build_in_memory_active_brain_populated_when_cache_fresh(monkeypatch):
 
 
 def test_get_catalog_models_returns_503_when_flag_off(app_client, monkeypatch):
-    """The endpoint returns 503 when the flag is OFF (default)."""
-    monkeypatch.delenv("FREELLM_API_MODEL_CATALOG_ENABLED", raising=False)
+    """The endpoint returns 503 when the flag is explicitly set to OFF.
+
+    The flag defaults to ON (UNIT 8 rollout complete), so this test must
+    explicitly set it to ``false`` to verify the 503 path.
+    """
+    monkeypatch.setattr(
+        "packages.ai.model_catalog.is_catalog_enabled", lambda: False
+    )
     r = app_client.get("/api/catalog/models")
     assert r.status_code == 503
     body = r.json()
@@ -282,7 +290,10 @@ def test_sync_catalog_requires_admin_role(non_admin_client):
 
 
 def test_sync_catalog_returns_503_when_flag_off(app_client, monkeypatch):
-    monkeypatch.delenv("FREELLM_API_MODEL_CATALOG_ENABLED", raising=False)
+    """When the flag is explicitly OFF, the sync endpoint returns 503."""
+    monkeypatch.setattr(
+        "packages.ai.model_catalog.is_catalog_enabled", lambda: False
+    )
     r = app_client.post("/api/admin/maintenance/sync-catalog")
     assert r.status_code == 503
     body = r.json()

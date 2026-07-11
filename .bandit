@@ -5,7 +5,27 @@
 # rules that fire on legitimate patterns across this codebase (try/except/pass,
 # subprocess usage with constant argv, hardcoded-string heuristics, asserts).
 # Medium/High findings (shell injection, SQLi, etc.) remain fully enforced.
-exclude_dirs: tests,.venv,.git,node_modules,frontend
+#
+# NOTE on `exclude` (not `exclude_dirs`): bandit's CLI reads the ini file via
+# parse_ini_file() which returns a dict, then looks for the `exclude` key
+# (NOT `exclude_dirs`) to set the excluded paths. Using `exclude_dirs` silently
+# does nothing. This was discovered while debugging the Security Gate false
+# positives.
+#
+# NOTE on `.git`: do NOT add `.git` to the exclude list. bandit's
+# discover_files does `if os.path.isdir(path): path = path + "/*"` on each
+# excluded path. When `.git` is a real directory (normal checkout), it becomes
+# `.git/*` which does NOT match `.github/...` as a substring → `.github/`
+# files get scanned. When `.git` is a file (git worktree, used by the
+# Security Gate's base-branch scan), `.git` stays as `.git` which DOES match
+# `.github/...` as a substring → `.github/` files get excluded. This
+# inconsistency caused the Security Gate to report different alert counts for
+# identical file content depending on whether the scan ran in a worktree or a
+# normal checkout. The fix: don't list `.git` in `exclude` at all — bandit's
+# default EXCLUDE constant already handles `.git` via glob, and `.github/`
+# files are intentionally scanned (they contain subprocess calls that need
+# B603/B607 coverage).
+exclude: tests,.venv,node_modules,frontend
 # Low-severity rules skipped repo-wide (noise on legitimate code):
 #   B101 assert_used, B105 hardcoded_password_string (heuristic),
 #   B110 try_except_pass, B112 try_except_continue, B404 import subprocess.

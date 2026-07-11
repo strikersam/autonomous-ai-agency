@@ -70,7 +70,7 @@ async def test_helper_sets_source_id(store, monkeypatch):
                 mock_client_cls.return_value = mock_client
 
                 task, status = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token="fake_token", repo="owner/repo"  # nosec B106 — test fixture
                 )
 
     assert task is not None
@@ -98,13 +98,13 @@ async def test_helper_idempotent_same_issue(store, monkeypatch):
 
                 # First call — creates the task
                 task1, status1 = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token="fake_token", repo="owner/repo"  # nosec B106 — test fixture
                 )
                 assert task1 is not None
 
                 # Second call — should NOT create a duplicate
                 task2, status2 = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token="fake_token", repo="owner/repo"  # nosec B106 — test fixture
                 )
                 assert task2 is None
 
@@ -131,14 +131,14 @@ async def test_helper_skips_exhausted_picks_next(store, monkeypatch):
 
                 # First call — creates task for issue #1
                 task1, _ = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token="fake_token", repo="owner/repo"  # nosec B106 — test fixture
                 )
                 assert task1 is not None
                 assert task1.source_id == "owner/repo#1"
 
                 # Second call — issue #1 already has a task, so picks issue #2
                 task2, _ = await create_task_from_oldest_open_issue(
-                    store=store, token="fake_token", repo="owner/repo"
+                    store=store, token="fake_token", repo="owner/repo"  # nosec B106 — test fixture
                 )
                 assert task2 is not None
                 assert task2.source_id == "owner/repo#2"

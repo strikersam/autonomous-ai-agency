@@ -41,7 +41,10 @@ def portfolio_source_id(initiative: Any) -> str:
     """
     source = getattr(initiative, "source", "manual") or "manual"
     title = (getattr(initiative, "title", "") or "").strip().lower()
-    digest = hashlib.sha1(f"{source}|{title}".encode()).hexdigest()[:16]
+    digest = hashlib.sha1(
+        f"{source}|{title}".encode(),
+        usedforsecurity=False,  # noqa: B324 — content fingerprint, not security
+    ).hexdigest()[:16]
     return f"portfolio:{digest}"
 
 
