@@ -73,7 +73,7 @@ services:
         sync: false
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
-      # FREE NVIDIA NIM brain. llama-3.3-nemotron-super-49b-v1 is a Nemotron Super 49B
+      # FREE NVIDIA NIM brain. z-ai/glm-5.2 is the default model (live, free, high-quality).
       # that activates only ~12B params/token (vs ~55B for the 550B "ultra"), so
       # it is several times faster per call while staying a same-generation
       # reasoning model — best fit for the latency-sensitive agent loop on a free,

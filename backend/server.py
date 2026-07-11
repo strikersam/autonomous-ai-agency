@@ -3655,6 +3655,8 @@ from packages.ai.brain_config import (  # noqa: E402 — late import to avoid cy
     PROVIDER_KEY_ENV,
     PROVIDER_PRESETS,
     PROVIDER_DEFAULT_BASE_URL,
+    SAFE_DEFAULT_PROVIDER,
+    SAFE_DEFAULT_MODEL,
     get_brain_config,
     get_brain_config_store,
     invalidate_brain_config_cache,
@@ -3863,8 +3865,8 @@ async def get_brain_policy_route(user: dict = Depends(get_current_user)):
         "config": cfg.model_dump(mode="json"),
         "providers": _brain_provider_status(),
         "safe_default": {
-            "primary_provider": "nvidia",
-            "model": "meta/llama-3.3-70b-instruct",
+            "primary_provider": SAFE_DEFAULT_PROVIDER,
+            "model": SAFE_DEFAULT_MODEL,
         },
     }
 
