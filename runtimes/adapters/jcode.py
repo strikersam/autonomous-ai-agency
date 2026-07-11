@@ -57,6 +57,24 @@ from runtimes.base import (
 log = logging.getLogger("runtime.jcode")
 
 
+def _resolve_default_executor_model(component: str) -> str:
+    """Resolve the default executor model via the catalog (UNIT 7).
+
+    Was hardcoded to ``meta/llama-3.3-70b-instruct`` — now consults the
+    catalog so a UI Apply or a ``config/models.yaml`` edit is reflected
+    without a redeploy. Falls back to the safe default on import error.
+    """
+    try:
+        from packages.ai.brain_config import resolve_component_model
+        return resolve_component_model(
+            component=component,
+            role="executor",
+            provider=None,  # use the active brain's primary
+        )
+    except Exception:
+        return "meta/llama-3.3-70b-instruct"
+
+
 class JCodeAdapter(RuntimeAdapter):
     """Adapter for jcode — TIER 2 high-performance Rust coding agent."""
 
@@ -94,7 +112,11 @@ class JCodeAdapter(RuntimeAdapter):
             "JCODE_PROVIDER_URL",
             os.environ.get("PROXY_BASE_URL", "http://localhost:8000") + "/v1",
         )
-        self._model = cfg.get("model") or            os.environ.get("JCODE_MODEL", os.environ.get("AGENT_EXECUTOR_MODEL", "meta/llama-3.3-70b-instruct"))
+        self._model = (
+            cfg.get("model")
+            or os.environ.get("JCODE_MODEL")
+            or _resolve_default_executor_model("jcode")
+        )
         self._api_key = cfg.get("api_key") or os.environ.get(
             "JCODE_API_KEY", os.environ.get("PROXY_API_KEY", "")
         )

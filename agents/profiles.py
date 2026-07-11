@@ -11,6 +11,12 @@ The key design invariant:
 This asymmetry is the core of the dual-model review: the reviewer
 sees the coder's output with fresh eyes and a different reasoning
 style, catching blind spots the original author-model would miss.
+
+UNIT 7: the per-role model ids are now resolved through the catalog
+(``packages.ai.brain_config.resolve_component_model``) — DB → catalog
+preset → env var → safe default. The hardcoded ``_nvidia_defaults()``
+fallback table is kept only for the case where the catalog import
+fails (defensive — never breaks module import).
 """
 from __future__ import annotations
 
@@ -30,20 +36,71 @@ _ENV: dict[str, str] = {
     "verifier":  "CRISPY_VERIFIER_MODEL",
 }
 
-# ── Hard-coded defaults (distinct coder ≠ reviewer by design) ────────────────
-# Prefer Nvidia NIM free-tier models (no local infra) when a key is configured;
-# fall back to local Ollama models otherwise.  The coder ≠ reviewer asymmetry is
-# preserved in both paths.
+# ── CRISPY role → brain-config role mapping ─────────────────────────────────
+#
+# CRISPY has 5 roles (architect/scout/coder/reviewer/verifier); the brain
+# config has 4 (planner/executor/verifier/judge). The mapping preserves
+# the coder ≠ reviewer asymmetry: coder maps to executor (the dense
+# tool-calling model), reviewer maps to judge (the reasoning model).
+# architect + scout also map to executor (same chain as coder — they all
+# need tool-calling); verifier maps to verifier.
+_CRISPY_TO_BRAIN_ROLE: dict[str, str] = {
+    "architect": "executor",
+    "scout":     "executor",
+    "coder":     "executor",
+    "reviewer":  "judge",
+    "verifier":  "verifier",
+}
+
+# ── Catalog-driven defaults (UNIT 7) ────────────────────────────────────────
+#
+# Pick the catalog provider based on which key is configured — mirrors
+# the legacy NIM/Ollama split but is now catalog-driven so adding a
+# provider to ``config/models.yaml`` makes it the CRISPY default with no
+# code change here. Falls back to the hardcoded ``_nvidia_defaults``
+# only if the catalog import fails (defensive).
+
+
+def _catalog_provider() -> str:
+    """Pick the catalog provider based on which API key is configured."""
+    if os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"):
+        return "nvidia"
+    if os.environ.get("DEEPSEEK_API_KEY"):
+        return "deepseek"
+    if os.environ.get("GROQ_API_KEY"):
+        return "groq"
+    if os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY"):
+        return "dashscope"
+    if os.environ.get("CEREBRAS_API_KEY"):
+        return "cerebras"
+    if os.environ.get("MISTRAL_API_KEY"):
+        return "mistral"
+    return "ollama"
+
+
+def _catalog_defaults() -> dict[str, str] | None:
+    """Resolve per-role defaults via the catalog. Returns None on import error."""
+    try:
+        from packages.ai.brain_config import resolve_component_model
+        provider = _catalog_provider()
+        out: dict[str, str] = {}
+        for role in ("architect", "scout", "coder", "reviewer", "verifier"):
+            brain_role = _CRISPY_TO_BRAIN_ROLE.get(role, "executor")
+            out[role] = resolve_component_model(
+                component="crispy",
+                role=brain_role,
+                provider=provider,
+            )
+        return out
+    except Exception:
+        return None
+
+
+# ── Hard-coded fallback (kept for defensive parity — catalog import fail) ───
+
 
 def _nvidia_defaults() -> dict[str, str]:
     if os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"):
-        # Live-verified NIM free-tier models (2026-06-20 live probe):
-        # recycler roles use the 120B-a12b MoE (reasoning-tuned);
-        # coder/executor uses the dense 49B (JSON-clean, tool-calling);
-        # scout uses 70B (fast read-only summarisation).
-        # The asymmetry architect/scout/coder ≠ reviewer is preserved by
-        # routing reviewer through the 120B-a12b reasoning model rather than
-        # the dense 49B used for coder.
         return {
             "architect": "meta/llama-3.3-70b-instruct",
             "scout":     "meta/llama-3.3-70b-instruct",
@@ -85,6 +142,10 @@ def _nvidia_defaults() -> dict[str, str]:
 
 
 def _get_defaults() -> dict[str, str]:
+    """Try the catalog first; fall back to the hardcoded table on import error."""
+    catalog = _catalog_defaults()
+    if catalog is not None:
+        return catalog
     return _nvidia_defaults()
 
 

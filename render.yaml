@@ -100,18 +100,19 @@ services:
       - key: E2B_TIMEOUT_SEC
         value: "300"
 
-      # Agent brain roles run on the FREE NVIDIA model — NOT paid Anthropic
-      # Bedrock Opus. Pinning these to us.anthropic.* is what made every agent
-      # task call api.anthropic.com and fail with 400 (issue #656). Set
-      # ALLOW_PAID_BRAIN=true only to deliberately opt back into paid Anthropic.
-      - key: AGENT_PLANNER_MODEL
-        value: "z-ai/glm-5.2"
-      - key: AGENT_EXECUTOR_MODEL
-        value: "z-ai/glm-5.2"
-      - key: AGENT_VERIFIER_MODEL
-        value: "z-ai/glm-5.2"
-      - key: AGENT_JUDGE_MODEL
-        value: "z-ai/glm-5.2"
+      # ── Agent brain role models (UNIT 7) ────────────────────────────────
+      # The AGENT_<ROLE>_MODEL env vars (planner/executor/verifier/judge) were
+      # removed — the catalog (config/models.yaml) + DB BrainConfig are now the
+      # single source of truth. ``resolve_component_model()`` resolves each
+      # role at call time: DB-saved BrainConfig → catalog preset → env var
+      # (kept as a backward-compat fallback) → safe default. The free NVIDIA
+      # z-ai/glm-5.2 model is the catalog's nvidia role preset, so the
+      # behaviour is unchanged for this deployment — but a UI Apply now
+      # propagates to the agent loop without a Render redeploy.
+      #
+      # Set ALLOW_PAID_BRAIN=true only to deliberately opt back into paid
+      # Anthropic (issue #656: agents were stuck calling api.anthropic.com /
+      # Bedrock and 400ing).
 
       # LLM Provider
       - key: LLM_PROVIDER
@@ -492,17 +493,10 @@ services:
       # https://build.nvidia.com/meta/llama-3.3-70b-instruct
       - key: NVIDIA_DEFAULT_MODEL
         value: "z-ai/glm-5.2"
-      # Agent brain roles run on the FREE NVIDIA model — NOT paid Anthropic
-      # Bedrock Opus (issue #656: agents were stuck calling api.anthropic.com /
-      # Bedrock and 400ing). Set ALLOW_PAID_BRAIN=true only to opt back into paid.
-      - key: AGENT_PLANNER_MODEL
-        value: "z-ai/glm-5.2"
-      - key: AGENT_EXECUTOR_MODEL
-        value: "z-ai/glm-5.2"
-      - key: AGENT_VERIFIER_MODEL
-        value: "z-ai/glm-5.2"
-      - key: AGENT_JUDGE_MODEL
-        value: "z-ai/glm-5.2"
+      # UNIT 7: AGENT_<ROLE>_MODEL env vars removed — catalog (config/models.yaml)
+      # + DB BrainConfig are now the single source of truth via
+      # resolve_component_model(). The free NVIDIA z-ai/glm-5.2 model is the
+      # catalog's nvidia role preset, so behaviour is unchanged.
       - key: LLM_PROVIDER
         value: "nvidia-nim"
       # Telegram approval-gate pushes when this worker runs the orchestrator
@@ -649,15 +643,10 @@ services:
         value: "z-ai/glm-5.2"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
-      # Agent brain roles on free NVIDIA NIM
-      - key: AGENT_PLANNER_MODEL
-        value: "z-ai/glm-5.2"
-      - key: AGENT_EXECUTOR_MODEL
-        value: "z-ai/glm-5.2"
-      - key: AGENT_VERIFIER_MODEL
-        value: "z-ai/glm-5.2"
-      - key: AGENT_JUDGE_MODEL
-        value: "z-ai/glm-5.2"
+      # UNIT 7: AGENT_<ROLE>_MODEL env vars removed — catalog (config/models.yaml)
+      # + DB BrainConfig are now the single source of truth via
+      # resolve_component_model(). The free NVIDIA z-ai/glm-5.2 model is the
+      # catalog's nvidia role preset, so behaviour is unchanged.
       # Optional bearer gate — set in dashboard if needed
       - key: HERMES_API_KEY
         sync: false
