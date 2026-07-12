@@ -52,6 +52,7 @@ const PROVIDER_LABEL_FALLBACK = {
   openrouter: 'OpenRouter',
   anthropic: 'Anthropic',
   aerolink:  'Aerolink',
+  google:    'Google Gemini',
 };
 
 function providerLabel(p) {
