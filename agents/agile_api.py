@@ -100,7 +100,7 @@ async def start_sprint(sprint_id: str, body: SprintStartRequest = SprintStartReq
     try:
         sprint.start(duration_days=body.duration_days)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Internal server error") from exc
     return {"ok": True, "data": _sprint_to_dict(sprint)}
 
 
@@ -113,7 +113,7 @@ async def complete_sprint(sprint_id: str, _user: Any = Depends(_require_auth)) -
     try:
         metrics = sprint.complete()
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Internal server error") from exc
     return {
         "ok": True,
         "data": {

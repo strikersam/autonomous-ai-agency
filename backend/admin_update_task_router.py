@@ -123,7 +123,7 @@ async def update_workflow_task(
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail="Internal server error")
     except Exception as exc:  # noqa: BLE001
         log.exception("admin_update_task.update_task_failed run=%s exc=%s", run_id, exc)
         raise HTTPException(status_code=500, detail=f"update_task failed: {exc}")
