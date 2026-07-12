@@ -512,14 +512,44 @@ class InternalAgentAdapter(RuntimeAdapter):
         # not silently moved to DONE without any real work.
         steps = result.get("steps") or []
         applied_steps = [s for s in steps if s.get("status") == "applied"]
+        failed_steps = [s for s in steps if s.get("status") == "failed"]
         output_text = result.get("report") or result.get("summary") or ""
         judge_verdict = str((result.get("judge") or {}).get("verdict") or "").upper()
+
+        # Failure-ratio gate: if the agent attempted multiple steps but the
+        # majority failed, treat the task as FAILED even if a few steps were
+        # applied. This prevents the "21/22 failed, 1 applied → DONE" bug
+        # where a task that barely did anything is silently marked complete.
+        # Threshold: if ≥75% of attempted steps failed AND fewer than 3 steps
+        # were applied, it's a failure. A task that applied 5+ steps with some
+        # failures is still considered work done.
+        total_steps = len(steps)
+        failure_ratio = (len(failed_steps) / total_steps) if total_steps > 0 else 0.0
+        mostly_failed = total_steps >= 4 and failure_ratio >= 0.75 and len(applied_steps) < 3
+
         # Actual work is considered done if files were modified, steps were applied,
-        # or if the agent produced a meaningful informational report/answer.
-        did_work = (bool(unique_files or applied_steps) or len(output_text.strip()) > 20) and judge_verdict != "BLOCKED"
+        # or if the agent produced a meaningful informational report/answer —
+        # UNLESS the majority of steps failed (mostly_failed gate above).
+        did_work = (
+            (bool(unique_files or applied_steps) or len(output_text.strip()) > 20)
+            and judge_verdict != "BLOCKED"
+            and not mostly_failed
+        )
 
         # Clean up the isolated worktree once the agent is done.
         self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
+
+        # If the task mostly failed, prepend a clear failure summary to the
+        # output so the task's error_message (set by _apply_result when
+        # success=False) explains what went wrong.
+        if mostly_failed:
+            failure_summary = (
+                f"Task marked as FAILED: {len(failed_steps)}/{total_steps} steps "
+                f"failed (only {len(applied_steps)} applied). "
+                f"Failure ratio {failure_ratio:.0%} exceeds the 75% threshold. "
+                f"Agent comment: {output_text[:500]}"
+            )
+            output_text = failure_summary
 
         provider_label = "nvidia-nim" if nvidia_chain else "ollama"
         return TaskResult(
