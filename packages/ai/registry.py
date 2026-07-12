@@ -171,6 +171,55 @@ def _register_defaults() -> None:
         fallback_model="meta/llama-3.3-70b-instruct",
     ))
     
+    # Llama 4 Maverick on Groq — MoE 17B active/128E total, fast and capable (Meta, 2025)
+    register(ModelInfo(
+        model_id="llama-4-maverick-17b-128e-instruct",
+        provider_id="groq",
+        display_name="Llama 4 Maverick 17B (Groq)",
+        supports_tools=True,
+        supports_streaming=True,
+        context_window=131072,
+        max_output_tokens=8192,
+        speed_tier="fast",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        priority=8,
+        fallback_model="llama-3.3-70b-versatile",
+    ))
+
+    # Llama 4 Maverick on NVIDIA NIM — same model, NIM endpoint
+    register(ModelInfo(
+        model_id="meta/llama-4-maverick-17b-128e-instruct",
+        provider_id="nvidia",
+        display_name="Llama 4 Maverick 17B (NVIDIA NIM)",
+        supports_tools=True,
+        supports_streaming=True,
+        context_window=131072,
+        max_output_tokens=8192,
+        speed_tier="fast",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        priority=15,
+        fallback_model="meta/llama-3.3-70b-instruct",
+    ))
+
+    # Gemini 2.5 Flash — fast, 1M context, tool-use, free via Google AI Studio key
+    register(ModelInfo(
+        model_id="gemini-2.5-flash",
+        provider_id="google",
+        display_name="Gemini 2.5 Flash",
+        supports_tools=True,
+        supports_vision=True,
+        supports_streaming=True,
+        context_window=1048576,
+        max_output_tokens=8192,
+        speed_tier="fast",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        priority=12,
+        fallback_model="gemini-2.0-flash",
+    ))
+
     # Ollama (local, no cost)
     register(ModelInfo(
         model_id="qwen3-coder:30b",

@@ -419,7 +419,7 @@ def _service_token_headers() -> dict[str, str]:
 async def cmd_setbrain(user_id: int, provider: str) -> str:
     """/setbrain <provider> — switch the active brain from the phone (N5).
 
-    Provider must be one of the catalog providers (UNIT 6: all 14 providers
+    Provider must be one of the catalog providers (UNIT 6: all 15 providers
     in ``config/models.yaml`` are now eligible — was previously limited to
     a hardcoded 4-element set). Calls ``PATCH /admin/api/policy/brain`` with
     the provider's preset model ids (resolved from the catalog via

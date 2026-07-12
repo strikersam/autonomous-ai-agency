@@ -70,6 +70,8 @@ providers:
     candidates:
       - z-ai/glm-5.2
       - z-ai/glm-5.1
+      - meta/llama-4-maverick-17b-128e-instruct
+      - meta/llama-4-scout-17b-16e-instruct
       - meta/llama-3.3-70b-instruct
       - nvidia/llama-3.1-nemotron-70b-instruct
       - deepseek-ai/deepseek-r1
@@ -97,15 +99,16 @@ providers:
     base_url_env: GROQ_BASE_URL
     default_base_url: https://api.groq.com/openai/v1
     role_presets:
-      planner:   deepseek-r1-distill-llama-70b
-      executor:  llama-3.3-70b-versatile
-      verifier:  deepseek-r1-distill-llama-70b
-      judge:     llama-3.3-70b-versatile
+      planner:   llama-4-maverick-17b-128e-instruct
+      executor:  llama-4-maverick-17b-128e-instruct
+      verifier:  llama-4-scout-17b-16e-instruct
+      judge:     llama-4-maverick-17b-128e-instruct
     candidates:
+      - llama-4-maverick-17b-128e-instruct
+      - llama-4-scout-17b-16e-instruct
       - llama-3.3-70b-versatile
       - deepseek-r1-distill-llama-70b
       - llama-3.1-8b-instant
-      - mixtral-8x7b-32768
 
   mistral:
     display_name: Mistral (free tier)
@@ -247,14 +250,16 @@ providers:
     base_url_env: ANTHROPIC_BASE_URL
     default_base_url: https://api.anthropic.com
     role_presets:
-      planner:   claude-3-5-sonnet-20241022
-      executor:  claude-3-5-sonnet-20241022
-      verifier:  claude-3-5-sonnet-20241022
-      judge:     claude-3-5-sonnet-20241022
+      planner:   claude-opus-4-8
+      executor:  claude-sonnet-5
+      verifier:  claude-sonnet-5
+      judge:     claude-opus-4-8
     candidates:
-      - claude-3-5-sonnet-20241022
-      - claude-3-5-haiku-20241022
-      - claude-opus-4-5
+      - claude-sonnet-5
+      - claude-opus-4-8
+      - claude-fable-5
+      - claude-haiku-4-5-20251001
+      - claude-sonnet-4-6
 
   aerolink:
     display_name: Aerolink (Claude gateway)
@@ -263,16 +268,36 @@ providers:
     base_url_env: AEROLINK_BASE_URL
     default_base_url: https://capi.aerolink.lat/v1
     role_presets:
-      planner:   claude-sonnet-4-6
-      executor:  claude-sonnet-4-6
-      verifier:  claude-sonnet-4-6
-      judge:     claude-sonnet-4-6
+      planner:   claude-opus-4-8
+      executor:  claude-sonnet-5
+      verifier:  claude-sonnet-5
+      judge:     claude-opus-4-8
     candidates:
-      - claude-sonnet-4-6
+      - claude-sonnet-5
       - claude-opus-4-8
       - claude-opus-4-7
       - claude-opus-4-6
+      - claude-fable-5
+      - claude-sonnet-4-6
       - claude-haiku-4-5-20251001
+
+  google:
+    display_name: Google Gemini (paid)
+    tier: paid
+    key_env: GOOGLE_API_KEY
+    base_url_env: GOOGLE_BASE_URL
+    default_base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    role_presets:
+      planner:   gemini-2.5-pro
+      executor:  gemini-2.5-flash
+      verifier:  gemini-2.5-flash
+      judge:     gemini-2.5-pro
+    candidates:
+      - gemini-2.5-flash
+      - gemini-2.5-pro
+      - gemini-2.0-flash
+      - gemini-1.5-pro
+      - gemini-1.5-flash
 
   # ── Local (no key, no rate limit — opt-in via UI or BRAIN_PREFERENCE) ────
   ollama:
