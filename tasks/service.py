@@ -18,6 +18,14 @@ from services.shared_state import claim as _shared_claim, release as _shared_rel
 
 log = logging.getLogger("qwen-proxy")
 
+# Self-repo task types that should ship real code (commit + PR) rather than
+# stay report-only. Portfolio-materialized initiatives and GitHub-issue
+# ceo_direct tasks are meant to result in shipped fixes/features; other task
+# types (e.g. the default "general") keep the pre-existing report-only
+# behaviour, matching the SCOUT role's "read-only, no patches" contract.
+_SELF_REPO_SHIP_CODE_TASK_TYPES = {"portfolio_initiative", "issue", "quick_note"}
+
+
 def _get_workflow_engine() -> WorkflowEngine:
     """Return a lazily-created WorkflowEngine singleton."""
     if not hasattr(_get_workflow_engine, "_instance"):
@@ -1019,6 +1027,8 @@ class TaskExecutionCoordinator:
                     "Task %s company repo resolution failed (continuing with default workspace): %s",
                     task.task_id, exc,
                 )
+        elif task_type in _SELF_REPO_SHIP_CODE_TASK_TYPES:
+            self._inject_self_repo_ship_context(task, context)
 
         return TaskSpec(
             task_id=task.task_id,
@@ -1030,6 +1040,61 @@ class TaskExecutionCoordinator:
             allow_paid_escalation=allow_paid_escalation,
             context=context,
         )
+
+    def _inject_self_repo_ship_context(self, task: Task, context: dict[str, Any]) -> None:
+        """Inject auto_commit + repo context for self-repo ship-code tasks.
+
+        Without repo_url/base_branch/github_token/auto_commit injected here,
+        the runtime has nothing to commit or push to: the agent applies its
+        changes to an isolated worktree that is deleted unconditionally after
+        the run (``InternalAgentAdapter._remove_worktree``), so the work was
+        silently discarded — the task showed DONE with a text summary but no
+        code ever reached git. ``auto_commit`` only makes git commits happen
+        locally; it is the runtime's own ``AGENT_AUTO_PR_ENABLED`` check
+        (``agent/loop.py::_auto_push_and_pr``, already true in
+        ``render.yaml``) that pushes a feature branch and opens a PR.
+        ``GitHubTools`` is constructed with ``agent_initiated=True``
+        (``agent/loop.py``), so ``agent/autonomy_gate.py`` hard-blocks any
+        write to master/main and any PR merge regardless of this flag: the
+        worst case is a PR never opens, never that master gets touched.
+
+        Flag-gated (default ON) — ``packages.config.settings`` is the
+        rollback lever, matching the portfolio-materializer / model-catalog
+        flag pattern already used in this codebase. Never raises — falls
+        back to report-only execution on any resolution failure.
+        """
+        try:
+            from packages.config import settings
+            self_repo_enabled = settings.is_self_repo_auto_commit_enabled
+        except Exception:
+            self_repo_enabled = True  # fail-open, matches other flags in this file
+
+        if not self_repo_enabled:
+            log.debug(
+                "Task %s: SELF_REPO_AUTO_COMMIT_ENABLED=false — running "
+                "report-only (no commit/PR)", task.task_id,
+            )
+            return
+
+        try:
+            import agent.agency as _ag
+            repo = _ag._gh_repo()
+            token = _ag._gh_token()
+            if repo and token:
+                context["repo_url"] = f"https://github.com/{repo}"
+                context["base_branch"] = "master"
+                context["github_token"] = token
+                context["auto_commit"] = True
+            else:
+                log.debug(
+                    "Task %s: no GitHub repo/token configured — running "
+                    "report-only (no commit/PR)", task.task_id,
+                )
+        except Exception as exc:
+            log.debug(
+                "Task %s self-repo context resolution failed (continuing "
+                "report-only): %s", task.task_id, exc,
+            )
 
     def _resolve_company_repo(self, company_id: str) -> dict[str, Any] | None:
         """Resolve a company's RepoConnection into runtime-ready repo info.

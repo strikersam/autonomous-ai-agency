@@ -132,6 +132,21 @@ class Settings:
             "FREELLM_API_MODEL_CATALOG_ENABLED", "true"
         ).lower()
 
+        # Self-repo autonomous shipping (default ON — flag is the rollback
+        # lever). When ON, portfolio-materialized and ceo_direct GitHub-issue
+        # tasks get auto_commit + repo context injected so the agent's
+        # changes actually reach git (commit -> feature branch -> PR) instead
+        # of being discarded when the worktree is cleaned up. Turning this
+        # off reverts to report-only execution for these task types; it does
+        # NOT affect the Telegram/chat agents, which set auto_commit
+        # explicitly per-call regardless of this flag. Master can never be
+        # touched directly and agents can never self-merge — see
+        # agent/autonomy_gate.py — so this flag only controls whether a PR
+        # gets opened at all, never a merge or a direct push.
+        self.self_repo_auto_commit_enabled: str = os.environ.get(
+            "SELF_REPO_AUTO_COMMIT_ENABLED", "true"
+        ).lower()
+
     @property
     def is_testing(self) -> bool:
         return self.testing == "true"
@@ -157,6 +172,15 @@ class Settings:
         """UNIT 8: when True, the catalog is mirrored to the DB + the
         ``GET /api/catalog/models`` endpoint is enabled. Advisory-only."""
         return self.freellm_api_model_catalog_enabled == "true"
+
+    @property
+    def is_self_repo_auto_commit_enabled(self) -> bool:
+        """When True, ship-code task types (portfolio_initiative / issue /
+        quick_note) get auto_commit + repo context injected so agent changes
+        reach git via a PR instead of being discarded. Rollback lever only —
+        agent/autonomy_gate.py independently blocks direct writes to
+        master/main and any agent-initiated merge regardless of this flag."""
+        return self.self_repo_auto_commit_enabled == "true"
 
 
 @lru_cache(maxsize=1)
