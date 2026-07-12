@@ -268,6 +268,10 @@ class AgentRunner:
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
         self._session_store = session_store
+        # PR #1014: per-session token budget tracking. Set by run() before
+        # each agent run; None when not in a session (e.g. direct _chat_text
+        # calls from tests). Initialised here so __getattr__ never fails.
+        self._current_session_id: str | None = None
         # Nemotron reward scorer (B1): quick quality check before LLM verifier.
         # Lazily initialised on first use so it doesn't break in envs without httpx.
         self._reward_scorer: Any = None
