@@ -186,7 +186,7 @@ async def v4_improvements_scan(request: Request) -> dict[str, Any]:
         raise
     except Exception as exc:
         log.exception("v4/improvements/scan failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 async def _run_scan_background(loop) -> None:
@@ -345,7 +345,7 @@ async def v4_report_bug(body: V4ReportBugBody, request: Request) -> dict[str, An
         return {"event_id": event_id, "status": "queued_local"}
     except Exception as exc:
         log.exception("v4/report-bug failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 # ── GET /v4/scheduler/jobs ───────────────────────────────────────────────────
@@ -392,7 +392,7 @@ async def v4_scheduler_trigger(job_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     except Exception as exc:
         log.exception("v4/scheduler/trigger failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 # ── GET /v4/tasks ────────────────────────────────────────────────────────────
