@@ -80,15 +80,15 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
 
     assert "providers" in body
     provider_ids = {p["provider_id"] for p in body["providers"]}
-    # UNIT 5: the GET endpoint now returns ALL 14 providers from the
+    # UNIT 5: the GET endpoint now returns ALL 15 providers from the
     # BrainProvider Literal (server-driven UI), not just the original 4.
-    # The 14 ids must match the catalog (config/models.yaml).
+    # The 15 ids must match the catalog (config/models.yaml).
     assert provider_ids == {
         "nvidia", "cerebras", "groq", "ollama", "mistral",
         "deepseek", "zhipu", "zai", "together", "dashscope",
-        "moonshot", "openrouter", "anthropic", "aerolink",
+        "moonshot", "openrouter", "anthropic", "aerolink", "google",
     }
-    assert len(provider_ids) == 14
+    assert len(provider_ids) == 15
 
     # Each provider entry has key_present + key_env_var + display_name +
     # tier + candidates, but never the key.

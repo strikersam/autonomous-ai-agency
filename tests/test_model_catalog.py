@@ -229,7 +229,7 @@ def test_all_provider_ids_returns_literal_args():
     expected = set(typing.get_args(BrainProvider))
     actual = set(all_provider_ids())
     assert actual == expected
-    assert len(actual) == 14  # 14 supported providers
+    assert len(actual) == 15  # 15 supported providers (google added 2026-07-10)
 
 
 def test_get_provider_candidates_returns_copy():
