@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **claude-sonnet-5 added to model registry, catalog, and brain config** (2026-07-12). Claude Sonnet 5 (`claude-sonnet-5`) became the default model in Claude Code in July 2026, featuring a 1M-token context window and broad capability uplift over the 4.x Sonnet family at a similar cost tier. Added to: (1) `router/registry.py` — new `ModelCapability` entry with `context_window=1_000_000`, type `coder`, cost tier 2, strengths covering code generation/debugging/review/tool_use/long_context/analysis/reasoning/planning; (2) `router/model_router.py` — added to `_build_model_map()` so Claude→local-model passthrough routing works when the proxy is in front of Ollama or NVIDIA NIM; (3) `config/models.yaml` — `anthropic` provider presets now default to `claude-sonnet-5` for all four roles (planner/executor/verifier/judge), with updated candidates list (`claude-sonnet-5 → claude-opus-4-8 → claude-3-5-sonnet-20241022 → claude-haiku-4-5-20251001`); `aerolink` provider candidates updated to include `claude-sonnet-5` as the first option; (4) `packages/ai/brain_config.py` hardcoded fallback `_PROVIDER_MODEL_CANDIDATES["anthropic"]` updated to match the new YAML (fallback activates only when the YAML is missing or corrupt); (5) `services/cost_attribution.py` — added `claude-sonnet-5: 10.0` (promotional $2/$10 per Mtok output, current through August 2026); (6) `tests/test_model_router.py` — 3 new tests: `test_claude_sonnet5_maps_to_coder_model` (routing via model_map), `test_sonnet5_in_registry` (context window, strengths, type, cost tier), `test_sonnet5_not_gated` (available without opt-in env vars). All 94 model router tests and 88 catalog tests green.
+
 ### Fixed
 
 - **Follow-up: portfolio work still not materializing, duplicate tasks still appearing after the model-config unification (PR #1009)** (2026-07-11). Post-deploy investigation of three live symptoms found and fixed four real root causes, none of which were about the deployed code being stale — all four reproduce on current `master`:

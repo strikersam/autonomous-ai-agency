@@ -247,14 +247,16 @@ providers:
     base_url_env: ANTHROPIC_BASE_URL
     default_base_url: https://api.anthropic.com
     role_presets:
-      planner:   claude-3-5-sonnet-20241022
-      executor:  claude-3-5-sonnet-20241022
-      verifier:  claude-3-5-sonnet-20241022
-      judge:     claude-3-5-sonnet-20241022
+      planner:   claude-sonnet-5
+      executor:  claude-sonnet-5
+      verifier:  claude-sonnet-5
+      judge:     claude-sonnet-5
     candidates:
+      - claude-sonnet-5
+      - claude-opus-4-8
       - claude-3-5-sonnet-20241022
+      - claude-haiku-4-5-20251001
       - claude-3-5-haiku-20241022
-      - claude-opus-4-5
 
   aerolink:
     display_name: Aerolink (Claude gateway)
@@ -268,6 +270,7 @@ providers:
       verifier:  claude-sonnet-4-6
       judge:     claude-sonnet-4-6
     candidates:
+      - claude-sonnet-5
       - claude-sonnet-4-6
       - claude-opus-4-8
       - claude-opus-4-7

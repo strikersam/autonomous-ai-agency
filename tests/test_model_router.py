@@ -91,6 +91,13 @@ def test_claude_sonnet_maps_to_coder_model():
     assert decision.selection_source == "model_map"
 
 
+def test_claude_sonnet5_maps_to_coder_model():
+    # claude-sonnet-5 is the Claude Code default as of July 2026 (1M context)
+    decision = _router().route(requested_model="claude-sonnet-5")
+    assert decision.selection_source == "model_map"
+    assert decision.resolved_model in ("qwen3-coder:30b", "meta/llama-3.3-70b-instruct")
+
+
 def test_claude_haiku_maps_to_lightweight_coder_model():
     # Haiku (smallest/cheapest Claude) routes to the lightest local model
     decision = _router().route(requested_model="claude-haiku-4-5-20251001")
@@ -781,3 +788,21 @@ def test_mythos_5_alias_routes():
     decision = _router().route(requested_model="claude-mythos-5")
     assert decision.resolved_model == "deepseek-r1:671b"
     assert decision.selection_source == "model_map"
+
+
+def test_sonnet5_in_registry():
+    reg = get_registry()
+    assert "claude-sonnet-5" in reg
+    assert reg["claude-sonnet-5"].context_window == 1_000_000
+    assert "long_context" in reg["claude-sonnet-5"].strengths
+    assert reg["claude-sonnet-5"].type == "coder"
+    assert reg["claude-sonnet-5"].cost_tier == 2
+
+
+def test_sonnet5_not_gated():
+    # claude-sonnet-5 must appear in the registry without any opt-in flag
+    import os
+    for key in ("ROUTER_ALLOW_FABLE5", "ROUTER_ALLOW_MYTHOS"):
+        os.environ.pop(key, None)
+    reg = get_registry()
+    assert "claude-sonnet-5" in reg

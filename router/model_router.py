@@ -149,7 +149,8 @@ def _build_builtin_model_map() -> dict[str, str]:
     _reason = "deepseek-ai/deepseek-v4-pro" if nvidia else "deepseek-r1:32b"
 
     return {
-        # Claude 5 family (Fable 5 / Mythos 5)
+        # Claude 5 family — Sonnet 5 is Claude Code default as of July 2026
+        "claude-sonnet-5": _coder,
         "claude-fable-5": _largest,
         "claude-mythos-5": _largest,
         # Claude 4.8 family — Opus 4.8 is Claude Code's default as of v2.1.154

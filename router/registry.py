@@ -463,7 +463,29 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["bedrock", "claude", "claude4", "fast"],
     ),
-    # ── Anthropic API — Claude 5 family (Mythos-class tier, above Opus) ──────
+    # ── Anthropic API — Claude 5 family ──────────────────────────────────────
+    # Sonnet 5: Claude Code default as of July 2026. 1M token context window.
+    # Broad capability uplift over 4.x Sonnets at similar cost tier.
+    # Promotional pricing ($2/$10 per Mtok) runs through August 2026.
+    "claude-sonnet-5": ModelCapability(
+        name="claude-sonnet-5",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "analysis",
+            "data_analysis",
+            "reasoning",
+            "planning",
+        ],
+        context_window=1_000_000,
+        type="coder",
+        cost_tier=2,
+        tags=["anthropic", "claude", "claude5", "sonnet"],
+    ),
     # Fable 5: most intelligent generally available model; standard safeguards.
     # NOTE: suspended under US export-control directive as of 2026-06-12.
     # Gated behind ROUTER_ALLOW_FABLE5=1 so it stays out of default routing.
