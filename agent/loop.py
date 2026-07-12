@@ -21,6 +21,7 @@ import httpx
 from agent.context_manager import ContextManager
 from agent.context_pruner import ContextPruner
 from agent.models import AgentPlan, ToolCall, VerificationResult
+from agent.token_budget import BudgetExceededError, TokenBudget
 from agent.prompts import (
     build_compaction_prompt,
     build_execution_prompt,
@@ -267,6 +268,10 @@ class AgentRunner:
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
         self._session_store = session_store
+        # PR #1014: per-session token budget tracking. Set by run() before
+        # each agent run; None when not in a session (e.g. direct _chat_text
+        # calls from tests). Initialised here so __getattr__ never fails.
+        self._current_session_id: str | None = None
         # Nemotron reward scorer (B1): quick quality check before LLM verifier.
         # Lazily initialised on first use so it doesn't break in envs without httpx.
         self._reward_scorer: Any = None
@@ -285,6 +290,9 @@ class AgentRunner:
         self.email = email
         self.department = department
         self.key_id = key_id
+        # Per-session token spend caps (★3 roadmap item).
+        # Populated via set_token_budget(); checked after every LLM call.
+        self._token_budget: TokenBudget = TokenBudget()
 
     def configure_sub_agents(self, configs: list[dict[str, Any]]) -> None:
         """Set per-role sub-agent configurations for specialized routing (★2).
@@ -296,6 +304,46 @@ class AgentRunner:
         """
         self.sub_agents = {c.role: c for c in configs}
         log.debug("configured %d specialized sub-agent(s): %s", len(configs), list(self.sub_agents.keys()))
+
+    def set_token_budget(self, session_id: str, cap: int) -> None:
+        """Set a per-session token spend cap (★3 rollout token budget).
+
+        When *cap* > 0 the runner raises :class:`~agent.token_budget.BudgetExceededError`
+        the moment cumulative token spend for *session_id* exceeds *cap*, aborting the
+        run cleanly instead of burning unbounded API credits.  Set *cap* = 0 (default)
+        for unlimited spend.
+
+        Aligned with Codex's "configurable rollout token budgets" feature (July 2026).
+        Call before ``run()``::
+
+            runner.set_token_budget(session_id, cap=50_000)
+            result = await runner.run(session_id=session_id, ...)
+        """
+        self._token_budget.set_cap(session_id, cap=cap)
+        log.debug("Token budget set: session=%s cap=%d", session_id, cap)
+
+    def _record_tokens(self, session_id: str | None, prompt_tokens: int, completion_tokens: int) -> None:
+        """Record token spend for *session_id* and enforce the budget cap.
+
+        Logs a warning when 80 % of the budget is exhausted.
+        Raises :class:`~agent.token_budget.BudgetExceededError` when 100 % is hit.
+        Called after every LLM API call in :meth:`_chat_text`.
+        """
+        if not session_id:
+            return
+        usage = self._token_budget.record(
+            session_id,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+        if usage.cap > 0 and usage.remaining >= 0:
+            pct_used = usage.total_tokens / usage.cap * 100
+            if pct_used >= 80:
+                log.warning(
+                    "Token budget at %.0f%%: session=%s used=%d remaining=%d cap=%d",
+                    pct_used, session_id, usage.total_tokens, usage.remaining, usage.cap,
+                )
+        self._token_budget.check(session_id)  # raises BudgetExceededError if over cap
 
     async def plan(
         self,
@@ -1651,10 +1699,10 @@ class AgentRunner:
                 if isinstance(block, dict) and block.get("type") == "text"
             ).strip()
 
+            anth_usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+            pt_anth = int(anth_usage.get("input_tokens") or 0)
+            ct_anth = int(anth_usage.get("output_tokens") or 0)
             if self.email:
-                usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
-                pt = int(usage.get("input_tokens") or 0)
-                ct = int(usage.get("output_tokens") or 0)
                 try:
                     from langfuse_obs import emit_chat_observation
                     await asyncio.to_thread(
@@ -1665,13 +1713,15 @@ class AgentRunner:
                         model=model,
                         messages=messages,
                         output_text=out_text,
-                        prompt_tokens=pt,
-                        completion_tokens=ct,
+                        prompt_tokens=pt_anth,
+                        completion_tokens=ct_anth,
                         latency_ms=duration_ms,
                         task_name="agent-task",
                     )
                 except Exception:  # nosec B110 -- KPI tracking is best-effort
                     pass
+            # ★3: enforce per-session token budget cap
+            self._record_tokens(self._current_session_id, pt_anth, ct_anth)
             return out_text
 
         # ── Universal multi-provider failover ──────────────────────────────
@@ -1731,10 +1781,13 @@ class AgentRunner:
                     fm.record_success(provider.id, latency_ms=call_ms)
                     data = resp.json()
                     out_text = data["choices"][0]["message"]["content"]
+                    # Parse token usage from the response (needed for both
+                    # Langfuse tracing and per-session budget tracking).
+                    usage = data.get("usage", {}) if isinstance(data, dict) else {}
+                    usage = usage if isinstance(usage, dict) else {}
+                    pt = int(usage.get("prompt_tokens") or 0)
+                    ct = int(usage.get("completion_tokens") or 0)
                     if self.email:
-                        usage = data.get("usage", {})
-                        pt = int(usage.get("prompt_tokens") or 0)
-                        ct = int(usage.get("completion_tokens") or 0)
                         try:
                             from langfuse_obs import emit_chat_observation
                             await asyncio.to_thread(
@@ -1752,6 +1805,8 @@ class AgentRunner:
                             )
                         except Exception as exc:
                             log.debug("Agent Langfuse emit failed: %s", exc)
+                    # ★3: enforce per-session token budget cap (raises BudgetExceededError if hit)
+                    self._record_tokens(self._current_session_id, pt, ct)
                     return out_text
 
                 if resp.status_code == 410:

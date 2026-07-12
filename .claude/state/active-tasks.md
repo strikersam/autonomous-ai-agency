@@ -86,9 +86,9 @@
 
 | # | Item | Priority | Status | PR |
 |---|------|----------|--------|-----|
-| ★1 | 3-Phase Context-Pruner Middleware | P0 | `TODO` | — |
+| ★1 | 3-Phase Context-Pruner Middleware | P0 | `DONE` | agent/context_pruner.py integrated; 15 tests added (2026-07-06) |
 | ★2 | Specialized Sub-Agents with Per-Role Models | P0 | `TODO` | — |
-| ★3 | Reasoning Token Budget + Toggle | P0 | `TODO` | — |
+| ★3 | Reasoning Token Budget + Toggle | P0 | `DONE` | TokenBudget wired into AgentRunner._chat_text; set_token_budget(); 12 integration tests (2026-07-06) |
 | A1 | Hermes ChatML Prompt Format | P0 | `TODO` | — |
 | A2 | Multi-Hop ReAct Loop | P0 | `TODO` | — |
 | B1 | Nemotron Reward Model Scoring | P0 | `TODO` | — |
@@ -128,3 +128,4 @@
 | 2026-06-05 | claude-sonnet-4-6 | claude/llm-server-roadmap-pr-COcKN | Built dynamic session planning workflow |
 | 2026-06-14 | claude-sonnet-4-6 | claude/agentic-agile-workflows-8ymf4d | Implemented autonomous agile ceremonies (agents/agile_ceremonies.py + agile-ceremonies.yml cron) and added `delivery` (Delivery Manager) as the 35th specialist family |
 | 2026-06-14 | claude-sonnet-4-6 | claude/nifty-pasteur-hvjqzn | Daily automation: researched Anthropic/Claude Code/Codex 2026-06 industry news; found Claude Sonnet 4 / Opus 4 retire on the Claude API 2026-06-15 — fixed `.github/workflows/ci-failure-autofix.yml` (`claude-sonnet-4-20250514` → `claude-sonnet-4-6`), added `tests/test_daily_2026_06_14.py` regression guard |
+| 2026-07-06 | claude-sonnet-4-6 | claude/nifty-pasteur-ixksyh | Daily automation: researched Claude Code July 2026 (context compaction, subagent extended-thinking inheritance) + Codex July 2026 (configurable rollout token budgets, abort-on-exhaust). Implemented: (1) ★1 DONE — 15 tests for agent/context_pruner.py 3-phase pruner; (2) ★3 DONE — TokenBudget wired into AgentRunner._chat_text + set_token_budget() + _record_tokens() + 12 integration tests. 38/38 new tests pass, 54/54 related agent tests pass. |
