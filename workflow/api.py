@@ -142,7 +142,7 @@ async def approve(
     try:
         updated = engine.approve(run_id, approved_by=body.approved_by)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail="Internal server error") from exc
     return {
         "run_id": run_id,
         "status": updated.status,
@@ -162,7 +162,7 @@ async def reject(
     try:
         updated = engine.reject(run_id, reason=body.reason, rejected_by=body.rejected_by)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail="Internal server error") from exc
     return {
         "run_id": run_id,
         "status": updated.status,
@@ -181,7 +181,7 @@ async def resume(
     try:
         updated = engine.resume(run_id)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail="Internal server error") from exc
     return {"run_id": run_id, "status": updated.status}
 
 
@@ -195,7 +195,7 @@ async def cancel(
     try:
         updated = engine.cancel(run_id)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail="Internal server error") from exc
     return {"run_id": run_id, "status": updated.status}
 
 
@@ -266,7 +266,7 @@ async def run_slice(
     try:
         sl = await engine.run_slice(run_id, slice_id, force=body.force)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Internal server error") from exc
     return {"run_id": run_id, "slice": sl.as_dict()}
 
 
@@ -291,7 +291,7 @@ async def verify(
     try:
         check_runs = await engine.run_verify(run_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Internal server error") from exc
     return {
         "run_id": run_id,
         "checks_run": len(check_runs),

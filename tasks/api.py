@@ -235,7 +235,7 @@ async def create_task(body: TaskCreateRequest, request: Request, user: Any = Dep
     try:
         await workflow.create_task(task, actor=_user_id(user))
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Internal server error") from exc
     _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
 
@@ -379,7 +379,7 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
                 pending_agent_run=True if body.status is TaskStatus.IN_PROGRESS else None,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail="Internal server error") from exc
 
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
@@ -437,7 +437,7 @@ async def add_comment(task_id: str, body: CommentAddRequest, request: Request, u
     try:
         comment = workflow.add_comment(task, author=actor, body=body.body, reply_to=body.reply_to)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Internal server error") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     return {"comment": comment.model_dump(), "task": task.as_dict()}
@@ -456,7 +456,7 @@ async def approve_checkpoint(task_id: str, body: ApprovalRequest, request: Reque
             reason=body.reason,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Internal server error") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
@@ -480,7 +480,7 @@ async def approve_execution(
     try:
         workflow.approve_execution(task, actor=actor, approved=body.approve, reason=body.reason)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Internal server error") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     if body.approve:
@@ -495,7 +495,7 @@ async def retry_task(task_id: str, request: Request, user: Any = Depends(_curren
     try:
         workflow.retry(task, actor=actor)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Internal server error") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
@@ -525,7 +525,7 @@ async def follow_up_task(
             model_preference=body.model_preference,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Internal server error") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     _queue_task_execution(background_tasks, request, task.task_id)

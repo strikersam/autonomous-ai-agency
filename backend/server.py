@@ -4517,7 +4517,7 @@ async def call_llm(
         ) from exc
     except ProviderFallbackError as exc:
         log.error("LLM provider fallback exhausted: %s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail="Internal server error") from exc
     except httpx.HTTPStatusError as exc:
         # Surface helpful provider-specific guidance.
         status = exc.response.status_code
@@ -8005,7 +8005,7 @@ async def scheduler_force_cleanup(user: dict = Depends(get_current_user)):
         return {"ok": True, **summary}
     except Exception as exc:
         log.warning("Force-cleanup failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/api/scheduler/self-heal")
@@ -8027,7 +8027,7 @@ async def scheduler_self_heal(user: dict = Depends(get_current_user)):
         return {"ok": True, **summary}
     except Exception as exc:
         log.warning("Self-heal failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/api/doctor/health")
@@ -9629,7 +9629,7 @@ async def workflow_orchestrator_approve(
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail="Internal server error")
 
 
 
