@@ -12,9 +12,27 @@ import os
 import time
 from typing import Any
 
-from tasks.models import Task, TaskStatus, TaskPriority
+from tasks.models import Task, TaskStatus, TaskPriority, _coerce_ts
 
 log = logging.getLogger("qwen-proxy")
+
+
+def _ts_to_float(v: Any) -> float:
+    """Normalise a timestamp value to a float Unix epoch.
+
+    Handles:
+      - float / int (returned as-is)
+      - ISO 8601 datetime strings (e.g. '2026-07-12T18:09:19.017649+00:00')
+      - numeric strings (e.g. '1783782595.99')
+
+    Returns 0.0 on any parse failure so callers can safely compare without
+    try/except. This mirrors the Task model's ``_coerce_ts`` validator but
+    is used on raw DB docs before the model is constructed.
+    """
+    result = _coerce_ts(v)
+    if isinstance(result, (int, float)):
+        return float(result)
+    return 0.0
 
 # Owner id used for tasks the agency creates for itself (scheduler/playbook,
 # self-healing, error-interceptor, self-bootstrap). Surfaced on every operator's
@@ -400,7 +418,7 @@ class TaskStore:
                 v for v in self._mem.values()
                 if v.get("status") == TaskStatus.IN_PROGRESS.value
                 and v.get("pending_agent_run") is False
-                and v.get("updated_at", 0) < cutoff
+                and _ts_to_float(v.get("updated_at", 0)) < cutoff
             ]
 
         reconciled = 0
@@ -511,7 +529,11 @@ class TaskStore:
             # saturates the CPU when the brain is down.
             updated_at = doc.get("updated_at")
             if updated_at is not None:
-                age_s = now_s - float(updated_at)
+                # Normalise: updated_at may be a float timestamp OR an ISO 8601
+                # datetime string (depending on which code path wrote it). The
+                # raw doc comes from Mongo/sqlite before the Task model's
+                # _coerce_ts validator runs, so we must handle both here.
+                age_s = now_s - _ts_to_float(updated_at)
                 if age_s < MIN_RETRY_AGE_S:
                     continue  # too soon — let the brain recover first
 
