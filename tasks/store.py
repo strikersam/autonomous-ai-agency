@@ -79,7 +79,7 @@ class TaskStore:
             if existing is not None:
                 return existing
 
-        doc = task.model_dump()
+        doc = task.model_dump(mode="json")
         if self._mode == "mongo":
             try:
                 await self._collection.insert_one({**doc, "_id": task.task_id})
@@ -127,7 +127,7 @@ class TaskStore:
 
     async def update(self, task: Task) -> Task:
         task.touch()
-        doc = task.model_dump()
+        doc = task.model_dump(mode="json")
         if self._mode == "mongo":
             await self._collection.replace_one(
                 {"task_id": task.task_id},
