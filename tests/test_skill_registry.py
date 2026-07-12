@@ -145,6 +145,16 @@ This should not be returned as the first paragraph.
         result = _first_paragraph(text)
         assert "real paragraph" in result
 
+    def test_first_paragraph_skips_yaml_frontmatter(self) -> None:
+        """Regression: frontmatter (--- ... ---) must not surface as '---'."""
+        text = (
+            "---\nname: some-skill\ndescription: A real description here.\n---\n"
+            "# Some Skill\n\nA real description here.\n"
+        )
+        result = _first_paragraph(text)
+        assert result != "---"
+        assert "real description" in result.lower()
+
     def test_extract_tags_hashtags(self) -> None:
         content = "#python #react #django some text"
         result = _extract_tags(content)

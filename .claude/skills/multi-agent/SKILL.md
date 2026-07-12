@@ -1,6 +1,7 @@
 ---
 name: multi-agent
-description: "Multi-agent team coordination — task delegation, shared state, and inter-agent communication"
+description: >
+  Multi-agent team coordination — task delegation, shared state, and inter-agent communication
 ---
 
 # Skill: Multi-Agent Coordinator

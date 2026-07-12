@@ -1,6 +1,7 @@
 ---
 name: research-coordinator
-description: "Multi-agent research coordination — deduplicate findings, assign work, and synthesize results"
+description: >
+  Multi-agent research coordination — deduplicate findings, assign work, and synthesize results
 ---
 
 # Multi-Agent Research Coordinator Skill

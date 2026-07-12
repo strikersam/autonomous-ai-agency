@@ -1,6 +1,7 @@
 ---
 name: karpathy-guidelines
-description: "Andrej Karpathy's coding guidelines for AI agents — concise, correct, and well-tested code"
+description: >
+  Andrej Karpathy's coding guidelines for AI agents — concise, correct, and well-tested code
 ---
 
 # Karpathy Guidelines Skill

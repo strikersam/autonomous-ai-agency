@@ -1,6 +1,7 @@
 ---
 name: superclaude-commands
-description: "Slash-command system for AI agent orchestration — /plan, /execute, /review, /deploy"
+description: >
+  Slash-command system for AI agent orchestration — /plan, /execute, /review, /deploy
 ---
 
 # Skill: SuperClaude Slash Commands

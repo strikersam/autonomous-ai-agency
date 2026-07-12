@@ -1,6 +1,7 @@
 ---
 name: ecc-harness-patterns
-description: "Cross-harness agent patterns — standardize agent execution across different coding assistants"
+description: >
+  Cross-harness agent patterns — standardize agent execution across different coding assistants
 ---
 
 # ECC Harness Patterns Skill

@@ -1,6 +1,7 @@
 ---
 name: managed-agents-dreams
-description: "Session memory recording and dream consolidation for managed agents — offline experience replay"
+description: >
+  Session memory recording and dream consolidation for managed agents — offline experience replay
 ---
 
 # Skill: Managed Agents Dreams

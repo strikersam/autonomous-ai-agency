@@ -1,6 +1,7 @@
 ---
 name: stop-slop-quality
-description: "Remove AI writing tells and cliches — enforce natural, human-quality output"
+description: >
+  Remove AI writing tells and cliches — enforce natural, human-quality output
 ---
 
 # Stop-Slop Quality Skill
