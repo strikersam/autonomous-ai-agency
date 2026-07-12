@@ -1781,10 +1781,13 @@ class AgentRunner:
                     fm.record_success(provider.id, latency_ms=call_ms)
                     data = resp.json()
                     out_text = data["choices"][0]["message"]["content"]
+                    # Parse token usage from the response (needed for both
+                    # Langfuse tracing and per-session budget tracking).
+                    usage = data.get("usage", {}) if isinstance(data, dict) else {}
+                    usage = usage if isinstance(usage, dict) else {}
+                    pt = int(usage.get("prompt_tokens") or 0)
+                    ct = int(usage.get("completion_tokens") or 0)
                     if self.email:
-                        usage = data.get("usage", {})
-                        pt = int(usage.get("prompt_tokens") or 0)
-                        ct = int(usage.get("completion_tokens") or 0)
                         try:
                             from langfuse_obs import emit_chat_observation
                             await asyncio.to_thread(
