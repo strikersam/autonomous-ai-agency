@@ -21,7 +21,37 @@ import os
 import re
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, AsyncIterator
+
+
+def _safe_sort_key(row: dict, key: str) -> Any:
+    """Return a sort key that tolerates mixed float/str timestamp values.
+
+    Some code paths write ``updated_at`` / ``created_at`` as ISO 8601 strings
+    instead of float timestamps. When the sqlite adapter sorts rows by these
+    fields, a ``float < str`` comparison crashes with ``TypeError: '<' not
+    supported between instances of 'float' and 'str'``.
+
+    This helper normalises any value to a float for sorting purposes:
+    - float/int → returned as-is
+    - ISO 8601 string → parsed to timestamp
+    - numeric string → parsed to float
+    - None → 0.0
+    - unparseable → 0.0
+    """
+    v = row.get(key)
+    if v is None:
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return datetime.fromisoformat(str(v)).timestamp()
+    except (ValueError, TypeError):
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return 0.0
 
 # Sort keys are interpolated into ``json_extract(data, '$.<key>')`` for the SQL
 # ORDER BY push-down, so they must be validated as bare identifiers (they come
@@ -104,7 +134,7 @@ class _Cursor:
     def __init__(self, rows: list[dict], sort_key: str | None = None,
                  sort_dir: int = 1, skip_n: int = 0, limit_n: int = 0):
         if sort_key:
-            rows = sorted(rows, key=lambda r: r.get(sort_key) or "", reverse=(sort_dir == -1))
+            rows = sorted(rows, key=lambda r: _safe_sort_key(r, sort_key), reverse=(sort_dir == -1))
         if skip_n:
             rows = rows[skip_n:]
         if limit_n:
@@ -119,7 +149,7 @@ class _Cursor:
             pairs = list(key_or_pairs)
         rows = list(self._rows)
         for key, d in reversed(pairs):
-            rows = sorted(rows, key=lambda r: r.get(key) or "", reverse=(d == -1))
+            rows = sorted(rows, key=lambda r, _k=key: _safe_sort_key(r, _k), reverse=(d == -1))
         return _Cursor(rows)
 
     def skip(self, n: int) -> "_Cursor":
@@ -574,7 +604,7 @@ class _Collection:
                 docs = [d for d in docs if _match(d, stage["$match"])]
             elif "$sort" in stage:
                 for k, direction in reversed(list(stage["$sort"].items())):
-                    docs = sorted(docs, key=lambda d: d.get(k) or "", reverse=(direction == -1))
+                    docs = sorted(docs, key=lambda d: _safe_sort_key(d, k), reverse=(direction == -1))
             elif "$limit" in stage:
                 docs = docs[:stage["$limit"]]
             elif "$group" in stage:

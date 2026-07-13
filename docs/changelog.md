@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Fix sqlite adapter sort crash on mixed float/str timestamps** (2026-07-13). The `TaskDispatcher error: '<' not supported between instances of 'float' and 'str'` was caused by the sqlite adapter's `sort()` method in `packages/storage/sqlite.py`. When `STORAGE_BACKEND=sqlite` (the Render default), the TaskStore runs in 'mongo' mode using the sqlite adapter's collection API. The adapter's sort used `sorted(rows, key=lambda r: r.get(key) or "")` — when some rows have float `updated_at` and others have ISO 8601 string `updated_at`, the comparison crashes. Fixed all 3 sort spots (line 107 `_Cursor.__init__`, line 145 `_Cursor.sort`, line 595 `$sort` aggregate pipeline) with a new `_safe_sort_key()` helper that normalises any value to float before comparison.
+
 - **Skip freebuff test in CI when no LLM is configured** (2026-07-13). `test_run_coerces_requested_model_to_free` in `tests/test_freebuff.py` requires a live LLM endpoint for the planning phase (before the mocked `AgentRunner.run` is called). In CI where no NVIDIA/Ollama endpoint is available, the test fails with `All brain providers exhausted`. Added a `@pytest.mark.skipif` guard that skips the test when neither `NVIDIA_API_KEY` nor `OLLAMA_BASE` is set.
 
 - **Fix MCP test event loop crash on Python 3.13** (2026-07-13). `test_list_tools_passes_output_schema_through` in `tests/test_daily_automation_2026_07_13.py` used `asyncio.get_event_loop().run_until_complete(...)` which raises `RuntimeError: There is no current event loop` on Python 3.13. Switched to `asyncio.run(...)` which is the loop-state-independent replacement.
