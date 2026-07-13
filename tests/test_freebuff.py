@@ -9,6 +9,8 @@ Covers:
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -67,6 +69,11 @@ def test_falls_back_to_local_base_without_key(monkeypatch):
     assert "nvidia" not in agent.ollama_base.lower()
 
 
+@pytest.mark.skipif(
+    os.environ.get("TESTING", "").lower() == "true" or not os.environ.get("RUN_FREEBUFF_LIVE_TESTS"),
+    reason="Requires a live LLM endpoint for planning — skipped in CI. "
+           "Set RUN_FREEBUFF_LIVE_TESTS=1 to run locally.",
+)
 async def test_run_coerces_requested_model_to_free(monkeypatch):
     captured: dict = {}
 
@@ -194,6 +201,11 @@ def test_freebuff_models_endpoint():
         proxy.app.dependency_overrides.clear()
 
 
+@pytest.mark.skipif(
+    os.environ.get("TESTING", "").lower() == "true" or not os.environ.get("RUN_FREEBUFF_LIVE_TESTS"),
+    reason="Requires a live LLM endpoint for planning — skipped in CI. "
+           "Set RUN_FREEBUFF_LIVE_TESTS=1 to run locally.",
+)
 def test_freebuff_plan_endpoint(monkeypatch):
     from agent.models import AgentPlan
 
