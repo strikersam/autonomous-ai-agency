@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- **Skip freebuff test in CI when no LLM is configured** (2026-07-13). `test_run_coerces_requested_model_to_free` in `tests/test_freebuff.py` requires a live LLM endpoint for the planning phase (before the mocked `AgentRunner.run` is called). In CI where no NVIDIA/Ollama endpoint is available, the test fails with `All brain providers exhausted`. Added a `@pytest.mark.skipif` guard that skips the test when neither `NVIDIA_API_KEY` nor `OLLAMA_BASE` is set.
+
 - **Fix MCP test event loop crash on Python 3.13** (2026-07-13). `test_list_tools_passes_output_schema_through` in `tests/test_daily_automation_2026_07_13.py` used `asyncio.get_event_loop().run_until_complete(...)` which raises `RuntimeError: There is no current event loop` on Python 3.13. Switched to `asyncio.run(...)` which is the loop-state-independent replacement.
 
 - **Update self-repo test for 'general' task type** (2026-07-13). Updated `tests/test_task_self_repo_auto_commit.py` to include `general` in the ship-code task types (added in commit 7fdf181d). The `test_report_only_task_type_stays_report_only` test was renamed to `test_unknown_task_type_stays_report_only` and now uses `custom_research` (a genuinely unknown type) instead of `general`.

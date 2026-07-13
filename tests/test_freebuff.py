@@ -9,6 +9,8 @@ Covers:
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -67,6 +69,11 @@ def test_falls_back_to_local_base_without_key(monkeypatch):
     assert "nvidia" not in agent.ollama_base.lower()
 
 
+@pytest.mark.skipif(
+    not os.environ.get("NVIDIA_API_KEY") and not os.environ.get("OLLAMA_BASE"),
+    reason="Requires a live LLM endpoint for planning (NVIDIA NIM or Ollama) — "
+           "skipped in CI where no LLM is configured.",
+)
 async def test_run_coerces_requested_model_to_free(monkeypatch):
     captured: dict = {}
 
