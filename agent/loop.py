@@ -30,6 +30,7 @@ from agent.prompts import (
     build_verification_prompt,
 )
 from agent.harness_enrichment import get_enrichment
+from agent.adaptive_halting import AdaptiveHalter
 from agent.react_loop import ReactScratchpad
 from agent.state import AgentSessionStore
 from agent.stuck_detector import StuckDetector
@@ -264,6 +265,11 @@ class AgentRunner:
         # OpenHands-style stuck detection: breaks a step's tool loop when the
         # last observations repeat or alternate without progress.
         self.stuck = StuckDetector()
+        # ★7 Adaptive loop halting: tracks step-level velocity and halts the
+        # outer step loop when consecutive failures or low progress rate signal
+        # that the plan is no longer converging.  Distinct from stuck detection
+        # (which catches tool-loop repetition) — this operates at the step level.
+        self._adaptive_halter: AdaptiveHalter = AdaptiveHalter()
         # Specialized sub-agent configurations (★2 roadmap item).
         # Keyed by role name ("file_picker", "planner", "editor", "reviewer").
         # When set, _spawn_subagent uses the configured per-role model.
@@ -414,6 +420,9 @@ class AgentRunner:
         # Store current session_id for use by helper methods that need to
         # write into the durable session event log (e.g., tool_call/tool_result).
         self._current_session_id = session_id
+        # Reset per-run state trackers so a reused AgentRunner instance doesn't
+        # carry over halter counts from a prior run.
+        self._adaptive_halter = AdaptiveHalter()
         # Initialised before the try block so the finally handler can safely
         # reference them even when an exception occurs before assignment.
         plan: Any = None
@@ -544,6 +553,23 @@ class AgentRunner:
                             {"adaptive_halt": True, "confidence_scores": scores, "skipped_steps": skipped},
                         )
                         break
+
+                # ★7 Adaptive Loop Halting — velocity/failure-rate gate.
+                # Distinct from the confidence-score halt above (which exits on
+                # HIGH confidence) and from stuck detection (which exits on tool-
+                # loop repetition).  This exits when step-level progress stalls:
+                # too many consecutive failures or overall success ratio too low.
+                halt_reason = self._adaptive_halter.record(result["status"])
+                if halt_reason:
+                    log.warning(
+                        "adaptive halter tripped on step %d: %s (halter state: %s)",
+                        step.id, halt_reason, self._adaptive_halter.as_dict(),
+                    )
+                    self._log_event(
+                        session_id, "adaptive_halt",
+                        {"reason": halt_reason, "halter": self._adaptive_halter.as_dict()},
+                    )
+                    break
 
             # A5: Publish run complete event on the inter-agent message bus
             try:

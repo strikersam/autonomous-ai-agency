@@ -5,16 +5,30 @@ Implements a simple open/close circuit breaker so a crashed or missing
 MCP server never stalls the agent loop — callers get a clear "unavailable"
 error and can fall back to local tools.
 
+Supports MCP spec 2025-11-05 structured output:
+
+  - ``list_tools()`` returns the full tool descriptor including ``outputSchema``
+    when the server provides one.
+  - ``call_tool_structured()`` extracts the ``structuredContent`` field from
+    the tool result (MCP spec 2025-11-25) in addition to the text content,
+    returning an ``MCPToolResult``.
+
 Usage::
 
     client = MCPClient("http://mcp-server:8008")
-    await client.initialize()          # optional warm-up / handshake
+    await client.initialize()
     tools = await client.list_tools()
-    result = await client.call_tool("clone_repo", {
-        "workspace_id": "sess-abc123",
-        "repo_url": "https://github.com/owner/repo",
-        "branch": "main",
-    })
+    # Each tool dict may include "outputSchema" (JSON Schema) for typed results.
+
+    # Legacy text-only call (unchanged):
+    text = await client.call_tool("clone_repo", {"workspace_id": "...", ...})
+
+    # Structured call (MCP spec 2025-11-25):
+    result = await client.call_tool_structured("clone_repo", {"workspace_id": "...", ...})
+    if result.structured is not None:
+        process(result.structured)   # validated typed dict
+    else:
+        process(result.text)         # fallback text
 """
 from __future__ import annotations
 
@@ -23,6 +37,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -36,6 +51,25 @@ _CB_RECOVERY_TIMEOUT = 30.0  # seconds before trying again (half-open)
 
 class MCPUnavailableError(RuntimeError):
     """Raised when the MCP server is unreachable or the circuit is open."""
+
+
+@dataclass
+class MCPToolResult:
+    """Result from ``call_tool_structured()``.
+
+    ``structured`` is populated when the MCP server returns a ``structuredContent``
+    field (MCP spec 2025-11-25).  ``text`` always contains the plain-text content
+    for backward compatibility.  ``is_error`` mirrors the MCP ``isError`` flag.
+    """
+
+    text: str
+    structured: dict[str, Any] | None = field(default=None)
+    is_error: bool = field(default=False)
+
+    @property
+    def content(self) -> dict[str, Any] | str:
+        """Prefer structured data; fall back to text when unavailable."""
+        return self.structured if self.structured is not None else self.text
 
 
 class MCPClient:
@@ -141,6 +175,43 @@ class MCPClient:
                 raise RuntimeError(text)
             return text
         return json.dumps(result, default=str)
+
+    async def call_tool_structured(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> MCPToolResult:
+        """Call a tool and return an ``MCPToolResult`` with both text and structured data.
+
+        Implements MCP spec 2025-11-25: when the server includes a
+        ``structuredContent`` field in the response the typed dict is extracted
+        and exposed via ``MCPToolResult.structured``.  The text content is always
+        extracted for backward compatibility.
+
+        Raises ``RuntimeError`` on tool errors (``isError: true``), same as
+        ``call_tool()``.  Raises ``MCPUnavailableError`` if the server is
+        unreachable.
+        """
+        raw = await self._rpc("tools/call", {"name": name, "arguments": arguments})
+        is_error = bool(raw.get("isError", False))
+
+        # ── Text content (backward compat) ────────────────────────────────────
+        content = raw.get("content", [])
+        if content and isinstance(content[0], dict):
+            text = content[0].get("text", "")
+        else:
+            text = json.dumps(raw, default=str)
+
+        if is_error:
+            raise RuntimeError(text)
+
+        # ── Structured content (MCP spec 2025-11-25) ─────────────────────────
+        structured: dict[str, Any] | None = raw.get("structuredContent") or None
+        if structured is not None and not isinstance(structured, dict):
+            log.debug("MCP structuredContent is not a dict — discarding (got %s)", type(structured))
+            structured = None
+
+        return MCPToolResult(text=text, structured=structured, is_error=False)
 
     async def health(self) -> bool:
         """Return True if the MCP server is reachable."""
