@@ -88,7 +88,7 @@ jobs:
           echo "medium=${MEDIUM}" >> "$GITHUB_OUTPUT"
 
       - name: Upload bandit results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bandit-results
           path: /tmp/bandit.json
