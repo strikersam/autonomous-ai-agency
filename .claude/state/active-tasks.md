@@ -98,7 +98,7 @@
 | ★4 | Skill/Procedural Memory | P1 | `TODO` | — |
 | ★5 | Sandboxed Agent Execution | P1 | `TODO` | — |
 | ★6 | Cost Analytics + FTS5 Memory + Constitution | P1 | `TODO` | — |
-| ★7 | Adaptive Loop Halting | P1 | `TODO` | — |
+| ★7 | Adaptive Loop Halting | P1 | `DONE` | `agent/adaptive_halting.py` AdaptiveHalter (velocity + consecutive-fail gates), wired into AgentRunner.run(); 14 tests (2026-07-13) |
 | A3 | Capability Registry + Dynamic Tool Discovery | P1 | `TODO` | — |
 | A4 | Async Task Queue | P1 | `TODO` | — |
 | A5 | Inter-Agent Message Bus | P1 | `TODO` | — |
@@ -129,3 +129,4 @@
 | 2026-06-14 | claude-sonnet-4-6 | claude/agentic-agile-workflows-8ymf4d | Implemented autonomous agile ceremonies (agents/agile_ceremonies.py + agile-ceremonies.yml cron) and added `delivery` (Delivery Manager) as the 35th specialist family |
 | 2026-06-14 | claude-sonnet-4-6 | claude/nifty-pasteur-hvjqzn | Daily automation: researched Anthropic/Claude Code/Codex 2026-06 industry news; found Claude Sonnet 4 / Opus 4 retire on the Claude API 2026-06-15 — fixed `.github/workflows/ci-failure-autofix.yml` (`claude-sonnet-4-20250514` → `claude-sonnet-4-6`), added `tests/test_daily_2026_06_14.py` regression guard |
 | 2026-07-06 | claude-sonnet-4-6 | claude/nifty-pasteur-ixksyh | Daily automation: researched Claude Code July 2026 (context compaction, subagent extended-thinking inheritance) + Codex July 2026 (configurable rollout token budgets, abort-on-exhaust). Implemented: (1) ★1 DONE — 15 tests for agent/context_pruner.py 3-phase pruner; (2) ★3 DONE — TokenBudget wired into AgentRunner._chat_text + set_token_budget() + _record_tokens() + 12 integration tests. 38/38 new tests pass, 54/54 related agent tests pass. |
+| 2026-07-13 | claude-sonnet-4-6 | claude/nifty-pasteur-nwl1bt | Daily automation: researched Claude Code July 2026 (smarter auto-mode halting, /doctor, transcript protection) + Codex July 2026 (MCP tool search by default) + MCP spec 2025-11-25 (structuredContent + outputSchema). Implemented: (1) ★7 DONE — agent/adaptive_halting.py AdaptiveHalter (velocity + consecutive-failure gates) wired into AgentRunner.run(); (2) MCP structured output — MCPToolResult dataclass + call_tool_structured() for MCP spec 2025-11-25 structuredContent extraction. 28/28 new tests pass, 30/30 agent runner tests pass, 76/76 MCP tests pass. |
