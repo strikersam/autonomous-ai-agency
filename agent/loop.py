@@ -1749,8 +1749,27 @@ class AgentRunner:
         for _attempt in range(fm.max_attempts()):
             provider = fm.next_provider(exclude=tried, requested_model=model)
             if provider is None:
-                log.error("brain_failover: no healthy providers left (tried=%s)", tried)
-                break
+                # All providers exhausted or all in cooldown. Before giving up,
+                # check if ALL providers are unhealthy (circuit breakers OPEN).
+                # If so, reset them inline and retry — don't wait for the 5-min
+                # self-heal cycle. This prevents the "no healthy providers" deadlock
+                # where every provider tripped its breaker and the agent loop can't
+                # make any LLM call until the next self-heal tick.
+                all_providers = fm.get_providers()
+                if all_providers and not any(p.is_healthy for p in all_providers):
+                    log.warning(
+                        "brain_failover: all %d providers unhealthy — resetting circuit "
+                        "breakers inline (tried=%s)",
+                        len(all_providers), tried,
+                    )
+                    for p in all_providers:
+                        fm.record_success(p.id)
+                    # Clear tried so we can retry all providers
+                    tried.clear()
+                    provider = fm.next_provider(exclude=tried, requested_model=model)
+                if provider is None:
+                    log.error("brain_failover: no healthy providers left (tried=%s)", tried)
+                    break
 
             tried.add(provider.id)
             # Resolve the model for this provider (alias mapping)
