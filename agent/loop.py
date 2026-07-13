@@ -1000,7 +1000,22 @@ class AgentRunner:
                     parsed = self._parse_execution_response(repaired, target_file)
                 if not parsed:
                     retries += 1
-                    feedback_issues = ["You violated format. Fix only format."]
+                    # Provide a more helpful error message so the LLM knows
+                    # exactly what went wrong on the retry.
+                    if "```" not in response:
+                        feedback_issues = [
+                            "Your response is missing the FILE:/ACTION:/``` format. "
+                            "Return ONLY:\nFILE: <path>\nACTION: create|replace|append\n```text\n<full content>\n```"
+                        ]
+                    elif not response.rstrip().endswith("```"):
+                        feedback_issues = [
+                            "Your response was TRUNCATED — the closing ``` is missing. "
+                            "The file content was cut off. If the file is too large, "
+                            "use ACTION: append to add only the changed section. "
+                            "Otherwise, return the complete file with the closing ```."
+                        ]
+                    else:
+                        feedback_issues = ["You violated format. Fix only format."]
                     if retries > 2:
                         return {
                             "step_id": step["id"],
@@ -1466,7 +1481,7 @@ class AgentRunner:
         else:
             # NVIDIA NIM / OpenAI-compatible: add max_tokens (required by NIM)
             if "max_tokens" not in payload:
-                payload["max_tokens"] = 4096
+                payload["max_tokens"] = 16384
         provider_is_anthropic = (
             "x-api-key" in provider_header_names
             or (urlparse(normalized_base).hostname or "").lower().endswith("anthropic.com")
@@ -1574,7 +1589,7 @@ class AgentRunner:
                     use_model = opus_model if opus_model else model
                     resp = await client.messages.create(
                         model=use_model,
-                        max_tokens=4096,
+                        max_tokens=16384,
                         system=system_content or "",
                         messages=anth_messages,
                     )
@@ -1638,7 +1653,7 @@ class AgentRunner:
                                 anth_messages.append({"role": m.get("role"), "content": m.get("content")})
                         resp = await bedrock_client.messages.create(
                             model=bedrock_model,
-                            max_tokens=4096,
+                            max_tokens=16384,
                             system=system_content or "",
                             messages=anth_messages,
                         )
@@ -1689,7 +1704,7 @@ class AgentRunner:
                 "model": model,
                 "messages": anthropic_messages or [{"role": "user", "content": ""}],
                 "system": "\n\n".join(system_parts) if system_parts else None,
-                "max_tokens": 4096,
+                "max_tokens": 16384,
                 "temperature": payload.get("temperature", 0.3),
             }
             start = time.perf_counter()

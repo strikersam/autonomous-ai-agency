@@ -159,8 +159,12 @@ def build_execution_prompt(
                 "<FULL FILE CONTENT>\n"
                 "```\n\n"
                 "Rules:\n"
-                "- Always return a full file.\n"
-                "- No explanations."
+                "- Always return the COMPLETE file — never truncate or abbreviate.\n"
+                "- If the file is large, still return the full content. Do NOT use\n"
+                "  comments like '# ... rest unchanged ...' or '# ... existing code ...'.\n"
+                "- If the file is too large to fit in one response, use ACTION: append\n"
+                "  to add only the new/changed section instead of replacing the whole file.\n"
+                "- No explanations. No prose outside the FILE:/ACTION:/``` block."
             ),
         },
         {

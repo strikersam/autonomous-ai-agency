@@ -126,7 +126,9 @@ def test_agent_runner_reports_format_failure_with_mocked_model(tmp_path: Path):
     )
 
     assert result["steps"][0]["status"] == "failed"
-    assert "violated format" in result["steps"][0]["issues"][0].lower()
+    # The feedback message now includes more detail about what went wrong,
+    # but still mentions "format".
+    assert "format" in result["steps"][0]["issues"][0].lower()
 
 
 def test_agent_runner_cleans_language_prefix_from_generated_file(tmp_path: Path):
