@@ -20,10 +20,10 @@ log = logging.getLogger("qwen-proxy")
 
 # Self-repo task types that should ship real code (commit + PR) rather than
 # stay report-only. Portfolio-materialized initiatives and GitHub-issue
-# ceo_direct tasks are meant to result in shipped fixes/features; other task
-# types (e.g. the default "general") keep the pre-existing report-only
-# behaviour, matching the SCOUT role's "read-only, no patches" contract.
-_SELF_REPO_SHIP_CODE_TASK_TYPES = {"portfolio_initiative", "issue", "quick_note"}
+# ceo_direct tasks are meant to result in shipped fixes/features. The
+# default "general" task type is ALSO included so CEO-agency tasks (which
+# are created as "general") produce commits/PRs instead of just reports.
+_SELF_REPO_SHIP_CODE_TASK_TYPES = {"portfolio_initiative", "issue", "quick_note", "general"}
 
 
 def _get_workflow_engine() -> WorkflowEngine:
