@@ -267,7 +267,7 @@ class TestMCPClientStructuredOutput:
             return tools_response
 
         with patch.object(client, "_rpc", side_effect=_fake_rpc):
-            tools = asyncio.get_event_loop().run_until_complete(client.list_tools())
+            tools = asyncio.run(client.list_tools())
 
         assert len(tools) == 1
         assert tools[0]["name"] == "query_db"
