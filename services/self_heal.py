@@ -72,8 +72,57 @@ async def run_self_heal_cycle() -> dict[str, Any]:
         summary["telegram"] = {"error": str(exc)[:200]}
         log.debug("self_heal: telegram failed (non-fatal): %s", exc)
 
+    # 5. Timestamp normalisation (best-effort)
+    try:
+        summary["ts_normalise"] = await _heal_timestamps()
+    except Exception as exc:
+        summary["ts_normalise"] = {"error": str(exc)[:200]}
+        log.warning("self_heal: ts_normalise failed: %s", exc)
+
     log.info("self_heal: cycle complete — %s", summary)
     return summary
+
+
+async def _heal_timestamps() -> dict[str, int]:
+    """Normalise ISO 8601 timestamp strings to float epochs in the DB.
+
+    Some code paths write ``updated_at`` / ``created_at`` / ``started_at``
+    as ISO 8601 strings instead of float timestamps. This causes crashes
+    when other code paths try to do ``float(timestamp)`` or compare
+    ``float < str``. This pass scans all tasks and normalises any string
+    timestamps to floats so the dispatcher/reconciler don't crash.
+
+    Idempotent — already-float timestamps are skipped.
+    """
+    from tasks.store import get_task_store, _ts_to_float
+    from tasks.models import TaskStatus
+
+    store = get_task_store()
+    all_tasks = await store.list_all(limit=10_000)
+
+    normalised = 0
+    for t in all_tasks:
+        changed = False
+        for field in ("created_at", "updated_at", "started_at", "completed_at", "due_date"):
+            val = getattr(t, field, None)
+            if val is None:
+                continue
+            if isinstance(val, str):
+                # It's a string — try to normalise to float
+                normalised_val = _ts_to_float(val)
+                if normalised_val:
+                    setattr(t, field, normalised_val)
+                    changed = True
+        if changed:
+            try:
+                await store.update(t)
+                normalised += 1
+            except Exception:
+                pass
+
+    if normalised > 0:
+        log.info("self_heal: normalised ISO 8601 timestamps on %d task(s)", normalised)
+    return {"normalised": normalised, "total_scanned": len(all_tasks)}
 
 
 async def _heal_task_duplicates() -> dict[str, int]:
@@ -208,10 +257,10 @@ async def _heal_stuck_tasks() -> dict[str, int]:
         started = t.started_at
         if not started:
             continue
-        # Handle both epoch float and ISO string
-        try:
-            started_ts = float(started) if isinstance(started, (int, float)) else float(started)
-        except (ValueError, TypeError):
+        # Normalise: started_at may be a float OR an ISO 8601 string
+        from tasks.store import _ts_to_float
+        started_ts = _ts_to_float(started)
+        if not started_ts:
             continue
         if now - started_ts > _STUCK_TASK_TIMEOUT_SEC:
             t.status = TaskStatus.TODO

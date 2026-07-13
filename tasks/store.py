@@ -223,7 +223,7 @@ class TaskStore:
                 and (not agent_id or v.get("agent_id") == agent_id)
                 and (not tag or tag in (v.get("tags") or []))
             ]
-            docs.sort(key=lambda d: d.get("created_at", 0), reverse=True)
+            docs.sort(key=lambda d: _ts_to_float(d.get("created_at", 0)), reverse=True)
             docs = docs[offset: offset + limit]
 
         return [Task.model_validate(d) for d in docs]
@@ -247,7 +247,7 @@ class TaskStore:
             docs = list(self._mem.values())
             if status:
                 docs = [d for d in docs if d.get("status") == status.value]
-            docs.sort(key=lambda d: d.get("created_at", 0), reverse=True)
+            docs.sort(key=lambda d: _ts_to_float(d.get("created_at", 0)), reverse=True)
             docs = docs[offset: offset + limit]
 
         return [Task.model_validate(d) for d in docs]
@@ -266,7 +266,7 @@ class TaskStore:
                 if value.get("pending_agent_run") is True
                 and value.get("status") in {TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value}
             ]
-            docs.sort(key=lambda d: d.get("updated_at", d.get("created_at", 0)))
+            docs.sort(key=lambda d: _ts_to_float(d.get("updated_at", d.get("created_at", 0))))
             docs = docs[:limit]
         return [Task.model_validate(d) for d in docs]
 
@@ -283,7 +283,7 @@ class TaskStore:
                 value for value in self._mem.values()
                 if value.get("status") == TaskStatus.BLOCKED.value
             ]
-            docs.sort(key=lambda d: d.get("updated_at", d.get("created_at", 0)))
+            docs.sort(key=lambda d: _ts_to_float(d.get("updated_at", d.get("created_at", 0))))
             docs = docs[:limit]
         return [Task.model_validate(d) for d in docs]
 
@@ -370,7 +370,7 @@ class TaskStore:
                 v for v in self._mem.values()
                 if v.get("due_date") and v["due_date"] <= deadline and v.get("status") != "done"
             ]
-            docs.sort(key=lambda d: d.get("due_date", 0))
+            docs.sort(key=lambda d: _ts_to_float(d.get("due_date", 0)))
             docs = docs[:20]
         return [Task.model_validate(d) for d in docs]
 
