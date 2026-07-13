@@ -176,7 +176,12 @@ class TaskDispatcher:
             retried = 0
             for task in blocked_tasks:
                 # Skip tasks that haven't cooled down yet
-                if task.updated_at and (now - task.updated_at) < _BLOCKED_COOLDOWN_S:
+                # task.updated_at may be a float OR an ISO 8601 string (depending
+                # on which code path wrote it); normalise via _ts_to_float so the
+                # subtraction doesn't raise TypeError.
+                from tasks.store import _ts_to_float
+                updated_at_f = _ts_to_float(task.updated_at) if task.updated_at else 0.0
+                if updated_at_f and (now - updated_at_f) < _BLOCKED_COOLDOWN_S:
                     continue
                 # Respect the auto-retry limit to prevent infinite retry loops
                 if task.auto_retry_count >= _AUTO_RETRY_MAX:
@@ -212,7 +217,7 @@ class TaskDispatcher:
                         "(attempt #%d, was blocked since %s)",
                         task.task_id,
                         task.auto_retry_count,
-                        time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(task.updated_at or now)),
+                        time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(updated_at_f or now)),
                     )
                 except Exception as exc:
                     log.warning(
