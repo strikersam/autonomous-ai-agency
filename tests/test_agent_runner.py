@@ -683,3 +683,94 @@ def test_agent_runner_github_tools_agent_initiated_is_true(tmp_path: Path) -> No
     )
 
     assert runner.github.agent_initiated is True
+
+
+# ── _build_report tests (Bug 2: per-step failure details in report field) ───
+
+
+def test_build_report_includes_failed_step_issues(tmp_path: Path) -> None:
+    """_build_report includes at least one failed step's issues text."""
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=tmp_path)
+    step_results = [
+        {"step_id": 1, "status": "applied", "description": "step 1"},
+        {
+            "step_id": 2,
+            "status": "failed",
+            "description": "step 2",
+            "failure_phase": "verification",
+            "issues": ["Syntax error at line 5", "Missing import"],
+        },
+        {
+            "step_id": 3,
+            "status": "failed",
+            "description": "step 3",
+            "failure_phase": "tool_selection",
+            "issues": ["Tool selection failed: bad model output"],
+        },
+    ]
+    report = runner._build_report("Test goal", step_results, commits=[], pr_url=None)
+    assert "Test goal" in report
+    assert "1/3" in report  # applied count
+    assert "2" in report  # failed count
+    assert "Syntax error at line 5" in report
+    assert "Tool selection failed" in report
+    assert "verification" in report
+    assert "tool_selection" in report
+
+
+def test_build_report_dedupes_identical_failures(tmp_path: Path) -> None:
+    """_build_report dedupes 50 identical failures — doesn't flood the comment."""
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=tmp_path)
+    step_results = [
+        {
+            "step_id": i,
+            "status": "failed",
+            "description": f"step {i}",
+            "failure_phase": "verification",
+            "issues": ["Same syntax error"],  # identical for all 50
+        }
+        for i in range(50)
+    ]
+    report = runner._build_report("Test goal", step_results, commits=[], pr_url=None)
+    # The report should mention the issue but not 50 times
+    assert "Same syntax error" in report
+    # Count occurrences — should be at most 5 (the max_failures cap)
+    assert report.count("Same syntax error") <= 5
+    # Should mention the remaining failures
+    assert "more failed step" in report
+
+
+def test_build_report_capped_at_5_failures(tmp_path: Path) -> None:
+    """_build_report shows at most 5 failed steps."""
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=tmp_path)
+    step_results = [
+        {
+            "step_id": i,
+            "status": "failed",
+            "description": f"step {i}",
+            "failure_phase": "verification",
+            "issues": [f"Unique error {i}"],
+        }
+        for i in range(10)
+    ]
+    report = runner._build_report("Test goal", step_results, commits=[], pr_url=None)
+    # Should show 5 unique errors
+    for i in range(5):
+        assert f"Unique error {i}" in report
+    # Should NOT show errors 5-9
+    for i in range(5, 10):
+        assert f"Unique error {i}" not in report
+    assert "5 more failed step" in report
+
+
+def test_build_report_no_failures(tmp_path: Path) -> None:
+    """_build_report with all-applied steps has no failure section."""
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=tmp_path)
+    step_results = [
+        {"step_id": i, "status": "applied", "description": f"step {i}"}
+        for i in range(5)
+    ]
+    report = runner._build_report("Test goal", step_results, commits=["abc123"], pr_url=None)
+    assert "5/5" in report
+    assert "Failed step" not in report
+    assert "abc123" not in report or "Commits" in report  # commits count line

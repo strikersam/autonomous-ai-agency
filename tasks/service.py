@@ -1192,6 +1192,14 @@ class TaskExecutionCoordinator:
 
         if not result.success:
             task.error_message = result.output
+            # Post the agent_comment as a task comment EVEN on the FAILED path
+            # so the operator can see the per-step failure details (the
+            # "report" field from agent/loop.py::_build_report). Without this,
+            # a failed task shows only the terse error_message and the
+            # detailed failure analysis is silently dropped.
+            agent_comment = metadata.get("agent_comment")
+            if agent_comment:
+                self.workflow.add_comment(task, author=actor, body=agent_comment)
             self.workflow.transition(
                 task,
                 TaskStatus.FAILED,

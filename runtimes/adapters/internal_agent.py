@@ -516,38 +516,34 @@ class InternalAgentAdapter(RuntimeAdapter):
         output_text = result.get("report") or result.get("summary") or ""
         judge_verdict = str((result.get("judge") or {}).get("verdict") or "").upper()
 
-        # Failure-ratio gate: if the agent attempted multiple steps but the
-        # majority failed, treat the task as FAILED even if a few steps were
-        # applied. This prevents the "21/22 failed, 1 applied → DONE" bug
-        # where a task that barely did anything is silently marked complete.
-        # Threshold: if ≥75% of attempted steps failed AND fewer than 3 steps
-        # were applied, it's a failure. A task that applied 5+ steps with some
-        # failures is still considered work done.
+        # Step-success-ratio gate: a task with planned steps needs a MAJORITY
+        # applied to count as done. This prevents the "1 applied + 21 failed →
+        # DONE" bug where a single applied step overrides 21 failures. The
+        # free-text-report path (len(output_text) > 20) only applies when
+        # there were NO steps at all (pure analysis/report tasks), not as an
+        # override when steps existed and mostly failed.
         total_steps = len(steps)
-        failure_ratio = (len(failed_steps) / total_steps) if total_steps > 0 else 0.0
-        mostly_failed = total_steps >= 4 and failure_ratio >= 0.75 and len(applied_steps) < 3
+        step_success_ratio = (len(applied_steps) / total_steps) if total_steps else None
+        steps_ok = step_success_ratio is None or step_success_ratio >= 0.5
 
-        # Actual work is considered done if files were modified, steps were applied,
-        # or if the agent produced a meaningful informational report/answer —
-        # UNLESS the majority of steps failed (mostly_failed gate above).
         did_work = (
-            (bool(unique_files or applied_steps) or len(output_text.strip()) > 20)
+            steps_ok
+            and (bool(unique_files or applied_steps) or (not steps and len(output_text.strip()) > 20))
             and judge_verdict != "BLOCKED"
-            and not mostly_failed
         )
 
         # Clean up the isolated worktree once the agent is done.
         self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
 
-        # If the task mostly failed, prepend a clear failure summary to the
-        # output so the task's error_message (set by _apply_result when
-        # success=False) explains what went wrong.
-        if mostly_failed:
+        # If the task failed the step-success-ratio gate, prepend a clear
+        # failure summary to the output so the task's error_message (set by
+        # _apply_result when success=False) explains what went wrong.
+        if not did_work and total_steps > 0 and step_success_ratio is not None and step_success_ratio < 0.5:
             failure_summary = (
-                f"Task marked as FAILED: {len(failed_steps)}/{total_steps} steps "
-                f"failed (only {len(applied_steps)} applied). "
-                f"Failure ratio {failure_ratio:.0%} exceeds the 75% threshold. "
-                f"Agent comment: {output_text[:500]}"
+                f"Task marked as FAILED: {len(applied_steps)}/{total_steps} steps "
+                f"applied ({step_success_ratio:.0%} < 50% threshold). "
+                f"{len(failed_steps)} step(s) failed. "
+                f"Agent report: {output_text[:500]}"
             )
             output_text = failure_summary
 

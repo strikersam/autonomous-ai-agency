@@ -652,6 +652,7 @@ class AgentRunner:
                 "steps": step_results,
                 "commits": commits,
                 "summary": summary,
+                "report": self._build_report(plan.goal, step_results, commits, pr_url),
                 "judge": judge,
                 "pr_url": pr_url,
             }
@@ -2298,6 +2299,68 @@ class AgentRunner:
         if pr_url:
             parts.append(f"PR: {pr_url}")
         return " | ".join(parts)
+
+    def _build_report(
+        self,
+        goal: str,
+        step_results: list[dict[str, Any]],
+        commits: list[str],
+        pr_url: str | None = None,
+        *,
+        max_failures: int = 5,
+    ) -> str:
+        """Build a readable markdown report for the task comment.
+
+        Includes the goal, applied/total counts, and up to ``max_failures``
+        deduped per-step failure details (failure_phase + issues text) so
+        the operator can see WHY steps failed without needing admin log
+        access.  This flows through ``internal_agent.py``'s
+        ``result.get("report")`` path and appears as a task comment.
+        """
+        applied = [s for s in step_results if s.get("status") == "applied"]
+        failed = [s for s in step_results if s.get("status") == "failed"]
+        lines = [
+            f"## Goal: {goal}",
+            f"**Applied steps:** {len(applied)}/{len(step_results)}",
+        ]
+        if failed:
+            lines.append(f"**Failed steps:** {len(failed)}")
+        if commits:
+            lines.append(f"**Commits:** {len(commits)}")
+        if pr_url:
+            lines.append(f"**PR:** {pr_url}")
+
+        if failed:
+            lines.append("")
+            lines.append("### Failed step details (first {})".format(min(max_failures, len(failed))))
+            seen_issues: set[str] = set()
+            shown = 0
+            for step in failed:
+                if shown >= max_failures:
+                    break
+                phase = step.get("failure_phase") or "unknown"
+                issues = step.get("issues") or []
+                # Dedup identical issue text so 21 identical failures don't
+                # flood the comment — the operator needs the pattern, not 21
+                # copies of the same line.
+                unique_issues: list[str] = []
+                for issue in issues:
+                    issue_str = str(issue).strip()
+                    if issue_str and issue_str not in seen_issues:
+                        seen_issues.add(issue_str)
+                        unique_issues.append(issue_str)
+                if not unique_issues:
+                    unique_issues = ["(no issue text recorded)"]
+                desc = (step.get("description") or "")[:100]
+                lines.append(f"- **Step {step.get('step_id', '?')}** ({phase}): {desc}")
+                for issue in unique_issues[:3]:  # cap at 3 issues per step
+                    lines.append(f"  - {issue[:300]}")
+                shown += 1
+            remaining = len(failed) - shown
+            if remaining > 0:
+                lines.append(f"- ... and {remaining} more failed step(s) (see logs for details)")
+
+        return "\n".join(lines)
 
 
 # ── FreeBuff: self-hosted Codebuff-style agent on free NVIDIA NIM models ───────
