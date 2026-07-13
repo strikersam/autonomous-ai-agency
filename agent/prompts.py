@@ -109,10 +109,20 @@ def build_tool_prompt(
                 "- git_push(workspace_id, branch=None): Push branch from container to remote\n"
                 "- delete_workspace(workspace_id): Remove container workspace when done\n"
                 "- finish(reason)\n\n"
-                "Return ONLY JSON:\n"
-                '{ "tool": "<name>", "args": { ... } }\n\n'
+                "Return ONLY a JSON object in this EXACT format:\n"
+                '{"tool": "<tool_name>", "args": {"<arg>": "<value>"}}\n\n'
+                "Example: {\"tool\": \"read_file\", \"args\": {\"path\": \"src/main.py\"}}\n"
+                "Example: {\"tool\": \"list_files\", \"args\": {\"path\": \".\"}}\n"
+                "Example: {\"tool\": \"search_code\", \"args\": {\"query\": \"TODO\"}}\n"
+                "Example: {\"tool\": \"finish\", \"args\": {\"reason\": \"done inspecting\"}}\n\n"
+                "CRITICAL: The JSON MUST have a \"tool\" key. Do NOT return results, status, or\n"
+                "observations — return ONLY the next tool call to make.\n"
+                "WRONG: {\"path\": \"loops\"}  (missing \"tool\" key)\n"
+                "WRONG: {\"status\": \"ok\"}  (this is a result, not a tool call)\n"
+                "RIGHT: {\"tool\": \"read_file\", \"args\": {\"path\": \"loops\"}}\n\n"
                 "Rules:\n"
                 "- One tool per response.\n"
+                "- The \"tool\" field is REQUIRED. The \"args\" field is REQUIRED (use {} if no args).\n"
                 f"- Remaining tool calls: {remaining_calls}."
             ),
         },

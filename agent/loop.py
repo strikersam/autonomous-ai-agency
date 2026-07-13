@@ -859,7 +859,7 @@ class AgentRunner:
                     sys_content = str(tool_messages[0].get("content", ""))
                     tool_messages[0]["content"] = f"{sys_content}\n\n{scratchpad_ctx}"
                 tool_call = await self._chat_json(executor_model, tool_messages)
-                call = ToolCall.model_validate(tool_call)
+                call = self._coerce_tool_call(tool_call)
             except Exception as exc:
                 tool_retry_count += 1
                 error_msg = f"tool selection failed: {exc}"
@@ -1895,6 +1895,96 @@ class AgentRunner:
             if not match:
                 raise
             return json.loads(match.group(0))
+
+    # ── Tool-call coercion ──────────────────────────────────────────────────
+    #
+    # Some LLMs (especially z-ai/glm-5.2 on NVIDIA NIM) return malformed tool
+    # calls — instead of {"tool": "read_file", "args": {"path": "loops"}}, they
+    # return {"path": "loops"} (just the args) or {"status": "ok"} (a result
+    # instead of a call). This helper tries to salvage these by inferring the
+    # tool from the args present, and if that fails, raises a clear error with
+    # the expected format so the retry message is helpful.
+
+    _TOOL_INFERENCE_RULES: list[tuple[str, set[str], str]] = [
+        # (tool_name, required_arg_keys, description)
+        ("read_file", {"path"}, "reading a file"),
+        ("head_file", {"path"}, "reading the start of a file"),
+        ("list_files", {"path"}, "listing files in a directory"),
+        ("file_index", {"path"}, "indexing files in a directory"),
+        ("search_code", {"query"}, "searching code"),
+        ("get_overview", set(), "getting an overview"),
+        ("get_context", {"targets"}, "getting context for targets"),
+        ("get_risk", set(), "getting risk analysis"),
+        ("get_why", {"target"}, "getting architectural decisions"),
+        ("recall_memory", {"query"}, "recalling memory"),
+        ("save_memory", {"key", "value"}, "saving memory"),
+        ("github_get_issue", {"repo_name", "issue_number"}, "getting a GitHub issue"),
+        ("github_list_repos", set(), "listing GitHub repos"),
+        ("github_list_branches", {"repo_name"}, "listing GitHub branches"),
+        ("github_read_repo_file", {"repo_name", "path"}, "reading a GitHub repo file"),
+        ("clone_repo", {"workspace_id", "repo_url"}, "cloning a repo"),
+        ("write_file", {"workspace_id", "path", "content"}, "writing a file in a container"),
+        ("run_command", {"workspace_id", "cmd"}, "running a command in a container"),
+        ("git_status", {"workspace_id"}, "git status in a container"),
+        ("git_diff", {"workspace_id"}, "git diff in a container"),
+        ("finish", set(), "finishing"),
+    ]
+
+    def _coerce_tool_call(self, raw: dict[str, Any]) -> ToolCall:
+        """Parse an LLM tool-call response, tolerating common malformations.
+
+        Handles:
+          1. Correct format: {"tool": "read_file", "args": {"path": "x"}}
+          2. Missing 'tool' key: {"path": "x"} → infer from args
+          3. 'tool' at wrong level: {"name": "read_file", "path": "x"}
+          4. Flat args (no 'args' wrapper): {"tool": "read_file", "path": "x"}
+          5. Result-like dict: {"status": "ok"} → finish with the dict as reason
+        """
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"Expected a JSON object for tool call, got {type(raw).__name__}: {str(raw)[:200]}"
+            )
+
+        # Case 1: correct format with 'tool' key
+        if "tool" in raw:
+            tool_name = str(raw["tool"]).strip()
+            # Case 4: flat args (no 'args' wrapper)
+            if "args" not in raw:
+                args = {k: v for k, v in raw.items() if k != "tool"}
+            else:
+                args = raw.get("args") or {}
+            return ToolCall(tool=tool_name, args=args)  # type: ignore[arg-type]
+
+        # Case 2: 'name' instead of 'tool'
+        if "name" in raw:
+            tool_name = str(raw["name"]).strip()
+            args = {k: v for k, v in raw.items() if k != "name"}
+            return ToolCall(tool=tool_name, args=args)  # type: ignore[arg-type]
+
+        # Case 3: missing 'tool' key — try to infer from args
+        arg_keys = set(k for k in raw.keys() if k not in ("status", "error", "result"))
+        for tool_name, required_keys, desc in self._TOOL_INFERENCE_RULES:
+            if required_keys and required_keys.issubset(arg_keys):
+                log.debug("_coerce_tool_call: inferred tool=%s from args=%s (%s)",
+                          tool_name, arg_keys, desc)
+                return ToolCall(tool=tool_name, args=raw)  # type: ignore[arg-type]
+
+        # Case 4: result-like dict with 'status' or 'error' — treat as finish
+        if "status" in raw or "error" in raw or "result" in raw:
+            log.debug("_coerce_tool_call: treating result-like dict as finish: %s",
+                      str(raw)[:100])
+            return ToolCall(tool="finish", args={"reason": json.dumps(raw)[:500]})  # type: ignore[arg-type]
+
+        # Case 5: empty dict — finish
+        if not raw:
+            return ToolCall(tool="finish", args={"reason": "no tool call provided"})  # type: ignore[arg-type]
+
+        # Cannot infer — raise with a helpful message for the retry
+        raise ValueError(
+            f"Tool call missing 'tool' field and could not be inferred from args. "
+            f"Expected format: {{\"tool\": \"<name>\", \"args\": {{...}}}}. "
+            f"Got: {json.dumps(raw)[:300]}"
+        )
 
     def _parse_execution_response(self, raw: str, fallback_path: str) -> tuple[str, str] | None:
         match = re.search(
