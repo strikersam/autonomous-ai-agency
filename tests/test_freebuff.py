@@ -201,6 +201,11 @@ def test_freebuff_models_endpoint():
         proxy.app.dependency_overrides.clear()
 
 
+@pytest.mark.skipif(
+    os.environ.get("TESTING", "").lower() == "true" or not os.environ.get("RUN_FREEBUFF_LIVE_TESTS"),
+    reason="Requires a live LLM endpoint for planning — skipped in CI. "
+           "Set RUN_FREEBUFF_LIVE_TESTS=1 to run locally.",
+)
 def test_freebuff_plan_endpoint(monkeypatch):
     from agent.models import AgentPlan
 
