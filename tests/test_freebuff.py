@@ -70,9 +70,9 @@ def test_falls_back_to_local_base_without_key(monkeypatch):
 
 
 @pytest.mark.skipif(
-    not os.environ.get("NVIDIA_API_KEY") and not os.environ.get("OLLAMA_BASE"),
-    reason="Requires a live LLM endpoint for planning (NVIDIA NIM or Ollama) — "
-           "skipped in CI where no LLM is configured.",
+    os.environ.get("TESTING", "").lower() == "true" or not os.environ.get("RUN_FREEBUFF_LIVE_TESTS"),
+    reason="Requires a live LLM endpoint for planning — skipped in CI. "
+           "Set RUN_FREEBUFF_LIVE_TESTS=1 to run locally.",
 )
 async def test_run_coerces_requested_model_to_free(monkeypatch):
     captured: dict = {}
