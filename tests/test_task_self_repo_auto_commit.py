@@ -43,7 +43,7 @@ def _mock_gh(repo="owner/repo", token=STUB_GH_CREDENTIAL):
     )
 
 
-@pytest.mark.parametrize("task_type", ["portfolio_initiative", "issue", "quick_note"])
+@pytest.mark.parametrize("task_type", ["portfolio_initiative", "issue", "quick_note", "general"])
 def test_ship_code_task_types_get_auto_commit_and_repo_context(coordinator, task_type):
     task = Task(owner_id="system", title="Fix the bug", task_type=task_type)
     repo_patch, token_patch = _mock_gh()
@@ -56,10 +56,10 @@ def test_ship_code_task_types_get_auto_commit_and_repo_context(coordinator, task
     assert spec.context["github_token"] == STUB_GH_CREDENTIAL
 
 
-def test_report_only_task_type_stays_report_only(coordinator):
-    """Task types not in the ship-code set (e.g. "general") must NOT get
-    auto_commit — matches the SCOUT role's read-only contract."""
-    task = Task(owner_id="system", title="Research X", task_type="general")
+def test_unknown_task_type_stays_report_only(coordinator):
+    """Task types not in the ship-code set (e.g. "custom_research") must NOT get
+    auto_commit — they stay report-only."""
+    task = Task(owner_id="system", title="Research X", task_type="custom_research")
     repo_patch, token_patch = _mock_gh()
     with repo_patch, token_patch:
         spec = coordinator._build_spec(task, agent=None)
