@@ -24,7 +24,7 @@ from backend.llm_providers import LlmProviderConfig  # noqa: E402
 
 # ── PREDEFINED_MODELS catalog ──────────────────────────────────────────────────
 
-EXPECTED_PROVIDERS = {"openrouter", "huggingface", "ollama", "together", "deepseek", "zhipu", "dashscope", "minimax", "google", "moonshot"}
+EXPECTED_PROVIDERS = {"openrouter", "huggingface", "ollama", "together", "deepseek", "zhipu", "dashscope", "minimax", "google", "moonshot", "colibri"}
 REQUIRED_MODEL_FIELDS = {"id", "name", "role", "tier"}
 VALID_TIERS = {"flagship", "balanced", "fast"}
 VALID_ROLES = {"planner", "executor", "verifier"}
