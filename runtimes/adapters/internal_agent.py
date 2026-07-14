@@ -552,15 +552,18 @@ class InternalAgentAdapter(RuntimeAdapter):
         output_text = result.get("report") or result.get("summary") or ""
         judge_verdict = str((result.get("judge") or {}).get("verdict") or "").upper()
 
-        # Step-success-ratio gate: a task with planned steps needs a MAJORITY
-        # applied to count as done. This prevents the "1 applied + 21 failed →
-        # DONE" bug where a single applied step overrides 21 failures. The
-        # free-text-report path (len(output_text) > 20) only applies when
-        # there were NO steps at all (pure analysis/report tasks), not as an
-        # override when steps existed and mostly failed.
+        # Step-success-ratio gate: a task with planned steps needs ALL steps
+        # applied to count as fully done. If ANY step failed, the task is
+        # marked as failed so the CEO can create a follow-up task to fix the
+        # remaining issues. This prevents the "7/9 applied → DONE" bug where
+        # 2 failed steps (syntax errors, incomplete content) are silently
+        # dropped and the agency never follows up.
+        #
+        # Exception: pure analysis/report tasks (0 planned steps) pass if they
+        # produced non-empty output.
         total_steps = len(steps)
         step_success_ratio = (len(applied_steps) / total_steps) if total_steps else None
-        steps_ok = step_success_ratio is None or step_success_ratio >= 0.5
+        steps_ok = step_success_ratio is None or step_success_ratio >= 1.0
 
         did_work = (
             steps_ok
@@ -574,10 +577,10 @@ class InternalAgentAdapter(RuntimeAdapter):
         # If the task failed the step-success-ratio gate, prepend a clear
         # failure summary to the output so the task's error_message (set by
         # _apply_result when success=False) explains what went wrong.
-        if not did_work and total_steps > 0 and step_success_ratio is not None and step_success_ratio < 0.5:
+        if not did_work and total_steps > 0 and step_success_ratio is not None and step_success_ratio < 1.0:
             failure_summary = (
                 f"Task marked as FAILED: {len(applied_steps)}/{total_steps} steps "
-                f"applied ({step_success_ratio:.0%} < 50% threshold). "
+                f"applied ({step_success_ratio:.0%} < 100% threshold). "
                 f"{len(failed_steps)} step(s) failed. "
                 f"Agent report: {output_text[:500]}"
             )
