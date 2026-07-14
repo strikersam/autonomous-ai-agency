@@ -415,19 +415,55 @@ class InternalAgentAdapter(RuntimeAdapter):
             self._log.debug("E2B attach failed; using local tools: %s", _e2b_exc)
             _e2b_session = None
 
-        # Seed the sandbox from the host worktree so the agent can read
-        # the files it's meant to edit. Only seed when there's no repo_url
-        # in the context (the company-repo flow clones its own repo).
-        if _e2b_session is not None and not spec.context.get("repo_url"):
-            try:
-                seeded = await _e2b_session.seed_from_worktree(worktree_path)
-                if not seeded:
-                    self._log.debug(
-                        "E2B seed_from_worktree returned False; agent will run "
-                        "against an empty sandbox (reads may fail)"
+        # Seed the sandbox so the agent can read the files it's meant to edit.
+        # Two paths:
+        # 1. repo_url present (company-repo or self-repo flow) → clone the real
+        #    repo into the sandbox via the clone_repo MCP tool.
+        # 2. No repo_url → seed from the host worktree (tar git-tracked files).
+        if _e2b_session is not None:
+            repo_url = spec.context.get("repo_url")
+            if repo_url:
+                # Clone the real repo into the sandbox so the agent works
+                # against the actual codebase, not an empty directory.
+                try:
+                    base_branch = spec.context.get("base_branch", "main")
+                    github_token = spec.context.get("github_token", "")
+                    clone_url = repo_url
+                    if github_token and "github.com" in repo_url:
+                        clone_url = repo_url.replace(
+                            "https://", f"https://{github_token}@"
+                        )
+                    await _e2b_session.call_tool("clone_repo", {
+                        "workspace_id": "default",
+                        "repo_url": clone_url,
+                        "branch": base_branch,
+                    })
+                    self._log.info(
+                        "E2B: cloned %s (branch=%s) into sandbox for task %s",
+                        repo_url, base_branch, spec.task_id,
                     )
-            except Exception as exc:  # pragma: no cover - best-effort
-                self._log.debug("E2B seed failed (best-effort): %s", exc)
+                except Exception as exc:
+                    self._log.warning(
+                        "E2B clone_repo failed (falling back to seed_from_worktree): %s",
+                        exc,
+                    )
+                    # Fall back to seeding from the host worktree
+                    try:
+                        await _e2b_session.seed_from_worktree(worktree_path)
+                    except Exception:
+                        pass
+            else:
+                # No repo_url — seed from the host worktree (self-repo tasks
+                # that didn't get repo_url injected, or pure analysis tasks).
+                try:
+                    seeded = await _e2b_session.seed_from_worktree(worktree_path)
+                    if not seeded:
+                        self._log.debug(
+                            "E2B seed_from_worktree returned False; agent will run "
+                            "against an empty sandbox (reads may fail)"
+                        )
+                except Exception as exc:  # pragma: no cover - best-effort
+                    self._log.debug("E2B seed failed (best-effort): %s", exc)
 
         try:
             # Resolve model: prefer spec → Nvidia default → leave None (auto)
