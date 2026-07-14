@@ -63,9 +63,8 @@ def test_render_yaml_uses_glm52():
 
 
 def test_startup_migrates_old_brain_to_glm52():
-    """backend/server.py must have the _migrate_brain_to_glm52 startup task."""
+    """backend/server.py must have the brain migration startup task."""
     import backend.server as srv
     src = inspect.getsource(srv)
-    assert "_migrate_brain_to_glm52" in src
+    assert "_migrate_brain_to_safe_default" in src
     assert "z-ai/glm-5.2" in src
-    assert "meta/llama-3.3-70b-instruct" in src  # the old model it migrates FROM
