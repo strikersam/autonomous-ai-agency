@@ -502,7 +502,30 @@ class AgentRunner:
                 self._log_event(session_id, "assistant_message", {"summary": parallel_result.get("summary", "")})
                 return parallel_result
 
+            _run_start_time = time.perf_counter()
+            _time_budget_s = float(os.environ.get("AGENT_TIME_BUDGET_S", "0") or "0")
+
             for step in plan.steps[:max_steps]:
+                # Time-budget check: if AGENT_TIME_BUDGET_S is set and we've
+                # exceeded 80% of it, stop early to avoid the hard task-execution
+                # timeout. This gives the agent time to commit what it has and
+                # produce a report instead of being killed mid-step.
+                if _time_budget_s > 0:
+                    elapsed = time.perf_counter() - _run_start_time
+                    if elapsed > _time_budget_s * 0.8:
+                        log.warning(
+                            "Agent time budget %.0fs exceeded 80%% (%.0fs elapsed) — "
+                            "stopping after %d/%d steps",
+                            _time_budget_s, elapsed, len(step_results), max_steps,
+                        )
+                        self._log_event(session_id, "step_complete", {
+                            "time_budget_exceeded": True,
+                            "elapsed_s": int(elapsed),
+                            "steps_completed": len(step_results),
+                            "steps_planned": max_steps,
+                        })
+                        break
+
                 step_data = step.model_dump()
                 self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
                 result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
