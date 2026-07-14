@@ -1634,16 +1634,37 @@ async def lifespan(app_: "FastAPI"):
     # DB survives across deploys, so without this the new default never takes
     # effect — the resolver keeps using the stale config. This is a one-shot
     # migration: once the config is on GLM-5.2, it won't be reset again.
-    async def _migrate_brain_to_glm52() -> None:
+    async def _migrate_brain_to_safe_default() -> None:
+        """Reset stale BrainConfig to NVIDIA GLM-5.2 if the persisted config
+        points at a provider/model that is known-broken or not available.
+
+        PR #1046: the DB BrainConfig survives across deploys, so a stale config
+        pointing at google-gemini/gemma-4 (404) or ollama (no URL on Render)
+        blocks all task execution. This migration resets the config to the
+        safe default (nvidia + z-ai/glm-5.2) whenever the persisted provider
+        is not nvidia/cerebras/groq (the free providers with API keys on Render).
+        """
         try:
             from packages.ai.brain_config import get_brain_config_store, BrainConfigPatch
             store = await get_brain_config_store()
             cfg = await store.get_brain_config()
-            old_models = {"meta/llama-3.3-70b-instruct", "llama-3.3-70b-instruct"}
-            if cfg.updated_at and any(
-                getattr(cfg, f, "") in old_models
-                for f in ("planner_model", "executor_model", "verifier_model", "judge_model")
-            ):
+            if not cfg.updated_at:
+                return  # no persisted config — safe default will be used
+
+            # Known-good providers (have API keys configured on Render)
+            known_good_providers = {"nvidia", "cerebras", "groq"}
+            provider = str(cfg.primary_provider)
+
+            # Old model ids that should be migrated
+            old_models = {"meta/llama-3.3-70b-instruct", "llama-3.3-70b-instruct", "gemma-4"}
+
+            needs_reset = False
+            if provider not in known_good_providers:
+                needs_reset = True
+            if any(getattr(cfg, f, "") in old_models for f in ("planner_model", "executor_model", "verifier_model", "judge_model")):
+                needs_reset = True
+
+            if needs_reset:
                 patch = BrainConfigPatch(
                     primary_provider="nvidia",
                     planner_model="z-ai/glm-5.2",
@@ -1651,13 +1672,16 @@ async def lifespan(app_: "FastAPI"):
                     verifier_model="z-ai/glm-5.2",
                     judge_model="z-ai/glm-5.2",
                 )
-                await store.set_brain_config(patch, actor="startup_migration_glm52")
-                log.info("Startup migration: reset brain config from llama-3.3-70b to z-ai/glm-5.2")
+                await store.set_brain_config(patch, actor="startup_migration_safe_default")
+                log.warning(
+                    "Startup migration: reset brain config from provider=%s models=%s → nvidia/z-ai/glm-5.2",
+                    provider, [cfg.planner_model, cfg.executor_model],
+                )
         except Exception as exc:
-            log.warning("Brain config GLM-5.2 migration failed (non-fatal): %s", exc)
+            log.warning("Brain config safe-default migration failed (non-fatal): %s", exc)
 
     try:
-        extra_tasks.append(asyncio.create_task(_migrate_brain_to_glm52()))
+        extra_tasks.append(asyncio.create_task(_migrate_brain_to_safe_default()))
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("Brain migration scheduling failed (non-fatal): %s", exc)
 
