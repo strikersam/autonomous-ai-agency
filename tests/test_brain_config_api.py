@@ -72,11 +72,12 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
     body = r.json()
 
     assert "config" in body
-    # No saved doc + a Cerebras key present → the recommended free-cloud chain
-    # auto-selects Cerebras (Cerebras → Groq → NVIDIA priority). The safe NIM
-    # default remains the floor, surfaced separately in `safe_default` below.
-    assert body["config"]["primary_provider"] == "cerebras"
-    assert body["config"]["planner_model"] == "qwen-3-coder-480b"
+    # PR #1046: priority changed to nvidia-first (nvidia → cerebras → groq →
+    # ollama). With a Cerebras key present but nvidia also available, nvidia
+    # is now the recommended provider. The safe NIM default remains the floor,
+    # surfaced separately in `safe_default` below.
+    assert body["config"]["primary_provider"] == "nvidia"
+    assert body["config"]["planner_model"] == "z-ai/glm-5.2"
 
     assert "providers" in body
     provider_ids = {p["provider_id"] for p in body["providers"]}
