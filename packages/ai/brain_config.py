@@ -227,6 +227,12 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "verifier":  "glm-5.2",
         "judge":     "glm-5.2",
     },
+    "colibri": {
+        "planner":   "glm-5.2",
+        "executor":  "glm-5.2",
+        "verifier":  "glm-5.2",
+        "judge":     "glm-5.2",
+    },
     "aerolink": {
         "planner":   "claude-opus-4-8",
         "executor":  "claude-sonnet-5",
@@ -265,6 +271,10 @@ PROVIDER_KEY_ENV: dict[str, str | None] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "aerolink": "AEROLINK_API_KEY",
     "google": "GOOGLE_API_KEY",
+    # local — no key (colibri serves GLM-5.2 744B MoE on `coli serve`, OpenAI-compat).
+    # uses port 8081; COLIBRI_URL / COLIBRI_MODEL / COLIBRI_ENABLED env are read by
+    # providers/colibri.py at provider registration time.
+    "colibri": None,
 }
 
 # Env-var name each provider reads its base URL from (optional override).
@@ -284,6 +294,7 @@ PROVIDER_BASE_URL_ENV: dict[str, str | None] = {
     "anthropic": "ANTHROPIC_BASE_URL",
     "aerolink": "AEROLINK_BASE_URL",
     "google": "GOOGLE_BASE_URL",
+    "colibri": "COLIBRI_URL",
 }
 
 # Default public base URL for each provider (used when no env override).
@@ -303,11 +314,16 @@ PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
     "anthropic": "https://api.anthropic.com",
     "aerolink": "https://capi.aerolink.lat/v1",
     "google": "https://generativelanguage.googleapis.com/v1beta/openai",
+    # Local — port 8081 serves `coli serve` for the JustVugg/colibri GLM-5.2 runtime.
+    # Override via the COLIBRI_URL env var when the operator tunnels the port.
+    "colibri":  "http://localhost:8081/v1",
 }
 
 # Per-provider failover candidate list. The first model is the preset;
 # subsequent models are tried in order by the watchdog / brain_failover
 # chain on 404 / 410 / timeout. Mirrored from config/models.yaml.
+# NOTE: append-only — adding a provider adds an entry above and inserts into
+# the YAML catalog; never reorder existing keys (sort-stable external contract).
 PROVIDER_CANDIDATES: dict[str, list[str]] = {
     "nvidia": [
         "z-ai/glm-5.2",
@@ -355,6 +371,10 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "claude-haiku-4-5-20251001",
     ],
     "ollama": ["deepseek-r1:32b", "qwen3-coder:30b", "qwen3-coder:7b", "llama3.3:70b"],
+    # Colibri serves a single loaded model — the watchdog's failover chain stays
+    # on the same id. If coli ever exposes an int8 or fp8 fallback model, append
+    # it here.
+    "colibri": ["glm-5.2"],
 }
 
 # Per-provider human-readable label surfaced by the BrainCard dropdown.
@@ -375,6 +395,7 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "openrouter": "OpenRouter (paid aggregator)",
     "anthropic": "Anthropic (Claude, paid)",
     "aerolink":  "Aerolink (Claude gateway)",
+    "colibri":   "Local Colibri / GLM-5.2 (no key, private, ~370 GB on disk)",
 }
 
 # Per-provider tier: free | paid | local. Used by brain_failover to order
@@ -395,6 +416,7 @@ PROVIDER_TIERS: dict[str, str] = {
     "anthropic": "paid",
     "aerolink":  "paid",
     "ollama":    "local",
+    "colibri":   "local",
 }
 
 

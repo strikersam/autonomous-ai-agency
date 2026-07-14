@@ -19,7 +19,13 @@ except ImportError:
 
 
 def check_services():
-    """Check if local services are running."""
+    """Check if local services are running.
+
+    Extends the original (proxy + Ollama) check with colibri (`coli serve`) so
+    a tunnel that begins while `coli serve` is unreachable fails fast. Each
+    check is best-effort (2s timeout) and never raises — the tunnel only
+    requires the proxy to be up; colibri/ollama are advisory.
+    """
     import httpx
 
     try:
@@ -36,7 +42,18 @@ def check_services():
     except Exception:
         ollama_ok = False
 
-    return proxy_ok, ollama_ok
+    colibri_url = (os.environ.get("COLIBRI_URL") or "http://localhost:8081/v1").rstrip("/")
+    colibri_ok = False
+    try:
+        # Colibri exposes an OpenAI-compatible /v1/models endpoint. A 200 (or
+        # 401 with a JSON body) counts as reachable — `coli serve` does not
+        # always answer 200 on /v1/models without a query, so accept either.
+        response = httpx.get(f"{colibri_url}/models", timeout=2)
+        colibri_ok = response.status_code < 500
+    except Exception:
+        colibri_ok = False
+
+    return proxy_ok, ollama_ok, colibri_ok
 
 
 def main():
@@ -46,7 +63,7 @@ def main():
 
     # Check services
     print("✅ Checking local services...")
-    proxy_ok, ollama_ok = check_services()
+    proxy_ok, ollama_ok, colibri_ok = check_services()
 
     if not proxy_ok:
         print("   ❌ Proxy not running on localhost:8000")
@@ -54,12 +71,18 @@ def main():
         sys.exit(1)
 
     if not ollama_ok:
-        print("   ❌ Ollama not running on localhost:11434")
-        print("   Start it: ollama serve")
-        sys.exit(1)
+        print("   ⚠️  Ollama not running on localhost:11434")
+        print("      Start it: ollama serve (optional — only needed when COLIBRI_ENABLED=false)")
+
+    if not colibri_ok:
+        print("   ⚠️  Colibri `coli serve` not responding on http://localhost:8081/v1")
+        print("      Start it: pwsh scripts/start_colibri_server.ps1 (optional — only needed when COLIBRI_ENABLED=true)")
 
     print("   ✓ Proxy: http://localhost:8000")
-    print("   ✓ Ollama: http://localhost:11434")
+    if ollama_ok:
+        print("   ✓ Ollama: http://localhost:11434")
+    if colibri_ok:
+        print(f"   ✓ Colibri: {colibri_url}")
 
     # Get ngrok auth token if needed
     print("\nDo you have an ngrok auth token?")

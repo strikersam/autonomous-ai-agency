@@ -366,6 +366,11 @@ _FREE_CLOUD_PROVIDER_IDS = {
     # Kimi (Moonshot) reached via a no-API-key web bridge — classified FREE so the
     # routing policy permits it without triggering paid-escalation refusal.
     "kimi-web-bridge",
+    # GLM-5.2 744B MoE served by a local JustVugg/colibri instance on port 8081
+    # (`coli serve`, OpenAI-compatible). Classified FREE so failover treats it
+    # alongside the free cloud tier; COLIBRI_ENABLED=false by default so this
+    # is opt-in. See providers/colibri.py for the model provider config.
+    "colibri",
 }
 # Nvidia NIM is free-tier — treated as highest-priority free cloud provider
 _NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
@@ -882,6 +887,26 @@ class ProviderRouter:
 
             _logging.getLogger("qwen-proxy").warning(
                 "Kimi bridge provider not added: %s", _kimi_err, exc_info=True
+            )
+
+        # ── Free local GLM-5.2 (744B MoE) via JustVugg/colibri (coli serve) ──
+        # Same nested-import + try/except shape as the web bridge above.
+        # Registers the provider when COLIBRI_ENABLED=true (default off).
+        # Points at the locally-running `coli serve` instance (default
+        # http://localhost:8081/v1) loading the int4 SD checkpoint downloaded
+        # to D:\hfkld-qg7ky\local-models\glm-5.2\ — so a chat with model=glm-5.2
+        # is fulfilled fully offline on this machine, no API key required.
+        try:
+            from providers.colibri import colibri_provider_config
+
+            _colibri_cfg = colibri_provider_config()
+            if _colibri_cfg is not None:
+                providers.append(_colibri_cfg)
+        except Exception as _colibri_err:  # pragma: no cover - defensive
+            import logging as _logging
+
+            _logging.getLogger("qwen-proxy").warning(
+                "colibri local provider not added: %s", _colibri_err, exc_info=True
             )
 
         return cls(sorted(providers, key=provider_sort_key))

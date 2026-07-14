@@ -49,13 +49,14 @@ def get_brain_preference() -> str:
     Values:
       - ``"nvidia"``  — prefer NVIDIA NIM cloud (default)
       - ``"ollama"``  — prefer local Ollama
+      - ``"colibri"`` — prefer local JustVugg/colibri (GLM-5.2 744B MoE on :8081)
       - ``"auto"``    — let priority decide (same as "nvidia" in practice)
 
     Set via ``BRAIN_PREFERENCE`` env var or the Admin SPA toggle
     (``PATCH /admin/api/policy/brain``).
     """
     raw = os.environ.get("BRAIN_PREFERENCE", "nvidia").strip().lower()
-    if raw in ("nvidia", "ollama", "auto"):
+    if raw in ("nvidia", "ollama", "auto", "colibri"):
         return raw
     return "nvidia"
 
@@ -138,6 +139,7 @@ class BrainResolution:
       - ``"env_override"``  — AGENT_LLM_BASE_URL was set
       - ``"free_fallback"`` — fell through to the free NVIDIA default
       - ``"ollama_local"``  — local Ollama fallback
+      - ``"env_colibri"``   — env-shim fallback for BRAIN_PREFERENCE=colibri
     """
 
     provider_id: str
@@ -298,7 +300,8 @@ async def resolve_active_brain(
     # rather than skipping records entirely (operator may have custom Ollama endpoints).
     records, fetch_failed = await _read_provider_records()
     if records:
-        if get_brain_preference() == "ollama":
+        pref = get_brain_preference()
+        if pref == "ollama":
             # Filter to Ollama-type records only so a custom Ollama endpoint
             # (e.g. a remote Ollama server) is preferred over the local fallback.
             ollama_records = [r for r in records if str(r.get("type") or "").lower() == "ollama"]
@@ -307,6 +310,13 @@ async def resolve_active_brain(
                 if picked is not None:
                     _cached_brain = picked
                     return picked
+        elif pref == "colibri":
+            # Colibri is registered in provider_router via env (COLIBRI_ENABLED),
+            # NOT in DB provider records — so a stale DB record (e.g. seeded nvidia
+            # at priority=-10) would otherwise preempt the operator's colibri intent via
+            # _pick_from_records. Skip the general records branch and fall through to
+            # the env-shim below which reads COLIBRI_URL + COLIBRI_MODEL.
+            pass
         else:
             picked = _pick_from_records(records, exclude)
             if picked is not None:
@@ -333,8 +343,51 @@ async def resolve_active_brain(
     # than firing an environment-based NVIDIA request the operator didn't
     # sanction.
     #
-    # BRAIN_PREFERENCE=ollama skips this step — the operator wants local only.
-    if not records and not fetch_failed and get_brain_preference() != "ollama":
+    # BRAIN_PREFERENCE=ollama OR colibri skips this step — the operator wants local only.
+    # 2.5: Colibri (local GLM-5.2) env shim (BRAIN_PREFERENCE=colibri).
+    # Reads COLIBRI_URL + COLIBRI_MODEL and resolves to a
+    # BrainResolution(provider_id="colibri").  Priority 100 sits in
+    # between the DB BrainConfig (9_000) and the free-NVIDIA fallback (-5), so
+    # the resolver reaches colibri whenever the operator has set the env gate
+    # without conflicting with DB-persisted or env-override paths.
+    if get_brain_preference() == "colibri":
+        colibri_url = os.environ.get("COLIBRI_URL", "").strip().rstrip("/")
+        if colibri_url:
+            if not colibri_url.endswith("/v1"):
+                colibri_url = f"{colibri_url}/v1"
+            colibri_model = (
+                os.environ.get("COLIBRI_MODEL")
+                or os.environ.get("AGENT_LLM_MODEL")
+                or "glm-5.2"
+            ).strip()
+            _cached_brain = BrainResolution(
+                provider_id="colibri",
+                base_url=colibri_url,
+                auth_headers=None,
+                model=colibri_model,
+                role="brain",
+                free_tier=True,
+                source="env_colibri",
+                priority=100,
+            )
+            return _cached_brain
+        # Operator typed the preference but forgot COLIBRI_URL — log loudly
+        # so the silent ollama fallback below is not a surprise.
+        log.warning(
+            "brain_policy: BRAIN_PREFERENCE=colibri but COLIBRI_URL is unset; "
+            "falling back to ollama_local (set COLIBRI_URL=http://localhost:8081/v1 "
+            "or start `coli serve` with scripts\\start_colibri_server.ps1)."
+        )
+
+    # 3. Free NVIDIA NIM brain — default ONLY when the operator has no
+    # configured provider records (not a DB outage). Skipping on fetch-failed
+    # preserves the test_records_list_failure_falls_back_to_ollama_env
+    # contract: when MongoDB is down, fall straight to local Ollama rather
+    # than firing an environment-based NVIDIA request the operator didn't
+    # sanction.
+    #
+    # BRAIN_PREFERENCE=ollama OR colibri skips this step — the operator wants local only.
+    if not records and not fetch_failed and get_brain_preference() not in ("ollama", "colibri"):
         nv = resolve_free_nvidia_brain()
         if nv is not None:
             nv_base, nv_headers, nv_model = nv

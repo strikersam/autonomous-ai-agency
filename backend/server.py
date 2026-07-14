@@ -1092,6 +1092,14 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
             "tier": "fast",
         },
     ],
+    "colibri": [
+        {
+            "id": "glm-5.2",
+            "name": "GLM-5.2 744B MoE (Local Colibri)",
+            "role": ["planner", "executor", "verifier"],
+            "tier": "flagship",
+        },
+    ],
     "together": [
         {
             "id": "deepseek-ai/DeepSeek-R1",
@@ -1203,6 +1211,11 @@ AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
         "planner": "deepseek-r1:671b",
         "executor": "qwen3-coder:30b",
         "verifier": "deepseek-r1:671b",
+    },
+    "colibri": {
+        "planner": "glm-5.2",
+        "executor": "glm-5.2",
+        "verifier": "glm-5.2",
     },
     "together": {
         "planner": "deepseek-ai/DeepSeek-R1",
@@ -1651,8 +1664,11 @@ async def lifespan(app_: "FastAPI"):
             if not cfg.updated_at:
                 return  # no persisted config — safe default will be used
 
-            # Known-good providers (have API keys configured on Render)
-            known_good_providers = {"nvidia", "cerebras", "groq"}
+            # Known-good providers (have API keys configured on Render, OR are
+            # explicitly opted-in local runtimes). colibri is local-only (no API
+            # key on Render), so whitelist it here so a BrainConfig pointing at
+            # BRAIN_PREFERENCE=colibri survives a Render cold-start migration.
+            known_good_providers = {"nvidia", "cerebras", "groq", "colibri"}
             provider = str(cfg.primary_provider)
 
             # Old model ids that should be migrated

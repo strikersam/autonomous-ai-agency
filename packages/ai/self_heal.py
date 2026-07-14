@@ -88,7 +88,7 @@ async def self_heal_brain_and_unblock_tasks() -> dict[str, Any]:
     # Render), reset it to the safe default (nvidia/z-ai/glm-5.2) immediately.
     # This catches stale configs from UI changes or model catalog refreshes
     # that left a broken provider/model in the DB.
-    known_good_providers = {"nvidia", "cerebras", "groq"}
+    known_good_providers = {"nvidia", "cerebras", "groq", "colibri"}
     if cfg.updated_at and normalized_active not in known_good_providers:
         log.warning(
             "self_heal: persisted brain provider %s is not in known-good set %s — resetting to nvidia",

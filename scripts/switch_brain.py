@@ -76,6 +76,12 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "verifier": "deepseek-r1:32b",
         "judge": "deepseek-r1:32b",
     },
+    "colibri": {
+        "planner":  "glm-5.2",
+        "executor": "glm-5.2",
+        "verifier": "glm-5.2",
+        "judge":    "glm-5.2",
+    },
 }
 
 VALID_PROVIDERS = frozenset(PROVIDER_PRESETS.keys())
@@ -616,7 +622,7 @@ Examples:
         "action",
         nargs="?",
         default="status",
-        choices=["status", "ollama", "nvidia", "cerebras", "groq"],
+        choices=["status", "ollama", "nvidia", "cerebras", "groq", "colibri"],
         help="Action: status (show config), or a provider name to switch to",
     )
     parser.add_argument(
@@ -671,7 +677,7 @@ Examples:
             skip_tunnel=args.no_tunnel,
             assume_yes=args.yes,
         )
-    elif args.action in ("nvidia", "cerebras", "groq"):
+    elif args.action in ("nvidia", "cerebras", "groq", "colibri"):
         switch_to_cloud(args.action, platform_url, headers, dry_run=args.dry_run)
 
 

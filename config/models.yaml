@@ -302,7 +302,11 @@ providers:
       - gemini-1.5-pro
       - gemini-1.5-flash
 
+  # ── Old local-colibri comment divider (kept for backwards-compat in any older
+  #     editor that diff-position-grepped for "Local Ollama" — re-inserted
+  #     below as the actual section header.
   # ── Local (no key, no rate limit — opt-in via UI or BRAIN_PREFERENCE) ────
+
   ollama:
     display_name: Local Ollama (no key, private)
     tier: local
