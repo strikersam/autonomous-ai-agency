@@ -41,18 +41,17 @@ class TestBrainWatchdog:
     @patch.object(BrainWatchdog, "_notify_failover")
     def test_failover_triggers_at_threshold(self, mock_notify, mock_persist):
         wd = BrainWatchdog(max_failures=3)
-        # PR #983: _trigger_failover now uses _is_provider_actually_available
-        # instead of provider_key_present. Mock it so ollama is NOT available
-        # (no OLLAMA_BASE_URL in CI) and groq/nvidia ARE.
+        # PR #1046: priority is now nvidia-first (nvidia, cerebras, groq, ollama).
+        # When cerebras fails, nvidia is the first available candidate.
         with patch.object(_bw, "_is_provider_actually_available",
-                          side_effect=lambda p: p in ("groq", "nvidia")):
+                          side_effect=lambda p: p in ("nvidia", "groq")):
             wd.record_failure("cerebras")
             wd.record_failure("cerebras")
             result = wd.record_failure("cerebras")
 
-        assert result == "groq"
-        mock_persist.assert_called_once_with("groq")
-        mock_notify.assert_called_once_with("cerebras", "groq")
+        assert result == "nvidia"
+        mock_persist.assert_called_once_with("nvidia")
+        mock_notify.assert_called_once_with("cerebras", "nvidia")
         assert wd._failure_counts["cerebras"] == 0
 
     @patch.object(BrainWatchdog, "_persist_failover")
