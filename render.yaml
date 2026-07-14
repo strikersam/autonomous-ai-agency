@@ -104,6 +104,20 @@ services:
       - key: E2B_TIMEOUT_SEC
         value: "300"
 
+      # ── Task execution tuning ──────────────────────────────────────────
+      # Tasks were timing out at 600s with 30 steps × 4 LLM calls per step
+      # = 120 calls × ~5s = 600s. Two fixes:
+      # 1. Increase timeout to 1200s (20 min) — gives room for complex tasks
+      # 2. Reduce max_steps from 30 to 12 — fewer steps = faster completion
+      #    while still allowing multi-file changes. The planner can still
+      #    plan 30 steps, but only the first 12 are executed.
+      - key: TASK_EXECUTION_TIMEOUT_SEC
+        value: "1200"
+      - key: AGENT_MAX_STEPS
+        value: "12"
+      - key: AGENT_TIME_BUDGET_S
+        value: "900"
+
       # ── Agent brain role models (UNIT 7) ────────────────────────────────
       # The AGENT_<ROLE>_MODEL env vars (planner/executor/verifier/judge) were
       # removed — the catalog (config/models.yaml) + DB BrainConfig are now the

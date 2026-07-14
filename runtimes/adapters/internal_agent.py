@@ -487,7 +487,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 history=list(spec.context.get("conversation", [])),
                 requested_model=model,
                 auto_commit=auto_commit,
-                max_steps=int(spec.context.get("max_steps", 30)),
+                max_steps=int(spec.context.get("max_steps") or os.environ.get("AGENT_MAX_STEPS", "30")),
                 user_id=str(spec.context.get("owner_id") or ""),
                 department=spec.context.get("department"),
                 key_id=spec.context.get("key_id"),
