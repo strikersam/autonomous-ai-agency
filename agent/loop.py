@@ -2093,7 +2093,23 @@ class AgentRunner:
             try:
                 ast.parse(content)
             except SyntaxError as exc:
-                issues.append(f"Python syntax error: {exc.msg} at line {exc.lineno}")
+                # Include the offending line + surrounding context so the LLM
+                # can fix the exact error on retry. Without this, the feedback
+                # just says "syntax error at line 265" and the LLM often
+                # repeats the same mistake because it can't see what's wrong.
+                lines = content.splitlines()
+                ctx_start = max(0, (exc.lineno or 1) - 3)
+                ctx_end = min(len(lines), (exc.lineno or 1) + 2)
+                context_lines = []
+                for i in range(ctx_start, ctx_end):
+                    marker = ">>> " if i + 1 == exc.lineno else "    "
+                    context_lines.append(f"{marker}{i+1}: {lines[i]}")
+                context_str = "\n".join(context_lines)
+                issues.append(
+                    f"Python syntax error: {exc.msg} at line {exc.lineno}.\n"
+                    f"The code around the error is:\n{context_str}\n"
+                    f"Fix the syntax error and regenerate the COMPLETE file."
+                )
         return issues
 
     def _local_safety_check(self, path: str, content: str) -> list[str]:
