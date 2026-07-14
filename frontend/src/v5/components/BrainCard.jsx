@@ -49,6 +49,7 @@ const PROVIDER_LABEL_FALLBACK = {
   together:  'Together AI',
   dashscope: 'DashScope',
   moonshot:  'Moonshot',
+  colibri:   'Local Colibri',
   openrouter: 'OpenRouter',
   anthropic: 'Anthropic',
   aerolink:  'Aerolink',
@@ -129,7 +130,7 @@ export default function BrainCard() {
 
   const selectedProvider = draft?.primary_provider || 'nvidia';
   const providerMeta = providers.find(p => p.provider_id === selectedProvider) || {};
-  const keyMissing = selectedProvider !== 'ollama' && providerMeta.key_present === false;
+  const keyMissing = !['ollama', 'colibri'].includes(selectedProvider) && providerMeta.key_present === false;
 
   const updateDraft = (field, value) => {
     setDraft(prev => ({ ...prev, [field]: value }));
@@ -247,7 +248,7 @@ export default function BrainCard() {
               const label = providerLabel(p);
               const tier = tierBadge(p.tier);
               const tierTag = tier ? ` [${tier}]` : '';
-              const keyTag = (p.provider_id !== 'ollama' && !p.key_present) ? '  ⚠ no key' : '';
+              const keyTag = !['ollama', 'colibri'].includes(p.provider_id) && !p.key_present ? '  ⚠ no key' : '';
               return (
                 <option key={p.provider_id} value={p.provider_id}>
                   {label}{tierTag}{keyTag}

@@ -118,9 +118,9 @@ class ProviderReorderBody(BaseModel):
 
 
 class BrainPolicyUpdate(BaseModel):
-    """Toggle brain provider preference — nvidia (cloud NIM) vs ollama (local)."""
+    """Toggle brain provider preference — nvidia (cloud NIM), ollama (local), or colibri (local GLM-5.2)."""
 
-    brain_preference: str = Field(default="nvidia", pattern="^(nvidia|ollama|auto)$")
+    brain_preference: str = Field(default="nvidia", pattern="^(nvidia|ollama|colibri|auto)$")
 
 
 def register_webui(
@@ -503,7 +503,7 @@ def register_webui(
             },
             "message": (
                 "Brain preference toggled — agents will use "
-                + ("local Ollama" if body.brain_preference == "ollama" else "NVIDIA NIM cloud")
+                + ({"ollama": "local Ollama", "colibri": "local Colibri / GLM-5.2"}.get(body.brain_preference) or "NVIDIA NIM cloud")
                 + " on the next run."
             ),
             "admin": _admin_out(admin),
