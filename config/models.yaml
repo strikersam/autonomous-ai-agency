@@ -48,11 +48,14 @@ safe_default:
 # watchdog's failover chain. Cloud chain is Cerebras → Groq → NVIDIA (NIM).
 # Ollama leads so an operator's explicit local-brain choice is preserved
 # across cloud failovers.
+# PR #1046: nvidia leads the priority (not ollama) because ollama requires
+# OLLAMA_BASE_URL which is not set on Render free tier. nvidia is always
+# available with NVIDIA_API_KEY. ollama stays in the chain for local dev.
 recommended_priority:
-  - ollama
+  - nvidia
   - cerebras
   - groq
-  - nvidia
+  - ollama
 
 providers:
   # ── Free tier (preferred) ────────────────────────────────────────────────

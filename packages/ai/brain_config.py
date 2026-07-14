@@ -584,7 +584,7 @@ def default_brain_config() -> BrainConfig:
 # Cerebras leads the cloud chain because it serves even the 480B Qwen3-Coder
 # at wafer-scale speed on a generous, non-expiring free tier; Groq is the fast
 # second; NIM is the always-on safe floor.
-RECOMMENDED_PROVIDER_PRIORITY: tuple[str, ...] = ("ollama", "cerebras", "groq", "nvidia")
+RECOMMENDED_PROVIDER_PRIORITY: tuple[str, ...] = ("nvidia", "cerebras", "groq", "ollama")
 
 
 def recommended_brain_config() -> BrainConfig:

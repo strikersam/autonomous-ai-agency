@@ -83,12 +83,41 @@ async def self_heal_brain_and_unblock_tasks() -> dict[str, Any]:
     summary["failure_count"] = failure_count
     summary["normalized_active"] = normalized_active
 
+    # PR #1046: if the persisted BrainConfig points at a provider that is NOT
+    # in the known-good set (nvidia/cerebras/groq — the ones with API keys on
+    # Render), reset it to the safe default (nvidia/z-ai/glm-5.2) immediately.
+    # This catches stale configs from UI changes or model catalog refreshes
+    # that left a broken provider/model in the DB.
+    known_good_providers = {"nvidia", "cerebras", "groq"}
+    if cfg.updated_at and normalized_active not in known_good_providers:
+        log.warning(
+            "self_heal: persisted brain provider %s is not in known-good set %s — resetting to nvidia",
+            normalized_active, known_good_providers,
+        )
+        try:
+            store = await get_brain_config_store()
+            patch = BrainConfigPatch(
+                primary_provider="nvidia",
+                planner_model="z-ai/glm-5.2",
+                executor_model="z-ai/glm-5.2",
+                verifier_model="z-ai/glm-5.2",
+                judge_model="z-ai/glm-5.2",
+            )
+            await store.set_brain_config(patch, actor="self_heal_stale_provider_reset")
+            summary["failover_persisted"] = "nvidia"
+            summary["reset_reason"] = f"provider {normalized_active} not in known-good set"
+        except Exception as exc:
+            log.error("self_heal: failed to reset stale brain config: %s", exc)
+        # After reset, the next task dispatch will use nvidia. No need to
+        # continue the failover search below.
+        # Still unblock tasks below.
+
     # If the active provider has sustained failures, force a failover.
     # threshold=3 matches the watchdog's max_failures default — by this
     # point the watchdog has already triggered a failover, but the
     # persisted config might not have stuck (e.g. BrainConfigStore race).
     # We re-persist to make sure.
-    if failure_count < 3:
+    if failure_count < 3 and normalized_active in known_good_providers:
         # Brain is healthy (or failures are transient). Check if there are
         # blocked tasks to unblock anyway (they might have been blocked
         # before a previous failover).
