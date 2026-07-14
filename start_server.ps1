@@ -140,7 +140,7 @@ for ($i = 1; $i -le 15; $i++) {
 
 # -- Step 3: Start ngrok Tunnel ------------------------------------------------
 Write-Host ""
-Write-Host "[3/3] Starting ngrok Tunnel..." -ForegroundColor Cyan
+Write-Host "[3/4] Starting ngrok Tunnel..." -ForegroundColor Cyan
 
 $ngrokProc = $null
 
@@ -189,11 +189,32 @@ if (-not $ngrokExe) {
     }
 }
 
+# -- Step 4 (optional): colibri brain watchdog ---------------------------------
+# When the operator has set the local brain to point at the colibri + GLM-5.2
+# inference server, also start the monitor in the background so a colibri crash
+# auto-restarts and operator-initiated stops are respected (no fighting the
+# operator's deliberate action).
+Write-Host ""
+Write-Host "[4/4] Starting colibri brain watchdog (background)..." -ForegroundColor Cyan
+$colibriMonitor = $null
+if ($env:BRAIN_PREFERENCE -eq 'colibri' -or $env:COLIBRI_ENABLED -eq 'true') {
+    $colibriMonitor = Start-Process -FilePath $pythonExe `
+        -ArgumentList @('scripts/monitor_colibri.py', 'supervise') `
+        -WorkingDirectory $SCRIPT_DIR `
+        -RedirectStandardOutput "$LOG_DIR\colibri-monitor.log" `
+        -RedirectStandardError  "$LOG_DIR\colibri-monitor-err.log" `
+        -WindowStyle Hidden -PassThru
+    Write-Host "[OK] Colibri monitor (PID $($colibriMonitor.Id)) — restarts on crash, respects operator stops." -ForegroundColor Green
+} else {
+    Write-Host "  (BRAIN_PREFERENCE != 'colibri'; colibri monitor skipped.)" -ForegroundColor Gray
+}
+
 # -- Save PIDs ------------------------------------------------------------------
 @{
-    ollama = $ollamaProc.Id
-    proxy  = $proxyProc.Id
-    tunnel = if ($ngrokProc) { $ngrokProc.Id } else { $null }
+    ollama          = $ollamaProc.Id
+    proxy           = $proxyProc.Id
+    tunnel          = if ($ngrokProc) { $ngrokProc.Id } else { $null }
+    colibri_monitor = if ($colibriMonitor) { $colibriMonitor.Id } else { $null }
 } | ConvertTo-Json | Set-Content "$SCRIPT_DIR\server.pids"
 
 # -- Summary --------------------------------------------------------------------
