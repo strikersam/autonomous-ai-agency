@@ -81,27 +81,29 @@ def test_default_brain_config_is_safe():
     assert cfg.planner_model == "z-ai/glm-5.2"
 
 
-def test_recommended_config_prefers_cerebras_when_key_present(monkeypatch):
-    """With a Cerebras key set (and no saved doc), the recommended chain wins."""
+def test_recommended_config_prefers_nvidia_when_key_present(monkeypatch):
+    """PR #1046: NVIDIA leads the priority chain. With an NVIDIA key set (and
+    no saved doc), nvidia is the recommended provider — not cerebras."""
     from packages.ai.brain_config import PROVIDER_PRESETS, recommended_brain_config
 
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test")
+    monkeypatch.setenv("CEREBRAS_API_KEY", "csk-test")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    cfg = recommended_brain_config()
+    assert cfg.primary_provider == "nvidia"
+    assert cfg.planner_model == PROVIDER_PRESETS["nvidia"]["planner"]
+    assert cfg.executor_model == PROVIDER_PRESETS["nvidia"]["executor"]
+
+
+def test_recommended_config_priority_cerebras_without_nvidia(monkeypatch):
+    """PR #1046: when no NVIDIA key, cerebras is next in the chain."""
+    from packages.ai.brain_config import recommended_brain_config
+
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.setenv("CEREBRAS_API_KEY", "csk-test")
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     cfg = recommended_brain_config()
     assert cfg.primary_provider == "cerebras"
-    assert cfg.planner_model == PROVIDER_PRESETS["cerebras"]["planner"]
-    assert cfg.executor_model == PROVIDER_PRESETS["cerebras"]["executor"]
-
-
-def test_recommended_config_priority_groq_over_nvidia(monkeypatch):
-    """Groq is chosen ahead of NVIDIA when both keys are present but no Cerebras."""
-    from packages.ai.brain_config import recommended_brain_config
-
-    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
-    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
-    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test")
-    cfg = recommended_brain_config()
-    assert cfg.primary_provider == "groq"
 
 
 def test_recommended_config_falls_back_to_nvidia_default_with_no_cloud_keys(monkeypatch):
