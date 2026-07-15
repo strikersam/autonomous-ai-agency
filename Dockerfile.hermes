@@ -3,7 +3,7 @@
 # Runs services/hermes_server.py (FastAPI) which speaks the API the
 # HermesAdapter calls and executes via InternalAgentAdapter (our brain).
 # Lightweight: no Playwright/Chromium (Hermes delegates LLM work to the brain).
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # git is needed by the agent/workspace tooling the InternalAgentAdapter may use.
 RUN apt-get update && apt-get install -y --no-install-recommends git curl \
