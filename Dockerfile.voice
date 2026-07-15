@@ -1,11 +1,15 @@
+# Intentionally python:3.11-slim (voice worker dials OUT to LiveKit
+# Cloud; no Render deployment). Defer 3.13 bump until Render-hosted
+# voice becomes a goal. Defer decision tracks Dockerfile.kimibridge
+# too (Playwright baseimage, not user-selectable).
+#
 # Dockerfile.voice — SAM realtime voice worker (LiveKit Agents), standalone.
 #
 # The heavy voice deps (livekit-agents, onnxruntime, av, numpy — ~600MB
 # installed) live HERE, not in Dockerfile.backend, so the web image stays
 # small and the 512MB web instance never loads them. The worker dials OUT
 # to LiveKit Cloud, so this container runs anywhere with ~512MB of free RAM
-# and the platform env vars — local machine, home server, or a Render
-# background worker. No inbound ports need to be exposed.
+# and the platform env vars — local machine or home server only. No inbound ports need to be exposed.
 #
 # Build + run (from the repo root):
 #   docker build -f Dockerfile.voice -t sam-voice .
@@ -15,10 +19,6 @@
 #   GROQ_API_KEY (free STT+TTS) or DEEPGRAM/ELEVENLABS keys,
 #   NVIDIA_API_KEY or SAM_LLM_* (SAM's brain),
 #   MONGO_URL (so the voice tools see the same tasks/schedules as the app).
-# Intentionally python:3.11-slim (voice worker dials OUT to LiveKit
-# Cloud; no Render deployment). Defer 3.13 bump until Render-hosted
-# voice becomes a goal. Defer decision tracks Dockerfile.kimibridge
-# too (Playwright baseimage, not user-selectable).
 
 FROM python:3.11-slim
 
