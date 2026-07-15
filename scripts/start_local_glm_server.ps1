@@ -22,7 +22,7 @@
 #   exit 5  llama-server died within 5s of start (probably OOM / VRAM)
 [CmdletBinding()]
 param(
-    [string]$BinaryPath  = "D:\hfkld-qg7ky\local-models\llama.cpp\build\bin\Release\llama-server.exe",
+    [string]$BinaryPath  = "D:\hfkld-qg7ky\local-models\llama.cpp\llama-server.exe",
     [string]$ModelPath   = "D:\hfkld-qg7ky\local-models\GLM-5.2\glm-5.2-instruct-Q4_K_M.gguf",
     [int]   $Port        = 8072,
     [string]$ModelId     = "glm-5.2",
@@ -45,7 +45,7 @@ $LogFile = $ExeLog
 
 # ── Preflight: binary ─────────────────────────────────────────────────────
 if (-not (Test-Path $BinaryPath)) {
-    Write-Error "FATAL binary missing at $BinaryPath. Open llama.cpp README (https://github.com/ggml-org/llama.cpp) and build with -DBUILD_SHARED_LIBS=OFF then add D:\hfkld-qg7ky\local-models\llama.cpp\build\bin\Release to PATH."
+    Write-Error "FATAL binary missing at $BinaryPath. Open llama.cpp README (https://github.com/ggml-org/llama.cpp) and build with -DBUILD_SHARED_LIBS=OFF then add D:\hfkld-qg7ky\local-models\llama.cpp to PATH."
     exit 2
 }
 
