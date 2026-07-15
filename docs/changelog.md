@@ -1093,6 +1093,14 @@ All notable changes to this project will be documented in this file.
 - **Social login FRONTEND_URL fix** (2026-06-27). OAuth callbacks for GitHub and Google login were redirecting to strikersam.github.io (stale demo) instead of autonomous-ai-agency.strikersam.workers.dev (production Worker), silently breaking social logins. Fixed FRONTEND_URL in render.yaml and updated runbook.
 - **Hermes runtime sidecar added** (2026-06-27). Added agency-hermes web service to render.yaml (Dockerfile.hermes, port 8100) running services/hermes_server.py with the same NVIDIA NIM brain. Set HERMES_BASE_URL=https://agency-hermes.onrender.com. Code generation tasks will route to Hermes once the sidecar is deployed.
 - **Flaky test_auth_me_regression fix** (2026-06-27). backend_jwt fixture now retries login up to 3 times to handle test-ordering state leakage from prior tests.
+### Added
+
+- ** — local Windows-side Render + Ollama keepalive cron** (2026-07-15). Belt-and-suspenders keepalive for the operator's Windows box that runs Ollama + the ngrok tunnel. Pings Render  (with  fallback) every 10 min and pre-warms configured Ollama models with  so the agency'''s first inference call after a restart is fast instead of a 2-3 min cold-load. Three modes:  (one-shot RC 0/1),  (one-shot always 0 for cron/Task Scheduler),  (foreground loop; default). Env vars: , , , ,  (comma-sep), , . 1 MiB log auto-rotation at /logs/keepalive.log. Files: scripts/keepalive.py.
+- **** (2026-07-15). Snapshot of the admin Providers page illustrating the local Colibri / GLM-5.2 entry alongside the cloud chain; pinned for the cheatsheet cross-reference and the v5 UI gallery. Files: docs/screenshots/providers-current.png.
+### Fixed
+
+- **Backend import broken:   double-wrap** (2026-07-15). PR landed a local_brain_router import alias as  but then called  — the imported object IS the router (line 53 of backend/local_brain_router.py: ), so  raised  at module-import time. Because tests/conftest.py imports backend.server at collection, EVERY pytest collection errored with that AttributeError — surfacing as the  regression,  test failure, and  stale-cache state on master. Fix: drop the spurious  —  is the canonical FastAPI include_router shape. Files: backend/server.py.
+
 ## [v4.1.0] — 2026-05-09
 
 
