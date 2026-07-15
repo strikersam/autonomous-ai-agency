@@ -118,3 +118,7 @@ _claude_run_secret*.txt
 .claude/state/sessions/
 .claude/state/trend-cache.json
 .claude/state/improvement-state.json
+
+# SQLite database journals (ephemeral runtime state, never tracked)
+agency_core.db-journal
+*-journal
