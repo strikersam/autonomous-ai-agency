@@ -618,6 +618,12 @@ All notable changes to this project will be documented in this file.
 
   for test suite compatibility with Phase 2 deprecation.
 
+### Maintenance
+
+- **Microsoft-Windows keepalive agent for Render and local Ollama (`scripts/keepalive.py`)** (2026-07-15). Drop-in Python daemon that pings the Render web service (`/api/health` with `/api/ping` fallback) and the local Ollama instance (`/api/tags`) on a configurable interval (default 600 s). Three CLI modes: `--diagnose`, `--once`, `--daemon`. Cold-start opt-in model warm-up via `keep_alive=-1` against models listed in `KEEPALIVE_MODELS`. 1 MiB log auto-rotation. Survives Ollama restarts; idempotent on the global state. Handles offline Ollama cleanly (skips warm-up when `/api/tags` is unreachable rather than stacking timeouts). Documented setup in `docs/colibri-local-brain-cheatsheet.md` (Windows Task Scheduler `AtStartup` + `AtLogon` or `pwsh scripts/wait_for_colibri_ready.ps1`).
+
+- **Test suite + UI screenshot parity** (`tests/test_keepalive.py`, `docs/screenshots/providers-current.png`) (2026-07-15). Five hermetic smoke tests for the keepalive daemon (`test_log_path_creates_parent`, `test_rotate_is_idempotent`, `test_log_emits_timestamped_line`, `test_run_once_with_unreachable_hosts_returns_one`, `test_cli_once_mode_exits_zero`, `test_cli_diagnose_unreachable_exits_one`). The `docs/screenshots/providers-current.png` snapshot anchors the operator-facing Cloudflare-deployed Providers page in the colibri cheatsheet and the v5 UI gallery. Files: `tests/test_keepalive.py`, `docs/screenshots/providers-current.png`.
+
 ## [5.0.0] — 2026-05-24
 
 
@@ -1093,6 +1099,7 @@ All notable changes to this project will be documented in this file.
 - **Social login FRONTEND_URL fix** (2026-06-27). OAuth callbacks for GitHub and Google login were redirecting to strikersam.github.io (stale demo) instead of autonomous-ai-agency.strikersam.workers.dev (production Worker), silently breaking social logins. Fixed FRONTEND_URL in render.yaml and updated runbook.
 - **Hermes runtime sidecar added** (2026-06-27). Added agency-hermes web service to render.yaml (Dockerfile.hermes, port 8100) running services/hermes_server.py with the same NVIDIA NIM brain. Set HERMES_BASE_URL=https://agency-hermes.onrender.com. Code generation tasks will route to Hermes once the sidecar is deployed.
 - **Flaky test_auth_me_regression fix** (2026-06-27). backend_jwt fixture now retries login up to 3 times to handle test-ordering state leakage from prior tests.
+<<<<<<< Updated upstream
 ### Added
 
 - ** — local Windows-side Render + Ollama keepalive cron** (2026-07-15). Belt-and-suspenders keepalive for the operator's Windows box that runs Ollama + the ngrok tunnel. Pings Render  (with  fallback) every 10 min and pre-warms configured Ollama models with  so the agency'''s first inference call after a restart is fast instead of a 2-3 min cold-load. Three modes:  (one-shot RC 0/1),  (one-shot always 0 for cron/Task Scheduler),  (foreground loop; default). Env vars: , , , ,  (comma-sep), , . 1 MiB log auto-rotation at /logs/keepalive.log. Files: scripts/keepalive.py.
@@ -1100,6 +1107,18 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **Backend import broken:   double-wrap** (2026-07-15). PR landed a local_brain_router import alias as  but then called  — the imported object IS the router (line 53 of backend/local_brain_router.py: ), so  raised  at module-import time. Because tests/conftest.py imports backend.server at collection, EVERY pytest collection errored with that AttributeError — surfacing as the  regression,  test failure, and  stale-cache state on master. Fix: drop the spurious  —  is the canonical FastAPI include_router shape. Files: backend/server.py.
+=======
+
+Maintenance
+- **`scripts/keepalive.py` — Windows-friendly Render + Ollama keepalive cron.** Belt-and-suspenders keepalive for the operator'''s Windows box that runs Ollama + the ngrok tunnel. Pings Render `/api/health` (with `/api/ping` fallback) every 10 min and pre-warms configured Ollama models with `keep_alive=-1` so the agency'''s first inference call after a restart is fast instead of a 2-3 min cold-load. Three modes: `--diagnose` (one-shot RC 0/1), `--once` (one-shot always 0 for cron / Task Scheduler), `--daemon` (foreground loop; default). Env vars: `KEEPALIVE_URL`, `OLLAMA_BASE`, `KEEPALIVE_INTERVAL_SEC`, `KEEPALIVE_LOG`, `KEEPALIVE_MODELS`, `KEEPALIVE_WARM`, `KEEPALIVE_HEALTH_ONLY`. 1 MiB log auto-rotation at `$repo/logs/keepalive.log`. HTTP-only — does not write to the filesystem.
+- **`docs/screenshots/providers-current.png`** — snapshot of the admin Providers page showing the local Colibri / GLM-5.2 entry alongside the cloud chain; pinned for cross-reference from the colibri cheatsheet and the v5 UI gallery.
+
+### Maintenance
+
+- **Microsoft-Windows keepalive agent for Render and local Ollama (`scripts/keepalive.py`)** (2026-07-15). Drop-in Python daemon that pings the Render web service (`/api/health` with `/api/ping` fallback) and the local Ollama instance (`/api/tags`) on a configurable interval (default 600 s). Three CLI modes: `--diagnose`, `--once`, `--daemon`. Cold-start opt-in model warm-up via `keep_alive=-1` against models listed in `KEEPALIVE_MODELS`. 1 MiB log auto-rotation. Survives Ollama restarts; idempotent on the global state. Handles offline Ollama cleanly (skips warm-up when `/api/tags` is unreachable rather than stacking timeouts). Documented setup in `docs/colibri-local-brain-cheatsheet.md` (Windows Task Scheduler `AtStartup` + `AtLogon` or `pwsh scripts/wait_for_colibri_ready.ps1`).
+
+- **Test suite + UI screenshot parity** (`tests/test_keepalive.py`, `docs/screenshots/providers-current.png`) (2026-07-15). Five hermetic smoke tests for the keepalive daemon (`test_log_path_creates_parent`, `test_rotate_is_idempotent`, `test_log_emits_timestamped_line`, `test_run_once_with_unreachable_hosts_returns_one`, `test_cli_once_mode_exits_zero`, `test_cli_diagnose_unreachable_exits_one`). The `docs/screenshots/providers-current.png` snapshot anchors the operator-facing Cloudflare-deployed Providers page in the colibri cheatsheet and the v5 UI gallery. Files: `tests/test_keepalive.py`, `docs/screenshots/providers-current.png`.
+>>>>>>> Stashed changes
 
 ## [v4.1.0] — 2026-05-09
 
