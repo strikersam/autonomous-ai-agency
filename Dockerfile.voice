@@ -15,6 +15,10 @@
 #   GROQ_API_KEY (free STT+TTS) or DEEPGRAM/ELEVENLABS keys,
 #   NVIDIA_API_KEY or SAM_LLM_* (SAM's brain),
 #   MONGO_URL (so the voice tools see the same tasks/schedules as the app).
+# Intentionally python:3.11-slim (voice worker dials OUT to LiveKit
+# Cloud; no Render deployment). Defer 3.13 bump until Render-hosted
+# voice becomes a goal. Defer decision tracks Dockerfile.kimibridge
+# too (Playwright baseimage, not user-selectable).
 FROM python:3.11-slim
 
 # libgomp1: OpenMP runtime required by onnxruntime (Silero VAD inference);
