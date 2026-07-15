@@ -59,6 +59,15 @@ SERVICE_TOKEN_HEADER: Final[str] = "X-Service-Token"
 MUTATING_ENDPOINTS: Final[frozenset[str]] = frozenset({
     "patch:/admin/api/policy/brain",      # /setbrain <provider>
     "post:/admin/api/prs/{number}/merge",  # /merge <pr>
+    # Local-GLM 5.2 cross-machine toggle (added with backend/local_brain_router.py
+    # + frontend/src/v5/components/LocalBrainToggleCard.jsx). The toggle and
+    # heartbeat endpoints are tightly scoped — a leaked SERVICE_TOKEN can flip
+    # the toggle on/off or spoof heartbeats, but it cannot read task data or
+    # alter agent prompts. The GET endpoint returns the same state the toggle
+    # writes, with no extra privileges.
+    "get:/api/local-brain/state",          # admin UI mount + diagnostics
+    "post:/api/local-brain/toggle",        # admin UI flip on/off
+    "post:/api/local-brain/heartbeat",     # local daemon POSTs every poll
 })
 
 # In-memory cache of the hashed token (computed once at first use, never

@@ -529,6 +529,16 @@ export const getBrainConfig       = ()                  => API.get('/admin/api/p
 export const patchBrainConfig     = (patch)             => API.patch('/admin/api/policy/brain', patch);
 export const testBrainModel       = (provider, model, baseUrl) => API.post('/admin/api/policy/brain/test', { provider, model, base_url: baseUrl || null });
 
+// ── Local GLM-5.2 brain toggle (cross-machine) ─────────────────────────
+// Reads the operator's intent + the most recent local-daemon heartbeat
+// from the cloud, and flips the toggle from the Cloudflare-deployed admin
+// Providers page. ``scripts/local_controller.py`` polls every 30s and
+// starts/stops llama-server.exe on the operator's machine accordingly.
+// Auth: X-Service-Token (same SERVICE_TOKEN the local daemon carries).
+export const getLocalBrainState   = ()       => API.get('/api/local-brain/state');
+export const postLocalBrainToggle = (data)  => API.post('/api/local-brain/toggle', data);
+// Heartbeat POST is for the local daemon, not the admin SPA; not exported.
+
 // Loop Engineering fleet view — catalogued autonomous loops + loop-audit
 // readiness score, loop-cost estimate, and drift status. Powers the Loops screen.
 export const getLoops             = ()                  => API.get('/api/loops');
