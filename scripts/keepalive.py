@@ -43,7 +43,7 @@ from urllib.parse import urlparse
 import httpx
 
 
-MAX_LOG_BYTES = 1_048_576  # 1 MiB — rotate the keepalive.log at this size
+MAX_LOG_BYTES = 1_048_576  # 1 MiB -- rotate the keepalive.log at this size
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -74,7 +74,7 @@ def _log_path() -> Path:
     Resolves ``$repo/logs/keepalive.log`` (or whatever ``KEEPALIVE_LOG`` points
     at) and ensures the parent directory exists. The result is cached at
     module level so the daemon loop doesn't stat() / mkdir() per line.
-    \"\"\"
+    """
     global _LOG_PATH_CACHE
     if _LOG_PATH_CACHE is not None:
         return _LOG_PATH_CACHE
@@ -91,7 +91,7 @@ def _rotate_log_if_needed(path: Path) -> None:
     """Truncate ``keepalive.log`` to the last ~25% once it crosses 1 MiB.
 
     Keeps the daemon alive across months without a separate logrotate dep.
-    Idempotent and low-cost — runs on every log write but only does I/O when
+    Idempotent and low-cost -- runs on every log write but only does I/O when
     the file is over the cap.
     """
     try:
@@ -105,7 +105,7 @@ def _rotate_log_if_needed(path: Path) -> None:
             fh.write(b"...[rotated]...\n")
             fh.write(tail)
     except Exception:
-        # Rotation is best-effort — never let it break the tick.
+        # Rotation is best-effort -- never let it break the tick.
         pass
 
 
@@ -170,8 +170,8 @@ def _check_ollama(client: httpx.Client, base: str) -> tuple[bool, list[str]]:
 def _loaded_ollama_prefixes(client: httpx.Client, base: str) -> set[str]:
     """Return the set of model prefixes (tag-stripped name) currently in Ollama VRAM.
 
-    Single GET per tick — the previous per-model loop issued N requests which
-    would also stall N×5s when Ollama was hung or slow.
+    Single GET per tick -- the previous per-model loop issued N requests which
+    would also stall Nx5s when Ollama was hung or slow.
     """
     try:
         resp = client.get(f"{base}/api/ps", timeout=5.0)
