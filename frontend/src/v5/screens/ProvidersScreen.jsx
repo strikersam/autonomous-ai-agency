@@ -3,6 +3,7 @@ import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
 import * as api from '../../api';
 import BrainCard from '../components/BrainCard';
+import LocalBrainToggleCard from '../components/LocalBrainToggleCard';
 
 
 // providers.jsx — V5.0: All providers + Ollama model management + MCP servers tab
@@ -684,6 +685,13 @@ function ProvidersScreen() {
           {/* DB-persisted brain config (PR #824) — change provider + per-role
               models in one click, persisted in DB, no redeploy. */}
           <BrainCard />
+
+          {/* Cross-machine toggle for the LOCAL GLM-5.2 brain. Sits right
+              under the Brain card so the operator sees "Brain = colibri
+              [local]" above and the actual toggler below. Backend:
+              backend/local_brain_router.py (gated on SERVICE_TOKEN).
+              Local daemon: scripts/local_controller.py. */}
+          <LocalBrainToggleCard />
 
           {/* Paid-Provider Kill Switch */}
           <div style={{
