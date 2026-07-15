@@ -1,3 +1,7 @@
+# Intentionally Microsoft Playwright baseimage (Python ~3.12). The
+# baseimage's Python version is not user-selectable; defer 3.13
+# alignment until a 3.13-based Playwright baseimage ships upstream.
+
 FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
 
 WORKDIR /app
