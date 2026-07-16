@@ -95,14 +95,15 @@ def _patched_popen(args, *a, **kw):
         if tok.strip()
     }
     path_ok = path_ok and not any(tok in exe_full for tok in denylist)
-    if (
+    should_patch = (
         isinstance(args, list)
         and len(args) == 2
         and exe_basename in ("glm.exe", "glm")
         and path_ok
         and kw.get("stdin") is subprocess.PIPE
         and kw.get("stdout") is subprocess.PIPE
-    ):
+    )
+    if should_patch:
         outer = [
             t
             for t in sys.argv[1:]
@@ -123,7 +124,27 @@ def _patched_popen(args, *a, **kw):
                     f"{len(outer)} flags: {names}\n"
                 )
             args = [args[0]] + outer + [args[1]]
-    return _real_popen(args, *a, **kw)
+    proc = _real_popen(args, *a, **kw)
+    # Optional watchdog: when COLIBRI_PATCH_EXIT_WATCH=1, poll glm.exe's exit
+    # status + capture last stderr line. This is purely diagnostic — the
+    # upstream Engine already calls proc.wait() on the SIGTERM/SIGKILL paths,
+    # so we just observe. Helps surface silent OOM-kills when Blocker 2
+    # (hardware-fatal) actually kills the engine.
+    if (
+        should_patch
+        and exe_basename in ("glm.exe", "glm")
+        and os.environ.get("COLIBRI_PATCH_EXIT_WATCH", "").strip().lower()
+        in ("1", "true", "yes")
+    ):
+        try:
+            rc = proc.poll()
+            sys.stderr.write(
+                f"[colibri-patch] glm.exe immediate poll() returned "
+                f"returncode={rc}; pid={proc.pid}\n"
+            )
+        except Exception as e:
+            sys.stderr.write(f"[colibri-patch] glm.exe poll() failed: {e}\n")
+    return proc
 
 
 def _resolve_target(argv_first: str | None) -> str:
