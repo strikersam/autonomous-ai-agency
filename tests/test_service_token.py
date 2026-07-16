@@ -165,8 +165,14 @@ def test_mutating_endpoints_allowlist_is_narrow(service_token_module):
     # The two N5 endpoints
     assert "patch:/admin/api/policy/brain" in endpoints
     assert "post:/admin/api/prs/{number}/merge" in endpoints
+    # Local-GLM 5.2 cross-machine toggle (added with backend/local_brain_router.py
+    # + frontend/src/v5/components/LocalBrainToggleCard.jsx); paired regression
+    # tests at tests/test_local_brain_state.py + tests/test_local_controller.py.
+    assert "get:/api/local-brain/state" in endpoints
+    assert "post:/api/local-brain/heartbeat" in endpoints
+    assert "post:/api/local-brain/toggle" in endpoints
     # And NOT any other admin endpoints — the allowlist is intentionally narrow
-    assert len(endpoints) == 2, (
+    assert len(endpoints) == 5, (
         f"Mutating endpoint allowlist grew unexpectedly: {sorted(endpoints)}. "
         "Each new entry requires a paired test + risky-module-review sign-off."
     )
