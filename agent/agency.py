@@ -362,6 +362,14 @@ class Agency:
         state_context = self._build_state_context()
         state_context["quick_notes"] = self._last_quick_notes
 
+        # ── Company-aware CEO assessment ────────────────────────────
+        # The CEO now considers ALL onboarded companies (not just the
+        # single GITHUB_REPOSITORY). For each company it issues
+        # company-scoped directives that route through the company's
+        # own specialists via company:{id} tags.
+        company_directives = await self._company_directives(state_context)
+        qn_directives.extend(company_directives)
+
         # CEO assessment — try LLM first, fall back to rule-based
         assessment, ceo_directives = await self._ceo_assess_llm(state_context)
 
@@ -405,6 +413,103 @@ class Agency:
 
         log.info("Agency cycle %s done — %d directive(s)", cycle_id, len(directives))
         return result
+
+    # ── Company-aware directive generation ───────────────────────────
+
+    async def _company_directives(
+        self, state: dict[str, Any],
+    ) -> list[AgentDirective]:
+        """Generate directives for each onboarded company.
+
+        The CEO examines each company's health, recent schedule runs, and
+        specialist activity. It issues company-scoped directives tagged
+        with ``company:{company_id}`` so the task dispatcher routes them
+        to the correct company specialists.
+        """
+        directives: list[AgentDirective] = []
+        try:
+            from services.company_graph_store import get_company_graph_store
+            store = get_company_graph_store()
+            companies = await store.list_companies(limit=100)
+        except Exception as exc:
+            log.debug("Agency: could not list companies: %s", exc)
+            return directives
+
+        if not companies:
+            return directives
+
+        for company in companies:
+            cid = company.id
+            # Ensure specialists are bridged to AgentStore (idempotent).
+            # On first cycle after deploy the bridge may not have run yet
+            # if activate_company was never called (e.g. a restart cleared
+            # in-memory state).
+            try:
+                from services.company_agency import get_company_agency_service
+                agency_svc = get_company_agency_service()
+                # On the very first cycle, pass start_runtimes=True and
+                # create_schedules=True so the company is fully activated,
+                # not just bridged.  On subsequent cycles the bridge-only
+                # call is sufficient (schedules already exist).
+                is_first_cycle = self._cycle_count <= 1
+                await agency_svc.activate_company(
+                    cid,
+                    start_runtimes=is_first_cycle,
+                    create_schedules=is_first_cycle,
+                )
+            except Exception as exc:
+                log.debug("Agency: company re-bridge skipped for %s: %s", cid, exc)
+
+            # On the first cycle, just ensure the bridge is in place.
+            # Removed: previously this skipped ALL work generation on cycle 1,
+            # meaning no directives were dispatched until cycle 2 (30 min after
+            # startup at the default 15-min tick).  Now we allow health-check
+            # and CEO-assessment directives to run immediately, only skipping
+            # the per-company periodic directives (which need the bridge to
+            # be settled first — but that's already done above).
+            if self._cycle_count <= 1:
+                log.info("Agency: ensured specialist bridge for company %s", cid)
+                # Don't skip — let CEO assessment and quick-notes run on
+                # cycle 1 so the agency starts producing work immediately.
+
+            # Every 3rd cycle, issue a health-check directive
+            if self._cycle_count % 3 == 0:
+                directives.append(self._make_directive(
+                    role=AgentRole.SCOUT,
+                    priority=5,
+                    title=f"Health: {company.name or cid[:8]}",
+                    instruction=(
+                        f"Company: {company.name} (ID: {cid})\n"
+                        f"Domain: {company.domain}\n\n"
+                        "Check the health of this company:\n"
+                        "1. GET /api/company/{cid} — verify the record exists.\n"
+                        "2. Check each specialist has recent activity (< 2x schedule interval).\n"
+                        "3. If any specialist is stalled, create a GitHub issue with the findings.\n"
+                        "4. Review recent task results and flag any recurring failures.\n\n"
+                        "Only create a GitHub issue if something actionable is wrong."
+                    ),
+                ))
+                directives[-1].tags = [f"company:{cid}"]
+
+            # Every 6th cycle, issue a code-quality or improvement directive
+            if self._cycle_count % 6 == 0:
+                directives.append(self._make_directive(
+                    role=AgentRole.DEV,
+                    priority=3,
+                    title=f"Improve: {company.name or cid[:8]}",
+                    instruction=(
+                        f"Company: {company.name} (ID: {cid})\n"
+                        f"Domain: {company.domain}\n"
+                        f"Repo: {company.repos[0].url if company.repos else 'N/A'}\n\n"
+                        "Look at this company's connected repository. Identify the single\n"
+                        "highest-value improvement: a bug fix, a test gap, a doc inconsistency,\n"
+                        "or a code quality issue. Implement the fix and open a pull request.\n"
+                        "Do NOT merge — just open the PR for review."
+                    ),
+                ))
+                directives[-1].tags = [f"company:{cid}"]
+
+        return directives
 
     # ── Quick-note GitHub issue maintenance ──────────────────────────────────
 
@@ -642,15 +747,24 @@ class Agency:
             else:
                 _digest = hashlib.sha256(directive.instruction.encode("utf-8")).hexdigest()[:10]
                 _name = f"agency-directive-{_digest}"
+            # Build job tags for routing to correct company specialists.
+            job_tags = [
+                "agency", directive.role.value,
+                f"priority-{directive.priority}",
+                f"runtime-{directive.preferred_runtime}",
+            ]
+            # Forward company tags so the task dispatcher routes to
+            # the correct company specialists.
+            for tag in (directive.tags or []):
+                if tag.startswith("company:"):
+                    job_tags.append(tag)
             job = scheduler.create(
                 name=f"agency: {_name}",
                 cron="* * * * *",
                 instruction=directive.instruction,
                 description=f"[{directive.role.value}] {directive.title}",
                 run_once=True,   # execute once and self-delete — prevents schedule spam
-                tags=["agency", directive.role.value,
-                      f"priority-{directive.priority}",
-                      f"runtime-{directive.preferred_runtime}"],
+                tags=job_tags,
             )
             directive.status = "running"
             log.info(

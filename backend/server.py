@@ -7469,10 +7469,32 @@ async def autonomy_status() -> dict[str, object]:
     #    autonomy probe is self-contained. Uses the safe list helper so a
     #    stale row with an invalid onboarding_status doesn't crash the probe. ──
     company_count = 0
+    specialist_count = 0
+    agent_store_count = 0
     try:
         from services.self_bootstrap import _list_companies_safe
+        from services.company_graph_store import get_company_graph_store
+        graph_store = get_company_graph_store()
         companies = await _list_companies_safe()
         company_count = len(companies)
+        # Count specialists across all companies — the key metric that
+        # determines whether the agency can actually route work.
+        for co in companies:
+            try:
+                specs = await graph_store.list_specialists(co.id)
+                specialist_count += len(specs)
+            except Exception:
+                pass
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    # ── AgentStore bridge count: specialists must be bridged to AgentStore
+    #    for the dispatcher to find them. ──
+    try:
+        from agents.store import get_agent_store
+        agent_store = get_agent_store()
+        all_agents = await agent_store.list_all()
+        agent_store_count = len([a for a in all_agents if a.agent_id.startswith("specialist:")])
     except Exception:  # pragma: no cover - defensive
         pass
 
@@ -7525,6 +7547,8 @@ async def autonomy_status() -> dict[str, object]:
         "dispatch": dispatch_status,
         "company_count": company_count,
         "schedule_count": len(SCHEDULER.list()) if SCHEDULER else 0,
+        "specialist_count": specialist_count,
+        "specialist_agents_bridged": agent_store_count,
         "run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
