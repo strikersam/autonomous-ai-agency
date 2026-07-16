@@ -1,10 +1,9 @@
 # Agent State — colibri GLM-5.2 deployment (resumable)
 
 **Session:** `colibri-glm5.2-deploy-2026-07`
-**Status:** PARTIAL — binding-fix commit `10c59af` landed on local `master`, NOT pushed
-(`GH_PAT` not available in this shell + user-visible outcome is FALSE).
+**Status:** SOFT GREEN — colibri-swap pushes (commit `9d54f6c` + docs `8dab841` + 5 priors) shipped to `origin/master`; canonical env-var fix applied to local `.env`. Brain resolver now ROUTES to `provider_id='colibri', source='env_colibri'` (priority 100). **User-visible outcome: STILL FALSE** — colibri :8081 still doesn't bind at runtime (upstream JustVugg gap + 383 GB > 128 GB RAM unchanged).
 **Last updated:** 2026-07-16
-**Branch:** `master`, **5 commits ahead** of `origin/master`.
+**Branch:** `master`, **0 commits ahead** of `origin/master` (after `8dab841` push).
 
 ## Context / Task
 
