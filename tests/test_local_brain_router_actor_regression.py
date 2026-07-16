@@ -77,7 +77,7 @@ class TestPosthandlerDoesNotNameError:
         from backend.local_brain_router import post_local_brain_toggle, ToggleBody
         _patch_store(monkeypatch)
         payload = ToggleBody(desired_state="on", desired_provider="colibri", actor="test-actor")
-        out = await post_local_brain_toggle(_make_stub_request(path="/api/local-brain/toggle"), payload)
+        out = await post_local_brain_toggle(payload)
         assert out is not None
         accepted = out.get("accepted") if isinstance(out, dict) else getattr(out, "accepted", None)
         assert accepted is True
@@ -87,7 +87,7 @@ class TestPosthandlerDoesNotNameError:
         from backend.local_brain_router import post_local_brain_toggle, ToggleBody
         _patch_store(monkeypatch)
         payload = ToggleBody(desired_state="off", desired_provider=None, actor=None)
-        out = await post_local_brain_toggle(_make_stub_request(path="/api/local-brain/toggle"), payload)
+        out = await post_local_brain_toggle(payload)
         assert out is not None
         actor_val = out.get("actor") if isinstance(out, dict) else getattr(out, "actor", None)
         # Pin the FIX: default actor string when payload.actor is None and the
