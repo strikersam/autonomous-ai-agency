@@ -371,6 +371,12 @@ _FREE_CLOUD_PROVIDER_IDS = {
     # alongside the free cloud tier; COLIBRI_ENABLED=false by default so this
     # is opt-in. See providers/colibri.py for the model provider config.
     "colibri",
+    # Local llama-server.exe on 127.0.0.1:8072 (GLM-5.2 Q4_K_M GGUF) — owned
+    # by scripts/local_controller.py. Classified FREE so failover treats it
+    # alongside colibri; LOCAL_BRAIN_ENABLED=false by default so this is opt-in.
+    # See providers/local_brain.py for the provider config + .env.example for
+    # the LOCAL_BRAIN_* env var contract.
+    "local-brain",
 }
 # Nvidia NIM is free-tier — treated as highest-priority free cloud provider
 _NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
@@ -907,6 +913,26 @@ class ProviderRouter:
 
             _logging.getLogger("qwen-proxy").warning(
                 "colibri local provider not added: %s", _colibri_err, exc_info=True
+            )
+
+        # ── Free local GLM-5.2 Q4_K_M via llama-server.exe on 127.0.0.1:8072 ──
+        # Mirrors the colibri block above. The actual process is owned by
+        # scripts/local_controller.py (the cloud-admin SPA toggle daemon) —
+        # when the operator flips the toggle to ON, that daemon sets
+        # LOCAL_BRAIN_ENABLED=true on this machine and starts llama-server.
+        # Registers only when LOCAL_BRAIN_ENABLED=true (default off), so this
+        # is fully opt-in and adds zero cost when the toggle is off.
+        try:
+            from providers.local_brain import local_brain_provider_config
+
+            _local_brain_cfg = local_brain_provider_config()
+            if _local_brain_cfg is not None:
+                providers.append(_local_brain_cfg)
+        except Exception as _local_brain_err:  # pragma: no cover - defensive
+            import logging as _logging
+
+            _logging.getLogger("qwen-proxy").warning(
+                "local-brain local provider not added: %s", _local_brain_err, exc_info=True
             )
 
         return cls(sorted(providers, key=provider_sort_key))

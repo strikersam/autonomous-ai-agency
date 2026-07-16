@@ -56,7 +56,7 @@ def get_brain_preference() -> str:
     (``PATCH /admin/api/policy/brain``).
     """
     raw = os.environ.get("BRAIN_PREFERENCE", "nvidia").strip().lower()
-    if raw in ("nvidia", "ollama", "auto", "colibri"):
+    if raw in ("nvidia", "ollama", "auto", "colibri", "local-brain"):
         return raw
     return "nvidia"
 
@@ -317,6 +317,13 @@ async def resolve_active_brain(
             # _pick_from_records. Skip the general records branch and fall through to
             # the env-shim below which reads COLIBRI_URL + COLIBRI_MODEL.
             pass
+        elif pref == "local-brain":
+            # local-brain (GLM-5.2 via llama-server on 127.0.0.1:8072) is registered
+            # in provider_router via env (LOCAL_BRAIN_ENABLED), NOT in DB provider
+            # records — so a stale DB record would otherwise preempt the operator's
+            # local-brain intent. Skip the general records branch and fall through to
+            # the env-shim below which reads LOCAL_BRAIN_URL + LOCAL_BRAIN_MODEL_ID.
+            pass
         else:
             picked = _pick_from_records(records, exclude)
             if picked is not None:
@@ -343,7 +350,7 @@ async def resolve_active_brain(
     # than firing an environment-based NVIDIA request the operator didn't
     # sanction.
     #
-    # BRAIN_PREFERENCE=ollama OR colibri skips this step — the operator wants local only.
+    # BRAIN_PREFERENCE=ollama OR colibri OR local-brain skips this step — the operator wants local only.
     # 2.5: Colibri (local GLM-5.2) env shim (BRAIN_PREFERENCE=colibri).
     # Reads COLIBRI_URL + COLIBRI_MODEL and resolves to a
     # BrainResolution(provider_id="colibri").  Priority 100 sits in
@@ -379,6 +386,43 @@ async def resolve_active_brain(
             "or start `coli serve` with scripts\\start_colibri_server.ps1)."
         )
 
+    # 2.6: Local-brain (llama-server on 127.0.0.1:8072) env shim (BRAIN_PREFERENCE=local-brain).
+    # Reads LOCAL_BRAIN_URL + LOCAL_BRAIN_MODEL_ID and resolves to a
+    # BrainResolution(provider_id="local-brain").  Priority 100 sits in
+    # between the DB BrainConfig (9_000) and the free-NVIDIA fallback (-5), so
+    # the resolver reaches local-brain whenever the operator has set the env gate
+    # without conflicting with DB-persisted or env-override paths. The actual
+    # llama-server process is owned by scripts/local_controller.py.
+    if get_brain_preference() == "local-brain":
+        lb_url = os.environ.get("LOCAL_BRAIN_URL", "").strip().rstrip("/")
+        if lb_url:
+            if not lb_url.endswith("/v1"):
+                lb_url = f"{lb_url}/v1"
+            lb_model = (
+                os.environ.get("LOCAL_BRAIN_MODEL_ID")
+                or os.environ.get("AGENT_LLM_MODEL")
+                or "glm-5.2"
+            ).strip()
+            _cached_brain = BrainResolution(
+                provider_id="local-brain",
+                base_url=lb_url,
+                auth_headers=None,
+                model=lb_model,
+                role="brain",
+                free_tier=True,
+                source="env_local_brain",
+                priority=100,
+            )
+            return _cached_brain
+        # Operator typed the preference but forgot LOCAL_BRAIN_URL — log loudly
+        # so the silent ollama fallback below is not a surprise.
+        log.warning(
+            "brain_policy: BRAIN_PREFERENCE=local-brain but LOCAL_BRAIN_URL is unset; "
+            "falling back to ollama_local (set LOCAL_BRAIN_URL=http://127.0.0.1:8072/v1 "
+            "or start llama-server via scripts\\start_local_glm_server.ps1 — the cloud "
+            "Providers toggle handles this end-to-end)."
+        )
+
     # 3. Free NVIDIA NIM brain — default ONLY when the operator has no
     # configured provider records (not a DB outage). Skipping on fetch-failed
     # preserves the test_records_list_failure_falls_back_to_ollama_env
@@ -386,8 +430,8 @@ async def resolve_active_brain(
     # than firing an environment-based NVIDIA request the operator didn't
     # sanction.
     #
-    # BRAIN_PREFERENCE=ollama OR colibri skips this step — the operator wants local only.
-    if not records and not fetch_failed and get_brain_preference() not in ("ollama", "colibri"):
+    # BRAIN_PREFERENCE=ollama OR colibri OR local-brain skips this step — the operator wants local only.
+    if not records and not fetch_failed and get_brain_preference() not in ("ollama", "colibri", "local-brain"):
         nv = resolve_free_nvidia_brain()
         if nv is not None:
             nv_base, nv_headers, nv_model = nv
