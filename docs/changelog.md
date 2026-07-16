@@ -5,9 +5,16 @@
 ## [Unreleased]
 
 ### Added
+- Admin-session-gated `/admin/api/local-brain/{state,toggle}` proxy so the
+  Cloudflare-deployed admin SPA (Providers page) can flip the local
+  GLM-5.2 brain toggle without ever touching the SERVICE_TOKEN secret.
+  Same body shape as the existing SERVICE_TOKEN routes so the React
+  `LocalBrainToggleCard` component needs zero JS edits; auth via the
+  existing admin JWT session. The SERVICE_TOKEN-gated `/api/local-brain/heartbeat`
+  path is unchanged (still required for the local daemon on the operator
+  machine).
 
-
-- **Cross-machine GLM-5.2 brain toggle** (2026-07-15). Operator-facing button on the Cloudflare-deployed Providers page that starts/stops the local llama-server.exe serving GLM-5.2 on the operator machine (or any local box with the setup) when toggled on, and lets the brain fall back to the cloud recommended chain (NVIDIA -> Cerebras -> Groq) when toggled off. Wired end-to-end: backend/local_brain_router.py (3 endpoints gated on SERVICE_TOKEN; SQLite-persisted via backend/local_brain_store.py); frontend/src/v5/components/LocalBrainToggleCard.jsx (status pill + Start/Stop + heartbeat payload viewer, mounted under BrainCard on ProvidersScreen); scripts/local_controller.py (pull-based daemon polling every 30s); scripts/start_local_glm_server.ps1 + scripts/stop_local_glm_server.ps1 + scripts/setup_local_controller.ps1 (Windows launcher with PID lock + Task Scheduler AtStartup/AtLogon autostart). Reviewer-vetted: lease TTL = 90s after last healthy heartbeat (no stale lockout), non-blocking cold start (heartbeat during 240s load), PowerShell BOM bug fixed (System.IO.File.WriteAllText ASCII encoding so cmd.exe parses the wrapper.cmd cleanly). Files: backend/local_brain_router.py, backend/local_brain_store.py, scripts/local_controller.py, scripts/start_local_glm_server.ps1, scripts/stop_local_glm_server.ps1, scripts/setup_local_controller.ps1, frontend/src/v5/components/LocalBrainToggleCard.jsx, tests/test_local_brain_state.py, tests/test_local_controller.py.
+  - **Cross-machine GLM-5.2 brain toggle** (2026-07-15). Operator-facing button on the Cloudflare-deployed Providers page that starts/stops the local llama-server.exe serving GLM-5.2 on the operator machine (or any local box with the setup) when toggled on, and lets the brain fall back to the cloud recommended chain (NVIDIA -> Cerebras -> Groq) when toggled off. Wired end-to-end: backend/local_brain_router.py (3 endpoints gated on SERVICE_TOKEN; SQLite-persisted via backend/local_brain_store.py); frontend/src/v5/components/LocalBrainToggleCard.jsx (status pill + Start/Stop + heartbeat payload viewer, mounted under BrainCard on ProvidersScreen); scripts/local_controller.py (pull-based daemon polling every 30s); scripts/start_local_glm_server.ps1 + scripts/stop_local_glm_server.ps1 + scripts/setup_local_controller.ps1 (Windows launcher with PID lock + Task Scheduler AtStartup/AtLogon autostart). Reviewer-vetted: lease TTL = 90s after last healthy heartbeat (no stale lockout), non-blocking cold start (heartbeat during 240s load), PowerShell BOM bug fixed (System.IO.File.WriteAllText ASCII encoding so cmd.exe parses the wrapper.cmd cleanly). Files: backend/local_brain_router.py, backend/local_brain_store.py, scripts/local_controller.py, scripts/start_local_glm_server.ps1, scripts/stop_local_glm_server.ps1, scripts/setup_local_controller.ps1, frontend/src/v5/components/LocalBrainToggleCard.jsx, tests/test_local_brain_state.py, tests/test_local_controller.py.
 - **Colibri brain-shim regression gate - `tests/test_colibri_brain_shim.py`** (2026-07-15). Pins the `BRAIN_PREFERENCE=colibri` env-shim (wired by commits f5ee801 + 134db80) as a CI trip-wire so any future rip-out from `brain_policy` / `provider_router` / `scripts/switch_brain.py` fails the gate. Covers the allowlist, `/v1` URL normalization (including trailing-slash idempotence), `COLIBRI_MODEL` defaults + `AGENT_LLM_MODEL` fallback, the loud warning on missing `COLIBRI_URL`, the records-bypass (a stale DB record must not preempt operator intent), and the free-NVIDIA bypass-guard when `BRAIN_PREFERENCE=colibri` is set alongside `NVIDIA_API_KEY`. Introduced in PR #1052. Files: `tests/test_colibri_brain_shim.py`.
 
 - **Colibri brain-shim regression gate - `tests/test_colibri_brain_shim.py`** (2026-07-15). CI trip-wire for the BRAIN_PREFERENCE=colibri wiring installed in commits f5ee801 + 134db80 + PR #1050. Pins the env-shim so any future rip-out (kimi-style leftover, colibri dropping out of valid set, stale DB record preempting operator intent, free-NVIDIA bypass-guard regressing when NVIDIA_API_KEY is set) trips at CI time. Covers 9 scenarios: get_brain_preference allowlist, /v1 URL normalization (4 URL variants), COLIBRI_MODEL defaults + AGENT_LLM_MODEL fallback, missing-COLIBRI_URL loud warning, records-bypass via monkeypatched _read_provider_records (fake with priority=-10), free-NVIDIA bypass-guard via monkeypatched resolve_free_nvidia_brain spy, providers/colibri enable/disable parity, ProviderRouter.from_env() end-to-end colibri registration, switch_brain.py exposing colibri preset + argparse choices + dispatch branch.
@@ -618,6 +625,12 @@ All notable changes to this project will be documented in this file.
 
   for test suite compatibility with Phase 2 deprecation.
 
+### Maintenance
+
+- **Microsoft-Windows keepalive agent for Render and local Ollama (`scripts/keepalive.py`)** (2026-07-15). Drop-in Python daemon that pings the Render web service (`/api/health` with `/api/ping` fallback) and the local Ollama instance (`/api/tags`) on a configurable interval (default 600 s). Three CLI modes: `--diagnose`, `--once`, `--daemon`. Cold-start opt-in model warm-up via `keep_alive=-1` against models listed in `KEEPALIVE_MODELS`. 1 MiB log auto-rotation. Survives Ollama restarts; idempotent on the global state. Handles offline Ollama cleanly (skips warm-up when `/api/tags` is unreachable rather than stacking timeouts). Documented setup in `docs/colibri-local-brain-cheatsheet.md` (Windows Task Scheduler `AtStartup` + `AtLogon` or `pwsh scripts/wait_for_colibri_ready.ps1`).
+
+- **Test suite + UI screenshot parity** (`tests/test_keepalive.py`, `docs/screenshots/providers-current.png`) (2026-07-15). Five hermetic smoke tests for the keepalive daemon (`test_log_path_creates_parent`, `test_rotate_is_idempotent`, `test_log_emits_timestamped_line`, `test_run_once_with_unreachable_hosts_returns_one`, `test_cli_once_mode_exits_zero`, `test_cli_diagnose_unreachable_exits_one`). The `docs/screenshots/providers-current.png` snapshot anchors the operator-facing Cloudflare-deployed Providers page in the colibri cheatsheet and the v5 UI gallery. Files: `tests/test_keepalive.py`, `docs/screenshots/providers-current.png`.
+
 ## [5.0.0] — 2026-05-24
 
 
@@ -1093,6 +1106,27 @@ All notable changes to this project will be documented in this file.
 - **Social login FRONTEND_URL fix** (2026-06-27). OAuth callbacks for GitHub and Google login were redirecting to strikersam.github.io (stale demo) instead of autonomous-ai-agency.strikersam.workers.dev (production Worker), silently breaking social logins. Fixed FRONTEND_URL in render.yaml and updated runbook.
 - **Hermes runtime sidecar added** (2026-06-27). Added agency-hermes web service to render.yaml (Dockerfile.hermes, port 8100) running services/hermes_server.py with the same NVIDIA NIM brain. Set HERMES_BASE_URL=https://agency-hermes.onrender.com. Code generation tasks will route to Hermes once the sidecar is deployed.
 - **Flaky test_auth_me_regression fix** (2026-06-27). backend_jwt fixture now retries login up to 3 times to handle test-ordering state leakage from prior tests.
+<<<<<<< Updated upstream
+### Added
+
+- ** — local Windows-side Render + Ollama keepalive cron** (2026-07-15). Belt-and-suspenders keepalive for the operator's Windows box that runs Ollama + the ngrok tunnel. Pings Render  (with  fallback) every 10 min and pre-warms configured Ollama models with  so the agency'''s first inference call after a restart is fast instead of a 2-3 min cold-load. Three modes:  (one-shot RC 0/1),  (one-shot always 0 for cron/Task Scheduler),  (foreground loop; default). Env vars: , , , ,  (comma-sep), , . 1 MiB log auto-rotation at /logs/keepalive.log. Files: scripts/keepalive.py.
+- **** (2026-07-15). Snapshot of the admin Providers page illustrating the local Colibri / GLM-5.2 entry alongside the cloud chain; pinned for the cheatsheet cross-reference and the v5 UI gallery. Files: docs/screenshots/providers-current.png.
+### Fixed
+
+- **Backend import broken:   double-wrap** (2026-07-15). PR landed a local_brain_router import alias as  but then called  — the imported object IS the router (line 53 of backend/local_brain_router.py: ), so  raised  at module-import time. Because tests/conftest.py imports backend.server at collection, EVERY pytest collection errored with that AttributeError — surfacing as the  regression,  test failure, and  stale-cache state on master. Fix: drop the spurious  —  is the canonical FastAPI include_router shape. Files: backend/server.py.
+=======
+
+Maintenance
+- **`scripts/keepalive.py` — Windows-friendly Render + Ollama keepalive cron.** Belt-and-suspenders keepalive for the operator'''s Windows box that runs Ollama + the ngrok tunnel. Pings Render `/api/health` (with `/api/ping` fallback) every 10 min and pre-warms configured Ollama models with `keep_alive=-1` so the agency'''s first inference call after a restart is fast instead of a 2-3 min cold-load. Three modes: `--diagnose` (one-shot RC 0/1), `--once` (one-shot always 0 for cron / Task Scheduler), `--daemon` (foreground loop; default). Env vars: `KEEPALIVE_URL`, `OLLAMA_BASE`, `KEEPALIVE_INTERVAL_SEC`, `KEEPALIVE_LOG`, `KEEPALIVE_MODELS`, `KEEPALIVE_WARM`, `KEEPALIVE_HEALTH_ONLY`. 1 MiB log auto-rotation at `$repo/logs/keepalive.log`. HTTP-only — does not write to the filesystem.
+- **`docs/screenshots/providers-current.png`** — snapshot of the admin Providers page showing the local Colibri / GLM-5.2 entry alongside the cloud chain; pinned for cross-reference from the colibri cheatsheet and the v5 UI gallery.
+
+### Maintenance
+
+- **Microsoft-Windows keepalive agent for Render and local Ollama (`scripts/keepalive.py`)** (2026-07-15). Drop-in Python daemon that pings the Render web service (`/api/health` with `/api/ping` fallback) and the local Ollama instance (`/api/tags`) on a configurable interval (default 600 s). Three CLI modes: `--diagnose`, `--once`, `--daemon`. Cold-start opt-in model warm-up via `keep_alive=-1` against models listed in `KEEPALIVE_MODELS`. 1 MiB log auto-rotation. Survives Ollama restarts; idempotent on the global state. Handles offline Ollama cleanly (skips warm-up when `/api/tags` is unreachable rather than stacking timeouts). Documented setup in `docs/colibri-local-brain-cheatsheet.md` (Windows Task Scheduler `AtStartup` + `AtLogon` or `pwsh scripts/wait_for_colibri_ready.ps1`).
+
+- **Test suite + UI screenshot parity** (`tests/test_keepalive.py`, `docs/screenshots/providers-current.png`) (2026-07-15). Five hermetic smoke tests for the keepalive daemon (`test_log_path_creates_parent`, `test_rotate_is_idempotent`, `test_log_emits_timestamped_line`, `test_run_once_with_unreachable_hosts_returns_one`, `test_cli_once_mode_exits_zero`, `test_cli_diagnose_unreachable_exits_one`). The `docs/screenshots/providers-current.png` snapshot anchors the operator-facing Cloudflare-deployed Providers page in the colibri cheatsheet and the v5 UI gallery. Files: `tests/test_keepalive.py`, `docs/screenshots/providers-current.png`.
+>>>>>>> Stashed changes
+
 ## [v4.1.0] — 2026-05-09
 
 

@@ -9554,8 +9554,18 @@ app.include_router(agent_router)
 # Local GLM-5.2 brain cross-machine toggle (admin SPA <-> local daemon).
 # Three endpoints, all gated on SERVICE_TOKEN via require_service_token.
 # See backend/local_brain_router.py for surface + body shapes.
-from backend.local_brain_router import router as local_brain_router_module  # noqa: E402
+import backend.local_brain_router as local_brain_router_module  # noqa: E402
 app.include_router(local_brain_router_module.router)
+
+# Admin-session proxy so the Cloudflare-deployed admin SPA can flip the
+# local-brain toggle from the Providers page without ever touching
+# SERVICE_TOKEN (a 32-byte machine secret the browser must not see).
+# Same body shape as the SERVICE_TOKEN routes; auth via get_current_user
+# + a role=admin RBAC check inside the handler. The include_router line
+# is deliberately the only FastAPI-side change so the blast radius here
+# is one line.
+import backend.admin_local_brain_router as admin_local_brain_router_module  # noqa: E402
+app.include_router(admin_local_brain_router_module.build_admin_local_brain_router(get_current_user))
 
 app.include_router(runtime_router)
 app.include_router(task_router)
