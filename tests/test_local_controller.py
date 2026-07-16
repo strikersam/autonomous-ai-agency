@@ -290,9 +290,16 @@ def test_daemon_restart_repick_finds_fresh_llama_server(tmp_path, monkeypatch):
         )
 
     assert rc == 0
-    assert len(call_log) >= 2, (
-        "expected at least 2 _choose_local_brain calls (initial probe + "
-        "post-restart re-pick); the v2 fix is what promotes this from 1 to 2+"
+    # run_once() calls _choose_local_brain EXACTLY twice in this scenario:
+    # (1) the preamble probe picks the wrong port (8081 colibri serving
+    #     a non-glm-5.2 model), and (2) the post-restart re-probe finds the
+    #     fresh llama-server.exe on :8072. If a future refactor adds a
+    #     readiness loop inside the restart branch, bump this back to >=2
+    #     with rationale.
+    assert len(call_log) == 2, (
+        f"expected exactly 2 _choose_local_brain calls (preamble probe + "
+        f"post-restart re-pick); the v2 fix is what promotes this from 1 to 2; "
+        f"actual={len(call_log)} ports_seen={call_log}"
     )
     body = captured_hb["body"]
     assert body is not None
@@ -301,6 +308,4 @@ def test_daemon_restart_repick_finds_fresh_llama_server(tmp_path, monkeypatch):
         f"the fresh llama-server on :8072; actual={body.get('status')!r}"
     )
     assert body["models_has_glm52"] is True
-    assert body["v1_models"] == [{"id": "glm-5.2"}] or any(
-        m.get("id") == "glm-5.2" for m in body["v1_models"]
-    )
+    assert body["v1_models"] == [{"id": "glm-5.2"}]  # exact equality pins list shape
