@@ -34,7 +34,7 @@ if ($env:COLIBRI_LOCAL_LLAMA_PORT -and $env:COLIBRI_LOCAL_LLAMA_PORT -match '^\d
     if ($env:COLIBRI_LOCAL_LLAMA_PORT) { Write-Warning "[colibri] COLIBRI_LOCAL_LLAMA_PORT='$env:COLIBRI_LOCAL_LLAMA_PORT' is not an integer; using default 8081" }
     $Port = 8081
 }
-$Host            = if ($env:COLIBRI_HOST)         { $env:COLIBRI_HOST }     else { '127.0.0.1' }
+$BindHost        = if ($env:COLIBRI_HOST)         { $env:COLIBRI_HOST }     else { '127.0.0.1' }
 $ModelId         = if ($env:COLIBRI_LOCAL_LLAMA_MODEL) { $env:COLIBRI_LOCAL_LLAMA_MODEL } else { 'glm-5.2' }
 $LogDir          = if ($env:COLIBRI_LOG_DIR)      { $env:COLIBRI_LOG_DIR }  else { Join-Path $ScriptDir '..\logs' }
 $LogFile         = Join-Path $LogDir "colibri-openai.log"
@@ -68,7 +68,7 @@ $Args = @(
     "--model",  $WeightsDir,
     "--model-id", $ModelId,
     "--port",   $Port,
-    "--host",   $Host,
+    "--host",   $BindHost,
     "--cors-origin", "*"
 )
 
@@ -93,7 +93,7 @@ while ((Get-Date) -lt $Deadline) {
         $Resp = Invoke-WebRequest -Uri $ReadyUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
         Write-Host "[colibri] /v1/models -> HTTP $($Resp.StatusCode) at $(Get-Date -Format 'HH:mm:ss')"
         if ($Resp.StatusCode -eq 200) {
-            Write-Host "[colibri] READY. Listening on http://$Host`:$Port/v1"
+            Write-Host "[colibri] READY. Listening on http://$BindHost`:$Port/v1"
             exit 0
         }
     } catch {
