@@ -52,6 +52,23 @@ _FORWARD_FLAGS = {
 }
 
 
+def _exit_watch_delay() -> float:
+    """Resolve the COLIBRI_PATCH_EXIT_WATCH delay in seconds, clamped to [0, 60].
+
+    Operators can dial COLIBRI_PATCH_EXIT_WATCH_DELAY to balance diagnostic
+    coverage vs. timer churn:
+      - 0.5 s  catch instant SIGKILLs (Blocker 2 OOM during weight page-in).
+      - 2.0 s  default; covers most scenarios.
+      - 5.0+ s catch slower memory-fault pages or post-init crashes.
+    Invalid floats fall back to the 2.0 s default.
+    """
+    raw = os.environ.get("COLIBRI_PATCH_EXIT_WATCH_DELAY", "2.0").strip()
+    try:
+        return max(0.0, min(float(raw), 60.0))
+    except ValueError:
+        return 2.0
+
+
 def _patched_popen(args, *a, **kw):
     """Intercept JustVugg Engine -> glm.exe Popen and forward outer argv.
 
@@ -149,7 +166,7 @@ def _patched_popen(args, *a, **kw):
                 f"[colibri-patch] glm.exe +2s poll() returncode={rc}; pid={proc.pid}\n"
             )
 
-        threading.Timer(2.0, _delayed_poll).start()
+        threading.Timer(_exit_watch_delay(), _delayed_poll).start()
     return proc
 
 
