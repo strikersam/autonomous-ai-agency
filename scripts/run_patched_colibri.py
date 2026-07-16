@@ -34,6 +34,7 @@ import os
 import runpy
 import subprocess
 import sys
+import threading
 
 _real_popen = subprocess.Popen
 
@@ -125,25 +126,30 @@ def _patched_popen(args, *a, **kw):
                 )
             args = [args[0]] + outer + [args[1]]
     proc = _real_popen(args, *a, **kw)
-    # Optional watchdog: when COLIBRI_PATCH_EXIT_WATCH=1, poll glm.exe's exit
-    # status + capture last stderr line. This is purely diagnostic — the
-    # upstream Engine already calls proc.wait() on the SIGTERM/SIGKILL paths,
-    # so we just observe. Helps surface silent OOM-kills when Blocker 2
-    # (hardware-fatal) actually kills the engine.
+    # Optional watchdog: when COLIBRI_PATCH_EXIT_WATCH=1, schedule a delayed
+    # +2 s proc.poll() so sub-second OS SIGKILLs (Blocker 2 hardware-fatal
+    # OOM during weight load) become observable in colibri-openai-err.log.
+    # An immediate proc.poll() right after Popen is too soon (process is
+    # still initialising) and would just return None. Default off — zero
+    # behaviour change when unset.
     if (
         should_patch
-        and exe_basename in ("glm.exe", "glm")
         and os.environ.get("COLIBRI_PATCH_EXIT_WATCH", "").strip().lower()
         in ("1", "true", "yes")
     ):
-        try:
-            rc = proc.poll()
+        def _delayed_poll() -> None:
+            try:
+                rc = proc.poll()
+            except Exception as e:
+                sys.stderr.write(
+                    f"[colibri-patch] glm.exe +2s poll() failed: {e}\n"
+                )
+                return
             sys.stderr.write(
-                f"[colibri-patch] glm.exe immediate poll() returned "
-                f"returncode={rc}; pid={proc.pid}\n"
+                f"[colibri-patch] glm.exe +2s poll() returncode={rc}; pid={proc.pid}\n"
             )
-        except Exception as e:
-            sys.stderr.write(f"[colibri-patch] glm.exe poll() failed: {e}\n")
+
+        threading.Timer(2.0, _delayed_poll).start()
     return proc
 
 
