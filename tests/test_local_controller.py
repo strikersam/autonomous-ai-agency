@@ -208,16 +208,15 @@ def test_get_brain_preference_path_does_not_exist(tmp_path, monkeypatch):
     m = _import_controller()
     machine_id = "m1"
 
-    state_json = json.dumps({"desired": {"state": "off"}})
     # _probe_v1_models() makes exactly one urllib.request.urlopen call. A 200
     # response with no `data`/`models` field is treated as 'listening' by the
     # daemon (parses fine, empty model list). To exercise the 'dead' branch,
     # the test must mock a status=0 response, which _http_json maps to
     # ('dead', [], False, ...) in _probe_v1_models. An earlier revision of
-    # this test mocked two responses starting with (200, state_json), which
-    # made the probe return 'listening' and broke the assertion (`data[0]
-    # == 'dead'`). Reuse the existing `probe_dead` so the fixture stays
-    # symmetric with `test_daemon_off_returns_idle_heartbeat`.
+    # this test mocked two responses starting with a 200, which made the
+    # probe return 'listening' and broke the assertion (`data[0] == 'dead'`).
+    # Reuse the existing `probe_dead` so the fixture stays symmetric with
+    # `test_daemon_off_returns_idle_heartbeat`.
     probe_dead = (0, "url-error: unreachable")
     with _fake_http_sequence([probe_dead]):
         data = m._probe_v1_models("http://127.0.0.1:8072/v1")
