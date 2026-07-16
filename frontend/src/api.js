@@ -534,9 +534,10 @@ export const testBrainModel       = (provider, model, baseUrl) => API.post('/adm
 // from the cloud, and flips the toggle from the Cloudflare-deployed admin
 // Providers page. ``scripts/local_controller.py`` polls every 30s and
 // starts/stops llama-server.exe on the operator's machine accordingly.
-// Auth: X-Service-Token (same SERVICE_TOKEN the local daemon carries).
-export const getLocalBrainState   = ()       => API.get('/api/local-brain/state');
-export const postLocalBrainToggle = (data)  => API.post('/api/local-brain/toggle', data);
+// Auth: admin session cookie (Bearer JWT from /api/auth/login); the local daemon
+// keeps the SERVICE_TOKEN-gated POST /api/local-brain/heartbeat path.
+export const getLocalBrainState   = ()       => API.get('/admin/api/local-brain/state');
+export const postLocalBrainToggle = (data)  => API.post('/admin/api/local-brain/toggle', data);
 // Heartbeat POST is for the local daemon, not the admin SPA; not exported.
 
 // Loop Engineering fleet view — catalogued autonomous loops + loop-audit
