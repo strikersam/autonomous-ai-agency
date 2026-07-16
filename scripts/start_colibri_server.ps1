@@ -7,10 +7,10 @@
 #
 # What it does:
 #   1. Verifies the colibri build artifacts are present:
-#        - D:\hfkld-qg7ky\local-models\colibri\c\glm.exe     (the C engine)
-#        - D:\hfkld-qg7ky\local-models\colibri\c\coli        (Python wrapper script)
-#        - D:\hfkld-qg7ky\local-models\colibri\c\openai_server.py  (OAI-compat gateway)
-#   2. Verifies the GLM-5.2 weights are present (D:\hfkld-qg7ky\local-models\glm-5.2\).
+#        - $Env:COLIBRI_ROOT\c\glm.exe     (the C engine)
+#        - $Env:COLIBRI_ROOT\c\coli        (Python wrapper script)
+#        - $Env:COLIBRI_ROOT\c\openai_server.py  (OAI-compat gateway)
+#   2. Verifies the GLM-5.2 weights are present (defaults to $Env:COLIBRI_WEIGHTS_DIR).
 #   3. Writes .colibri.pid + spawns `python c/coli serve --serve-port <Port>
 #      --model-dir <Weights>` in the background, redirecting stdout/stderr to
 #      .colibri.log / .colibri.log.err. The python wrapper transparently invokes
@@ -18,17 +18,23 @@
 #
 # Idempotent — if .colibri.pid points at a live python process running c/coli,
 # exits 0 with status. Also respects env overrides:
-#   COLIBRI_PORT, COLIBRI_MODEL_DIR, COLIBRI_LOG.
+#   COLIBRI_ROOT              checkout of JustVugg/colibri.
+#                             Default: $Env:USERPROFILE\local-models\colibri (Win) or
+#                             $Env:HOME/local-models/colibri. Override on any machine.
+#   COLIBRI_WEIGHTS_DIR       directory of GLM-5.2 weights.
+#                             Default: <parent of $Env:COLIBRI_ROOT>\glm-5.2.
+#                             Legacy alias: $Env:COLIBRI_MODEL_DIR.
+#   COLIBRI_LOCAL_LLAMA_PORT  OAI-compat port (default 8081). Must match
+#                             $Env:COLIBRI_URL=http://localhost:<port>/v1 in .env.
+#                             Legacy alias: $Env:COLIBRI_PORT.
 #
 # Exit codes:
-#   0 — coli serve running on :8081
+#   0 — coli serve running on :8081 (or $Env:COLIBRI_LOCAL_LLAMA_PORT)
 #   1 — prerequisite missing or start failed
 
 [CmdletBinding()]
 param(
-    [string] $WeightsDir = "D:\hfkld-qg7ky\local-models\glm-5.2",
-    [string] $ColibriDir = "D:\hfkld-qg7ky\local-models\colibri",
-    [int]    $Port       = 8081
+    [int] $Port = 8081
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,9 +43,21 @@ function Ok($msg) { W "✓ $msg" }
 function Warn($msg) { W "⚠ $msg" -ForegroundColor Yellow }
 function Fail($msg) { W "✗ $msg" -ForegroundColor Red }
 
-# Allow env overrides (so this script also runs under bash + WSL patterns)
-if ($env:COLIBRI_PORT) { $Port = [int]$env:COLIBRI_PORT }
-if ($env:COLIBRI_MODEL_DIR) { $WeightsDir = $env:COLIBRI_MODEL_DIR }
+# -- Path resolution (env-driven, operator-portable: NO literal D:\... anywhere) --
+$UserHome = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { (Get-Location).Path }
+$DefaultLocalModels = Join-Path $UserHome 'local-models'
+
+$ColibriDir = if     ($env:COLIBRI_ROOT)          { $env:COLIBRI_ROOT }
+              elseif ($env:LOCAL_MODELS_ROOT)     { Join-Path $env:LOCAL_MODELS_ROOT 'colibri' }
+              else                                { Join-Path $DefaultLocalModels 'colibri' }
+
+$WeightsDir = if     ($env:COLIBRI_WEIGHTS_DIR)   { $env:COLIBRI_WEIGHTS_DIR }
+              elseif ($env:COLIBRI_MODEL_DIR)     { $env:COLIBRI_MODEL_DIR }   # legacy alias
+              elseif ($env:LOCAL_MODELS_ROOT)     { Join-Path $env:LOCAL_MODELS_ROOT 'glm-5.2' }
+              else                                { Join-Path (Split-Path $ColibriDir -Parent) 'glm-5.2' }
+
+if     ($env:COLIBRI_LOCAL_LLAMA_PORT) { $Port = [int]$env:COLIBRI_LOCAL_LLAMA_PORT }
+elseif ($env:COLIBRI_PORT)             { $Port = [int]$env:COLIBRI_PORT }   # legacy alias
 
 $ColiScript = Join-Path $ColibriDir "c/coli"
 $PidFile     = Join-Path $ColibriDir ".colibri.pid"
@@ -47,6 +65,9 @@ $LogFile     = Join-Path $ColibriDir ".colibri.log"
 
 W ""
 W "=== start_colibri_server.ps1 ==="
+W "Colibri root (c\: glm.exe + coli + openai_server.py): $ColibriDir"
+W "GLM-5.2 weights:                                       $WeightsDir"
+W "OAI-compat port:                                       $Port"
 W ""
 
 # 1. Verify colibri is built (the C engine GLM-5.2 wrapper `c/coli` is a Python script that
@@ -73,10 +94,17 @@ Ok "glm.exe: $ColiEngine"
 Ok "c/coli (python wrapper): $ColiScript"
 Ok "c/openai_server.py: $ColiOpenAi"
 
-# 2. Verify weights present
+# 2. Verify weights present (deeper probe: at least one .out-*.safetensors or config.json sentinel)
 if (-not (Test-Path $WeightsDir)) {
     Fail "weights dir not found at $WeightsDir"
     W "  Run: pwsh scripts/download_glm52_weights.ps1"
+    exit 1
+}
+$HasSentinel = (Get-ChildItem -Path $WeightsDir -Filter '*.safetensors' -ErrorAction SilentlyContinue | Select-Object -First 1) -or
+               (Test-Path (Join-Path $WeightsDir 'config.json'))
+if (-not $HasSentinel) {
+    Fail "weights dir exists at $WeightsDir but no .safetensors or config.json sentinel found."
+    W "  Resume the download: pwsh scripts/download_glm52_weights.ps1"
     exit 1
 }
 $freeSpace = (Get-PSDrive (Split-Path $WeightsDir -Qualifier).TrimEnd(':')).Free / 1GB

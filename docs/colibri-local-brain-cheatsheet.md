@@ -1,5 +1,16 @@
 # Colibri Local Brain — Operator Cheatsheet
 
+> **No hardcoded operator paths.** Before running `pwsh scripts/start_colibri_server.ps1`,
+> set the env vars below. Defaults resolve to `$Env:USERPROFILE\local-models\colibri`
+> (Win) or `$Env:HOME/local-models/colibri`; clones on other operator machines just
+> override the env vars — no path edits to this cheatsheet necessary.
+>
+> ```
+> $Env:COLIBRI_ROOT              = '<your colibri checkout>'      # must contain c\glm.exe + c\coli + c\openai_server.py
+> $Env:COLIBRI_WEIGHTS_DIR       = '<your GLM-5.2 weights dir>'   # .out-*.safetensors
+> $Env:COLIBRI_LOCAL_LLAMA_PORT  = 8081                           # match $Env:COLIBRI_URL in .env
+> ```
+
 Single-machine setup that runs the agency's primary brain on the operator's
 Windows box against the JustVugg/colibri C runtime serving GLM-5.2. No API
 key. No cloud billing. The rendered outputs are 100% offline.
@@ -13,11 +24,11 @@ monitoring, and tearing down — all on a fresh Windows 11 / PowerShell 7 host.
 
 | Item | Path on this box | Size | Purpose |
 |------|------------------|------|---------|
-| JustVugg/colibri repo | `D:\hfkld-qg7ky\local-models\colibri` | ~30 MB | C runtime + Python OAI-compat gateway |
-| Colibri build outputs | `D:\hfkld-qg7ky\local-models\colibri\c\glm.exe` | ~3 MB | The C engine (built via `make -C c`) |
-| Colibri Python wrapper | `D:\hfkld-qg7ky\local-models\colibri\c\coli` | ~35 KB | Drives `glm.exe` + `openai_server.py` |
-| OAI-compat gateway | `D:\hfkld-qg7ky\local-models\colibri\c\openai_server.py` | ~80 KB | Listens on `:8081/v1` |
-| GLM-5.2 weights | `D:\hfkld-qg7ky\local-models\glm-5.2` | ~370 GB | Mateogrgic int4 + int8-MTP SD checkpoint |
+| JustVugg/colibri repo | `$Env:COLIBRI_ROOT` | ~30 MB | C runtime + Python OAI-compat gateway |
+| Colibri build outputs | `$Env:COLIBRI_ROOT\c\glm.exe` | ~3 MB | The C engine (built via `make -C $Env:COLIBRI_ROOT\c`) |
+| Colibri Python wrapper | `$Env:COLIBRI_ROOT\c\coli` | ~35 KB | Drives `glm.exe` + `openai_server.py` |
+| OAI-compat gateway | `$Env:COLIBRI_ROOT\c\openai_server.py` | ~80 KB | Listens on `:8081/v1` |
+| GLM-5.2 weights | `$Env:COLIBRI_WEIGHTS_DIR` | ~370 GB | Mateogrgic int4 + int8-MTP SD checkpoint |
 
 The repo scripts this doc references:
 
@@ -40,7 +51,7 @@ The repo scripts this doc references:
    - w64devkit recommended: [skeeto/w64devkit releases](https://github.com/skeeto/w64devkit/releases)
    - Strawberry Perl alternates: ships gcc + make
 3. `huggingface_hub[cli]` (`pip install -U 'huggingface_hub[cli]'`) — gives `hf`
-4. `D:\hfkld-qg7ky\local-models\` with **>=410 GB free** (370 GB weights + 50 GB llama.cpp overhead)
+4. `$Env:COLIBRI_WEIGHTS_DIR`'s parent directory (`local-models\`) with **>=410 GB free** (370 GB weights + 50 GB llama.cpp overhead)
 5. `HF_TOKEN` in this machine's `.env` (gitignored) — set via:
 
    ```powershell
