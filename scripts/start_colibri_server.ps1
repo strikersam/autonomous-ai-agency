@@ -3,17 +3,24 @@
 Colibri GLM-5.2 local-brain launcher (JustVugg/colibri).
 
 Architecture discovered via live diagnostics:
-  * c/coli serve         -> model runner (NO HTTP listener)
-  * c/openai_server.py   -> OAI-compat HTTP bridge; itself spawns `c/coli serve` as subprocess via --engine flag
-  * Single-process correct invocation: python c/openai_server.py --engine coli --port 8081 --host 127.0.0.1 --model $Env:COLIBRI_WEIGHTS_DIR --model-id glm-5.2
+  * c/glm.exe             -> Windows PE32+ engine binary (extensionless `c/glm` does NOT work because Windows Popen uses PATHEXT for .exe resolution)
+  * c/openai_server.py   -> OAI-compat HTTP bridge; spawns the engine as subprocess via --engine flag
+  * WorkingDirectory must be $ColibriRoot (so 'c/openai_server.py' and 'c/glm.exe' resolve naturally)
+  * Single-process correct invocation:
+       python c/openai_server.py --engine c/glm.exe --port 8081 --host 127.0.0.1 --model $Env:COLIBRI_WEIGHTS_DIR --model-id glm-5.2
   * Watchdog polls /v1/models until HTTP 200, then exits 0.
 
 Port defaults to 8081 to match the documented COLIBRI_LOCAL_LLAMA_URL in .env.example;
 override with $Env:COLIBRI_LOCAL_LLAMA_PORT if needed. All paths come from $Env:COLIBRI_*
 with operator-portable fallbacks; no literal D:\... paths anywhere.
 
+KNOWN ISSUE: openai_server.py (JustVugg upstream) Engine.__init__ runs
+  `Popen([str(executable), str(cap)])`
+and discards --model --port --host --model-id. So even with the --engine fix here,
+glm.exe will not receive the model path; see NEXT_ACTION.md for the upstream patch plan.
+
 Flag map verified against `python c/openai_server.py --help`:
-  --engine         subprocess to spawn (we pass 'coli' so it runs `c/coli serve` internally)
+  --engine         path to engine binary (we pass 'c/glm.exe' resolved relative to $ColibriRoot)
   --port, --host   OAI-compat listener
   --model          weights directory
   --model-id       the model name advertised by /v1/models
@@ -64,7 +71,7 @@ if (-not $PythonExe) { $PythonExe = "python" }
 
 $Args = @(
     "c/openai_server.py",
-    "--engine", "coli",
+    "--engine", "c/glm.exe",
     "--model",  $WeightsDir,
     "--model-id", $ModelId,
     "--port",   $Port,
@@ -72,13 +79,26 @@ $Args = @(
     "--cors-origin", "*"
 )
 
+# Pre-flight: $ColibriRoot must exist (it is also our WorkingDirectory).
+if (-not (Test-Path $ColibriRoot)) {
+    Write-Error "[colibri] COLIBRI_ROOT='$ColibriRoot' not found. Clone JustVugg/colibri there, or override `$env:COLIBRI_ROOT."
+    exit 2
+}
+# Pre-flight: c/glm.exe must exist (Windows PE32+ engine binary; we resolve relative to $ColibriRoot).
+$EngineBin = Join-Path $ColibriRoot 'c/glm.exe'
+if (-not (Test-Path $EngineBin)) {
+    Write-Error "[colibri] engine binary not found at '$EngineBin'. Verify JustVugg/colibri checkout has c/glm.exe, or override `$env:COLIBRI_ENGINE_BIN."
+    exit 2
+}
+
 Write-Host "[colibri] launching: $PythonExe $($Args -join ' ')"
+Write-Host "[colibri] engine binary: $EngineBin"
 Write-Host "[colibri] logs: $LogFile (stdout), $ErrFile (stderr)"
 
 # Use a single Start-Process call so logs are durably captured.
 $Proc = Start-Process -FilePath $PythonExe `
     -ArgumentList $Args `
-    -WorkingDirectory $ColibriCDir `
+    -WorkingDirectory $ColibriRoot `
     -RedirectStandardOutput $LogFile `
     -RedirectStandardError  $ErrFile `
     -NoNewWindow `
