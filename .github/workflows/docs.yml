@@ -1,0 +1,21 @@
+# Updated to use Node.js 24 due to deprecation of Node.js 20
+name: Docs Deployment
+on:
+  push:
+    branches:
+      - docs/colibri-cheatsheet
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [24]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+      - name: Run End-to-end live server test
+        run: |
+          # Command to run the test, assuming it's defined elsewhere in the workflow or in a script
+          ./run-live-server-test.sh
