@@ -3,7 +3,17 @@
 **Session:** `colibri-glm5.2-deploy-2026-07`
 **Status:** BLOCKER_1_FIXED — upstream arg-stripping addressed via run_patched_colibri.py wrapper (commit landed on master); BLOCKER_2_REMAINS — hardware-fatal (744B params + 383 GB > 128 GB RAM) — colibri-swap pushes (commit `9d54f6c` + docs `8dab841` + 5 priors) shipped to `origin/master`; canonical env-var fix applied to local `.env`. Brain resolver now ROUTES to `provider_id='colibri', source='env_colibri'` (priority 100). **User-visible outcome: STILL FALSE** — colibri :8081 still doesn't bind at runtime (upstream JustVugg gap + 383 GB > 128 GB RAM unchanged).
 **Last updated:** 2026-07-16
-**Branch:** `master`, **0 commits ahead** of `origin/master` (after `8dab841` push).
+**Branch:** `master`, **0 commits ahead** of `origin/master` (after `b03a6ba` push).
+
+### Done this session (commit `b03a6ba`)
+
+- `feat(brain): wire local-brain local inference provider (BRAIN_PREFERENCE=local-brain)`
+- `providers/local_brain.py` (NEW) — mirror of `providers/colibri.py` with `provider_id='local-brain'`, `base_url=http://127.0.0.1:8072/v1`, `default_model='glm-5.2'`, `priority=-10`, gated by `LOCAL_BRAIN_ENABLED=true`.
+- `packages/ai/router.py` — added `'local-brain'` to `_FREE_CLOUD_PROVIDER_IDS` + parallel `local_brain_provider_config()` registration block in `ProviderRouter.from_env()` (after the colibri block).
+- `packages/ai/brain.py` — 5 edits: valid tuple in `get_brain_preference()`, `elif pref == 'local-brain': pass` in records selector, env-shim block parallel to colibri (reads `LOCAL_BRAIN_URL` + `LOCAL_BRAIN_MODEL_ID`, source `env_local_brain`, priority 100), two comment updates, free-fallback skip list extended.
+- Verification: `py_compile` 0/0/0 across all 3 files; import roundtrip shows `enabled=False` default; env-shim smoke returns `ProviderConfig(provider_id='local-brain', base_url='http://127.0.0.1:8072/v1', default_model='glm-5.2', priority=-10)`; code-reviewer-minimax-m3 SHIP verdict.
+- Code-reviewer verdict: `SHIP — local-brain wiring mirrors colibri cleanly across provider/router/brain; LOCAL_BRAIN_MODEL_ID matches across provider config + local_controller + brain env-shim.`
+- **Remaining for end-to-end runtime**: needs `llama-server.exe` + the GLM-5.2 Q4_K_M GGUF on disk + `LOCAL_BRAIN_ENABLED=true` in `.env`. The cloud-admin SPA toggle (`scripts/local_controller.py`) already drives this end-to-end on the next toggle-flip.
 
 ## Context / Task
 
