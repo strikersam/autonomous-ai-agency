@@ -230,3 +230,85 @@ class TestAnthropicToOpenAICacheUsage:
         out = ProviderRouter._anthropic_to_openai_response(resp, "claude-sonnet-4-6")
         data = out.json()
         assert data["choices"][0]["message"]["content"] == "Hi there!"
+
+
+# ── _anthropic_payload — structured outputs (GA) ─────────────────────────────
+
+
+class TestAnthropicPayloadStructuredOutputs:
+    """Structured outputs are GA on Anthropic. No beta header is needed.
+
+    OpenAI format:   response_format = {"type": "json_schema", "json_schema": {...}}
+    Anthropic format: output_config   = {"format": {"type": "json_schema", "json_schema": {...}}}
+    """
+
+    def _base_payload(self, **extra) -> dict:
+        return {"messages": [{"role": "user", "content": "Hi"}], **extra}
+
+    def test_json_schema_format_passed_through(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
+        monkeypatch.delenv("ANTHROPIC_THINKING_BUDGET", raising=False)
+        schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
+        payload = self._base_payload(
+            response_format={"type": "json_schema", "json_schema": {"name": "Answer", "schema": schema}}
+        )
+        out = ProviderRouter._anthropic_payload(payload)
+        assert "output_config" in out
+        fmt = out["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
+        assert fmt["json_schema"]["name"] == "Answer"
+        assert fmt["json_schema"]["schema"] == schema
+
+    def test_json_object_format_passed_through(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
+        monkeypatch.delenv("ANTHROPIC_THINKING_BUDGET", raising=False)
+        payload = self._base_payload(response_format={"type": "json_object"})
+        out = ProviderRouter._anthropic_payload(payload)
+        assert out["output_config"] == {"format": {"type": "json_object"}}
+
+    def test_no_output_config_when_no_response_format(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
+        monkeypatch.delenv("ANTHROPIC_THINKING_BUDGET", raising=False)
+        out = ProviderRouter._anthropic_payload(self._base_payload())
+        assert "output_config" not in out
+
+    def test_text_response_format_skipped(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
+        monkeypatch.delenv("ANTHROPIC_THINKING_BUDGET", raising=False)
+        payload = self._base_payload(response_format={"type": "text"})
+        out = ProviderRouter._anthropic_payload(payload)
+        assert "output_config" not in out
+
+    def test_json_schema_with_missing_name_defaults_to_response(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
+        monkeypatch.delenv("ANTHROPIC_THINKING_BUDGET", raising=False)
+        payload = self._base_payload(
+            response_format={"type": "json_schema", "json_schema": {"schema": {}}}
+        )
+        out = ProviderRouter._anthropic_payload(payload)
+        assert out["output_config"]["format"]["json_schema"]["name"] == "response"
+
+
+# ── default model — provider config ───────────────────────────────────────────
+
+
+class TestAnthropicDefaultModel:
+    """claude-sonnet-5 is Anthropic's new default model (GA as of July 2026)."""
+
+    def test_default_model_is_sonnet5_when_env_unset(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        router = ProviderRouter.from_env()
+        anthropic = next(
+            (p for p in router.providers if p.provider_id == "anthropic"), None
+        )
+        assert anthropic is not None, "Anthropic provider must be configured when key is set"
+        assert anthropic.default_model == "claude-sonnet-5"
+
+    def test_env_override_respected(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("ANTHROPIC_MODEL", "claude-opus-4-8")
+        router = ProviderRouter.from_env()
+        anthropic = next(p for p in router.providers if p.provider_id == "anthropic")
+        assert anthropic.default_model == "claude-opus-4-8"

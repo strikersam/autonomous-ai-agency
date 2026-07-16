@@ -359,9 +359,11 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "anthropic/claude-3.5-sonnet",
     ],
     "anthropic": [
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-haiku-20241022",
-        "claude-opus-4-5",
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "claude-fable-5",
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
     ],
     "aerolink": [
         "claude-sonnet-4-6",

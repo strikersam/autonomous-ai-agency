@@ -852,7 +852,7 @@ class ProviderRouter:
                     base_url=anthropic_base,
                     api_key=anthropic_key,
                     default_model=os.environ.get("ANTHROPIC_MODEL")
-                    or "claude-sonnet-4-6",
+                    or "claude-sonnet-5",
                     priority=50,
                 )
             )
@@ -1433,6 +1433,25 @@ class ProviderRouter:
         if _thinking_budget > 0:
             out["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
             out["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
+
+        # Structured outputs (GA): map OpenAI response_format → Anthropic output_config.format.
+        # No beta header required — this feature is generally available.
+        response_format = payload.get("response_format")
+        if isinstance(response_format, dict):
+            fmt_type = response_format.get("type")
+            if fmt_type == "json_schema":
+                json_schema = response_format.get("json_schema") or {}
+                out["output_config"] = {
+                    "format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": json_schema.get("name", "response"),
+                            "schema": json_schema.get("schema", {}),
+                        },
+                    }
+                }
+            elif fmt_type == "json_object":
+                out["output_config"] = {"format": {"type": "json_object"}}
 
         return out
 
