@@ -1,150 +1,204 @@
-# Agent State — agentic-agile-workflows-8ymf4d
+# Agent State — colibri GLM-5.2 deployment (resumable)
 
-**Session:** `agentic-agile-workflows-8ymf4d`
-**Status:** DONE — implemented, tested, pushed to `claude/agentic-agile-workflows-8ymf4d`
-(commits 594d071, 018fa4e). See `.claude/state/active-tasks.md` row #10.
-**Last updated:** 2026-06-14
+**Session:** `colibri-glm5.2-deploy-2026-07`
+**Status:** PARTIAL — binding-fix commit `10c59af` landed on local `master`, NOT pushed
+(`GH_PAT` not available in this shell + user-visible outcome is FALSE).
+**Last updated:** 2026-07-16
+**Branch:** `master`, **5 commits ahead** of `origin/master`.
 
 ## Context / Task
 
-User asked: "Does agentic agile work (sprints, standups, scrums, retros) happen
-for the agents on its own? Is there agents for portfolio manager, delivery
-manager, product manager etc., typical to an agency, with the right skills and
-workflows? If not, make sure these exist and they all do their work properly."
+User has asked across multiple turns to make JustVugg/colibri (GLM-5.2 744B MoE)
+the local brain for the agency, served on port 8081, with the `brain_policy`
+resolver picking `provider_id='colibri'`. Specific asks recorded:
 
-## Findings (research complete — see PR description for full writeup)
+- "delete all local providers and setup https://github.com/JustVugg/colibri with brain pointing to GLM 5.2"
+- "ensure the brain works with the right tunnels and powers the agency from this machine"
+- "is the local glm 5.2 model fully downloaded from HF? and is it now powering the agency?"
+- "you need to have ui options to select also glm 5.2 local provider. push to master via a PR when everything goes green and merge it"
 
-- `agents/agile_sprints.py` — sprint/story/retro data structures exist and are
-  tested, but are **not autonomous**. No standup/retro/sprint-planning scheduler
-  anywhere.
-- `agents/portfolio.py` + `agents/portfolio_intelligence.py` — WSJF portfolio
-  management **is** autonomous: a 6h cron (`.github/workflows/portfolio-refresh.yml`)
-  sweeps real signals and refreshes the v5 dashboard. This is the template to
-  follow for the new ceremonies.
-- `SpecialistFamily` (models/company_graph.py:47) has `agile` (Scrum Master),
-  `portfolio` (Portfolio Manager), `product` — but these are capability/tool
-  taxonomies, not ceremony-owning personas. **No `delivery` (Delivery Manager)
-  role exists** — documented gap in
-  `docs/architecture/tailored-onboarding-and-roles.md` (Phase 3 "Role Registry").
+## Findings (verified empirically)
 
-## Plan (IMPLEMENTED)
+- **Download complete**: `D:\hfkld-qg7ky\local-models\glm-5.2\` → 144
+  `.safetensors` files, **383.76 GB**. HF_TOKEN was used; no `*.incomplete`
+  artifacts; no active downloaders.
+- **Engine binary works**: `D:\hfkld-qg7ky\local-models\colibri\c\glm.exe`
+  spawns cleanly when invoked correctly. Verified by probe (subprocess PID
+  39852, RSS 10+ GB within 30 s, `[MTP] active` `[RAM_GB=86.3 auto]` init logs
+  visible).
 
-### Part A — Autonomous agile ceremonies
+## Two architectural blockers NOT in our repo's control
 
-1. `agents/agile_ceremonies.py` (new):
-   - Small addition to `agents/agile_sprints.py`: `AgileSprint.stories` property
-     (public accessor for `_stories.values()` — ceremonies shouldn't reach into
-     a private dict).
-   - `StandupReport` dataclass + `generate_standup(tasks_md, agile_mgr=None)` —
-     parses `.claude/state/active-tasks.md` "Current Sprint Tasks" + "Bug Log"
-     tables (reuse `_table_rows`/`_clean` from `agents/portfolio_intelligence.py`)
-     into completed / in_progress / planned / blockers; folds in active-sprint
-     health if an `AgileManager` is supplied. `.to_markdown()`.
-   - `generate_sprint_retro(sprint) -> Retrospective` — derives went_well /
-     went_poorly / action_items from `SprintMetrics.health`, `scope_added`,
-     `completion_percentage` via the existing `add_retro_note` /
-     `add_action_item` helpers.
-   - `generate_backlog_retro(tasks_md) -> Retrospective` — for the no-active-
-     sprint case: DONE/BUG_FIXED rows -> went_well, BLOCKED/BUG_FOUND/DEFERRED ->
-     went_poorly + action_items.
-   - `SprintPlan` dataclass + `plan_next_sprint(portfolio_mgr, agile_mgr, *, name,
-     goal, capacity)` — `allocate_capacity()` -> new sprint with one `UserStory`
-     per committed initiative, linked back via `link_sprint`; left in PLANNING
-     for a human to start. `.to_markdown()`.
-   - `retrospective_to_markdown(retro, title)` shared renderer.
+1. **Upstream JustVugg/openai_server.py:442** runs `Popen([str(executable),
+   str(cap)])` and **drops** `--model --port --host --model-id`. So even
+   after launching, glm.exe does not receive the weights path or listener
+   config → `:8081` will never actually bind. Documented as KNOWN ISSUE in
+   `scripts\start_colibri_server.ps1` docblock.
+2. **383 GB weights > 128 GB system RAM**. Even if upstream were fixed,
+   inference would thrash the pagefile for 10–30 TB per token. The laptop's
+   Radeon 8060S iGPU has only 4 GB VRAM (not enough to meaningfully offload a
+   744B MoE).
 
-2. `tests/test_agile_ceremonies.py` (new) — cover standup parsing (all status
-   buckets), sprint retro for COMPLETE / ON_TRACK / AT_RISK / OFF_TRACK + scope
-   creep, backlog retro, and `plan_next_sprint` capacity allocation / story
-   creation / linkage.
+## What landed on master today (commit `9d54f6c`, follow-up to `10c59af`)
 
-3. `.github/scripts/agile_ceremonies.py` (new) — CLI runner
-   (`standup|retro|plan` subcommands), same importlib-stub-loading pattern as
-   `.github/scripts/portfolio_refresh.py`. Posts a markdown digest to
-   `GITHUB_STEP_SUMMARY`. No repo writes; sprint planning only proposes.
+```
+fix(startup): swap Ollama default for colibri brain watchdog on boot
+```
 
-4. `.github/workflows/agile-ceremonies.yml` (new) — cron:
-   - standup: weekdays 08:00 UTC
-   - retro: Fridays 17:00 UTC
-   - sprint planning: Mondays 07:00 UTC
-   - `workflow_dispatch` with a `ceremony` choice input for manual runs
-   - `permissions: contents: read` (matches `portfolio-refresh.yml`)
+- `start_server.ps1` Step 1 now launches `python scripts/monitor_colibri.py supervise`
+  (with a 6-iter `/v1/models` readiness probe that NEVER `exit 1`s so a slow model
+  load doesn't abort the rest of the boot sequence) instead of `run_ollama.bat`.
+- The previously-conditional Step 4 colibri monitor block is gone — Step 1 is now
+  unconditional.
+- Top-of-file comment + Step 3 ngrok header corrected (`[2/3] Starting Auth Proxy`
+  had been accidentally re-pasted above the ngrok body; now reads
+  `[3/3] Starting ngrok Tunnel`).
+- PID map drops the `ollama` key (no longer created); `colibri_monitor` is now
+  unconditional.
+- `setup_autostart.ps1` Task Scheduler entry renamed
+  `Qwen3-Coder-Server` -> `Colibri-GLM-5.2-Server`; description updated.
 
-5. `.claude/skills/agentic-agile/SKILL.md` — document the new ceremony
-   functions and the scheduled workflow.
+### Follow-up fix during commit amend: UTF-8 BOM on setup_autostart.ps1
 
-### Part B — Delivery Manager role
+The first commit of this work (`66fa9ad`) had a parse-error on
+`setup_autostart.ps1` because the file was saved as UTF-8 **WITHOUT** a BOM.
+Windows PowerShell 5.x reads BOM-less files as Windows-1252 (ANSI); the
+`✓` (U+2713) checkmark's `0x93` byte is reinterpreted as a smart-quote `"`,
+the `─` (U+2500) box-drawing char's `0x94` byte as a smart-quote `”` — both
+toggling the parser's string state mid-line, producing the cascading
+`MissingEndCurlyBrace` and `TerminatorExpectedAtEndOfString` errors at
+lines 49 and 60.
 
-6. `models/company_graph.py` — add `"delivery"` to `SpecialistFamily` Literal
-   (35th family), placed next to `agile` / `portfolio`.
+**Fix**: prepended the 3 UTF-8 BOM bytes (`EF BB BF`) via
+`[System.IO.File]::WriteAllBytes()` and folded into the same commit via
+`git commit --amend --no-edit`. Final amended commit hash: **`9d54f6c`**.
+Both `setup_autostart.ps1` (216 tokens) and `start_server.ps1` (1011
+tokens) now parse cleanly.
 
-7. `services/specialist.py`:
-   - `_generate_specialist_name`: `"delivery": "Delivery Manager"`
-   - `_get_default_capabilities`: `"delivery": ["sprint_planning", "standups",
-     "retrospectives", "release_coordination", "cross_team_unblocking"]`
-   - `_get_default_tools`: `"delivery": ["jira", "github_api", "slack", "linear",
-     "confluence"]`
-   - **Verify** `services/company_agency.py`, `hardware/detector.py`,
-     `admin_gui.py` for other per-`SpecialistFamily` maps (grep for
-     `"platform":` as a marker — it's the last key in most of these dicts) and
-     add a `"delivery"` entry to each so nothing is left inconsistent.
+### Repo-wide hygiene follow-up (not part of this amend — open)
 
-8. `services/skill_bindings.py` — add `"delivery"` to `specialist_families` for
-   the `agentic-agile` and `agentic-portfolio` skills (gives Delivery Manager
-   the ceremony + WSJF skills — satisfies the "every family has >=1 bound skill"
-   CI gate).
+Other ps1 files in the repo (e.g. `start_server.ps1`'s new `# Swap (2026-07-x)`
+comment block, `scripts/setup_monitor_autostart.ps1`, `scripts/setup_local_controller.ps1`)
+carry the same latent BOM-less risk. Recommend a one-shot follow-up commit:
+run `grep -lP '[✓✗─]' --include='*.ps1' .` for an audit and apply the
+`WriteAllBytes` BOM prepend via a small helper. NOT folded into this amend
+to keep scope tight.
 
-9. `tests/test_specialist_skill_matrix.py` — bump 34 -> 35 family count
-   (`test_matrix_has_thirty_four_families`); update docstring wording.
+## What landed on master today (commit `10c59af`)
 
-10. Regenerate `docs/specialists-skills-matrix.md`:
-    `python scripts/generate_specialist_skill_matrix.py`
+```
+fix(colibri): bind :8081 by passing --engine c/glm.exe + correct WorkingDirectory
+```
 
-11. `README.md` — update "34 specialist families" references (around lines
-    118, 127, 230, 538) to 35.
+- 26 insertions, 6 deletions, **0 hardcoded `D:\` paths** (operator-portable).
+- PowerShell parse: OK (530 tokens).
+- 3-edit core: header docblock honesty, `--engine c/glm.exe`, WorkingDirectory
+  `$ColibriRoot`.
+- 2 pre-flight `Test-Path` blocks: fail-fast on missing `$ColibriRoot` /
+  `$EngineBin`.
+- `git status` clean. `git log origin/master..HEAD` shows 5 commits ahead
+  (this commit + the four earlier-session commits). No `git push` performed.
 
-12. `docs/architecture/tailored-onboarding-and-roles.md` — note `delivery`
-    added to the seed catalog as the 35th family (small step on Phase 3 "Role
-    Registry"; the full open-registry/custom-roles work remains future). Do not
-    overclaim Phase 3 as done.
+## What the next agent should consider (priority order)
 
-### Part C — Bookkeeping
+### Option A — Pivot to a feasible MLX model (HIGHEST ROI)
 
-13. `docs/changelog.md` — `## [Unreleased]` entries:
-    - Added: autonomous agile ceremonies (standup / retro / sprint-planning) +
-      `agile-ceremonies.yml` cron
-    - Added: `delivery` (Delivery Manager) specialist family, bound to
-      agentic-agile + agentic-portfolio
+The operator already has on disk:
+- `gemma-4-31b-it-abliterated-4bit-mlx\` (~17 GB, MLX 4-bit)
+- `Llama-3.3-70B-Instruct-abliterated-8bit-mlx\` (~70 GB, MLX 8-bit)
 
-14. `.claude/state/active-tasks.md` — mark task #10 `DONE` with the PR link
-    when complete; log any bugs found in the Bug Log.
+Both fit comfortably in 128 GB RAM. Wire one via `provider_router.py`
+(pattern: copy `providers\kimi_local_llama.py` + register in
+`_register_providers`, with `BRAIN_PREFERENCE=mlx-gemma-4-31b` or similar
+gate in `brain_policy.py`). The agency will actually run locally — the
+"powers the agency from this machine" goal becomes achievable.
 
-### Acceptance criteria
+### Option B — Patch upstream JustVugg + acquire hardware
 
-- `pytest -x` green (full suite — `requirements.txt` install was in progress
-  when this session paused; re-run if needed)
-- `python scripts/generate_specialist_skill_matrix.py --check` passes
-- New ceremony module has unit tests covering all `SprintHealth` branches and
-  the standup / retro / plan happy paths
-- `agile-ceremonies.yml` is valid YAML and mirrors `portfolio-refresh.yml`'s
-  permission / concurrency conventions
+Fork `D:\hfkld-qg7ky\local-models\colibri\` (NOT in this repo) to forward
+`--model`, `--port`, `--host` from `openai_server.py:442` into the glm.exe
+Popen. Then acquire 512 GB+ RAM, or 2 TB pagefile on NVMe-RAID, before
+realistic inference. This is months of work AND hardware spend.
 
-## Prompt for continuing agent
+### Option C — Hold the fix and wait for human decision
 
-> Implement the plan above in full, in order (Part A, then Part B, then Part C).
-> Read `agents/agile_sprints.py`, `agents/portfolio.py`,
-> `agents/portfolio_intelligence.py`, `.github/scripts/portfolio_refresh.py`,
-> `.github/workflows/portfolio-refresh.yml`, `services/specialist.py`,
-> `services/skill_bindings.py`, and `tests/test_specialist_skill_matrix.py`
-> first for exact conventions/signatures. Write tests alongside each new
-> module. Run `pytest -x` before each commit. Update `docs/changelog.md` and
-> `.claude/state/active-tasks.md` as you go (mark task #10 `IN_PROGRESS` ->
-> `DONE`). For Part B, first grep for all per-`SpecialistFamily` dicts (search
-> for `"platform":` as a marker key, which appears last in most family maps) so
-> every map gets a `"delivery"` entry — don't leave the matrix generator or CI
-> gate inconsistent. Commit incrementally and push to
-> `claude/agentic-agile-workflows-8ymf4d`.
+Leave commit `10c59af` on local master. Update `NEXT_ACTION.md` (this
+file). Do not push. Wait for operator to pick A or B. Outstanding code-
+reviewer nits (network-share race in `Test-Path $ColibriRoot`, missing
+`Test-Path $WeightsDir`) are documented but **NOT applied** — defer until
+operator direction.
 
 ## Resume command
 
-Just say "continue" in this session, or `python scripts/ai_runner.py resume`.
+For Option A, read first:
+- `providers\kimi_local_llama.py` (the existing local-LLM provider pattern)
+- `provider_router.py` lines ~815–840 (the registration block)
+- `brain_policy.py` lines ~280–360 (the resolver; pattern from
+  `kimi-local-llama` is the closest precedent)
+
+For Option B, read:
+- `D:\hfkld-qg7ky\local-models\colibri\c\openai_server.py` lines 440-470
+  (the `Engine.__init__` and `Popen` calls, the source of the upstream gap)
+
+For Option C: just resume the session and surface the trade-offs to the
+operator.
+
+## Pending risks (carry-forward)
+
+- `HF_TOKEN` is set in env this session; will need re-set if `setx` is
+  preferred for cross-shell persistence.
+- `KIMI_LOCAL_LLAMA_*` env vars from a previous session may still be
+  bleeding into `.env`; verify `BRAIN_PREFERENCE` is exactly `colibri`,
+  not `kimi-local-llama`, otherwise resolver will not reach the colibri
+  branch.
+- `Kimi-K2.7-Code` (544 GB) is a separate ~equally-infeasible model on
+  this hardware. If user asks for it next, surface the same Option A/B/C
+  fork instead of re-discovering.
+
+## Audit verification (2026-07-16, this session)
+
+User requested a cold-restart with `BRAIN_PREFERENCE=colibri` after verifying
+that `:8081` is bound. Verified empirically:
+
+* `:8081/v1/models` and `:8081/health` both DOWN; no `glm.exe` /
+  `openai_server.py` subprocesses alive; `logs/colibri-openai-err.log`
+  shows the prior-session file-not-found trace. **Cold-restart conditional
+  is unmet — colibri still doesn't bind** (same upstream signature gap +
+  383 GB > 128 GB RAM as documented above).
+* `brain_policy` import-path migration is **functionally complete**: 42
+  files reference `packages/ai/brain` (or `packages/ai/brain_config`); no
+  functional Python `from brain_policy import` lines remain. The 37 files
+  that still mention the string `brain_policy` are docs/changelogs/log
+  strings, not imports. **Zero import-path fix is needed.** `proxy.py`,
+  `start_server.ps1`, `provider_router.py` are clean.
+* `proxy.py` does not import the brain resolver at all (it does not need
+  to; the resolver lives at the assistant-side, not the proxy-side).
+* **Stale-env hazard observed live this session**: `BRAIN_PREFERENCE` in
+  current shell is `kimi-local-llama`, while `.env` says `colibri`.
+  Operator must `.\stop_server.ps1` then re-source `.env` (or use a fresh
+  shell that reads `.env`) for the resolver to actually route to colibri.
+  Otherwise the cold-restart will silently keep kimi as the brain.
+
+## Converged action sequence (after colibri binding is fixed, someday)
+
+```powershell
+# 1. Stop any running stack
+.\stop_server.ps1
+
+# 2. Start colibri server (assumes Option B completed or local patch lands)
+pwsh scripts/start_colibri_server.ps1
+curl http://127.0.0.1:8081/v1/models    # expect: {"data":[{"id":"glm-5.2",...}]}
+
+# 3. Boot proxy in a FRESH shell that reads .env (so BRAIN_PREFERENCE resolves freshly)
+.\start_server.ps1
+
+# 4. Sanity-check brain resolver
+curl http://127.0.0.1:8000/api/activation/settings | jq .
+# Expected: BRAIN_PREFERENCE in response == 'colibri'
+
+# 5. Send a tiny chat through :8000 to confirm colibri route
+curl http://127.0.0.1:8000/v1/chat/completions \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"glm-5.2","messages":[{"role":"user","content":"Reply: ALIVE"}],"max_tokens":8}'
+```

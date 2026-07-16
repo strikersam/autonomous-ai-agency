@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Default boot path is now colibri (JustVugg/colibri GLM-5.2 744B MoE) brain watchdog, not Ollama** (2026-07-16). Per operator direction — "remove the ollama service on start up and do the colibri service start instead". `start_server.ps1` Step 1 now launches `python scripts/monitor_colibri.py supervise` (with a 6-iter `/v1/models` readiness probe that never `exit 1`s so slow model loads don't abort the boot sequence) instead of `run_ollama.bat`. The previously-conditional Step 4 colibri block is gone (it's now in Step 1, unconditional). PID map drops the `ollama` key. `setup_autostart.ps1` Task Scheduler entry renamed `Qwen3-Coder-Server` -> `Colibri-GLM-5.2-Server` with description updated. Ollama remains available as a fallback brain (ops set `BRAIN_PREFERENCE=ollama` and run `run_ollama.bat` manually); brain_policy.py / packages/ai/brain.py still understand `ollama`. NOTE: colibri :8081 doesn't bind today (JustVugg upstream `c/openai_server.py:442` `Popen([executable, cap])` drops `--model --port --host`; 383 GB weights > 128 GB RAM is hardware-fatal). The watchdog retries forever until upstream is patched or hardware is upgraded; see `NEXT_ACTION.md` for the path forward. Files: `start_server.ps1`, `setup_autostart.ps1`.
+
 - Admin-session-gated `/admin/api/local-brain/{state,toggle}` proxy so the
   Cloudflare-deployed admin SPA (Providers page) can flip the local
   GLM-5.2 brain toggle without ever touching the SERVICE_TOKEN secret.
