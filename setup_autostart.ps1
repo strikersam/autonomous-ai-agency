@@ -1,10 +1,10 @@
-# ─── Register Qwen3-Coder Server as a Windows Task Scheduler job ─────────────────
+﻿# ─── Register Qwen3-Coder Server as a Windows Task Scheduler job ─────────────────
 # This makes the server start automatically when you log in to Windows.
 # Run this script ONCE (as your normal user, no admin needed for user tasks).
 # ────────────────────────────────────────────────────────────────────────────────
 
 $SCRIPT_DIR  = Split-Path -Parent $MyInvocation.MyCommand.Path
-$TASK_NAME   = "Qwen3-Coder-Server"
+$TASK_NAME   = "Colibri-GLM-5.2-Server"
 $START_SCRIPT = "$SCRIPT_DIR\start_server.ps1"
 
 # ── Remove existing task if present ────────────────────────────────────────────
@@ -44,7 +44,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Auto-starts Qwen3-Coder Ollama server + auth proxy + Cloudflare tunnel at login"
+    -Description "Auto-starts colibri + GLM-5.2 brain + auth proxy + Cloudflare tunnel at login"
 
 if ($LASTEXITCODE -eq 0 -or $?) {
     Write-Host "[✓] Task '$TASK_NAME' registered successfully." -ForegroundColor Green
