@@ -71,19 +71,30 @@ def _patched_popen(args, *a, **kw):
         if isinstance(args, list) and args and isinstance(args[0], str)
         else ""
     )
-    # Path-prefix guard: only patch when the executable path looks like the
-    # JustVugg canonical layout (contains 'colibri' or a '/c/' or '\c\' segment).
-    # Operators with a stray glm-test.exe elsewhere in PATH are not at risk.
+    # Path-prefix guard (default): JustVugg canonical layout. Operators with a
+    # flat checkout (e.g. 'glm-bin/glm.exe') can override with the env var
+    # COLIBRI_PATCH_PATH_OK=<comma-separated-substrings> which REPLACES the default
+    # prefix match for that operator. Both the override and the denylist are
+    # case-folded for consistency.
+    override_substrs = {
+        tok.strip().lower()
+        for tok in os.environ.get("COLIBRI_PATCH_PATH_OK", "").split(",")
+        if tok.strip()
+    }
+    if override_substrs:
+        path_ok = any(sub in exe_full for sub in override_substrs)
+    else:
+        path_ok = (
+            "colibri" in exe_full
+            or "/c/" in exe_full
+            or "\\c\\" in exe_full
+        )
     denylist = {
-        tok.strip()
+        tok.strip().lower()
         for tok in os.environ.get("COLIBRI_PATCH_DENYLIST", "").split(",")
         if tok.strip()
     }
-    path_ok = (
-        "colibri" in exe_full
-        or "/c/" in exe_full
-        or "\\c\\" in exe_full
-    ) and not any(tok in exe_full for tok in denylist)
+    path_ok = path_ok and not any(tok in exe_full for tok in denylist)
     if (
         isinstance(args, list)
         and len(args) == 2
@@ -98,9 +109,9 @@ def _patched_popen(args, *a, **kw):
             if t.split("=", 1)[0] in _FORWARD_FLAGS
         ]
         if outer:
-            if os.environ.get("COLIBRI_PATCH_VERBOSE", "").lower() in (
-                "1", "true", "yes",
-            ):
+            if os.environ.get(
+                "COLIBRI_PATCH_VERBOSE", ""
+            ).strip().lower() in ("1", "true", "yes"):
                 sys.stderr.write(
                     f"[colibri-patch] glm.exe Popen rewritten; forwarding "
                     f"{len(outer)} flags: {outer}\n"
