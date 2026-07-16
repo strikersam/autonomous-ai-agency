@@ -47,6 +47,7 @@ $LogDir          = if ($env:COLIBRI_LOG_DIR)      { $env:COLIBRI_LOG_DIR }  else
 $LogFile         = Join-Path $LogDir "colibri-openai.log"
 $ErrFile         = Join-Path $LogDir "colibri-openai-err.log"
 $ReadyUrl        = "http://localhost:$Port/v1/models"
+[void][System.Environment]::SetEnvironmentVariable('COLIBRI_C_DIR', $ColibriCDir, 'Process')
 $PollSeconds     = 5
 $MaxWaitSeconds  = 600  # 10 minutes (operator typically kicks this off after HUD startup)
 
@@ -65,7 +66,9 @@ Write-Host "[colibri] killing prior colibri procs (if any)"
 Kill-PriorColibri
 Start-Sleep -Seconds 2
 
-# Launch ONE process: openai_server.py --engine coli
+# Launch ONE process: openai_server_compat.py execs JustVugg c/openai_server.py after
+# monkey-patching subprocess.Popen so glm.exe receives the outer --port/--host/--model/--model-id
+# flags (the upstream drops them at Engine.__init__ ~line 457 -> Blocker 1).
 $PythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
 if (-not $PythonExe) { $PythonExe = "python" }
 
@@ -74,8 +77,9 @@ if (-not $PythonExe) { $PythonExe = "python" }
 # not the -WorkingDirectory parameter, so 'c/openai_server.py' would resolve to whatever
 # CWD the launcher was invoked from. $ColibriCDir = Join-Path $ColibriRoot 'c' is the
 # canonical JustVugg/colibri checkout layout (c/{openai_server.py, glm.exe}).
+$ColibriCompatScript = Join-Path $ScriptDir 'run_patched_colibri.py'
 $Args = @(
-    "$ColibriCDir\openai_server.py",
+    "$ColibriCompatScript",
     "--engine", "$ColibriCDir\glm.exe",
     "--model",  $WeightsDir,
     "--model-id", $ModelId,
