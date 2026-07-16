@@ -1,5 +1,5 @@
 # Local LLM Server - Windows Startup Script
-# Starts: Ollama -> Auth Proxy -> Cloudflare Tunnel
+# Starts: colibri brain watchdog -> Auth Proxy -> Cloudflare Tunnel
 # All paths resolved from .env or auto-detected from PATH.
 
 $ErrorActionPreference = "Stop"
@@ -64,39 +64,47 @@ if (-not $ngrokExe) {
     }
 }
 
-# -- Step 1: Start Ollama -------------------------------------------------------
+# -- Step 1: Start colibri brain watchdog ---------------------------------------
+# Swap (2026-07-x): Ollama was the default local-LLM runtime. The operator
+# switched the agency brain to JustVugg/colibri (GLM-5.2 744B MoE served on
+# :8081). The colibri monitor supervises the openai_server.py + glm.exe
+# subprocess pair and auto-restarts on crash. Ollama stays available — to
+# use it instead, set BRAIN_PREFERENCE=ollama and run `run_ollama.bat`
+# manually (or service_manager.ServiceManager.start("ollama")).
 Write-Host ""
-Write-Host "[1/3] Starting Ollama..." -ForegroundColor Cyan
+Write-Host "[1/3] Starting colibri brain watchdog..." -ForegroundColor Cyan
 
-Get-Process -Name "ollama" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+# Kill any prior monitor so we don't double-launch.
+Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -match 'monitor_colibri\.py supervise'
+} | ForEach-Object {
+    try { Stop-Process -Id $_.Id -Force -ErrorAction Stop; Write-Host "[colibri] Killed prior monitor PID $($_.Id)" } catch {}
+}
 Start-Sleep -Seconds 1
 
-$ollamaProc = Start-Process -FilePath "$SCRIPT_DIR\run_ollama.bat" `
-    -RedirectStandardOutput "$LOG_DIR\ollama.log" `
-    -RedirectStandardError  "$LOG_DIR\ollama-err.log" `
+$colibriMonitor = Start-Process -FilePath $pythonExe `
+    -ArgumentList @('scripts/monitor_colibri.py', 'supervise') `
+    -WorkingDirectory $SCRIPT_DIR `
+    -RedirectStandardOutput "$LOG_DIR\colibri-monitor.log" `
+    -RedirectStandardError  "$LOG_DIR\colibri-monitor-err.log" `
     -WindowStyle Hidden -PassThru
 
-for ($i = 1; $i -le 20; $i++) {
-    Start-Sleep -Seconds 1
+Write-Host "[OK] Colibri monitor (PID $($colibriMonitor.Id)) - supervises openai_server.py + glm.exe; resets on crash." -ForegroundColor Green
+
+# Best-effort readiness probe. The monitor keeps retrying on its own; we don't
+# exit 1 here so a slow model load never aborts the rest of the boot sequence.
+for ($i = 1; $i -le 6; $i++) {
+    Start-Sleep -Seconds 5
     try {
-        $resp = Invoke-WebRequest -Uri "http://localhost:11434/api/version" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+        $resp = Invoke-WebRequest -Uri "http://localhost:8081/v1/models" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($resp.StatusCode -eq 200) {
-            Write-Host "[OK] Ollama ready (PID $($ollamaProc.Id))" -ForegroundColor Green
-            try {
-                $tagsResp = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-                $models = ($tagsResp.Content | ConvertFrom-Json).models
-                $models | ForEach-Object { Write-Host "     - $($_.name) ($([math]::Round($_.size/1GB,1)) GB)" }
-            } catch {
-                Write-Host "     - Model list not ready yet" -ForegroundColor Gray
-            }
+            Write-Host "     - /v1/models OK" -ForegroundColor Gray
             break
         }
     } catch {}
-    if ($i -eq 20) {
-        Write-Host "[FAIL] Ollama did not start. Check $LOG_DIR\ollama-err.log" -ForegroundColor Red
-        exit 1
+    if ($i -eq 6) {
+        Write-Host "     - /v1/models not yet responding; monitor will keep retrying (see logs\colibri-monitor-err.log)" -ForegroundColor Yellow
     }
-    Write-Host "  Waiting for Ollama... ($i/20)"
 }
 
 # -- Step 2: Start Auth Proxy ---------------------------------------------------
@@ -140,7 +148,7 @@ for ($i = 1; $i -le 15; $i++) {
 
 # -- Step 3: Start ngrok Tunnel ------------------------------------------------
 Write-Host ""
-Write-Host "[3/4] Starting ngrok Tunnel..." -ForegroundColor Cyan
+Write-Host "[3/3] Starting ngrok Tunnel..." -ForegroundColor Cyan
 
 $ngrokProc = $null
 
@@ -189,32 +197,18 @@ if (-not $ngrokExe) {
     }
 }
 
-# -- Step 4 (optional): colibri brain watchdog ---------------------------------
-# When the operator has set the local brain to point at the colibri + GLM-5.2
-# inference server, also start the monitor in the background so a colibri crash
-# auto-restarts and operator-initiated stops are respected (no fighting the
-# operator's deliberate action).
-Write-Host ""
-Write-Host "[4/4] Starting colibri brain watchdog (background)..." -ForegroundColor Cyan
-$colibriMonitor = $null
-if ($env:BRAIN_PREFERENCE -eq 'colibri' -or $env:COLIBRI_ENABLED -eq 'true') {
-    $colibriMonitor = Start-Process -FilePath $pythonExe `
-        -ArgumentList @('scripts/monitor_colibri.py', 'supervise') `
-        -WorkingDirectory $SCRIPT_DIR `
-        -RedirectStandardOutput "$LOG_DIR\colibri-monitor.log" `
-        -RedirectStandardError  "$LOG_DIR\colibri-monitor-err.log" `
-        -WindowStyle Hidden -PassThru
-    Write-Host "[OK] Colibri monitor (PID $($colibriMonitor.Id)) — restarts on crash, respects operator stops." -ForegroundColor Green
-} else {
-    Write-Host "  (BRAIN_PREFERENCE != 'colibri'; colibri monitor skipped.)" -ForegroundColor Gray
-}
+# -- Step 4 (removed; colibri monitor now lives in Step 1) ---------------------
+# The colibri monitor is now launched UNCONDITIONALLY in Step 1. This block was
+# the previous opt-in path (gated on $env:BRAIN_PREFERENCE=colibri).  Operators
+# who need the legacy ollama path can set BRAIN_PREFERENCE=ollama and run
+# `run_ollama.bat` manually; the underlying brain resolver still understands
+# ollama as a fallback provider (see brain_policy.py / packages/ai/brain.py).
 
 # -- Save PIDs ------------------------------------------------------------------
 @{
-    ollama          = $ollamaProc.Id
+    colibri_monitor = $colibriMonitor.Id
     proxy           = $proxyProc.Id
     tunnel          = if ($ngrokProc) { $ngrokProc.Id } else { $null }
-    colibri_monitor = if ($colibriMonitor) { $colibriMonitor.Id } else { $null }
 } | ConvertTo-Json | Set-Content "$SCRIPT_DIR\server.pids"
 
 # -- Summary --------------------------------------------------------------------

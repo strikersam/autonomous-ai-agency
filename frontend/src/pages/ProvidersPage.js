@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { listProviders, createProvider, deleteProvider, testProvider, updateProvider } from '../api';
 import { Layers, Plus, Trash2, Zap, CheckCircle, XCircle, AlertCircle, Server, Globe, Loader2, Star, X } from 'lucide-react';
+import BrainCard from '../v5/components/BrainCard';
+import LocalBrainToggleCard from '../v5/components/LocalBrainToggleCard';
 
 const PROVIDER_TYPES = [
   { id: 'ollama', label: 'Ollama', desc: 'Local LLM via Ollama API' },
@@ -103,6 +105,13 @@ export default function ProvidersPage() {
           Add Provider
         </button>
       </div>
+
+      {/* Brain + Local-machine toggle landed at the top so the operator sees
+          them above the legacy add-provider form. LocalBrainToggleCard polls
+          /admin/api/local-brain/state every 5s and POSTs /toggle on click;
+          BrainCard exposes the per-role Cloud/Local brain config. */}
+      <BrainCard />
+      <LocalBrainToggleCard />
 
       {/* Add form */}
       {showAdd && (
