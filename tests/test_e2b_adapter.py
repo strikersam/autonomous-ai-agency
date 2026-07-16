@@ -74,9 +74,20 @@ async def test_health_unavailable_when_sdk_missing(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_health_available_when_configured(monkeypatch):
-    """Key present + SDK importable → available with template/timeout details."""
+    """Key present + SDK importable → available with template/timeout details.
+
+    Mirrors the SDK-missing test two above: monkeypatch both
+    ``services.e2b_config.is_e2b_sdk_importable`` (the canonical reader) AND
+    ``runtimes.adapters.e2b.is_e2b_sdk_importable`` (the adapter module's
+    own `from … import` binding) so the health_check stays hermetic on dev
+    boxes that lack the e2b-code-interpreter SDK. Render still has it from
+    requirements.txt — this test only validates the adapter's branch logic.
+    """
     monkeypatch.setenv("E2B_API_KEY", "e2b_test_key_abc123")
     monkeypatch.setenv("E2B_ENABLED", "true")
+    monkeypatch.setattr(e2b_config, "is_e2b_sdk_importable", lambda: True)
+    from runtimes.adapters import e2b as _e2b_adapter_mod
+    monkeypatch.setattr(_e2b_adapter_mod, "is_e2b_sdk_importable", lambda: True)
     adapter = E2BAdapter()
     health = await adapter.health_check()
     assert health.available is True
