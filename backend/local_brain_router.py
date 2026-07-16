@@ -99,7 +99,7 @@ async def get_local_brain_state(
     _: dict[str, str] = Depends(require_service_token),
 ) -> dict[str, Any]:
     """Return the desired + last-reported state. Admin UI uses this on mount."""
-    log.info("local_brain: GET /state (actor=%s)", actor)
+    log.info("local_brain: GET /state")
     return _store().get_state()
 
 
@@ -116,7 +116,7 @@ async def post_local_brain_toggle(
     ).strip()
     if provider not in {"colibri", "auto"}:
         provider = "colibri" if state == "on" else "auto"
-    actor_str = (payload.actor or actor or "service:local_daemon")[:200]
+    actor_str = (payload.actor or "service:local_daemon")[:200]
     log.info(
         "local_brain: POST /toggle state=%s provider=%s machine_id=%s actor=%s",
         state, provider, payload.machine_id, actor_str,
