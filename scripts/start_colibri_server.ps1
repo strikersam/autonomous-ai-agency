@@ -100,7 +100,9 @@ if (-not (Test-Path $WeightsDir)) {
     W "  Run: pwsh scripts/download_glm52_weights.ps1"
     exit 1
 }
-$HasSentinel = (Get-ChildItem -Path $WeightsDir -Filter '*.safetensors' -ErrorAction SilentlyContinue | Select-Object -First 1) -or
+$HasSentinel = (Get-ChildItem -Path $WeightsDir -Filter '*.safetensors' -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -notlike '*.incomplete' -and $_.Name -notlike '*.partial' } |
+                 Select-Object -First 1) -or
                (Test-Path (Join-Path $WeightsDir 'config.json'))
 if (-not $HasSentinel) {
     Fail "weights dir exists at $WeightsDir but no .safetensors or config.json sentinel found."
