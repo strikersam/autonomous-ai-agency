@@ -5,11 +5,12 @@ Colibri GLM-5.2 local-brain launcher (JustVugg/colibri).
 Architecture discovered via live diagnostics:
   * c/coli serve         -> model runner (NO HTTP listener)
   * c/openai_server.py   -> OAI-compat HTTP bridge; itself spawns `c/coli serve` as subprocess via --engine flag
-  * Single-process correct invocation: python c/openai_server.py --engine coli --port 28081 --host 127.0.0.1 --model <weights> --model-id glm-5.2
+  * Single-process correct invocation: python c/openai_server.py --engine coli --port 8081 --host 127.0.0.1 --model $Env:COLIBRI_WEIGHTS_DIR --model-id glm-5.2
   * Watchdog polls /v1/models until HTTP 200, then exits 0.
 
-Port 28081 chosen to dodge Windows Hyper-V dynamic-port + bind-permission reserved ranges
-(observed WinError 10013 on earlier 8081 attempts). .env COLIBRI_LOCAL_LLAMA_URL must match.
+Port defaults to 8081 to match the documented COLIBRI_LOCAL_LLAMA_URL in .env.example;
+override with $Env:COLIBRI_LOCAL_LLAMA_PORT if needed. All paths come from $Env:COLIBRI_*
+with operator-portable fallbacks; no literal D:\... paths anywhere.
 
 Flag map verified against `python c/openai_server.py --help`:
   --engine         subprocess to spawn (we pass 'coli' so it runs `c/coli serve` internally)
@@ -24,13 +25,18 @@ Flag map verified against `python c/openai_server.py --help`:
 $ErrorActionPreference = "Stop"
 
 $ScriptDir       = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ColibriRoot     = "D:\hfkld-qg7ky\local-models\colibri"
-$ColibriCDir     = Join-Path $ColibriRoot "c"
-$WeightsDir      = "D:\hfkld-qg7ky\local-models\glm-5.2"
-$Port            = 28081
-$Host            = "127.0.0.1"
-$ModelId         = "glm-5.2"
-$LogDir          = "C:\Users\swami\qwen-server\logs"
+$ColibriRoot     = if ($env:COLIBRI_ROOT)         { $env:COLIBRI_ROOT }     else { Join-Path (Split-Path $ScriptDir -Parent) 'colibri' }
+$ColibriCDir     = if ($env:COLIBRI_C_DIR)        { $env:COLIBRI_C_DIR }    else { Join-Path $ColibriRoot 'c' }
+$WeightsDir      = if ($env:COLIBRI_WEIGHTS_DIR)  { $env:COLIBRI_WEIGHTS_DIR } else { Join-Path (Split-Path $ScriptDir -Parent) 'glm-5.2' }
+if ($env:COLIBRI_LOCAL_LLAMA_PORT -and $env:COLIBRI_LOCAL_LLAMA_PORT -match '^\d+$') {
+    $Port = [int]$env:COLIBRI_LOCAL_LLAMA_PORT
+} else {
+    if ($env:COLIBRI_LOCAL_LLAMA_PORT) { Write-Warning "[colibri] COLIBRI_LOCAL_LLAMA_PORT='$env:COLIBRI_LOCAL_LLAMA_PORT' is not an integer; using default 8081" }
+    $Port = 8081
+}
+$Host            = if ($env:COLIBRI_HOST)         { $env:COLIBRI_HOST }     else { '127.0.0.1' }
+$ModelId         = if ($env:COLIBRI_LOCAL_LLAMA_MODEL) { $env:COLIBRI_LOCAL_LLAMA_MODEL } else { 'glm-5.2' }
+$LogDir          = if ($env:COLIBRI_LOG_DIR)      { $env:COLIBRI_LOG_DIR }  else { Join-Path $ScriptDir '..\logs' }
 $LogFile         = Join-Path $LogDir "colibri-openai.log"
 $ErrFile         = Join-Path $LogDir "colibri-openai-err.log"
 $ReadyUrl        = "http://localhost:$Port/v1/models"
