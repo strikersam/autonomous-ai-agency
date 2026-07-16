@@ -69,9 +69,14 @@ Start-Sleep -Seconds 2
 $PythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
 if (-not $PythonExe) { $PythonExe = "python" }
 
+# Use absolute paths for the script + engine binary.
+# Start-Process on Windows resolves relative args against the *parent* shell's CWD,
+# not the -WorkingDirectory parameter, so 'c/openai_server.py' would resolve to whatever
+# CWD the launcher was invoked from. $ColibriCDir = Join-Path $ColibriRoot 'c' is the
+# canonical JustVugg/colibri checkout layout (c/{openai_server.py, glm.exe}).
 $Args = @(
-    "c/openai_server.py",
-    "--engine", "c/glm.exe",
+    "$ColibriCDir\openai_server.py",
+    "--engine", "$ColibriCDir\glm.exe",
     "--model",  $WeightsDir,
     "--model-id", $ModelId,
     "--port",   $Port,
