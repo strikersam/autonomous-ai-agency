@@ -222,3 +222,85 @@ def test_get_brain_preference_path_does_not_exist(tmp_path, monkeypatch):
     with _fake_http_sequence([probe_dead]):
         data = m._probe_v1_models("http://127.0.0.1:8072/v1")
     assert data[0] == "dead"  # port dead
+
+
+def test_daemon_restart_repick_finds_fresh_llama_server(tmp_path, monkeypatch):
+    """Pins the post-v2 fix: when colibri is up on :8081 but serves a
+    non-glm-5.2 model, the daemon must stop it, start llama-server.exe on
+    :8072, and immediately re-pick ``_choose_local_brain`` to find the
+    fresh 8072 listener (not the stale base_local that still points at
+    :8081). Without the v2 re-pick the post-restart probe reads :8081
+    and the daemon silently loops in "restart pending" forever.
+    """
+    _env_defaults(tmp_path, monkeypatch)
+    monkeypatch.setenv("LOCAL_BRAIN_HTTP_PORTS", "8072,8081")
+    from backend.local_brain_store import LocalBrainStore
+    LocalBrainStore(db_path=str(tmp_path / "brain.db")).set_desired(
+        state="on", provider="colibri", actor="test",
+    )
+    m = _import_controller()
+
+    cloud_state = json.dumps({
+        "desired": {"state": "on", "provider": "colibri"},
+        "lease": {"machine_id": None, "valid": False},
+        "last_heartbeat": {"status": "unknown"},
+    })
+
+    call_log: list[tuple] = []
+
+    def fake_choose_local_brain(ports):
+        call_log.append(tuple(ports))
+        if len(call_log) == 1:
+            return 8081, "listening", [{"id": "not-glm-5.2"}], False, ""
+        return 8072, "listening", [{"id": "glm-5.2"}], True, ""
+
+    monkeypatch.setattr(m, "_choose_local_brain", fake_choose_local_brain)
+    monkeypatch.setattr(m, "_start_local_server", lambda: (True, "stub-started"))
+    monkeypatch.setattr(m, "_stop_local_server", lambda: (True, "stub-stopped"))
+
+    captured_hb: dict = {}
+
+    class _Resp:
+        def __init__(self, status, body):
+            self.status = status
+            self._body = body.encode("utf-8")
+
+        def read(self):
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(req, **kwargs):
+        if req.method == "POST":
+            captured_hb["body"] = json.loads(req.data.decode("utf-8")) if req.data else None
+            return _Resp(200, cloud_state)
+        return _Resp(200, cloud_state)
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        rc = m.run_once(
+            machine_id="rt-1",
+            agency_url="https://example.invalid",
+            token="t",
+            http_port=8072,
+            start_timeout=5,
+        )
+
+    assert rc == 0
+    assert len(call_log) >= 2, (
+        "expected at least 2 _choose_local_brain calls (initial probe + "
+        "post-restart re-pick); the v2 fix is what promotes this from 1 to 2+"
+    )
+    body = captured_hb["body"]
+    assert body is not None
+    assert body["status"] == "ok", (
+        f"final heartbeat should report status=ok after the re-pick finds "
+        f"the fresh llama-server on :8072; actual={body.get('status')!r}"
+    )
+    assert body["models_has_glm52"] is True
+    assert body["v1_models"] == [{"id": "glm-5.2"}] or any(
+        m.get("id") == "glm-5.2" for m in body["v1_models"]
+    )
