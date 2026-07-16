@@ -64,7 +64,10 @@ def _exit_watch_delay() -> float:
     """
     raw = os.environ.get("COLIBRI_PATCH_EXIT_WATCH_DELAY", "2.0").strip()
     try:
-        return max(0.0, min(float(raw), 60.0))
+        # Floor at 0.05 s so a typo (e.g. explicit 0) cannot collapse the
+        # watchdog back to the pre-fix "immediate poll() returns None"
+        # behaviour; the Timer deferral is the whole point of the feature.
+        return max(0.05, min(float(raw), 60.0))
     except ValueError:
         return 2.0
 
