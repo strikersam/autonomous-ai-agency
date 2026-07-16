@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# \u2500\u2500 Helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 
 @contextmanager
@@ -43,8 +43,10 @@ def _fake_http_sequence(responses):
             return False
 
     iterator = iter(responses)
+    calls: list[str] = []
 
     def fake_urlopen(req, **kwargs):
+        calls.append(req.get_full_url())
         status, body = next(iterator)
         if status == 0:
             from urllib.error import URLError
@@ -52,7 +54,7 @@ def _fake_http_sequence(responses):
         return _Resp(status, body)
 
     with patch("urllib.request.urlopen", side_effect=fake_urlopen):
-        yield
+        yield calls
 
 
 @contextmanager
@@ -82,7 +84,7 @@ def _env_defaults(tmp_path, monkeypatch):
     )
 
 
-# ── Tests ────────────────────────────────────────────────────────────────────
+# \u2500\u2500 Tests \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 
 def _import_controller():
@@ -108,19 +110,20 @@ def test_daemon_off_returns_idle_heartbeat(tmp_path, monkeypatch):
         "last_heartbeat": {"status": "unknown"},
     })
     hb_response = (200, state_json)
-    # Daemon call sequence at desired=off (run_once):
-    #   1. GET  /api/local-brain/state          -> 200 state_json
-    #   2. GET  http://127.0.0.1:8072/v1/models  -> 0 "unreachable"
-    #   3. GET  http://127.0.0.1:8081/v1/models  -> 0 "unreachable"
-    #   4. POST /api/local-brain/heartbeat      -> 200 state_json
-    # Earlier revisions of the test only mocked 3 responses (single-port probe
-    # contract); the multi-port patch + cloud-state-first reorder extends the
-    # contract to 4 urlopens. Probe responses are intentionally all dead so the
-    # daemon does NOT call _start_local_server on a desired=off tick.
+    # Desired=off tick = exactly 3 urlopens in this strict order:
+    #   1. GET  /api/local-brain/state          (cloud poll)
+    #   2. GET  http://127.0.0.1:8072/v1/models (single-port probe because
+    #                                            _env_defaults pins
+    #                                            LOCAL_BRAIN_HTTP_PORT=8072
+    #                                            without a multi-port env)
+    #   3. POST /api/local-brain/heartbeat      (status / port / models)
+    # _fake_http_sequence's helper yields ``calls`` so any future re-introduction
+    # of an extra probe (or a routing drift on the state/heartbeat paths) breaks
+    # this test loudly instead of silently passing.
     probe_unreachable = (0, "unreachable")
     with _fake_http_sequence(
-        [(200, state_json), probe_unreachable, probe_unreachable, hb_response]
-    ):
+        [(200, state_json), probe_unreachable, hb_response]
+    ) as calls:
         rc = m.run_once(
             machine_id=machine_id,
             agency_url="https://example.invalid",
@@ -129,6 +132,11 @@ def test_daemon_off_returns_idle_heartbeat(tmp_path, monkeypatch):
             start_timeout=5,
         )
     assert rc == 0
+    assert calls == [
+        "https://example.invalid/api/local-brain/state",
+        "http://127.0.0.1:8072/v1/models",
+        "https://example.invalid/api/local-brain/heartbeat",
+    ], f"expected exactly 3 urlopens in desired=off order, got {calls}"
 
 
 def test_daemon_on_bad_binary_marks_error_in_heartbeat(tmp_path, monkeypatch):
@@ -177,7 +185,7 @@ def test_daemon_on_bad_binary_marks_error_in_heartbeat(tmp_path, monkeypatch):
         # The failing-start heartbeats must report status=error so the UI shows it.
         body = captured_hb["body"]
         if body and body.get("status") in ("error", "starting"):
-            # OK — daemon signaled failure
+            # OK \u2014 daemon signaled failure
             assert "binary" in (body.get("error") or "").lower() or body.get("status") == "error"
 
 
@@ -197,7 +205,7 @@ def test_daemon_diagnose_returns_json_summary(tmp_path, monkeypatch):
         try:
             m.main()
         except SystemExit as se:
-            # Missing binary → exit 1 (failure).
+            # Missing binary \u2192 exit 1 (failure).
             assert se.code == 1
 
 
@@ -224,13 +232,15 @@ def test_get_brain_preference_path_does_not_exist(tmp_path, monkeypatch):
     assert data[0] == "dead"  # port dead
 
 
-def test_daemon_restart_repick_finds_fresh_llama_server(tmp_path, monkeypatch):
-    """Pins the post-v2 fix: when colibri is up on :8081 but serves a
-    non-glm-5.2 model, the daemon must stop it, start llama-server.exe on
-    :8072, and immediately re-pick ``_choose_local_brain`` to find the
-    fresh 8072 listener (not the stale base_local that still points at
-    :8081). Without the v2 re-pick the post-restart probe reads :8081
-    and the daemon silently loops in "restart pending" forever.
+def test_daemon_restart_reprobes_http_port_only(tmp_path, monkeypatch):
+    """Pins the v3 fix: after the multi-port preamble probe finds colibri
+    serving a wrong model on :8081, the restart branch launches the
+    canonical llama-server.exe on http_port (:8072) and re-probes ONLY
+    http_port directly. It MUST NOT call ``_choose_local_brain`` again
+    inside the restart block \u2014 that would ping-pong between :8081 and
+    :8072 for the duration of the cold-load. If a v4 refactor
+    re-introduces ``_choose_local_brain`` re-picks, bump
+    ``len(call_log)`` back to 2 with rationale.
     """
     _env_defaults(tmp_path, monkeypatch)
     monkeypatch.setenv("LOCAL_BRAIN_HTTP_PORTS", "8072,8081")
@@ -246,33 +256,35 @@ def test_daemon_restart_repick_finds_fresh_llama_server(tmp_path, monkeypatch):
         "last_heartbeat": {"status": "unknown"},
     })
 
-    call_log: list[tuple] = []
+    call_log = []
+    http_probe_log = []
 
     def fake_choose_local_brain(ports):
         call_log.append(tuple(ports))
-        if len(call_log) == 1:
-            return 8081, "listening", [{"id": "not-glm-5.2"}], False, ""
-        return 8072, "listening", [{"id": "glm-5.2"}], True, ""
+        return 8081, "listening", [{"id": "not-glm-5.2"}], False, ""
+
+    def fake_probe_v1_models(base_url, *, timeout=4.0):
+        if "127.0.0.1:8072" in base_url:
+            http_probe_log.append(base_url)
+            return "listening", [{"id": "glm-5.2"}], True, ""
+        raise AssertionError(
+            f"_probe_v1_models called on unexpected URL: {base_url!r}"
+        )
 
     monkeypatch.setattr(m, "_choose_local_brain", fake_choose_local_brain)
+    monkeypatch.setattr(m, "_probe_v1_models", fake_probe_v1_models)
     monkeypatch.setattr(m, "_start_local_server", lambda: (True, "stub-started"))
     monkeypatch.setattr(m, "_stop_local_server", lambda: (True, "stub-stopped"))
 
-    captured_hb: dict = {}
+    captured_hb = {}
 
     class _Resp:
         def __init__(self, status, body):
             self.status = status
             self._body = body.encode("utf-8")
-
-        def read(self):
-            return self._body
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
+        def read(self): return self._body
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
 
     def fake_urlopen(req, **kwargs):
         if req.method == "POST":
@@ -282,7 +294,7 @@ def test_daemon_restart_repick_finds_fresh_llama_server(tmp_path, monkeypatch):
 
     with patch("urllib.request.urlopen", side_effect=fake_urlopen):
         rc = m.run_once(
-            machine_id="rt-1",
+            machine_id="repick-1",
             agency_url="https://example.invalid",
             token="t",
             http_port=8072,
@@ -290,22 +302,92 @@ def test_daemon_restart_repick_finds_fresh_llama_server(tmp_path, monkeypatch):
         )
 
     assert rc == 0
-    # run_once() calls _choose_local_brain EXACTLY twice in this scenario:
-    # (1) the preamble probe picks the wrong port (8081 colibri serving
-    #     a non-glm-5.2 model), and (2) the post-restart re-probe finds the
-    #     fresh llama-server.exe on :8072. If a future refactor adds a
-    #     readiness loop inside the restart branch, bump this back to >=2
-    #     with rationale.
-    assert len(call_log) == 2, (
-        f"expected exactly 2 _choose_local_brain calls (preamble probe + "
-        f"post-restart re-pick); the v2 fix is what promotes this from 1 to 2; "
-        f"actual={len(call_log)} ports_seen={call_log}"
+    assert len(call_log) == 1, (
+        f"_choose_local_brain must be called exactly once (preamble probe); "
+        f"restart should re-probe http_port directly, NOT call "
+        f"_choose_local_brain again. actual={len(call_log)}"
+    )
+    assert call_log[0] == (8072, 8081), (
+        f"preamble probe order must be [http_port, env_list] per "
+        f"_parse_http_ports; actual={call_log[0]}"
+    )
+    assert http_probe_log == ["http://127.0.0.1:8072"], (
+        f"restart must probe http_port (http://127.0.0.1:8072) exactly "
+        f"once; actual={http_probe_log}"
     )
     body = captured_hb["body"]
     assert body is not None
-    assert body["status"] == "ok", (
-        f"final heartbeat should report status=ok after the re-pick finds "
-        f"the fresh llama-server on :8072; actual={body.get('status')!r}"
-    )
+    assert body["status"] == "ok"
+    assert body["port_state"] == "listening"
     assert body["models_has_glm52"] is True
-    assert body["v1_models"] == [{"id": "glm-5.2"}]  # exact equality pins list shape
+    assert body["v1_models"] == [{"id": "glm-5.2"}]
+
+
+def test_daemon_picks_colibri_8081_when_only_it_listening(tmp_path, monkeypatch):
+    """Pins the multi-port fix end-to-end: when ONLY colibri's :8081 is
+    up serving glm-5.2, ``_choose_local_brain`` iterates [8072, 8081],
+    the leaf ``_probe_v1_models`` stub returns dead for :8072 and
+    (listening, glm-5.2) for :8081, the helper picks port=8081, and the
+    heartbeat reports status=ok. By stubbing the LEAF
+    ``_probe_v1_models`` (not the wrapper ``_choose_local_brain``), this
+    test exercises the REAL multi-port iteration loop and surfaces
+    regressions in either helper. URL drift in a future refactor
+    surfaces as ``AssertionError``; caller signature changes may
+    surface as ``TypeError`` \u2014 both are hard fails.
+    """
+    _env_defaults(tmp_path, monkeypatch)
+    monkeypatch.setenv("LOCAL_BRAIN_HTTP_PORTS", "8072,8081")
+    from backend.local_brain_store import LocalBrainStore
+    LocalBrainStore(db_path=str(tmp_path / "brain.db")).set_desired(
+        state="on", provider="colibri", actor="test",
+    )
+    m = _import_controller()
+
+    cloud_state = json.dumps({
+        "desired": {"state": "on", "provider": "colibri"},
+        "lease": {"machine_id": None, "valid": False},
+        "last_heartbeat": {"status": "unknown"},
+    })
+
+    def fake_probe_v1_models(base_url, *, timeout=4.0):
+        if "127.0.0.1:8072" in base_url:
+            return "dead", [], False, ""
+        if "127.0.0.1:8081" in base_url:
+            return "listening", [{"id": "glm-5.2"}], True, ""
+        raise AssertionError(
+            f"_probe_v1_models called on unexpected URL: {base_url!r}"
+        )
+
+    monkeypatch.setattr(m, "_probe_v1_models", fake_probe_v1_models)
+
+    class _Resp:
+        def __init__(self, status, body):
+            self.status = status
+            self._body = body.encode("utf-8")
+        def read(self): return self._body
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    captured_hb = {}
+    def fake_urlopen(req, **kwargs):
+        if req.method == "POST":
+            captured_hb["body"] = json.loads(req.data.decode("utf-8")) if req.data else None
+            return _Resp(200, cloud_state)
+        return _Resp(200, cloud_state)
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        rc = m.run_once(
+            machine_id="col-8081",
+            agency_url="https://example.invalid",
+            token="t",
+            http_port=8072,
+            start_timeout=5,
+        )
+
+    assert rc == 0
+    body = captured_hb["body"]
+    assert body is not None
+    assert body["status"] == "ok"
+    assert body["port_state"] == "listening"
+    assert body["models_has_glm52"] is True
+    assert body["v1_models"] == [{"id": "glm-5.2"}]

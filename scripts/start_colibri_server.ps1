@@ -60,6 +60,11 @@ function Kill-PriorColibri {
             try { Stop-Process -Id $_.Id -Force -ErrorAction Stop; Write-Host "Killed PID $($_.Id)" }
             catch { Write-Host "Kill failed for PID $($_.Id): $_" }
         }
+    Get-Process glm -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            try { Stop-Process -Id $_.Id -Force -ErrorAction Stop; Write-Host "Killed glm.exe PID $($_.Id)" }
+            catch { Write-Host "glm kill failed for PID $($_.Id): $_" }
+        }
 }
 
 Write-Host "[colibri] killing prior colibri procs (if any)"

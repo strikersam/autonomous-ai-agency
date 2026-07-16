@@ -162,7 +162,7 @@ def _choose_local_brain(
     probe so callers don't have to special-case the empty-list case.
     """
     for port in ports:
-        base = f"http://127.0.0.1:{port}/v1"
+        base = f"http://127.0.0.1:{port}"
         port_state, models, has_glm52, err = _probe_v1_models(base)
         if port_state == "listening":
             return port, port_state, models, has_glm52, err
@@ -411,6 +411,8 @@ def _stop_local_server() -> tuple[bool, str]:
     return True, "stopped"
 
 
+# Reserved for a future adaptive-timeout restart variant; delete if no caller
+# ships within 30 days.
 def _wait_for_listening(base_url: str, *, timeout: float) -> tuple[str, list[dict], bool, str]:
     deadline = time.monotonic() + timeout
     last_err = ""
@@ -456,16 +458,7 @@ def run_once(
 
     # 2. Probe candidate local-brain ports in order; first listener wins.
     ports = _parse_http_ports(http_port)
-    chosen_port, port_state, models, has_glm52, err = _choose_local_brain(ports)
-    base_local = (
-        f"http://127.0.0.1:{chosen_port}/v1" if chosen_port
-        else f"http://127.0.0.1:{http_port}/v1"
-    )
-    currently_running = port_state == "listening"
-
-    # 2. Decide: start or stop?
-    # If we observe a healthy local server, treat it as the desired state.
-    port_state, models, has_glm52, err = _probe_v1_models(base_local)
+    _, port_state, models, has_glm52, err = _choose_local_brain(ports)
     currently_running = port_state == "listening"
 
     # Reviewer fix: split cold start from readiness probe so the loop never
@@ -483,18 +476,15 @@ def run_once(
             err = msg
         else:
             _log(f"start_local_server: OK ({msg})")
-            # Non-blocking readiness loop: yields status=starting on every
-            # iteration until llama-server is up + glm-5.2 is loaded. We cap
-            # the loop at start_timeout seconds so a hung start can't trap
-            # the daemon. We re-pick chosen_port each iteration so if the
-            # primary engine dies after the first probe we don't spin on a
-            # stale port.
+            # Lock the readiness loop to http_port: we just launched
+            # llama-server.exe there, so swapping ports mid-load (via the
+            # multi-port _choose_local_brain) would only ping-pong between
+            # :8081 (colibri slow) and :8072 (engine we just started) for
+            # ~1200 unnecessary probes during a 40-min cold-load.
             deadline = time.monotonic() + float(start_timeout)
             while time.monotonic() < deadline:
-                chosen_port, port_state, models, has_glm52, err = _choose_local_brain(ports)
-                base_local = (
-                    f"http://127.0.0.1:{chosen_port}/v1" if chosen_port
-                    else f"http://127.0.0.1:{http_port}/v1"
+                port_state, models, has_glm52, err = _probe_v1_models(
+                    f"http://127.0.0.1:{http_port}"
                 )
                 if port_state == "listening" and has_glm52:
                     _log(f"ready: glm-5.2 present in /v1_models ({len(models)} model(s))")
@@ -536,10 +526,8 @@ def run_once(
             _stop_local_server()
             ok, msg = _start_local_server()
             if ok:
-                chosen_port, port_state, models, has_glm52, err = _choose_local_brain(ports)
-                base_local = (
-                    f"http://127.0.0.1:{chosen_port}/v1" if chosen_port
-                    else f"http://127.0.0.1:{http_port}/v1"
+                port_state, models, has_glm52, err = _probe_v1_models(
+                    f"http://127.0.0.1:{http_port}"
                 )
                 if not (port_state == "listening" and has_glm52):
                     err = err or "restart pending — check next heartbeat"
@@ -606,7 +594,7 @@ def main() -> None:
 
     if args.diagnose:
         # Health snapshot (does not post to the cloud).
-        port_state, models, has_glm52, err = _probe_v1_models(f"http://127.0.0.1:{http_port}/v1")
+        port_state, models, has_glm52, err = _probe_v1_models(f"http://127.0.0.1:{http_port}")
         bin_err = _bin_exists(os.environ.get("LOCAL_BRAIN_BIN", DEFAULT_BIN_WINDOWS))
         mod_err = _model_exists(os.environ.get("LOCAL_BRAIN_MODEL_PATH", DEFAULT_MODEL_WINDOWS))
         out = {
