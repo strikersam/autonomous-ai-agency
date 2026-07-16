@@ -57,18 +57,38 @@ def _patched_popen(args, *a, **kw):
     Upstream signature: `subprocess.Popen([str(executable), str(cap)], env=child_env,
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0)`. If we see exactly
     that 2-element shape AND the executable basename is glm(.exe) AND the upstream
-    signature kwargs match, prepend the operator's outer flags so glm.exe actually
-    receives --port/--host/--model/--model-id.
+    signature kwargs match AND the path-prefix guard trips AND no denylist override
+    is set, prepend the operator's outer flags so glm.exe actually receives
+    --port/--host/--model/--model-id.
     """
     exe_basename = (
         os.path.basename(args[0]).lower()
         if isinstance(args, list) and args and isinstance(args[0], str)
         else ""
     )
+    exe_full = (
+        args[0].lower()
+        if isinstance(args, list) and args and isinstance(args[0], str)
+        else ""
+    )
+    # Path-prefix guard: only patch when the executable path looks like the
+    # JustVugg canonical layout (contains 'colibri' or a '/c/' or '\c\' segment).
+    # Operators with a stray glm-test.exe elsewhere in PATH are not at risk.
+    denylist = {
+        tok.strip()
+        for tok in os.environ.get("COLIBRI_PATCH_DENYLIST", "").split(",")
+        if tok.strip()
+    }
+    path_ok = (
+        "colibri" in exe_full
+        or "/c/" in exe_full
+        or "\\c\\" in exe_full
+    ) and not any(tok in exe_full for tok in denylist)
     if (
         isinstance(args, list)
         and len(args) == 2
         and exe_basename in ("glm.exe", "glm")
+        and path_ok
         and kw.get("stdin") is subprocess.PIPE
         and kw.get("stdout") is subprocess.PIPE
     ):
@@ -78,11 +98,19 @@ def _patched_popen(args, *a, **kw):
             if t.split("=", 1)[0] in _FORWARD_FLAGS
         ]
         if outer:
-            names = [t.split("=", 1)[0] for t in outer]
-            sys.stderr.write(
-                f"[colibri-patch] glm.exe Popen rewritten; forwarding "
-                f"{len(outer)} flags: {names}\n"
-            )
+            if os.environ.get("COLIBRI_PATCH_VERBOSE", "").lower() in (
+                "1", "true", "yes",
+            ):
+                sys.stderr.write(
+                    f"[colibri-patch] glm.exe Popen rewritten; forwarding "
+                    f"{len(outer)} flags: {outer}\n"
+                )
+            else:
+                names = [t.split("=", 1)[0] for t in outer]
+                sys.stderr.write(
+                    f"[colibri-patch] glm.exe Popen rewritten; forwarding "
+                    f"{len(outer)} flags: {names}\n"
+                )
             args = [args[0]] + outer + [args[1]]
     return _real_popen(args, *a, **kw)
 
