@@ -39,6 +39,12 @@ def _router(monkeypatch, **env) -> ProviderRouter:
         "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "BEDROCK_ACCESS_KEY", "BEDROCK_SECRET_KEY",
         "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "OLLAMA_WINDOWS_SERVER",
         "INCLUDE_LOCAL_FALLBACK",
+        # Local-machine env-gated providers (PR #1053 / PR #1060 era): if the
+        # operator has COLIBRI_ENABLED=true / KIMI_BRIDGE_ENABLED=true in
+        # .env, those providers leak into ProviderRouter.from_env() and break
+        # the count==16 contract below. Delenv them so the test is hermetic.
+        "COLIBRI_ENABLED", "KIMI_BRIDGE_ENABLED",
+        "LOCAL_BRAIN_ENABLED", "KIMI_LOCAL_LLAMA_ENABLED",
     ]:
         monkeypatch.delenv(key, raising=False)
     for k, v in env.items():
