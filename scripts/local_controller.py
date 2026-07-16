@@ -48,6 +48,14 @@ Env vars:
   LOCAL_BRAIN_TOKEN       SERVICE_TOKEN value (required — without it the
                           daemon cannot post heartbeats)
   LOCAL_BRAIN_HTTP_PORT   port llama-server listens on (default: 8072)
+  LOCAL_BRAIN_HTTP_PORTS  comma-separated port list to PROBE that may serve
+                          a local brain (default: "8072,8081"). Order is
+                          probe-order; the first port whose /v1/models
+                          responds with a model id matching
+                          LOCAL_BRAIN_MODEL_ID wins. Used so the heartbeat
+                          flips green as soon as ANY local brain
+                          (llama-server.exe on 8072, colibri on 8081,
+                          ollama on 11434, custom on 9000, etc.) is up.
   LOCAL_BRAIN_HOST        bind addr (default: 127.0.0.1 — never expose publicly)
   LOCAL_BRAIN_BIN         override path to llama-server.exe
   LOCAL_BRAIN_MODEL_PATH  override path to glm-5.2 model GGUF
@@ -74,7 +82,8 @@ from pathlib import Path
 
 DEFAULT_HTTP_PORT = 8072
 DEFAULT_INTERVAL = 30
-DEFAULT_START_TIMEOUT = 240
+DEFAULT_START_TIMEOUT = 2400
+DEFAULT_HTTP_PORTS: tuple[int, ...] = (8072, 8081)
 DEFAULT_CTX = 8192
 DEFAULT_THREADS = 8
 DEFAULT_GPU_LAYERS = 99
@@ -111,6 +120,53 @@ def _env_int(name: str, default: int) -> int:
         return int(raw) if raw else default
     except ValueError:
         return default
+
+
+def _parse_http_ports(cli_override: int | None) -> list[int]:
+    """Return ordered, de-duplicated list of ports to probe for a local brain.
+
+    Resolution order (FIFO probe priority):
+      1. ``LOCAL_BRAIN_HTTP_PORT`` (single-port legacy env var)  -> always first
+      2. ``LOCAL_BRAIN_HTTP_PORTS`` (comma-separated multi-port env var)
+      3. ``DEFAULT_HTTP_PORTS`` (8072, 8081)
+
+    The CLI ``--http-port`` overrides #1 if supplied. All other entries are
+    prepended in discovery order; duplicates are dropped.
+    """
+    out: list[int] = []
+    primary_env = os.environ.get("LOCAL_BRAIN_HTTP_PORT", "").strip()
+    if primary_env.isdigit():
+        out.append(int(primary_env))
+    multi_env = os.environ.get("LOCAL_BRAIN_HTTP_PORTS", "").strip()
+    if multi_env:
+        for chunk in multi_env.split(","):
+            chunk = chunk.strip()
+            if chunk.isdigit():
+                p = int(chunk)
+                if p not in out:
+                    out.append(p)
+    if cli_override and isinstance(cli_override, int) and cli_override not in out:
+        out.insert(0, cli_override)
+    if not out:
+        out.extend(DEFAULT_HTTP_PORTS)
+    return out
+
+
+def _choose_local_brain(
+    ports: list[int],
+) -> tuple[int | None, str, list[dict], bool, str]:
+    """Probe ``ports`` in order; return the first responding listener.
+
+    Returns ``(chosen_port, port_state, models, has_glm52, err)``. When no
+    port responds, ``chosen_port`` is ``None`` and the rest mirrors a dead
+    probe so callers don't have to special-case the empty-list case.
+    """
+    for port in ports:
+        base = f"http://127.0.0.1:{port}/v1"
+        port_state, models, has_glm52, err = _probe_v1_models(base)
+        if port_state == "listening":
+            return port, port_state, models, has_glm52, err
+    return None, "dead", [], False, ""
 
 
 def _default_agency_url() -> str:
@@ -381,10 +437,9 @@ def run_once(
       1  generic failure
       2  network/auth error posting heartbeat
     """
-    base_local = f"http://127.0.0.1:{http_port}/v1"
+    # 1. Read desired state from the cloud first so the local probe sequence
+    # below matches the historical (state, probe, heartbeat) urlopen contract.
     headers = {"X-Service-Token": token} if token else {}
-
-    # 1. Read desired state from the cloud.
     url = f"{agency_url.rstrip('/')}/api/local-brain/state"
     status, raw = _http_json(url, headers=headers, timeout=15.0)
     if status != 200:
@@ -398,6 +453,15 @@ def run_once(
         return 2
     desired = (cloud_state.get("desired") or {}).get("state", "off")
     _log(f"desired={desired} agency={agency_url} machine={machine_id}")
+
+    # 2. Probe candidate local-brain ports in order; first listener wins.
+    ports = _parse_http_ports(http_port)
+    chosen_port, port_state, models, has_glm52, err = _choose_local_brain(ports)
+    base_local = (
+        f"http://127.0.0.1:{chosen_port}/v1" if chosen_port
+        else f"http://127.0.0.1:{http_port}/v1"
+    )
+    currently_running = port_state == "listening"
 
     # 2. Decide: start or stop?
     # If we observe a healthy local server, treat it as the desired state.
@@ -422,10 +486,16 @@ def run_once(
             # Non-blocking readiness loop: yields status=starting on every
             # iteration until llama-server is up + glm-5.2 is loaded. We cap
             # the loop at start_timeout seconds so a hung start can't trap
-            # the daemon.
+            # the daemon. We re-pick chosen_port each iteration so if the
+            # primary engine dies after the first probe we don't spin on a
+            # stale port.
             deadline = time.monotonic() + float(start_timeout)
             while time.monotonic() < deadline:
-                port_state, models, has_glm52, err = _probe_v1_models(base_local)
+                chosen_port, port_state, models, has_glm52, err = _choose_local_brain(ports)
+                base_local = (
+                    f"http://127.0.0.1:{chosen_port}/v1" if chosen_port
+                    else f"http://127.0.0.1:{http_port}/v1"
+                )
                 if port_state == "listening" and has_glm52:
                     _log(f"ready: glm-5.2 present in /v1_models ({len(models)} model(s))")
                     break
@@ -466,10 +536,12 @@ def run_once(
             _stop_local_server()
             ok, msg = _start_local_server()
             if ok:
-                port_state, models, has_glm52, err = _probe_v1_models(base_local)
+                chosen_port, port_state, models, has_glm52, err = _choose_local_brain(ports)
+                base_local = (
+                    f"http://127.0.0.1:{chosen_port}/v1" if chosen_port
+                    else f"http://127.0.0.1:{http_port}/v1"
+                )
                 if not (port_state == "listening" and has_glm52):
-                    # Outer loop will pick it up on next tick; meanwhile we let
-                    # the readback reflect reality (port not yet ready).
                     err = err or "restart pending — check next heartbeat"
             else:
                 port_state, models, has_glm52 = "dead", [], False

@@ -108,18 +108,19 @@ def test_daemon_off_returns_idle_heartbeat(tmp_path, monkeypatch):
         "last_heartbeat": {"status": "unknown"},
     })
     hb_response = (200, state_json)
-    # Daemon call sequence at desired=off (run_once -> _http_json + _probe_v1_models + _http_json):
+    # Daemon call sequence at desired=off (run_once):
     #   1. GET  /api/local-brain/state          -> 200 state_json
-    #   2. GET  http://127.0.0.1:8072/v1/models  -> 0 "unreachable"  (port dead; maps to port_state='dead'
-    #                                                 in _probe_v1_models so the daemon does NOT call
-    #                                                 _start_local_server on a desired=off tick)
-    #   3. POST /api/local-brain/heartbeat      -> 200 state_json
-    # Earlier revisions of the test only mocked 2 responses; the second
-    # urlopen call landed on an exhausted iterator, leaking StopIteration
-    # into _http_json and producing hb_status=0 -> return_code=2. Aligns
-    # the test with the daemon's 3-call tick contract post port-probe refactor.
+    #   2. GET  http://127.0.0.1:8072/v1/models  -> 0 "unreachable"
+    #   3. GET  http://127.0.0.1:8081/v1/models  -> 0 "unreachable"
+    #   4. POST /api/local-brain/heartbeat      -> 200 state_json
+    # Earlier revisions of the test only mocked 3 responses (single-port probe
+    # contract); the multi-port patch + cloud-state-first reorder extends the
+    # contract to 4 urlopens. Probe responses are intentionally all dead so the
+    # daemon does NOT call _start_local_server on a desired=off tick.
     probe_unreachable = (0, "unreachable")
-    with _fake_http_sequence([(200, state_json), probe_unreachable, hb_response]):
+    with _fake_http_sequence(
+        [(200, state_json), probe_unreachable, probe_unreachable, hb_response]
+    ):
         rc = m.run_once(
             machine_id=machine_id,
             agency_url="https://example.invalid",
