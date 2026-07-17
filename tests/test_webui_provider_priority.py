@@ -311,15 +311,26 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("NVidiaApiKey", raising=False)
 
-    # The autouse _reset_brain_singletons fixture handles the singleton reset.
-    # Also force _load_unlocked to skip Mongo + the sqlite mirror so the
-    # cached BrainConfig (with non-empty updated_at from earlier tests) can't
-    # short-circuit resolve_active_brain() to role="brain_config" with a
-    # base_url that doesn't match the nvidia-nim record.
-    import packages.ai.brain_config as _bcs
-    async def _fresh_default(self):
-        return _bcs.recommended_brain_config()
-    monkeypatch.setattr(_bcs.BrainConfigStore, "_load_unlocked", _fresh_default)
+    # Ensure brain_policy.resolve_active_brain returns nvidia-nim as the brain
+    # so the role-tags classification matches the test expectation.
+    # Also delete NVIDIA env vars so the resolver can't fall through to the
+    # free-fallback path (provider_id="nvidia-nim-free-default" wouldn't match
+    # the record's provider_id="nvidia-nim" in the is_brain URL check).
+    from brain_policy import BrainResolution
+    _fake_brain = BrainResolution(
+        provider_id="nvidia-nim",
+        base_url="https://integrate.api.nvidia.com/v1",
+        auth_headers={"Authorization": "Bearer nv-x"},
+        model="nvidia/llama-3.3-nemotron-super-49b-v1",
+        role="brain",
+        free_tier=True,
+        source="records",
+        priority=5,
+    )
+    monkeypatch.setattr(
+        "brain_policy.resolve_active_brain",
+        lambda **_kw: _fake_brain,
+    )
 
     from packages.auth.admin import AdminIdentity
     session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
