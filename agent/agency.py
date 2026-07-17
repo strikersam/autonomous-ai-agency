@@ -217,6 +217,7 @@ class AgentDirective:
     issued_at: str = field(default_factory=_now_str)
     status: str = "pending"
     result: str | None = None
+    tags: list[str] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
