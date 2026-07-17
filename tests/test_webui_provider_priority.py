@@ -316,7 +316,7 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
     # Also delete NVIDIA env vars so the resolver can't fall through to the
     # free-fallback path (provider_id="nvidia-nim-free-default" wouldn't match
     # the record's provider_id="nvidia-nim" in the is_brain URL check).
-    from brain_policy import BrainResolution
+    from packages.ai.brain import BrainResolution
     _fake_brain = BrainResolution(
         provider_id="nvidia-nim",
         base_url="https://integrate.api.nvidia.com/v1",
@@ -328,7 +328,7 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
         priority=5,
     )
     monkeypatch.setattr(
-        "brain_policy.resolve_active_brain",
+        "packages.ai.brain.resolve_active_brain",
         lambda **_kw: _fake_brain,
     )
 
