@@ -990,7 +990,7 @@ async def _process_task_callback(
             return
 
         if action == "task_approve":
-            await workflow.approve_execution(
+            workflow.approve_execution(
                 task, actor="telegram_bot", approved=True, reason="Approved via Telegram",
             )
             await workflow.store.update(task)
@@ -1002,7 +1002,7 @@ async def _process_task_callback(
                 "The agent will now execute this task.",
             )
         elif action == "task_reject":
-            await workflow.approve_execution(
+            workflow.approve_execution(
                 task, actor="telegram_bot", approved=False, reason="Rejected via Telegram",
             )
             await workflow.store.update(task)
