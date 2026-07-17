@@ -329,9 +329,11 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
             "name": "Anthropic Claude",
         },
     }
+    async def _fake_role_tags():
+        return _fake_tags
     monkeypatch.setattr(
         "packages.ai.brain.get_provider_role_tags",
-        lambda: _fake_tags,
+        _fake_role_tags,
     )
 
     from packages.auth.admin import AdminIdentity
