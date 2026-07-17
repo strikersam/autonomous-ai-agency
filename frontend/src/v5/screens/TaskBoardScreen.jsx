@@ -252,9 +252,15 @@ function TaskBoardScreen() {
 
   const [data, states, fetchAll] = useSafeData(null, {
     tasks: '/api/tasks/',
+    gated: '/api/tasks/awaiting-approval',
   }, { refreshMs: 15000 });
 
   const rawTasks = data.tasks?.tasks || [];
+  // Tasks parked at the pre-execution approval gate. Fetched separately from
+  // the board list: the paginated board misses older/system-owned tasks, and
+  // these need a decision before their agent can run at all.
+  const gatedTasks = data.gated?.tasks || [];
+  const [pendingGate, setPendingGate] = React.useState(null);
 
   const fetchSprints = React.useCallback(() => {
     api.fetchSprints().then(r => setSprints(r.data?.data || [])).catch(() => {});
@@ -274,6 +280,20 @@ function TaskBoardScreen() {
       }
     }
     setPendingApprove(null);
+    fetchAll();
+  };
+
+  const handleGateDecision = async (taskId, approve) => {
+    setActionError(''); setPendingGate(taskId);
+    try {
+      await api.approveTaskExecution(taskId, {
+        approve,
+        reason: approve ? 'Approved via dashboard' : 'Rejected via dashboard',
+      });
+    } catch (e) {
+      setActionError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not record the approval decision.');
+    }
+    setPendingGate(null);
     fetchAll();
   };
 
@@ -382,6 +402,31 @@ function TaskBoardScreen() {
         )}
         {loading && (
           <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Loading tasks…</div>
+        )}
+        {gatedTasks.length > 0 && (
+          <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,189,102,0.06)', border: '1px solid rgba(255,189,102,0.22)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#ffbd66', letterSpacing: '0.12em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', marginBottom: 8 }}>
+              ⏸ Awaiting approval before execution ({gatedTasks.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {gatedTasks.map(t => (
+                <div key={t.task_id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' }} onClick={() => setSelectedTaskId(t.task_id)}>{t.title}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginLeft: 8 }}>{t.task_id} · {t.owner_id}</span>
+                  </div>
+                  <button disabled={pendingGate === t.task_id} onClick={() => handleGateDecision(t.task_id, true)} style={{
+                    padding: '4px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    background: 'rgba(70,217,164,0.12)', border: '1px solid rgba(70,217,164,0.28)', color: '#46d9a4',
+                  }}>{pendingGate === t.task_id ? '…' : '✓ Approve'}</button>
+                  <button disabled={pendingGate === t.task_id} onClick={() => handleGateDecision(t.task_id, false)} style={{
+                    padding: '4px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    background: 'rgba(255,107,125,0.10)', border: '1px solid rgba(255,107,125,0.25)', color: '#ff6b7d',
+                  }}>✕ Reject</button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 
