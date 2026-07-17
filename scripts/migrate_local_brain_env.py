@@ -75,7 +75,7 @@ BROKEN_FORM = b"D:hfkld-qg7kyocal-modelsggufqwen2.5-coder-7b-instruct-q4_k_m.ggu
 # raw-string + unicode_escape dance the PR #1063 body uses, then re-encoded to
 # bytes so the file is matched byte-exact (no newline translation, no EOL work).
 _RAW_PATH = r"D:\\hfkld-qg7ky\\local-models\\gguf\\qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-CANONICAL_PATH_VALUE = _RAW_PATH.encode("latin-1").decode("unicode_escape")
+CANONICAL_PATH_VALUE = bytes(_RAW_PATH, "ascii").decode("unicode_escape")
 CANONICAL_LINE_BYTES = ("LOCAL_BRAIN_MODEL_PATH=" + CANONICAL_PATH_VALUE).encode("utf-8")
 
 

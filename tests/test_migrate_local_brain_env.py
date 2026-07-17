@@ -86,7 +86,7 @@ def test_multiple_broken_occurrences_exits_2(tmp_path: Path) -> None:
     cp = _run(env)
     assert cp.returncode == 2, f"unexpected exit {cp.returncode}: {cp.stderr}"
     assert env.read_bytes() == pre, "must not mutate on multi-occurrence abort"
-    assert b"broken_form_count=2" in cp.stdout or b"duplicate" in cp.stderr
+    assert "broken_form_count=2" in cp.stdout or "duplicate" in cp.stderr
 
 
 def test_neither_broken_nor_canonical_exits_3(tmp_path: Path) -> None:
@@ -122,7 +122,7 @@ def test_dry_run_does_not_mutate(tmp_path: Path) -> None:
     cp = _run(env, "-DryRun")
     assert cp.returncode == 0
     assert env.read_bytes() == pre, "-DryRun must not mutate"
-    assert b"dry-run" in cp.stdout
+    assert "dry-run" in cp.stdout
 
 
 def test_force_rewrites_canonical_already_present(tmp_path: Path) -> None:
@@ -137,7 +137,7 @@ def test_env_path_missing_file_exits_1(tmp_path: Path) -> None:
     nonexistent = tmp_path / "nope.env"
     cp = _run(nonexistent)
     assert cp.returncode == 1
-    assert b"does not exist" in cp.stderr or b"FATAL" in cp.stderr
+    assert "does not exist" in cp.stderr or "FATAL" in cp.stderr
 
 
 def test_quiet_suppresses_per_step_output(tmp_path: Path) -> None:
@@ -146,4 +146,4 @@ def test_quiet_suppresses_per_step_output(tmp_path: Path) -> None:
     assert cp.returncode == 0
     # Quiet should NOT emit the per-step log lines; only errors. Verify by checking
     # that the stdout doesn't contain the standard log preamble (e.g. "status:").
-    assert b"already-canonical" not in cp.stdout
+    assert "already-canonical" not in cp.stdout
