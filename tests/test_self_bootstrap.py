@@ -122,6 +122,12 @@ async def test_repairs_when_complete_but_zero_specialists(monkeypatch):
         async def list_specialists(self, company_id, **kwargs):
             return []
 
+        async def list_websites(self, company_id, **kwargs):
+            return []
+
+        async def list_repos(self, company_id, **kwargs):
+            return []
+
     repaired = {}
 
     class _FakeSpecialistSvc:
