@@ -461,6 +461,7 @@ class CompanyAgencyService:
                         tags=[
                             "company-agency",
                             f"company:{company_id}",
+                            f"specialist-family:{family}",
                             schedule_def["name_suffix"],
                             f"priority-{schedule_def['priority']}",
                             f"runtime-{runtime_id}",
@@ -490,6 +491,58 @@ class CompanyAgencyService:
                         schedule_def["name_suffix"], exc,
                     )
 
+        # ── Step 4: Register specialists as agents in AgentStore ────────────
+        # The task execution pipeline (TaskExecutionCoordinator._resolve_agent)
+        # only queries AgentStore — NOT CompanyGraphStore. Without this bridge,
+        # provisioned specialists are orphaned records that the dispatcher
+        # can never route work to. We create a public AgentDefinition for each
+        # specialist so _select_agent() finds them.
+        agents_registered = 0
+        try:
+            from agents.store import AgentDefinition, get_agent_store
+            agent_store = get_agent_store()
+            for spec in specialists:
+                if not spec.is_provisioned:
+                    continue
+                # Idempotent: check if we already registered this specialist
+                existing = await agent_store.get(
+                    f"specialist:{spec.id}", owner_id=None,
+                )
+                if existing is not None:
+                    agents_registered += 1
+                    continue
+                agent_def = AgentDefinition(
+                    agent_id=f"specialist:{spec.id}",
+                    owner_id=company_id,
+                    name=f"[{company.name or company_id[:8]}] {spec.name}",
+                    role=spec.family,
+                    description=(
+                        f"Auto-provisioned {spec.family} specialist for "
+                        f"{company.name or company_id}"
+                    ),
+                    runtime_id=runtime_assignments.get(spec.id, spec.runtime or "internal_agent"),
+                    task_types=spec.capabilities or [],
+                    is_public=True,
+                    cost_policy="allow_paid",  # Use the best available brain
+                    tags=[
+                        f"company:{company_id}",
+                        f"specialist-family:{spec.family}",
+                        "auto-provisioned",
+                    ],
+                )
+                await agent_store.create(agent_def)
+                agents_registered += 1
+            log.info(
+                "CompanyAgency: registered %d specialist agents in AgentStore for %s",
+                agents_registered, company_id,
+            )
+        except Exception as exc:
+            log.warning(
+                "CompanyAgency: failed to register specialist agents for %s: %s",
+                company_id, exc,
+            )
+        result["agents_registered"] = agents_registered
+
         # ── Final status ─────────────────────────────────────────────────────
         error_count = (
             len(result["runtime_errors"]) + len(result["schedule_errors"])
@@ -498,9 +551,10 @@ class CompanyAgencyService:
             result["status"] = "active"
             log.info(
                 "CompanyAgency: company %s fully activated — "
-                "%d specialists, %d runtimes, %d schedules",
+                "%d specialists, %d agents, %d runtimes, %d schedules",
                 company_id,
                 len(result["specialists"]),
+                agents_registered,
                 len(result["runtimes_started"]),
                 len(result["schedules_created"]),
             )

@@ -23,6 +23,11 @@ class TaskAutomationService:
         self.owner_id = owner_id
 
     async def handle_scheduled_job(self, job) -> Task:
+        # Job tags (including "company:{id}" and "specialist-family:{family}")
+        # are forwarded into the Task so _select_agent can route to the
+        # right specialist.
+        job_tags = list(getattr(job, "tags", []) or [])
+
         task = Task(
             owner_id=self.owner_id,
             title=job.name,
@@ -33,7 +38,7 @@ class TaskAutomationService:
             model_preference=getattr(job, "model", None),
             task_type=getattr(job, "task_type", "scheduled"),
             requires_approval=getattr(job, "requires_approval", False),
-            tags=list(getattr(job, "tags", []) or []),
+            tags=job_tags,
             status=getattr(job, "initial_status", None) or getattr(job, "status", None) or TaskStatus.TODO,
             source="scheduler",
             source_id=job.job_id,

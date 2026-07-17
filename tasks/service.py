@@ -399,6 +399,41 @@ class TaskWorkflowService:
         agent_store = get_agent_store()
         runtime_manager = get_runtime_manager()
         candidates = await agent_store.list_for_user(task.owner_id, include_public=True)
+
+        # ── Company specialist routing ──────────────────────────────────
+        # If a task carries a "company:{id}" tag, prefer agents that belong
+        # to that company (registered by CompanyAgencyService.activate_company).
+        # This is the bridge that makes provisioned specialists actually
+        # receive dispatched work instead of being orphaned database records.
+        task_company_id: str | None = None
+        for tag in (task.tags or []):
+            if tag.startswith("company:") and len(tag) > 8:
+                task_company_id = tag[8:]
+                break
+        if task_company_id and candidates:
+            company_candidates = [
+                a for a in candidates
+                if a.owner_id == task_company_id
+                or any(t == f"company:{task_company_id}" for t in (a.tags or []))
+            ]
+            if company_candidates:
+                candidates = company_candidates
+
+        # Also match on specialist-family tags if the task carries one.
+        task_specialist_family: str | None = None
+        for tag in (task.tags or []):
+            if tag.startswith("specialist-family:") and len(tag) > 18:
+                task_specialist_family = tag[18:]
+                break
+        if task_specialist_family and candidates:
+            family_candidates = [
+                a for a in candidates
+                if a.role == task_specialist_family
+                or any(t == f"specialist-family:{task_specialist_family}" for t in (a.tags or []))
+            ]
+            if family_candidates:
+                candidates = family_candidates
+
         if not candidates:
             return None
         open_counts = await self.store.count_by_agent(
