@@ -311,25 +311,27 @@ def test_admin_role_tags_returns_classification(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("NVidiaApiKey", raising=False)
 
-    # Ensure brain_policy.resolve_active_brain returns nvidia-nim as the brain
-    # so the role-tags classification matches the test expectation.
-    # Also delete NVIDIA env vars so the resolver can't fall through to the
-    # free-fallback path (provider_id="nvidia-nim-free-default" wouldn't match
-    # the record's provider_id="nvidia-nim" in the is_brain URL check).
-    from packages.ai.brain import BrainResolution
-    _fake_brain = BrainResolution(
-        provider_id="nvidia-nim",
-        base_url="https://integrate.api.nvidia.com/v1",
-        auth_headers={"Authorization": "Bearer nv-x"},
-        model="nvidia/llama-3.3-nemotron-super-49b-v1",
-        role="brain",
-        free_tier=True,
-        source="records",
-        priority=5,
-    )
+    # Mock get_provider_role_tags directly so the endpoint returns
+    # deterministic role classifications regardless of env / DB state.
+    _fake_tags = {
+        "nvidia-nim": {
+            "is_brain": True,
+            "role": "brain",
+            "reason": "Used as the brain for agent execution",
+            "base_url": "https://integrate.api.nvidia.com",
+            "name": "Nvidia NIM (Free)",
+        },
+        "anthropic": {
+            "is_brain": False,
+            "role": "fallback",
+            "reason": "Paid commercial fallback",
+            "base_url": "https://api.anthropic.com",
+            "name": "Anthropic Claude",
+        },
+    }
     monkeypatch.setattr(
-        "packages.ai.brain.resolve_active_brain",
-        lambda **_kw: _fake_brain,
+        "packages.ai.brain.get_provider_role_tags",
+        lambda: _fake_tags,
     )
 
     from packages.auth.admin import AdminIdentity
