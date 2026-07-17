@@ -713,6 +713,11 @@ def _parse_callback(data: str) -> tuple[str, str | None]:
         action = parts[1] if len(parts) > 1 else ""
         arg = parts[2] if len(parts) > 2 else None
         return (f"wfo_{action}" if action else ""), arg
+    if data.startswith("task:"):
+        parts = data.split(":", 2)
+        action = parts[1] if len(parts) > 1 else ""
+        arg = parts[2] if len(parts) > 2 else None
+        return (f"task_{action}" if action else ""), arg
     return "", None
 
 
@@ -893,6 +898,10 @@ async def _process_callback(bot_token: str, callback: dict) -> None:
         await _process_wfo_callback(bot_token, callback_id, chat_id, message_id, user_id, action, arg)
         return
 
+    if action.startswith("task_"):
+        await _process_task_callback(bot_token, callback_id, chat_id, message_id, action, arg)
+        return
+
     state = _freebuff_state.get(user_id)
     if not state:
         await _answer_callback(bot_token, callback_id, "Session expired. Start with /freebuff.")
@@ -948,6 +957,66 @@ async def _process_callback(bot_token: str, callback: dict) -> None:
         return
 
     await _answer_callback(bot_token, callback_id)
+
+
+async def _process_task_callback(
+    bot_token: str,
+    callback_id: str,
+    chat_id: int,
+    message_id: int,
+    action: str,
+    task_id: str | None,
+) -> None:
+    """Handle Approve/Reject inline-button presses for task execution gates.
+
+    Callback data format: ``task:approve:<task_id>`` / ``task:reject:<task_id>``.
+    Mirrors the ``wfo:`` approval flow but targets the task execution gate in
+    ``tasks/service.py`` (TaskWorkflowService.approve_execution / reject).
+    """
+    if not task_id:
+        await _answer_callback(bot_token, callback_id, "Missing task ID.")
+        return
+
+    try:
+        from tasks.service import TaskWorkflowService
+        from telegram_service import _escape_md_v1
+
+        workflow = TaskWorkflowService()
+        task = await workflow.store.get(task_id)
+        if not task:
+            await _answer_callback(bot_token, callback_id, "Task not found.")
+            await _edit_message(bot_token, chat_id, message_id,
+                                "_Task not found_ — it may have been deleted.")
+            return
+
+        if action == "task_approve":
+            await workflow.approve_execution(
+                task, actor="telegram_bot", approved=True, reason="Approved via Telegram",
+            )
+            await workflow.store.update(task)
+            await _answer_callback(bot_token, callback_id, "Approved \u2705")
+            await _edit_message(
+                bot_token, chat_id, message_id,
+                f"\u2705 *Approved* — `{task_id}`\n"
+                f"{_escape_md_v1((task.title or '')[:120])}\n"
+                "The agent will now execute this task.",
+            )
+        elif action == "task_reject":
+            await workflow.approve_execution(
+                task, actor="telegram_bot", approved=False, reason="Rejected via Telegram",
+            )
+            await workflow.store.update(task)
+            await _answer_callback(bot_token, callback_id, "Rejected \u274c")
+            await _edit_message(
+                bot_token, chat_id, message_id,
+                f"\u274c *Rejected* — `{task_id}`\n"
+                f"{_escape_md_v1((task.title or '')[:120])}",
+            )
+        else:
+            await _answer_callback(bot_token, callback_id, "Unknown action.")
+    except Exception as exc:
+        log.warning("task callback failed for %s: %s", task_id, exc)
+        await _answer_callback(bot_token, callback_id, f"Error: {exc}")
 
 
 async def _process_wfo_callback(

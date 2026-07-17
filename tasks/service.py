@@ -951,20 +951,27 @@ class TaskExecutionCoordinator:
     def _notify_execution_gate(task: Task) -> None:
         """Best-effort Telegram heads-up that a task is parked awaiting approval.
 
-        Send-only (no inline buttons here) so it never depends on bot wiring; the
-        operator approves via the dashboard or POST /api/tasks/{id}/approve-execution.
-        Any failure is swallowed — the gate's enforcement does not depend on it.
+        Sends an inline keyboard with Approve/Reject buttons so the operator
+        can act directly from Telegram.  Falls back silently on error.
         """
         try:
-            from telegram_service import NotificationDispatcher
+            from telegram_service import NotificationDispatcher, _escape_md_v1
 
+            nd = NotificationDispatcher()
+            if not nd.telegram_token or not nd.telegram_chat_ids:
+                return
+
+            title_safe = _escape_md_v1((task.title or "")[:120])
             msg = (
-                "⏸ *Task awaiting approval before execution*\n"
-                f"`{task.task_id}` — {(task.title or '')[:120]}\n"
-                "This is a `requires_approval` task; the agent will not run until "
-                "you approve it (dashboard, or POST /api/tasks/<id>/approve-execution)."
+                "\u23f8 *Task awaiting approval before execution*\n"
+                f"`{task.task_id}` \u2014 {title_safe}\n"
+                "Tap a button below to approve or reject."
             )
-            NotificationDispatcher().send_manual_notification(msg)
+            keyboard = [[
+                {"text": "\u2705 Approve", "callback_data": f"task:approve:{task.task_id}"},
+                {"text": "\u274c Reject", "callback_data": f"task:reject:{task.task_id}"},
+            ]]
+            nd._send_telegram_keyboard(msg, keyboard)
         except Exception:  # nosec B110 - notification is best-effort
             pass
 
