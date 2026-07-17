@@ -60,12 +60,7 @@ W ""
 $missing = @()
 foreach ($c in @(
     @{ name = "git";    cmd = "git --version" },
-    @{ name = "cmake";  cmd = "cmake --version" },
-    # Use `where.exe` (CMD-native) instead of probing `cl.exe` directly, because
-    # the MSVC compiler only prints its banner when the Developer Command Prompt
-    # env (INCLUDE / LIB / VSCMD_DEBUG) is loaded — running `cl.exe` raw may exit
-    # before writing anything, hiding a perfectly functional toolchain.
-    @{ name = "cl (MSVC)"; cmd = "where.exe cl.exe >NUL" }
+    @{ name = "cmake";  cmd = "cmake --version" }
 )) {
     try {
         $out = & cmd.exe /c $c.cmd 2>&1
@@ -79,6 +74,19 @@ foreach ($c in @(
         Fail "$($c.name): not found"
         $missing += $c.name
     }
+}
+
+# Probe cl.exe via PowerShell Get-Command, NOT the cmd.exe /c "where.exe cl.exe >NUL"
+# form: on PS 5.1 + cmd.exe /c, the >NUL form reports false negatives when
+# $env:PATH is prepended upstream (PowerShell itself can see cl.exe via
+# Get-Command but the nested cmd.exe refuses to find it). Get-Command reads
+# $env:PATH natively under the same PS process so we get a consistent answer.
+$clCmd = Get-Command cl.exe -ErrorAction SilentlyContinue
+if ($clCmd) {
+    Ok "cl (MSVC): $($clCmd.Source)"
+} else {
+    Fail "cl (MSVC): not found"
+    $missing += "cl (MSVC)"
 }
 
 if ($missing.Count -gt 0) {
@@ -156,6 +164,10 @@ $cmakeArgs = @(
 
 Push-Location $LlamaCppDir
 try {
+    # PS 5.1 + $ErrorActionPreference=Stop aborts on every native command's stderr
+    # byte as a NativeCommandError; cmake writes compiler-detection banners to
+    # stderr on success, so we'd lose the configure step. Continue silently.
+    $ErrorActionPreference = 'Continue'
     & cmake @cmakeArgs 2>&1 | Tee-Object -FilePath $BuildLog -Append | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Fail "cmake configure failed (exit $LASTEXITCODE); see $BuildLog"
