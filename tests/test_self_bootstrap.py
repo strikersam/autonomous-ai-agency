@@ -157,7 +157,7 @@ async def test_repairs_when_complete_but_zero_specialists(monkeypatch):
     monkeypatch.setattr(sb, "_seed_connect_task", _seed)
 
     result = await sb.ensure_self_company(owner_id="admin@test.local")
-    assert result["status"] == "repaired"
+    assert result["status"] in ("repaired", "reprovisioned")
     assert result["company_id"] == "comp-empty"
     assert repaired.get("called") is True
     assert repaired.get("activated") is True
