@@ -1,0 +1,16 @@
+---
+name: Playwright browser tests
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'  # Explicitly set to a supported version
+      - name: Install dependencies
+        run: npm install
+      - name: Run Playwright tests
+        run: npm run playwright
