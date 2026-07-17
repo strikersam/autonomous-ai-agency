@@ -329,6 +329,24 @@ async def tasks_due_soon(request: Request, within_hours: int = 24, user: Any = D
     ]}
 
 
+@task_router.get("/awaiting-approval")
+async def tasks_awaiting_approval(request: Request, user: Any = Depends(_current_user)) -> dict[str, Any]:
+    """Tasks parked at the pre-execution approval gate (Autonomy Charter Gate Matrix).
+
+    Admins see gated tasks from every owner — including system-created ones
+    (e.g. trend scoping's ``system:trend-scoping``) that the paginated board
+    list can miss. Non-admins see only their own.
+    """
+    tasks = await _get_store(request).list_awaiting_approval()
+    if not _is_admin(user):
+        uid = _user_id(user)
+        tasks = [task for task in tasks if task.owner_id == uid]
+    return {"tasks": [
+        {k: v for k, v in task.as_dict().items() if k != "execution_log"}
+        for task in tasks
+    ]}
+
+
 @task_router.get("/{task_id}")
 async def get_task(task_id: str, request: Request, user: Any = Depends(_current_user)) -> dict[str, Any]:
     task, _, _ = await _load_task(request, task_id, user)

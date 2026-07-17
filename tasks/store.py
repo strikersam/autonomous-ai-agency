@@ -374,6 +374,35 @@ class TaskStore:
             docs = docs[:20]
         return [Task.model_validate(d) for d in docs]
 
+    async def list_awaiting_approval(self, *, limit: int = 50) -> list[Task]:
+        """Return tasks parked at the pre-execution approval gate (any user).
+
+        A task is awaiting approval when ``requires_approval`` is set, no human
+        has approved it yet, and it is still runnable (todo/in_progress) — i.e.
+        the dispatcher parked it and it needs a decision before the agent runs.
+        """
+        runnable = [TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value]
+        if self._mode == "mongo":
+            cursor = self._collection.find(
+                {
+                    "requires_approval": True,
+                    "execution_approved": {"$ne": True},
+                    "status": {"$in": runnable},
+                },
+                {"_id": 0},
+            ).sort("created_at", -1).limit(limit)
+            docs = await cursor.to_list(length=limit)
+        else:
+            docs = [
+                v for v in self._mem.values()
+                if v.get("requires_approval")
+                and not v.get("execution_approved")
+                and v.get("status", "todo") in runnable
+            ]
+            docs.sort(key=lambda d: _ts_to_float(d.get("created_at", 0)), reverse=True)
+            docs = docs[:limit]
+        return [Task.model_validate(d) for d in docs]
+
 
     async def reconcile_stranded_tasks(
         self,

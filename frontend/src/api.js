@@ -316,6 +316,8 @@ export const approveTaskCheckpoint = (id, data) => API.post(`/api/tasks/${id}/ap
 export const getTaskCounts = () => API.get('/api/tasks/counts');
 export const getDueSoonTasks = (withinHours = 24) =>
   API.get('/api/tasks/due-soon', { params: { within_hours: withinHours } });
+export const listAwaitingApprovalTasks = () => API.get('/api/tasks/awaiting-approval');
+export const approveTaskExecution = (id, data) => API.post(`/api/tasks/${id}/approve-execution`, data);
 export const followUpTask = (id, data) => API.post(`/api/tasks/${id}/follow-up`, data);
 export const clarifyTask = (id, data) => API.patch(`/api/tasks/${id}/clarify`, data);
 
