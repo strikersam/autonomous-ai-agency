@@ -14,7 +14,7 @@ target). Trusts cmake's Visual Studio generator to find Windows SDK via vswhere.
 usage:
   pwsh scripts/run-llama-build.ps1                              # 4-job CPU build
   pwsh scripts/run-llama-build.ps1 -BuildJobs 8                 # forward to inner
-  pwsh scripts/run-llama-build.ps1 -BuildJobs 8 -LlamaCppDir D:\extra\llama.cpp  # splat extra args
+  pwsh scripts/run-llama-build.ps1 -BuildJobs 8 -LlamaCppDir D:\extra\llama.cpp  # -BuildJobs override; other args live in build_llama_cpp.ps1 defaults
 
 exit codes:
   6  MSVC / cmake pre-flight failed (operator install guidance in stdout)
@@ -23,9 +23,7 @@ exit codes:
 #>
 [CmdletBinding()]
 param(
-    [int] $BuildJobs = 4,
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]] $RestArgs
+    [int] $BuildJobs = 4
 )
 
 $ErrorActionPreference = 'Stop'
@@ -88,17 +86,12 @@ if (-not $clLoc) {
     exit 6
 }
 
-# Guard the splat: PS 5.1 with empty @RestArgs was throwing
-# `Cannot bind argument to parameter 'Path' because it is an empty string`
-# against build_llama_cpp.ps1 even though all of its named params have non-empty
-# defaults. Conditional splat sidesteps that PS 5.1 edge case while keeping
-# the forwarding feature for operators who pass `-LlamaCppDir`, `-NoRebuild`, etc.
-# PS 5.1 also parses `if` inside `+ ( ... )` as a command name, so the count
-# has to be computed to a variable first, not inlined.
-$restArgsCount = if ($RestArgs) { $RestArgs.Count } else { 0 }
-Write-Host ('wrapper BuildJobs=' + $BuildJobs + ' RestArgs.Count=' + $restArgsCount)
-$splatArgs = @('-NoCuda', '-BuildJobs', $BuildJobs)
-if ($RestArgs -and $RestArgs.Count -gt 0) { $splatArgs += $RestArgs }
-Write-Host ('running: ' + $buildScript + ' ' + ($splatArgs -join ' '))
-& $buildScript @splatArgs
+# Direct named-arg invocation (no splat): avoids the PS 5.1
+# `Cannot bind argument to parameter 'Path' because it is an
+# empty string` false-negative when forwarding no extra args.
+# Override args like -LlamaCppDir belong in build_llama_cpp.ps1
+# defaults or env vars — this wrapper passes a fixed
+# (-NoCuda, -BuildJobs) arg set.
+Write-Host ('running: ' + $buildScript + ' -NoCuda -BuildJobs ' + $BuildJobs)
+& $buildScript -NoCuda -BuildJobs $BuildJobs
 exit $LASTEXITCODE
