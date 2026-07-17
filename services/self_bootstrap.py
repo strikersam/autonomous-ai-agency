@@ -381,7 +381,6 @@ async def ensure_self_company(*, owner_id: str | None = None) -> dict:
                             old_company.id, exc)
 
         existing = await _find_self_company()
-
         # If the company exists and onboarding completed, verify it has specialists.
         # A previous deploy may have completed onboarding with 0 specialists because
         # the repo scan hit a redirect/404. Re-provision if missing.
@@ -414,12 +413,137 @@ async def ensure_self_company(*, owner_id: str | None = None) -> dict:
                 "connect_task_id": task_id,
             }
 
+        # Even when onboarding is "complete", we must verify that specialists
+        # were actually provisioned and bridged to AgentStore.  A previous
+        # onboarding may have completed the status flag but:
+        #   - timed out before specialist provisioning ran (120 s limit)
+        #   - the repo scan failed and fell through to baseline, but the
+        #     baseline provisioning itself threw (DB error, ImportError)
+        #   - activate_company never ran or failed silently
+        # In any of those cases the company exists with status "complete" but
+        # has 0 specialists and 0 agents — the agency appears healthy but
+        # does nothing.  Detect and repair that.
+        need_specialist_repair = False
+        resolved_company_id: str | None = None
+
+        if existing is not None and existing.onboarding_status == "complete":
+            from services.company_graph_store import get_company_graph_store
+            store = get_company_graph_store()
+            specialists = await store.list_specialists(existing.id)
+            if not specialists:
+                log.warning(
+                    "Self-bootstrap: company %s is 'complete' but has 0 specialists — "
+                    "re-provisioning now",
+                    existing.id,
+                )
+                need_specialist_repair = True
+                resolved_company_id = existing.id
+            else:
+                # Specialists exist — also verify they are bridged to AgentStore
+                # so the dispatcher can route work to them.
+                try:
+                    from agents.store import get_agent_store
+                    agent_store = get_agent_store()
+                    bridged = 0
+                    for spec in specialists:
+                        agent = await agent_store.get(
+                            f"specialist:{spec.id}", owner_id=None,
+                        )
+                        if agent is not None:
+                            bridged += 1
+                    if bridged == 0:
+                        log.warning(
+                            "Self-bootstrap: company %s has %d specialists but "
+                            "0 are bridged to AgentStore — re-activating",
+                            existing.id, len(specialists),
+                        )
+                        # Run activate_company to bridge them
+                        try:
+                            from services.company_agency import get_company_agency_service
+                            agency = get_company_agency_service()
+                            await agency.activate_company(
+                                existing.id,
+                                start_runtimes=True,
+                                create_schedules=True,
+                            )
+                            log.info(
+                                "Self-bootstrap: re-activated company %s — specialists bridged",
+                                existing.id,
+                            )
+                        except Exception as act_exc:
+                            log.warning(
+                                "Self-bootstrap: re-activation failed for %s: %s",
+                                existing.id, act_exc,
+                            )
+                except Exception as bridge_check_exc:
+                    log.warning(
+                        "Self-bootstrap: could not check AgentStore bridge for %s: %s",
+                        existing.id, bridge_check_exc,
+                    )
+
+            if not need_specialist_repair:
+                return {
+                    "status": "exists",
+                    "company_id": existing.id,
+                    "onboarding_status": existing.onboarding_status,
+                    "specialist_count": len(specialists),
+                }
+
+        # ── Full onboarding (new company, incomplete, or needs specialist repair) ──
         from services.onboarding import get_onboarding_service
 
         onboarding = get_onboarding_service()
         # start_onboarding creates the company when the id is unknown; pass the
         # existing id when we have one so we resume rather than duplicate.
-        company_id = existing.id if existing is not None else "self-bootstrap"
+        company_id = (resolved_company_id
+                      or (existing.id if existing is not None else "self-bootstrap"))
+
+        if need_specialist_repair:
+            # Onboarding is already complete — only re-run specialist
+            # provisioning and activation, not the full scan flow.
+            from services.specialist import get_specialist_service
+            from services.company_agency import get_company_agency_service
+            specialist_svc = get_specialist_service()
+            # Use the baseline fallback set: backend, frontend, analytics
+            baseline_types = ["backend", "frontend", "analytics"]
+            results = await specialist_svc.provision_specialists_for_company(
+                company_id=company_id,
+                system_types=baseline_types,  # type: ignore[arg-type]
+            )
+            new_count = sum(1 for r in results if r.status == "success")
+            log.info(
+                "Self-bootstrap: re-provisioned %d specialists for %s "
+                "(%d skipped as existing)",
+                new_count, company_id,
+                len(results) - new_count,
+            )
+            # Activate to bridge specialists → AgentStore + create schedules
+            try:
+                agency = get_company_agency_service()
+                activation = await agency.activate_company(
+                    company_id,
+                    start_runtimes=True,
+                    create_schedules=True,
+                )
+                log.info(
+                    "Self-bootstrap: activation for repaired company %s: %s",
+                    company_id, activation.get("status"),
+                )
+            except Exception as act_exc:
+                log.warning(
+                    "Self-bootstrap: activation after repair failed for %s: %s",
+                    company_id, act_exc,
+                )
+
+            task_id = await _seed_connect_task(company_id, owner_id)
+            return {
+                "status": "repaired",
+                "company_id": company_id,
+                "onboarding_status": "complete",
+                "specialists_provisioned": new_count,
+                "connect_task_id": task_id,
+            }
+
         # Skip the website scan: SELF_WEBSITE_URL points at *this server*, so
         # scanning it during startup creates a self-referential HTTP request
         # that hangs (the server isn't fully ready to serve yet) and blocks the

@@ -22,12 +22,18 @@ def test_status_is_public_and_well_shaped(client):
     resp = client.get("/api/autonomy/status")
     assert resp.status_code == 200
     body = resp.json()
-    for key in ("brain", "loops", "loops_running", "missing_secrets", "status"):
+    for key in ("brain", "loops", "loops_running", "missing_secrets", "status",
+                "specialist_count", "specialist_agents_bridged"):
         assert key in body, f"missing key: {key}"
     assert set(body["loops"]) == {
         "log_monitor", "self_healing", "improvement_loop", "trend_watcher",
     }
     assert body["status"] in {"no_brain", "idle", "partial", "autonomous"}
+    # New fields should be non-negative integers
+    assert isinstance(body["specialist_count"], int)
+    assert body["specialist_count"] >= 0
+    assert isinstance(body["specialist_agents_bridged"], int)
+    assert body["specialist_agents_bridged"] >= 0
 
 
 def test_loop_readiness_is_surfaced(client):
