@@ -961,6 +961,13 @@ class TaskExecutionCoordinator:
     async def _release_task(task_id: str) -> None:
         await _shared_release(f"task:active:{task_id}")
 
+    _PRIORITY_EMOJI = {
+        "urgent": "\U0001f534",  # red circle
+        "high": "\U0001f7e0",  # orange circle
+        "medium": "\U0001f7e1",  # yellow circle
+        "low": "\U0001f7e2",  # green circle
+    }
+
     @staticmethod
     def _notify_execution_gate(task: Task) -> None:
         """Best-effort Telegram heads-up that a task is parked awaiting approval.
@@ -969,18 +976,30 @@ class TaskExecutionCoordinator:
         can act directly from Telegram.  Falls back silently on error.
         """
         try:
-            from telegram_service import NotificationDispatcher, _escape_md_v1
+            from telegram_service import (
+                NotificationDispatcher,
+                _escape_md_v1,
+                _redact_for_notification,
+            )
 
             nd = NotificationDispatcher()
             if not nd.telegram_token or not nd.telegram_chat_ids:
                 return
 
             title_safe = _escape_md_v1((task.title or "")[:120])
-            msg = (
-                "\u23f8 *Task awaiting approval before execution*\n"
-                f"`{task.task_id}` \u2014 {title_safe}\n"
-                "Tap a button below to approve or reject."
-            )
+            priority = (task.priority.value if task.priority else "medium")
+            emoji = TaskExecutionCoordinator._PRIORITY_EMOJI.get(priority, "\U0001f7e1")
+            lines = [
+                "\u23f8 *Task awaiting approval before execution*",
+                f"`{task.task_id}`",
+                f"*{title_safe}*",
+                f"{emoji} {priority.capitalize()} \u00b7 {task.task_type or 'general'} \u00b7 {task.owner_id}",
+            ]
+            if task.description:
+                desc_safe = _escape_md_v1(_redact_for_notification(task.description)[:280])
+                lines.append(f"_{desc_safe}_")
+            lines.append("Tap a button below, or use the dashboard's Job Board \u2014 \u201cAwaiting approval\u201d.")
+            msg = "\n".join(lines)
             keyboard = [[
                 {"text": "\u2705 Approve", "callback_data": f"task:approve:{task.task_id}"},
                 {"text": "\u274c Reject", "callback_data": f"task:reject:{task.task_id}"},
