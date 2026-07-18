@@ -483,8 +483,13 @@ services:
         sync: false
       - key: DB_NAME
         value: llm_wiki_dashboard
+      # Must match the web service's STORAGE_BACKEND: this worker runs its own
+      # TaskDispatcher (worker_main.py) against the SAME task store. Left as
+      # sqlite while MONGO_URL was already provisioned above — split-brain:
+      # this worker would dispatch against its own ephemeral file, invisible
+      # to the web service's dashboard/API and vice versa.
       - key: STORAGE_BACKEND
-        value: "sqlite"
+        value: "mongo"
       - key: JWT_SECRET
         fromService:
           type: web
