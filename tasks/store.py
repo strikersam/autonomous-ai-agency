@@ -432,12 +432,19 @@ class TaskStore:
         active = active_task_ids or set()
         cutoff = _time.time() - stale_threshold_s
 
+        # Tasks parked at the pre-execution approval gate are excluded here and
+        # in the TODO pass below: the gate deliberately clears pending_agent_run
+        # (whatever the status) until a human approves, so they are not stranded.
         if self._mode == "mongo":
             cursor = self._collection.find(
                 {
                     "status": TaskStatus.IN_PROGRESS.value,
                     "pending_agent_run": False,
                     "updated_at": {"$lt": cutoff},
+                    "$or": [
+                        {"requires_approval": {"$ne": True}},
+                        {"execution_approved": True},
+                    ],
                 },
                 {"_id": 0},
             )
@@ -448,6 +455,7 @@ class TaskStore:
                 if v.get("status") == TaskStatus.IN_PROGRESS.value
                 and v.get("pending_agent_run") is False
                 and _ts_to_float(v.get("updated_at", 0)) < cutoff
+                and not (v.get("requires_approval") and not v.get("execution_approved"))
             ]
 
         reconciled = 0
@@ -484,10 +492,21 @@ class TaskStore:
         # Second pass: TODO tasks that were never queued for an agent run
         # (pending_agent_run=False). These are stranded the moment they exist —
         # the dispatcher only picks up pending_agent_run=True — so re-queue them
-        # regardless of staleness (CodeRabbit #724).
+        # regardless of staleness (CodeRabbit #724). Tasks parked at the
+        # pre-execution approval gate are NOT stranded: the gate deliberately
+        # clears pending_agent_run until a human approves, and re-queuing them
+        # here made the dispatcher re-park them and re-send the Telegram
+        # approval notification on every reconcile cycle.
         if self._mode == "mongo":
             cursor = self._collection.find(
-                {"status": TaskStatus.TODO.value, "pending_agent_run": False},
+                {
+                    "status": TaskStatus.TODO.value,
+                    "pending_agent_run": False,
+                    "$or": [
+                        {"requires_approval": {"$ne": True}},
+                        {"execution_approved": True},
+                    ],
+                },
                 {"_id": 0},
             )
             unqueued_todo = await cursor.to_list(length=500)
@@ -496,6 +515,7 @@ class TaskStore:
                 v for v in self._mem.values()
                 if v.get("status") == TaskStatus.TODO.value
                 and v.get("pending_agent_run") is False
+                and not (v.get("requires_approval") and not v.get("execution_approved"))
             ]
 
         for doc in unqueued_todo:

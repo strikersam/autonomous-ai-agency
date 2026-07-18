@@ -646,6 +646,19 @@ class TaskExecutionCoordinator:
         # TaskWorkflowService.approve_execution() (POST /api/tasks/{id}/approve-execution),
         # which sets execution_approved and re-queues the task.
         if task.requires_approval and not task.execution_approved:
+            # Only notify once per undecided approval cycle: a re-park (e.g.
+            # something re-armed pending_agent_run) must not spam Telegram, but
+            # a decision (reject) followed by a human Retry starts a NEW cycle
+            # that deserves a fresh notification.
+            already_notified = False
+            for e in task.execution_log:
+                if e.event_type == "approval_gate":
+                    already_notified = True
+                elif (
+                    e.event_type == "approval_decision"
+                    and (e.metadata or {}).get("gate") == "pre_execution"
+                ):
+                    already_notified = False
             task.pending_agent_run = False
             task.review_reason = "⏸ Awaiting human approval before execution (requires_approval)."
             task.add_log(
@@ -656,7 +669,8 @@ class TaskExecutionCoordinator:
                 metadata={"gate": "pre_execution"},
             )
             await self.store.update(task)
-            self._notify_execution_gate(task)
+            if not already_notified:
+                self._notify_execution_gate(task)
             self._active_task_ids.discard(task_id)
             await self._release_task(task_id)
             return task
@@ -947,6 +961,13 @@ class TaskExecutionCoordinator:
     async def _release_task(task_id: str) -> None:
         await _shared_release(f"task:active:{task_id}")
 
+    _PRIORITY_EMOJI = {
+        "urgent": "\U0001f534",  # red circle
+        "high": "\U0001f7e0",  # orange circle
+        "medium": "\U0001f7e1",  # yellow circle
+        "low": "\U0001f7e2",  # green circle
+    }
+
     @staticmethod
     def _notify_execution_gate(task: Task) -> None:
         """Best-effort Telegram heads-up that a task is parked awaiting approval.
@@ -955,18 +976,30 @@ class TaskExecutionCoordinator:
         can act directly from Telegram.  Falls back silently on error.
         """
         try:
-            from telegram_service import NotificationDispatcher, _escape_md_v1
+            from telegram_service import (
+                NotificationDispatcher,
+                _escape_md_v1,
+                _redact_for_notification,
+            )
 
             nd = NotificationDispatcher()
             if not nd.telegram_token or not nd.telegram_chat_ids:
                 return
 
             title_safe = _escape_md_v1((task.title or "")[:120])
-            msg = (
-                "\u23f8 *Task awaiting approval before execution*\n"
-                f"`{task.task_id}` \u2014 {title_safe}\n"
-                "Tap a button below to approve or reject."
-            )
+            priority = (task.priority.value if task.priority else "medium")
+            emoji = TaskExecutionCoordinator._PRIORITY_EMOJI.get(priority, "\U0001f7e1")
+            lines = [
+                "\u23f8 *Task awaiting approval before execution*",
+                f"`{task.task_id}`",
+                f"*{title_safe}*",
+                f"{emoji} {priority.capitalize()} \u00b7 {task.task_type or 'general'} \u00b7 {task.owner_id}",
+            ]
+            if task.description:
+                desc_safe = _escape_md_v1(_redact_for_notification(task.description)[:280])
+                lines.append(f"_{desc_safe}_")
+            lines.append("Tap a button below, or use the dashboard's Job Board \u2014 \u201cAwaiting approval\u201d.")
+            msg = "\n".join(lines)
             keyboard = [[
                 {"text": "\u2705 Approve", "callback_data": f"task:approve:{task.task_id}"},
                 {"text": "\u274c Reject", "callback_data": f"task:reject:{task.task_id}"},
