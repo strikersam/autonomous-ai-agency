@@ -118,3 +118,6 @@ _claude_run_secret*.txt
 .claude/state/sessions/
 .claude/state/trend-cache.json
 .claude/state/improvement-state.json
+
+# Live SQLite mirror written by BrainConfigStore on dev runs
+agency_core.db*
