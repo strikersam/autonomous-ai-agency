@@ -147,6 +147,19 @@ class Settings:
             "SELF_REPO_AUTO_COMMIT_ENABLED", "true"
         ).lower()
 
+        # North Mini Code default (Cohere Labs' Apache-2.0 agentic coding model,
+        # north-mini-code-1.0 — 30B/3B-active MoE, 256K context, native tool use +
+        # interleaved thinking). When ON (default), the agency's code-execution
+        # loop + Hermes prefer North wherever the ACTIVE provider can serve it
+        # (local Ollama, or OpenRouter's free tier). Providers that can't serve
+        # it — e.g. NVIDIA NIM in production — fall back to the normal per-role
+        # brain, so this flag never breaks a deployment that lacks North. The
+        # flag is the on/off switch; per-model overrides still win, and the
+        # Brain card can switch the executor preset back at any time.
+        self.north_mini_code_default: str = os.environ.get(
+            "NORTH_MINI_CODE_DEFAULT", "true"
+        ).lower()
+
     @property
     def is_testing(self) -> bool:
         return self.testing == "true"
@@ -181,6 +194,14 @@ class Settings:
         agent/autonomy_gate.py independently blocks direct writes to
         master/main and any agent-initiated merge regardless of this flag."""
         return self.self_repo_auto_commit_enabled == "true"
+
+    @property
+    def is_north_mini_code_default(self) -> bool:
+        """When True (default), the agency's coding loop + Hermes prefer
+        Cohere's ``north-mini-code-1.0`` wherever the active provider can
+        serve it, with automatic fallback to the normal brain elsewhere
+        (so NVIDIA-only production is unaffected). Switch off to disable."""
+        return self.north_mini_code_default == "true"
 
 
 @lru_cache(maxsize=1)

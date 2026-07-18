@@ -580,7 +580,9 @@ def test_chat_send_uses_provider_default_model_for_agent_mode_when_model_is_omit
     )
 
     assert response.status_code == 202, response.text
-    assert captured["requested_model"] == "qwen3-coder:30b"
+    # Ollama executor (code-writing) preset defaults to Cohere's North Mini Code
+    # 1.0 — agent-mode chat with the model omitted runs the coding loop on it.
+    assert captured["requested_model"] == "north-mini-code-1.0"
     assert captured["planner_model"]
     assert captured["judge_model"]
 

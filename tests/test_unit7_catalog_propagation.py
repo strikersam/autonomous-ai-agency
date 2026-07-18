@@ -87,14 +87,15 @@ def test_router_default_reasoning_model_returns_catalog_preset_for_nvidia(monkey
 
 def test_router_default_model_returns_catalog_preset_for_ollama(monkeypatch):
     """Without any cloud key, ``_default_model()`` returns the catalog's
-    ollama executor preset (``qwen3-coder:30b``)."""
+    ollama executor preset — now Cohere's ``north-mini-code-1.0`` (the default
+    local agentic coding brain)."""
     # Clear all cloud keys.
     for k in ("NVIDIA_API_KEY", "NVidiaApiKey", "DEEPSEEK_API_KEY", "GROQ_API_KEY",
               "DASHSCOPE_API_KEY", "QWEN_API_KEY", "CEREBRAS_API_KEY", "MISTRAL_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     from router.model_router import _default_model
     m = _default_model()
-    assert m == "qwen3-coder:30b"
+    assert m == "north-mini-code-1.0"
 
 
 # ── 3. agents/profiles.py ─────────────────────────────────────────────────

@@ -237,12 +237,16 @@ providers:
     key_env: OPENROUTER_API_KEY
     base_url_env: OPENROUTER_BASE_URL
     default_base_url: https://openrouter.ai/api/v1
+    # Executor role defaults to Cohere's North Mini Code on OpenRouter's free
+    # tier (cohere/north-mini-code:free) so the cloud coding path uses the same
+    # agentic coding model as the local Ollama path.
     role_presets:
       planner:   meta-llama/llama-3.3-70b-instruct
-      executor:  meta-llama/llama-3.3-70b-instruct
+      executor:  cohere/north-mini-code:free
       verifier:  meta-llama/llama-3.3-70b-instruct
       judge:     meta-llama/llama-3.3-70b-instruct
     candidates:
+      - cohere/north-mini-code:free
       - meta-llama/llama-3.3-70b-instruct
       - anthropic/claude-3.5-sonnet
 
@@ -313,12 +317,19 @@ providers:
     key_env: null  # local — no key
     base_url_env: OLLAMA_BASE  # also accepts OLLAMA_BASE_URL
     default_base_url: http://localhost:11434
+    # The executor (code-writing) role defaults to Cohere's north-mini-code-1.0
+    # — a 30B/3B-active MoE agentic coding model (Apache-2.0, 256K context,
+    # native tool use + interleaved thinking, SWE-bench Verified 67.6) purpose-
+    # built to drive the full plan→execute→verify trajectory locally. Pull it
+    # with `ollama run north-mini-code-1.0` (q4_K_M ≈ 19 GB). Switch back to a
+    # generic coder from the Brain card or via NORTH_MINI_CODE_DEFAULT=false.
     role_presets:
       planner:   deepseek-r1:32b
-      executor:  qwen3-coder:30b
+      executor:  north-mini-code-1.0
       verifier:  deepseek-r1:32b
       judge:     deepseek-r1:32b
     candidates:
+      - north-mini-code-1.0
       - deepseek-r1:32b
       - qwen3-coder:30b
       - qwen3-coder:7b
