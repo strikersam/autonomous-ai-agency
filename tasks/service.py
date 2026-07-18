@@ -646,11 +646,19 @@ class TaskExecutionCoordinator:
         # TaskWorkflowService.approve_execution() (POST /api/tasks/{id}/approve-execution),
         # which sets execution_approved and re-queues the task.
         if task.requires_approval and not task.execution_approved:
-            # Only notify the first time the task is parked — a re-park (e.g.
-            # something re-armed pending_agent_run) must not spam Telegram.
-            already_notified = any(
-                e.event_type == "approval_gate" for e in task.execution_log
-            )
+            # Only notify once per undecided approval cycle: a re-park (e.g.
+            # something re-armed pending_agent_run) must not spam Telegram, but
+            # a decision (reject) followed by a human Retry starts a NEW cycle
+            # that deserves a fresh notification.
+            already_notified = False
+            for e in task.execution_log:
+                if e.event_type == "approval_gate":
+                    already_notified = True
+                elif (
+                    e.event_type == "approval_decision"
+                    and (e.metadata or {}).get("gate") == "pre_execution"
+                ):
+                    already_notified = False
             task.pending_agent_run = False
             task.review_reason = "⏸ Awaiting human approval before execution (requires_approval)."
             task.add_log(

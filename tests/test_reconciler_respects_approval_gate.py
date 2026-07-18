@@ -74,3 +74,36 @@ async def test_gate_notifies_only_on_first_park(store, monkeypatch):
     await coordinator.execute(task.task_id)
 
     assert notified == [task.task_id], "re-parking must not send a second notification"
+
+
+@pytest.mark.asyncio
+async def test_gate_renotifies_after_reject_and_retry(store, monkeypatch):
+    """A reject + human Retry starts a NEW approval cycle → fresh notification."""
+    notified: list[str] = []
+    monkeypatch.setattr(
+        TaskExecutionCoordinator, "_notify_execution_gate",
+        staticmethod(lambda task: notified.append(task.task_id)),
+    )
+    task = Task(
+        owner_id="o@x.com", title="Deploy",
+        requires_approval=True, pending_agent_run=True,
+    )
+    await store.create(task)
+    workflow = TaskWorkflowService(store=store)
+    coordinator = TaskExecutionCoordinator(
+        store=store,
+        workflow=workflow,
+        workspace_root="/tmp/workspace",  # nosec B108 - gate parks before any file I/O
+    )
+
+    await coordinator.execute(task.task_id)
+    assert notified == [task.task_id]
+
+    reloaded = await store.get(task.task_id)
+    workflow.approve_execution(reloaded, actor="boss@x.com", approved=False, reason="not now")
+    workflow.retry(reloaded, actor="boss@x.com")
+    await store.update(reloaded)
+    await coordinator.execute(task.task_id)
+
+    assert notified == [task.task_id, task.task_id], \
+        "a renewed approval cycle after reject+retry must notify again"
