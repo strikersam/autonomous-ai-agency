@@ -249,14 +249,24 @@ def unauth_client(monkeypatch, tmp_path):
     app.dependency_overrides.clear()
 
 @pytest.fixture(autouse=True)
-def _isolate_brain_data_layer(monkeypatch):
+def _isolate_brain_data_layer(request, monkeypatch):
     """Session-wide autouse: stub out any DB reads that go through
     backend.server.get_db(). Ensures ALL tests that fire up the FastAPI
     lifespan see an empty Mongo for app_settings, preventing state leak
     that previously failed tests/test_brain_config_api.py.
+
+    Skipped for tests that use the real ``client`` fixture: those boot the
+    full lifespan against a REAL store and seed a real admin user via
+    ``ensure_bootstrap``, so replacing ``get_db`` with a fake whose
+    ``users.find_one`` returns ``None`` would 401 every admin login (e.g.
+    tests/test_activity_logs.py). The ``app_client`` fixture that
+    test_brain_config_api.py uses provides its own ``app_settings`` stub, so
+    the isolation this fixture adds is still applied there.
     """
     import os
     if os.environ.get("SKIP_FAKE_DB") == "1":
+        return
+    if "client" in request.fixturenames:
         return
     from unittest.mock import AsyncMock, MagicMock
     db = MagicMock()
