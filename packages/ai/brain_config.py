@@ -205,7 +205,7 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     },
     "ollama": {
         "planner":   "deepseek-r1:32b",
-        "executor":  "qwen3-coder:30b",
+        "executor":  "north-mini-code-1.0",
         "verifier":  "deepseek-r1:32b",
         "judge":     "deepseek-r1:32b",
     },
@@ -355,6 +355,7 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
     "dashscope": ["qwen-plus", "qwen-max", "qwen-turbo", "qwen-coder-plus"],
     "moonshot": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
     "openrouter": [
+        "cohere/north-mini-code:free",
         "meta-llama/llama-3.3-70b-instruct",
         "anthropic/claude-3.5-sonnet",
     ],
@@ -370,7 +371,7 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "claude-opus-4-6",
         "claude-haiku-4-5-20251001",
     ],
-    "ollama": ["deepseek-r1:32b", "qwen3-coder:30b", "qwen3-coder:7b", "llama3.3:70b"],
+    "ollama": ["north-mini-code-1.0", "deepseek-r1:32b", "qwen3-coder:30b", "qwen3-coder:7b", "llama3.3:70b"],
     # Colibri serves a single loaded model — the watchdog's failover chain stays
     # on the same id. If coli ever exposes an int8 or fp8 fallback model, append
     # it here.
@@ -1215,3 +1216,85 @@ async def refresh_brain_config_cache() -> BrainConfig:
     store = await get_brain_config_store()
     store.invalidate()
     return await store.get_brain_config()
+
+
+# ── North Mini Code — the default agentic coding model ─────────────────────
+#
+# Cohere Labs' first open-weight code model (Apache-2.0): a 30B / 3B-active
+# sparse MoE with a 256K context window, native tool-use, and interleaved
+# thinking, purpose-trained (two-stage SFT + RLVR) to drive full agentic
+# software-engineering trajectories (SWE-bench Verified 67.6, Terminal-Bench
+# 2.0 36.0). Because its active footprint is tiny it runs locally under
+# Ollama, and it is also served free on OpenRouter — the two providers below.
+#
+# When ``NORTH_MINI_CODE_DEFAULT`` is on (the default), the agency's code-
+# execution loop + Hermes prefer North wherever the active provider can serve
+# it. Providers that can't (e.g. NVIDIA NIM in production) get ``None`` back,
+# which the callers read as "no override" so the normal per-role brain runs —
+# North can never break a deployment that doesn't host it.
+
+NORTH_MINI_CODE_OLLAMA_ID: str = "north-mini-code-1.0"
+NORTH_MINI_CODE_OPENROUTER_ID: str = "cohere/north-mini-code:free"
+
+# Providers that can actually serve North Mini Code today → their model id.
+_NORTH_MINI_CODE_PROVIDER_IDS: dict[str, str] = {
+    "ollama": NORTH_MINI_CODE_OLLAMA_ID,
+    "openrouter": NORTH_MINI_CODE_OPENROUTER_ID,
+}
+
+
+def north_mini_code_model_for(provider: str | None) -> str | None:
+    """Return the North Mini Code model id served by *provider*, else ``None``.
+
+    ``ollama`` → ``north-mini-code-1.0``; ``openrouter`` →
+    ``cohere/north-mini-code:free``. Any other provider (nvidia, cerebras,
+    groq, …) returns ``None`` because it cannot serve North.
+    """
+    if not provider:
+        return None
+    return _NORTH_MINI_CODE_PROVIDER_IDS.get(provider.strip().lower())
+
+
+def is_north_mini_code_default() -> bool:
+    """True when the ``NORTH_MINI_CODE_DEFAULT`` flag is on (default ON).
+
+    Reads the central settings flag; never raises (defaults to ON if the
+    settings module can't be imported, mirroring the flag's default value).
+    """
+    try:
+        from packages.config import settings
+        return settings.is_north_mini_code_default
+    except Exception:  # noqa: BLE001 — defensive; flag defaults ON
+        return True
+
+
+def _active_primary_provider() -> str | None:
+    """Best-effort read of the active brain's primary provider (or ``None``)."""
+    try:
+        if _store is not None and _store._cache is not None:
+            return str(getattr(_store._cache, "primary_provider", "")).strip().lower() or None
+    except Exception:  # noqa: BLE001 — defensive
+        pass
+    # Fall back to the explicit BRAIN_PREFERENCE env (set on local Ollama boxes).
+    pref = (os.environ.get("BRAIN_PREFERENCE") or "").strip().lower()
+    return pref or None
+
+
+def resolve_coding_model_preference(provider: str | None = None) -> str | None:
+    """Resolve the model id to force for a code-execution run, or ``None``.
+
+    Returns the North Mini Code id **only** when the default flag is on AND
+    the resolved provider (explicit *provider*, else the active brain's
+    primary) can actually serve it. Otherwise returns ``None``, which callers
+    treat as "no override" so the normal per-role brain resolution runs —
+    this is what keeps NVIDIA-only production untouched.
+
+    Callers pass the returned value as ``requested_model`` / ``model_preference``;
+    a non-``None`` value makes the whole plan→execute→verify loop run on North
+    (its intended single-model agentic-harness usage), while ``None`` leaves
+    each role to resolve its own catalog preset.
+    """
+    if not is_north_mini_code_default():
+        return None
+    resolved = (provider or "").strip().lower() or _active_primary_provider()
+    return north_mini_code_model_for(resolved)

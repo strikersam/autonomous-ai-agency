@@ -466,8 +466,22 @@ class InternalAgentAdapter(RuntimeAdapter):
                     self._log.debug("E2B seed failed (best-effort): %s", exc)
 
         try:
-            # Resolve model: prefer spec → Nvidia default → leave None (auto)
+            # Resolve model: prefer spec → North Mini Code default (when the
+            # active provider can serve it) → Nvidia default → leave None (auto).
+            #
+            # resolve_coding_model_preference() returns North's id only when the
+            # NORTH_MINI_CODE_DEFAULT flag is on AND the active provider is one
+            # that hosts it (local Ollama / OpenRouter free); it returns None on
+            # NVIDIA-only production, so this can never force an unreachable
+            # model. A non-None value makes the whole plan→execute→verify loop
+            # run on North — its intended single-model agentic-harness usage.
             model = spec.model_preference
+            if not model:
+                try:
+                    from packages.ai.brain_config import resolve_coding_model_preference
+                    model = resolve_coding_model_preference()
+                except Exception:  # noqa: BLE001 — never block execution on the resolver
+                    model = None
             if not model and nvidia_chain:
                 model = nvidia_chain[0].default_model
 

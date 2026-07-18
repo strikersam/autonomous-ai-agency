@@ -512,6 +512,50 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=3,
         tags=["anthropic", "claude", "claude5", "flagship", "mythos-class", "restricted", "approved-orgs-only"],
     ),
+    # ── North Mini Code (Cohere Labs, June 2026) ─────────────────────────────
+    # 30B / 3B-active sparse MoE agentic coding model (Apache-2.0). 256K context,
+    # native tool-use + interleaved thinking, RLVR-trained on real SWE/terminal
+    # tasks (SWE-bench Verified 67.6, Terminal-Bench 2.0 36.0). The agency's
+    # default local coding brain — see config/models.yaml (ollama executor
+    # preset) and packages/ai/brain_config.resolve_coding_model_preference.
+    # cost_tier=2: a 3B-active MoE is genuinely light (~19 GB q4_K_M) yet
+    # capable; registered here so the proxy can route/serve/health-check it
+    # without displacing the existing heaviest-tier default coder.
+    "north-mini-code-1.0": ModelCapability(
+        name="north-mini-code-1.0",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "complex_tasks",
+            "data_analysis",
+            "conversation",
+        ],
+        context_window=262144,
+        type="coder",
+        cost_tier=2,
+        tags=["cohere", "north", "moe", "agentic", "swe-bench-top", "apache2"],
+    ),
+    # OpenRouter free-tier alias for the same model (cloud coding path).
+    "cohere/north-mini-code:free": ModelCapability(
+        name="cohere/north-mini-code:free",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "complex_tasks",
+            "data_analysis",
+            "conversation",
+        ],
+        context_window=262144,
+        type="coder",
+        cost_tier=2,
+        tags=["cohere", "north", "moe", "agentic", "swe-bench-top", "apache2", "openrouter", "alias"],
+    ),
 }
 
 
