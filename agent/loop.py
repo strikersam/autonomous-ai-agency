@@ -1803,7 +1803,7 @@ class AgentRunner:
         # and we retry on the next healthy provider. This is the permanent
         # solution to the recurring NVIDIA 429/410 rate-limit problem.
         from services.brain_failover import get_failover_manager
-        from packages.ai.router import _openai_url
+        from packages.ai.router import _openai_url, with_ollama_reasoning_effort
 
         fm = get_failover_manager()
         tried: set[str] = set()
@@ -1856,10 +1856,19 @@ class AgentRunner:
                 log.debug("brain_failover: attempt %d -> %s (model=%s)",
                            _attempt + 1, provider.id, try_model)
 
+                # Enable interleaved thinking for thinking-capable Ollama models
+                # (North Mini Code, deepseek-r1, qwen3) when OLLAMA_REASONING_EFFORT
+                # is set. No-op by default (unset) and for non-Ollama providers.
+                _is_ollama = (
+                    "ollama" in (getattr(provider, "id", "") or "").lower()
+                    or ":11434" in (getattr(provider, "base_url", "") or "")
+                )
+                post_payload = with_ollama_reasoning_effort(payload, is_ollama=_is_ollama)
+
                 call_start = time.perf_counter()
                 try:
                     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
-                        resp = await client.post(chat_url, json=payload, headers=headers)
+                        resp = await client.post(chat_url, json=post_payload, headers=headers)
                 except Exception as exc:
                     last_error = f"{provider.id} network error: {exc}"
                     log.warning("brain_failover: %s network error: %s", provider.id, exc)

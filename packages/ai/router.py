@@ -323,6 +323,34 @@ def _openai_url(base_url: str, path: str) -> str:
     return f"{base}/v1{path}"
 
 
+def _ollama_reasoning_effort() -> str:
+    """Return the configured ``OLLAMA_REASONING_EFFORT`` (``high``/``medium``/
+    ``low``) or ``""`` when unset/invalid. Never raises."""
+    try:
+        from packages.config import settings
+        return settings.ollama_reasoning_effort_value
+    except Exception:  # noqa: BLE001 — defensive; config load must not break calls
+        return ""
+
+
+def with_ollama_reasoning_effort(payload: dict[str, Any], *, is_ollama: bool) -> dict[str, Any]:
+    """Return *payload* with ``reasoning_effort`` added for Ollama thinking models.
+
+    Ollama's OpenAI-compatible ``/v1/chat/completions`` maps ``reasoning_effort``
+    → interleaved thinking for capable models (North Mini Code, deepseek-r1,
+    qwen3). This is a no-op — the SAME object is returned — when the request is
+    not for Ollama, when ``OLLAMA_REASONING_EFFORT`` is unset, or when the
+    caller already set the field. So the default (unset) config leaves every
+    request byte-for-byte unchanged and never touches non-Ollama providers.
+    """
+    if not is_ollama:
+        return payload
+    effort = _ollama_reasoning_effort()
+    if not effort or "reasoning_effort" in payload:
+        return payload
+    return {**payload, "reasoning_effort": effort}
+
+
 def extract_openai_text(data: Any) -> str:
     if not isinstance(data, dict):
         return ""
@@ -1280,7 +1308,10 @@ class ProviderRouter:
                     response, str(payload.get("model") or "")
                 )
             url = _openai_url(provider.normalized_base_url, "/chat/completions")
-            response = await client.post(url, json=payload, headers=headers)
+            post_payload = with_ollama_reasoning_effort(
+                payload, is_ollama=(provider.type == "ollama")
+            )
+            response = await client.post(url, json=post_payload, headers=headers)
             if response.status_code == 404 and provider.type == "ollama":
                 native = await client.post(
                     f"{provider.normalized_base_url}/api/chat",
