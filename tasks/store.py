@@ -57,6 +57,30 @@ class TaskStore:
     """
 
     def __init__(self, db: Any = None) -> None:
+
+        """Fail loud in production if no persistent storage is configured.
+
+        Telegram notifications that reference a task_id with no persistent
+
+        backing are unreachable from the dashboard AND from the bot callback
+
+        handler, which makes the `requires_approval` gate hostile to end-users.
+
+        Without this guard, a worker process whose DB connection fails
+
+        silently queues notifications referencing phantom ids.
+
+        """
+
+        if db is None and not os.environ.get("TESTING", "").strip().lower() in ("1", "true", "yes"):
+
+            raise RuntimeError(
+
+                "TaskStore cannot start without a persistent backend. "
+
+                "Set STORAGE_BACKEND + matching PATH/URL. See docs/configuration-reference.md."
+
+            )
         """
         Args:
             db: motor AsyncIOMotorDatabase instance, or None for in-memory mode.
