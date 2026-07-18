@@ -268,6 +268,6 @@ def _isolate_brain_data_layer(monkeypatch):
     db.sessions = MagicMock()
     db.tasks = MagicMock()
 
-    async def _fake_get_db():
+    def _fake_get_db():
         return db
     monkeypatch.setattr("backend.server.get_db", _fake_get_db)
