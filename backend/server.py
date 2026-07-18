@@ -1648,6 +1648,9 @@ async def lifespan(app_: "FastAPI"):
     # effect — the resolver keeps using the stale config. This is a one-shot
     # migration: once the config is on GLM-5.2, it won't be reset again.
     async def _migrate_brain_to_safe_default() -> None:
+        if os.environ.get("TESTING", "").strip().lower() in ("1", "true", "yes"):
+            log.debug("brain_policy: TESTING detected; skipping _migrate_brain_to_safe_default migration")
+            return
         """Reset stale BrainConfig to NVIDIA GLM-5.2 if the persisted config
         points at a provider/model that is known-broken or not available.
 

@@ -207,6 +207,11 @@ def app_client(monkeypatch, tmp_path):
     db.app_settings = MagicMock()
     db.app_settings.find_one = AsyncMock(return_value=None)
     db.app_settings.update_one = AsyncMock(return_value=MagicMock(matched_count=1))
+    db.users = MagicMock()
+    db.users.find_one = AsyncMock(return_value=None)
+    db.sessions = MagicMock()
+    db.tasks = MagicMock()
+
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()
 
@@ -242,3 +247,27 @@ def unauth_client(monkeypatch, tmp_path):
     app.dependency_overrides[get_optional_user] = lambda: None
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()
+
+@pytest.fixture(autouse=True)
+def _isolate_brain_data_layer(monkeypatch):
+    """Session-wide autouse: stub out any DB reads that go through
+    backend.server.get_db(). Ensures ALL tests that fire up the FastAPI
+    lifespan see an empty Mongo for app_settings, preventing state leak
+    that previously failed tests/test_brain_config_api.py.
+    """
+    import os
+    if os.environ.get("SKIP_FAKE_DB") == "1":
+        return
+    from unittest.mock import AsyncMock, MagicMock
+    db = MagicMock()
+    db.app_settings = MagicMock()
+    db.app_settings.find_one = AsyncMock(return_value=None)
+    db.app_settings.update_one = AsyncMock(return_value=MagicMock(matched_count=1))
+    db.users = MagicMock()
+    db.users.find_one = AsyncMock(return_value=None)
+    db.sessions = MagicMock()
+    db.tasks = MagicMock()
+
+    def _fake_get_db():
+        return db
+    monkeypatch.setattr("backend.server.get_db", _fake_get_db)

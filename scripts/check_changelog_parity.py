@@ -1,25 +1,24 @@
 """scripts/check_changelog_parity.py
 
-CI guard for the changelog mirror. Closes the medium-severity code-review item on
-PR #692 — without this job, the root ``CHANGELOG.md`` (human-facing) and
-``docs/changelog.md`` (the path ``changelog-check.yml`` keys on) can drift apart
-silently across PRs.
+CI guard for the changelog mirror. Closes the medium-severity code-review
+item on PR #692 -- without this job, the root ``CHANGELOG.md``
+(human-facing) and ``docs/changelog.md`` (the path
+``changelog-check.yml`` keys on) can drift apart silently across PRs.
 
 Behaviour
 ---------
-- Reads both files (UTF-8) and extracts the body of ``## [Unreleased]`` (text
-  between the marker and the next ``## [`` or EOF).
-- Normalises: line endings → LF (so Windows CRLF and Linux LF checkouts match
-  cleanly), strips HTML comments, trailing whitespace per line, and collapses
-  3+ consecutive newlines into 2.
+- Reads both files (UTF-8) and extracts every ``## [X]`` version body
+  (including ``## [Unreleased]``).
+- Normalises: line endings -> LF, strip per-line trailing whitespace,
+  collapse 3+ consecutive newlines into 2.
+- Compares the bodies byte-exact per version key, sorted by key.
 - Exit codes:
-    0 — bodies match (status: ``PARITY OK``); prints ``::warning::`` to stderr
-        if BOTH bodies are non-empty-after-header but normalize to empty, so a
-        contributor is not silently OK'd for a pull request that drops every
-        bullet (the previous content gets the version header back).
-    1 — bodies differ (prints unified-diff to stderr, status: ``PARITY DRIFT``)
-    2 — either file missing, or neither file has a ``## [Unreleased]`` header
-       (prints ``::error::`` annotation to stderr for GitHub Actions)
+    0 -- bodies match (status: ``PARITY OK``).
+    1 -- bodies differ (prints unified-diff to stderr, status:
+        ``PARITY DRIFT``).
+    2 -- either file missing, or neither file has any ``## [...]``
+       header (prints ``::error::`` annotation to stderr for
+       GitHub Actions).
 
 Usage
 -----
@@ -28,7 +27,6 @@ Usage
     python scripts/check_changelog_parity.py
     python scripts/check_changelog_parity.py --root CHANGELOG.md --docs docs/changelog.md
 """
-
 from __future__ import annotations
 
 import argparse
@@ -37,34 +35,26 @@ import re
 import sys
 from pathlib import Path
 
-_UNRELEASED_RE = re.compile(r"## \[Unreleased\](.*?)(?=## \[|\Z)", re.DOTALL)
-_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_VERSION_RE = re.compile(r"^## \[(.+?)\]", re.MULTILINE)
 _TRAILING_WS_RE = re.compile(r"[ \t]+$", re.MULTILINE)
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
 
 
 def normalize_text(text: str) -> str:
-    """Line-endings → LF, strip HTML comments, trim per-line, collapse blanks."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = _HTML_COMMENT_RE.sub("", text)
     text = _TRAILING_WS_RE.sub("", text)
     text = _BLANK_RUN_RE.sub("\n\n", text)
     return text.strip()
 
 
-def extract_unreleased_body(content: str) -> str | None:
-    """Return the normalised body of ``## [Unreleased]`` or ``None`` if absent."""
-    match = _UNRELEASED_RE.search(content)
-    if not match:
-        return None
-    return normalize_text(match.group(1))
-
-
-def _to_compare_lines(body: str | None) -> list[str]:
-    """Split a normalised body into lines with trailing ``\\n`` for difflib."""
-    if not body:
-        return []
-    return [(line + "\n") for line in body.split("\n")]
+def _blocks(content: str) -> dict[str, str]:
+    matches = list(_VERSION_RE.finditer(content))
+    out: dict[str, str] = {}
+    for i, m in enumerate(matches):
+        body_start = m.end()
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+        out[m.group(1).strip()] = normalize_text(content[body_start:body_end])
+    return out
 
 
 def main() -> int:
@@ -73,59 +63,58 @@ def main() -> int:
     parser.add_argument("--docs", type=Path, default=Path("docs/changelog.md"))
     args = parser.parse_args()
 
-    root_path: Path = args.root
-    docs_path: Path = args.docs
-
-    if not root_path.exists() or not docs_path.exists():
-        missing = [str(p) for p in (root_path, docs_path) if not p.exists()]
+    if not args.root.exists() or not args.docs.exists():
         print(
-            f"::error::Missing changelog file(s): {', '.join(missing)}",
+            "::error::One or both changelog files are missing "
+            f"(root={args.root} exists={args.root.exists()}, "
+            f"docs={args.docs} exists={args.docs.exists()}).",
             file=sys.stderr,
         )
         return 2
 
-    root_content = root_path.read_text(encoding="utf-8")
-    docs_content = docs_path.read_text(encoding="utf-8")
-    root_body = extract_unreleased_body(root_content)
-    docs_body = extract_unreleased_body(docs_content)
+    root_blocks = _blocks(args.root.read_text(encoding="utf-8"))
+    docs_blocks = _blocks(args.docs.read_text(encoding="utf-8"))
 
-    if root_body is None and docs_body is None:
+    if not root_blocks and not docs_blocks:
         print(
-            "::error::Neither changelog has a '## [Unreleased]' header "
-            f"(checked {root_path} and {docs_path}).",
+            "::error::Neither changelog has any ## [...] version block. "
+            "Cannot verify parity.",
             file=sys.stderr,
         )
         return 2
 
-    root_lines = _to_compare_lines(root_body)
-    docs_lines = _to_compare_lines(docs_body)
+    all_keys = sorted(set(root_blocks) | set(docs_blocks))
+    drift_blocks: list[str] = []
+    for key in all_keys:
+        r = root_blocks.get(key, "")
+        d = docs_blocks.get(key, "")
+        if r != d:
+            drift_blocks.append(key)
 
-    if root_lines == docs_lines:
-        # M2: if both files HAD a [Unreleased] header but the body is empty after
-        # normalisation (i.e. only whitespace / HTML comments / blank lines),
-        # surface a warning so a regression that drops every bullet is not
-        # silently OK'd by the parity check.
-        if not root_body and not docs_body:
-            print(
-                "::warning::Both changelogs have a '## [Unreleased]' header "
-                "but an empty body — add at least one bullet under "
-                "'### Added'/'### Changed'/'### Fixed' before merging.",
-                file=sys.stderr,
+    if drift_blocks:
+        print("::error::PARITY DRIFT in blocks: " + ", ".join(drift_blocks), file=sys.stderr)
+        print("PARITY DRIFT: bodies differ under: " + ", ".join(drift_blocks),
+              file=sys.stderr)
+        for key in drift_blocks:
+            r = root_blocks.get(key, "")
+            d = docs_blocks.get(key, "")
+            diff = difflib.unified_diff(
+                d.splitlines(keepends=True),
+                r.splitlines(keepends=True),
+                fromfile=f"docs/changelog.md [{key}]",
+                tofile=f"CHANGELOG.md [{key}]",
+                n=2,
             )
-        print("PARITY OK")
-        return 0
+            print(f"--- drift under ## [{key}] ---", file=sys.stderr)
+            for line in diff:
+                sys.stderr.write(line)
+            if not line.endswith("\n"):
+                sys.stderr.write("\n")
+        return 1
 
-    print("PARITY DRIFT")
-    diff = difflib.unified_diff(
-        root_lines,
-        docs_lines,
-        fromfile=str(root_path),
-        tofile=str(docs_path),
-        n=3,
-    )
-    sys.stderr.writelines(diff)
-    return 1
+    print("PARITY OK: bodies match across " + ", ".join(all_keys))
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
