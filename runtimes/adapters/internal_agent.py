@@ -480,7 +480,8 @@ class InternalAgentAdapter(RuntimeAdapter):
                 try:
                     from packages.ai.brain_config import resolve_coding_model_preference
                     model = resolve_coding_model_preference()
-                except Exception:  # noqa: BLE001 — never block execution on the resolver
+                except Exception as exc:  # noqa: BLE001 — never block execution on the resolver
+                    self._log.debug("resolve_coding_model_preference failed (%s)", exc, exc_info=True)
                     model = None
             if not model and nvidia_chain:
                 model = nvidia_chain[0].default_model

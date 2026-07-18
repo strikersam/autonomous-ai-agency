@@ -1273,8 +1273,8 @@ def _active_primary_provider() -> str | None:
     try:
         if _store is not None and _store._cache is not None:
             return str(getattr(_store._cache, "primary_provider", "")).strip().lower() or None
-    except Exception:  # noqa: BLE001 — defensive
-        pass
+    except Exception:  # noqa: BLE001 — defensive; must not break model resolution
+        log.debug("resolve_coding_model_preference: active-provider read failed", exc_info=True)
     # Fall back to the explicit BRAIN_PREFERENCE env (set on local Ollama boxes).
     pref = (os.environ.get("BRAIN_PREFERENCE") or "").strip().lower()
     return pref or None
