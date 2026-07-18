@@ -432,12 +432,19 @@ class TaskStore:
         active = active_task_ids or set()
         cutoff = _time.time() - stale_threshold_s
 
+        # Tasks parked at the pre-execution approval gate are excluded here and
+        # in the TODO pass below: the gate deliberately clears pending_agent_run
+        # (whatever the status) until a human approves, so they are not stranded.
         if self._mode == "mongo":
             cursor = self._collection.find(
                 {
                     "status": TaskStatus.IN_PROGRESS.value,
                     "pending_agent_run": False,
                     "updated_at": {"$lt": cutoff},
+                    "$or": [
+                        {"requires_approval": {"$ne": True}},
+                        {"execution_approved": True},
+                    ],
                 },
                 {"_id": 0},
             )
@@ -448,6 +455,7 @@ class TaskStore:
                 if v.get("status") == TaskStatus.IN_PROGRESS.value
                 and v.get("pending_agent_run") is False
                 and _ts_to_float(v.get("updated_at", 0)) < cutoff
+                and not (v.get("requires_approval") and not v.get("execution_approved"))
             ]
 
         reconciled = 0

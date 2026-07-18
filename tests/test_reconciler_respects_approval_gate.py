@@ -47,6 +47,36 @@ async def test_reconciler_skips_gate_parked_tasks(store):
 
 
 @pytest.mark.asyncio
+async def test_stranded_pass_skips_gate_parked_in_progress_tasks(store):
+    """A gated task parked while IN_PROGRESS must not be treated as stranded."""
+    import time
+
+    parked = Task(
+        owner_id="o@x.com", title="gated in progress",
+        status=TaskStatus.IN_PROGRESS,
+        requires_approval=True, pending_agent_run=False,
+    )
+    plain = Task(
+        owner_id="o@x.com", title="genuinely stranded",
+        status=TaskStatus.IN_PROGRESS, pending_agent_run=False,
+    )
+    for t in (parked, plain):
+        await store.create(t)
+        # Poke updated_at directly — store.update() would re-touch it to "now".
+        store._mem[t.task_id]["updated_at"] = time.time() - 600
+
+    await store.reconcile_stranded_tasks(stale_threshold_s=300.0)
+
+    post_parked = await store.get(parked.task_id)
+    assert post_parked.pending_agent_run is False, \
+        "stale gate-parked IN_PROGRESS task must stay parked"
+    assert post_parked.status is TaskStatus.IN_PROGRESS
+    post_plain = await store.get(plain.task_id)
+    assert post_plain.pending_agent_run is True, \
+        "a genuinely stranded IN_PROGRESS task must still be recovered"
+
+
+@pytest.mark.asyncio
 async def test_gate_notifies_only_on_first_park(store, monkeypatch):
     notified: list[str] = []
     monkeypatch.setattr(
