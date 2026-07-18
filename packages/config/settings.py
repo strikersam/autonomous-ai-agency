@@ -160,9 +160,32 @@ class Settings:
             "NORTH_MINI_CODE_DEFAULT", "true"
         ).lower()
 
+        # Explicit interleaved-thinking control for thinking-capable Ollama
+        # models (North Mini Code, deepseek-r1, qwen3, …). Passed as
+        # `reasoning_effort` on the Ollama OpenAI-compatible /v1/chat/completions
+        # call ("high"/"medium"/"low" → thinking on at that effort). North Mini
+        # Code "works best with thinking on", and Ollama already auto-enables it
+        # for capable models when this is omitted — so the DEFAULT (unset) leaves
+        # behaviour unchanged. Set this only to pin/force the effort level. Any
+        # value other than high/medium/low is treated as unset.
+        self.ollama_reasoning_effort: str = os.environ.get(
+            "OLLAMA_REASONING_EFFORT", ""
+        ).strip().lower()
+
     @property
     def is_testing(self) -> bool:
         return self.testing == "true"
+
+    @property
+    def ollama_reasoning_effort_value(self) -> str:
+        """Validated `reasoning_effort` for Ollama thinking models, or ``""``.
+
+        Returns one of ``"high"`` / ``"medium"`` / ``"low"`` when
+        ``OLLAMA_REASONING_EFFORT`` is set to a valid value, else ``""``
+        (meaning: don't send the field — keep Ollama's own auto-enable
+        behaviour)."""
+        v = self.ollama_reasoning_effort
+        return v if v in ("high", "medium", "low") else ""
 
     @property
     def is_agency_ceo_enabled(self) -> bool:

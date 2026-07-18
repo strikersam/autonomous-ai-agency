@@ -151,3 +151,57 @@ def test_hermes_declares_full_capability_set():
     )
     for cap in required:
         assert cap in caps, f"Hermes missing capability {cap!r}"
+
+
+# ── 5. Interleaved thinking (OLLAMA_REASONING_EFFORT) ───────────────────────
+
+
+def test_reasoning_effort_noop_for_non_ollama(monkeypatch):
+    import packages.ai.router as router
+
+    monkeypatch.setattr(router, "_ollama_reasoning_effort", lambda: "high")
+    payload = {"model": "z-ai/glm-5.2", "messages": []}
+    out = router.with_ollama_reasoning_effort(payload, is_ollama=False)
+    assert out is payload  # same object — non-Ollama providers untouched
+    assert "reasoning_effort" not in out
+
+
+def test_reasoning_effort_noop_when_unset(monkeypatch):
+    import packages.ai.router as router
+
+    monkeypatch.setattr(router, "_ollama_reasoning_effort", lambda: "")
+    payload = {"model": OLLAMA_ID, "messages": []}
+    out = router.with_ollama_reasoning_effort(payload, is_ollama=True)
+    assert out is payload  # default (unset) → byte-for-byte unchanged
+    assert "reasoning_effort" not in out
+
+
+def test_reasoning_effort_injected_for_ollama_when_set(monkeypatch):
+    import packages.ai.router as router
+
+    monkeypatch.setattr(router, "_ollama_reasoning_effort", lambda: "high")
+    payload = {"model": OLLAMA_ID, "messages": []}
+    out = router.with_ollama_reasoning_effort(payload, is_ollama=True)
+    assert out is not payload  # a copy, not a mutation of the shared payload
+    assert out["reasoning_effort"] == "high"
+    assert "reasoning_effort" not in payload  # original left clean
+
+
+def test_reasoning_effort_respects_caller_supplied_value(monkeypatch):
+    import packages.ai.router as router
+
+    monkeypatch.setattr(router, "_ollama_reasoning_effort", lambda: "high")
+    payload = {"model": OLLAMA_ID, "messages": [], "reasoning_effort": "low"}
+    out = router.with_ollama_reasoning_effort(payload, is_ollama=True)
+    assert out is payload  # caller's explicit value wins — not overwritten
+    assert out["reasoning_effort"] == "low"
+
+
+def test_reasoning_effort_setting_validates_value(monkeypatch):
+    """Only high/medium/low are honoured; anything else means 'unset'."""
+    from packages.config.settings import Settings
+
+    monkeypatch.setenv("OLLAMA_REASONING_EFFORT", "banana")
+    assert Settings().ollama_reasoning_effort_value == ""
+    monkeypatch.setenv("OLLAMA_REASONING_EFFORT", "HIGH")
+    assert Settings().ollama_reasoning_effort_value == "high"
