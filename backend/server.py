@@ -9555,7 +9555,7 @@ app.include_router(agent_router)
 # Three endpoints, all gated on SERVICE_TOKEN via require_service_token.
 # See backend/local_brain_router.py for surface + body shapes.
 from backend.local_brain_router import router as local_brain_router_module  # noqa: E402
-app.include_router(local_brain_router_module.router)
+app.include_router(local_brain_router_module)
 
 app.include_router(runtime_router)
 app.include_router(task_router)
