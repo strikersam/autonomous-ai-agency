@@ -83,6 +83,15 @@ def test_not_cacheable_tiny_positive_temperature():
     assert rc.is_cacheable(_payload(temperature=0.01)) is False
 
 
+def test_not_cacheable_when_temperature_omitted():
+    """Omitted temperature must not be cached — providers default to non-zero."""
+    payload = {
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "hello"}],
+    }
+    assert rc.is_cacheable(payload) is False
+
+
 # ── get_cached / put_cached round-trip ───────────────────────────────────────
 
 

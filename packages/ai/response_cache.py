@@ -59,7 +59,7 @@ def _cache_key(payload: dict[str, Any]) -> str:
     fingerprint = {
         "model": payload.get("model"),
         "messages": payload.get("messages"),
-        "temperature": payload.get("temperature", 0),
+        "temperature": payload.get("temperature"),
         "max_tokens": payload.get("max_tokens"),
         "stop": payload.get("stop"),
     }
@@ -68,13 +68,21 @@ def _cache_key(payload: dict[str, Any]) -> str:
 
 
 def is_cacheable(payload: dict[str, Any]) -> bool:
-    """Return True iff this request is eligible for caching."""
+    """Return True iff this request is eligible for caching.
+
+    Temperature must be explicitly set to 0 — omitting it means the provider
+    uses its own default (often non-zero), producing non-deterministic output
+    that must not be cached.
+    """
     if not _CACHE_ENABLED:
         return False
     if payload.get("stream"):
         return False
+    temp = payload.get("temperature")
+    if temp is None:
+        return False
     try:
-        if float(payload.get("temperature", 0)) > 0.0:
+        if float(temp) != 0.0:
             return False
     except (TypeError, ValueError):
         return False
