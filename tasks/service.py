@@ -969,11 +969,80 @@ class TaskExecutionCoordinator:
     }
 
     @staticmethod
+    def _risk_class_hint(task: Task) -> str:
+        """One-line human explanation of why this task needs human approval.
+
+        Reads risk triggers from tags + task_type + the existing review_reason
+        so end-users can decide without opening the dashboard. ``review_reason``
+        is human-typed context and ALWAYS wins over the task_type heuristic
+        (an operator who wrote "compliance requested human review" should see
+        exactly that string, not "self-repo code changes (commits + PR
+        opened)" \u2014 even when task_type is "general"). Returns the
+        catch-all ``"outward-facing / risky side-effects"`` so the section is
+        never empty for a gated task with neither tags nor review_reason.
+        """
+        tags = {t for t in (task.tags or [])}
+        hints: list[str] = []
+        for tag in sorted(tags):
+            if tag.startswith("risk:"):
+                hints.append(tag.split(":", 1)[1])
+        for known in ("code-change", "external-write", "pr-opened", "deploy", "irreversible"):
+            if known in tags:
+                hints.append(known)
+        # task_type heuristic runs ONLY when no human-written review_reason
+        # exists \u2014 review_reason is operator-typed context and always wins.
+        if task.        task_type in {"issue", "portfolio_initiative", "quick_note"} \
+                and not task.review_reason:
+            hints.append("self-repo code changes (commits + PR opened)")
+        if task.review_reason:
+            hints.append(task.review_reason)
+        if not hints:
+            return "outward-facing / risky side-effects"
+        return ", ".join(hints)
+
+    @staticmethod
+    def _resolve_agent_label(task: Task) -> str:
+        """Best-effort label of who will run this task once approved.
+
+        Returns ``task.agent_id`` if pre-assigned, else "auto-selected
+        specialist" \u2014 the dispatcher picks one on the next execute()
+        cycle. We do NOT block on agent-store lookups here because the
+        notification must be sync-fast during the dispatcher's gate.
+        """
+        if task.agent_id:
+            return task.agent_id
+        return "auto-selected specialist"
+
+    @staticmethod
+    def _dashboard_task_url(task_id: str) -> str:
+        """PUBLIC_URL-anchored dashboard deep link for the task detail.
+
+        Returns empty string when ``PUBLIC_URL`` is unset, in which case the
+        caller omits the section cleanly. A missing dashboard URL must NOT
+        produce a broken link \u2014 the operator fell through to Telegram
+        because they couldn't reach the UI in the first place.
+        """
+        base = os.environ.get("PUBLIC_URL", "").strip().rstrip("/")
+        if not base:
+            return ""
+        return f"{base}/admin/tasks?task={task_id}"
+
+    @staticmethod
     def _notify_execution_gate(task: Task) -> None:
         """Best-effort Telegram heads-up that a task is parked awaiting approval.
 
-        Sends an inline keyboard with Approve/Reject buttons so the operator
-        can act directly from Telegram.  Falls back silently on error.
+        Inline keyboard Approve/Reject so the operator can act directly from
+        Telegram. The body answers the four questions that matter to a human
+        reviewer holding a phone, in the same order every time so the message
+        is scannable:
+
+          1. WHAT is this task?     -> title + full description (not truncated)
+          2. WHY does it need me?   -> risk-class hint derived from tags
+          3. WHO will run it?       -> assigned agent or "auto-selected"
+          4. WHERE do I see more?   -> PUBLIC_URL/admin/tasks?task=<id> link
+
+        Silent on error \u2014 the notification is best-effort and must never
+        crash the dispatcher's pre-execution gate.
         """
         try:
             from telegram_service import (
@@ -986,20 +1055,67 @@ class TaskExecutionCoordinator:
             if not nd.telegram_token or not nd.telegram_chat_ids:
                 return
 
-            title_safe = _escape_md_v1((task.title or "")[:120])
             priority = (task.priority.value if task.priority else "medium")
             emoji = TaskExecutionCoordinator._PRIORITY_EMOJI.get(priority, "\U0001f7e1")
+            title_safe = _escape_md_v1((task.title or "")[:160])
+
             lines = [
-                "\u23f8 *Task awaiting approval before execution*",
-                f"`{task.task_id}`",
+                "\u23f8 *Task awaiting your approval*",
+                "",
                 f"*{title_safe}*",
-                f"{emoji} {priority.capitalize()} \u00b7 {task.task_type or 'general'} \u00b7 {task.owner_id}",
+                f"`{task.task_id}`",
+                f"{emoji} *{priority.capitalize()}* \u00b7 "
+                f"{_escape_md_v1(task.task_type or 'general')} \u00b7 "
+                f"from `{_escape_md_v1(task.owner_id or 'unknown')}`",
             ]
+
+            # 1. WHAT is this task? \u2014 full description (no 280-char
+            # truncation the user complained about in issue #1072), kept
+            # under Telegram's 4096 hard cap.
             if task.description:
-                desc_safe = _escape_md_v1(_redact_for_notification(task.description)[:280])
-                lines.append(f"_{desc_safe}_")
-            lines.append("Tap a button below, or use the dashboard's Job Board \u2014 \u201cAwaiting approval\u201d.")
+                desc = _redact_for_notification(task.description)
+                if len(desc) > 1500:
+                    desc_safe = _escape_md_v1(desc[:1500]) + " \u2026 (full text on dashboard)"
+                else:
+                    desc_safe = _escape_md_v1(desc)
+                lines.extend([
+                    "",
+                    "\ud83d\udcdd *What this task is:*",
+                    desc_safe,
+                ])
+
+            # 2. WHY does it need human approval? \u2014 derived from tags.
+            risk = TaskExecutionCoordinator._risk_class_hint(task)
+            if risk:
+                lines.extend([
+                    "",
+                    f"\u26a0\ufe0f *Why this needs your approval:* {risk}",
+                ])
+
+            # 3. WHO will run it?
+            agent_label = TaskExecutionCoordinator._resolve_agent_label(task)
+            if agent_label:
+                lines.extend([
+                    "",
+                    f"\ud83e\udd16 *Agent that will run:* `{agent_label}`",
+                ])
+
+            # 4. WHERE do I see more?
+            dash_url = TaskExecutionCoordinator._dashboard_task_url(task.task_id)
+            if dash_url:
+                lines.extend([
+                    "",
+                    f"\ud83d\udd17 *Inspect on dashboard:* {dash_url}",
+                ])
+
+            lines.append(
+                "Tap \u2705 Approve to let the agent proceed, or \u274c Reject "
+                "to BLOCK this task."
+            )
             msg = "\n".join(lines)
+            if len(msg) > 4000:
+                msg = msg[:3950] + "\u2026 (truncated)"
+
             keyboard = [[
                 {"text": "\u2705 Approve", "callback_data": f"task:approve:{task.task_id}"},
                 {"text": "\u274c Reject", "callback_data": f"task:reject:{task.task_id}"},

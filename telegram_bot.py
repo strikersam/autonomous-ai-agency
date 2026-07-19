@@ -662,7 +662,13 @@ async def _edit_message(
     keyboard: list[list[dict]] | None = None,
     parse_mode: str = "Markdown",
 ) -> None:
-    """Edit an existing message's text and (optionally) its inline keyboard."""
+    """Edit an existing message's text and (optionally) its inline keyboard.
+
+    Best-effort: NEVER raises. A 5s timeout protects against a hung Telegram
+    API; any failure (timeout, network, 4xx) is logged but swallowed so a
+    Telegram-side flake cannot break an end-user-facing callback flow. The
+    webhook must not 5xx on a transient Telegram API error.
+    """
     payload: dict = {
         "chat_id": chat_id,
         "message_id": message_id,
@@ -671,22 +677,42 @@ async def _edit_message(
     }
     if keyboard is not None:
         payload["reply_markup"] = {"inline_keyboard": keyboard}
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(
-            f"https://api.telegram.org/bot{bot_token}/editMessageText",
-            json=payload,
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{bot_token}/editMessageText",
+                json=payload,
+            )
+    except Exception as exc:  # noqa: BLE001 - best-effort UX update
+        log.warning(
+            "_edit_message failed (chat_id=%s message_id=%s): %s",
+            chat_id, message_id, exc,
         )
 
 
 async def _answer_callback(bot_token: str, callback_id: str, text: str = "") -> None:
-    """Acknowledge a callback query so Telegram stops the button's loading spinner."""
+    """Acknowledge a callback query so Telegram stops the button's loading spinner.
+
+    Best-effort: NEVER raises. Telegram's client UI shows a "loading"
+    indicator on the tapped inline button until ``answerCallbackQuery`` is
+    received OR the bot stops responding \u2014 letting an exception escape
+    this function leaves the spinner up indefinitely. A 5s timeout protects
+    against a slow / hostile Telegram API. Errors are logged but swallowed
+    so a Telegram outage cannot break an end-user-facing flow.
+    """
     payload = {"callback_query_id": callback_id}
     if text:
         payload["text"] = text
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(
-            f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
-            json=payload,
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
+                json=payload,
+            )
+    except Exception as exc:  # noqa: BLE001 - spinner must clear even on Telegram outage
+        log.warning(
+            "_answer_callback failed (callback_id=%s): %s",
+            callback_id, exc,
         )
 
 
@@ -972,6 +998,16 @@ async def _process_task_callback(
     Callback data format: ``task:approve:<task_id>`` / ``task:reject:<task_id>``.
     Mirrors the ``wfo:`` approval flow but targets the task execution gate in
     ``tasks/service.py`` (TaskWorkflowService.approve_execution / reject).
+
+    Invariant: ``_answer_callback`` is invoked at least once before this
+    function returns so Telegram's "loading" spinner always clears. The store
+    calls are wrapped in ``asyncio.wait_for`` so a hung datastore (e.g.,
+    unreachable Mongo) cannot exceed Telegram's patience window; on timeout
+    we answer the callback AND edit the original message to a diagnostic
+    view so the operator is not stuck looking at "Loading\u2026".
+    ``_answer_callback`` and ``_edit_message`` are themselves best-effort
+    (never raise); see tests/test_telegram_task_callback.py for the
+    production timing invariants.
     """
     if not task_id:
         await _answer_callback(bot_token, callback_id, "Missing task ID.")
@@ -981,42 +1017,138 @@ async def _process_task_callback(
         from tasks.service import TaskWorkflowService
         from telegram_service import _escape_md_v1
 
-        workflow = TaskWorkflowService()
-        task = await workflow.store.get(task_id)
+        try:
+            workflow = TaskWorkflowService()
+        except Exception as exc:
+            await _answer_callback(
+                bot_token, callback_id,
+                f"Storage unavailable: {type(exc).__name__}",
+            )
+            await _edit_message(
+                bot_token, chat_id, message_id,
+                f"\u26a0\ufe0f *Cannot approve* \u2014 the bot's task store is not "
+                f"reachable (`{type(exc).__name__}: {str(exc)[:120]}`).\n\n"
+                f"Configure `STORAGE_BACKEND=sqlite` + `SQLITE_DB_PATH=...` (or "
+                f"`MONGO_URL=...`) on the bot service and restart. See "
+                f"`docs/configuration-reference.md`.",
+            )
+            return
+
+        try:
+            task = await asyncio.wait_for(workflow.store.get(task_id), timeout=8.0)
+        except asyncio.TimeoutError:
+            await _answer_callback(bot_token, callback_id, "Storage slow \u2014 try again.")
+            await _edit_message(
+                bot_token, chat_id, message_id,
+                f"\u26a0\ufe0f *Timed out* fetching `{task_id}` from storage (8s). "
+                f"Try the button again, or open the dashboard at `PUBLIC_URL`/tasks "
+                f"to inspect manually.",
+            )
+            return
+        except Exception as exc:
+            await _answer_callback(
+                bot_token, callback_id, f"Lookup error: {type(exc).__name__}"
+            )
+            await _edit_message(
+                bot_token, chat_id, message_id,
+                f"\u274c *Storage lookup failed* for `{task_id}`: "
+                f"`{type(exc).__name__}: {str(exc)[:120]}`.",
+            )
+            return
+
         if not task:
             await _answer_callback(bot_token, callback_id, "Task not found.")
-            await _edit_message(bot_token, chat_id, message_id,
-                                "_Task not found_ — it may have been deleted.")
+            await _edit_message(
+                bot_token, chat_id, message_id,
+                f"\u26a0\ufe0f *Task not found* \u2014 `{task_id}` is not visible to "
+                f"this bot.\n\n"
+                f"This usually means the bot's task store is configured against "
+                f"a different database than the worker that queued the task "
+                f"(`STORAGE_BACKEND` / `SQLITE_DB_PATH` / `MONGO_URL` must match "
+                f"between worker and bot). Inspect on the dashboard: "
+                f"`PUBLIC_URL`/tasks/{task_id}.",
+            )
             return
 
         if action == "task_approve":
-            workflow.approve_execution(
-                task, actor="telegram_bot", approved=True, reason="Approved via Telegram",
-            )
-            await workflow.store.update(task)
+            try:
+                workflow.approve_execution(
+                    task, actor="telegram_bot", approved=True, reason="Approved via Telegram",
+                )
+                await asyncio.wait_for(workflow.store.update(task), timeout=8.0)
+            except asyncio.TimeoutError:
+                await _answer_callback(bot_token, callback_id, "Storage slow \u2014 try again.")
+                await _edit_message(
+                    bot_token, chat_id, message_id,
+                    f"\u26a0\ufe0f *Approved in memory but the write timed out* "
+                    f"(8s). `{task_id}` is still pending and may double-process \u2014 "
+                    f"inspect on the dashboard.",
+                )
+                log.warning(
+                    "_process_task_callback: store.update(%s) timed out in approve path",
+                    task_id,
+                )
+                return
+            except Exception as exc:
+                await _answer_callback(bot_token, callback_id, f"Approve failed: {exc}")
+                await _edit_message(
+                    bot_token, chat_id, message_id,
+                    f"\u274c *Approve failed* for `{task_id}`: "
+                    f"`{type(exc).__name__}: {str(exc)[:120]}`",
+                )
+                log.warning("_process_task_callback: approve(%s) failed: %s", task_id, exc)
+                return
             await _answer_callback(bot_token, callback_id, "Approved \u2705")
             await _edit_message(
                 bot_token, chat_id, message_id,
-                f"\u2705 *Approved* — `{task_id}`\n"
+                f"\u2705 *Approved* \u2014 `{task_id}`\n"
                 f"{_escape_md_v1((task.title or '')[:120])}\n"
-                "The agent will now execute this task.",
+                "The agent will now execute this task. You'll get a follow-up "
+                "in this chat when the run completes.",
             )
         elif action == "task_reject":
-            workflow.approve_execution(
-                task, actor="telegram_bot", approved=False, reason="Rejected via Telegram",
-            )
-            await workflow.store.update(task)
+            try:
+                workflow.approve_execution(
+                    task, actor="telegram_bot", approved=False, reason="Rejected via Telegram",
+                )
+                await asyncio.wait_for(workflow.store.update(task), timeout=8.0)
+            except asyncio.TimeoutError:
+                await _answer_callback(bot_token, callback_id, "Storage slow \u2014 try again.")
+                await _edit_message(
+                    bot_token, chat_id, message_id,
+                    f"\u26a0\ufe0f *Rejected in memory but the write timed out*. "
+                    f"`{task_id}` is still pending \u2014 inspect on the dashboard.",
+                )
+                log.warning(
+                    "_process_task_callback: store.update(%s) timed out in reject path",
+                    task_id,
+                )
+                return
+            except Exception as exc:
+                await _answer_callback(bot_token, callback_id, f"Reject failed: {exc}")
+                await _edit_message(
+                    bot_token, chat_id, message_id,
+                    f"\u274c *Reject failed* for `{task_id}`: "
+                    f"`{type(exc).__name__}: {str(exc)[:120]}`",
+                )
+                log.warning("_process_task_callback: reject(%s) failed: %s", task_id, exc)
+                return
             await _answer_callback(bot_token, callback_id, "Rejected \u274c")
             await _edit_message(
                 bot_token, chat_id, message_id,
-                f"\u274c *Rejected* — `{task_id}`\n"
+                f"\u274c *Rejected* \u2014 `{task_id}`\n"
                 f"{_escape_md_v1((task.title or '')[:120])}",
             )
         else:
             await _answer_callback(bot_token, callback_id, "Unknown action.")
     except Exception as exc:
-        log.warning("task callback failed for %s: %s", task_id, exc)
-        await _answer_callback(bot_token, callback_id, f"Error: {exc}")
+        # Defense-in-depth: even if our inner handler raised something we
+        # did not anticipate, make sure Telegram's spinner clears.
+        # _answer_callback is best-effort (swallows exceptions), so a
+        # Telegram API outage on this follow-up call still leaves a clean
+        # log line for an operator to act on.
+        log.exception("task callback crashed for %s: %s", task_id, exc)
+        await _answer_callback(bot_token, callback_id, "Internal error \u2014 try again.")
 
 
 async def _process_wfo_callback(
