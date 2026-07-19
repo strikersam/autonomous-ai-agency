@@ -204,6 +204,16 @@ def _safe_object_id(value: Optional[str]) -> Optional[ObjectId]:
         return None
 
 
+def _user_id_filter(uid: str) -> dict:
+    """Build a Mongo `_id` filter for a user id that may not be a valid
+    ObjectId — e.g. SQLite-backed users (plain UUID string _id) or the
+    env-admin fallback user ("admin_user_001") created in get_optional_user()
+    when the DB is unreachable. Mirrors the ObjectId-then-raw-string fallback
+    already used there."""
+    oid = _safe_object_id(uid)
+    return {"_id": oid} if oid is not None else {"_id": uid}
+
+
 def _get_limited_chat_session(session_id: str, user_id: str) -> Optional[Dict[str, object]]:
     session = _LIMITED_CHAT_SESSIONS.get(session_id)
     if not session or session.get("user_id") != user_id:
@@ -8458,7 +8468,7 @@ async def set_github_token(
     )
     # Sync to user document so the agent runner can read it directly
     await get_db().users.update_one(
-        {"_id": ObjectId(uid)},
+        _user_id_filter(uid),
         {
             "$set": {
                 "github_repo_token": body.token,
@@ -8476,7 +8486,7 @@ async def delete_github_token(user: dict = Depends(get_current_user)):
     await get_db().github_settings.delete_one({"user_id": user["_id"]})
     # Clear from user document too
     await get_db().users.update_one(
-        {"_id": ObjectId(user["_id"])},
+        _user_id_filter(user["_id"]),
         {
             "$unset": {
                 "github_repo_token": "",
