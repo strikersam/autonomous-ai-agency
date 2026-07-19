@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from packages.ai.response_cache import get_cached, put_cached
 
 log = logging.getLogger("llm-provider-router")
 
@@ -287,6 +288,16 @@ class ProviderResult:
     provider: ProviderConfig
     model: str
     attempts: list[ProviderAttempt]
+
+
+# Sentinel ProviderConfig returned when a response is served from the local cache
+# (not a real provider call). Callers that log `result.provider.provider_id` will
+# see "response-cache" and can distinguish cache hits from provider hits.
+_CACHE_PROVIDER = ProviderConfig(
+    provider_id="response-cache",
+    type="cache",
+    base_url="",
+)
 
 
 class ProviderFallbackError(RuntimeError):
@@ -1169,6 +1180,28 @@ class ProviderRouter:
             raise ProviderFallbackError(attempts)
 
         original_model = str(payload.get("model") or "").strip()
+
+        # ── Response cache (exact-match, temperature=0, non-streaming only) ──
+        # Eliminates duplicate calls to rate-limited free-tier providers.
+        # Failures are swallowed so a broken cache never blocks real calls.
+        if not payload.get("stream"):
+            try:
+                cached_body = await get_cached(payload)
+            except Exception as _cache_exc:
+                log.debug("Response cache lookup error (ignored): %s", _cache_exc)
+                cached_body = None
+            if cached_body is not None:
+                return ProviderResult(
+                    response=httpx.Response(
+                        200,
+                        json=cached_body,
+                        headers={"content-type": "application/json"},
+                    ),
+                    provider=_CACHE_PROVIDER,
+                    model=str(cached_body.get("model") or original_model),
+                    attempts=[],
+                )
+
         skipped_on_cooldown: list[tuple[ProviderConfig, bool]] = []  # (provider, is_primary)
         # Track the first actually-eligible provider so is_primary works correctly
         # even when earlier providers are skipped (cooldown or model-affinity).
@@ -1211,6 +1244,11 @@ class ProviderRouter:
                 )
                 if result is not None:
                     await _release_provider_probe(provider.provider_id)
+                    if not payload.get("stream"):
+                        try:
+                            await put_cached(payload, result.response.json())
+                        except Exception as _store_exc:
+                            log.debug("Response cache store error (ignored): %s", _store_exc)
                     return result
                 # Provider failed — probe lock was released by _try_one_provider's
                 # cooldown path.  A new cooldown blocks further probes anyway.
@@ -1248,6 +1286,11 @@ class ProviderRouter:
                     provider_timeout_sec,
                 )
                 if result is not None:
+                    if not payload.get("stream"):
+                        try:
+                            await put_cached(payload, result.response.json())
+                        except Exception as _store_exc:
+                            log.debug("Response cache store error (ignored): %s", _store_exc)
                     return result
 
         if deferred_commercial and not attempts:

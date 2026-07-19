@@ -7661,6 +7661,26 @@ async def loops_overview() -> dict[str, object]:
         }
 
 
+@app.get("/api/cache/stats")
+async def response_cache_stats(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Diagnostic endpoint for the LLM response cache.
+
+    Returns hit/miss rates, live entry count, and configuration.
+    Requires authentication (same as all non-public API endpoints).
+    """
+    from packages.ai.response_cache import cache_stats
+    return await cache_stats()
+
+
+@app.delete("/api/cache")
+async def clear_response_cache(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Clear the in-memory LLM response cache. Admin-only operation."""
+    _require_admin(user)
+    from packages.ai.response_cache import clear_cache
+    count = await clear_cache()
+    return {"cleared": count}
+
+
 @app.get("/api/autonomy/tick")
 async def autonomy_tick() -> dict[str, object]:
     """Execute ONE pending task synchronously. Called by the cron workflow every 2 min.
