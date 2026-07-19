@@ -29,6 +29,9 @@ jobs:
     name: Full Browser Regression (Desktop + Mobile)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      regression_exitcode: ${{ steps.regression.outputs.exitcode }}
+      telegram_e2e_exitcode: ${{ steps.telegram_e2e.outputs.exitcode }}
 
     steps:
       - uses: actions/checkout@v4
@@ -116,6 +119,34 @@ jobs:
           exit "$exitcode"
         continue-on-error: true
 
+      # Telegram approval e2e (tests/e2e/test_telegram_approval_e2e.py).
+      # Same docker backend on :8001 as the regression suite above; overrides
+      # the test's default AGENCY_BASE_URL=https://local-llm-server.strikersam.workers.dev
+      # to the in-job backend. continue-on-error: true isolates failure from
+      # auto-fix (whose sed targets test_regression.py) so a regression failure
+      # stays the auto-fix signal; telegram_e2e is logged separately in notify.
+      #
+      # Silent-failure note: continue-on-error here means telegram_e2e failures
+      # are not auto-fixed and not job-blocking — the regression job stays green
+      # and the failure shows up only in the notify summary's exit-code cell.
+      # Operator must read needs.regression.outputs.telegram_e2e_exitcode.
+      - name: Run Telegram approval e2e
+        id: telegram_e2e
+        env:
+          AGENCY_BASE_URL: http://localhost:8001
+          ADMIN_USER: ${{ env.E2E_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.E2E_ADMIN_PASSWORD }}
+        run: |
+          set +e
+          # --override-ini="addopts=" drops the project's --ignore=tests/e2e + -m "not integration"
+          # addopt (see pytest.ini) so pytest actually collects the test under
+          # the e2e/ directory. -m e2e pins to the marker we registered.
+          python -m pytest tests/e2e/test_telegram_approval_e2e.py \
+            --override-ini="addopts=" -m e2e -v --tb=short \
+            2>&1 | tee /tmp/telegram_e2e-output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
       # Build the report from the captured output of the single regression
       # run above — re-invoking the suite here would run the CRUD tests a
       # second time against the same backend and mutate its state, so the
@@ -148,6 +179,7 @@ jobs:
           path: |
             /tmp/e2e-artifacts/
             /tmp/regression-output.txt
+            /tmp/telegram_e2e-output.txt
           retention-days: 7
 
       - name: Fail if regression suite failed
@@ -316,7 +348,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Regression | ${{ needs.regression.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Regression (test_regression.py) | exit=${{ needs.regression.outputs.regression_exitcode || '?' }} (job=${{ needs.regression.result }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Telegram approval e2e | exit=${{ needs.regression.outputs.telegram_e2e_exitcode || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Auto-Fix | ${{ needs.auto-fix.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "[View full run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY

@@ -1,7 +1,15 @@
-All notable changes to this project will be documented in this file.
+<!-- docs/changelog.md mirrors root CHANGELOG.md (the changelog-gate
+     keys on this file path). Keep both files in sync on every PR, or
+     move the gate to root. -->
 
 ## [Unreleased]
+
 ### Added
+
+### Added
+
+- **Wire `tests/e2e/test_telegram_approval_e2e.py` into the nightly regression via `pytest.mark.e2e`** (2026-07-20). Registers the `e2e:` marker in `pytest.ini`; tags the new test with `[pytest.mark.e2e, pytest.mark.skipif(...)]` so it stays SKIPPED on the PR gate (protected by the existing `--ignore=tests/e2e` addopt) and runs nightly against the in-job docker backend (`AGENCY_BASE_URL=http://localhost:8001`) via a new step in `.github/workflows/nightly-regression.yml`. Operator must read `needs.regression.outputs.telegram_e2e_exitcode` in the nightly `Print summary` step to surface Telegram-e2e failures.
+
 - **Dashboard surface for the North Mini Code coding brain** (2026-07-18). The North default + interleaved-thinking control shipped backend-only, so nothing was visible in the UI. The `/api/doctor` report — which the v5 **Doctor** screen renders generically — now includes a **"Coding brain (North Mini Code)"** check under the `Models` category showing the active coding/executor model, whether `NORTH_MINI_CODE_DEFAULT` is on, and the interleaved-thinking setting (`OLLAMA_REASONING_EFFORT`, or Ollama's auto-default). It reports `pass` in normal configs (North on Ollama/OpenRouter, or the expected NVIDIA-only-production fallback) and `warn` only when an operator has switched the default off. Hermes runtime health is already surfaced as a `Runtime` check on the same screen, so the two now sit side-by-side. Read-only, defensive (never breaks the report). Files: `backend/server.py`, `tests/test_doctor_coding_brain.py` (2 tests).
 
 ### Fixed
@@ -639,8 +647,11 @@ All notable changes to this project will be documented in this file.
 ### Maintenance
 - **Microsoft-Windows keepalive agent for Render and local Ollama (`scripts/keepalive.py`)** (2026-07-15). Drop-in Python daemon that pings the Render web service (`/api/health` with `/api/ping` fallback) and the local Ollama instance (`/api/tags`) on a configurable interval (default 600 s). Three CLI modes: `--diagnose`, `--once`, `--daemon`. Cold-start opt-in model warm-up via `keep_alive=-1` against models listed in `KEEPALIVE_MODELS`. 1 MiB log auto-rotation. Survives Ollama restarts; idempotent on the global state. Handles offline Ollama cleanly (skips warm-up when `/api/tags` is unreachable rather than stacking timeouts). Documented setup in `docs/colibri-local-brain-cheatsheet.md` (Windows Task Scheduler `AtStartup` + `AtLogon` or `pwsh scripts/wait_for_colibri_ready.ps1`).
 - **Test suite + UI screenshot parity** (`tests/test_keepalive.py`, `docs/screenshots/providers-current.png`) (2026-07-15). Five hermetic smoke tests for the keepalive daemon (`test_log_path_creates_parent`, `test_rotate_is_idempotent`, `test_log_emits_timestamped_line`, `test_run_once_with_unreachable_hosts_returns_one`, `test_cli_once_mode_exits_zero`, `test_cli_diagnose_unreachable_exits_one`). The `docs/screenshots/providers-current.png` snapshot anchors the operator-facing Cloudflare-deployed Providers page in the colibri cheatsheet and the v5 UI gallery. Files: `tests/test_keepalive.py`, `docs/screenshots/providers-current.png`.
+
+
 ## [5.0.0]
- — 2026-05-24
+
+— 2026-05-24
 ### Added
 - `agent/contract.py`: `AgentJobRequest` now has `extra="forbid"` (Pydantic v2) — unknown kwargs
   raise `ValidationError` immediately instead of being silently dropped, eliminating the
@@ -880,8 +891,11 @@ Maintenance
 ### Maintenance
 - **Microsoft-Windows keepalive agent for Render and local Ollama (`scripts/keepalive.py`)** (2026-07-15). Drop-in Python daemon that pings the Render web service (`/api/health` with `/api/ping` fallback) and the local Ollama instance (`/api/tags`) on a configurable interval (default 600 s). Three CLI modes: `--diagnose`, `--once`, `--daemon`. Cold-start opt-in model warm-up via `keep_alive=-1` against models listed in `KEEPALIVE_MODELS`. 1 MiB log auto-rotation. Survives Ollama restarts; idempotent on the global state. Handles offline Ollama cleanly (skips warm-up when `/api/tags` is unreachable rather than stacking timeouts). Documented setup in `docs/colibri-local-brain-cheatsheet.md` (Windows Task Scheduler `AtStartup` + `AtLogon` or `pwsh scripts/wait_for_colibri_ready.ps1`).
 - **Test suite + UI screenshot parity** (`tests/test_keepalive.py`, `docs/screenshots/providers-current.png`) (2026-07-15). Five hermetic smoke tests for the keepalive daemon (`test_log_path_creates_parent`, `test_rotate_is_idempotent`, `test_log_emits_timestamped_line`, `test_run_once_with_unreachable_hosts_returns_one`, `test_cli_once_mode_exits_zero`, `test_cli_diagnose_unreachable_exits_one`). The `docs/screenshots/providers-current.png` snapshot anchors the operator-facing Cloudflare-deployed Providers page in the colibri cheatsheet and the v5 UI gallery. Files: `tests/test_keepalive.py`, `docs/screenshots/providers-current.png`.
+
+
 ## [v4.1.0]
- — 2026-05-09
+
+— 2026-05-09
 ### Added
 - `agent/repowise.py`, `agent/tools.py` — Implemented Repowise-inspired codebase intelligence tools: `get_overview`, `get_context`, `get_risk`, and `get_why` for enhanced agent reasoning.
 - **Vision request routing** (`router/registry.py`, `router/model_router.py`) — the proxy now auto-detects `image_url` content parts in incoming chat requests and routes them to the highest-tier vision-capable model registered in the capability registry. Vision capability is declared via the new `vision: bool` field on `ModelCapability`. Affected models: `gemma4:27b`, `gemma4:9b`, `gemma4:latest`, `llama4-maverick:17b`, `llama4-scout:17b`, `qwen3.6:35b`. Set `VISION_MODEL=<name>` env var to pin to a specific vision model. Manual `X-Model-Override` header still takes priority.
