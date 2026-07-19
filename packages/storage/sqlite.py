@@ -527,6 +527,45 @@ class _Collection:
         await conn.commit()
         return _UpdateResult(1, 1)
 
+    async def update_many(self, query: dict, update: dict,
+                          upsert: bool = False) -> _UpdateResult:
+        """Apply *update* to every document matching *query* (Motor-compatible).
+
+        Unlike ``update_one`` (which stops at the first match), this walks
+        every matching row — needed for fan-out writes like clearing an
+        ``is_default`` flag off every OTHER provider before setting it on
+        the newly-chosen one (``backend/server.py``'s provider endpoints).
+        """
+        docs = await self._matching(query, write_conn=True)
+        if not docs:
+            if upsert:
+                new_doc = {}
+                for k, v in query.items():
+                    if not k.startswith("$") and not isinstance(v, dict):
+                        new_doc[k] = v
+                for op, fields in update.items():
+                    if op in ("$set", "$setOnInsert"):
+                        new_doc.update(fields)
+                await self.insert_one(new_doc)
+                return _UpdateResult(0, 1)
+            return _UpdateResult(0, 0)
+
+        indexed = _INDEXED_FIELDS.get(self._name, [])
+        conn = await self._conn()
+        for doc in docs:
+            new_doc = _apply_update(doc, update)
+            set_parts = ["data = ?"] + [f"{f} = ?" for f in indexed]
+            vals = [json.dumps(new_doc, default=str)] + [
+                str(new_doc.get(f, "")) for f in indexed
+            ]
+            vals.append(str(doc["_id"]))
+            await conn.execute(
+                f"UPDATE {self._name} SET {', '.join(set_parts)} WHERE id = ?",  # nosec B608 — table name is whitelisted via _COLLECTIONS in _Collection.__init__
+                vals,
+            )
+        await conn.commit()
+        return _UpdateResult(len(docs), len(docs))
+
     async def replace_one(self, query: dict, replacement: dict,
                           upsert: bool = False) -> _UpdateResult:
         docs = await self._matching(query, write_conn=True)

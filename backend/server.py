@@ -204,6 +204,16 @@ def _safe_object_id(value: Optional[str]) -> Optional[ObjectId]:
         return None
 
 
+def _user_id_filter(uid: str) -> dict:
+    """Build a Mongo `_id` filter for a user id that may not be a valid
+    ObjectId — e.g. SQLite-backed users (plain UUID string _id) or the
+    env-admin fallback user ("admin_user_001") created in get_optional_user()
+    when the DB is unreachable. Mirrors the ObjectId-then-raw-string fallback
+    already used there."""
+    oid = _safe_object_id(uid)
+    return {"_id": oid} if oid is not None else {"_id": uid}
+
+
 def _get_limited_chat_session(session_id: str, user_id: str) -> Optional[Dict[str, object]]:
     session = _LIMITED_CHAT_SESSIONS.get(session_id)
     if not session or session.get("user_id") != user_id:
@@ -5852,14 +5862,20 @@ async def list_providers(user: dict = Depends(get_current_user)):
 @app.post("/api/providers")
 async def create_provider(body: ProviderCreate, user: dict = Depends(get_current_user)):
     _require_admin(user)
-    if await get_db().providers.find_one({"provider_id": body.provider_id}):
-        raise HTTPException(status_code=409, detail="Provider ID already exists")
-    if body.is_default:
-        await get_db().providers.update_many({}, {"$set": {"is_default": False}})
-    doc = body.dict()
-    doc["created_at"] = datetime.now(timezone.utc).isoformat()
-    doc["status"] = "configured"
-    await get_db().providers.insert_one(doc)
+    try:
+        if await get_db().providers.find_one({"provider_id": body.provider_id}):
+            raise HTTPException(status_code=409, detail="Provider ID already exists")
+        if body.is_default:
+            await get_db().providers.update_many({}, {"$set": {"is_default": False}})
+        doc = body.dict()
+        doc["created_at"] = datetime.now(timezone.utc).isoformat()
+        doc["status"] = "configured"
+        await get_db().providers.insert_one(doc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("create_provider: DB operation failed for %s (%s)", body.provider_id, exc)
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable — try again in a moment.") from exc
     await log_activity("provider", f"Added provider: {body.name}", user_id=user["_id"])
     return {"ok": True, "provider_id": body.provider_id}
 
@@ -5871,16 +5887,22 @@ async def update_provider(
     updates = {}
     for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
-    if body.is_default:
-        await get_db().providers.update_many(
-            {"provider_id": {"$ne": provider_id}}, {"$set": {"is_default": False}}
-        )
-    if updates:
-        result = await get_db().providers.update_one(
-            {"provider_id": provider_id}, {"$set": updates}
-        )
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Provider not found")
+    try:
+        if body.is_default:
+            await get_db().providers.update_many(
+                {"provider_id": {"$ne": provider_id}}, {"$set": {"is_default": False}}
+            )
+        if updates:
+            result = await get_db().providers.update_one(
+                {"provider_id": provider_id}, {"$set": updates}
+            )
+            if result.matched_count == 0:
+                raise HTTPException(status_code=404, detail="Provider not found")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("update_provider: DB operation failed for %s (%s)", provider_id, exc)
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable — try again in a moment.") from exc
     await log_activity(
         "provider", f"Updated provider: {provider_id}", user_id=user["_id"]
     )
@@ -5889,9 +5911,15 @@ async def update_provider(
 
 @app.delete("/api/providers/{provider_id}")
 async def delete_provider(provider_id: str, user: dict = Depends(get_current_user)):
-    result = await get_db().providers.delete_one({"provider_id": provider_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Provider not found")
+    try:
+        result = await get_db().providers.delete_one({"provider_id": provider_id})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Provider not found")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("delete_provider: DB operation failed for %s (%s)", provider_id, exc)
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable — try again in a moment.") from exc
     await log_activity(
         "provider", f"Deleted provider: {provider_id}", user_id=user["_id"]
     )
@@ -5936,8 +5964,21 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
 
 @app.get("/api/providers/{provider_id}/models")
 async def provider_models(provider_id: str, user: dict = Depends(get_current_user)):
-    prov = await get_db().providers.find_one({"provider_id": provider_id})
+    # Mirrors list_providers()'s Mongo-unavailable resilience: a transient
+    # connectivity gap (e.g. Render free-tier cold start) must not surface as
+    # a raw 500 — fall back to the predefined catalog for this provider_id,
+    # same as when the provider simply has no row yet (e.g. it's one of the
+    # unified BrainConfig catalog providers that was never added via the
+    # legacy POST /api/providers flow).
+    try:
+        prov = await get_db().providers.find_one({"provider_id": provider_id})
+    except Exception as exc:
+        log.warning("provider_models: DB lookup failed for %s (%s) — using predefined catalog", provider_id, exc)
+        prov = None
     if not prov:
+        predefined = [m["id"] for m in PREDEFINED_MODELS.get(provider_id, [])]
+        if predefined:
+            return {"provider_id": provider_id, "models": predefined}
         raise HTTPException(status_code=404, detail="Provider not found")
 
     # Determine provider type key for catalog lookup.
@@ -8478,7 +8519,7 @@ async def set_github_token(
     )
     # Sync to user document so the agent runner can read it directly
     await get_db().users.update_one(
-        {"_id": ObjectId(uid)},
+        _user_id_filter(uid),
         {
             "$set": {
                 "github_repo_token": body.token,
@@ -8496,7 +8537,7 @@ async def delete_github_token(user: dict = Depends(get_current_user)):
     await get_db().github_settings.delete_one({"user_id": user["_id"]})
     # Clear from user document too
     await get_db().users.update_one(
-        {"_id": ObjectId(user["_id"])},
+        _user_id_filter(user["_id"]),
         {
             "$unset": {
                 "github_repo_token": "",
