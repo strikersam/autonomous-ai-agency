@@ -57,6 +57,39 @@ def _blocks(content: str) -> dict[str, str]:
     return out
 
 
+# ── Corruption guard ────────────────────────────────────────────────────────
+#
+# The `_blocks` parser keys each ``## [X]`` section by version and lets the LAST
+# occurrence win, so a DUPLICATE ``## [Unreleased]`` heading (and any leftover
+# git-conflict / git-stash markers below it) can ride through parity silently —
+# exactly the recurring drift that forced a manual conflict resolution on PRs
+# #1071, #1076. This scan rejects that at the source.
+
+# ``<<<<<<<`` / ``>>>>>>>`` never appear in legitimate changelog prose, and the
+# ``Updated upstream`` / ``Stashed changes`` labels are git-stash conflict
+# banners. A bare ``=======`` line is only flagged when a real conflict marker
+# is also present (a 7-equals line can otherwise be a Markdown setext heading).
+_CONFLICT_MARKER_RE = re.compile(r"^(?:<{7}|>{7})", re.MULTILINE)
+_STASH_LABEL_RE = re.compile(r"^(?:<{7}|>{7}).*\b(?:Updated upstream|Stashed changes)\b", re.MULTILINE)
+
+
+def scan_corruption(name: str, content: str) -> list[str]:
+    """Return a list of human-readable corruption issues in *content*.
+
+    Detects (1) git conflict / stash markers and (2) duplicate version
+    headings (the same ``## [X]`` appearing more than once)."""
+    issues: list[str] = []
+    if _CONFLICT_MARKER_RE.search(content) or "Stashed changes" in content or "Updated upstream" in content:
+        issues.append(f"{name}: contains a git conflict/stash marker (<<<<<<< / >>>>>>> / Stashed changes)")
+    seen: set[str] = set()
+    for m in _VERSION_RE.finditer(content):
+        key = m.group(1).strip()
+        if key in seen:
+            issues.append(f"{name}: duplicate version heading '## [{key}]' (headings must be unique)")
+        seen.add(key)
+    return issues
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=Path("CHANGELOG.md"))
@@ -72,8 +105,21 @@ def main() -> int:
         )
         return 2
 
-    root_blocks = _blocks(args.root.read_text(encoding="utf-8"))
-    docs_blocks = _blocks(args.docs.read_text(encoding="utf-8"))
+    root_text = args.root.read_text(encoding="utf-8")
+    docs_text = args.docs.read_text(encoding="utf-8")
+
+    # Reject corruption (conflict markers, duplicate headings) at the source so
+    # it can't silently ride through the last-heading-wins parser.
+    corruption = scan_corruption(str(args.root), root_text) + scan_corruption(str(args.docs), docs_text)
+    if corruption:
+        print("::error::Changelog corruption detected:", file=sys.stderr)
+        for issue in corruption:
+            print(f"::error::  {issue}", file=sys.stderr)
+        print("CHANGELOG CORRUPTION: " + "; ".join(corruption), file=sys.stderr)
+        return 2
+
+    root_blocks = _blocks(root_text)
+    docs_blocks = _blocks(docs_text)
 
     if not root_blocks and not docs_blocks:
         print(
