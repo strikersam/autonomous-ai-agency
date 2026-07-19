@@ -5862,14 +5862,20 @@ async def list_providers(user: dict = Depends(get_current_user)):
 @app.post("/api/providers")
 async def create_provider(body: ProviderCreate, user: dict = Depends(get_current_user)):
     _require_admin(user)
-    if await get_db().providers.find_one({"provider_id": body.provider_id}):
-        raise HTTPException(status_code=409, detail="Provider ID already exists")
-    if body.is_default:
-        await get_db().providers.update_many({}, {"$set": {"is_default": False}})
-    doc = body.dict()
-    doc["created_at"] = datetime.now(timezone.utc).isoformat()
-    doc["status"] = "configured"
-    await get_db().providers.insert_one(doc)
+    try:
+        if await get_db().providers.find_one({"provider_id": body.provider_id}):
+            raise HTTPException(status_code=409, detail="Provider ID already exists")
+        if body.is_default:
+            await get_db().providers.update_many({}, {"$set": {"is_default": False}})
+        doc = body.dict()
+        doc["created_at"] = datetime.now(timezone.utc).isoformat()
+        doc["status"] = "configured"
+        await get_db().providers.insert_one(doc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("create_provider: DB operation failed for %s (%s)", body.provider_id, exc)
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable — try again in a moment.") from exc
     await log_activity("provider", f"Added provider: {body.name}", user_id=user["_id"])
     return {"ok": True, "provider_id": body.provider_id}
 
@@ -5881,16 +5887,22 @@ async def update_provider(
     updates = {}
     for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
-    if body.is_default:
-        await get_db().providers.update_many(
-            {"provider_id": {"$ne": provider_id}}, {"$set": {"is_default": False}}
-        )
-    if updates:
-        result = await get_db().providers.update_one(
-            {"provider_id": provider_id}, {"$set": updates}
-        )
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Provider not found")
+    try:
+        if body.is_default:
+            await get_db().providers.update_many(
+                {"provider_id": {"$ne": provider_id}}, {"$set": {"is_default": False}}
+            )
+        if updates:
+            result = await get_db().providers.update_one(
+                {"provider_id": provider_id}, {"$set": updates}
+            )
+            if result.matched_count == 0:
+                raise HTTPException(status_code=404, detail="Provider not found")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("update_provider: DB operation failed for %s (%s)", provider_id, exc)
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable — try again in a moment.") from exc
     await log_activity(
         "provider", f"Updated provider: {provider_id}", user_id=user["_id"]
     )
@@ -5899,9 +5911,15 @@ async def update_provider(
 
 @app.delete("/api/providers/{provider_id}")
 async def delete_provider(provider_id: str, user: dict = Depends(get_current_user)):
-    result = await get_db().providers.delete_one({"provider_id": provider_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Provider not found")
+    try:
+        result = await get_db().providers.delete_one({"provider_id": provider_id})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Provider not found")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("delete_provider: DB operation failed for %s (%s)", provider_id, exc)
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable — try again in a moment.") from exc
     await log_activity(
         "provider", f"Deleted provider: {provider_id}", user_id=user["_id"]
     )
@@ -5946,8 +5964,21 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
 
 @app.get("/api/providers/{provider_id}/models")
 async def provider_models(provider_id: str, user: dict = Depends(get_current_user)):
-    prov = await get_db().providers.find_one({"provider_id": provider_id})
+    # Mirrors list_providers()'s Mongo-unavailable resilience: a transient
+    # connectivity gap (e.g. Render free-tier cold start) must not surface as
+    # a raw 500 — fall back to the predefined catalog for this provider_id,
+    # same as when the provider simply has no row yet (e.g. it's one of the
+    # unified BrainConfig catalog providers that was never added via the
+    # legacy POST /api/providers flow).
+    try:
+        prov = await get_db().providers.find_one({"provider_id": provider_id})
+    except Exception as exc:
+        log.warning("provider_models: DB lookup failed for %s (%s) — using predefined catalog", provider_id, exc)
+        prov = None
     if not prov:
+        predefined = [m["id"] for m in PREDEFINED_MODELS.get(provider_id, [])]
+        if predefined:
+            return {"provider_id": provider_id, "models": predefined}
         raise HTTPException(status_code=404, detail="Provider not found")
 
     # Determine provider type key for catalog lookup.

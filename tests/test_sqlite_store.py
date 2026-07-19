@@ -83,6 +83,59 @@ async def test_update_one_inc(store):
     assert doc["login_count"] == 1
 
 
+# ── update_many ──────────────────────────────────────────────────────────────
+# Regression: _Collection had no update_many() at all — any Motor-style caller
+# (e.g. backend/server.py clearing every OTHER provider's is_default flag
+# before setting the new one) got a bare AttributeError. On the production
+# STORAGE_BACKEND=sqlite deployment this made "Set default" on the Providers
+# page 500 unconditionally, and since the write never actually happened, the
+# default provider could never change from whatever was set at seed time.
+
+@pytest.mark.asyncio
+async def test_update_many_set_matches_all(store):
+    await store.users.insert_one({"email": "a@example.com", "role": "user"})
+    await store.users.insert_one({"email": "b@example.com", "role": "user"})
+    await store.users.insert_one({"email": "c@example.com", "role": "admin"})
+
+    result = await store.users.update_many({"role": "user"}, {"$set": {"role": "member"}})
+    assert result.matched_count == 2
+    assert result.modified_count == 2
+
+    a = await store.users.find_one({"email": "a@example.com"})
+    b = await store.users.find_one({"email": "b@example.com"})
+    c = await store.users.find_one({"email": "c@example.com"})
+    assert a["role"] == "member"
+    assert b["role"] == "member"
+    assert c["role"] == "admin", "non-matching document must be untouched"
+
+
+@pytest.mark.asyncio
+async def test_update_many_no_match_returns_zero(store):
+    result = await store.users.update_many({"email": "nobody@example.com"}, {"$set": {"role": "x"}})
+    assert result.matched_count == 0
+    assert result.modified_count == 0
+
+
+@pytest.mark.asyncio
+async def test_update_many_ne_clears_default_flag(store):
+    """The exact query shape backend/server.py's provider "Set default" uses:
+    clear is_default off every OTHER provider before setting it on the chosen one."""
+    await store.providers.insert_one({"provider_id": "deepseek", "is_default": True})
+    await store.providers.insert_one({"provider_id": "moonshot", "is_default": False})
+
+    await store.providers.update_many(
+        {"provider_id": {"$ne": "moonshot"}}, {"$set": {"is_default": False}}
+    )
+    await store.providers.update_one(
+        {"provider_id": "moonshot"}, {"$set": {"is_default": True}}
+    )
+
+    deepseek = await store.providers.find_one({"provider_id": "deepseek"})
+    moonshot = await store.providers.find_one({"provider_id": "moonshot"})
+    assert deepseek["is_default"] is False
+    assert moonshot["is_default"] is True
+
+
 # ── delete_one ───────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
