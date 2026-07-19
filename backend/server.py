@@ -9205,6 +9205,57 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     except Exception:
         pass
 
+    # ── 5. Coding brain (North Mini Code) — surface the default coding model,
+    #      the NORTH_MINI_CODE_DEFAULT flag, and interleaved-thinking state so
+    #      operators can see which brain powers the executor / Hermes. ─────────
+    try:
+        from packages.ai.brain_config import (
+            get_brain_config as _get_brain_config,
+            is_north_mini_code_default as _north_default_on,
+            north_mini_code_model_for as _north_model_for,
+        )
+        from packages.config import settings as _app_settings
+        _cfg = await _get_brain_config()
+        _provider = str(getattr(_cfg, "primary_provider", "") or "")
+        _executor = str(getattr(_cfg, "executor_model", "") or "")
+        _north_on = _north_default_on()
+        _north_id = _north_model_for(_provider)
+        _effort = _app_settings.ollama_reasoning_effort_value
+        _thinking = _effort or ("auto (Ollama default)" if _provider == "ollama" else "n/a for this provider")
+        if not _north_on:
+            _cb_status = "warn"
+            _cb_detail = f"NORTH_MINI_CODE_DEFAULT is OFF — coding runs on '{_executor}' ({_provider})."
+        elif _north_id:
+            _cb_status = "pass"
+            _cb_detail = (f"North Mini Code is the default coding brain on '{_provider}'. "
+                          f"Executor: {_executor or _north_id}. Interleaved thinking: {_thinking}.")
+        else:
+            _cb_status = "pass"
+            _cb_detail = (f"North is the default coding brain where servable (Ollama/OpenRouter). "
+                          f"Active provider '{_provider}' can't host it — coding runs on '{_executor}' "
+                          f"with safe fallback (expected on NVIDIA-only production).")
+        checks.append(_DoctorCheck(
+            id="coding_brain",
+            category="Models",
+            label="Coding brain (North Mini Code)",
+            status=_cb_status,
+            detail=_cb_detail[:200],
+            explanation=(
+                "North Mini Code 1.0 (Cohere, Apache-2.0; 256K context, native tool-use + interleaved "
+                "thinking) is the default agentic coding model for the executor role and Hermes wherever "
+                "the active provider can serve it. Toggle with NORTH_MINI_CODE_DEFAULT; set the thinking "
+                "level with OLLAMA_REASONING_EFFORT (high/medium/low)."
+            ),
+        ))
+    except Exception as _exc:  # noqa: BLE001 — never break the doctor report
+        checks.append(_DoctorCheck(
+            id="coding_brain_error",
+            category="Models",
+            label="Coding brain status unavailable",
+            status="warn",
+            detail=f"Could not resolve coding brain: {_exc}"[:200],
+        ))
+
     ready = all(c.status != "fail" for c in checks)
     fail_count = sum(1 for c in checks if c.status == "fail")
     warn_count = sum(1 for c in checks if c.status == "warn")
