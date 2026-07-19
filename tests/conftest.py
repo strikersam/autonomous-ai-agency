@@ -281,3 +281,16 @@ def _isolate_brain_data_layer(request, monkeypatch):
     def _fake_get_db():
         return db
     monkeypatch.setattr("backend.server.get_db", _fake_get_db)
+
+
+@pytest.fixture(autouse=True)
+def _clear_response_cache():
+    """Clear the LRU+TTL response cache between tests to prevent cross-test contamination."""
+    import packages.ai.response_cache as rc
+    rc._cache.clear()
+    rc._hits = 0
+    rc._misses = 0
+    yield
+    rc._cache.clear()
+    rc._hits = 0
+    rc._misses = 0
