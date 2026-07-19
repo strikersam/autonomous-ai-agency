@@ -5946,8 +5946,21 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
 
 @app.get("/api/providers/{provider_id}/models")
 async def provider_models(provider_id: str, user: dict = Depends(get_current_user)):
-    prov = await get_db().providers.find_one({"provider_id": provider_id})
+    # Mirrors list_providers()'s Mongo-unavailable resilience: a transient
+    # connectivity gap (e.g. Render free-tier cold start) must not surface as
+    # a raw 500 — fall back to the predefined catalog for this provider_id,
+    # same as when the provider simply has no row yet (e.g. it's one of the
+    # unified BrainConfig catalog providers that was never added via the
+    # legacy POST /api/providers flow).
+    try:
+        prov = await get_db().providers.find_one({"provider_id": provider_id})
+    except Exception as exc:
+        log.warning("provider_models: DB lookup failed for %s (%s) — using predefined catalog", provider_id, exc)
+        prov = None
     if not prov:
+        predefined = [m["id"] for m in PREDEFINED_MODELS.get(provider_id, [])]
+        if predefined:
+            return {"provider_id": provider_id, "models": predefined}
         raise HTTPException(status_code=404, detail="Provider not found")
 
     # Determine provider type key for catalog lookup.
