@@ -55,13 +55,18 @@ _misses: int = 0
 
 
 def _cache_key(payload: dict[str, Any]) -> str:
-    """Return a stable SHA-256 key for the cache-eligible fields in *payload*."""
+    """Return a stable SHA-256 key for the cache-eligible fields in *payload*.
+
+    ``response_format`` is included so that a JSON-mode request never receives
+    a plain-text cached response and vice-versa.
+    """
     fingerprint = {
         "model": payload.get("model"),
         "messages": payload.get("messages"),
         "temperature": payload.get("temperature"),
         "max_tokens": payload.get("max_tokens"),
         "stop": payload.get("stop"),
+        "response_format": payload.get("response_format"),
     }
     raw = json.dumps(fingerprint, sort_keys=True, default=str)
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -73,10 +78,16 @@ def is_cacheable(payload: dict[str, Any]) -> bool:
     Temperature must be explicitly set to 0 — omitting it means the provider
     uses its own default (often non-zero), producing non-deterministic output
     that must not be cached.
+
+    Requests with ``tools`` are never cached: tool-call responses depend on
+    live external state and are always non-deterministic regardless of
+    temperature.
     """
     if not _CACHE_ENABLED:
         return False
     if payload.get("stream"):
+        return False
+    if payload.get("tools"):
         return False
     temp = payload.get("temperature")
     if temp is None:

@@ -232,3 +232,58 @@ async def test_clear_cache_removes_all_entries():
 async def test_clear_cache_returns_zero_on_empty():
     count = await rc.clear_cache()
     assert count == 0
+
+
+# ── tools exclusion ───────────────────────────────────────────────────────────
+
+
+def test_not_cacheable_when_tools_present():
+    """Requests with tool definitions must never be cached — tool calls depend on live state."""
+    payload = {
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "what's the weather?"}],
+        "temperature": 0.0,
+        "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}],
+    }
+    assert rc.is_cacheable(payload) is False
+
+
+@pytest.mark.asyncio
+async def test_tools_payload_not_stored():
+    """put_cached must silently skip tool-use payloads."""
+    payload = {
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "search"}],
+        "temperature": 0.0,
+        "tools": [{"type": "function", "function": {"name": "search", "parameters": {}}}],
+    }
+    await rc.put_cached(payload, _body())
+    result = await rc.get_cached(payload)
+    assert result is None
+
+
+# ── response_format in cache key ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_different_response_format_is_cache_miss():
+    """A JSON-mode request must not receive a plain-text cached response."""
+    plain_payload = _payload()
+    json_payload = dict(_payload(), response_format={"type": "json_object"})
+
+    await rc.put_cached(plain_payload, _body(content='{"ok": true}'))
+
+    # The json_object request must miss even though model/messages/temp match
+    result = await rc.get_cached(json_payload)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_same_response_format_is_cache_hit():
+    """Two JSON-mode requests with identical params should share the cache."""
+    json_payload = dict(_payload(), response_format={"type": "json_object"})
+    body = _body(content='{"answer": 42}')
+
+    await rc.put_cached(json_payload, body)
+    result = await rc.get_cached(json_payload)
+    assert result == body

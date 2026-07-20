@@ -288,6 +288,7 @@ class ProviderResult:
     provider: ProviderConfig
     model: str
     attempts: list[ProviderAttempt]
+    cache_hit: bool = False
 
 
 # Sentinel ProviderConfig returned when a response is served from the local cache
@@ -1200,6 +1201,7 @@ class ProviderRouter:
                     provider=_CACHE_PROVIDER,
                     model=str(cached_body.get("model") or original_model),
                     attempts=[],
+                    cache_hit=True,
                 )
 
         skipped_on_cooldown: list[tuple[ProviderConfig, bool]] = []  # (provider, is_primary)
