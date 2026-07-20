@@ -37,12 +37,17 @@ references:
 
 | Fill in | What it is | Example |
 |---|---|---|
-| `COMPANY_NAME` | Display name for the new client company | Bright Studio |
-| `WEBSITE_URLS` | Public site(s) to scan for stack/systems detection | ["https://brightstudio.com"] |
-| `REPO_URLS` | Optional repos to scan for code-level detection | ["https://github.com/brightstudio/app"] |
-| `OWNER_ID` | User account that owns/administers this company | strikersam@gmail.com's user id |
+| `COMPANY_NAME` | Display name for the new client company (required) | Bright Studio |
+| `DOMAIN` | Primary domain for the company (required — `CompanyCreateRequest.domain`, `models/company_graph.py:1966`) | brightstudio.com |
+| `WEBSITE_URLS` | Optional: public site(s) to scan for stack/systems detection | ["https://brightstudio.com"] |
+| `REPO_URLS` | Optional: repos to scan for code-level detection | ["https://github.com/brightstudio/app"] |
 
-If any are missing, run onboarding with what you have — `website_urls` can be
+Ownership is derived server-side from the caller's bearer token
+(`_resolve_user_id(user)` in `backend/company_api.py`) — there is no
+`owner_id` request field to fill in; do not invent one.
+
+`COMPANY_NAME` and `DOMAIN` are required to create the company record.
+`WEBSITE_URLS`/`REPO_URLS` are optional — onboarding can run with `website_urls`
 empty and specialists can still be provisioned manually afterward.
 
 ## What this maps to (real code, not a generic scaffold)
