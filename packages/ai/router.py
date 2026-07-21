@@ -1085,6 +1085,19 @@ class ProviderRouter:
                         _notify_watchdog(provider.provider_id, success=True)
                         # Reset exponential backoff counter on success.
                         _reset_429_counter(provider.provider_id)
+                        # G1 — per-model cost attribution (fire-and-forget, non-blocking)
+                        try:
+                            from packages.ai.cost_tracker import record_usage as _record_cost
+                            _body = response.json()
+                            _usage = _body.get("usage") or {}
+                            _record_cost(
+                                model,
+                                provider_id=provider.provider_id,
+                                prompt_tokens=int(_usage.get("prompt_tokens") or 0),
+                                completion_tokens=int(_usage.get("completion_tokens") or 0),
+                            )
+                        except Exception:
+                            pass
                         return ProviderResult(
                             response=response, provider=provider, model=model, attempts=list(attempts)
                         )
@@ -1489,6 +1502,8 @@ class ProviderRouter:
 
     @staticmethod
     def _anthropic_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        from packages.ai.structured_output import system_instruction as _json_instruction
+
         system_parts: list[str] = []
         messages: list[dict[str, str]] = []
         for msg in payload.get("messages") or []:
@@ -1504,6 +1519,14 @@ class ProviderRouter:
                 messages.append({"role": role, "content": content})
 
         system_text = "\n\n".join(system_parts) if system_parts else None
+
+        # Append a JSON instruction when the caller requests structured output.
+        # Anthropic's Messages API does not accept response_format directly, so we
+        # translate it to a system-prompt constraint that works on all Claude models.
+        json_inst = _json_instruction(payload.get("response_format"))
+        if json_inst:
+            system_text = f"{system_text}\n\n{json_inst}" if system_text else json_inst
+
         _caching_off = os.environ.get(
             "ANTHROPIC_PROMPT_CACHING", "true"
         ).strip().lower() in ("0", "false", "no", "off")
