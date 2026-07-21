@@ -92,12 +92,12 @@
 | A1 | Hermes ChatML Prompt Format | P0 | `TODO` | — |
 | A2 | Multi-Hop ReAct Loop | P0 | `TODO` | — |
 | B1 | Nemotron Reward Model Scoring | P0 | `TODO` | — |
-| C1 | Structured Output / JSON Mode | P0 | `TODO` | — |
+| C1 | Structured Output / JSON Mode | P0 | `DONE` | [#1104](https://github.com/strikersam/autonomous-ai-agency/pull/1104) merged — `packages/ai/structured_output.py` + `_anthropic_payload()` integration; 19 tests (2026-07-21) |
 | C2 | Function Calling (OpenAI-compatible) | P0 | `TODO` | — |
 | F1 | Precise Diff Application (Codebuff-style) | P0 | `TODO` | — |
 | ★4 | Skill/Procedural Memory | P1 | `TODO` | — |
 | ★5 | Sandboxed Agent Execution | P1 | `TODO` | — |
-| ★6 | Cost Analytics + FTS5 Memory + Constitution | P1 | `TODO` | — |
+| ★6 | Cost Analytics + FTS5 Memory + Constitution | P1 | `IN_PROGRESS` | Cost Analytics DONE: `packages/ai/cost_tracker.py` + `/api/metrics/cost-attribution` endpoints in [#1104](https://github.com/strikersam/autonomous-ai-agency/pull/1104) (2026-07-21); FTS5 Memory + Constitution remain TODO |
 | ★7 | Adaptive Loop Halting | P1 | `DONE` | `agent/adaptive_halting.py` AdaptiveHalter (velocity + consecutive-fail gates), wired into AgentRunner.run(); 14 tests (2026-07-13) |
 | A3 | Capability Registry + Dynamic Tool Discovery | P1 | `TODO` | — |
 | A4 | Async Task Queue | P1 | `TODO` | — |
