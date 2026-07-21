@@ -2,6 +2,7 @@
 import React from 'react';
 import * as api from '../../api';
 import { useSafeData } from '../hooks/useSafeData';
+import { COMPANY_ID_KEY } from './CompanyScreen';
 
 // knowledge.jsx — Knowledge Base
 // Records everything: docs, sources, agent activity, quick notes, GitHub context
@@ -161,6 +162,240 @@ function AddSourceForm({ onIngest, onClose }) {
   );
 }
 
+// --- Company Graph tab ------------------------------------------------
+// Renders the CompanyGraph (services/company_graph.py / models/company_graph.py)
+// as a node-link diagram, scoped to whichever company the logged-in user can
+// see (GET /api/company and GET /api/company/{id}/graph already enforce
+// per-user access in backend/company_api.py). No graph-drawing dependency is
+// added — a small concentric-ring SVG layout is enough for the node counts
+// a single company graph produces.
+
+const GRAPH_NODE_COLORS = {
+  company: '#ffffff',
+  website: '#7c9dff',
+  repo: '#5da2ff',
+  system: '#ffbd66',
+  specialist: '#46d9a4',
+  workflow: '#c4b5fd',
+  knowledge: '#ff9fb0',
+  connector: '#66e0d0',
+};
+
+const GRAPH_CATEGORY_ORDER = ['website', 'repo', 'system', 'specialist', 'workflow', 'knowledge', 'connector'];
+
+// Pure function: CompanyGraph JSON -> { nodes, edges } for the SVG layout below.
+// Kept separate from rendering so it can be reasoned about (and unit-tested) on its own.
+function buildGraphElements(graph) {
+  if (!graph) return { nodes: [], edges: [] };
+
+  const nodes = [];
+  const edges = [];
+  const companyId = 'company';
+  nodes.push({ id: companyId, label: graph.company?.name || 'Company', type: 'company' });
+
+  const byType = {
+    website: graph.websites || [],
+    repo: graph.repos || [],
+    system: graph.systems || [],
+    specialist: graph.specialists || [],
+    workflow: graph.workflows || [],
+    knowledge: graph.knowledge || [],
+    connector: graph.connectors || [],
+  };
+
+  // Ring radius grows only for categories that actually have data, so a
+  // company with just 2 systems doesn't render 5 empty rings.
+  const usedCategories = GRAPH_CATEGORY_ORDER.filter(t => (byType[t] || []).length > 0);
+  const ringRadius = Object.fromEntries(usedCategories.map((t, i) => [t, 90 + i * 65]));
+
+  usedCategories.forEach(type => {
+    const items = byType[type];
+    const radius = ringRadius[type];
+    items.forEach((item, i) => {
+      const angle = (2 * Math.PI * i) / items.length - Math.PI / 2;
+      nodes.push({
+        id: `${type}:${item.id}`,
+        label: item.name || item.title || item.id,
+        type,
+        angle,
+        radius,
+      });
+    });
+  });
+
+  // Direct-ownership edges: company -> website/repo/system (always company-owned).
+  ['website', 'repo', 'system'].forEach(type => {
+    (byType[type] || []).forEach(item => edges.push({ from: companyId, to: `${type}:${item.id}` }));
+  });
+
+  // Specialists connect to the systems they specialize in, else to the company.
+  (byType.specialist || []).forEach(sp => {
+    const specialized = sp.specialized_systems || [];
+    const targets = specialized.filter(sysId => (byType.system || []).some(s => s.id === sysId));
+    if (targets.length === 0) edges.push({ from: companyId, to: `specialist:${sp.id}` });
+    else targets.forEach(sysId => edges.push({ from: `system:${sysId}`, to: `specialist:${sp.id}` }));
+  });
+
+  // Workflows connect to the systems they involve, else to the company.
+  (byType.workflow || []).forEach(wf => {
+    const sysIds = (wf.system_ids || []).filter(sysId => (byType.system || []).some(s => s.id === sysId));
+    if (sysIds.length === 0) edges.push({ from: companyId, to: `workflow:${wf.id}` });
+    else sysIds.forEach(sysId => edges.push({ from: `system:${sysId}`, to: `workflow:${wf.id}` }));
+  });
+
+  // Knowledge items connect to whatever systems/specialists they document, else the company.
+  (byType.knowledge || []).forEach(k => {
+    const sysIds = (k.related_systems || []).filter(sysId => (byType.system || []).some(s => s.id === sysId));
+    const spIds = (k.related_specialists || []).filter(spId => (byType.specialist || []).some(s => s.id === spId));
+    if (sysIds.length === 0 && spIds.length === 0) edges.push({ from: companyId, to: `knowledge:${k.id}` });
+    else {
+      sysIds.forEach(sysId => edges.push({ from: `system:${sysId}`, to: `knowledge:${k.id}` }));
+      spIds.forEach(spId => edges.push({ from: `specialist:${spId}`, to: `knowledge:${k.id}` }));
+    }
+  });
+
+  // Connectors attach to systems that share their system_type, else the company.
+  (byType.connector || []).forEach(c => {
+    const matches = (byType.system || []).filter(s => s.system_type === c.system_type);
+    if (matches.length === 0) edges.push({ from: companyId, to: `connector:${c.id}` });
+    else matches.forEach(s => edges.push({ from: `system:${s.id}`, to: `connector:${c.id}` }));
+  });
+
+  return { nodes, edges };
+}
+
+function CompanyGraphPanel() {
+  const [companies, setCompanies] = React.useState([]);
+  const [selectedCompanyId, setSelectedCompanyId] = React.useState(() => {
+    try { return localStorage.getItem(COMPANY_ID_KEY) || ''; } catch { return ''; }
+  });
+  const [graph, setGraph] = React.useState(null);
+  const [hoveredId, setHoveredId] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+  const mounted = React.useRef(true);
+  React.useEffect(() => () => { mounted.current = false; }, []);
+
+  // Companies the current user can see — backend scopes this by owner/admin
+  // (see list_companies in backend/company_api.py), so no client-side filtering needed.
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.listCompanies();
+        if (!mounted.current) return;
+        const list = data.companies || [];
+        setCompanies(list);
+        if (!selectedCompanyId && list.length > 0) setSelectedCompanyId(list[0].id);
+        if (list.length === 0) setLoading(false);
+      } catch (e) {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  React.useEffect(() => {
+    if (!selectedCompanyId) { setLoading(false); return; }
+    (async () => {
+      setLoading(true); setError(null);
+      try {
+        const { data } = await api.getCompanyGraph(selectedCompanyId);
+        if (!mounted.current) return;
+        setGraph(data.graph || null);
+        try { localStorage.setItem(COMPANY_ID_KEY, selectedCompanyId); } catch {}
+      } catch (e) {
+        if (!mounted.current) return;
+        const detail = e?.response?.data?.detail;
+        setError(detail ? api.fmtErr(detail) : (e?.message || 'Could not load the company graph.'));
+        setGraph(null);
+      } finally {
+        if (mounted.current) setLoading(false);
+      }
+    })();
+  }, [selectedCompanyId]);
+
+  const { nodes, edges } = React.useMemo(() => buildGraphElements(graph), [graph]);
+
+  if (loading && companies.length === 0) {
+    return <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>Loading your companies…</div>;
+  }
+  if (companies.length === 0) {
+    return <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>No companies found for your account yet — onboard one from the Company screen.</div>;
+  }
+
+  const size = 600;
+  const center = size / 2;
+  const pos = id => {
+    const node = nodes.find(n => n.id === id);
+    if (!node) return { x: center, y: center };
+    if (node.type === 'company') return { x: center, y: center };
+    return { x: center + node.radius * Math.cos(node.angle), y: center + node.radius * Math.sin(node.angle) };
+  };
+  const counts = GRAPH_CATEGORY_ORDER
+    .map(type => ({ type, count: nodes.filter(n => n.type === type).length }))
+    .filter(c => c.count > 0);
+
+  return (
+    <div style={{ animation:'fadeSlideUp 0.3s ease-out' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:12 }}>
+        {companies.length > 1 ? (
+          <select value={selectedCompanyId} onChange={e => setSelectedCompanyId(e.target.value)}
+            style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:12, outline:'none' }}>
+            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        ) : (
+          <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)' }}>{companies[0]?.name}</div>
+        )}
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+          {counts.map(c => (
+            <span key={c.type} style={{ fontSize:10, fontFamily:'var(--font-mono)', color:GRAPH_NODE_COLORS[c.type], textTransform:'capitalize', padding:'3px 9px', borderRadius:999, background:`${GRAPH_NODE_COLORS[c.type]}14`, border:`1px solid ${GRAPH_NODE_COLORS[c.type]}30` }}>
+              {c.type}s · {c.count}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {error ? (
+        <div style={{ padding:'18px 0', fontSize:13, color:'#ff6b7d' }}>Couldn't load the company graph: {error}</div>
+      ) : loading ? (
+        <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>Loading company graph…</div>
+      ) : nodes.length <= 1 ? (
+        <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>This company's graph is empty so far — run onboarding to detect systems and provision specialists.</div>
+      ) : (
+        <div style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:16, padding:16, display:'flex', justifyContent:'center' }}>
+          <svg viewBox={`0 0 ${size} ${size}`} style={{ width:'100%', maxWidth:560, height:'auto' }}>
+            {edges.map((e, i) => {
+              const a = pos(e.from), b = pos(e.to);
+              const active = hoveredId && (e.from === hoveredId || e.to === hoveredId);
+              return (
+                <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                  stroke={active ? 'rgba(93,162,255,0.55)' : 'rgba(255,255,255,0.10)'}
+                  strokeWidth={active ? 1.5 : 1} />
+              );
+            })}
+            {nodes.map(n => {
+              const p = pos(n.id);
+              const r = n.type === 'company' ? 14 : 8;
+              const color = GRAPH_NODE_COLORS[n.type] || 'var(--text-muted)';
+              return (
+                <g key={n.id} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} style={{ cursor:'pointer' }}>
+                  <circle cx={p.x} cy={p.y} r={r} fill={n.type === 'company' ? color : `${color}33`} stroke={color} strokeWidth={1.5} />
+                  <title>{n.label}</title>
+                  {(n.type === 'company' || hoveredId === n.id) && (
+                    <text x={p.x} y={p.y + r + 12} textAnchor="middle" fontSize={10} fontFamily="var(--font-mono)" fill="#fff">
+                      {n.label.length > 22 ? `${n.label.slice(0, 20)}…` : n.label}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Map a raw activity log entry into the ActivityRow shape (no fabricated fields).
 function mapActivity(log, index) {
   const et = (log.event_type || log.type || '').toString();
@@ -275,7 +510,7 @@ function KnowledgeScreen() {
 
       {/* Tabs */}
       <div style={{ display:'flex', gap:4, marginBottom:16 }}>
-        {['activity','docs','sources'].map(t => (
+        {['activity','docs','sources','graph'].map(t => (
           <button key={t} onClick={() => setTab(t)} style={{ padding:'7px 18px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer', textTransform:'capitalize', transition:'all 0.15s', background:tab===t?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${tab===t?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.08)'}`, color:tab===t?'#fff':'var(--text-muted)' }}>{t}</button>
         ))}
       </div>
@@ -362,6 +597,8 @@ function KnowledgeScreen() {
           )}
         </div>
       )}
+
+      {tab === 'graph' && <CompanyGraphPanel/>}
     </div>
   );
 }
