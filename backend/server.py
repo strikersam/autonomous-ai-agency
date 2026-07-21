@@ -7681,6 +7681,39 @@ async def clear_response_cache(user: dict = Depends(get_current_user)) -> dict[s
     return {"cleared": count}
 
 
+@app.get("/api/metrics/cost-attribution")
+async def cost_attribution_stats(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Per-model cost attribution — token usage and estimated USD spend.
+
+    Aggregates are in-memory and reset on restart.  Cost estimates use a
+    built-in per-million-token table (see packages/ai/cost_tracker.py) that
+    can be overridden via MODEL_COST_INPUT / MODEL_COST_OUTPUT env vars.
+    Requires authentication.
+    """
+    from packages.ai.cost_tracker import get_stats
+    return get_stats()
+
+
+@app.get("/api/metrics/cost-table")
+async def cost_table(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Return the active per-model cost table (USD per million tokens).
+
+    Useful for verifying that env-var overrides took effect.
+    Requires authentication.
+    """
+    from packages.ai.cost_tracker import get_cost_table
+    return get_cost_table()
+
+
+@app.delete("/api/metrics/cost-attribution")
+async def clear_cost_attribution(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Reset in-memory cost attribution counters. Admin-only."""
+    _require_admin(user)
+    from packages.ai.cost_tracker import clear_stats
+    clear_stats()
+    return {"cleared": True}
+
+
 @app.get("/api/autonomy/tick")
 async def autonomy_tick() -> dict[str, object]:
     """Execute ONE pending task synchronously. Called by the cron workflow every 2 min.
