@@ -152,3 +152,38 @@ def test_anthropic_never_positive_priority():
         "All Anthropic providers must have priority <= -50. "
         "A higher priority means Anthropic is tried before free providers."
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. google-gemini's seeded default_model must be a real Gemini API model
+# ---------------------------------------------------------------------------
+def test_google_gemini_seed_default_model_is_not_gemma():
+    """Regression: the google-gemini provider record in seed_default_providers
+    was hardcoded to default_model="gemma-4" — not a real Gemini API model
+    (Gemma is a separate open-weight family Google does not serve via this
+    generative-language endpoint), so every call through this provider
+    404'd unconditionally. Confirmed in production logs: "google-gemini/
+    gemma-4: 404" repeating every ~5 minutes. Fixed to use the same
+    GEMINI_MODEL env var (default gemini-2.5-flash) already used by
+    packages/ai/router.py's own Gemini provider construction — one
+    provider, one default. seed_default_providers() already syncs
+    default_model on every boot for existing DB rows when it drifts from
+    this in-code value, so this fix self-heals already-broken deployments
+    without a separate migration."""
+    from backend.server import GEMINI_MODEL, seed_default_providers
+    import inspect
+
+    assert not GEMINI_MODEL.startswith("gemma"), (
+        f"GEMINI_MODEL={GEMINI_MODEL!r} looks like a Gemma model name, not a Gemini API model."
+    )
+    assert GEMINI_MODEL.startswith("gemini"), (
+        f"GEMINI_MODEL={GEMINI_MODEL!r} does not look like a real Gemini API model id."
+    )
+
+    source = inspect.getsource(seed_default_providers)
+    assert '"default_model": "gemma-4"' not in source
+    # The google-gemini entry must resolve its default_model from GEMINI_MODEL,
+    # not a second hardcoded literal that could drift from the constant above.
+    google_gemini_start = source.index('"provider_id": "google-gemini"')
+    google_gemini_block = source[google_gemini_start:google_gemini_start + 300]
+    assert '"default_model": GEMINI_MODEL' in google_gemini_block

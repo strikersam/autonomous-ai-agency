@@ -352,12 +352,26 @@ def _run_baseline_pytest() -> str:
     # Without this, NVIDIA_API_KEY in CI changes model-selection behaviour and causes
     # tests that assert local Ollama model names to fail spuriously.
     env = {k: v for k, v in os.environ.items() if k not in _API_KEY_ENV_VARS}
-    result = subprocess.run(
-        ["python", "-m", "pytest", "-x", "-q", "--tb=line", "--no-header"],
-        capture_output=True, text=True, timeout=120, env=env,
-    )
-    lines = (result.stdout + result.stderr).splitlines()
-    return "\n".join(lines[-15:])
+    # This is informational context for the agent's prompt, not a hard gate —
+    # a slow or hung suite must never crash the whole automation. Confirmed in
+    # production: the full suite (no path filter, thousands of tests) routinely
+    # exceeds a 120s timeout on the Actions runner, and subprocess.TimeoutExpired
+    # was uncaught, taking down main() and forcing an "Attempt 0 failed —
+    # reopening for automatic retry" cycle that just repeats the same timeout.
+    try:
+        result = subprocess.run(
+            ["python", "-m", "pytest", "-x", "-q", "--tb=line", "--no-header"],
+            capture_output=True, text=True, timeout=480, env=env,
+        )
+        lines = (result.stdout + result.stderr).splitlines()
+        return "\n".join(lines[-15:])
+    except subprocess.TimeoutExpired:
+        return (
+            "(baseline pytest run timed out after 480s — skipped; "
+            "this is informational context only, not a merge gate)"
+        )
+    except Exception as exc:  # nosec B110 -- baseline output is best-effort context
+        return f"(baseline pytest run failed to execute: {exc})"
 
 
 # ---------------------------------------------------------------------------

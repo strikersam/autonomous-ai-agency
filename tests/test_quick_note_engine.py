@@ -47,3 +47,27 @@ def test_apply_review_nvidia_primary() -> None:
     assert nvidia_pos != -1, "NVIDIA NIM marker not found in apply_review.py"
     assert anthropic_pos != -1, "Anthropic fallback marker not found in apply_review.py"
     assert nvidia_pos < anthropic_pos, f"NVIDIA ({nvidia_pos}) must appear before Anthropic ({anthropic_pos})"
+
+
+def test_baseline_pytest_timeout_is_generous_and_failure_is_caught() -> None:
+    """Regression: _run_baseline_pytest() ran the FULL suite (no path filter,
+    thousands of tests) with only a 120s subprocess timeout, and the
+    TimeoutExpired it raised was uncaught in main() — crashing the whole
+    Quick Note automation and forcing an endless "Attempt 0 failed —
+    reopening for automatic retry" cycle every time the full suite (routinely
+    >120s on the Actions runner) was slower than the timeout. Baseline pytest
+    output is informational context for the agent's prompt, not a merge
+    gate, so a slow or hung suite must degrade gracefully, not crash the
+    script."""
+    text = (_SCRIPTS / "implement_agent.py").read_text()
+    fn_start = text.index("def _run_baseline_pytest")
+    fn_end = text.index("\ndef ", fn_start + 1)
+    fn_body = text[fn_start:fn_end]
+    assert "timeout=120" not in fn_body, (
+        "120s is too short for a full, unfiltered pytest run on a CI runner — "
+        "confirmed by a production TimeoutExpired crash."
+    )
+    assert "TimeoutExpired" in fn_body, (
+        "_run_baseline_pytest must catch subprocess.TimeoutExpired so a slow "
+        "suite can't crash the whole automation."
+    )

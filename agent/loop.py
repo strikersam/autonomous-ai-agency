@@ -1972,6 +1972,31 @@ class AgentRunner:
                     fm.record_failure(provider.id, "rate_limited", resp.status_code)
                     break
 
+                if resp.status_code == 413:
+                    # Payload-too-large is a property of the request against
+                    # this provider's endpoint, not of which model on it was
+                    # asked — retrying the same oversized payload against a
+                    # different model on the SAME provider guarantees the
+                    # same 413 (confirmed in production: 5 dispatch attempts
+                    # burned on identical 413s before ever reaching a
+                    # different provider). Move on immediately instead.
+                    last_error = f"{provider.id} 413 payload too large"
+                    fm.record_failure(provider.id, "payload_too_large", resp.status_code)
+                    break
+
+                if resp.status_code in (401, 403):
+                    # Same failure class as 413 above: an invalid/expired API
+                    # key or a forbidden account fails identically for every
+                    # model on this provider, so retrying with a different
+                    # model on the SAME provider is guaranteed to repeat the
+                    # same error (confirmed in production: 5 dispatch
+                    # attempts burned retrying different models against one
+                    # dead key before the task gave up entirely). Move to a
+                    # different provider immediately instead.
+                    last_error = f"{provider.id} {resp.status_code} unauthorized/forbidden"
+                    fm.record_failure(provider.id, "auth_failed", resp.status_code)
+                    break
+
                 if resp.status_code >= 500:
                     last_error = f"{provider.id} {resp.status_code} server error"
                     fm.record_failure(provider.id, "server_error", resp.status_code)
