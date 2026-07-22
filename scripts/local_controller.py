@@ -177,6 +177,29 @@ def _default_agency_url() -> str:
     return "https://local-llm-server.strikersam.workers.dev"
 
 
+def _default_machine_id_file() -> str:
+    """The zero-config default machine-id path.
+
+    The Windows literal below is the operator's own daily-driver path for
+    this daemon (see the module docstring: it runs on their Windows machine
+    to control a local Windows-hosted GLM server) — a real default, not a
+    placeholder. But it's a Windows path, and pathlib treats backslashes as
+    literal characters (not separators) on POSIX, so on Linux/macOS this
+    string resolves to one garbage filename full of backslashes and colons
+    dropped straight into the current working directory instead of a real
+    nested path — confirmed: this created exactly that stray file the one
+    time this script ran in a non-Windows session without
+    LOCAL_BRAIN_MACHINE_ID_FILE set. Machine-id generation itself is a
+    cross-platform concern (any environment probing this daemon's cloud
+    lease state needs a stable id), so only this path gets a real
+    cross-platform fallback — the operator's other Windows-only daemon
+    paths (binary, model, start/stop scripts) are left as-is.
+    """
+    if sys.platform == "win32":
+        return "C:\\Users\\swami\\qwen-server\\logs\\local_brain.machine_id"
+    return str(Path.home() / ".local-brain" / "local_brain.machine_id")
+
+
 def _machine_id_path() -> Path:
     """A persistent file holding the local machine UUID (generated on first run).
 
@@ -184,8 +207,7 @@ def _machine_id_path() -> Path:
     Lives next to the daemon's logs so it's discoverable to operators.
     """
     raw = os.environ.get(
-        "LOCAL_BRAIN_MACHINE_ID_FILE",
-        "C:\\Users\\swami\\qwen-server\\logs\\local_brain.machine_id",
+        "LOCAL_BRAIN_MACHINE_ID_FILE", _default_machine_id_file()
     ).strip()
     p = Path(raw)
     p.parent.mkdir(parents=True, exist_ok=True)
