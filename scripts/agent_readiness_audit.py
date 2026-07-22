@@ -95,7 +95,11 @@ def _grade(score: int) -> str:
 
 def _tracked_files(pattern: str) -> list[str]:
     try:
-        out = subprocess.run(  # nosec B603,B607 - fixed argv, list form, no shell
+        # nosec - fixed argv, list form, no shell (B603+B607). Bare nosec, not
+        # comma-listed codes: bandit 1.9.4 only honors the last code in a
+        # comma-separated `# nosec B603,B607` list, silently leaving the
+        # other flagged (reproduced in isolation; see PR #1111 discussion).
+        out = subprocess.run(  # nosec
             ["git", "ls-files", pattern], cwd=REPO_ROOT, capture_output=True, text=True, timeout=15,
         )
         return [line for line in out.stdout.splitlines() if line]
