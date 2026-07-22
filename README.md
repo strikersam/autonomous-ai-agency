@@ -68,6 +68,22 @@ After onboarding, the standing schedules run themselves: website health every 30
 
 Full roster, screens, loop engineering, and configuration: [docs/platform-guide.md](docs/platform-guide.md).
 
+## How the agents keep themselves honest
+
+Consistent with the "check the proof" ethos above, none of this is described only in prose — every line links to the module or test file that implements it:
+
+| Practice | What it actually does | Where |
+|---|---|---|
+| **Empirical verification** | Before a step is accepted, the agent byte-compiles what it changed and runs the matching tests — not just an LLM judging its own diff. | [`agent/loop.py`](agent/loop.py) (`AGENT_EMPIRICAL_VERIFY`) |
+| **Reviewable plan specs** | Every plan is saved as a markdown spec you can read and approve before implementation starts, not just an internal object. | [`services/spec_store.py`](services/spec_store.py) · `GET/POST /api/specs/*` |
+| **Independent cross-verification** | Changes touching auth, keys, or sessions get a second, independent agent re-check before being accepted — one that never writes code, only critiques. | [`agent/verification_strategies.py`](agent/verification_strategies.py) |
+| **Session retrospection** | The agency mines its own past sessions for recurring friction and files fix tasks against itself — self-improvement from lived experience, not just live signals. | [`services/session_retro.py`](services/session_retro.py) |
+| **Inbound issue triage** | Bug reports and feature requests get classified and routed into the fix pipeline automatically, closing the loop from "someone complained" to "a specialist is on it." | [`services/issue_triage.py`](services/issue_triage.py) |
+| **Proactive rate-limit pacing** | Free-tier model calls are paced to stay under quota instead of just reacting to errors after they happen. | [`packages/ai/rate_limiter.py`](packages/ai/rate_limiter.py) |
+| **Agent readiness self-audit** | The repo scores its own fitness for autonomous work — style/validation, tests, docs, dev environment, observability, security, task discovery — and tells you what's missing. | `make agent-readiness` → [`docs/AGENT_READINESS.md`](docs/AGENT_READINESS.md) |
+
+Full gap analysis and every new configuration variable: [docs/AGENT_AUTONOMY_ROADMAP.md](docs/AGENT_AUTONOMY_ROADMAP.md).
+
 ## Honest model economics
 
 - The **free 24h sandbox** runs on free-tier models (Cerebras, Groq, NVIDIA NIM) with automatic failover. It demonstrates the orchestration loop end to end; it is *not* the output quality you'd run a company on.

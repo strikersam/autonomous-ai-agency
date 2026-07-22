@@ -21,7 +21,7 @@ Self-generated — run `python scripts/agent_readiness_audit.py` to refresh.
 
 ## Testing — 100/100
 
-- 358 Python test files under tests/.
+- 360 Python test files under tests/.
 - 22 frontend test files.
 - Agent loop can run empirical (compile + scoped pytest) verification on its own changes.
 
