@@ -19,6 +19,23 @@ Self-hosted · MIT · Your servers, your models, your data
 
 ---
 
+<details>
+<summary><strong>Contents</strong></summary>
+
+- [Don't trust it — check the proof](#dont-trust-it--check-the-proof)
+- [What it is](#what-it-is)
+- [Who this is for](#who-this-is-for)
+- [Start with the audit](#start-with-the-audit--no-signup-no-repo-access-no-trust-required)
+- [Then the agency takes over](#then-the-agency-takes-over--at-your-pace)
+- [How the agents keep themselves honest](#how-the-agents-keep-themselves-honest)
+- [Honest model economics](#honest-model-economics)
+- [Setup (self-hosted)](#setup-self-hosted)
+- [Screens](#screens)
+- [Architecture, security, license](#architecture-security-license)
+- [Contributing](#contributing)
+
+</details>
+
 ## Don't trust it — check the proof
 
 Most "autonomous agent" projects show you a demo video. Here are artifacts instead:
@@ -36,6 +53,15 @@ Most "autonomous agent" projects show you a demo video. Here are artifacts inste
 Autonomous AI Agency is a **self-hosted platform that turns one website URL into a working AI operations team**. It scans your site's tech stack, provisions the specialist agents your business actually needs (from 35 families), and runs them 24x7 on hardware you control — with human approval gates on anything that ships. Under the hood: an OpenAI-compatible proxy, multi-provider model routing with automatic failover, a three-role plan → execute → verify agent loop, and full observability. MIT licensed.
 
 This page is the short version — the full tour (every screen, schedule, runtime, and config variable) lives in [**docs/platform-guide.md**](docs/platform-guide.md).
+
+## Who this is for
+
+- **You're paying per-seat for an AI dev/ops tool** and want the same leverage on infrastructure you control, with no usage metering and no vendor lock-in.
+- **You need AI agents that write to production systems** but every tool you've tried either has no approval gates (too risky) or requires a human in the loop for everything (too slow). The three-tier trust model below is built for exactly this middle ground.
+- **You're evaluating "autonomous coding agent" platforms** and want to see one running on its own codebase in public, with its own PR history as evidence, rather than a demo video.
+- **You care where your data goes.** Self-hosted means your code, your customer data, and your prompts never transit a third-party inference relay.
+
+If none of those describe you, this is probably more platform than you need — a single-repo coding assistant (Claude Code, Cursor, Aider) is a better fit for "just help me write code."
 
 ## Start with the audit — no signup, no repo access, no trust required
 
@@ -249,10 +275,24 @@ MIT — see [LICENSE](LICENSE)
 
 ---
 
+## Contributing
+
+Issues and PRs are welcome. [**CONTRIBUTING.md**](CONTRIBUTING.md) covers dev setup, coding standards, and the PR checklist; [**SECURITY.md**](SECURITY.md) covers vulnerability disclosure. Since [most merged PRs here are agent-authored](proof/agent-built.md), the fastest way to see the expected quality bar is to read a few recent ones.
+
+If you'd rather point an agent at a specific gap than write the fix yourself, [open an issue](https://github.com/strikersam/autonomous-ai-agency/issues/new) describing it — the fleet's own inbound-issue triage may pick it up.
+
+---
+
 <div align="center">
 
 **Autonomous AI Agency** — the AI team that works while you sleep, on a server you own.
 
 <sub>Built for engineers and operators who want the leverage of frontier AI without the cloud bill, the privacy compromise, or the headcount.</sub>
+
+<br/><br/>
+
+[![Star History Chart](https://api.star-history.com/svg?repos=strikersam/autonomous-ai-agency&type=Date)](https://star-history.com/#strikersam/autonomous-ai-agency&Date)
+
+If this is useful to you, a star helps other people with the same problem find it.
 
 </div>
