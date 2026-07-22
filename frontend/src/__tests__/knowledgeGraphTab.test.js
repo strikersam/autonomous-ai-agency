@@ -73,6 +73,16 @@ describe('Knowledge screen — Company Graph tab stale-ID recovery (regression)'
     expect(src).toMatch(/catch \(listErr\) \{/);
     expect(src).toMatch(/could not be refreshed/);
   });
+
+  // Codex review on #1110: the mount-time list-validation effect and the
+  // graph-fetch effect both run concurrently on mount when a stale ID is
+  // stored, so a slow 404 recovery could clobber a selection the validation
+  // effect had already corrected. Guarded with a per-invocation cancel flag.
+  test('cancels a stale 404-recovery invocation instead of letting it clobber a corrected selection', () => {
+    expect(src).toMatch(/let cancelled = false;/);
+    expect(src).toMatch(/return \(\) => \{ cancelled = true; \};/);
+    expect(src).toMatch(/if \(!mounted\.current \|\| cancelled\) return;/);
+  });
 });
 
 describe('Knowledge screen — CompanyGraph element builder', () => {

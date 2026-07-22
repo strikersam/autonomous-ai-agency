@@ -310,15 +310,21 @@ function CompanyGraphPanel() {
 
   React.useEffect(() => {
     if (!selectedCompanyId) { setLoading(false); return; }
+    // Guards the mount-time race with the company-list validation effect above:
+    // if that effect corrects `selectedCompanyId` (stale ID -> a valid one)
+    // while this invocation's getCompanyGraph(oldId) is still in flight, its
+    // eventual 404 must not clear/overwrite the already-corrected selection.
+    // React runs this cleanup before starting the next invocation for the new ID.
+    let cancelled = false;
     (async () => {
       setLoading(true); setError(null);
       try {
         const { data } = await api.getCompanyGraph(selectedCompanyId);
-        if (!mounted.current) return;
+        if (!mounted.current || cancelled) return;
         setGraph(data.graph || null);
         try { localStorage.setItem(COMPANY_ID_KEY, selectedCompanyId); } catch {}
       } catch (e) {
-        if (!mounted.current) return;
+        if (!mounted.current || cancelled) return;
         // Self-heal on 404 instead of leaving the tab permanently broken: the
         // stored/selected company may have been deleted or the DB reset since
         // this ID was persisted (same class of bug as PR #962 on CompanyScreen).
@@ -326,6 +332,7 @@ function CompanyGraphPanel() {
           try { localStorage.removeItem(COMPANY_ID_KEY); } catch {}
           try {
             const { data: listData } = await api.listCompanies();
+            if (cancelled) return;
             const list = listData.companies || [];
             if (mounted.current) setCompanies(list);
             const replacement = list.find(c => c.id !== selectedCompanyId);
@@ -340,7 +347,7 @@ function CompanyGraphPanel() {
             // The re-list itself failed (network/500/auth expiry) — surface it
             // instead of silently clearing state, so the user isn't left staring
             // at an empty graph with no explanation.
-            if (!mounted.current) return;
+            if (!mounted.current || cancelled) return;
             const detail = listErr?.response?.data?.detail;
             setError(detail ? api.fmtErr(detail) : (listErr?.message || 'Company not found, and the company list could not be refreshed.'));
             setGraph(null);
@@ -352,9 +359,10 @@ function CompanyGraphPanel() {
         setError(detail ? api.fmtErr(detail) : (e?.message || 'Could not load the company graph.'));
         setGraph(null);
       } finally {
-        if (mounted.current) setLoading(false);
+        if (mounted.current && !cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
   }, [selectedCompanyId]);
 
   const { nodes, edges } = React.useMemo(() => buildGraphElements(graph), [graph]);
