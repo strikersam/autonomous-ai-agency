@@ -473,6 +473,28 @@ class AgentRunner:
                 except Exception:  # nosec B110 -- KPI tracking is best-effort
                     log.debug("Checkpoint after plan failed (non-fatal)", exc_info=True)
 
+            # Persist the plan as a reviewable spec artifact; execution blocks
+            # on human approval only when AGENT_SPEC_APPROVAL_REQUIRED=true.
+            spec_doc = None
+            try:
+                from services.spec_store import persist_plan_spec
+                spec_doc = await persist_plan_spec(
+                    session_id=session_id,
+                    goal=plan.goal,
+                    steps=[s.model_dump() for s in plan.steps],
+                    risks=plan.risks,
+                    requires_risky_review=plan.requires_risky_review,
+                )
+            except Exception:  # nosec B110 -- spec persistence is best-effort
+                log.debug("Spec persistence failed (non-fatal)", exc_info=True)
+            if spec_doc is not None and spec_doc.get("status") == "pending":
+                from services.spec_store import await_spec_approval
+                self._log_event(session_id, "spec_awaiting_approval", {"spec_id": spec_doc["spec_id"]})
+                if not await await_spec_approval(spec_doc["spec_id"]):
+                    raise AgentPhaseError(
+                        f"spec_approval: spec {spec_doc['spec_id']} was not approved"
+                    )
+
             # A5: Publish plan creation event on the inter-agent message bus
             try:
                 from services.agent_bus import get_agent_bus
@@ -1209,6 +1231,20 @@ class AgentRunner:
                 "description": step["description"],
                 "status": "failed",
                 "issues": step_review_issues,
+                "changed_files": changed_files,
+                "observations": observations,
+                "models": {"executor": executor_model, "verifier": verifier_model},
+            }
+
+        empirical_issues = self._empirical_verify(changed_files)
+        if empirical_issues:
+            self._log_event(session_id, "empirical_verify_failed", {"issues": empirical_issues[:5]})
+            return {
+                "step_id": step["id"],
+                "description": step["description"],
+                "status": "failed",
+                "failure_phase": "empirical_verification",
+                "issues": empirical_issues,
                 "changed_files": changed_files,
                 "observations": observations,
                 "models": {"executor": executor_model, "verifier": verifier_model},
@@ -2132,6 +2168,56 @@ class AgentRunner:
                 issues.append("Auth/JWT code hardcodes SECRET_KEY instead of reading configuration from the environment.")
             if "fake_users_db" in lowered:
                 issues.append("Auth/JWT code introduces fake in-memory users, which is not a safe default for real authentication work.")
+        return issues
+
+    def _empirical_verify(self, changed_files: list[str]) -> list[str]:
+        """Run real validation (byte-compile + scoped pytest) on this step's changes.
+
+        Opt-in via AGENT_EMPIRICAL_VERIFY=true. Complements the model-based
+        verifier with executable evidence: the verifier judges the diff, this
+        gate proves the changed modules still compile and their matching tests
+        still pass. Runs once per step, after all files are applied, so a
+        failure surfaces as a step failure with the tool output attached.
+        """
+        if os.environ.get("AGENT_EMPIRICAL_VERIFY", "false").strip().lower() not in ("true", "1", "yes", "on"):
+            return []
+        py_files = [f for f in changed_files if f.endswith(".py")]
+        if not py_files:
+            return []
+        issues: list[str] = []
+        timeout = int(os.environ.get("AGENT_EMPIRICAL_VERIFY_TIMEOUT", "120"))
+        root = Path(self.tools.root)
+
+        def _run(argv: list[str]) -> tuple[int, str]:
+            proc = subprocess.run(  # nosec B603 - fixed interpreter argv, list form (no shell)
+                argv, cwd=root, capture_output=True, text=True, timeout=timeout,
+                env={**os.environ, "TESTING": "true"},
+            )
+            return proc.returncode, (proc.stdout + proc.stderr)[-4000:]
+
+        try:
+            rc, out = _run([sys.executable, "-m", "py_compile", *py_files])
+            if rc != 0:
+                issues.append(f"Changed files fail to byte-compile:\n{out}")
+                return issues
+
+            test_targets: list[str] = []
+            for f in py_files:
+                name = Path(f).name
+                if name.startswith("test_"):
+                    test_targets.append(f)
+                else:
+                    test_targets.extend(
+                        str(p.relative_to(root)) for p in root.glob(f"tests/test_{Path(f).stem}*.py")
+                    )
+            if test_targets:
+                rc, out = _run([sys.executable, "-m", "pytest", "-x", "-q", *dict.fromkeys(test_targets)])
+                if rc != 0:
+                    issues.append(f"Scoped tests failed for this change:\n{out}")
+        except subprocess.TimeoutExpired:
+            issues.append(f"Empirical verification timed out after {timeout}s.")
+        except (OSError, FileNotFoundError) as exc:
+            log.debug("Empirical verification unavailable: %s", exc)
         return issues
 
     def _review_step_result(self, *, step: dict[str, Any], changed_files: list[str]) -> list[str]:
