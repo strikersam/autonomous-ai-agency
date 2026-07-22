@@ -459,4 +459,31 @@ loops:
     source: .github/workflows/keepalive.yml
     self_heal: true
     gate: none
+
+  # ── Inbound intake + retrospective (signal loop) ─────────────────────────
+  - id: inbound-issue-triage
+    name: Inbound Issue Triage
+    pattern: issue-triage
+    level: L2
+    trigger: daemon
+    cadence: configurable (default off)
+    runs_per_day: 0
+    cost: low
+    source: services/issue_triage.py
+    self_heal: false
+    gate: none
+    purpose: Classify unlabeled inbound GitHub issues and route them into the fix-dispatch pipeline; opt-in via ISSUE_TRIAGE_ENABLED.
+
+  - id: session-retrospective
+    name: Session Retrospective Mining
+    pattern: learn-scan
+    level: L2
+    trigger: daemon
+    cadence: daily (default off)
+    runs_per_day: 0
+    cost: medium
+    source: services/session_retro.py
+    self_heal: false
+    gate: none
+    purpose: LLM-judge recent agent session traces for recurring friction, registering clusters as improvement issues; opt-in via SESSION_RETRO_ENABLED.
     purpose: Ping the deploy to prevent free-tier spin-down.

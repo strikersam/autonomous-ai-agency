@@ -1,0 +1,15 @@
+# Standard pre-commit-framework adapter for this repo's guardrail hooks.
+#
+# The canonical hook logic lives in .claude/hooks/ (activated directly via
+# `make hooks-install`). This config exposes the same checks to developers
+# and agents who use the pre-commit framework (`pip install pre-commit &&
+# pre-commit install`) — one source of truth, two activation paths.
+repos:
+  - repo: local
+    hooks:
+      - id: repo-guardrails
+        name: repo guardrails (syntax + secret scan, .claude/hooks/pre-commit)
+        entry: .claude/hooks/pre-commit
+        language: script
+        pass_filenames: false
+        always_run: true

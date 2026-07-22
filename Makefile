@@ -77,6 +77,8 @@ hooks-install:
 	git config core.hooksPath .claude/hooks
 	@echo "✓ Blocking hooks activated (.claude/hooks)"
 	@echo "  Hooks: pre-commit, commit-msg, pre-push"
+	@command -v pre-commit >/dev/null 2>&1 && pre-commit install --install-hooks || \
+		echo "  (pre-commit framework not installed — pip install pre-commit to also enable .pre-commit-config.yaml)"
 
 # ── Changelog ─────────────────────────────────────────────────────────────────
 

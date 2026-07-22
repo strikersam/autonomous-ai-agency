@@ -34,6 +34,9 @@ EventType = Literal[
     "slice_started",
     "slice_complete",
     "slice_failed",
+    # Empirical verification / spec-approval gate events
+    "empirical_verify_failed",
+    "spec_awaiting_approval",
 ]
 
 

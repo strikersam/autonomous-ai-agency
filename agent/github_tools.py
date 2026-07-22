@@ -221,6 +221,35 @@ class GitHubTools:
             return resp.json()
 
 
+    async def list_issues(
+        self, owner: str, repo: str, *, state: str = "open", labels: str | None = None, per_page: int = 30
+    ) -> list[dict[str, Any]]:
+        """List issues (excludes pull requests) for triage/intake pipelines."""
+        self._validate_repo_parts(owner, repo)
+        params: dict[str, Any] = {"state": state, "per_page": per_page}
+        if labels:
+            params["labels"] = labels
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{self.base_url}/repos/{owner}/{repo}/issues",
+                headers=self._headers(),
+                params=params,
+            )
+            resp.raise_for_status()
+            return [issue for issue in resp.json() if "pull_request" not in issue]
+
+    async def add_labels(self, owner: str, repo: str, issue_number: int, labels: list[str]) -> dict[str, Any]:
+        """Add labels to an issue (used to mark it as triaged, preventing reprocessing)."""
+        self._validate_repo_parts(owner, repo)
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}/labels",
+                headers=self._headers(),
+                json={"labels": labels},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     async def get_issue(self, owner: str, repo: str, issue_number: int) -> dict[str, Any]:
         self._validate_repo_parts(owner, repo)
         """Fetch a single GitHub issue."""
