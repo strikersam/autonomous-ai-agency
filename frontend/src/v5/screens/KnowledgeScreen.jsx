@@ -334,8 +334,18 @@ function CompanyGraphPanel() {
               try { localStorage.setItem(COMPANY_ID_KEY, replacement.id); } catch {}
               return; // the selectedCompanyId change re-triggers this effect
             }
-          } catch { /* listing failed too — fall through to error display */ }
-          if (mounted.current) { setSelectedCompanyId(''); setGraph(null); setLoading(false); }
+            // Listing succeeded but found no other company — genuinely empty, not an error.
+            if (mounted.current) { setSelectedCompanyId(''); setGraph(null); setLoading(false); }
+          } catch (listErr) {
+            // The re-list itself failed (network/500/auth expiry) — surface it
+            // instead of silently clearing state, so the user isn't left staring
+            // at an empty graph with no explanation.
+            if (!mounted.current) return;
+            const detail = listErr?.response?.data?.detail;
+            setError(detail ? api.fmtErr(detail) : (listErr?.message || 'Company not found, and the company list could not be refreshed.'));
+            setGraph(null);
+            setLoading(false);
+          }
           return;
         }
         const detail = e?.response?.data?.detail;

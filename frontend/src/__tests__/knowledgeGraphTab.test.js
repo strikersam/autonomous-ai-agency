@@ -65,6 +65,14 @@ describe('Knowledge screen — Company Graph tab stale-ID recovery (regression)'
     expect(src).toMatch(/list\.find\(c => c\.id !== selectedCompanyId\)/);
     expect(src).not.toMatch(/list\[0\]\.id !== selectedCompanyId/);
   });
+
+  // Codex review on #1110: if listCompanies() itself fails while recovering
+  // from a 404 (network/500/auth expiry), the empty catch swallowed that
+  // error and silently cleared the graph with no explanation to the user.
+  test('surfaces an error when the re-list during 404 recovery itself fails, instead of silently clearing state', () => {
+    expect(src).toMatch(/catch \(listErr\) \{/);
+    expect(src).toMatch(/could not be refreshed/);
+  });
 });
 
 describe('Knowledge screen — CompanyGraph element builder', () => {
