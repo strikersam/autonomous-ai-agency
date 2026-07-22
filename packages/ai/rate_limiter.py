@@ -36,9 +36,20 @@ log = logging.getLogger("qwen-proxy")
 
 
 class TokenBucket:
-    """Classic token bucket: refills continuously at rate_per_min/60 tokens/sec,
-    capped at *capacity*. ``acquire()`` waits (bounded) for a token rather than
-    rejecting outright — a short pause here is cheaper than a round-trip 429.
+    """Rate limiter using virtual scheduling (GCRA-style): each caller
+    atomically reserves the next available slot while holding the lock,
+    then releases the lock and sleeps until its own slot — rather than
+    computing a wait time and sleeping *outside* the lock.
+
+    That ordering matters under concurrency: an earlier design recomputed
+    "tokens available" from a shared counter, released the lock, then slept —
+    so N callers arriving on a drained bucket all read roughly the same
+    token count, all computed roughly the same wait, and all woke up and
+    proceeded together. A drained bucket under concurrent load enforced
+    nothing; it just added a uniform delay before a burst of N requests.
+    Reserving a strictly increasing slot time under the lock instead spaces
+    concurrent callers one interval apart, which is what "requests per
+    minute" is supposed to mean.
     """
 
     def __init__(self, rate_per_min: float, capacity: float | None = None) -> None:
@@ -46,26 +57,32 @@ class TokenBucket:
         # Default burst allowance: ~10 seconds worth of tokens, floor of 1 so a
         # very low configured rate still allows at least one immediate request.
         self.capacity = capacity if capacity is not None else max(1.0, rate_per_min / 6.0)
-        self.tokens = self.capacity
-        self.last = time.monotonic()
+        self._interval = 1.0 / self.rate_per_sec
+        # The earliest time the next token becomes available. Seeded in the
+        # past by a full burst window so the first `capacity` callers proceed
+        # immediately (the intended burst allowance).
+        self._next_slot = time.monotonic() - self.capacity * self._interval
         self._lock = asyncio.Lock()
 
     async def acquire(self, max_wait: float = 5.0) -> float:
-        """Block until a token is available or *max_wait* elapses; return seconds waited.
+        """Block until this caller's reserved slot arrives, or *max_wait* elapses.
 
-        Never waits longer than *max_wait* — if the bucket is badly drained,
-        proceed anyway rather than stalling the caller indefinitely. The
-        existing reactive 429 handling in router.py remains the safety net.
+        Returns seconds actually waited. Never waits longer than *max_wait* —
+        if the bucket is badly drained, proceed anyway rather than stalling
+        the caller indefinitely; the existing reactive 429 handling in
+        router.py remains the safety net. A clamped wait means this caller's
+        actual departure lags its reserved slot, which under-throttles
+        slightly rather than blocking forever — the same tradeoff the
+        max_wait cap already implies.
         """
         async with self._lock:
             now = time.monotonic()
-            self.tokens = min(self.capacity, self.tokens + (now - self.last) * self.rate_per_sec)
-            self.last = now
-            if self.tokens >= 1.0:
-                self.tokens -= 1.0
-                return 0.0
-            wait = min(max_wait, (1.0 - self.tokens) / self.rate_per_sec)
-            self.tokens = max(0.0, self.tokens - 1.0)
+            earliest = now - self.capacity * self._interval
+            start = max(self._next_slot, earliest)
+            my_slot = start + self._interval
+            self._next_slot = my_slot
+            wait = max(0.0, my_slot - now)
+        wait = min(wait, max_wait)
         if wait > 0:
             await asyncio.sleep(wait)
         return wait

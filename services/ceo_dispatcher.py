@@ -316,6 +316,13 @@ class CEODispatcher:
                 github_token=github_token,
             )
 
+        # AgentRunner.run() raises immediately outside legacy/bypass mode (see
+        # its own DEPRECATION guard). Under the default AGENCY_WORKFLOW_MODE=
+        # orchestrator, cross_verify's runner_factory would otherwise always
+        # fail with "blocked in orchestrator mode" — same bypass pattern this
+        # dispatcher already uses for the MultiAgentSwarm fallback below.
+        from services.workflow_orchestrator import _BYPASS
+        bypass_token = _BYPASS.set(True)
         try:
             outcome = await cross_verify(
                 instruction=request, changed_files=changed_files, runner_factory=_runner_factory,
@@ -328,6 +335,8 @@ class CEODispatcher:
                 )
         except Exception as exc:  # nosec B110 -- advisory pass is best-effort
             log.debug("CEO: cross_verify skipped (error): %s", exc)
+        finally:
+            _BYPASS.reset(bypass_token)
 
     async def _run_subtasks(
         self,

@@ -153,3 +153,64 @@ def test_spec_endpoints_list_get_approve_reject(app_client, fake_db, monkeypatch
 
     resp = app_client.get("/api/specs/does-not-exist")
     assert resp.status_code == 404
+
+
+# ── Fail-closed regression: approval-required + persistence failure ────────
+
+def test_persist_plan_spec_reraises_when_approval_required_and_persist_fails(
+    fake_db, monkeypatch
+):
+    """Regression: previously persist_plan_spec() swallowed insert_one()
+    failures into a bare `return None`, and callers that only checked
+    `spec_doc is not None` would silently proceed without approval. The
+    fix moves the fail-closed decision to the caller (agent/loop.py), but
+    persist_plan_spec itself must still surface the real exception rather
+    than a generic None so the caller can distinguish "approval not needed"
+    from "persistence broke while approval was required"."""
+    monkeypatch.setenv("AGENT_SPEC_APPROVAL_REQUIRED", "true")
+
+    async def broken_insert(doc):
+        raise RuntimeError("no such table: agent_specs")
+
+    fake_db.agent_specs.insert_one = broken_insert
+
+    with pytest.raises(RuntimeError, match="no such table"):
+        asyncio.run(
+            spec_store.persist_plan_spec(session_id="s1", goal="Goal", steps=[])
+        )
+
+
+def test_persist_plan_spec_swallows_failure_when_approval_not_required(
+    fake_db, monkeypatch
+):
+    """When approval isn't required, persistence stays best-effort — a
+    storage hiccup shouldn't block a normal (auto-approved) run."""
+    monkeypatch.delenv("AGENT_SPEC_APPROVAL_REQUIRED", raising=False)
+
+    async def broken_insert(doc):
+        raise RuntimeError("transient failure")
+
+    fake_db.agent_specs.insert_one = broken_insert
+
+    doc = asyncio.run(
+        spec_store.persist_plan_spec(session_id="s1", goal="Goal", steps=[])
+    )
+    assert doc is None
+
+
+def test_spec_decision_never_logs_operator_email(app_client, fake_db, monkeypatch, caplog):
+    """AGENTS.md: never log sensitive values, including email addresses.
+    approve/reject previously logged the operator's raw email via
+    `decided_by` at INFO level."""
+    import logging
+    monkeypatch.setenv("AGENT_SPEC_APPROVAL_REQUIRED", "true")
+    doc = asyncio.run(
+        spec_store.persist_plan_spec(session_id="s1", goal="G", steps=[])
+    )
+    spec_id = doc["spec_id"]
+
+    with caplog.at_level(logging.INFO):
+        resp = app_client.post(f"/api/specs/{spec_id}/approve")
+    assert resp.status_code == 200
+    assert resp.json()["decided_by"] == "admin@example.com"  # still recorded on the doc
+    assert "admin@example.com" not in caplog.text  # but never written to the log stream

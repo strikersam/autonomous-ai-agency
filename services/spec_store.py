@@ -104,8 +104,14 @@ async def persist_plan_spec(
     }
     try:
         await _db().agent_specs.insert_one(dict(doc))
-    except Exception as exc:  # nosec B110 -- spec persistence is best-effort
-        log.debug("Spec persistence skipped (storage unavailable): %s", exc)
+    except Exception as exc:
+        # Fail CLOSED when approval is required: a storage hiccup must not
+        # silently let an unreviewed run through just because the caller
+        # only checks "was a spec returned". Persistence stays best-effort
+        # (swallowed) only when nothing downstream is gating on it.
+        if spec_approval_required():
+            raise
+        log.debug("Spec persistence skipped (storage unavailable): %s", exc)  # nosec B110
         return None
     return doc
 

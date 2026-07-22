@@ -475,6 +475,13 @@ class AgentRunner:
 
             # Persist the plan as a reviewable spec artifact; execution blocks
             # on human approval only when AGENT_SPEC_APPROVAL_REQUIRED=true.
+            #
+            # Fail CLOSED, not open: when approval is required, a persistence
+            # failure must not silently let the run through un-reviewed. Only
+            # persistence errors are swallowed (best-effort) when approval is
+            # NOT required — that path has nothing to fail closed on.
+            from services.spec_store import spec_approval_required
+            approval_required = spec_approval_required()
             spec_doc = None
             try:
                 from services.spec_store import persist_plan_spec
@@ -485,8 +492,17 @@ class AgentRunner:
                     risks=plan.risks,
                     requires_risky_review=plan.requires_risky_review,
                 )
-            except Exception:  # nosec B110 -- spec persistence is best-effort
-                log.debug("Spec persistence failed (non-fatal)", exc_info=True)
+            except Exception as exc:
+                if approval_required:
+                    raise AgentPhaseError(
+                        f"spec_approval: could not persist spec for approval-required run: {exc}"
+                    ) from exc
+                log.debug("Spec persistence failed (non-fatal)", exc_info=True)  # nosec B110
+            if approval_required and spec_doc is None:
+                raise AgentPhaseError(
+                    "spec_approval: AGENT_SPEC_APPROVAL_REQUIRED=true but no spec was persisted "
+                    "to approve — refusing to execute un-reviewed"
+                )
             if spec_doc is not None and spec_doc.get("status") == "pending":
                 from services.spec_store import await_spec_approval
                 self._log_event(session_id, "spec_awaiting_approval", {"spec_id": spec_doc["spec_id"]})

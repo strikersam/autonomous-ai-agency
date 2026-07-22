@@ -53,7 +53,11 @@ def build_spec_router(get_current_user: Callable[..., Any]) -> APIRouter:
         if spec is None:
             raise HTTPException(status_code=404, detail="Spec not found")
         spec.pop("_id", None)
-        log.info("Spec %s %s by %s", spec_id, status, decided_by)
+        # Never log the operator's email/id (AGENTS.md logging rule) — the
+        # actor is already durably recorded on the spec doc itself
+        # (`decided_by`), retrievable via GET /api/specs/{spec_id} by an
+        # authorized caller, which is the right audit surface for identity.
+        log.info("Spec %s decided: %s", spec_id, status)
         return spec
 
     @router.post("/{spec_id}/approve")

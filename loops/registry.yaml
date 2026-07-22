@@ -459,6 +459,7 @@ loops:
     source: .github/workflows/keepalive.yml
     self_heal: true
     gate: none
+    purpose: Ping the deploy to prevent free-tier spin-down.
 
   # ── Inbound intake + retrospective (signal loop) ─────────────────────────
   - id: inbound-issue-triage
@@ -486,4 +487,3 @@ loops:
     self_heal: false
     gate: none
     purpose: LLM-judge recent agent session traces for recurring friction, registering clusters as improvement issues; opt-in via SESSION_RETRO_ENABLED.
-    purpose: Ping the deploy to prevent free-tier spin-down.
