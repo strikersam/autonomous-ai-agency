@@ -209,6 +209,24 @@ class ImprovementLoop:
     def set_on_task(self, callback: Callable[..., Any] | None) -> None:
         self._on_task = callback
 
+    def register_external_issue(self, issue: DetectedIssue) -> bool:
+        """Register + schedule a fix for an issue detected outside the scan cycle.
+
+        Shared entry point for external intake sources (inbound GitHub issue
+        triage, session-retrospective friction clusters) so they reuse the
+        same dedup, persistence, and fix-dispatch path as scanner-detected
+        issues instead of maintaining a second issue pipeline. Returns False
+        if the issue (by title) is already tracked.
+        """
+        if not self._filter_new_issues([issue]):
+            return False
+        self._register_issue(issue)
+        self._schedule_fix(issue)
+        with self._lock:
+            self._state.issues_detected += 1
+            self._save_state()
+        return True
+
     def mark_resolved(self, issue_id: str) -> bool:
         with self._lock:
             for issue in self._state.active_issues:

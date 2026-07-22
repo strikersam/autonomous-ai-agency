@@ -892,6 +892,13 @@ MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
 MINIMAX_BASE_URL = "https://api.minimax.chat/v1"
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+# "gemma-4" is not a real Gemini API model — Gemma is a separate open-weight
+# family Google does not serve via this generative-language endpoint, so any
+# request for it 404s unconditionally. Matches the default already used by
+# packages/ai/router.py's own Gemini provider construction (GEMINI_MODEL env,
+# gemini-2.5-flash fallback) — one provider, one default, not two disagreeing
+# hardcoded values.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 MOONSHOT_API_KEY = os.environ.get("MOONSHOT_API_KEY", "")
 MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
 
@@ -2689,7 +2696,7 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": GOOGLE_BASE_URL,
             "api_key": GOOGLE_API_KEY,
-            "default_model": "gemma-4",
+            "default_model": GEMINI_MODEL,
             "is_default": LLM_PROVIDER == "google",
             "priority": 75,
             "status": "configured" if GOOGLE_API_KEY else "unconfigured",
@@ -9751,6 +9758,8 @@ app.include_router(local_brain_router)
 # is one line.
 import backend.admin_local_brain_router as admin_local_brain_router_module  # noqa: E402
 app.include_router(admin_local_brain_router_module.build_admin_local_brain_router(get_current_user))
+import backend.spec_router as spec_router_module  # noqa: E402
+app.include_router(spec_router_module.build_spec_router(get_current_user))
 
 app.include_router(runtime_router)
 app.include_router(task_router)

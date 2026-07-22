@@ -138,6 +138,13 @@ _stats: dict[str, dict[str, Any]] = defaultdict(
         "providers": set(),
     }
 )
+# Per-task-category breakdown (e.g. "code_generation", "reasoning",
+# "fast_response" — see router/classifier.py). Populated only for callers
+# that pass ``tag``; existing untagged calls roll up under "untagged" so
+# totals still reconcile against get_stats()["totals"].
+_tag_stats: dict[str, dict[str, Any]] = defaultdict(
+    lambda: {"calls": 0, "total_tokens": 0, "estimated_cost_usd": 0.0}
+)
 _total_calls: int = 0
 _total_cost_usd: float = 0.0
 
@@ -148,8 +155,14 @@ def record_usage(
     provider_id: str = "",
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
+    tag: str = "untagged",
 ) -> None:
-    """Record token usage for *model* (fire-and-forget, never raises)."""
+    """Record token usage for *model* (fire-and-forget, never raises).
+
+    ``tag`` is a coarse task-category label (see router/classifier.py's
+    ``classify_task()``) used to break down spend by kind of work, not just
+    by model — callers that don't have a category default to "untagged".
+    """
     global _total_calls, _total_cost_usd
     try:
         cost = cost_for_tokens(model, prompt_tokens, completion_tokens)
@@ -161,6 +174,10 @@ def record_usage(
         entry["estimated_cost_usd"] += cost
         if provider_id:
             entry["providers"].add(provider_id)
+        tag_entry = _tag_stats[tag or "untagged"]
+        tag_entry["calls"] += 1
+        tag_entry["total_tokens"] += prompt_tokens + completion_tokens
+        tag_entry["estimated_cost_usd"] += cost
         _total_calls += 1
         _total_cost_usd += cost
     except Exception as exc:
@@ -179,8 +196,17 @@ def get_stats() -> dict[str, Any]:
             "estimated_cost_usd": round(entry["estimated_cost_usd"], 6),
             "providers": sorted(entry["providers"]),
         }
+    by_tag = {
+        tag: {
+            "calls": entry["calls"],
+            "total_tokens": entry["total_tokens"],
+            "estimated_cost_usd": round(entry["estimated_cost_usd"], 6),
+        }
+        for tag, entry in _tag_stats.items()
+    }
     return {
         "models": result,
+        "by_tag": by_tag,
         "totals": {
             "calls": _total_calls,
             "estimated_cost_usd": round(_total_cost_usd, 6),
@@ -192,6 +218,7 @@ def clear_stats() -> None:
     """Reset all aggregates (intended for testing)."""
     global _total_calls, _total_cost_usd
     _stats.clear()
+    _tag_stats.clear()
     _total_calls = 0
     _total_cost_usd = 0.0
 

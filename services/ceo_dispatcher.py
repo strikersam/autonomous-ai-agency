@@ -30,6 +30,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent.loop import AgentRunner
+
 log = logging.getLogger("agency.ceo")
 
 
@@ -105,9 +107,12 @@ class CEOResult:
     fanout_used: bool = False
     runtimes_woken: list[str] = field(default_factory=list)
     verdict: str = "OK"  # OK | PARTIAL | FAILED
+    # Set only when AGENT_CROSS_VERIFY_ENABLED=true and a risky module was
+    # touched — an independent agent's post-hoc review of the change.
+    cross_verification: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "goal": self.goal,
             "specialists": self.specialists,
             "summary": self.summary,
@@ -117,6 +122,9 @@ class CEOResult:
             "runtimes_woken": self.runtimes_woken,
             "verdict": self.verdict,
         }
+        if self.cross_verification is not None:
+            out["cross_verification"] = self.cross_verification
+        return out
 
 
 # ── Decomposition ─────────────────────────────────────────────────────────────
@@ -257,7 +265,7 @@ class CEODispatcher:
             f"CEO[{fan_label}]: {ok_count}/{len(sub_tasks)} specialist(s) completed "
             f"in {elapsed:.1f}s (complexity={complexity}, runtimes_woken={len(woken)})"
         )
-        return CEOResult(
+        result = CEOResult(
             goal=request[:200],
             specialists=specialists_out,
             summary=summary,
@@ -267,6 +275,68 @@ class CEODispatcher:
             runtimes_woken=woken,
             verdict=verdict,
         )
+        await self._maybe_cross_verify(
+            result, request=request, specialists_out=specialists_out,
+            workspace_root=workspace_root, ollama_base=ollama_base,
+            github_token=github_token, user_id=user_id,
+        )
+        return result
+
+    async def _maybe_cross_verify(
+        self,
+        result: CEOResult,
+        *,
+        request: str,
+        specialists_out: list[dict[str, Any]],
+        workspace_root: str | None,
+        ollama_base: str | None,
+        github_token: str | None,
+        user_id: str | None,
+    ) -> None:
+        """Post-hoc independent re-check when a completed task touched a
+        risky module. Advisory only — attaches findings to *result* without
+        rolling back already-applied changes. Off by default.
+        """
+        if os.environ.get("AGENT_CROSS_VERIFY_ENABLED", "false").strip().lower() not in ("true", "1", "yes", "on"):
+            return
+        changed_files = _merge_changed_files(specialists_out)
+        if not changed_files:
+            return
+        try:
+            from agent.verification_strategies import cross_verify, touches_risky_module
+        except Exception:  # nosec B110 -- optional capability
+            return
+        if not touches_risky_module(changed_files):
+            return
+
+        def _runner_factory() -> AgentRunner:
+            return AgentRunner(
+                ollama_base=ollama_base or "http://localhost:11434",
+                workspace_root=workspace_root,
+                github_token=github_token,
+            )
+
+        # AgentRunner.run() raises immediately outside legacy/bypass mode (see
+        # its own DEPRECATION guard). Under the default AGENCY_WORKFLOW_MODE=
+        # orchestrator, cross_verify's runner_factory would otherwise always
+        # fail with "blocked in orchestrator mode" — same bypass pattern this
+        # dispatcher already uses for the MultiAgentSwarm fallback below.
+        from services.workflow_orchestrator import _BYPASS
+        bypass_token = _BYPASS.set(True)
+        try:
+            outcome = await cross_verify(
+                instruction=request, changed_files=changed_files, runner_factory=_runner_factory,
+            )
+            result.cross_verification = outcome
+            if not outcome.get("cross_verified", True):
+                log.warning(
+                    "CEO: cross-verification flagged risky-module change (%s): %s",
+                    changed_files, outcome.get("issues"),
+                )
+        except Exception as exc:  # nosec B110 -- advisory pass is best-effort
+            log.debug("CEO: cross_verify skipped (error): %s", exc)
+        finally:
+            _BYPASS.reset(bypass_token)
 
     async def _run_subtasks(
         self,

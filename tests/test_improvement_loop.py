@@ -102,6 +102,38 @@ def test_mark_resolved(tmp_loop: ImprovementLoop):
     assert status["issues_resolved"] == 1
 
 
+def test_register_external_issue_dispatches_and_dedupes(tmp_path: Path):
+    scheduled = []
+    loop = ImprovementLoop(
+        repo_root=tmp_path,
+        on_task=lambda **kw: scheduled.append(kw),
+        scan_interval_hours=24,
+    )
+    issue = DetectedIssue(
+        issue_id="ext-1",
+        category=IssueCategory.FEATURE_REQUEST,
+        severity=IssueSeverity.HIGH,
+        title="[#7] Add CSV export",
+        description="Users want CSV export on the reports page",
+    )
+
+    assert loop.register_external_issue(issue) is True
+    assert scheduled and scheduled[0]["instruction"]
+    status = loop.get_status()
+    assert status["issues_detected"] == 1
+    assert any(i["issue_id"] == "ext-1" for i in status["active_issues"])
+
+    duplicate = DetectedIssue(
+        issue_id="ext-2",
+        category=IssueCategory.FEATURE_REQUEST,
+        severity=IssueSeverity.HIGH,
+        title="[#7] Add CSV export",  # same title → deduped
+        description="Different wording, same request",
+    )
+    assert loop.register_external_issue(duplicate) is False
+    assert loop.get_status()["issues_detected"] == 1
+
+
 def test_filter_new_issues_deduplicates(tmp_loop: ImprovementLoop):
     issue = DetectedIssue(
         issue_id="mt_dup",

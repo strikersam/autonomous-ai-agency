@@ -1071,6 +1071,16 @@ class ProviderRouter:
         for model in self._candidate_models(provider, original_model, model_fallbacks, is_primary):
             provider_payload = {**payload, "model": model, "stream": False}
             for attempt_number in range(max_retries + 1):
+                # Proactive pacing — no-op unless the operator has set
+                # <PROVIDER>_MAX_RPM to that provider's real current limit.
+                # Complements the reactive 429/Retry-After handling below by
+                # avoiding predictable rate-limit errors instead of just
+                # recovering from them.
+                try:
+                    from packages.ai.rate_limiter import pace as _pace_provider
+                    await _pace_provider(provider.provider_id)
+                except Exception:  # nosec B110 -- pacing must never block a request
+                    pass
                 started = time.perf_counter()
                 try:
                     # Proactive rate-limit check: if remaining quota for this
@@ -1105,11 +1115,18 @@ class ProviderRouter:
                             from packages.ai.cost_tracker import record_usage as _record_cost
                             _body = response.json()
                             _usage = _body.get("usage") or {}
+                            _tag = "untagged"
+                            try:
+                                from router.classifier import classify_task
+                                _tag = classify_task(messages=payload.get("messages") or [])
+                            except Exception:
+                                pass
                             _record_cost(
                                 model,
                                 provider_id=provider.provider_id,
                                 prompt_tokens=int(_usage.get("prompt_tokens") or 0),
                                 completion_tokens=int(_usage.get("completion_tokens") or 0),
+                                tag=_tag,
                             )
                         except Exception:
                             pass

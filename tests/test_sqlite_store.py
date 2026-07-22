@@ -565,3 +565,19 @@ async def test_migration_backfills_new_indexed_column(tmp_path):
         .sort("created_at", -1).to_list(None)
     assert [r["task_id"] for r in rows] == ["t1"]
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_specs_collection_is_whitelisted(store):
+    """Regression: agent_specs must be usable on the SQLite backend, not just
+    Mongo — services/spec_store.py's persist_plan_spec() previously hit an
+    AttributeError here (agent_specs missing from _COLLECTIONS), which was
+    swallowed and silently skipped the approval gate when
+    AGENT_SPEC_APPROVAL_REQUIRED=true on a SQLite-backed deployment."""
+    assert "agent_specs" in _COLLECTIONS
+    result = await store.agent_specs.insert_one(
+        {"spec_id": "s1", "goal": "g", "status": "pending"}
+    )
+    assert result.inserted_id
+    doc = await store.agent_specs.find_one({"spec_id": "s1"})
+    assert doc is not None and doc["status"] == "pending"

@@ -94,6 +94,7 @@ _COLLECTIONS = [
     "repo_scans",
     "workflows",
     "app_settings",
+    "agent_specs",
 ]
 
 # Fields that are extracted into real columns for indexed lookup.
@@ -116,6 +117,7 @@ _INDEXED_FIELDS: dict[str, list[str]] = {
     "repo_scans":      ["company_id", "completed_at"],
     "workflows":       ["company_id", "is_active"],
     "app_settings":    ["key"],
+    "agent_specs":     ["spec_id", "status", "created_at"],
 }
 
 

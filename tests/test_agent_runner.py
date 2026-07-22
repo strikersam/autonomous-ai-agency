@@ -776,3 +776,69 @@ def test_build_report_no_failures(tmp_path: Path) -> None:
     assert "5/5" in report
     assert "Failed step" not in report
     assert "abc123" not in report or "Commits" in report  # commits count line
+
+
+def test_agent_runner_fails_closed_when_spec_approval_required_but_persist_broken(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Regression: AGENT_SPEC_APPROVAL_REQUIRED=true must never let a run
+    through un-reviewed just because spec persistence broke (e.g. the
+    SQLite backend didn't recognize the agent_specs collection). The run
+    should fail with AgentPhaseError, not silently execute the plan."""
+    monkeypatch.setenv("AGENT_SPEC_APPROVAL_REQUIRED", "true")
+
+    async def broken_persist(**kwargs):
+        raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr("services.spec_store.persist_plan_spec", broken_persist)
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+    responses = iter(['{"goal":"Do work","steps":[]}'])
+
+    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+        return next(responses)
+
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+
+    with pytest.raises(AgentPhaseError, match="spec_approval"):
+        asyncio.run(
+            runner.run(
+                instruction="Do work", history=[], requested_model=None,
+                auto_commit=False, max_steps=3,
+            )
+        )
+
+
+def test_agent_runner_proceeds_normally_when_approval_not_required_and_persist_broken(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Persistence stays best-effort when nothing is gating on it — a
+    storage hiccup must not block a normal (auto-approved) run."""
+    monkeypatch.delenv("AGENT_SPEC_APPROVAL_REQUIRED", raising=False)
+
+    async def broken_persist(**kwargs):
+        raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr("services.spec_store.persist_plan_spec", broken_persist)
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+    responses = iter([
+        '{"goal":"Do work","steps":[]}',
+    ])
+
+    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+        return next(responses)
+
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        runner.run(
+            instruction="Do work", history=[], requested_model=None,
+            auto_commit=False, max_steps=3,
+        )
+    )
+    assert result["goal"] == "Do work"

@@ -391,3 +391,38 @@ def test_daemon_picks_colibri_8081_when_only_it_listening(tmp_path, monkeypatch)
     assert body["port_state"] == "listening"
     assert body["models_has_glm52"] is True
     assert body["v1_models"] == [{"id": "glm-5.2"}]
+
+
+def test_machine_id_default_path_is_not_windows_literal_on_this_platform(monkeypatch):
+    """Regression: the machine-id file default was a bare Windows literal
+    (C:\\Users\\swami\\...) with no platform check. On POSIX, pathlib treats
+    backslashes as literal filename characters (not separators), so the
+    whole string resolved to one garbage file dropped in the current working
+    directory instead of a real nested path — confirmed: this happened for
+    real in a non-Windows session. Machine-id generation is a cross-platform
+    concern, so off Windows it must fall back to something that actually
+    creates a normal nested path."""
+    import sys
+    m = _import_controller()
+    monkeypatch.delenv("LOCAL_BRAIN_MACHINE_ID_FILE", raising=False)
+
+    default = m._default_machine_id_file()
+    if sys.platform == "win32":
+        assert default.startswith("C:\\")
+    else:
+        assert "\\" not in default, (
+            f"non-Windows default must not contain backslashes: {default!r}"
+        )
+        assert Path(default).is_absolute()
+        assert Path(default).parent != Path(".")
+
+
+def test_machine_id_path_honors_explicit_env_override(tmp_path, monkeypatch):
+    m = _import_controller()
+    target = tmp_path / "custom" / "machine.id"
+    monkeypatch.setenv("LOCAL_BRAIN_MACHINE_ID_FILE", str(target))
+
+    p = m._machine_id_path()
+
+    assert p == target
+    assert p.parent.is_dir()  # mkdir(parents=True) ran
