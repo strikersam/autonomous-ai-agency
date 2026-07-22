@@ -88,6 +88,25 @@ class TestRecordUsageAndStats:
         assert "gpt-4o" in stats["models"]
         assert "claude-sonnet-4-6" in stats["models"]
 
+    def test_untagged_calls_roll_up_under_untagged(self):
+        ct.record_usage("gpt-4o-mini", provider_id="openai", prompt_tokens=100, completion_tokens=10)
+        by_tag = ct.get_stats()["by_tag"]
+        assert by_tag["untagged"]["calls"] == 1
+
+    def test_tagged_calls_broken_out_by_tag(self):
+        ct.record_usage("gpt-4o-mini", provider_id="openai", prompt_tokens=100, completion_tokens=10, tag="code_generation")
+        ct.record_usage("gpt-4o-mini", provider_id="openai", prompt_tokens=200, completion_tokens=20, tag="code_generation")
+        ct.record_usage("gpt-4o", provider_id="openai", prompt_tokens=50, completion_tokens=5, tag="reasoning")
+        by_tag = ct.get_stats()["by_tag"]
+        assert by_tag["code_generation"]["calls"] == 2
+        assert by_tag["code_generation"]["total_tokens"] == 330
+        assert by_tag["reasoning"]["calls"] == 1
+
+    def test_clear_stats_resets_tag_breakdown(self):
+        ct.record_usage("gpt-4o-mini", provider_id="openai", prompt_tokens=100, completion_tokens=10, tag="fast_response")
+        ct.clear_stats()
+        assert ct.get_stats()["by_tag"] == {}
+
     def test_provider_id_tracked_in_set(self):
         ct.record_usage("gpt-4o-mini", provider_id="openai", prompt_tokens=100, completion_tokens=10)
         ct.record_usage("gpt-4o-mini", provider_id="openai-azure", prompt_tokens=100, completion_tokens=10)

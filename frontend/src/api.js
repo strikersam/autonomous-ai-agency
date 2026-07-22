@@ -388,6 +388,7 @@ export const getUserSavings = (userId, period = 'month') =>
   API.get(`/api/observability/savings/${userId}`, { params: { period } });
 export const getUsage = (period = 'month') =>
   API.get('/api/observability/usage', { params: { period } });
+export const getCostAttribution = () => API.get('/api/metrics/cost-attribution');
 
 // ── GitHub workspace (v3.1) ───────────────────────────────────────────────────
 export const listGithubReposV2 = () => API.get('/api/github/repos');

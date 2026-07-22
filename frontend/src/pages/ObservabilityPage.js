@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { getSavings, getUsage } from '../api';
+import { getSavings, getUsage, getCostAttribution } from '../api';
 
 const fmt = (n) => (n == null ? '—' : typeof n === 'number' ? n.toFixed(4) : n);
 const fmtBig = (n) => (n == null ? '—' : n >= 1000 ? `$${(n/1000).toFixed(2)}K` : `$${n.toFixed(4)}`);
@@ -70,6 +70,7 @@ export default function ObservabilityPage() {
   const [period, setPeriod] = useState('month');
   const [savings, setSavings] = useState(null);
   const [usage, setUsage]     = useState(null);
+  const [attribution, setAttribution] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const load = async (p) => {
@@ -85,6 +86,14 @@ export default function ObservabilityPage() {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+    // Per-task-type spend breakdown is a separate, best-effort call — its
+    // failure (e.g. no usage recorded yet) must not block the page above.
+    try {
+      const attr = await getCostAttribution();
+      setAttribution(attr.data);
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -184,6 +193,37 @@ export default function ObservabilityPage() {
               </div>
             )}
           </div>
+
+          {/* Spend by task type */}
+          {attribution?.by_tag && Object.keys(attribution.by_tag).length > 0 && (
+            <div className="bg-white border rounded-xl p-5 mb-5">
+              <div className="text-sm font-semibold text-gray-700 mb-3">
+                🏷️ Spend by Task Type (all-time)
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-400 uppercase">
+                    <th className="pb-2">Task type</th>
+                    <th className="pb-2 text-right">Calls</th>
+                    <th className="pb-2 text-right">Tokens</th>
+                    <th className="pb-2 text-right">Est. cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(attribution.by_tag)
+                    .sort((a, b) => b[1].estimated_cost_usd - a[1].estimated_cost_usd)
+                    .map(([tag, row]) => (
+                      <tr key={tag} className="border-t border-gray-100">
+                        <td className="py-1.5 font-mono text-gray-700">{tag}</td>
+                        <td className="py-1.5 text-right text-gray-600">{row.calls}</td>
+                        <td className="py-1.5 text-right text-gray-600">{row.total_tokens.toLocaleString()}</td>
+                        <td className="py-1.5 text-right text-gray-600">{fmtBig(row.estimated_cost_usd)}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Summary banner */}
           {s.total_savings_usd > 0 && (

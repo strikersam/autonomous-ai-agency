@@ -1105,11 +1105,18 @@ class ProviderRouter:
                             from packages.ai.cost_tracker import record_usage as _record_cost
                             _body = response.json()
                             _usage = _body.get("usage") or {}
+                            _tag = "untagged"
+                            try:
+                                from router.classifier import classify_task
+                                _tag = classify_task(messages=payload.get("messages") or [])
+                            except Exception:
+                                pass
                             _record_cost(
                                 model,
                                 provider_id=provider.provider_id,
                                 prompt_tokens=int(_usage.get("prompt_tokens") or 0),
                                 completion_tokens=int(_usage.get("completion_tokens") or 0),
+                                tag=_tag,
                             )
                         except Exception:
                             pass
