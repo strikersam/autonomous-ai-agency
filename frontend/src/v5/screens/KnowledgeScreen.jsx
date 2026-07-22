@@ -328,9 +328,10 @@ function CompanyGraphPanel() {
             const { data: listData } = await api.listCompanies();
             const list = listData.companies || [];
             if (mounted.current) setCompanies(list);
-            if (list.length > 0 && list[0].id !== selectedCompanyId) {
-              setSelectedCompanyId(list[0].id);
-              try { localStorage.setItem(COMPANY_ID_KEY, list[0].id); } catch {}
+            const replacement = list.find(c => c.id !== selectedCompanyId);
+            if (replacement) {
+              setSelectedCompanyId(replacement.id);
+              try { localStorage.setItem(COMPANY_ID_KEY, replacement.id); } catch {}
               return; // the selectedCompanyId change re-triggers this effect
             }
           } catch { /* listing failed too — fall through to error display */ }

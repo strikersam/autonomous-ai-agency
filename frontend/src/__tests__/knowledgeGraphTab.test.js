@@ -57,6 +57,14 @@ describe('Knowledge screen — Company Graph tab stale-ID recovery (regression)'
   test('self-heals on a 404 from getCompanyGraph instead of leaving a permanent error', () => {
     expect(src).toMatch(/e\?\.response\?\.status === 404/);
   });
+
+  // CodeRabbit review on #1110: checking only list[0] against the failed ID
+  // wrongly cleared the selection whenever list[0] itself was the 404'd
+  // company, even if a perfectly good second company existed in the list.
+  test('404 recovery picks the first company that differs from the failed ID, not just list[0]', () => {
+    expect(src).toMatch(/list\.find\(c => c\.id !== selectedCompanyId\)/);
+    expect(src).not.toMatch(/list\[0\]\.id !== selectedCompanyId/);
+  });
 });
 
 describe('Knowledge screen — CompanyGraph element builder', () => {
