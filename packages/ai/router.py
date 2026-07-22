@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 import httpx
 from packages.ai.response_cache import get_cached, put_cached
+from packages.ai.rate_limiter import get_tracker as _get_rl_tracker
 
 log = logging.getLogger("llm-provider-router")
 
@@ -1072,6 +1073,13 @@ class ProviderRouter:
             for attempt_number in range(max_retries + 1):
                 started = time.perf_counter()
                 try:
+                    # Proactive rate-limit check: if remaining quota for this
+                    # provider is critically low, wait for the reset window
+                    # instead of firing a request that will 429 immediately.
+                    try:
+                        await _get_rl_tracker().pre_flight_check(provider.provider_id)
+                    except Exception:
+                        pass
                     response = await self._post_chat(
                         provider, provider_payload, provider_timeout_sec
                     )
@@ -1085,6 +1093,13 @@ class ProviderRouter:
                         _notify_watchdog(provider.provider_id, success=True)
                         # Reset exponential backoff counter on success.
                         _reset_429_counter(provider.provider_id)
+                        # Update rate-limit quota state from response headers.
+                        try:
+                            _get_rl_tracker().update_from_response(
+                                provider.provider_id, response
+                            )
+                        except Exception:
+                            pass
                         # G1 — per-model cost attribution (fire-and-forget, non-blocking)
                         try:
                             from packages.ai.cost_tracker import record_usage as _record_cost
@@ -1107,6 +1122,14 @@ class ProviderRouter:
                         # cool the provider and fail over immediately.
                         rate_limited = True
                         retry_after_sec = self._parse_retry_after(response)
+                        # Capture any quota headers the provider sent with the 429
+                        # so the next pre_flight_check knows when to retry.
+                        try:
+                            _get_rl_tracker().update_from_response(
+                                provider.provider_id, response
+                            )
+                        except Exception:
+                            pass
                         break
                     if response.status_code == 410:
                         # This *model* is permanently removed (410 Gone) — but
@@ -1598,8 +1621,16 @@ class ProviderRouter:
                 ),
             },
         }
+        # Forward rate-limit quota headers so the RateLimitTracker can read
+        # them from the translated response (the raw response is not returned).
+        rl_headers: dict[str, str] = {
+            k: v for k, v in response.headers.items()
+            if k.lower().startswith("x-ratelimit-")
+        }
         return httpx.Response(
-            200, json=body, headers={"content-type": "application/json"}
+            200,
+            json=body,
+            headers={"content-type": "application/json", **rl_headers},
         )
 
     @staticmethod

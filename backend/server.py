@@ -7714,6 +7714,19 @@ async def clear_cost_attribution(user: dict = Depends(get_current_user)) -> dict
     return {"cleared": True}
 
 
+@app.get("/api/metrics/rate-limits")
+async def rate_limit_stats(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Per-provider rate-limit quota snapshot from x-ratelimit-* response headers.
+
+    Shows remaining requests/tokens and time until the next reset window for
+    every provider the router has called since the last restart.  Useful for
+    diagnosing 429 cascades on free-tier providers (Groq, Cerebras, Anthropic).
+    Requires authentication.
+    """
+    from packages.ai.rate_limiter import get_tracker
+    return {"providers": get_tracker().get_stats()}
+
+
 @app.get("/api/autonomy/tick")
 async def autonomy_tick() -> dict[str, object]:
     """Execute ONE pending task synchronously. Called by the cron workflow every 2 min.
