@@ -9,7 +9,7 @@ UVICORN ?= .venv/bin/uvicorn
 
 .PHONY: help install dev test test-fast test-verbose lint hooks-install
 .PHONY: changelog-check ai-start ai-status ai-resume ai-stop ai-logs
-.PHONY: manifest summary audit ui-docs ci-parity doctor
+.PHONY: manifest summary audit ui-docs ci-parity doctor agent-readiness
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 
@@ -121,6 +121,9 @@ summary:
 
 audit:
 	$(PYTHON) scripts/ai_runner.py audit
+
+agent-readiness: ## Score repo fitness for autonomous agent work across 8 pillars
+	$(PYTHON) scripts/agent_readiness_audit.py --write
 
 ui-docs:
 	python3 scripts/gen_webui_screenshots.py
