@@ -43,6 +43,22 @@ describe('Knowledge screen — Company Graph tab', () => {
   });
 });
 
+describe('Knowledge screen — Company Graph tab stale-ID recovery (regression)', () => {
+  // Bug: a company deleted or a DB reset since COMPANY_ID_KEY was last persisted
+  // caused a permanent "Couldn't load the company graph: Company <id> not found"
+  // in CompanyGraphPanel, because unlike CompanyScreen.jsx (PR #962) it trusted
+  // the stored ID without validating it against the live company list or
+  // self-healing on a 404 from GET /api/company/{id}/graph.
+  test('validates the persisted COMPANY_ID_KEY against the live company list on mount', () => {
+    expect(src).toMatch(/list\.find\(c => c\.id === storedId\)/);
+    expect(src).toMatch(/localStorage\.removeItem\(COMPANY_ID_KEY\)/);
+  });
+
+  test('self-heals on a 404 from getCompanyGraph instead of leaving a permanent error', () => {
+    expect(src).toMatch(/e\?\.response\?\.status === 404/);
+  });
+});
+
 describe('Knowledge screen — CompanyGraph element builder', () => {
   test('buildGraphElements maps every CompanyGraph entity list to a node', () => {
     expect(src).toMatch(/website: graph\.websites \|\| \[\]/);

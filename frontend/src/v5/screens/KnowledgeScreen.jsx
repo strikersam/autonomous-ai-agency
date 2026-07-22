@@ -265,10 +265,9 @@ function buildGraphElements(graph) {
 }
 
 function CompanyGraphPanel() {
+  const storedId = (() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } })();
   const [companies, setCompanies] = React.useState([]);
-  const [selectedCompanyId, setSelectedCompanyId] = React.useState(() => {
-    try { return localStorage.getItem(COMPANY_ID_KEY) || ''; } catch { return ''; }
-  });
+  const [selectedCompanyId, setSelectedCompanyId] = React.useState(storedId || '');
   const [graph, setGraph] = React.useState(null);
   const [hoveredId, setHoveredId] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -278,6 +277,9 @@ function CompanyGraphPanel() {
 
   // Companies the current user can see — backend scopes this by owner/admin
   // (see list_companies in backend/company_api.py), so no client-side filtering needed.
+  // Mirrors CompanyScreen.jsx's stale-ID handling (PR #962): the persisted
+  // COMPANY_ID_KEY may point at a company from a previous DB/deploy that no
+  // longer exists, so it must be validated against the live list, not trusted.
   React.useEffect(() => {
     (async () => {
       try {
@@ -285,12 +287,24 @@ function CompanyGraphPanel() {
         if (!mounted.current) return;
         const list = data.companies || [];
         setCompanies(list);
-        if (!selectedCompanyId && list.length > 0) setSelectedCompanyId(list[0].id);
-        if (list.length === 0) setLoading(false);
+        if (list.length > 0) {
+          const match = storedId ? list.find(c => c.id === storedId) : null;
+          if (match) {
+            setSelectedCompanyId(match.id);
+          } else {
+            if (storedId) { try { localStorage.removeItem(COMPANY_ID_KEY); } catch {} }
+            setSelectedCompanyId(list[0].id);
+            try { localStorage.setItem(COMPANY_ID_KEY, list[0].id); } catch {}
+          }
+        } else {
+          setLoading(false);
+        }
       } catch (e) {
+        if (storedId) setSelectedCompanyId(storedId);
         setLoading(false);
       }
     })();
+    // Mount-only auto-select; re-trigger not desired.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -305,6 +319,24 @@ function CompanyGraphPanel() {
         try { localStorage.setItem(COMPANY_ID_KEY, selectedCompanyId); } catch {}
       } catch (e) {
         if (!mounted.current) return;
+        // Self-heal on 404 instead of leaving the tab permanently broken: the
+        // stored/selected company may have been deleted or the DB reset since
+        // this ID was persisted (same class of bug as PR #962 on CompanyScreen).
+        if (e?.response?.status === 404) {
+          try { localStorage.removeItem(COMPANY_ID_KEY); } catch {}
+          try {
+            const { data: listData } = await api.listCompanies();
+            const list = listData.companies || [];
+            if (mounted.current) setCompanies(list);
+            if (list.length > 0 && list[0].id !== selectedCompanyId) {
+              setSelectedCompanyId(list[0].id);
+              try { localStorage.setItem(COMPANY_ID_KEY, list[0].id); } catch {}
+              return; // the selectedCompanyId change re-triggers this effect
+            }
+          } catch { /* listing failed too — fall through to error display */ }
+          if (mounted.current) { setSelectedCompanyId(''); setGraph(null); setLoading(false); }
+          return;
+        }
         const detail = e?.response?.data?.detail;
         setError(detail ? api.fmtErr(detail) : (e?.message || 'Could not load the company graph.'));
         setGraph(null);
