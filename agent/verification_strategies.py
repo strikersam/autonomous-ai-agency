@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 log = logging.getLogger("qwen-agent")
 
@@ -83,22 +83,39 @@ async def cross_verify(
         log.warning("cross_verify: independent review failed to run: %s", exc)
         return {"cross_verified": False, "issues": [f"cross_verify_error: {exc}"], "raw": {}}
 
+    # AgentRunner.run() has no top-level "status" — each entry in "steps" carries
+    # its own status/issues/changed_files. Fold across steps rather than reading
+    # a key that never exists on the real return value.
     issues = list(result.get("issues") or [])
+    unexpected_writes: list[str] = []
     for step in result.get("steps", []) or []:
         issues.extend(step.get("issues") or [])
-    status = str(result.get("status", "")).lower()
-    passed = status in ("completed", "applied", "ok") and not issues
-    return {"cross_verified": passed, "issues": issues, "raw": result}
+        if step.get("status") == "failed":
+            issues.append(f"review step failed: {step.get('description', '(no description)')}")
+        # The review instruction asks the agent not to modify files, but that's
+        # a prompt-level ask, not an enforced constraint — treat any write as a
+        # finding in its own right rather than trusting the instruction held.
+        unexpected_writes.extend(step.get("changed_files") or [])
+    if unexpected_writes:
+        issues.append(
+            f"cross-verify agent modified files despite the read-only instruction: {unexpected_writes}"
+        )
+    return {"cross_verified": not issues, "issues": issues, "raw": result}
 
 
 def _score_attempt(result: dict[str, Any]) -> float:
-    """Heuristic fallback score when the reward model is unavailable."""
-    status = str(result.get("status", "")).lower()
-    if status in ("failed", "error"):
+    """Heuristic fallback score when the reward model is unavailable.
+
+    AgentRunner.run() carries status per-step (there is no top-level
+    "status" on a real run), so this scores from the step list — except for
+    the top-level "error" sentinel _attempt() itself uses when the runner
+    raised before producing any steps.
+    """
+    if result.get("status") == "error":
         return 0.0
     steps = result.get("steps") or []
     if not steps:
-        return 0.4 if status in ("completed", "applied", "ok") else 0.1
+        return 0.1
     applied = sum(1 for s in steps if s.get("status") == "applied")
     issue_count = sum(len(s.get("issues") or []) for s in steps)
     ratio = applied / len(steps)

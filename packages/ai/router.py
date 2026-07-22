@@ -1071,6 +1071,16 @@ class ProviderRouter:
         for model in self._candidate_models(provider, original_model, model_fallbacks, is_primary):
             provider_payload = {**payload, "model": model, "stream": False}
             for attempt_number in range(max_retries + 1):
+                # Proactive pacing — no-op unless the operator has set
+                # <PROVIDER>_MAX_RPM to that provider's real current limit.
+                # Complements the reactive 429/Retry-After handling below by
+                # avoiding predictable rate-limit errors instead of just
+                # recovering from them.
+                try:
+                    from packages.ai.rate_limiter import pace as _pace_provider
+                    await _pace_provider(provider.provider_id)
+                except Exception:  # nosec B110 -- pacing must never block a request
+                    pass
                 started = time.perf_counter()
                 try:
                     # Proactive rate-limit check: if remaining quota for this

@@ -40,6 +40,35 @@ closed each gap.
 | G7 | No self-audit of the repo's own agent-readiness | `scripts/agent_readiness_audit.py`: scores 8 pillars (style/validation, build system, testing, docs, dev environment, observability, security, task discovery); `make agent-readiness` |
 | G8 | No independent cross-verification or racing for high-stakes changes | `agent/verification_strategies.py`: `cross_verify` (independent re-check) and `race` (N concurrent attempts, reward-scored winner); auto-triggered for risky-module changes via `services/ceo_dispatcher.py`, gated by `AGENT_CROSS_VERIFY_ENABLED` |
 
+## Proactive rate-limit pacing (free-tier reliability)
+
+Investigating why free-tier providers (Cerebras, Groq, NVIDIA NIM) can churn
+through fallback under load surfaced that the router's failure handling was
+already solid — exponential backoff on repeated 429s, `Retry-After` honored
+when a provider sends one, per-model skip on 419, dead-model memory on
+410 — but entirely *reactive*: it always finds out about a rate limit by
+eating a 429 first. `packages/ai/rate_limiter.py` adds the missing proactive
+half: a token-bucket limiter, one per provider, that paces requests to stay
+under a configured rate instead of bursting. It does not hardcode any
+provider's "current" free-tier limit — those change over time and are
+account-specific — so it is off by default; set `<PROVIDER_ID>_MAX_RPM`
+(e.g. `CEREBRAS_MAX_RPM=28`) to that provider's real current limit (checked
+from the provider's own dashboard) to enable pacing for it. Wired into
+`packages/ai/router.py`'s per-model attempt loop, fire-and-forget (never
+blocks a request past its own `max_wait`, and any internal error is
+swallowed so pacing can never itself cause a failure).
+
+The other two contributors to perceived "not always running" reliability are
+infrastructure-level, not code bugs, and are out of scope for a code fix:
+the production backend's uptime depends on the hosting tier not spinning the
+process down during idle periods, and the `autonomous-cycle` GitHub Actions
+workflow that pings/wakes it runs on a `*/2 * * * *` cron — GitHub does not
+guarantee sub-5-minute cron fires exactly on schedule under load, and
+disables scheduled workflows after 60 days of repository inactivity. An
+always-on worker process (rather than relying on cron-triggered pings) would
+remove that dependency; that's a hosting/deployment decision, not something
+this PR changes.
+
 ## Design constraints honored
 
 - **Golden Rule** — every behavior-adding item (G1, G2, G3, G5, G8) is
@@ -68,6 +97,7 @@ closed each gap.
 | `SESSION_RETRO_LOOKBACK` | `50` | Most recent sessions scanned per cycle |
 | `SESSION_RETRO_MIN_CLUSTER` | `3` | Occurrences before a friction cluster is filed as an issue |
 | `AGENT_CROSS_VERIFY_ENABLED` | `false` | Auto-trigger independent cross-verification for risky-module changes |
+| `<PROVIDER_ID>_MAX_RPM` | unset | Enable proactive rate-limit pacing for that provider (e.g. `CEREBRAS_MAX_RPM=28`) |
 
 ## Verification performed
 
