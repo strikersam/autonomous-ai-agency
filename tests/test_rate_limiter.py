@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import Iterator
 
 import httpx
 import pytest
@@ -272,7 +273,7 @@ class TestClear:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _reset_buckets():
+def _reset_buckets() -> Iterator[None]:
     rl.reset()
     yield
     rl.reset()
@@ -294,6 +295,16 @@ def test_pace_noop_for_zero_or_negative_rpm(monkeypatch):
     monkeypatch.setenv("TESTPROV_MAX_RPM", "0")
     assert asyncio.run(rl.pace("testprov")) == 0.0
     monkeypatch.setenv("TESTPROV_MAX_RPM", "-5")
+    assert asyncio.run(rl.pace("testprov")) == 0.0
+
+
+def test_pace_noop_for_non_finite_rpm(monkeypatch):
+    """Regression: float("inf") used to parse successfully and pass the
+    rpm > 0 check, producing a zero pacing interval (i.e. silently NO
+    pacing at all) instead of being rejected like other invalid input."""
+    monkeypatch.setenv("TESTPROV_MAX_RPM", "inf")
+    assert asyncio.run(rl.pace("testprov")) == 0.0
+    monkeypatch.setenv("TESTPROV_MAX_RPM", "nan")
     assert asyncio.run(rl.pace("testprov")) == 0.0
 
 
@@ -323,7 +334,7 @@ def test_token_bucket_never_waits_past_max_wait():
 
 def test_pace_paces_configured_provider(monkeypatch):
     monkeypatch.setenv("TESTPROV_MAX_RPM", "60")  # 1/sec, capacity ~10 by default
-    async def burn_bucket():
+    async def burn_bucket() -> None:
         for _ in range(11):
             await rl.pace("testprov", max_wait=0.05)
     asyncio.run(burn_bucket())
@@ -356,7 +367,7 @@ def test_token_bucket_serializes_concurrent_waiters_instead_of_bursting():
     must be staggered by one interval each, made atomically under the lock."""
     bucket = rl.TokenBucket(rate_per_min=60, capacity=1)  # 1 token/sec, no burst beyond 1
 
-    async def drain_then_race():
+    async def drain_then_race() -> list[float]:
         await bucket.acquire()  # consume the single burst token
         # 4 more callers arrive concurrently on a now-empty bucket.
         return await asyncio.gather(*(bucket.acquire(max_wait=10.0) for _ in range(4)))
@@ -380,7 +391,7 @@ def test_token_bucket_reservations_are_monotonically_increasing():
     than the previous one — the core invariant the concurrency fix relies on."""
     bucket = rl.TokenBucket(rate_per_min=600, capacity=1)
 
-    async def many_acquires():
+    async def many_acquires() -> list[float]:
         return await asyncio.gather(*(bucket.acquire(max_wait=10.0) for _ in range(5)))
 
     waits = asyncio.run(many_acquires())

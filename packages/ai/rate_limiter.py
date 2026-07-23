@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -281,18 +280,6 @@ _buckets: dict[str, TokenBucket] = {}
 _bucket_lock = asyncio.Lock()
 
 
-def _configured_rpm(provider_id: str) -> float | None:
-    raw = os.environ.get(f"{provider_id.upper()}_MAX_RPM")
-    if not raw:
-        return None
-    try:
-        rpm = float(raw)
-    except ValueError:
-        log.debug("rate_limiter: ignoring non-numeric %s_MAX_RPM=%r", provider_id.upper(), raw)
-        return None
-    return rpm if rpm > 0 else None
-
-
 async def pace(provider_id: str, *, max_wait: float = 5.0) -> float:
     """Proactively pace a request to *provider_id*.
 
@@ -301,7 +288,8 @@ async def pace(provider_id: str, *, max_wait: float = 5.0) -> float:
     seconds so the request stream stays under the configured rate instead of
     bursting and relying on reactive 429 handling.
     """
-    rpm = _configured_rpm(provider_id)
+    from packages.ai.brain_config import provider_max_rpm
+    rpm = provider_max_rpm(provider_id)
     if rpm is None:
         return 0.0
     async with _bucket_lock:
