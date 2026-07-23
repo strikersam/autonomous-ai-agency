@@ -3,6 +3,7 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed - `test_auth_me_regression.py` — Started MongoDB container during tests to resolve connection failures. Resolved Issue #1107.
 
 ### Fixed
 
