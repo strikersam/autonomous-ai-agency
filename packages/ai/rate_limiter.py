@@ -1,6 +1,7 @@
 """
-Proactive rate-limit throttling from x-ratelimit-* response headers.
+Proactive rate-limit throttling for LLM providers — two complementary layers.
 
+**Layer 1: header-driven (``RateLimitTracker`` / ``get_tracker()``).**
 Providers such as Anthropic, Groq, and OpenAI return standard headers on
 every response:
 
@@ -14,17 +15,28 @@ every response:
 After each successful call ``update_from_response()`` captures these.
 Before the next call ``pre_flight_check()`` checks whether remaining quota
 has dropped below the configured threshold and, if so, sleeps until the
-reset window.  This complements the existing reactive ``_parse_retry_after``
-(which handles post-429 cooldown) with a proactive guard that avoids
-hitting rate limits in the first place.
+reset window. Automatic — no configuration needed — but only works for
+providers that actually send these headers.
 
-The singleton ``_TRACKER`` is the shared state; access it via ``get_tracker()``.
+**Layer 2: operator-configured token bucket (``TokenBucket`` / ``pace()``).**
+For providers that don't send rate-limit headers (or as a floor under a
+shared/free-tier key), an operator can set ``<PROVIDER_ID>_MAX_RPM`` to that
+provider's real current limit (checked from the provider's own dashboard —
+never hardcoded here, since those numbers change over time and are
+account-specific). ``pace()`` is a no-op until that env var is set.
+
+Both layers are called on every attempt in ``packages/ai/router.py``; each
+complements the existing *reactive* handling (exponential backoff on
+repeated 429s, ``Retry-After`` honored, per-model 419 skip, dead-model 410
+memory) by avoiding predictable rate-limit errors instead of just
+recovering from them.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -207,3 +219,103 @@ _TRACKER = RateLimitTracker()
 def get_tracker() -> RateLimitTracker:
     """Return the process-singleton RateLimitTracker."""
     return _TRACKER
+
+
+# ── Layer 2: operator-configured token bucket ──────────────────────────────
+
+
+class TokenBucket:
+    """Rate limiter using virtual scheduling (GCRA-style): each caller
+    atomically reserves the next available slot while holding the lock,
+    then releases the lock and sleeps until its own slot — rather than
+    computing a wait time and sleeping *outside* the lock.
+
+    That ordering matters under concurrency: an earlier design recomputed
+    "tokens available" from a shared counter, released the lock, then slept —
+    so N callers arriving on a drained bucket all read roughly the same
+    token count, all computed roughly the same wait, and all woke up and
+    proceeded together. A drained bucket under concurrent load enforced
+    nothing; it just added a uniform delay before a burst of N requests.
+    Reserving a strictly increasing slot time under the lock instead spaces
+    concurrent callers one interval apart, which is what "requests per
+    minute" is supposed to mean.
+    """
+
+    def __init__(self, rate_per_min: float, capacity: float | None = None) -> None:
+        self.rate_per_sec = max(rate_per_min, 0.001) / 60.0
+        # Default burst allowance: ~10 seconds worth of tokens, floor of 1 so a
+        # very low configured rate still allows at least one immediate request.
+        self.capacity = capacity if capacity is not None else max(1.0, rate_per_min / 6.0)
+        self._interval = 1.0 / self.rate_per_sec
+        # The earliest time the next token becomes available. Seeded in the
+        # past by a full burst window so the first `capacity` callers proceed
+        # immediately (the intended burst allowance).
+        self._next_slot = time.monotonic() - self.capacity * self._interval
+        self._lock = asyncio.Lock()
+
+    async def acquire(self, max_wait: float = 5.0) -> float:
+        """Block until this caller's reserved slot arrives, or *max_wait* elapses.
+
+        Returns seconds actually waited. Never waits longer than *max_wait* —
+        if the bucket is badly drained, proceed anyway rather than stalling
+        the caller indefinitely; the existing reactive 429 handling in
+        router.py remains the safety net. A clamped wait means this caller's
+        actual departure lags its reserved slot, which under-throttles
+        slightly rather than blocking forever — the same tradeoff the
+        max_wait cap already implies.
+        """
+        async with self._lock:
+            now = time.monotonic()
+            earliest = now - self.capacity * self._interval
+            start = max(self._next_slot, earliest)
+            my_slot = start + self._interval
+            self._next_slot = my_slot
+            wait = max(0.0, my_slot - now)
+        wait = min(wait, max_wait)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        return wait
+
+
+_buckets: dict[str, TokenBucket] = {}
+_bucket_lock = asyncio.Lock()
+
+
+def _configured_rpm(provider_id: str) -> float | None:
+    raw = os.environ.get(f"{provider_id.upper()}_MAX_RPM")
+    if not raw:
+        return None
+    try:
+        rpm = float(raw)
+    except ValueError:
+        log.debug("rate_limiter: ignoring non-numeric %s_MAX_RPM=%r", provider_id.upper(), raw)
+        return None
+    return rpm if rpm > 0 else None
+
+
+async def pace(provider_id: str, *, max_wait: float = 5.0) -> float:
+    """Proactively pace a request to *provider_id*.
+
+    No-op (returns 0.0 immediately) unless ``<PROVIDER_ID>_MAX_RPM`` is set —
+    the default is zero behavior change. When set, blocks up to *max_wait*
+    seconds so the request stream stays under the configured rate instead of
+    bursting and relying on reactive 429 handling.
+    """
+    rpm = _configured_rpm(provider_id)
+    if rpm is None:
+        return 0.0
+    async with _bucket_lock:
+        bucket = _buckets.get(provider_id)
+        if bucket is None or bucket.rate_per_sec != max(rpm, 0.001) / 60.0:
+            bucket = TokenBucket(rpm)
+            _buckets[provider_id] = bucket
+    waited = await bucket.acquire(max_wait=max_wait)
+    if waited > 0:
+        log.debug("rate_limiter: paced %s for %.2fs (configured %s RPM)", provider_id, waited, rpm)
+    return waited
+
+
+def reset() -> None:
+    """Clear all token-bucket state (tests only). Does not touch the header
+    tracker's state — use get_tracker().clear() for that."""
+    _buckets.clear()
