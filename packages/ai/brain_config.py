@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 from typing import Any, Literal
@@ -550,6 +551,30 @@ def provider_api_key(provider: str) -> str | None:
     if not env_key:
         return None
     return (os.environ.get(env_key) or "").strip() or None
+
+
+def provider_max_rpm(provider: str) -> float | None:
+    """Return the operator-configured requests/min cap for *provider*, or
+    None if unset/invalid. Reads ``<PROVIDER>_MAX_RPM`` (dynamic per-provider
+    key, so any provider id works without a YAML entry — unlike
+    ``PROVIDER_KEY_ENV``, this isn't a fixed table). Used by
+    ``packages/ai/rate_limiter.py`` to pace requests; centralized here
+    rather than read directly so the value is validated once, in the
+    config module, not in business logic.
+    """
+    raw = os.environ.get(f"{provider.upper()}_MAX_RPM")
+    if not raw:
+        return None
+    try:
+        rpm = float(raw)
+    except ValueError:
+        return None
+    # Reject non-finite (inf/nan) and non-positive values: inf silently
+    # produces a zero pacing interval (i.e. no pacing at all) rather than
+    # an error, which is worse than just treating it as unset.
+    if not math.isfinite(rpm) or rpm <= 0:
+        return None
+    return rpm
 
 
 def provider_key_present(provider: str) -> bool:
