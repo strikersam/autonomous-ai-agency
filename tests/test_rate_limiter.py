@@ -346,12 +346,26 @@ def test_pace_paces_configured_provider(monkeypatch):
 def test_pace_reconfigures_bucket_when_rpm_env_changes(monkeypatch):
     monkeypatch.setenv("TESTPROV_MAX_RPM", "60")
     asyncio.run(rl.pace("testprov"))
-    assert "testprov" in rl._buckets
-    old_rate = rl._buckets["testprov"].rate_per_sec
+    assert "TESTPROV" in rl._buckets  # cache key is canonicalized to upper()
+    old_rate = rl._buckets["TESTPROV"].rate_per_sec
 
     monkeypatch.setenv("TESTPROV_MAX_RPM", "120")
     asyncio.run(rl.pace("testprov"))
-    assert rl._buckets["testprov"].rate_per_sec != old_rate
+    assert rl._buckets["TESTPROV"].rate_per_sec != old_rate
+
+
+def test_pace_shares_one_bucket_across_mixed_case_provider_ids(monkeypatch):
+    """Regression: provider_max_rpm() already upper-cases internally when
+    building the env var name, so "groq"/"Groq"/"GROQ" all resolve to the
+    same configuration — but pace() used to key _buckets on the raw,
+    non-canonicalized provider_id, so mixed-case callers got independent
+    TokenBuckets and could exceed the single configured RPM cap."""
+    monkeypatch.setenv("MIXEDCASE_MAX_RPM", "60")
+    asyncio.run(rl.pace("mixedcase"))
+    asyncio.run(rl.pace("MixedCase"))
+    asyncio.run(rl.pace("MIXEDCASE"))
+    assert len(rl._buckets) == 1
+    assert "MIXEDCASE" in rl._buckets
 
 
 def test_pace_never_raises_on_bad_input(monkeypatch):

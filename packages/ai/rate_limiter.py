@@ -289,14 +289,21 @@ async def pace(provider_id: str, *, max_wait: float = 5.0) -> float:
     bursting and relying on reactive 429 handling.
     """
     from packages.ai.brain_config import provider_max_rpm
-    rpm = provider_max_rpm(provider_id)
+    # Canonicalize casing before both the config lookup and the cache key.
+    # provider_max_rpm() upper-cases internally when building the env var
+    # name, so "groq" and "GROQ" already resolve to one configuration —
+    # but without this, they'd land in two different _buckets entries and
+    # each get their own independent RPM allowance, doubling the effective
+    # cap for any caller that isn't perfectly consistent about casing.
+    provider_key = provider_id.upper()
+    rpm = provider_max_rpm(provider_key)
     if rpm is None:
         return 0.0
     async with _bucket_lock:
-        bucket = _buckets.get(provider_id)
+        bucket = _buckets.get(provider_key)
         if bucket is None or bucket.rate_per_sec != max(rpm, 0.001) / 60.0:
             bucket = TokenBucket(rpm)
-            _buckets[provider_id] = bucket
+            _buckets[provider_key] = bucket
     waited = await bucket.acquire(max_wait=max_wait)
     if waited > 0:
         log.debug("rate_limiter: paced %s for %.2fs (configured %s RPM)", provider_id, waited, rpm)
