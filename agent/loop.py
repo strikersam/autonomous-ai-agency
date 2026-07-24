@@ -12,7 +12,6 @@ import sys
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import time
 import asyncio
@@ -1583,9 +1582,11 @@ class AgentRunner:
             # NVIDIA NIM / OpenAI-compatible: add max_tokens (required by NIM)
             if "max_tokens" not in payload:
                 payload["max_tokens"] = 16384
+        from packages.ai.router import is_anthropic_base_url
+
         provider_is_anthropic = (
             "x-api-key" in provider_header_names
-            or (urlparse(normalized_base).hostname or "").lower().endswith("anthropic.com")
+            or is_anthropic_base_url(normalized_base)
         )
 
         # Effective endpoint for the OpenAI-compatible fallback. Defaults to the
@@ -1855,7 +1856,12 @@ class AgentRunner:
         # and we retry on the next healthy provider. This is the permanent
         # solution to the recurring NVIDIA 429/410 rate-limit problem.
         from services.brain_failover import get_failover_manager
-        from packages.ai.router import _openai_url, with_ollama_reasoning_effort
+        from packages.ai.router import (
+            ProviderConfig,
+            ProviderRouter,
+            _openai_url,
+            with_ollama_reasoning_effort,
+        )
 
         fm = get_failover_manager()
         tried: set[str] = set()
@@ -1891,11 +1897,33 @@ class AgentRunner:
             # Resolve the model for this provider (alias mapping)
             provider_model = fm.resolve_model(provider, model)
 
-            # Build the URL + headers for this provider
-            chat_url = _openai_url(provider.base_url, "/chat/completions")
-            headers = {"Content-Type": "application/json"}
-            if provider.api_key:
-                headers["Authorization"] = f"Bearer {provider.api_key}"
+            # Build the URL + headers for this provider.
+            #
+            # Anthropic's native API has no /chat/completions route and rejects
+            # `Authorization: Bearer`, so sending it the OpenAI-compatible shape
+            # returns a deterministic 400 on EVERY model — burning the whole
+            # dispatch budget and surfacing as
+            # "400 Bad Request for url https://api.anthropic.com/v1/chat/completions".
+            # Anthropic-shaped providers therefore use /v1/messages with
+            # x-api-key + anthropic-version. The wire-format translation is
+            # reused from the router so there is a single implementation of it.
+            # Claude gateways that re-expose an OpenAI-compatible surface
+            # (OpenRouter, Aerolink) are not matched and keep the OpenAI path.
+            provider_is_anthropic_native = is_anthropic_base_url(provider.base_url)
+            if provider_is_anthropic_native:
+                _anth_cfg = ProviderConfig(
+                    provider_id=provider.id,
+                    type="anthropic",
+                    base_url=provider.base_url,
+                    api_key=provider.api_key or None,
+                )
+                chat_url = f"{_anth_cfg.normalized_base_url}/v1/messages"
+                headers = _anth_cfg.auth_headers()
+            else:
+                chat_url = _openai_url(provider.base_url, "/chat/completions")
+                headers = {"Content-Type": "application/json"}
+                if provider.api_key:
+                    headers["Authorization"] = f"Bearer {provider.api_key}"
 
             # Try multiple models on this provider before giving up — when a
             # model returns 410 Gone (dead), try the next model. This handles
@@ -1916,6 +1944,8 @@ class AgentRunner:
                     or ":11434" in (getattr(provider, "base_url", "") or "")
                 )
                 post_payload = with_ollama_reasoning_effort(payload, is_ollama=_is_ollama)
+                if provider_is_anthropic_native:
+                    post_payload = ProviderRouter._anthropic_payload(post_payload)
 
                 call_start = time.perf_counter()
                 try:
@@ -1932,6 +1962,12 @@ class AgentRunner:
 
                 if resp.status_code < 400:
                     fm.record_success(provider.id, latency_ms=call_ms)
+                    if provider_is_anthropic_native:
+                        # Normalise the Messages-API body into the OpenAI shape
+                        # the success path below (choices/usage) already reads.
+                        resp = ProviderRouter._anthropic_to_openai_response(
+                            resp, try_model
+                        )
                     data = resp.json()
                     out_text = data["choices"][0]["message"]["content"]
                     # Parse token usage from the response (needed for both

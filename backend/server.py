@@ -1193,12 +1193,23 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
             "tier": "balanced",
         },
     ],
+    # Gemma is a separate open-weight family Google does NOT serve through the
+    # generative-language endpoint this provider points at, so "gemma-4" 404s
+    # unconditionally — the same defect already corrected for the seeded
+    # provider's default_model. The picker must only offer models this endpoint
+    # actually serves.
     "google": [
         {
-            "id": "gemma-4",
-            "name": "Gemma 4",
+            "id": "gemini-2.5-flash",
+            "name": "Gemini 2.5 Flash",
             "role": ["planner", "executor", "verifier"],
-            "tier": "balanced",
+            "tier": "fast",
+        },
+        {
+            "id": "gemini-2.5-pro",
+            "name": "Gemini 2.5 Pro",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
         },
     ],
     "moonshot": [
@@ -1260,9 +1271,9 @@ AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
         "verifier": "mimo-v2-flash",
     },
     "google": {
-        "planner": "gemma-4",
-        "executor": "gemma-4",
-        "verifier": "gemma-4",
+        "planner": GEMINI_MODEL,
+        "executor": GEMINI_MODEL,
+        "verifier": GEMINI_MODEL,
     },
     "moonshot": {
         "planner": "kimi-k2.6",
@@ -8412,6 +8423,37 @@ async def _get_github_token(user_id: str) -> Optional[str]:
     return doc.get("token") if doc else None
 
 
+async def _resolve_user_github_token(user: Optional[dict]) -> Optional[str]:
+    """Return the caller's GitHub token from EITHER place it can be stored.
+
+    A token reaches the backend by two routes that write to two different
+    places, and only ``PUT /api/github/token`` writes to both:
+
+    * ``users.github_repo_token``  — the PUT endpoint and the server-side
+      ``/api/auth/github/repo`` redirect flow.
+    * ``github_settings.token``    — the popup OAuth callback
+      (``/api/github/oauth/callback``), which does NOT mirror to the user doc.
+
+    Checking only the user document therefore reports "no GitHub token" for
+    every account that connected through the popup, even though the token is
+    valid and every other GitHub endpoint finds it. Consumers must use this
+    resolver rather than reading either field directly.
+    """
+    if not user:
+        return None
+    token = user.get("github_repo_token")
+    if token:
+        return token
+    user_id = user.get("_id")
+    if not user_id:
+        return None
+    try:
+        return await _get_github_token(user_id)
+    except Exception as exc:  # noqa: BLE001 — a diagnostics lookup must not 500
+        log.debug("github token lookup failed for %s: %s", user_id, exc)
+        return None
+
+
 def _gh_headers(token: str) -> dict:
     return {
         "Authorization": f"Bearer {token}",
@@ -8553,6 +8595,7 @@ async def github_oauth_callback(
 
     login: str = gh_user.get("login", "")
 
+    now_iso = datetime.now(timezone.utc).isoformat()
     await get_db().github_settings.update_one(
         {"user_id": user_id},
         {
@@ -8560,10 +8603,24 @@ async def github_oauth_callback(
                 "user_id": user_id,
                 "token": access_token,
                 "github_login": login,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": now_iso,
             }
         },
         upsert=True,
+    )
+    # Mirror to the user document exactly as PUT /api/github/token does. Readers
+    # split across both locations (the agent runner, the onboarding status, the
+    # doctor) and writing only github_settings left popup-OAuth accounts looking
+    # disconnected to every reader that checks the user doc.
+    await get_db().users.update_one(
+        _user_id_filter(user_id),
+        {
+            "$set": {
+                "github_repo_token": access_token,
+                "github_login": login,
+                "github_updated_at": now_iso,
+            }
+        },
     )
     await log_activity("github", f"GitHub OAuth connected — @{login}", user_id=user_id)
     if state_doc.get("redirect"):
@@ -9244,8 +9301,8 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     import datetime
 
     github_token = (
-        (user or {}).get("github_repo_token")
-        or os.environ.get("GH_PAT") 
+        await _resolve_user_github_token(user)
+        or os.environ.get("GH_PAT")
         or os.environ.get("GH_TOKEN")
         or os.environ.get("GITHUB_TOKEN")
     )
@@ -9546,8 +9603,9 @@ async def get_doctor_diagnostics(
 
     # User-specific diagnostics: use ONLY the caller's own GitHub token, never
     # the server-wide env fallback — otherwise a user with no GitHub connection
-    # would falsely report healthy against the host's token.
-    github_token = user.get("github_repo_token")
+    # would falsely report healthy against the host's token. Both storage
+    # locations count as "the caller's own" (see _resolve_user_github_token).
+    github_token = await _resolve_user_github_token(user)
     doctor = DirectChatDoctor(github_token=github_token)
 
     checks: list[_DoctorCheck] = []

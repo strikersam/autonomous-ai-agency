@@ -32,8 +32,10 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import time
 from typing import Literal
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel
@@ -170,9 +172,52 @@ async def probe_model_liveness(
         log.debug("brain_liveness: probe crashed for %s/%s: %s", provider, model, exc)
         return ProbeResult(
             provider=provider, model=model, live=False,
-            reason=f"Probe error: {exc}",
+            reason=_probe_failure_reason(exc, resolved_base, provider_norm),
             elapsed_ms=int((time.monotonic() - start) * 1000),
         )
+
+
+def _probe_failure_reason(exc: BaseException, base_url: str, provider: str) -> str:
+    """Turn a probe exception into an operator-actionable one-line reason.
+
+    A dead provider hostname surfaces from httpx as the bare OS error
+    ``[Errno -2] Name or service not known``, which the UI truncates to
+    ``Probe error: [Errno -2] Name`` — it names neither the host that failed
+    nor the knob that fixes it. Resolution failures are the one class an
+    operator can always act on, so they get the host and the override env var.
+    """
+    from packages.ai.brain_config import PROVIDER_BASE_URL_ENV
+
+    if _is_dns_failure(exc):
+        host = urlparse(base_url).hostname or base_url
+        env_var = PROVIDER_BASE_URL_ENV.get(provider) or f"{provider.upper()}_BASE_URL"
+        return (
+            f"DNS lookup failed for {host!r} — the provider hostname does not "
+            f"resolve, so this endpoint is unreachable (not a key or model "
+            f"problem). Point {env_var} at the provider's current base URL, or "
+            f"switch this role to another provider."
+        )
+    return f"Probe error: {exc}"
+
+
+def _is_dns_failure(exc: BaseException) -> bool:
+    """True when *exc* (or anything it wraps) is a name-resolution failure."""
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, socket.gaierror):
+            return True
+        # httpx/anyio wrap gaierror in ConnectError; on some stacks only the
+        # message survives, so match the resolver text as a fallback.
+        if isinstance(cur, httpx.ConnectError) and (
+            "name or service not known" in str(cur).lower()
+            or "nodename nor servname" in str(cur).lower()
+            or "temporary failure in name resolution" in str(cur).lower()
+        ):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
 
 
 async def _probe_openai_compat(

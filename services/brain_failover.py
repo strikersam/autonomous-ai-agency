@@ -337,7 +337,12 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "tier": "paid",
         "key_env": "GOOGLE_API_KEY",
         "base_url_env": "GOOGLE_BASE_URL",
-        "default_base_url": "https://generativelanguage.googleapis.com",
+        # Gemini's OpenAI-compatible surface lives under /v1beta/openai. The bare
+        # host resolves to .../v1/chat/completions, which Gemini does not serve —
+        # this must stay in sync with config/models.yaml and
+        # packages/ai/brain_config.PROVIDER_DEFAULT_BASE_URL, which both use the
+        # /v1beta/openai form.
+        "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "default_model": "gemini-2.5-flash",
         "models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
         "cooldown": 30.0,
