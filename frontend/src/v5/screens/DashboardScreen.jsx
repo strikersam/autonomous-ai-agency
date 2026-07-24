@@ -2,7 +2,7 @@
 import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
 import { ErrorBoundary } from '../components/ErrorBoundary';
-import { Sparkline, Donut } from '../components/Charts';
+import { Sparkline, Donut, BarChart } from '../components/Charts';
 
 // dashboard.jsx — Resilient Dashboard wired to the real backend
 // Each widget fetches independently via useSafeData (Promise.allSettled) so a
@@ -363,6 +363,109 @@ function SystemHealthWidget({ health, loading, error, onRetry }) {
   );
 }
 
+function RateLimiterWidget({ providers, loading, error, onRetry }) {
+  const entries = Object.entries(providers || {});
+  return (
+    <Widget title="Rate-Limit Pacing" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
+      {entries.length === 0 && !loading && !error && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+          No provider has reported rate-limit headers yet. Proactive pacing engages automatically the moment one does.
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {entries.map(([id, q]) => {
+          const pct = q.limit_requests ? Math.round(((q.remaining_requests ?? q.limit_requests) / q.limit_requests) * 100) : null;
+          const low = pct != null && pct <= 15;
+          return (
+            <div key={id} style={{ padding: '9px 12px', borderRadius: 11, background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: pct != null ? 5 : 0 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{id}</span>
+                {pct != null
+                  ? <Pill label={`${pct}% left`} color={low ? '#ff6b7d' : '#46d9a4'} bg={low ? 'rgba(255,107,125,0.08)' : 'rgba(70,217,164,0.08)'} border={low ? 'rgba(255,107,125,0.20)' : 'rgba(70,217,164,0.18)'} />
+                  : <Pill label="tracking" />}
+              </div>
+              {pct != null && (
+                <div style={{ height: 5, borderRadius: 999, background: 'rgba(255,255,255,0.08)' }}>
+                  <div style={{ height: '100%', borderRadius: 999, width: `${pct}%`, background: low ? '#ff6b7d' : 'linear-gradient(90deg,#46d9a4,#5da2ff)', transition: 'width 0.8s ease' }} />
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, marginTop: 5, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                {q.reset_requests_in_s != null && <span>reset in {q.reset_requests_in_s}s</span>}
+                <span>updated {q.updated_s_ago}s ago</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Widget>
+  );
+}
+
+function SelfHealWidget({ data, loading, error, onRetry }) {
+  const stateColor = {
+    detected: '#ffbd66', fixing: '#5da2ff', verifying: '#c4b5fd',
+    resolved: '#46d9a4', regressed: '#ff9f43', awaiting_human: '#ff6b7d',
+  };
+  const events = data.events || [];
+  return (
+    <Widget title="Self-Healing" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 12 }}>
+        {[
+          { label: 'Active', value: data.active_count ?? 0, color: '#5da2ff' },
+          { label: 'Resolved', value: data.resolved_count ?? 0, color: '#46d9a4' },
+          { label: 'Awaiting human', value: data.awaiting_human_count ?? 0, color: '#ff6b7d' },
+          { label: 'Fix tasks', value: data.log_monitor?.tasks_created ?? 0, color: '#c4b5fd' },
+        ].map(m => (
+          <div key={m.label} style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: m.color }}>{m.value}</div>
+            <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{m.label}</div>
+          </div>
+        ))}
+      </div>
+      {events.length === 0 && !loading && !error && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+          No errors captured yet — the log monitor is watching in real time.
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {events.slice(0, 5).map(e => (
+          <div key={e.event_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 9, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: stateColor[e.state] || 'var(--text-muted)', flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
+            <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: stateColor[e.state] || 'var(--text-muted)', textTransform: 'uppercase', flexShrink: 0 }}>{e.state}</span>
+          </div>
+        ))}
+      </div>
+    </Widget>
+  );
+}
+
+function CostBreakdownWidget({ data, loading, error, onRetry }) {
+  const tagColors = ['#5da2ff', '#46d9a4', '#c4b5fd', '#ffbd66', '#ff9d66', '#ff6b7d', '#7c9dff'];
+  const rows = Object.entries(data.by_tag || {})
+    .filter(([, v]) => (v.calls || 0) > 0)
+    .sort((a, b) => (b[1].estimated_cost_usd || 0) - (a[1].estimated_cost_usd || 0))
+    .slice(0, 6)
+    .map(([tag, v], i) => ({ label: tag.replace(/_/g, ' '), value: Number((v.estimated_cost_usd || 0).toFixed(4)), color: tagColors[i % tagColors.length] }));
+  const total = data.totals || {};
+  return (
+    <Widget title="Spend by Task Type" loading={loading} error={error} onRetry={onRetry}>
+      {rows.length === 0 && !loading && !error && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+          No tagged LLM calls recorded yet since the last restart.
+        </div>
+      )}
+      {rows.length > 0 && <BarChart data={rows} height={100} />}
+      {rows.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+          <span>{total.calls ?? 0} calls tracked</span>
+          <span>${(total.estimated_cost_usd ?? 0).toFixed(4)} est. spend</span>
+        </div>
+      )}
+    </Widget>
+  );
+}
+
 function DashboardScreen() {
   const [data, states, fetchAll] = useSafeData(null, {
     health:    '/api/health',
@@ -371,6 +474,9 @@ function DashboardScreen() {
     metrics:   '/api/observability/metrics',
     providers: '/api/providers',
     tasks:     '/api/tasks/',
+    rateLimits: '/api/metrics/rate-limits',
+    selfHeal:  '/api/metrics/self-heal',
+    costByTag: '/api/metrics/cost-attribution',
   }, { refreshMs: 30000 });
 
   // Map /api/tasks/ to the Open Tasks widget (exclude finished/failed)
@@ -570,6 +676,30 @@ function DashboardScreen() {
             loading={states.health?.loading || states.stats?.loading}
             error={states.health?.error || states.stats?.error}
             errorSeverity="warning"
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.rateLimits?.error || '')}>
+          <RateLimiterWidget
+            providers={data.rateLimits?.providers}
+            loading={states.rateLimits?.loading}
+            error={states.rateLimits?.error}
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.selfHeal?.error || '')}>
+          <SelfHealWidget
+            data={data.selfHeal || {}}
+            loading={states.selfHeal?.loading}
+            error={states.selfHeal?.error}
+            onRetry={fetchAll}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.costByTag?.error || '')}>
+          <CostBreakdownWidget
+            data={data.costByTag || {}}
+            loading={states.costByTag?.loading}
+            error={states.costByTag?.error}
             onRetry={fetchAll}
           />
         </ErrorBoundary>

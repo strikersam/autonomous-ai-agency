@@ -7734,6 +7734,39 @@ async def rate_limit_stats(user: dict = Depends(get_current_user)) -> dict[str, 
     return {"providers": get_tracker().get_stats()}
 
 
+@app.get("/api/metrics/self-heal")
+async def self_heal_stats(user: dict = Depends(get_current_user)) -> dict[str, object]:
+    """Real-time self-healing activity: log-monitor capture counters plus the
+    most recent healing events (detected → fixing → verifying → resolved |
+    regressed | awaiting_human).
+
+    The log-monitor/self-healing engines already run 24/7 (agent/log_monitor.py,
+    agent/self_healing.py) but had no API surface beyond a boolean "running"
+    flag in /api/autonomy/status — this makes the actual activity visible.
+    Requires authentication.
+    """
+    from agent.log_monitor import get_log_monitor
+    from agent.self_healing import get_self_healing_agent
+
+    monitor = get_log_monitor()
+    monitor_stats = monitor.get_stats() if monitor else {
+        "attached": False, "tasks_created": 0, "active_cooldowns": 0,
+    }
+
+    healer = get_self_healing_agent()
+    events = healer.get_events() if healer else []
+    events.sort(key=lambda e: e.get("created_at") or "", reverse=True)
+    active_states = {"detected", "fixing", "verifying", "regressed"}
+
+    return {
+        "log_monitor": monitor_stats,
+        "events": events[:20],
+        "active_count": sum(1 for e in events if e.get("state") in active_states),
+        "resolved_count": sum(1 for e in events if e.get("state") == "resolved"),
+        "awaiting_human_count": sum(1 for e in events if e.get("state") == "awaiting_human"),
+    }
+
+
 @app.get("/api/autonomy/tick")
 async def autonomy_tick() -> dict[str, object]:
     """Execute ONE pending task synchronously. Called by the cron workflow every 2 min.
