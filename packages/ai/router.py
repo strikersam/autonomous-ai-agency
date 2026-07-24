@@ -1301,7 +1301,18 @@ class ProviderRouter:
                     await _release_provider_probe(provider.provider_id)
                     if not payload.get("stream"):
                         try:
-                            await put_cached(payload, result.response.json())
+                            _resp_body = result.response.json()
+                            # Detect strict-mode refusals — do not cache them so a
+                            # rephrased request gets a fresh model attempt.
+                            from packages.ai.structured_output import extract_refusal as _exr
+                            _refusal = _exr(_resp_body)
+                            if _refusal:
+                                log.info(
+                                    "Structured-output refusal from %s/%s: %s",
+                                    result.provider.provider_id, result.model, _refusal[:120],
+                                )
+                            else:
+                                await put_cached(payload, _resp_body)
                         except Exception as _store_exc:
                             log.debug("Response cache store error (ignored): %s", _store_exc)
                     return result
