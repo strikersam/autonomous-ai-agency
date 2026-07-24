@@ -108,6 +108,154 @@ def _is_ollama(provider: Any) -> bool:
     )
 
 
+def _parse_success(resp: httpx.Response) -> tuple[str, int, int]:
+    """Extract ``(text, prompt_tokens, completion_tokens)`` from a 2xx body.
+
+    Raises ``ValueError``/``KeyError``/``IndexError``/``TypeError`` on a
+    malformed body so the caller can treat it as a failed attempt and fail over
+    rather than propagating the parse error out of the dispatcher.
+    """
+    data = resp.json()
+    usage = data.get("usage") if isinstance(data, dict) else {}
+    usage = usage if isinstance(usage, dict) else {}
+    text = data["choices"][0]["message"]["content"]
+    if text is None:
+        raise ValueError("provider returned a null message content")
+    return (
+        text,
+        int(usage.get("prompt_tokens") or 0),
+        int(usage.get("completion_tokens") or 0),
+    )
+
+
+async def _try_provider(
+    provider: Any,
+    payload: dict[str, Any],
+    fm: Any,
+    attempts: list[str],
+    timeout_sec: float,
+) -> tuple[FailoverResult | None, str]:
+    """Try up to ``_MAX_MODELS_PER_PROVIDER`` models on one provider.
+
+    Returns ``(result, last_error)``. ``result`` is ``None`` when every model on
+    this provider failed, in which case the caller moves to the next provider.
+    """
+    from packages.ai.router import ProviderRouter, with_ollama_reasoning_effort
+
+    requested_model = str(payload.get("model") or "")
+    chat_url, headers, is_anthropic = _build_request(provider)
+    provider_model = fm.resolve_model(provider, requested_model)
+    models_to_try = [provider_model] + [
+        m for m in provider.models if m != provider_model
+    ]
+    last_error = ""
+
+    for try_model in models_to_try[:_MAX_MODELS_PER_PROVIDER]:
+        call_payload = {**payload, "model": try_model}
+        post_payload = with_ollama_reasoning_effort(
+            call_payload, is_ollama=_is_ollama(provider)
+        )
+        if is_anthropic:
+            post_payload = ProviderRouter._anthropic_payload(post_payload)
+
+        attempts.append(f"{provider.id}/{try_model}")
+        call_start = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout_sec, connect=_CONNECT_TIMEOUT_SEC)
+            ) as client:
+                resp = await client.post(chat_url, json=post_payload, headers=headers)
+        except Exception as exc:  # noqa: BLE001 — network errors fail over
+            log.warning("brain_failover: %s network error: %s", provider.id, exc)
+            fm.record_failure(provider.id, "network_error")
+            return None, f"{provider.id} network error: {exc}"
+
+        call_ms = int((time.perf_counter() - call_start) * 1000)
+
+        if resp.status_code < 400:
+            fm.record_success(provider.id, latency_ms=call_ms)
+            if is_anthropic:
+                resp = ProviderRouter._anthropic_to_openai_response(resp, try_model)
+            try:
+                text, prompt_tokens, completion_tokens = _parse_success(resp)
+            except (ValueError, KeyError, IndexError, TypeError) as exc:
+                # A 2xx with an unusable body is a failed attempt, not a crash —
+                # the dispatcher must never surface a partial result.
+                last_error = f"{provider.id} malformed success response: {exc}"
+                log.warning(
+                    "brain_failover: %s returned an unparsable body: %s",
+                    provider.id, exc,
+                )
+                continue
+            return (
+                FailoverResult(
+                    text=text,
+                    model=try_model,
+                    provider_id=provider.id,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    latency_ms=call_ms,
+                    attempts=list(attempts),
+                ),
+                last_error,
+            )
+
+        if resp.status_code == 410:
+            # Model permanently gone — another model on this provider may serve.
+            log.warning(
+                "brain_failover: %s model %s 410 Gone - trying next model",
+                provider.id, try_model,
+            )
+            continue
+
+        # The remaining statuses fail identically for every model on this
+        # provider, so trying another model here would repeat the same error.
+        if resp.status_code in (429, 419):
+            fm.record_failure(provider.id, "rate_limited", resp.status_code)
+            return None, f"{provider.id} {resp.status_code} rate-limited"
+        if resp.status_code == 413:
+            fm.record_failure(provider.id, "payload_too_large", resp.status_code)
+            return None, f"{provider.id} 413 payload too large"
+        if resp.status_code in (401, 403):
+            fm.record_failure(provider.id, "auth_failed", resp.status_code)
+            return None, f"{provider.id} {resp.status_code} unauthorized/forbidden"
+        if resp.status_code >= 500:
+            fm.record_failure(provider.id, "server_error", resp.status_code)
+            return None, f"{provider.id} {resp.status_code} server error"
+
+        last_error = f"{provider.id} {resp.status_code}: {resp.text[:200]}"
+        log.warning(
+            "brain_failover: %s model %s returned %d - trying next model",
+            provider.id, try_model, resp.status_code,
+        )
+
+    fm.record_failure(provider.id, "all_models_failed")
+    return None, last_error
+
+
+def _recover_all_unhealthy(
+    fm: Any, tried: set[str], requested_model: str
+) -> Any | None:
+    """Reset every circuit breaker when they have all tripped, and re-select.
+
+    Without this the system deadlocks with no usable brain until the 5-minute
+    self-heal tick lands. Returns the next provider to try, or ``None`` when
+    some providers are still healthy (so the exhaustion was genuine).
+    """
+    all_providers = fm.get_providers()
+    if not all_providers or any(p.is_healthy for p in all_providers):
+        return None
+    log.warning(
+        "brain_failover: all %d providers unhealthy — resetting circuit "
+        "breakers inline (tried=%s)",
+        len(all_providers), tried,
+    )
+    for p in all_providers:
+        fm.record_success(p.id)
+    tried.clear()
+    return fm.next_provider(exclude=tried, requested_model=requested_model)
+
+
 async def failover_chat_completion(
     payload: dict[str, Any],
     *,
@@ -120,7 +268,6 @@ async def failover_chat_completion(
     :class:`BrainFailoverExhausted` when nothing succeeds — never returns a
     partial or placeholder result.
     """
-    from packages.ai.router import ProviderRouter, with_ollama_reasoning_effort
     from services.brain_failover import get_failover_manager
 
     requested_model = str(payload.get("model") or "")
@@ -132,113 +279,17 @@ async def failover_chat_completion(
     for _attempt in range(fm.max_attempts()):
         provider = fm.next_provider(exclude=tried, requested_model=requested_model)
         if provider is None:
-            # Every provider is excluded or cooling down. If all of them have
-            # tripped their circuit breaker, reset inline and retry rather than
-            # waiting for the 5-minute self-heal tick — otherwise the whole
-            # system deadlocks with no brain until that tick lands.
-            all_providers = fm.get_providers()
-            if all_providers and not any(p.is_healthy for p in all_providers):
-                log.warning(
-                    "brain_failover: all %d providers unhealthy — resetting "
-                    "circuit breakers inline (tried=%s)",
-                    len(all_providers), tried,
-                )
-                for p in all_providers:
-                    fm.record_success(p.id)
-                tried.clear()
-                provider = fm.next_provider(exclude=tried, requested_model=requested_model)
+            provider = _recover_all_unhealthy(fm, tried, requested_model)
             if provider is None:
                 log.error("brain_failover: no healthy providers left (tried=%s)", tried)
                 break
 
         tried.add(provider.id)
-        chat_url, headers, is_anthropic = _build_request(provider)
-        provider_model = fm.resolve_model(provider, requested_model)
-        models_to_try = [provider_model] + [
-            m for m in provider.models if m != provider_model
-        ]
-
-        for try_model in models_to_try[:_MAX_MODELS_PER_PROVIDER]:
-            call_payload = {**payload, "model": try_model}
-            post_payload = with_ollama_reasoning_effort(
-                call_payload, is_ollama=_is_ollama(provider)
-            )
-            if is_anthropic:
-                post_payload = ProviderRouter._anthropic_payload(post_payload)
-
-            attempts.append(f"{provider.id}/{try_model}")
-            call_start = time.perf_counter()
-            try:
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(timeout_sec, connect=_CONNECT_TIMEOUT_SEC)
-                ) as client:
-                    resp = await client.post(
-                        chat_url, json=post_payload, headers=headers
-                    )
-            except Exception as exc:  # noqa: BLE001 — network errors fail over
-                last_error = f"{provider.id} network error: {exc}"
-                log.warning("brain_failover: %s network error: %s", provider.id, exc)
-                fm.record_failure(provider.id, "network_error")
-                break
-
-            call_ms = int((time.perf_counter() - call_start) * 1000)
-
-            if resp.status_code < 400:
-                fm.record_success(provider.id, latency_ms=call_ms)
-                if is_anthropic:
-                    resp = ProviderRouter._anthropic_to_openai_response(
-                        resp, try_model
-                    )
-                data = resp.json()
-                usage = data.get("usage") if isinstance(data, dict) else {}
-                usage = usage if isinstance(usage, dict) else {}
-                return FailoverResult(
-                    text=data["choices"][0]["message"]["content"],
-                    model=try_model,
-                    provider_id=provider.id,
-                    prompt_tokens=int(usage.get("prompt_tokens") or 0),
-                    completion_tokens=int(usage.get("completion_tokens") or 0),
-                    latency_ms=call_ms,
-                    attempts=attempts,
-                )
-
-            if resp.status_code == 410:
-                # Model permanently gone — another model on this provider may
-                # still serve.
-                log.warning(
-                    "brain_failover: %s model %s 410 Gone - trying next model",
-                    provider.id, try_model,
-                )
-                continue
-
-            # The remaining statuses fail identically for every model on this
-            # provider, so trying another model here is guaranteed to repeat
-            # the error. Move to the next provider instead.
-            if resp.status_code in (429, 419):
-                last_error = f"{provider.id} {resp.status_code} rate-limited"
-                fm.record_failure(provider.id, "rate_limited", resp.status_code)
-                break
-            if resp.status_code == 413:
-                last_error = f"{provider.id} 413 payload too large"
-                fm.record_failure(provider.id, "payload_too_large", resp.status_code)
-                break
-            if resp.status_code in (401, 403):
-                last_error = f"{provider.id} {resp.status_code} unauthorized/forbidden"
-                fm.record_failure(provider.id, "auth_failed", resp.status_code)
-                break
-            if resp.status_code >= 500:
-                last_error = f"{provider.id} {resp.status_code} server error"
-                fm.record_failure(provider.id, "server_error", resp.status_code)
-                break
-
-            last_error = f"{provider.id} {resp.status_code}: {resp.text[:200]}"
-            log.warning(
-                "brain_failover: %s model %s returned %d - trying next model",
-                provider.id, try_model, resp.status_code,
-            )
-            continue
-        else:
-            fm.record_failure(provider.id, "all_models_failed")
-            continue
+        result, provider_error = await _try_provider(
+            provider, payload, fm, attempts, timeout_sec
+        )
+        if result is not None:
+            return result
+        last_error = provider_error or last_error
 
     raise BrainFailoverExhausted(last_error, tried)

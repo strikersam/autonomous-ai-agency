@@ -1211,6 +1211,12 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
             "role": ["planner", "verifier"],
             "tier": "flagship",
         },
+        {
+            "id": "gemini-2.0-flash",
+            "name": "Gemini 2.0 Flash",
+            "role": ["planner", "executor", "verifier"],
+            "tier": "fast",
+        },
     ],
     "moonshot": [
         {
@@ -1221,6 +1227,21 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
         },
     ],
 }
+
+# GEMINI_MODEL is operator-overridable to any model the endpoint serves, but the
+# catalog above is static. Without this, an override outside the listed set (e.g.
+# GEMINI_MODEL=gemini-2.0-flash-lite) would be assigned to all three Google agent
+# roles while being unselectable in the picker. Register the configured model so
+# the catalog and the role assignments below can never disagree.
+if not any(m["id"] == GEMINI_MODEL for m in PREDEFINED_MODELS["google"]):
+    PREDEFINED_MODELS["google"].append(
+        {
+            "id": GEMINI_MODEL,
+            "name": GEMINI_MODEL,
+            "role": ["planner", "executor", "verifier"],
+            "tier": "balanced",
+        }
+    )
 
 # Which model handles each agent role per provider type.
 # Planner/Verifier → strong reasoning model; Executor → best instruction-following model.
@@ -4614,7 +4635,7 @@ async def call_llm(
                 timeout_sec=provider_timeout_sec,
             )
         except BrainFailoverExhausted as failover_exc:
-            log.error(
+            log.exception(
                 "LLM provider fallback exhausted, brain-failover chain also "
                 "exhausted: %s",
                 failover_exc,
@@ -4623,10 +4644,10 @@ async def call_llm(
                 status_code=503, detail="Internal server error"
             ) from failover_exc
         except Exception as failover_exc:  # noqa: BLE001 — never mask the original
-            log.error("brain-failover chain failed: %s", failover_exc)
+            log.exception("brain-failover chain failed: %s", failover_exc)
             raise HTTPException(
                 status_code=503, detail="Internal server error"
-            ) from exc
+            ) from failover_exc
         log.info(
             "brain-failover chain recovered the call via %s/%s",
             fo.provider_id, fo.model,
@@ -5028,7 +5049,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 session_id=sid,
                 requested_model=requested_agent_model,
                 model_overrides=role_models,
-                github_token=user.get("github_repo_token"),
+                github_token=await _resolve_user_github_token(user),
                 provider_chain=router.providers[1:],
                 allow_commercial_fallback=policy["allow_commercial_fallback"],
                 workspace_root=workspace_root,
@@ -5072,7 +5093,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         )
 
     if not use_agent:
-        github_connected = bool(user.get("github_repo_token"))
+        github_connected = bool(await _resolve_user_github_token(user))
         assistant_meta = _direct_chat_agent_handoff(
             body.content,
             github_connected=github_connected,
@@ -8469,18 +8490,19 @@ async def _get_github_token(user_id: str) -> Optional[str]:
 async def _resolve_user_github_token(user: Optional[dict]) -> Optional[str]:
     """Return the caller's GitHub token from EITHER place it can be stored.
 
-    A token reaches the backend by two routes that write to two different
-    places, and only ``PUT /api/github/token`` writes to both:
+    A token reaches the backend by routes that write to two different places:
 
-    * ``users.github_repo_token``  — the PUT endpoint and the server-side
-      ``/api/auth/github/repo`` redirect flow.
     * ``github_settings.token``    — the popup OAuth callback
-      (``/api/github/oauth/callback``), which does NOT mirror to the user doc.
+      (``/api/github/oauth/callback``); the canonical location.
+    * ``users.github_repo_token``  — ``PUT /api/github/token`` and the
+      server-side ``/api/auth/github/repo`` redirect flow.
 
-    Checking only the user document therefore reports "no GitHub token" for
-    every account that connected through the popup, even though the token is
-    valid and every other GitHub endpoint finds it. Consumers must use this
-    resolver rather than reading either field directly.
+    Checking only the user document reports "no GitHub token" for every account
+    that connected through the popup, even though the token is valid and every
+    other GitHub endpoint finds it. The callback deliberately does NOT mirror
+    the token into the user document — duplicating a bearer credential across
+    two collections widens the blast radius of any future read or leak — so
+    consumers MUST use this resolver rather than reading either field directly.
     """
     if not user:
         return None
@@ -8651,15 +8673,15 @@ async def github_oauth_callback(
         },
         upsert=True,
     )
-    # Mirror to the user document exactly as PUT /api/github/token does. Readers
-    # split across both locations (the agent runner, the onboarding status, the
-    # doctor) and writing only github_settings left popup-OAuth accounts looking
-    # disconnected to every reader that checks the user doc.
+    # Record the connection on the user document WITHOUT copying the token into
+    # it. Readers split across both storage locations, but the fix for that is
+    # _resolve_user_github_token(), which reads both — duplicating the bearer
+    # credential into a second collection would widen the blast radius of any
+    # future read/leak for no functional gain.
     await get_db().users.update_one(
         _user_id_filter(user_id),
         {
             "$set": {
-                "github_repo_token": access_token,
                 "github_login": login,
                 "github_updated_at": now_iso,
             }
@@ -9983,7 +10005,7 @@ async def workflow_orchestrator_execute(
     body.user_id = _wfo_resolve_user_id(user)
     # Execution must act with the CALLER's GitHub permissions, never the
     # server-wide service-account token.
-    body.github_token = user.get("github_repo_token")
+    body.github_token = await _resolve_user_github_token(user)
     run = await orchestrator.execute(body)
     return {"status": run.status, "run": run.as_dict()}
 

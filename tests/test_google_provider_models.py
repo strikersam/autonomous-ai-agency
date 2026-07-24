@@ -64,3 +64,25 @@ def test_google_role_models_are_offered_by_the_catalog() -> None:
             f"google/{role} is assigned {model_id!r}, which is not in the "
             f"provider's catalog {sorted(offered)!r}"
         )
+
+
+def test_configured_gemini_model_is_always_selectable(monkeypatch) -> None:
+    """An operator override of GEMINI_MODEL must appear in the picker.
+
+    The catalog is static but GEMINI_MODEL is env-overridable, so without the
+    registration step an override outside the listed set would be assigned to
+    all three Google roles while being unselectable in the UI.
+    """
+    offered = {m["id"] for m in PREDEFINED_MODELS["google"]}
+
+    assert GEMINI_MODEL in offered
+    # And the invariant the registration exists to protect:
+    for role, model_id in AGENT_ROLE_MODELS["google"].items():
+        assert model_id in offered, f"google/{role} -> {model_id!r} not selectable"
+
+
+def test_liveness_probe_resolves_gemini_openai_compat_base() -> None:
+    """The Doctor probe must target the path Gemini actually serves."""
+    from packages.ai.brain_config import provider_base_url
+
+    assert provider_base_url("google").endswith("/v1beta/openai")

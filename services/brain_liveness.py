@@ -110,7 +110,11 @@ async def probe_model_liveness(
         "moonshot": "https://api.moonshot.cn/v1",
         "openrouter": "https://openrouter.ai/api/v1",
         "minimax": "https://api.minimax.chat/v1",
-        "google": "https://generativelanguage.googleapis.com",
+        # Gemini's OpenAI-compatible surface is under /v1beta/openai; the bare
+        # host resolves to /v1/chat/completions, which it does not serve. This
+        # fallback is shadowed today (``google`` is in PROVIDER_DEFAULT_BASE_URL,
+        # which takes precedence) but must not disagree with the catalog.
+        "google": "https://generativelanguage.googleapis.com/v1beta/openai",
         "anthropic": "https://api.anthropic.com",
     }
     _PROVIDER_KEYS = {

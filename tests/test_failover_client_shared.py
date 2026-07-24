@@ -291,3 +291,70 @@ def test_call_llm_falls_through_to_the_shared_client() -> None:
         "still degrades to rule-based while healthy providers sit untried"
     )
     assert "ProviderFallbackError" in source
+
+
+@pytest.mark.asyncio
+async def test_malformed_2xx_body_fails_over_instead_of_crashing(patch_chain) -> None:
+    """A 2xx with an unusable body must be a failed attempt, never a crash.
+
+    The dispatcher promises it either returns a complete result or raises
+    BrainFailoverExhausted. Parsing outside the attempt guard broke that: an
+    empty `choices` array raised IndexError straight out of the call.
+    """
+    manager, calls = patch_chain(
+        [
+            _StubProvider("zai", "https://api.z.ai/api/paas/v4", ["glm-5.2"]),
+            _StubProvider("groq", "https://api.groq.com/openai/v1", ["llama-3.3-70b"]),
+        ],
+        [
+            httpx.Response(200, json={"choices": []}),  # 2xx, unusable
+            httpx.Response(200, json=_openai_body("recovered")),
+        ],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "glm-5.2", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.text == "recovered"
+    assert result.provider_id == "groq"
+
+
+@pytest.mark.asyncio
+async def test_non_json_2xx_body_fails_over(patch_chain) -> None:
+    patch_chain(
+        [_StubProvider("zai", "https://api.z.ai/api/paas/v4", ["glm-5.2"])],
+        [httpx.Response(200, text="<html>gateway</html>")],
+    )
+
+    with pytest.raises(BrainFailoverExhausted) as excinfo:
+        await failover_chat_completion(
+            {"model": "glm-5.2", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert "malformed" in excinfo.value.last_error
+
+
+@pytest.mark.asyncio
+async def test_null_content_is_treated_as_malformed(patch_chain) -> None:
+    patch_chain(
+        [_StubProvider("zai", "https://api.z.ai/api/paas/v4", ["glm-5.2"])],
+        [httpx.Response(200, json={"choices": [{"message": {"content": None}}]})],
+    )
+
+    with pytest.raises(BrainFailoverExhausted):
+        await failover_chat_completion(
+            {"model": "glm-5.2", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+
+def test_dispatcher_stays_within_the_function_length_limit() -> None:
+    """ENGINEERING_STANDARDS caps functions at 50 lines."""
+    import inspect
+
+    source_lines, _ = inspect.getsourcelines(failover_chat_completion)
+
+    assert len(source_lines) <= 50, (
+        f"failover_chat_completion is {len(source_lines)} lines; the repo caps "
+        f"functions at 50. Extract another helper."
+    )
