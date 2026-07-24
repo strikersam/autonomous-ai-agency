@@ -13,6 +13,17 @@ Supports MCP spec 2025-11-05 structured output:
     the tool result (MCP spec 2025-11-25) in addition to the text content,
     returning an ``MCPToolResult``.
 
+MCP spec 2026-07-28 RC — tools/list TTL caching:
+
+  - Servers may include ``ttlMs`` in the ``tools/list`` response to signal
+    that the tool list is stable for that duration.  ``list_tools()`` now
+    caches the result and skips the RPC until the TTL expires, reducing
+    round-trips for stable tool registries.
+  - When the server does not supply ``ttlMs`` a conservative default of
+    ``MCP_TOOLS_LIST_DEFAULT_TTL_MS`` (env, default 60 000 ms) is used.
+  - Call ``invalidate_tools_cache()`` to force an immediate refresh (e.g.
+    after deploying a new tool to the MCP server).
+
 Usage::
 
     client = MCPClient("http://mcp-server:8008")
@@ -47,6 +58,10 @@ log = logging.getLogger("qwen-proxy")
 # Circuit breaker constants
 _CB_FAILURE_THRESHOLD = 3    # consecutive failures before opening
 _CB_RECOVERY_TIMEOUT = 30.0  # seconds before trying again (half-open)
+
+# Tools-list TTL caching (MCP spec 2026-07-28 RC).
+# When the server omits ``ttlMs`` fall back to this env-configurable default.
+_DEFAULT_TOOLS_TTL_MS = int(os.environ.get("MCP_TOOLS_LIST_DEFAULT_TTL_MS", "60000"))
 
 
 class MCPUnavailableError(RuntimeError):
@@ -86,6 +101,9 @@ class MCPClient:
         # Circuit breaker state
         self._failures = 0
         self._opened_at: float | None = None
+        # Tools-list TTL cache (MCP spec 2026-07-28 RC)
+        self._tools_cache: list[dict[str, Any]] | None = None
+        self._tools_cache_expires_at: float = 0.0
 
     # ── circuit breaker ──────────────────────────────────────────────────────
 
@@ -160,9 +178,44 @@ class MCPClient:
             "clientInfo": {"name": "local-llm-server", "version": "1.0.0"},
         })
 
+    def invalidate_tools_cache(self) -> None:
+        """Force the next ``list_tools()`` call to fetch a fresh tool list from the server.
+
+        Use this after deploying a new tool to the MCP server so agents pick up
+        the change without waiting for the TTL to expire.
+        """
+        self._tools_cache = None
+        self._tools_cache_expires_at = 0.0
+        log.debug("MCP tools-list cache invalidated")
+
     async def list_tools(self) -> list[dict[str, Any]]:
+        """Return the list of tools available on the MCP server.
+
+        Implements tools/list TTL caching per MCP spec 2026-07-28 RC.  When the
+        cached entry is still valid (``ttlMs`` not yet elapsed), the RPC is
+        skipped and the cached result returned immediately.  The cache is per
+        ``MCPClient`` instance; call ``invalidate_tools_cache()`` for a forced
+        refresh.
+        """
+        now = time.monotonic()
+        if self._tools_cache is not None and now < self._tools_cache_expires_at:
+            log.debug("MCP tools-list cache hit (%.1fs remaining)", self._tools_cache_expires_at - now)
+            return self._tools_cache
+
         result = await self._rpc("tools/list")
-        return result.get("tools", [])
+        tools = result.get("tools", [])
+
+        # Honour the server-supplied TTL (milliseconds) or fall back to the default.
+        ttl_ms = result.get("ttlMs")
+        if isinstance(ttl_ms, (int, float)) and ttl_ms > 0:
+            ttl_sec = ttl_ms / 1000.0
+        else:
+            ttl_sec = _DEFAULT_TOOLS_TTL_MS / 1000.0
+
+        self._tools_cache = tools
+        self._tools_cache_expires_at = now + ttl_sec
+        log.debug("MCP tools-list cached for %.1fs (%d tools)", ttl_sec, len(tools))
+        return tools
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Call a tool and return the text content of the first content item."""
